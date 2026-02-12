@@ -164,7 +164,13 @@ class SubagentManager:
                     # Execute tools
                     for tool_call in response.tool_calls:
                         args_str = json.dumps(tool_call.arguments)
-                        logger.debug(f"Subagent [{task_id}] executing: {tool_call.name} with arguments: {args_str}")
+                        tool_impl = tools.get(tool_call.name)
+                        provider = getattr(tool_impl, "provider", None)
+                        provider_tag = f" [provider={provider}]" if provider else ""
+                        logger.debug(
+                            f"Subagent [{task_id}] executing: {tool_call.name}{provider_tag} "
+                            f"with arguments: {args_str}"
+                        )
                         result = await tools.execute(tool_call.name, tool_call.arguments)
                         messages.append({
                             "role": "tool",

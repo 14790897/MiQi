@@ -251,7 +251,10 @@ class AgentLoop:
                 for tool_call in response.tool_calls:
                     tools_used.append(tool_call.name)
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
-                    logger.info(f"Tool call: {tool_call.name}({args_str[:200]})")
+                    tool_impl = self.tools.get(tool_call.name)
+                    provider = getattr(tool_impl, "provider", None)
+                    provider_tag = f" [provider={provider}]" if provider else ""
+                    logger.info(f"Tool call: {tool_call.name}{provider_tag}({args_str[:200]})")
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
@@ -362,7 +365,10 @@ class AgentLoop:
                 
                 for tool_call in response.tool_calls:
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
-                    logger.info(f"Tool call: {tool_call.name}({args_str[:200]})")
+                    tool_impl = self.tools.get(tool_call.name)
+                    provider = getattr(tool_impl, "provider", None)
+                    provider_tag = f" [provider={provider}]" if provider else ""
+                    logger.info(f"Tool call: {tool_call.name}{provider_tag}({args_str[:200]})")
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
