@@ -7,7 +7,7 @@ import math
 import re
 import threading
 import time
-from collections import deque
+from collections import Counter, deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -38,6 +38,87 @@ class MemoryStore:
     DEFAULT_LESSON_CONFIDENCE_DECAY_HOURS = 168
     DEFAULT_FEEDBACK_MAX_MESSAGE_CHARS = 220
     DEFAULT_FEEDBACK_REQUIRE_PREFIX = True
+    DEFAULT_PROMOTION_ENABLED = True
+    DEFAULT_PROMOTION_MIN_USERS = 3
+    DEFAULT_PROMOTION_TRIGGERS = ("response:length", "response:language")
+
+    EN_STOPWORDS = {
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "for",
+        "with",
+        "this",
+        "that",
+        "you",
+        "your",
+        "are",
+        "is",
+        "to",
+        "of",
+        "in",
+        "on",
+        "it",
+        "we",
+        "our",
+        "can",
+        "please",
+        "from",
+        "now",
+        "then",
+        "still",
+        "first",
+        "just",
+    }
+    ZH_STOPWORDS = {
+        "这个",
+        "那个",
+        "一下",
+        "然后",
+        "就是",
+        "我们",
+        "你们",
+        "还有",
+        "以及",
+        "是否",
+        "可以",
+        "需要",
+        "已经",
+        "现在",
+    }
+    TOKEN_SYNONYMS = {
+        "paths": "path",
+        "路径": "path",
+        "repo": "repo",
+        "repository": "repo",
+        "仓库": "repo",
+        "project": "project",
+        "projects": "project",
+        "项目": "project",
+        "config": "config",
+        "configuration": "config",
+        "配置": "config",
+        "database": "database",
+        "databases": "database",
+        "数据库": "database",
+        "memory": "memory",
+        "memories": "memory",
+        "记忆": "memory",
+        "lesson": "lesson",
+        "lessons": "lesson",
+        "教训": "lesson",
+    }
+    TOKEN_SUBSTRING_SYNONYMS = {
+        "路径": "path",
+        "仓库": "repo",
+        "项目": "project",
+        "配置": "config",
+        "数据库": "database",
+        "记忆": "memory",
+        "教训": "lesson",
+    }
 
     def __init__(
         self,
@@ -53,6 +134,9 @@ class MemoryStore:
         lesson_confidence_decay_hours: int = DEFAULT_LESSON_CONFIDENCE_DECAY_HOURS,
         feedback_max_message_chars: int = DEFAULT_FEEDBACK_MAX_MESSAGE_CHARS,
         feedback_require_prefix: bool = DEFAULT_FEEDBACK_REQUIRE_PREFIX,
+        promotion_enabled: bool = DEFAULT_PROMOTION_ENABLED,
+        promotion_min_users: int = DEFAULT_PROMOTION_MIN_USERS,
+        promotion_triggers: list[str] | tuple[str, ...] | None = None,
     ):
         self.workspace = workspace
         self.memory_dir = ensure_dir(workspace / "memory")
@@ -73,6 +157,15 @@ class MemoryStore:
         self.lesson_confidence_decay_hours = max(1, lesson_confidence_decay_hours)
         self.feedback_max_message_chars = max(1, feedback_max_message_chars)
         self.feedback_require_prefix = feedback_require_prefix
+        self.promotion_enabled = promotion_enabled
+        self.promotion_min_users = max(2, promotion_min_users)
+        configured_triggers = promotion_triggers or list(self.DEFAULT_PROMOTION_TRIGGERS)
+        normalized_triggers = [
+            self._clean_text(str(trigger), max_len=120) for trigger in configured_triggers
+        ]
+        self.promotion_triggers = {
+            trigger for trigger in normalized_triggers if trigger and ":" in trigger
+        }
 
         self._loaded = False
         self._snapshot: dict[str, Any] = {"version": 1, "updated_at": timestamp(), "items": []}
@@ -273,6 +366,7 @@ class MemoryStore:
         bad_action: str,
         better_action: str,
         session_key: str | None = None,
+        actor_key: str | None = None,
         source: str = "unknown",
         scope: str = "session",
         confidence_delta: int = 1,
@@ -312,6 +406,8 @@ class MemoryStore:
                 existing["better_action"] = better_action
                 existing["hits"] = int(existing.get("hits", 0)) + 1
                 existing["confidence"] = min(10, int(existing.get("confidence", 1)) + delta)
+                if actor_key and scope == "session":
+                    existing["actor_key"] = actor_key
                 self._lessons_audit_buffer.append(
                     {
                         "type": "lesson_update",
@@ -332,6 +428,7 @@ class MemoryStore:
                         "better_action": better_action,
                         "scope": scope,
                         "session_key": session_key if scope == "session" else "",
+                        "actor_key": actor_key if scope == "session" and actor_key else "",
                         "source": source,
                         "confidence": max(self.min_lesson_confidence, delta),
                         "hits": 1,
@@ -339,6 +436,7 @@ class MemoryStore:
                         "created_at": now,
                         "updated_at": now,
                         "last_applied_at": "",
+                        "promoted_global_key": "",
                     }
                 )
                 self._lessons_audit_buffer.append(
@@ -351,6 +449,12 @@ class MemoryStore:
                     }
                 )
 
+            if scope == "session":
+                self._maybe_promote_session_lesson(
+                    trigger=trigger,
+                    better_action=better_action,
+                    source=source,
+                )
             self._lessons_dirty = True
             self._dirty_updates += 1
             self.compact_lessons(max_lessons=self.max_lessons, auto_flush=False)
@@ -414,7 +518,11 @@ class MemoryStore:
             return updated
 
     def record_user_feedback(
-        self, session_key: str, user_message: str, previous_assistant: str | None = None
+        self,
+        session_key: str,
+        user_message: str,
+        previous_assistant: str | None = None,
+        actor_key: str | None = None,
     ) -> bool:
         """Learn lesson from explicit user correction/feedback."""
         with self._state_lock:
@@ -446,6 +554,7 @@ class MemoryStore:
                 bad_action=bad_action,
                 better_action=better_action,
                 session_key=session_key,
+                actor_key=actor_key or self._user_key_from_session(session_key),
                 source="user_feedback",
                 scope="session",
                 confidence_delta=2,
@@ -649,7 +758,20 @@ class MemoryStore:
                 )
 
             lessons.sort(key=_score, reverse=True)
-            return lessons[:max_items]
+            deduped: list[dict[str, Any]] = []
+            seen: set[tuple[str, str]] = set()
+            for lesson in lessons:
+                signature = (
+                    self._normalize_text(str(lesson.get("trigger", ""))),
+                    self._normalize_text(str(lesson.get("better_action", ""))),
+                )
+                if signature in seen:
+                    continue
+                seen.add(signature)
+                deduped.append(lesson)
+                if len(deduped) >= max_items:
+                    break
+            return deduped
 
     def get_status(self) -> dict[str, Any]:
         """Get in-memory status and snapshot statistics."""
@@ -676,7 +798,155 @@ class MemoryStore:
                 "lesson_confidence_decay_hours": self.lesson_confidence_decay_hours,
                 "feedback_max_message_chars": self.feedback_max_message_chars,
                 "feedback_require_prefix": self.feedback_require_prefix,
+                "promotion_enabled": self.promotion_enabled,
+                "promotion_min_users": self.promotion_min_users,
+                "promotion_triggers": sorted(self.promotion_triggers),
             }
+
+    def list_snapshot_items(
+        self, session_key: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """List snapshot items sorted by recency/hits."""
+        with self._state_lock:
+            self._load_once()
+            items = self._snapshot.get("items", [])
+            if session_key:
+                scoped = [
+                    item
+                    for item in items
+                    if not item.get("session_key") or item.get("session_key") == session_key
+                ]
+            else:
+                scoped = list(items)
+            scoped.sort(
+                key=lambda x: (
+                    str(x.get("updated_at", "")),
+                    int(x.get("hits", 0)),
+                ),
+                reverse=True,
+            )
+            return [dict(item) for item in scoped[: max(1, limit)]]
+
+    def delete_snapshot_item(self, item_id: str, immediate: bool = True) -> bool:
+        """Delete a long-term snapshot item by id."""
+        with self._state_lock:
+            self._load_once()
+            normalized_id = item_id.strip()
+            if not normalized_id:
+                return False
+            items = self._snapshot.get("items", [])
+            kept = [item for item in items if str(item.get("id", "")) != normalized_id]
+            if len(kept) == len(items):
+                return False
+            self._snapshot["items"] = kept
+            now = timestamp()
+            self._snapshot["updated_at"] = now
+            self._snapshot_dirty = True
+            self._dirty_updates += 1
+            self._audit_buffer.append(
+                {
+                    "type": "memory_delete",
+                    "at": now,
+                    "id": normalized_id,
+                }
+            )
+            if immediate:
+                self.flush(force=True)
+            else:
+                self.flush_if_needed()
+            return True
+
+    def list_lessons(
+        self,
+        scope: str = "all",
+        session_key: str | None = None,
+        limit: int = 50,
+        include_disabled: bool = False,
+    ) -> list[dict[str, Any]]:
+        """List lessons with filtering and ranking metadata."""
+        with self._state_lock:
+            self._load_once()
+            normalized_scope = scope if scope in {"session", "global", "all"} else "all"
+            selected: list[dict[str, Any]] = []
+            for lesson in self._lessons:
+                if normalized_scope != "all" and lesson.get("scope") != normalized_scope:
+                    continue
+                if session_key and lesson.get("session_key") != session_key:
+                    continue
+                if not include_disabled and not lesson.get("enabled", True):
+                    continue
+                copied = dict(lesson)
+                copied["effective_confidence"] = round(self._effective_lesson_confidence(lesson), 3)
+                selected.append(copied)
+            selected.sort(
+                key=lambda x: (
+                    float(x.get("effective_confidence", 0.0)),
+                    int(x.get("hits", 0)),
+                    str(x.get("updated_at", "")),
+                ),
+                reverse=True,
+            )
+            return selected[: max(1, limit)]
+
+    def set_lesson_enabled(self, lesson_id: str, enabled: bool, immediate: bool = True) -> bool:
+        """Enable or disable a lesson by id."""
+        with self._state_lock:
+            self._load_once()
+            normalized_id = lesson_id.strip()
+            if not normalized_id:
+                return False
+            now = timestamp()
+            for lesson in self._lessons:
+                if str(lesson.get("id", "")) != normalized_id:
+                    continue
+                lesson["enabled"] = bool(enabled)
+                lesson["updated_at"] = now
+                self._lessons_dirty = True
+                self._dirty_updates += 1
+                self._lessons_audit_buffer.append(
+                    {
+                        "type": "lesson_enable" if enabled else "lesson_disable",
+                        "at": now,
+                        "id": normalized_id,
+                    }
+                )
+                if immediate:
+                    self.flush(force=True)
+                else:
+                    self.flush_if_needed()
+                return True
+            return False
+
+    def delete_lesson(self, lesson_id: str, immediate: bool = True) -> bool:
+        """Delete a lesson by id."""
+        with self._state_lock:
+            self._load_once()
+            normalized_id = lesson_id.strip()
+            if not normalized_id:
+                return False
+            original_count = len(self._lessons)
+            self._lessons = [
+                lesson
+                for lesson in self._lessons
+                if str(lesson.get("id", "")) != normalized_id
+            ]
+            if len(self._lessons) == original_count:
+                return False
+            now = timestamp()
+            self._lessons_dirty = True
+            self._dirty_updates += 1
+            self._lessons_audit_buffer.append(
+                {
+                    "type": "lesson_delete",
+                    "at": now,
+                    "id": normalized_id,
+                }
+            )
+            if immediate:
+                self.flush(force=True)
+            else:
+                self.flush_if_needed()
+            return True
 
     def get_memory_context(
         self, session_key: str | None = None, current_message: str | None = None
@@ -844,18 +1114,44 @@ class MemoryStore:
             ]
         else:
             scoped = list(items)
-        query_tokens = self._tokenize(current_message or "")
+        query_terms = self._tokenize_terms(current_message or "")
+        query_counts = Counter(query_terms)
+        query_tokens = set(query_terms)
+        doc_terms_by_id: dict[str, set[str]] = {}
+        doc_frequency: dict[str, int] = {}
+        for item in scoped:
+            item_id = str(item.get("id", ""))
+            terms = set(self._tokenize_terms(str(item.get("text", ""))))
+            doc_terms_by_id[item_id] = terms
+            for term in terms:
+                doc_frequency[term] = doc_frequency.get(term, 0) + 1
+        doc_total = max(1, len(scoped))
 
-        def _score(item: dict[str, Any]) -> tuple[float, int, str]:
-            text = str(item.get("text", ""))
-            tokens = self._tokenize(text)
-            overlap = len(query_tokens & tokens) if query_tokens else 0
-            overlap_score = float(overlap) if overlap > 0 else 0.0
+        def _idf(term: str) -> float:
+            return 1.0 + math.log((doc_total + 1.0) / (doc_frequency.get(term, 0) + 1.0))
+
+        def _score(item: dict[str, Any]) -> tuple[float, float, int, str]:
+            item_id = str(item.get("id", ""))
+            terms = doc_terms_by_id.get(item_id, set())
+            relevance = 0.0
+            if query_tokens and terms:
+                shared = query_tokens & terms
+                if shared:
+                    overlap = sum(
+                        (1.0 + math.log1p(query_counts.get(term, 1))) * _idf(term)
+                        for term in shared
+                    )
+                    coverage = len(shared) / max(1, len(query_tokens))
+                    length_norm = math.sqrt(max(1.0, float(len(terms))))
+                    relevance = (overlap / length_norm) + (coverage * 0.75)
             recency = str(item.get("updated_at", ""))
             recency_bonus = self._recency_bonus(recency)
+            hits = int(item.get("hits", 0))
+            hit_bonus = math.log1p(max(0, hits)) * 0.05
             return (
-                overlap_score + recency_bonus,
-                int(item.get("hits", 0)),
+                relevance + (recency_bonus * 0.2) + hit_bonus,
+                relevance,
+                hits,
                 recency,
             )
 
@@ -980,6 +1276,7 @@ class MemoryStore:
                             "better_action": better_action,
                             "scope": scope,
                             "session_key": session_key,
+                            "actor_key": str(data.get("actor_key", "")),
                             "source": str(data.get("source", "unknown")),
                             "confidence": int(data.get("confidence", 1)),
                             "hits": int(data.get("hits", 1)),
@@ -987,6 +1284,7 @@ class MemoryStore:
                             "created_at": str(data.get("created_at", timestamp())),
                             "updated_at": str(data.get("updated_at", timestamp())),
                             "last_applied_at": str(data.get("last_applied_at", "")),
+                            "promoted_global_key": str(data.get("promoted_global_key", "")),
                         }
                     )
         except Exception:
@@ -1042,11 +1340,36 @@ class MemoryStore:
         """Check whether tool result string indicates an error."""
         return result.strip().lower().startswith("error:")
 
-    @staticmethod
-    def _tokenize(text: str) -> set[str]:
-        """Tokenize text into lowercase alnum/CJK terms."""
-        tokens = re.findall(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]+", text.lower())
-        return {token for token in tokens if len(token) >= 2}
+    @classmethod
+    def _normalize_token(cls, token: str) -> str:
+        """Normalize token and drop low-signal terms."""
+        text = token.strip().lower()
+        if len(text) < 2:
+            return ""
+        mapped = cls.TOKEN_SYNONYMS.get(text, text)
+        if mapped in cls.EN_STOPWORDS or mapped in cls.ZH_STOPWORDS:
+            return ""
+        return mapped
+
+    @classmethod
+    def _tokenize_terms(cls, text: str) -> list[str]:
+        """Tokenize text into weighted lexical terms with light normalization."""
+        raw_tokens = re.findall(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]+", text.lower())
+        normalized_terms: list[str] = []
+        for token in raw_tokens:
+            normalized = cls._normalize_token(token)
+            if normalized:
+                normalized_terms.append(normalized)
+            if re.fullmatch(r"[\u4e00-\u9fff]+", token):
+                for phrase, mapped in cls.TOKEN_SUBSTRING_SYNONYMS.items():
+                    if phrase in token:
+                        normalized_terms.append(mapped)
+        return normalized_terms
+
+    @classmethod
+    def _tokenize(cls, text: str) -> set[str]:
+        """Tokenize text into normalized lexical terms."""
+        return set(cls._tokenize_terms(text))
 
     @staticmethod
     def _normalize_text(text: str) -> str:
@@ -1127,6 +1450,110 @@ class MemoryStore:
         if not summary:
             summary = cleaned
         return self._clean_text_with_tail(summary, max_len=260, head_chars=180)
+
+    @staticmethod
+    def _user_key_from_session(session_key: str | None) -> str:
+        """Build a stable lightweight user key from a session key."""
+        if not session_key:
+            return ""
+        text = session_key.strip()
+        if not text:
+            return ""
+        if ":" in text:
+            return text.split(":", 1)[1].strip()
+        return text
+
+    def _maybe_promote_session_lesson(self, trigger: str, better_action: str, source: str) -> None:
+        """Promote repeated session lessons to a global lesson with safety guards."""
+        if not self.promotion_enabled:
+            return
+        if source != "user_feedback":
+            return
+        if trigger not in self.promotion_triggers:
+            return
+
+        normalized_action = self._normalize_text(better_action)
+        if not normalized_action:
+            return
+
+        supporting_lessons: list[dict[str, Any]] = []
+        actor_keys: set[str] = set()
+        for lesson in self._lessons:
+            if lesson.get("scope") != "session":
+                continue
+            if lesson.get("source") != "user_feedback":
+                continue
+            if lesson.get("trigger") != trigger:
+                continue
+            if self._normalize_text(str(lesson.get("better_action", ""))) != normalized_action:
+                continue
+            actor_key = str(lesson.get("actor_key", "")).strip() or self._user_key_from_session(
+                str(lesson.get("session_key", ""))
+            )
+            if not actor_key:
+                continue
+            actor_keys.add(actor_key)
+            supporting_lessons.append(lesson)
+
+        if len(actor_keys) < self.promotion_min_users:
+            return
+
+        now = timestamp()
+        global_key = self._lesson_key(trigger, better_action, "global", None)
+        existing_global = next(
+            (
+                lesson
+                for lesson in self._lessons
+                if lesson.get("scope") == "global" and lesson.get("key") == global_key
+            ),
+            None,
+        )
+        support_hits = sum(int(lesson.get("hits", 1)) for lesson in supporting_lessons)
+
+        if existing_global:
+            existing_global["updated_at"] = now
+            existing_global["enabled"] = True
+            existing_global["hits"] = max(int(existing_global.get("hits", 0)), support_hits)
+            existing_global["confidence"] = min(
+                10,
+                max(int(existing_global.get("confidence", self.min_lesson_confidence)), len(actor_keys) + 1),
+            )
+            promoted_id = str(existing_global.get("id", ""))
+        else:
+            promoted_id = f"lesson_global_{int(time.time() * 1000)}"
+            self._lessons.append(
+                {
+                    "id": promoted_id,
+                    "key": global_key,
+                    "trigger": trigger,
+                    "bad_action": str(supporting_lessons[-1].get("bad_action", "")),
+                    "better_action": better_action,
+                    "scope": "global",
+                    "session_key": "",
+                    "actor_key": "",
+                    "source": "auto_promoted",
+                    "confidence": min(10, max(self.min_lesson_confidence, len(actor_keys) + 1)),
+                    "hits": max(1, support_hits),
+                    "enabled": True,
+                    "created_at": now,
+                    "updated_at": now,
+                    "last_applied_at": "",
+                    "promoted_global_key": "",
+                }
+            )
+
+        for lesson in supporting_lessons:
+            lesson["promoted_global_key"] = global_key
+
+        self._lessons_audit_buffer.append(
+            {
+                "type": "lesson_promoted",
+                "at": now,
+                "trigger": trigger,
+                "global_id": promoted_id,
+                "actor_count": len(actor_keys),
+            }
+        )
 
     def _effective_lesson_confidence(self, item: dict[str, Any]) -> float:
         """Apply time decay to lesson confidence for ranking/filtering."""

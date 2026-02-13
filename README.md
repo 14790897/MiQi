@@ -725,6 +725,9 @@ Self-development notes: `docs/SELF_DEVELOPMENT.md`
 | `agents.selfImprovement.lessonConfidenceDecayHours` | `168` | Confidence decay window for stale lessons |
 | `agents.selfImprovement.feedbackMaxMessageChars` | `220` | Ignore feedback learning for overly long user messages |
 | `agents.selfImprovement.feedbackRequirePrefix` | `true` | Require correction prefix (e.g. "不对", "wrong") before learning from user feedback |
+| `agents.selfImprovement.promotionEnabled` | `true` | Promote repeated session lessons to global lessons |
+| `agents.selfImprovement.promotionMinUsers` | `3` | Minimum distinct users required for auto-promotion |
+| `agents.selfImprovement.promotionTriggers` | `["response:length","response:language"]` | Trigger allowlist for auto-promotion |
 
 
 ## CLI Reference
@@ -739,9 +742,15 @@ Self-development notes: `docs/SELF_DEVELOPMENT.md`
 | `nanobot gateway` | Start the gateway |
 | `nanobot status` | Show status |
 | `nanobot memory status` | Show memory snapshot/runtime status |
+| `nanobot memory list` | List long-term snapshot items |
+| `nanobot memory delete <id>` | Delete one snapshot item |
 | `nanobot memory flush` | Force memory checkpoint flush |
 | `nanobot memory compact` | Compact long-term memory snapshot |
 | `nanobot memory lessons status` | Show lesson status |
+| `nanobot memory lessons list` | List lessons |
+| `nanobot memory lessons disable <id>` | Disable one lesson |
+| `nanobot memory lessons enable <id>` | Enable one lesson |
+| `nanobot memory lessons delete <id>` | Delete one lesson |
 | `nanobot memory lessons compact` | Compact lessons |
 | `nanobot memory lessons reset` | Reset all lessons |
 | `nanobot session compact` | Compact session files |
@@ -774,6 +783,12 @@ nanobot cron remove <job_id>
 # Show memory status
 nanobot memory status
 
+# List snapshot memory items
+nanobot memory list --limit 20
+
+# Delete one snapshot item
+nanobot memory delete ltm_1739443200123_1 --yes
+
 # Force memory checkpoint flush
 nanobot memory flush
 
@@ -782,6 +797,16 @@ nanobot memory compact --max-items 300
 
 # Show lesson status
 nanobot memory lessons status
+
+# List lessons
+nanobot memory lessons list --scope all --limit 20
+
+# Disable/enable one lesson
+nanobot memory lessons disable lesson_1739443200123_1
+nanobot memory lessons enable lesson_1739443200123_1
+
+# Delete one lesson
+nanobot memory lessons delete lesson_1739443200123_1 --yes
 
 # Compact lessons
 nanobot memory lessons compact --max-lessons 200

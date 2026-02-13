@@ -20,4 +20,4 @@ poetry.lock
 .ruff_cache/
 tests/
 botpy.log
-PR_DESCRIPTION.md
+uv.lock

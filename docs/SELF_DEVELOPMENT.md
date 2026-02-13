@@ -53,15 +53,29 @@ At context build time, nanobot selects top lessons by:
 
 - scope match (`session` or `global`)
 - confidence threshold (with time-decay)
-- lightweight lexical relevance to current message
+- lightweight lexical relevance to current message (with normalized keywords)
 - recency/hits tie-break
 
 The selected lessons are injected into the `# Memory` section as `## Lessons`.
 
+## Session to global promotion
+
+To improve reuse without making the system heavy, nanobot can auto-promote repeated
+session lessons into a global lesson when:
+
+- lesson source is user feedback
+- trigger is in `promotionTriggers`
+- distinct user count reaches `promotionMinUsers`
+
+Promotion is conservative: session lessons are kept, and a new global lesson is added.
+
 ## Compaction and reset
 
+- `memory lessons list` inspects learned lessons
+- `memory lessons disable|enable|delete` gives direct control over lesson behavior
 - `memory lessons compact` deduplicates and caps lesson count
 - `memory lessons reset` clears all lessons
+- `memory list` and `memory delete` inspect/manage long-term snapshot items
 
 ## Configuration
 
@@ -74,6 +88,9 @@ See `agents.selfImprovement` in config:
 - `lessonConfidenceDecayHours`
 - `feedbackMaxMessageChars`
 - `feedbackRequirePrefix`
+- `promotionEnabled`
+- `promotionMinUsers`
+- `promotionTriggers`
 
 ## Design goals
 

@@ -73,7 +73,7 @@ On each turn:
 
 During prompt build:
 
-1. Read long-term snapshot items from RAM (lexical relevance + recency scoring)
+1. Read long-term snapshot items from RAM (normalized lexical relevance + recency scoring)
 2. Read top self-improvement lessons from RAM
 3. Add legacy `MEMORY.md` notes (human-readable)
 4. Add short-term working memory and pending items for current session
@@ -119,9 +119,15 @@ This design avoids embedding/vector systems to preserve nanobot's lightweight fo
 
 ```bash
 nanobot memory status
+nanobot memory list
+nanobot memory delete <memory-id> --yes
 nanobot memory flush
 nanobot memory compact --max-items 300
 nanobot memory lessons status
+nanobot memory lessons list
+nanobot memory lessons disable <lesson-id>
+nanobot memory lessons enable <lesson-id>
+nanobot memory lessons delete <lesson-id> --yes
 nanobot memory lessons compact --max-lessons 200
 nanobot memory lessons reset --yes
 nanobot session compact --all

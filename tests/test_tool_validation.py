@@ -271,6 +271,20 @@ def test_memory_store_ltm_selects_relevant_items(tmp_path) -> None:
     assert "path" in selected[0]["text"].lower()
 
 
+def test_memory_store_ltm_supports_light_synonym_matching(tmp_path) -> None:
+    store = MemoryStore(workspace=tmp_path)
+    store.remember("项目路径是 /tmp/demo", immediate=False)
+    store.remember("用户偏好简洁回复", immediate=False)
+
+    selected = store._select_snapshot_items(
+        session_key=None,
+        limit=2,
+        current_message="check project path before next step",
+    )
+    assert selected
+    assert "/tmp/demo" in selected[0]["text"]
+
+
 def test_memory_store_lesson_confidence_decay_affects_ranking(tmp_path) -> None:
     store = MemoryStore(
         workspace=tmp_path,
@@ -305,6 +319,102 @@ def test_memory_store_lesson_confidence_decay_affects_ranking(tmp_path) -> None:
     lessons = store.get_lessons_for_context(session_key="cli:decay", current_message="")
     assert lessons
     assert lessons[0]["trigger"] == "response:new"
+
+
+def test_memory_store_promotes_session_lessons_to_global_by_user_count(tmp_path) -> None:
+    store = MemoryStore(
+        workspace=tmp_path,
+        self_improvement_enabled=True,
+        promotion_enabled=True,
+        promotion_min_users=2,
+        promotion_triggers=["response:length"],
+    )
+    store.learn_lesson(
+        trigger="response:length",
+        bad_action="too verbose",
+        better_action="Keep responses concise by default.",
+        session_key="cli:user-a",
+        actor_key="user-a",
+        source="user_feedback",
+        scope="session",
+        confidence_delta=1,
+    )
+    store.learn_lesson(
+        trigger="response:length",
+        bad_action="still verbose",
+        better_action="Keep responses concise by default.",
+        session_key="cli:user-b",
+        actor_key="user-b",
+        source="user_feedback",
+        scope="session",
+        confidence_delta=1,
+    )
+
+    global_lessons = [lesson for lesson in store._lessons if lesson.get("scope") == "global"]
+    assert global_lessons
+    assert any(lesson.get("trigger") == "response:length" for lesson in global_lessons)
+
+
+def test_memory_store_promotion_requires_distinct_users(tmp_path) -> None:
+    store = MemoryStore(
+        workspace=tmp_path,
+        self_improvement_enabled=True,
+        promotion_enabled=True,
+        promotion_min_users=2,
+        promotion_triggers=["response:length"],
+    )
+    store.learn_lesson(
+        trigger="response:length",
+        bad_action="too verbose",
+        better_action="Keep responses concise by default.",
+        session_key="cli:user-a",
+        actor_key="user-a",
+        source="user_feedback",
+        scope="session",
+        confidence_delta=1,
+    )
+    store.learn_lesson(
+        trigger="response:length",
+        bad_action="again verbose",
+        better_action="Keep responses concise by default.",
+        session_key="discord:user-a",
+        actor_key="user-a",
+        source="user_feedback",
+        scope="session",
+        confidence_delta=1,
+    )
+
+    global_lessons = [lesson for lesson in store._lessons if lesson.get("scope") == "global"]
+    assert global_lessons == []
+
+
+def test_memory_store_lesson_and_snapshot_management_apis(tmp_path) -> None:
+    store = MemoryStore(workspace=tmp_path, self_improvement_enabled=True)
+    store.remember("User likes short replies", session_key="cli:u1", immediate=False)
+    items = store.list_snapshot_items(limit=10)
+    assert len(items) == 1
+    item_id = str(items[0]["id"])
+    assert store.delete_snapshot_item(item_id, immediate=False) is True
+    assert store.list_snapshot_items(limit=10) == []
+
+    store.learn_lesson(
+        trigger="response:length",
+        bad_action="too verbose",
+        better_action="Keep it short.",
+        session_key="cli:u1",
+        actor_key="u1",
+        source="user_feedback",
+        scope="session",
+        confidence_delta=1,
+    )
+    lessons = store.list_lessons(scope="session", include_disabled=True)
+    assert lessons
+    lesson_id = str(lessons[0]["id"])
+    assert store.set_lesson_enabled(lesson_id, enabled=False, immediate=False) is True
+    lessons_after_disable = store.list_lessons(scope="session", include_disabled=True)
+    assert lessons_after_disable[0]["enabled"] is False
+    assert store.delete_lesson(lesson_id, immediate=False) is True
+    assert store.list_lessons(scope="all", include_disabled=True) == []
 
 
 def test_memory_store_lessons_compact_and_reset(tmp_path) -> None:

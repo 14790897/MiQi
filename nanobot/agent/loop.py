@@ -88,6 +88,9 @@ class AgentLoop:
             lesson_confidence_decay_hours=self.self_improvement_config.lesson_confidence_decay_hours,
             feedback_max_message_chars=self.self_improvement_config.feedback_max_message_chars,
             feedback_require_prefix=self.self_improvement_config.feedback_require_prefix,
+            promotion_enabled=self.self_improvement_config.promotion_enabled,
+            promotion_min_users=self.self_improvement_config.promotion_min_users,
+            promotion_triggers=self.self_improvement_config.promotion_triggers,
         )
         self.context = ContextBuilder(
             workspace,
@@ -312,6 +315,7 @@ class AgentLoop:
             session_key=msg.session_key,
             user_message=msg.content,
             previous_assistant=previous_assistant,
+            actor_key=msg.sender_id,
         )
         self.memory.flush_if_needed()
 

@@ -1140,6 +1140,9 @@ def _new_memory_store(config):
         lesson_confidence_decay_hours=config.agents.self_improvement.lesson_confidence_decay_hours,
         feedback_max_message_chars=config.agents.self_improvement.feedback_max_message_chars,
         feedback_require_prefix=config.agents.self_improvement.feedback_require_prefix,
+        promotion_enabled=config.agents.self_improvement.promotion_enabled,
+        promotion_min_users=config.agents.self_improvement.promotion_min_users,
+        promotion_triggers=config.agents.self_improvement.promotion_triggers,
     )
 
 
@@ -1177,6 +1180,9 @@ def memory_status():
         ("Lesson Decay Hours", str(status["lesson_confidence_decay_hours"])),
         ("Feedback Max Chars", str(status["feedback_max_message_chars"])),
         ("Feedback Require Prefix", "yes" if status["feedback_require_prefix"] else "no"),
+        ("Promotion Enabled", "yes" if status["promotion_enabled"] else "no"),
+        ("Promotion Min Users", str(status["promotion_min_users"])),
+        ("Promotion Triggers", ", ".join(status["promotion_triggers"]) or "-"),
     ]
 
     for name, value in fields:
@@ -1213,6 +1219,68 @@ def memory_compact(
     console.print(f"[green]✓[/green] Memory compacted (removed {removed} items)")
 
 
+@memory_app.command("list")
+def memory_list(
+    limit: int = typer.Option(20, "--limit", help="Maximum long-term items to show"),
+    session: str | None = typer.Option(
+        None, "--session", help="Optional session key to filter snapshot items"
+    ),
+):
+    """List long-term snapshot memory items."""
+    from nanobot.config.loader import load_config
+
+    config = load_config()
+    memory = _new_memory_store(config)
+    items = memory.list_snapshot_items(session_key=session, limit=limit)
+    if not items:
+        console.print("[dim]No snapshot items[/dim]")
+        return
+
+    table = Table(title="Long-term Snapshot Items")
+    table.add_column("ID", style="cyan")
+    table.add_column("Text")
+    table.add_column("Source", style="yellow")
+    table.add_column("Hits", justify="right")
+    table.add_column("Session", style="magenta")
+    table.add_column("Updated At", style="green")
+
+    for item in items:
+        text = str(item.get("text", ""))
+        if len(text) > 90:
+            text = text[:87] + "..."
+        table.add_row(
+            str(item.get("id", "")),
+            text,
+            str(item.get("source", "")),
+            str(item.get("hits", 0)),
+            str(item.get("session_key", "")) or "-",
+            str(item.get("updated_at", "")),
+        )
+    console.print(table)
+
+
+@memory_app.command("delete")
+def memory_delete(
+    memory_id: str = typer.Argument(..., help="Snapshot item id to delete"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Delete without confirmation"),
+):
+    """Delete one long-term snapshot item by id."""
+    from nanobot.config.loader import load_config
+
+    if not yes and not typer.confirm(f"Delete snapshot item {memory_id}?"):
+        console.print("[dim]Canceled[/dim]")
+        return
+
+    config = load_config()
+    memory = _new_memory_store(config)
+    removed = memory.delete_snapshot_item(memory_id, immediate=True)
+    if removed:
+        console.print(f"[green]✓[/green] Deleted snapshot item: {memory_id}")
+    else:
+        console.print(f"[red]Item not found:[/red] {memory_id}")
+        raise typer.Exit(1)
+
+
 memory_lessons_app = typer.Typer(help="Manage self-improvement lessons")
 memory_app.add_typer(memory_lessons_app, name="lessons")
 
@@ -1239,7 +1307,126 @@ def memory_lessons_status():
     table.add_row("Lesson Decay Hours", str(status["lesson_confidence_decay_hours"]))
     table.add_row("Feedback Max Chars", str(status["feedback_max_message_chars"]))
     table.add_row("Feedback Require Prefix", "yes" if status["feedback_require_prefix"] else "no")
+    table.add_row("Promotion Enabled", "yes" if status["promotion_enabled"] else "no")
+    table.add_row("Promotion Min Users", str(status["promotion_min_users"]))
+    table.add_row("Promotion Triggers", ", ".join(status["promotion_triggers"]) or "-")
     console.print(table)
+
+
+@memory_lessons_app.command("list")
+def memory_lessons_list(
+    scope: str = typer.Option(
+        "all", "--scope", help="Filter by scope: all | session | global"
+    ),
+    session: str | None = typer.Option(None, "--session", help="Filter by session key"),
+    limit: int = typer.Option(20, "--limit", help="Maximum lessons to show"),
+    include_disabled: bool = typer.Option(
+        False, "--include-disabled", help="Include disabled lessons"
+    ),
+):
+    """List lessons with confidence and scope metadata."""
+    from nanobot.config.loader import load_config
+
+    normalized_scope = scope.strip().lower()
+    if normalized_scope not in {"all", "session", "global"}:
+        console.print("[red]Invalid scope.[/red] Use one of: all, session, global")
+        raise typer.Exit(2)
+
+    config = load_config()
+    memory = _new_memory_store(config)
+    lessons = memory.list_lessons(
+        scope=normalized_scope,
+        session_key=session,
+        limit=limit,
+        include_disabled=include_disabled,
+    )
+    if not lessons:
+        console.print("[dim]No lessons matched the filters[/dim]")
+        return
+
+    table = Table(title="Self-improvement Lessons")
+    table.add_column("ID", style="cyan")
+    table.add_column("Scope")
+    table.add_column("Enabled")
+    table.add_column("Trigger", style="yellow")
+    table.add_column("Confidence", justify="right")
+    table.add_column("Effective", justify="right")
+    table.add_column("Hits", justify="right")
+    table.add_column("Updated At", style="green")
+    table.add_column("Action")
+
+    for lesson in lessons:
+        action = str(lesson.get("better_action", ""))
+        if len(action) > 72:
+            action = action[:69] + "..."
+        table.add_row(
+            str(lesson.get("id", "")),
+            str(lesson.get("scope", "")),
+            "yes" if lesson.get("enabled", True) else "no",
+            str(lesson.get("trigger", "")),
+            str(lesson.get("confidence", 0)),
+            f"{float(lesson.get('effective_confidence', 0.0)):.2f}",
+            str(lesson.get("hits", 0)),
+            str(lesson.get("updated_at", "")),
+            action,
+        )
+    console.print(table)
+
+
+@memory_lessons_app.command("disable")
+def memory_lessons_disable(
+    lesson_id: str = typer.Argument(..., help="Lesson id to disable"),
+):
+    """Disable one lesson by id."""
+    from nanobot.config.loader import load_config
+
+    config = load_config()
+    memory = _new_memory_store(config)
+    changed = memory.set_lesson_enabled(lesson_id, enabled=False, immediate=True)
+    if changed:
+        console.print(f"[green]✓[/green] Disabled lesson: {lesson_id}")
+    else:
+        console.print(f"[red]Lesson not found:[/red] {lesson_id}")
+        raise typer.Exit(1)
+
+
+@memory_lessons_app.command("enable")
+def memory_lessons_enable(
+    lesson_id: str = typer.Argument(..., help="Lesson id to enable"),
+):
+    """Enable one lesson by id."""
+    from nanobot.config.loader import load_config
+
+    config = load_config()
+    memory = _new_memory_store(config)
+    changed = memory.set_lesson_enabled(lesson_id, enabled=True, immediate=True)
+    if changed:
+        console.print(f"[green]✓[/green] Enabled lesson: {lesson_id}")
+    else:
+        console.print(f"[red]Lesson not found:[/red] {lesson_id}")
+        raise typer.Exit(1)
+
+
+@memory_lessons_app.command("delete")
+def memory_lessons_delete(
+    lesson_id: str = typer.Argument(..., help="Lesson id to delete"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Delete without confirmation"),
+):
+    """Delete one lesson by id."""
+    from nanobot.config.loader import load_config
+
+    if not yes and not typer.confirm(f"Delete lesson {lesson_id}?"):
+        console.print("[dim]Canceled[/dim]")
+        return
+
+    config = load_config()
+    memory = _new_memory_store(config)
+    removed = memory.delete_lesson(lesson_id, immediate=True)
+    if removed:
+        console.print(f"[green]✓[/green] Deleted lesson: {lesson_id}")
+    else:
+        console.print(f"[red]Lesson not found:[/red] {lesson_id}")
+        raise typer.Exit(1)
 
 
 @memory_lessons_app.command("compact")
