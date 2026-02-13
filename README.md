@@ -692,6 +692,26 @@ That's it! Environment variables, model prefixing, config matching, and `nanobot
 | `tools.restrictToWorkspace` | `false` | When `true`, restricts **all** agent tools (shell, file read/write/edit, list) to the workspace directory. Prevents path traversal and out-of-scope access. |
 | `channels.*.allowFrom` | `[]` (allow all) | Whitelist of user IDs. Empty = allow everyone; non-empty = only listed users can interact. |
 
+### Memory Runtime (RAM-first Checkpoint)
+
+nanobot uses a RAM-first memory path:
+- Long-term memory snapshot: `workspace/memory/LTM_SNAPSHOT.json`
+- Long-term memory audit log: `workspace/memory/LTM_AUDIT.jsonl`
+- Human-readable notes: `workspace/memory/MEMORY.md`
+
+Session storage is append-only by default, then compacted periodically.
+Design notes: `RAM_FIRST_MEMORY_CHECKPOINT.md`
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `agents.memory.flushEveryUpdates` | `8` | Flush long-term memory snapshot after N updates |
+| `agents.memory.flushIntervalSeconds` | `120` | Flush long-term memory snapshot at least every N seconds |
+| `agents.memory.shortTermTurns` | `12` | In-memory short-term turn window per session |
+| `agents.memory.pendingLimit` | `20` | Max pending items tracked per session |
+| `agents.sessions.compactThresholdMessages` | `400` | Compact session file when messages exceed threshold |
+| `agents.sessions.compactThresholdBytes` | `2000000` | Compact session file when file size exceeds threshold |
+| `agents.sessions.compactKeepMessages` | `300` | Keep recent N messages after compaction |
+
 
 ## CLI Reference
 
@@ -704,6 +724,10 @@ That's it! Environment variables, model prefixing, config matching, and `nanobot
 | `nanobot agent --logs` | Show runtime logs during chat |
 | `nanobot gateway` | Start the gateway |
 | `nanobot status` | Show status |
+| `nanobot memory status` | Show memory snapshot/runtime status |
+| `nanobot memory flush` | Force memory checkpoint flush |
+| `nanobot memory compact` | Compact long-term memory snapshot |
+| `nanobot session compact` | Compact session files |
 | `nanobot channels login` | Link WhatsApp (scan QR) |
 | `nanobot channels status` | Show channel status |
 
@@ -722,6 +746,28 @@ nanobot cron list
 
 # Remove a job
 nanobot cron remove <job_id>
+```
+
+</details>
+
+<details>
+<summary><b>Memory Maintenance</b></summary>
+
+```bash
+# Show memory status
+nanobot memory status
+
+# Force memory checkpoint flush
+nanobot memory flush
+
+# Compact long-term snapshot memory
+nanobot memory compact --max-items 300
+
+# Compact one session
+nanobot session compact --session "telegram:123456"
+
+# Compact all session files
+nanobot session compact --all
 ```
 
 </details>

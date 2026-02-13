@@ -20,8 +20,9 @@ You have access to:
 
 ## Memory
 
-- `memory/MEMORY.md` — long-term facts (preferences, context, relationships)
-- `memory/HISTORY.md` — append-only event log, search with grep to recall past events
+- Use `memory/` directory for daily notes
+- Use `MEMORY.md` for human-readable long-term notes
+- Runtime long-term snapshot is stored in `LTM_SNAPSHOT.json`
 
 ## Scheduled Reminders
 

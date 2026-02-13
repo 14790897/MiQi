@@ -165,9 +165,28 @@ class AgentDefaults(BaseModel):
     memory_window: int = 50
 
 
+class AgentMemoryConfig(BaseModel):
+    """Agent memory runtime configuration."""
+
+    flush_every_updates: int = 8
+    flush_interval_seconds: int = 120
+    short_term_turns: int = 12
+    pending_limit: int = 20
+
+
+class AgentSessionConfig(BaseModel):
+    """Session storage runtime configuration."""
+
+    compact_threshold_messages: int = 400
+    compact_threshold_bytes: int = 2_000_000
+    compact_keep_messages: int = 300
+
+
 class AgentsConfig(BaseModel):
     """Agent configuration."""
     defaults: AgentDefaults = Field(default_factory=AgentDefaults)
+    memory: AgentMemoryConfig = Field(default_factory=AgentMemoryConfig)
+    sessions: AgentSessionConfig = Field(default_factory=AgentSessionConfig)
 
 
 class ProviderConfig(BaseModel):
