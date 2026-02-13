@@ -795,6 +795,7 @@ def gateway(
         agent_name=config.agents.defaults.name,
         model=config.agents.defaults.model,
         max_iterations=config.agents.defaults.max_tool_iterations,
+        reflect_after_tool_calls=config.agents.defaults.reflect_after_tool_calls,
         web_config=config.tools.web,
         exec_config=config.tools.exec,
         memory_config=config.agents.memory,
@@ -910,6 +911,7 @@ def agent(
         provider=provider,
         workspace=config.workspace_path,
         agent_name=config.agents.defaults.name,
+        reflect_after_tool_calls=config.agents.defaults.reflect_after_tool_calls,
         web_config=config.tools.web,
         exec_config=config.tools.exec,
         memory_config=config.agents.memory,
@@ -1135,6 +1137,9 @@ def _new_memory_store(config):
         max_lessons_in_prompt=config.agents.self_improvement.max_lessons_in_prompt,
         min_lesson_confidence=config.agents.self_improvement.min_lesson_confidence,
         max_lessons=config.agents.self_improvement.max_lessons,
+        lesson_confidence_decay_hours=config.agents.self_improvement.lesson_confidence_decay_hours,
+        feedback_max_message_chars=config.agents.self_improvement.feedback_max_message_chars,
+        feedback_require_prefix=config.agents.self_improvement.feedback_require_prefix,
     )
 
 
@@ -1169,6 +1174,9 @@ def memory_status():
         ("Max Lessons In Prompt", str(status["max_lessons_in_prompt"])),
         ("Min Lesson Confidence", str(status["min_lesson_confidence"])),
         ("Max Lessons", str(status["max_lessons"])),
+        ("Lesson Decay Hours", str(status["lesson_confidence_decay_hours"])),
+        ("Feedback Max Chars", str(status["feedback_max_message_chars"])),
+        ("Feedback Require Prefix", "yes" if status["feedback_require_prefix"] else "no"),
     ]
 
     for name, value in fields:
@@ -1228,6 +1236,9 @@ def memory_lessons_status():
     table.add_row("Max Lessons In Prompt", str(status["max_lessons_in_prompt"]))
     table.add_row("Min Lesson Confidence", str(status["min_lesson_confidence"]))
     table.add_row("Max Lessons", str(status["max_lessons"]))
+    table.add_row("Lesson Decay Hours", str(status["lesson_confidence_decay_hours"]))
+    table.add_row("Feedback Max Chars", str(status["feedback_max_message_chars"]))
+    table.add_row("Feedback Require Prefix", "yes" if status["feedback_require_prefix"] else "no")
     console.print(table)
 
 

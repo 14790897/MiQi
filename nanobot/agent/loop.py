@@ -50,6 +50,7 @@ class AgentLoop:
         agent_name: str = "nanobot",
         model: str | None = None,
         max_iterations: int = 20,
+        reflect_after_tool_calls: bool = True,
         web_config: WebToolsConfig | None = None,
         exec_config: ExecToolConfig | None = None,
         memory_config: AgentMemoryConfig | None = None,
@@ -65,6 +66,7 @@ class AgentLoop:
         self.agent_name = agent_name.strip() or "nanobot"
         self.model = model or provider.get_default_model()
         self.max_iterations = max_iterations
+        self.reflect_after_tool_calls = reflect_after_tool_calls
         self.web_config = web_config or WebToolsConfig()
         self.exec_config = exec_config or ExecToolConfig()
         self.memory_config = memory_config or AgentMemoryConfig()
@@ -83,6 +85,9 @@ class AgentLoop:
             max_lessons_in_prompt=self.self_improvement_config.max_lessons_in_prompt,
             min_lesson_confidence=self.self_improvement_config.min_lesson_confidence,
             max_lessons=self.self_improvement_config.max_lessons,
+            lesson_confidence_decay_hours=self.self_improvement_config.lesson_confidence_decay_hours,
+            feedback_max_message_chars=self.self_improvement_config.feedback_max_message_chars,
+            feedback_require_prefix=self.self_improvement_config.feedback_require_prefix,
         )
         self.context = ContextBuilder(
             workspace,
@@ -280,10 +285,11 @@ class AgentLoop:
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
-                # Interleaved CoT: reflect before next action
-                messages.append(
-                    {"role": "user", "content": "Reflect on the results and decide next steps."}
-                )
+                if self.reflect_after_tool_calls:
+                    # Optional reflection prompt between tool rounds.
+                    messages.append(
+                        {"role": "user", "content": "Reflect on the results and decide next steps."}
+                    )
             else:
                 # No tool calls, we're done
                 final_content = response.content
@@ -404,10 +410,11 @@ class AgentLoop:
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
-                # Interleaved CoT: reflect before next action
-                messages.append(
-                    {"role": "user", "content": "Reflect on the results and decide next steps."}
-                )
+                if self.reflect_after_tool_calls:
+                    # Optional reflection prompt between tool rounds.
+                    messages.append(
+                        {"role": "user", "content": "Reflect on the results and decide next steps."}
+                    )
             else:
                 final_content = response.content
                 break

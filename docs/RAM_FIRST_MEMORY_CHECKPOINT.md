@@ -73,7 +73,7 @@ On each turn:
 
 During prompt build:
 
-1. Read long-term snapshot items from RAM
+1. Read long-term snapshot items from RAM (lexical relevance + recency scoring)
 2. Read top self-improvement lessons from RAM
 3. Add legacy `MEMORY.md` notes (human-readable)
 4. Add short-term working memory and pending items for current session
@@ -93,6 +93,7 @@ Long-term snapshot compaction:
 - Deduplicate by normalized text
 - Keep newest items first
 - Enforce max item cap
+- Trigger only when snapshot grows beyond cap buffer (avoid compact-on-every-write)
 
 Session compaction:
 
@@ -102,8 +103,9 @@ Session compaction:
 ## Failure behavior
 
 - Corrupt snapshot file: fallback to empty RAM state for this run
-- Audit write failure: does not block core agent loop
+- Audit write failures surface in logs/errors and should be treated as operational issues
 - Session file growth: bounded by periodic compaction
+- Memory state writes are guarded by an in-process re-entrant lock for concurrent async entrypoints
 
 ## Why no embeddings
 

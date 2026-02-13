@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta
 from typing import Any
 
 from nanobot.agent.memory import MemoryStore
@@ -243,6 +244,67 @@ def test_memory_store_user_feedback_learns_lessons(tmp_path) -> None:
     assert lessons
     assert lessons[0]["trigger"] == "response:length"
     assert lessons[0]["confidence"] >= 2
+
+
+def test_memory_store_user_feedback_avoids_false_positive_without_prefix(tmp_path) -> None:
+    store = MemoryStore(workspace=tmp_path, self_improvement_enabled=True)
+    changed = store.record_user_feedback(
+        session_key="cli:feedback",
+        user_message="这个 JSON 的字段不对吧，我们要不要改 schema？",
+        previous_assistant="我可以帮你检查 schema。",
+    )
+    assert changed is False
+    assert store.get_lessons_for_context(session_key="cli:feedback") == []
+
+
+def test_memory_store_ltm_selects_relevant_items(tmp_path) -> None:
+    store = MemoryStore(workspace=tmp_path)
+    store.remember("Project path is /tmp/demo", immediate=False)
+    store.remember("User prefers concise replies", immediate=False)
+
+    selected = store._select_snapshot_items(
+        session_key=None,
+        limit=2,
+        current_message="Can you check the project path first?",
+    )
+    assert selected
+    assert "path" in selected[0]["text"].lower()
+
+
+def test_memory_store_lesson_confidence_decay_affects_ranking(tmp_path) -> None:
+    store = MemoryStore(
+        workspace=tmp_path,
+        self_improvement_enabled=True,
+        lesson_confidence_decay_hours=1,
+    )
+    store.learn_lesson(
+        trigger="response:old",
+        bad_action="bad old",
+        better_action="better old",
+        session_key="cli:decay",
+        scope="session",
+        confidence_delta=1,
+    )
+    store.learn_lesson(
+        trigger="response:new",
+        bad_action="bad new",
+        better_action="better new",
+        session_key="cli:decay",
+        scope="session",
+        confidence_delta=1,
+    )
+
+    for lesson in store._lessons:
+        if lesson["trigger"] == "response:old":
+            lesson["confidence"] = 10
+            lesson["updated_at"] = (datetime.now() - timedelta(hours=48)).isoformat()
+        elif lesson["trigger"] == "response:new":
+            lesson["confidence"] = 2
+            lesson["updated_at"] = datetime.now().isoformat()
+
+    lessons = store.get_lessons_for_context(session_key="cli:decay", current_message="")
+    assert lessons
+    assert lessons[0]["trigger"] == "response:new"
 
 
 def test_memory_store_lessons_compact_and_reset(tmp_path) -> None:

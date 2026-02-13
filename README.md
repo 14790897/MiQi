@@ -705,8 +705,8 @@ nanobot uses a RAM-first memory path:
 - Human-readable notes: `workspace/memory/MEMORY.md`
 
 Session storage is append-only by default, then compacted periodically.
-Design notes: `RAM_FIRST_MEMORY_CHECKPOINT.md`
-Self-development notes: `SELF_DEVELOPMENT.md`
+Design notes: `docs/RAM_FIRST_MEMORY_CHECKPOINT.md`
+Self-development notes: `docs/SELF_DEVELOPMENT.md`
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -714,6 +714,7 @@ Self-development notes: `SELF_DEVELOPMENT.md`
 | `agents.memory.flushIntervalSeconds` | `120` | Flush long-term memory snapshot at least every N seconds |
 | `agents.memory.shortTermTurns` | `12` | In-memory short-term turn window per session |
 | `agents.memory.pendingLimit` | `20` | Max pending items tracked per session |
+| `agents.defaults.reflectAfterToolCalls` | `true` | Insert reflection prompt after each tool round (disable to reduce token usage) |
 | `agents.sessions.compactThresholdMessages` | `400` | Compact session file when messages exceed threshold |
 | `agents.sessions.compactThresholdBytes` | `2000000` | Compact session file when file size exceeds threshold |
 | `agents.sessions.compactKeepMessages` | `300` | Keep recent N messages after compaction |
@@ -721,6 +722,9 @@ Self-development notes: `SELF_DEVELOPMENT.md`
 | `agents.selfImprovement.maxLessonsInPrompt` | `5` | Max lessons injected into prompt |
 | `agents.selfImprovement.minLessonConfidence` | `1` | Minimum lesson confidence to be injected |
 | `agents.selfImprovement.maxLessons` | `200` | Maximum lessons retained after compaction |
+| `agents.selfImprovement.lessonConfidenceDecayHours` | `168` | Confidence decay window for stale lessons |
+| `agents.selfImprovement.feedbackMaxMessageChars` | `220` | Ignore feedback learning for overly long user messages |
+| `agents.selfImprovement.feedbackRequirePrefix` | `true` | Require correction prefix (e.g. "不对", "wrong") before learning from user feedback |
 
 
 ## CLI Reference

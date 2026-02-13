@@ -163,7 +163,7 @@ class AgentDefaults(BaseModel):
     max_tokens: int = 8192
     temperature: float = 0.7
     max_tool_iterations: int = 20
-    memory_window: int = 50
+    reflect_after_tool_calls: bool = True
 
 
 class AgentMemoryConfig(BaseModel):
@@ -190,6 +190,9 @@ class AgentSelfImprovementConfig(BaseModel):
     max_lessons_in_prompt: int = 5
     min_lesson_confidence: int = 1
     max_lessons: int = 200
+    lesson_confidence_decay_hours: int = 168
+    feedback_max_message_chars: int = 220
+    feedback_require_prefix: bool = True
 
 
 class AgentsConfig(BaseModel):

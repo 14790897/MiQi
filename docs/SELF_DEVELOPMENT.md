@@ -36,7 +36,13 @@ When a tool returns an error result, nanobot learns a tool-specific lesson, for 
 
 ### User feedback
 
-When users provide correction-style feedback, nanobot learns a response lesson, for example:
+When users provide correction-style feedback, nanobot learns a response lesson. To reduce false positives:
+
+- Previous assistant output must exist
+- Message length must be within configured threshold
+- By default, correction cue must appear as a prefix (`feedbackRequirePrefix=true`)
+
+Example:
 
 - `trigger = response:length`
 - `better_action = Keep responses shorter unless detailed output is requested`
@@ -46,7 +52,7 @@ When users provide correction-style feedback, nanobot learns a response lesson, 
 At context build time, nanobot selects top lessons by:
 
 - scope match (`session` or `global`)
-- confidence threshold
+- confidence threshold (with time-decay)
 - lightweight lexical relevance to current message
 - recency/hits tie-break
 
@@ -65,6 +71,9 @@ See `agents.selfImprovement` in config:
 - `maxLessonsInPrompt`
 - `minLessonConfidence`
 - `maxLessons`
+- `lessonConfidenceDecayHours`
+- `feedbackMaxMessageChars`
+- `feedbackRequirePrefix`
 
 ## Design goals
 
