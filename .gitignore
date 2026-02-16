@@ -21,3 +21,5 @@ poetry.lock
 tests/
 botpy.log
 uv.lock
+CODEX_IMPLEMENTATION_SPEC.md
+nanobot/skills/moltbook/
