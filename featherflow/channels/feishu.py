@@ -5,8 +5,9 @@ import json
 import os
 import re
 import threading
+import time
 from collections import OrderedDict
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
@@ -23,12 +24,11 @@ try:
         CreateFileRequestBody,
         CreateImageRequest,
         CreateImageRequestBody,
-        CreateMessageRequest,
-        CreateMessageRequestBody,
         CreateMessageReactionRequest,
         CreateMessageReactionRequestBody,
+        CreateMessageRequest,
+        CreateMessageRequestBody,
         Emoji,
-        GetFileRequest,
         GetMessageResourceRequest,
         P2ImMessageReceiveV1,
     )
@@ -75,7 +75,7 @@ def _extract_share_card_content(content_json: dict, msg_type: str) -> str:
 def _extract_interactive_content(content: dict) -> list[str]:
     """Recursively extract text and links from interactive card content."""
     parts = []
-    
+
     if isinstance(content, str):
         try:
             content = json.loads(content)
@@ -108,19 +108,19 @@ def _extract_interactive_content(content: dict) -> list[str]:
             header_text = header_title.get("content", "") or header_title.get("text", "")
             if header_text:
                 parts.append(f"title: {header_text}")
-    
+
     return parts
 
 
 def _extract_element_content(element: dict) -> list[str]:
     """Extract content from a single card element."""
     parts = []
-    
+
     if not isinstance(element, dict):
         return parts
-    
+
     tag = element.get("tag", "")
-    
+
     if tag in ("markdown", "lark_md"):
         content = element.get("content", "")
         if content:
@@ -181,13 +181,13 @@ def _extract_element_content(element: dict) -> list[str]:
     else:
         for ne in element.get("elements", []):
             parts.extend(_extract_element_content(ne))
-    
+
     return parts
 
 
 def _extract_post_text(content_json: dict) -> str:
     """Extract plain text from Feishu post (rich text) message content.
-    
+
     Supports two formats:
     1. Direct format: {"title": "...", "content": [...]}
     2. Localized format: {"zh_cn": {"title": "...", "content": [...]}}
@@ -215,37 +215,37 @@ def _extract_post_text(content_json: dict) -> str:
                     elif tag == "at":
                         text_parts.append(f"@{element.get('user_name', 'user')}")
         return " ".join(text_parts).strip() if text_parts else None
-    
+
     # Try direct format first
     if "content" in content_json:
         result = extract_from_lang(content_json)
         if result:
             return result
-    
+
     # Try localized format
     for lang_key in ("zh_cn", "en_us", "ja_jp"):
         lang_content = content_json.get(lang_key)
         result = extract_from_lang(lang_content)
         if result:
             return result
-    
+
     return ""
 
 
 class FeishuChannel(BaseChannel):
     """
     Feishu/Lark channel using WebSocket long connection.
-    
+
     Uses WebSocket to receive events - no public IP or webhook required.
-    
+
     Requires:
     - App ID and App Secret from Feishu Open Platform
     - Bot capability enabled
     - Event subscription enabled (im.message.receive_v1)
     """
-    
+
     name = "feishu"
-    
+
     def __init__(self, config: FeishuConfig, bus: MessageBus):
         super().__init__(config, bus)
         self.config: FeishuConfig = config
@@ -254,17 +254,17 @@ class FeishuChannel(BaseChannel):
         self._ws_thread: threading.Thread | None = None
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()  # Ordered dedup cache
         self._loop: asyncio.AbstractEventLoop | None = None
-    
+
     async def start(self) -> None:
         """Start the Feishu bot with WebSocket long connection."""
         if not FEISHU_AVAILABLE or lark is None:
             logger.error("Feishu SDK not installed. Run: pip install lark-oapi")
             return
-        
+
         if not self.config.app_id or not self.config.app_secret:
             logger.error("Feishu app_id and app_secret not configured")
             return
-        
+
         self._running = True
         self._loop = asyncio.get_running_loop()
         lark_sdk = cast(Any, lark)
@@ -301,18 +301,18 @@ class FeishuChannel(BaseChannel):
                 except Exception as e:
                     logger.warning("Feishu WebSocket error: {}", e)
                 if self._running:
-                    import time; time.sleep(5)
-        
+                    time.sleep(5)
+
         self._ws_thread = threading.Thread(target=run_ws, daemon=True)
         self._ws_thread.start()
-        
+
         logger.info("Feishu bot started with WebSocket long connection")
         logger.info("No public IP required - using WebSocket to receive events")
-        
+
         # Keep running until stopped
         while self._running:
             await asyncio.sleep(1)
-    
+
     async def stop(self) -> None:
         """Stop the Feishu bot."""
         self._running = False
@@ -322,7 +322,7 @@ class FeishuChannel(BaseChannel):
             except Exception as e:
                 logger.warning("Error stopping WebSocket client: {}", e)
         logger.info("Feishu bot stopped")
-    
+
     def _add_reaction_sync(self, message_id: str, emoji_type: str) -> None:
         """Sync helper for adding reaction (runs in thread pool)."""
         if (
@@ -345,9 +345,9 @@ class FeishuChannel(BaseChannel):
                     .reaction_type(emoji_cls.builder().emoji_type(emoji_type).build())
                     .build()
                 ).build()
-            
+
             response = self._client.im.v1.message_reaction.create(request)
-            
+
             if not response.success():
                 logger.warning("Failed to add reaction: code={}, msg={}", response.code, response.msg)
             else:
@@ -358,15 +358,15 @@ class FeishuChannel(BaseChannel):
     async def _add_reaction(self, message_id: str, emoji_type: str = "THUMBSUP") -> None:
         """
         Add a reaction emoji to a message (non-blocking).
-        
+
         Common emoji types: THUMBSUP, OK, EYES, DONE, OnIt, HEART
         """
         if not self._client or not Emoji:
             return
-        
+
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._add_reaction_sync, message_id, emoji_type)
-    
+
     # Regex to match markdown tables (header + separator + data rows)
     _TABLE_RE = re.compile(
         r"((?:^[ \t]*\|.+\|[ \t]*\n)(?:^[ \t]*\|[-:\s|]+\|[ \t]*\n)(?:^[ \t]*\|.+\|[ \t]*\n?)+)",
@@ -380,12 +380,14 @@ class FeishuChannel(BaseChannel):
     @staticmethod
     def _parse_md_table(table_text: str) -> dict | None:
         """Parse a markdown table into a Feishu table element."""
-        lines = [l.strip() for l in table_text.strip().split("\n") if l.strip()]
+        lines = [line.strip() for line in table_text.strip().split("\n") if line.strip()]
         if len(lines) < 3:
             return None
-        split = lambda l: [c.strip() for c in l.strip("|").split("|")]
-        headers = split(lines[0])
-        rows = [split(l) for l in lines[2:]]
+        def split_row(row_text: str) -> list[str]:
+            return [cell.strip() for cell in row_text.strip("|").split("|")]
+
+        headers = split_row(lines[0])
+        rows = [split_row(row_text) for row_text in lines[2:]]
         columns = [{"tag": "column", "name": f"c{i}", "display_name": h, "width": "auto"}
                    for i, h in enumerate(headers)]
         return {
@@ -657,7 +659,7 @@ class FeishuChannel(BaseChannel):
 
         except Exception as e:
             logger.error("Error sending Feishu message: {}", e)
-    
+
     def _on_message_sync(self, data: Any) -> None:
         """
         Sync handler for incoming messages (called from WebSocket thread).
@@ -665,7 +667,7 @@ class FeishuChannel(BaseChannel):
         """
         if self._loop and self._loop.is_running():
             asyncio.run_coroutine_threadsafe(self._on_message(data), self._loop)
-    
+
     async def _on_message(self, data: Any) -> None:
         """Handle incoming message from Feishu."""
         try:

@@ -23,16 +23,16 @@ def _is_heartbeat_empty(content: str | None) -> bool:
     """Check if HEARTBEAT.md has no actionable content."""
     if not content:
         return True
-    
+
     # Lines to skip: empty, headers, HTML comments, empty checkboxes
     skip_patterns = {"- [ ]", "* [ ]", "- [x]", "* [x]"}
-    
+
     for line in content.split("\n"):
         line = line.strip()
         if not line or line.startswith("#") or line.startswith("<!--") or line in skip_patterns:
             continue
         return False  # Found actionable content
-    
+
     return True
 
 
@@ -61,11 +61,11 @@ class HeartbeatService:
         self.enabled = enabled
         self._running = False
         self._task: asyncio.Task | None = None
-    
+
     @property
     def heartbeat_file(self) -> Path:
         return self.workspace / "HEARTBEAT.md"
-    
+
     def _read_heartbeat_file(self) -> str | None:
         """Read HEARTBEAT.md content."""
         if self.heartbeat_file.exists():
@@ -74,7 +74,7 @@ class HeartbeatService:
             except Exception:
                 return None
         return None
-    
+
     async def start(self) -> None:
         """Start the heartbeat service."""
         if not self.enabled:
@@ -83,18 +83,18 @@ class HeartbeatService:
         if self._running:
             logger.warning("Heartbeat already running")
             return
-        
+
         self._running = True
         self._task = asyncio.create_task(self._run_loop())
         logger.info("Heartbeat started (every {}s)", self.interval_s)
-    
+
     def stop(self) -> None:
         """Stop the heartbeat service."""
         self._running = False
         if self._task:
             self._task.cancel()
             self._task = None
-    
+
     async def _run_loop(self) -> None:
         """Main heartbeat loop."""
         while self._running:
@@ -106,18 +106,18 @@ class HeartbeatService:
                 break
             except Exception as e:
                 logger.error("Heartbeat error: {}", e)
-    
+
     async def _tick(self) -> None:
         """Execute a single heartbeat tick."""
         content = self._read_heartbeat_file()
-        
+
         # Skip if HEARTBEAT.md is empty or doesn't exist
         if _is_heartbeat_empty(content):
             logger.debug("Heartbeat: no tasks (HEARTBEAT.md empty)")
             return
-        
+
         logger.info("Heartbeat: checking for tasks...")
-        
+
         if self.on_heartbeat:
             try:
                 response = await self.on_heartbeat(HEARTBEAT_PROMPT)
@@ -129,7 +129,7 @@ class HeartbeatService:
                         await self.on_notify(response)
             except Exception:
                 logger.exception("Heartbeat execution failed")
-    
+
     async def trigger_now(self) -> str | None:
         """Manually trigger a heartbeat."""
         if self.on_heartbeat:

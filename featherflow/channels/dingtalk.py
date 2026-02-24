@@ -5,8 +5,8 @@ import json
 import time
 from typing import Any
 
-from loguru import logger
 import httpx
+from loguru import logger
 
 from featherflow.bus.events import OutboundMessage
 from featherflow.bus.queue import MessageBus
@@ -15,11 +15,11 @@ from featherflow.config.schema import DingTalkConfig
 
 try:
     from dingtalk_stream import (
-        DingTalkStreamClient,
-        Credential,
+        AckMessage,
         CallbackHandler,
         CallbackMessage,
-        AckMessage,
+        Credential,
+        DingTalkStreamClient,
     )
     from dingtalk_stream.chatbot import ChatbotMessage
 

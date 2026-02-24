@@ -123,7 +123,7 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
 ## Memory
 - Remember important facts: write to {workspace_path}/memory/MEMORY.md
 - Recall past events: grep {workspace_path}/memory/HISTORY.md"""
-    
+
     def _load_bootstrap_files(self) -> str:
         """Load all bootstrap files from workspace."""
         parts = []

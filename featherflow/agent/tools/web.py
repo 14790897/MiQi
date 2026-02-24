@@ -242,7 +242,7 @@ class WebFetchTool(Tool):
             truncated = len(text) > max_chars
             if truncated:
                 text = text[:max_chars]
-            
+
             return json.dumps({"url": url, "finalUrl": str(r.url), "status": r.status_code,
                               "extractor": extractor, "truncated": truncated, "length": len(text), "text": text}, ensure_ascii=False)
         except Exception as e:
@@ -300,7 +300,7 @@ class WebFetchTool(Tool):
             )
         except Exception as e:
             return json.dumps({"error": str(e), "url": url}, ensure_ascii=False)
-    
+
     def _to_markdown(self, html: str) -> str:
         """Convert HTML to markdown."""
         # Convert links, headings, lists before stripping tags
