@@ -1,11 +1,11 @@
 [project]
-name = "nanobot-ai"
+name = "featherflow-ai"
 version = "0.1.4.post1"
 description = "A lightweight personal AI assistant framework"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
-    {name = "nanobot contributors"}
+    {name = "featherflow contributors"}
 ]
 keywords = ["ai", "agent", "chatbot"]
 classifiers = [
@@ -43,30 +43,30 @@ dev = [
 ]
 
 [project.scripts]
-nanobot = "nanobot.cli.commands:app"
+featherflow = "featherflow.cli.commands:app"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["nanobot"]
+packages = ["featherflow"]
 
 [tool.hatch.build.targets.wheel.sources]
-"nanobot" = "nanobot"
+"featherflow" = "featherflow"
 
 # Include non-Python files in skills and templates
 [tool.hatch.build]
 include = [
-    "nanobot/**/*.py",
-    "nanobot/templates/**/*.md",
-    "nanobot/skills/**/*.md",
-    "nanobot/skills/**/*.sh",
+    "featherflow/**/*.py",
+    "featherflow/templates/**/*.md",
+    "featherflow/skills/**/*.md",
+    "featherflow/skills/**/*.sh",
 ]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "nanobot/",
+    "featherflow/",
     "README.md",
     "LICENSE",
 ]

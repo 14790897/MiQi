@@ -1,4 +1,4 @@
-from nanobot.providers.litellm_provider import LiteLLMProvider
+from featherflow.providers.litellm_provider import LiteLLMProvider
 
 
 def test_is_transient_network_error_detects_connection_reset() -> None:

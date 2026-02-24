@@ -2,7 +2,7 @@
 
 ## Overview
 
-nanobot self-development is implemented as a lightweight feedback loop:
+featherflow self-development is implemented as a lightweight feedback loop:
 
 1. Detect mistakes or corrections
 2. Convert them into structured lessons
@@ -29,14 +29,14 @@ Each lesson is a JSON object with fields like:
 
 ### Tool feedback
 
-When a tool returns an error result, nanobot learns a tool-specific lesson, for example:
+When a tool returns an error result, featherflow learns a tool-specific lesson, for example:
 
 - `trigger = tool:read_file:error`
 - `better_action = Check path existence before calling read_file`
 
 ### User feedback
 
-When users provide correction-style feedback, nanobot learns a response lesson. To reduce false positives:
+When users provide correction-style feedback, featherflow learns a response lesson. To reduce false positives:
 
 - Previous assistant output must exist
 - Message length must be within configured threshold
@@ -49,7 +49,7 @@ Example:
 
 ## Prompt injection
 
-At context build time, nanobot selects top lessons by:
+At context build time, featherflow selects top lessons by:
 
 - scope match (`session` or `global`)
 - confidence threshold (with time-decay)
@@ -60,7 +60,7 @@ The selected lessons are injected into the `# Memory` section as `## Lessons`.
 
 ## Session to global promotion
 
-To improve reuse without making the system heavy, nanobot can auto-promote repeated
+To improve reuse without making the system heavy, featherflow can auto-promote repeated
 session lessons into a global lesson when:
 
 - lesson source is user feedback

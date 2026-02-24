@@ -2,7 +2,7 @@
 
 ## Why this design
 
-nanobot is intentionally lightweight. This design keeps memory fast and simple by making the hot path in-memory and moving disk writes to checkpoint events.
+featherflow is intentionally lightweight. This design keeps memory fast and simple by making the hot path in-memory and moving disk writes to checkpoint events.
 
 ## Goals
 
@@ -37,7 +37,7 @@ The runtime is split into three layers:
 - Optional lesson audit log at `memory/LESSONS_AUDIT.jsonl`
 
 3. Session log storage (append-only)
-- Conversation messages append to `~/.nanobot/sessions/*.jsonl`
+- Conversation messages append to `~/.featherflow/sessions/*.jsonl`
 - Periodic compaction rewrites to keep only recent history
 
 ## Data model
@@ -109,7 +109,7 @@ Session compaction:
 
 ## Why no embeddings
 
-This design avoids embedding/vector systems to preserve nanobot's lightweight footprint and operational simplicity:
+This design avoids embedding/vector systems to preserve featherflow's lightweight footprint and operational simplicity:
 
 - No extra service dependencies
 - No vector index build/maintenance cost
@@ -118,17 +118,17 @@ This design avoids embedding/vector systems to preserve nanobot's lightweight fo
 ## Operational commands
 
 ```bash
-nanobot memory status
-nanobot memory list
-nanobot memory delete <memory-id> --yes
-nanobot memory flush
-nanobot memory compact --max-items 300
-nanobot memory lessons status
-nanobot memory lessons list
-nanobot memory lessons disable <lesson-id>
-nanobot memory lessons enable <lesson-id>
-nanobot memory lessons delete <lesson-id> --yes
-nanobot memory lessons compact --max-lessons 200
-nanobot memory lessons reset --yes
-nanobot session compact --all
+featherflow memory status
+featherflow memory list
+featherflow memory delete <memory-id> --yes
+featherflow memory flush
+featherflow memory compact --max-items 300
+featherflow memory lessons status
+featherflow memory lessons list
+featherflow memory lessons disable <lesson-id>
+featherflow memory lessons enable <lesson-id>
+featherflow memory lessons delete <lesson-id> --yes
+featherflow memory lessons compact --max-lessons 200
+featherflow memory lessons reset --yes
+featherflow session compact --all
 ```

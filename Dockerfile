@@ -9,19 +9,19 @@ WORKDIR /app
 
 # Install Python dependencies first (cached layer)
 COPY pyproject.toml README.md LICENSE ./
-RUN mkdir -p nanobot && touch nanobot/__init__.py && \
+RUN mkdir -p featherflow && touch featherflow/__init__.py && \
     uv pip install --system --no-cache . && \
-    rm -rf nanobot
+    rm -rf featherflow
 
 # Copy the full source and install
-COPY nanobot/ nanobot/
+COPY featherflow/ featherflow/
 RUN uv pip install --system --no-cache .
 
 # Create config directory
-RUN mkdir -p /root/.nanobot
+RUN mkdir -p /root/.featherflow
 
 # Gateway default port
 EXPOSE 18790
 
-ENTRYPOINT ["nanobot"]
+ENTRYPOINT ["featherflow"]
 CMD ["status"]

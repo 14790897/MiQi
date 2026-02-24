@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from prompt_toolkit.formatted_text import HTML
 
-from nanobot.cli import commands
+from featherflow.cli import commands
 
 
 @pytest.fixture
@@ -11,8 +11,8 @@ def mock_prompt_session():
     """Mock the global prompt session."""
     mock_session = MagicMock()
     mock_session.prompt_async = AsyncMock()
-    with patch("nanobot.cli.commands._PROMPT_SESSION", mock_session), \
-         patch("nanobot.cli.commands.patch_stdout"):
+    with patch("featherflow.cli.commands._PROMPT_SESSION", mock_session), \
+         patch("featherflow.cli.commands.patch_stdout"):
         yield mock_session
 
 
@@ -44,8 +44,8 @@ def test_init_prompt_session_creates_session():
     commands._PROMPT_SESSION = None
 
     with (
-        patch("nanobot.cli.commands.PromptSession") as mock_session_cls,
-        patch("nanobot.cli.commands.FileHistory"),
+        patch("featherflow.cli.commands.PromptSession") as mock_session_cls,
+        patch("featherflow.cli.commands.FileHistory"),
         patch("pathlib.Path.home") as mock_home,
     ):
         mock_home.return_value = MagicMock()
@@ -70,7 +70,7 @@ def test_fetch_ollama_cloud_models_from_tags() -> None:
     }
     response.raise_for_status.return_value = None
 
-    with patch("nanobot.cli.commands.httpx.get", return_value=response) as mock_get:
+    with patch("featherflow.cli.commands.httpx.get", return_value=response) as mock_get:
         models, error = commands._fetch_ollama_cloud_models(
             api_base="https://ollama.com/api",
             api_key="test_key",
@@ -96,7 +96,7 @@ def test_fetch_ollama_cloud_models_fallback_to_v1_models() -> None:
         ]
     }
 
-    with patch("nanobot.cli.commands.httpx.get", side_effect=[first_response, second_response]) as mock_get:
+    with patch("featherflow.cli.commands.httpx.get", side_effect=[first_response, second_response]) as mock_get:
         models, error = commands._fetch_ollama_cloud_models(
             api_base="https://ollama.com",
             api_key="test_key",

@@ -2,12 +2,12 @@ import json
 from datetime import datetime, timedelta
 from typing import Any
 
-from nanobot.agent.memory import MemoryStore
-from nanobot.agent.tools.base import Tool
-from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.web import WebFetchTool
-from nanobot.bus.events import InboundMessage
-from nanobot.session.manager import SessionManager
+from featherflow.agent.memory import MemoryStore
+from featherflow.agent.tools.base import Tool
+from featherflow.agent.tools.registry import ToolRegistry
+from featherflow.agent.tools.web import WebFetchTool
+from featherflow.bus.events import InboundMessage
+from featherflow.session.manager import SessionManager
 
 
 class SampleTool(Tool):
@@ -245,7 +245,7 @@ async def test_web_fetch_ollama_respects_per_call_max_chars(monkeypatch) -> None
         async def post(self, *args: Any, **kwargs: Any) -> DummyResponse:
             return DummyResponse()
 
-    monkeypatch.setattr("nanobot.agent.tools.web.httpx.AsyncClient", lambda: DummyClient())
+    monkeypatch.setattr("featherflow.agent.tools.web.httpx.AsyncClient", lambda: DummyClient())
 
     result = await tool.execute(url="https://example.com", maxChars=120)
     payload = json.loads(result)

@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from nanobot.providers.litellm_provider import LiteLLMProvider
+from featherflow.providers.litellm_provider import LiteLLMProvider
 
 
 def _build_response(content: str):

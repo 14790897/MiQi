@@ -1,6 +1,6 @@
 import os
 
-from nanobot.providers.litellm_provider import LiteLLMProvider
+from featherflow.providers.litellm_provider import LiteLLMProvider
 
 
 def test_ollama_cloud_provider_name_takes_priority_for_glm_model() -> None:
