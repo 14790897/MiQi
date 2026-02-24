@@ -146,6 +146,28 @@ Add or merge these **two parts** into your config (other options have defaults).
 }
 ```
 
+### Onboard Menu Guide
+
+`nanobot onboard` now supports a complete interactive setup wizard so users can finish config without manually editing JSON.
+
+The menu flow includes:
+- **Provider selection** (OpenRouter / OpenAI / Anthropic / Ollama / vLLM, etc.)
+- **Model selection** (manual input or Ollama Cloud model list lookup)
+- **Provider credentials** (`apiKey`, `apiBase`)
+- **Web capabilities setup**:
+  - Search provider: `Brave` / `Ollama web_search` / `Hybrid`
+  - Fetch provider: `nanobot web_fetch` / `Ollama web_fetch` / `Hybrid`
+- **Key reuse prompts** for faster setup (e.g., reuse `ollamaCloud.apiKey` for web_search/web_fetch)
+
+> [!NOTE]
+> Paste your onboarding screenshot in the section below.
+
+<!-- ONBOARD_SCREENSHOT_START -->
+![Onboard Menu](case/menu1.png)
+![Ollama Cloud Model Fetch](case/model-fetch-from-ollama.png)
+![Ollama web_search Setup](case/ollama-search-setting.png)
+<!-- ONBOARD_SCREENSHOT_END -->
+
 **3. Chat**
 
 ```bash
