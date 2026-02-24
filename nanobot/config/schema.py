@@ -12,15 +12,6 @@ class Base(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
 
-class WhatsAppConfig(Base):
-    """WhatsApp channel configuration."""
-
-    enabled: bool = False
-    bridge_url: str = "ws://localhost:3001"
-    bridge_token: str = ""  # Shared token for bridge auth (optional, recommended)
-    allow_from: list[str] = Field(default_factory=list)  # Allowed phone numbers
-
-
 class TelegramConfig(Base):
     """Telegram channel configuration."""
 
@@ -170,26 +161,54 @@ class ChannelsConfig(Base):
 
     send_progress: bool = True    # stream agent's text progress to the channel
     send_tool_hints: bool = False  # stream tool-call hints (e.g. read_file("…"))
-    whatsapp: WhatsAppConfig = Field(default_factory=WhatsAppConfig)
-    telegram: TelegramConfig = Field(default_factory=TelegramConfig)
-    discord: DiscordConfig = Field(default_factory=DiscordConfig)
     feishu: FeishuConfig = Field(default_factory=FeishuConfig)
-    mochat: MochatConfig = Field(default_factory=MochatConfig)
-    dingtalk: DingTalkConfig = Field(default_factory=DingTalkConfig)
-    email: EmailConfig = Field(default_factory=EmailConfig)
-    slack: SlackConfig = Field(default_factory=SlackConfig)
-    qq: QQConfig = Field(default_factory=QQConfig)
 
 
 class AgentDefaults(Base):
     """Default agent configuration."""
 
+    name: str = "nanobot"
     workspace: str = "~/.nanobot/workspace"
     model: str = "anthropic/claude-opus-4-5"
     max_tokens: int = 8192
     temperature: float = 0.1
     max_tool_iterations: int = 40
     memory_window: int = 100
+    reflect_after_tool_calls: bool = True
+
+
+class AgentMemoryConfig(Base):
+    """Agent memory runtime configuration."""
+
+    flush_every_updates: int = 8
+    flush_interval_seconds: int = 120
+    short_term_turns: int = 12
+    pending_limit: int = 20
+
+
+class AgentSessionConfig(Base):
+    """Session storage runtime configuration."""
+
+    compact_threshold_messages: int = 400
+    compact_threshold_bytes: int = 2_000_000
+    compact_keep_messages: int = 300
+
+
+class AgentSelfImprovementConfig(Base):
+    """Self-improvement lesson configuration."""
+
+    enabled: bool = True
+    max_lessons_in_prompt: int = 5
+    min_lesson_confidence: int = 1
+    max_lessons: int = 200
+    lesson_confidence_decay_hours: int = 168
+    feedback_max_message_chars: int = 220
+    feedback_require_prefix: bool = True
+    promotion_enabled: bool = True
+    promotion_min_users: int = 3
+    promotion_triggers: list[str] = Field(
+        default_factory=lambda: ["response:length", "response:language"]
+    )
 
 
 class AgentsConfig(Base):
@@ -225,6 +244,8 @@ class ProvidersConfig(Base):
     moonshot: ProviderConfig = Field(default_factory=ProviderConfig)
     minimax: ProviderConfig = Field(default_factory=ProviderConfig)
     aihubmix: ProviderConfig = Field(default_factory=ProviderConfig)  # AiHubMix API gateway
+    ollama_local: ProviderConfig = Field(default_factory=ProviderConfig)
+    ollama_cloud: ProviderConfig = Field(default_factory=ProviderConfig)
     siliconflow: ProviderConfig = Field(default_factory=ProviderConfig)  # SiliconFlow (硅基流动) API gateway
     volcengine: ProviderConfig = Field(default_factory=ProviderConfig)  # VolcEngine (火山引擎) API gateway
     openai_codex: ProviderConfig = Field(default_factory=ProviderConfig)  # OpenAI Codex (OAuth)
@@ -241,10 +262,19 @@ class GatewayConfig(Base):
 class WebSearchConfig(Base):
     """Web search tool configuration."""
 
+    provider: str = "brave"  # brave | ollama | hybrid
     api_key: str = ""  # Brave Search API key
     ollama_api_key: str = ""  # Ollama web search API key
     ollama_api_base: str = "https://ollama.com"
     max_results: int = 5
+
+
+class WebFetchConfig(Base):
+    """Web fetch tool configuration."""
+
+    provider: str = "nanobot"  # nanobot | ollama | hybrid
+    ollama_api_key: str = ""  # Ollama web fetch API key
+    ollama_api_base: str = "https://ollama.com"
 
 
 class WebToolsConfig(Base):

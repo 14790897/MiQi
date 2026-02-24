@@ -8,8 +8,8 @@ from typing import Any
 @dataclass
 class InboundMessage:
     """Message received from a chat channel."""
-    
-    channel: str  # telegram, discord, slack, whatsapp
+
+    channel: str  # feishu, telegram, discord, etc.
     sender_id: str  # User identifier
     chat_id: str  # Chat/channel identifier
     content: str  # Message text
@@ -35,5 +35,4 @@ class OutboundMessage:
     reply_to: str | None = None
     media: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
-
 
