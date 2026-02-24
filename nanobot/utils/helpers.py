@@ -37,26 +37,20 @@ def get_sessions_path() -> Path:
     return ensure_dir(get_data_path() / "sessions")
 
 
-def get_memory_path(workspace: Path | None = None) -> Path:
-    """Get the memory directory within the workspace."""
-    ws = workspace or get_workspace_path()
-    return ensure_dir(ws / "memory")
-
-
 def get_skills_path(workspace: Path | None = None) -> Path:
     """Get the skills directory within the workspace."""
     ws = workspace or get_workspace_path()
     return ensure_dir(ws / "skills")
 
 
-def today_date() -> str:
-    """Get today's date in YYYY-MM-DD format."""
-    return datetime.now().strftime("%Y-%m-%d")
-
-
 def timestamp() -> str:
     """Get current timestamp in ISO format."""
     return datetime.now().isoformat()
+
+
+def today_date() -> str:
+    """Get current date in YYYY-MM-DD format."""
+    return datetime.now().strftime("%Y-%m-%d")
 
 
 def truncate_string(s: str, max_len: int = 100, suffix: str = "...") -> str:
