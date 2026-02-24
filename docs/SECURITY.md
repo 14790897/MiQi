@@ -16,6 +16,8 @@ We aim to respond to security reports within 48 hours.
 
 ## Security Best Practices
 
+> Runtime note: current channel wiring is Feishu-only. Other channel adapters may exist in the repository but are not enabled by default.
+
 ### 1. API Key Management
 
 **CRITICAL**: Never commit API keys to version control.

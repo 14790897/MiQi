@@ -31,10 +31,12 @@ FeatherFlow is a domain-focused evolution of the upstream [`nanobot`](https://gi
 |---|---|
 | **LLM Providers** | OpenRouter, OpenAI, Anthropic, DeepSeek, Gemini, and any OpenAI-compatible endpoint |
 | **Built-in Tools** | File system, shell, web fetch/search, cron scheduler, sub-agent spawning |
-| **Channels** | Feishu (WebSocket), Telegram, Discord, DingTalk, Slack, QQ, Email, MoChat |
+| **Channels** | Feishu (WebSocket, runtime enabled) |
 | **Memory** | RAM-first with snapshots, lesson extraction, and compact session history |
 | **Extensibility** | MCP server integration, skill files, custom provider plugins |
 | **CLI** | Interactive onboarding, agent chat, gateway mode, cron and memory management |
+
+> Channel adapters for Telegram/Discord/Slack/Email/QQ/DingTalk/MoChat may exist in code, but current runtime wiring is Feishu-only.
 
 ---
 
@@ -145,7 +147,8 @@ FeatherFlow reads from `~/.featherflow/config.json`. The interactive wizard (`fe
     }
   },
   "heartbeat": {
-    "enabled": false
+    "enabled": true,
+    "intervalSeconds": 1800
   }
 }
 ```
@@ -154,9 +157,9 @@ FeatherFlow reads from `~/.featherflow/config.json`. The interactive wizard (`fe
 
 - **`providers`** — API keys and base URLs for each LLM provider.
 - **`agents.defaults`** — Default model, temperature, token limits, and agent identity.
-- **`channels`** — Credentials and access-control lists for each messaging platform.
+- **`channels`** — Feishu channel credentials and access-control settings.
 - **`tools`** — Web/search/fetch behavior, shell execution policy, and MCP server definitions.
-- **`heartbeat`** — Periodic background prompts for proactive agent behaviors.
+- **`heartbeat`** — Periodic background prompts (`enabled`, `intervalSeconds`) for proactive agent behaviors.
 
 > **Security:** Set file permissions to `0600` on your config file and configure strict `allowFrom` lists before exposing to any channel. See [`docs/SECURITY.md`](docs/SECURITY.md) for full guidance.
 

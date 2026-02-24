@@ -18,7 +18,7 @@ from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
 
-from featherflow import __version__, __logo__
+from featherflow import __logo__, __version__
 from featherflow.config.schema import Config
 
 app = typer.Typer(
@@ -712,9 +712,9 @@ def _create_workspace_templates(
 
 def _make_provider(config: Config):
     """Create the appropriate LLM provider from config."""
+    from featherflow.providers.custom_provider import CustomProvider
     from featherflow.providers.litellm_provider import LiteLLMProvider
     from featherflow.providers.openai_codex_provider import OpenAICodexProvider
-    from featherflow.providers.custom_provider import CustomProvider
 
     model = config.agents.defaults.model
     provider_name = config.get_provider_name(model)
@@ -834,7 +834,7 @@ def gateway(
         return response
 
     cron.on_job = on_cron_job
-    
+
     # Create channel manager
     channels = ChannelManager(config, bus)
 
@@ -878,14 +878,15 @@ def gateway(
             return  # No external channel available to deliver to
         await bus.publish_outbound(OutboundMessage(channel=channel, chat_id=chat_id, content=response))
 
+    heartbeat_interval_s = max(1, config.heartbeat.interval_seconds)
     heartbeat = HeartbeatService(
         workspace=config.workspace_path,
         on_heartbeat=on_heartbeat,
         on_notify=on_heartbeat_notify,
-        interval_s=30 * 60,  # 30 minutes
-        enabled=True,
+        interval_s=heartbeat_interval_s,
+        enabled=config.heartbeat.enabled,
     )
-    
+
     if channels.enabled_channels:
         console.print(f"[green]✓[/green] Channels enabled: {', '.join(channels.enabled_channels)}")
     else:
@@ -895,7 +896,15 @@ def gateway(
     if cron_status["jobs"] > 0:
         console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
 
-    console.print("[green]✓[/green] Heartbeat: every 30m")
+    if config.heartbeat.enabled:
+        if heartbeat_interval_s % 60 == 0:
+            console.print(
+                f"[green]✓[/green] Heartbeat: every {heartbeat_interval_s // 60}m"
+            )
+        else:
+            console.print(f"[green]✓[/green] Heartbeat: every {heartbeat_interval_s}s")
+    else:
+        console.print("[yellow]Heartbeat disabled[/yellow]")
 
     async def run():
         try:
@@ -934,15 +943,12 @@ def agent(
     ),
 ):
     """Interact with the agent directly."""
-    from featherflow.config.loader import load_config, get_data_dir
-    from featherflow.bus.queue import MessageBus
-    from featherflow.agent.loop import AgentLoop
-    from featherflow.cron.service import CronService
     from loguru import logger
 
     from featherflow.agent.loop import AgentLoop
     from featherflow.bus.queue import MessageBus
-    from featherflow.config.loader import load_config
+    from featherflow.config.loader import get_data_dir, load_config
+    from featherflow.cron.service import CronService
 
     config = load_config()
 
@@ -962,13 +968,18 @@ def agent(
         bus=bus,
         provider=provider,
         workspace=config.workspace_path,
+        agent_name=config.agents.defaults.name,
         model=config.agents.defaults.model,
         temperature=config.agents.defaults.temperature,
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,
+        reflect_after_tool_calls=config.agents.defaults.reflect_after_tool_calls,
+        web_config=config.tools.web,
         memory_window=config.agents.defaults.memory_window,
-        brave_api_key=config.tools.web.search.api_key or None,
         exec_config=config.tools.exec,
+        memory_config=config.agents.memory,
+        self_improvement_config=config.agents.self_improvement,
+        session_config=config.agents.sessions,
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
@@ -1128,6 +1139,7 @@ def channels_status():
     table.add_row("Feishu", "✓" if fs.enabled else "✗", fs_config)
 
     console.print(table)
+    console.print("[dim]Runtime channel wiring: Feishu only.[/dim]")
 
 
 # ============================================================================
@@ -1576,7 +1588,7 @@ def cron_list(
                 next_run = _dt.fromtimestamp(ts, tz).strftime("%Y-%m-%d %H:%M")
             except Exception:
                 next_run = time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
-        
+
         status = "[green]enabled[/green]" if job.enabled else "[dim]disabled[/dim]"
 
         table.add_row(job.id, job.name, sched, status, next_run)
@@ -1602,7 +1614,7 @@ def cron_add(
     from featherflow.config.loader import get_data_dir
     from featherflow.cron.service import CronService
     from featherflow.cron.types import CronSchedule
-    
+
     if tz and not cron_expr:
         console.print("[red]Error: --tz can only be used with --cron[/red]")
         raise typer.Exit(1)
@@ -1623,7 +1635,7 @@ def cron_add(
 
     store_path = get_data_dir() / "cron" / "jobs.json"
     service = CronService(store_path)
-    
+
     try:
         job = service.add_job(
             name=name,
@@ -1684,34 +1696,40 @@ def cron_run(
 ):
     """Manually run a job."""
     from loguru import logger
-    from featherflow.config.loader import load_config, get_data_dir
+
+    from featherflow.agent.loop import AgentLoop
+    from featherflow.bus.queue import MessageBus
+    from featherflow.config.loader import get_data_dir, load_config
     from featherflow.cron.service import CronService
     from featherflow.cron.types import CronJob
-    from featherflow.bus.queue import MessageBus
-    from featherflow.agent.loop import AgentLoop
     logger.disable("featherflow")
 
     config = load_config()
+    store_path = get_data_dir() / "cron" / "jobs.json"
+    service = CronService(store_path)
     provider = _make_provider(config)
     bus = MessageBus()
     agent_loop = AgentLoop(
         bus=bus,
         provider=provider,
         workspace=config.workspace_path,
+        agent_name=config.agents.defaults.name,
         model=config.agents.defaults.model,
         temperature=config.agents.defaults.temperature,
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,
+        reflect_after_tool_calls=config.agents.defaults.reflect_after_tool_calls,
+        web_config=config.tools.web,
         memory_window=config.agents.defaults.memory_window,
-        brave_api_key=config.tools.web.search.api_key or None,
         exec_config=config.tools.exec,
+        memory_config=config.agents.memory,
+        self_improvement_config=config.agents.self_improvement,
+        session_config=config.agents.sessions,
+        cron_service=service,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
     )
-
-    store_path = get_data_dir() / "cron" / "jobs.json"
-    service = CronService(store_path)
 
     result_holder = []
 
@@ -1728,7 +1746,11 @@ def cron_run(
     service.on_job = on_job
 
     async def run():
-        return await service.run_job(job_id, force=force)
+        try:
+            return await service.run_job(job_id, force=force)
+        finally:
+            agent_loop.stop()
+            await agent_loop.close_mcp()
 
     if asyncio.run(run()):
         console.print("[green]✓[/green] Job executed")
@@ -1772,8 +1794,9 @@ def status():
             p = getattr(config.providers, spec.name, None)
             if p is None:
                 continue
+            active_badge = " [cyan](active)[/cyan]" if spec.name == active_provider else ""
             if spec.is_oauth:
-                console.print(f"{spec.label}: [green]✓ (OAuth)[/green]")
+                console.print(f"{spec.label}{active_badge}: [green]✓ (OAuth)[/green]")
             elif spec.is_local:
                 # Local deployments show api_base instead of api_key
                 if p.api_base:

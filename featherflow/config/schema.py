@@ -1,7 +1,8 @@
 """Configuration schema using Pydantic."""
 
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
+
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings
 
@@ -157,7 +158,12 @@ class QQConfig(Base):
 
 
 class ChannelsConfig(Base):
-    """Configuration for chat channels."""
+    """Configuration for chat channels.
+
+    Note:
+        Runtime wiring currently enables Feishu only. Other channel adapters
+        may exist in the repository but are not activated by ChannelManager.
+    """
 
     send_progress: bool = True    # stream agent's text progress to the channel
     send_tool_hints: bool = False  # stream tool-call hints (e.g. read_file("…"))
@@ -259,6 +265,13 @@ class GatewayConfig(Base):
     port: int = 18790
 
 
+class HeartbeatConfig(Base):
+    """Background heartbeat configuration."""
+
+    enabled: bool = True
+    interval_seconds: int = 30 * 60
+
+
 class WebSearchConfig(Base):
     """Web search tool configuration."""
 
@@ -317,6 +330,7 @@ class Config(BaseSettings):
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
+    heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
 
     @property
