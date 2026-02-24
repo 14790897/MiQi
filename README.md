@@ -4,7 +4,12 @@ FeatherFlow is a lightweight personal AI assistant runtime focused on practical 
 
 ## Project Origin
 
-This project idea is derived from `nanobot` upstream `origin/main` at commit `30361c9307f9014f49530d80abd5717bc97f554a` (2026-02-23), then evolved for a Feishu-first domain workflow.
+FeatherFlow is derived from the upstream `nanobot` project and then evolved for a Feishu-first domain workflow.
+
+- Upstream repository: https://github.com/HKUDS/nanobot
+- Reference baseline: `origin/main` commit `30361c9307f9014f49530d80abd5717bc97f554a` (2026-02-23)
+
+Respect to the upstream team: `nanobot` provides an excellent engineering baseline in runtime design, tool abstraction, and practical developer experience. FeatherFlow stands on that solid foundation and continues with domain-specific optimization.
 
 ## What FeatherFlow Provides
 
@@ -14,14 +19,6 @@ This project idea is derived from `nanobot` upstream `origin/main` at commit `30
 - RAM-first memory with snapshots, lessons, and compact session history
 - MCP integration for external tool servers
 - Complete CLI workflow for onboarding, chat, gateway, status, memory, and cron management
-
-## Screenshot: Onboarding Menu
-
-The onboarding flow is interactive and supports provider/model selection, key setup, web mode selection, and identity setup.
-
-![Onboard Menu](case/menu1.png)
-![Ollama Cloud Model Fetch](case/model-fetch-from-ollama.png)
-![Ollama web_search Setup](case/ollama-search-setting.png)
 
 ## Core Capabilities
 
@@ -72,14 +69,32 @@ Connect MCP servers and expose external tools directly to FeatherFlow.
 - Python 3.11+
 - Linux/macOS shell environment recommended
 
-### From Source
+### Clone Repository
 
 ```bash
-git clone <your-fork-url>
-cd <repo-dir>
+git clone https://github.com/lichman0405/featherflow.git
+cd featherflow
 python3 -m venv .venv
 source .venv/bin/activate
+```
+
+### Install Runtime
+
+```bash
+pip install --upgrade pip
+pip install -e .
+```
+
+### Install Dev Dependencies (Optional)
+
+```bash
 pip install -e '.[dev]'
+```
+
+### Verify Install
+
+```bash
+featherflow --version
 ```
 
 ## Quick Start
@@ -91,10 +106,42 @@ featherflow gateway
 featherflow status
 ```
 
+## Docker Quick Start
+
+### Start Gateway with Docker Compose
+
+```bash
+docker compose up --build featherflow-gateway
+```
+
+### Run One-Off CLI Command in Container
+
+```bash
+docker compose --profile cli run --rm featherflow-cli status
+```
+
+### Docker Runtime Data Directory
+
+- Host path: `~/.featherflow`
+- Container path: `/root/.featherflow`
+
+## Migration
+
+If you are migrating from previous project naming/runtime versions:
+
+- Python package path changed from `nanobot.*` to `featherflow.*`
+- CLI command changed from `assistant` to `featherflow`
+- Default runtime directory changed from `~/.assistant` to `~/.featherflow`
+- Default workspace changed from `~/.assistant/workspace` to `~/.featherflow/workspace`
+
+FeatherFlow keeps backward-compatible fallback for old config/data paths where possible.
+
 ## Configuration Overview
 
 Main config is JSON-based and includes:
 
+- default config path: `~/.featherflow/config.json`
+- default workspace path: `~/.featherflow/workspace`
 - `providers`: API keys and endpoints
 - `agents.defaults`: model, temperature, limits, identity defaults
 - `channels.feishu`: app credentials and allow-list
