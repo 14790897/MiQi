@@ -20,28 +20,28 @@
 
 ## 📢 News
 
-- **2026-02-21** 🎉 Released **v0.1.4.post1** — new providers, media support across channels, and major stability improvements. See [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post1) for details.
+- **2026-02-21** 🎉 Released **v0.1.4.post1** — new providers, media support across channels, and major stability improvements. See [release notes](https://github.com/lichman0405/nanobot/releases/tag/v0.1.4.post1) for details.
 - **2026-02-20** 🐦 Feishu now receives multimodal files from users. More reliable memory under the hood.
 - **2026-02-19** ✨ Slack now sends files, Discord splits long messages, and subagents work in CLI mode.
 - **2026-02-18** ⚡️ nanobot now supports VolcEngine, MCP custom auth headers, and Anthropic prompt caching.
-- **2026-02-17** 🎉 Released **v0.1.4** — MCP support, progress streaming, new providers, and multiple channel improvements. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4) for details.
+- **2026-02-17** 🎉 Released **v0.1.4** — MCP support, progress streaming, new providers, and multiple channel improvements. Please see [release notes](https://github.com/lichman0405/nanobot/releases/tag/v0.1.4) for details.
 - **2026-02-16** 🦞 nanobot now integrates a [ClawHub](https://clawhub.ai) skill — search and install public agent skills.
 - **2026-02-15** 🔑 nanobot now supports OpenAI Codex provider with OAuth login support.
 - **2026-02-14** 🔌 nanobot now supports MCP! See [MCP section](#mcp-model-context-protocol) for details.
-- **2026-02-13** 🎉 Released **v0.1.3.post7** — includes security hardening and multiple improvements. **Please upgrade to the latest version to address security issues**. See [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post7) for more details.
-- **2026-02-12** 🧠 Redesigned memory system — Less code, more reliable. Join the [discussion](https://github.com/HKUDS/nanobot/discussions/566) about it!
+- **2026-02-13** 🎉 Released **v0.1.3.post7** — includes security hardening and multiple improvements. **Please upgrade to the latest version to address security issues**. See [release notes](https://github.com/lichman0405/nanobot/releases/tag/v0.1.3.post7) for more details.
+- **2026-02-12** 🧠 Redesigned memory system — Less code, more reliable. Join the [discussion](https://github.com/lichman0405/nanobot/discussions/566) about it!
 - **2026-02-11** ✨ Enhanced CLI experience and added MiniMax support!
 
 <details>
 <summary>Earlier news</summary>
 
-- **2026-02-10** 🎉 Released **v0.1.3.post6** with improvements! Check the updates [notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post6) and our [roadmap](https://github.com/HKUDS/nanobot/discussions/431).
+- **2026-02-10** 🎉 Released **v0.1.3.post6** with improvements! Check the updates [notes](https://github.com/lichman0405/nanobot/releases/tag/v0.1.3.post6) and our [roadmap](https://github.com/lichman0405/nanobot/discussions/431).
 - **2026-02-09** 💬 Added Slack, Email, and QQ support — nanobot now supports multiple chat platforms!
 - **2026-02-08** 🔧 Refactored Providers—adding a new LLM provider now takes just 2 simple steps! Check [here](#providers).
-- **2026-02-07** 🚀 Released **v0.1.3.post5** with Qwen support & several key improvements! Check [here](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post5) for details.
+- **2026-02-07** 🚀 Released **v0.1.3.post5** with Qwen support & several key improvements! Check [here](https://github.com/lichman0405/nanobot/releases/tag/v0.1.3.post5) for details.
 - **2026-02-06** ✨ Added Moonshot/Kimi provider, Discord integration, and enhanced security hardening!
 - **2026-02-05** ✨ Added Feishu channel, DeepSeek provider, and enhanced scheduled tasks support!
-- **2026-02-04** 🚀 Released **v0.1.3.post4** with multi-provider & Docker support! Check [here](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post4) for details.
+- **2026-02-04** 🚀 Released **v0.1.3.post4** with multi-provider & Docker support! Check [here](https://github.com/lichman0405/nanobot/releases/tag/v0.1.3.post4) for details.
 - **2026-02-03** ⚡ Integrated vLLM for local LLM support and improved natural language task scheduling!
 - **2026-02-02** 🎉 nanobot officially launched! Welcome to try 🐈 nanobot!
 
@@ -91,7 +91,7 @@
 **Install from source** (latest features, recommended for development)
 
 ```bash
-git clone https://github.com/HKUDS/nanobot.git
+git clone https://github.com/lichman0405/nanobot.git
 cd nanobot
 pip install -e .
 ```
@@ -164,156 +164,18 @@ This branch is **Feishu-only** for production use.
 
 > Notes:
 > - Feishu is the only supported chat channel in this fork.
-> - Other channel docs from upstream may still appear below as historical reference.
+> - Non-Feishu channel code has been removed from this branch.
 
-<details>
-<summary><b>Telegram</b> (Recommended)</summary>
-
-**1. Create a bot**
-- Open Telegram, search `@BotFather`
-- Send `/newbot`, follow prompts
-- Copy the token
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["YOUR_USER_ID"]
-    }
-  }
-}
-```
-
-> You can find your **User ID** in Telegram settings. It is shown as `@yourUserId`.
-> Copy this value **without the `@` symbol** and paste it into the config file.
-
-
-**3. Run**
-
-```bash
-nanobot gateway
-```
-
-</details>
-
-<details>
-<summary><b>Mochat (Claw IM)</b></summary>
-
-Uses **Socket.IO WebSocket** by default, with HTTP polling fallback.
-
-**1. Ask nanobot to set up Mochat for you**
-
-Simply send this message to nanobot (replace `xxx@xxx` with your real email):
-
-```
-Read https://raw.githubusercontent.com/HKUDS/MoChat/refs/heads/main/skills/nanobot/skill.md and register on MoChat. My Email account is xxx@xxx Bind me as your owner and DM me on MoChat.
-```
-
-nanobot will automatically register, configure `~/.nanobot/config.json`, and connect to Mochat.
-
-**2. Restart gateway**
-
-```bash
-nanobot gateway
-```
-
-That's it — nanobot handles the rest!
-
-<br>
-
-<details>
-<summary>Manual configuration (advanced)</summary>
-
-If you prefer to configure manually, add the following to `~/.nanobot/config.json`:
-
-> Keep `claw_token` private. It should only be sent in `X-Claw-Token` header to your Mochat API endpoint.
-
-```json
-{
-  "channels": {
-    "mochat": {
-      "enabled": true,
-      "base_url": "https://mochat.io",
-      "socket_url": "https://mochat.io",
-      "socket_path": "/socket.io",
-      "claw_token": "claw_xxx",
-      "agent_user_id": "6982abcdef",
-      "sessions": ["*"],
-      "panels": ["*"],
-      "reply_delay_mode": "non-mention",
-      "reply_delay_ms": 120000
-    }
-  }
-}
-```
-
-
-
-</details>
-
-</details>
-
-<details>
-<summary><b>Discord</b></summary>
-
-**1. Create a bot**
-- Go to https://discord.com/developers/applications
-- Create an application → Bot → Add Bot
-- Copy the bot token
-
-**2. Enable intents**
-- In the Bot settings, enable **MESSAGE CONTENT INTENT**
-- (Optional) Enable **SERVER MEMBERS INTENT** if you plan to use allow lists based on member data
-
-**3. Get your User ID**
-- Discord Settings → Advanced → enable **Developer Mode**
-- Right-click your avatar → **Copy User ID**
-
-**4. Configure**
-
-```json
-{
-  "channels": {
-    "discord": {
-      "enabled": true,
-      "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["YOUR_USER_ID"]
-    }
-  }
-}
-```
-
-**5. Invite the bot**
-- OAuth2 → URL Generator
-- Scopes: `bot`
-- Bot Permissions: `Send Messages`, `Read Message History`
-- Open the generated invite URL and add the bot to your server
-
-**6. Run**
-
-```bash
-nanobot gateway
-```
-
-</details>
-
-<details>
-<summary><b>Feishu (飞书)</b></summary>
+### Feishu Setup
 
 Uses **WebSocket** long connection — no public IP required.
 
 **1. Create a Feishu bot**
 - Visit [Feishu Open Platform](https://open.feishu.cn/app)
-- Create a new app → Enable **Bot** capability
-- **Permissions**: Add `im:message` (send messages)
-- **Events**: Add `im.message.receive_v1` (receive messages)
-  - Select **Long Connection** mode (requires running nanobot first to establish connection)
-- Get **App ID** and **App Secret** from "Credentials & Basic Info"
-- Publish the app
+- Create a new app and enable **Bot** capability
+- Add permission: `im:message`
+- Add event: `im.message.receive_v1` (Long Connection)
+- Get **App ID** and **App Secret**, then publish the app
 
 **2. Configure**
 
@@ -324,16 +186,13 @@ Uses **WebSocket** long connection — no public IP required.
       "enabled": true,
       "appId": "cli_xxx",
       "appSecret": "xxx",
-      "encryptKey": "",
-      "verificationToken": "",
       "allowFrom": []
     }
   }
 }
 ```
 
-> `encryptKey` and `verificationToken` are optional for Long Connection mode.
-> `allowFrom`: Leave empty to allow all users, or add `["ou_xxx"]` to restrict access.
+> `allowFrom`: leave empty to allow all users, or set `["ou_xxx"]` to restrict access.
 
 **3. Run**
 
@@ -342,183 +201,7 @@ nanobot gateway
 ```
 
 > [!TIP]
-> Feishu uses WebSocket to receive messages — no webhook or public IP needed!
-
-</details>
-
-<details>
-<summary><b>QQ (QQ单聊)</b></summary>
-
-Uses **botpy SDK** with WebSocket — no public IP required. Currently supports **private messages only**.
-
-**1. Register & create bot**
-- Visit [QQ Open Platform](https://q.qq.com) → Register as a developer (personal or enterprise)
-- Create a new bot application
-- Go to **开发设置 (Developer Settings)** → copy **AppID** and **AppSecret**
-
-**2. Set up sandbox for testing**
-- In the bot management console, find **沙箱配置 (Sandbox Config)**
-- Under **在消息列表配置**, click **添加成员** and add your own QQ number
-- Once added, scan the bot's QR code with mobile QQ → open the bot profile → tap "发消息" to start chatting
-
-**3. Configure**
-
-> - `allowFrom`: Leave empty for public access, or add user openids to restrict. You can find openids in the nanobot logs when a user messages the bot.
-> - For production: submit a review in the bot console and publish. See [QQ Bot Docs](https://bot.q.qq.com/wiki/) for the full publishing flow.
-
-```json
-{
-  "channels": {
-    "qq": {
-      "enabled": true,
-      "appId": "YOUR_APP_ID",
-      "secret": "YOUR_APP_SECRET",
-      "allowFrom": []
-    }
-  }
-}
-```
-
-**4. Run**
-
-```bash
-nanobot gateway
-```
-
-Now send a message to the bot from QQ — it should respond!
-
-</details>
-
-<details>
-<summary><b>DingTalk (钉钉)</b></summary>
-
-Uses **Stream Mode** — no public IP required.
-
-**1. Create a DingTalk bot**
-- Visit [DingTalk Open Platform](https://open-dev.dingtalk.com/)
-- Create a new app -> Add **Robot** capability
-- **Configuration**:
-  - Toggle **Stream Mode** ON
-- **Permissions**: Add necessary permissions for sending messages
-- Get **AppKey** (Client ID) and **AppSecret** (Client Secret) from "Credentials"
-- Publish the app
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "dingtalk": {
-      "enabled": true,
-      "clientId": "YOUR_APP_KEY",
-      "clientSecret": "YOUR_APP_SECRET",
-      "allowFrom": []
-    }
-  }
-}
-```
-
-> `allowFrom`: Leave empty to allow all users, or add `["staffId"]` to restrict access.
-
-**3. Run**
-
-```bash
-nanobot gateway
-```
-
-</details>
-
-<details>
-<summary><b>Slack</b></summary>
-
-Uses **Socket Mode** — no public URL required.
-
-**1. Create a Slack app**
-- Go to [Slack API](https://api.slack.com/apps) → **Create New App** → "From scratch"
-- Pick a name and select your workspace
-
-**2. Configure the app**
-- **Socket Mode**: Toggle ON → Generate an **App-Level Token** with `connections:write` scope → copy it (`xapp-...`)
-- **OAuth & Permissions**: Add bot scopes: `chat:write`, `reactions:write`, `app_mentions:read`
-- **Event Subscriptions**: Toggle ON → Subscribe to bot events: `message.im`, `message.channels`, `app_mention` → Save Changes
-- **App Home**: Scroll to **Show Tabs** → Enable **Messages Tab** → Check **"Allow users to send Slash commands and messages from the messages tab"**
-- **Install App**: Click **Install to Workspace** → Authorize → copy the **Bot Token** (`xoxb-...`)
-
-**3. Configure nanobot**
-
-```json
-{
-  "channels": {
-    "slack": {
-      "enabled": true,
-      "botToken": "xoxb-...",
-      "appToken": "xapp-...",
-      "groupPolicy": "mention"
-    }
-  }
-}
-```
-
-**4. Run**
-
-```bash
-nanobot gateway
-```
-
-DM the bot directly or @mention it in a channel — it should respond!
-
-> [!TIP]
-> - `groupPolicy`: `"mention"` (default — respond only when @mentioned), `"open"` (respond to all channel messages), or `"allowlist"` (restrict to specific channels).
-> - DM policy defaults to open. Set `"dm": {"enabled": false}` to disable DMs.
-
-</details>
-
-<details>
-<summary><b>Email</b></summary>
-
-Give nanobot its own email account. It polls **IMAP** for incoming mail and replies via **SMTP** — like a personal email assistant.
-
-**1. Get credentials (Gmail example)**
-- Create a dedicated Gmail account for your bot (e.g. `my-nanobot@gmail.com`)
-- Enable 2-Step Verification → Create an [App Password](https://myaccount.google.com/apppasswords)
-- Use this app password for both IMAP and SMTP
-
-**2. Configure**
-
-> - `consentGranted` must be `true` to allow mailbox access. This is a safety gate — set `false` to fully disable.
-> - `allowFrom`: Leave empty to accept emails from anyone, or restrict to specific senders.
-> - `smtpUseTls` and `smtpUseSsl` default to `true` / `false` respectively, which is correct for Gmail (port 587 + STARTTLS). No need to set them explicitly.
-> - Set `"autoReplyEnabled": false` if you only want to read/analyze emails without sending automatic replies.
-
-```json
-{
-  "channels": {
-    "email": {
-      "enabled": true,
-      "consentGranted": true,
-      "imapHost": "imap.gmail.com",
-      "imapPort": 993,
-      "imapUsername": "my-nanobot@gmail.com",
-      "imapPassword": "your-app-password",
-      "smtpHost": "smtp.gmail.com",
-      "smtpPort": 587,
-      "smtpUsername": "my-nanobot@gmail.com",
-      "smtpPassword": "your-app-password",
-      "fromAddress": "my-nanobot@gmail.com",
-      "allowFrom": ["your-real-email@gmail.com"]
-    }
-  }
-}
-```
-
-
-**3. Run**
-
-```bash
-nanobot gateway
-```
-
-</details>
+> Feishu uses WebSocket to receive messages, no webhook or public IP needed.
 
 ## 🌐 Agent Social Network
 
@@ -971,7 +654,7 @@ nanobot/
 
 PRs welcome! The codebase is intentionally small and readable. 🤗
 
-**Roadmap** — Pick an item and [open a PR](https://github.com/HKUDS/nanobot/pulls)!
+**Roadmap** — Pick an item and [open a PR](https://github.com/lichman0405/nanobot/pulls)!
 
 - [ ] **Multi-modal** — See and hear (images, voice, video)
 - [ ] **Long-term memory** — Never forget important context
@@ -981,26 +664,26 @@ PRs welcome! The codebase is intentionally small and readable. 🤗
 
 ### Contributors
 
-<a href="https://github.com/HKUDS/nanobot/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=HKUDS/nanobot&max=100&columns=12&updated=20260210" alt="Contributors" />
+<a href="https://github.com/lichman0405/nanobot/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=lichman0405/nanobot&max=100&columns=12&updated=20260210" alt="Contributors" />
 </a>
 
 
 ## ⭐ Star History
 
 <div align="center">
-  <a href="https://star-history.com/#HKUDS/nanobot&Date">
+  <a href="https://star-history.com/#lichman0405/nanobot&Date">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=HKUDS/nanobot&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=HKUDS/nanobot&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=HKUDS/nanobot&type=Date" style="border-radius: 15px; box-shadow: 0 0 30px rgba(0, 217, 255, 0.3);" />
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=lichman0405/nanobot&type=Date&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=lichman0405/nanobot&type=Date" />
+      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=lichman0405/nanobot&type=Date" style="border-radius: 15px; box-shadow: 0 0 30px rgba(0, 217, 255, 0.3);" />
     </picture>
   </a>
 </div>
 
 <p align="center">
   <em> Thanks for visiting ✨ nanobot!</em><br><br>
-  <img src="https://visitor-badge.laobi.icu/badge?page_id=HKUDS.nanobot&style=for-the-badge&color=00d4ff" alt="Views">
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=lichman0405.nanobot&style=for-the-badge&color=00d4ff" alt="Views">
 </p>
 
 

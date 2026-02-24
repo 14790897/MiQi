@@ -18,11 +18,6 @@ from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
 
-from prompt_toolkit import PromptSession
-from prompt_toolkit.formatted_text import HTML
-from prompt_toolkit.history import FileHistory
-from prompt_toolkit.patch_stdout import patch_stdout
-
 from nanobot import __version__, __logo__
 from nanobot.config.schema import Config
 
@@ -200,6 +195,10 @@ def onboard():
     from nanobot.utils.helpers import get_workspace_path
 
     config_path = get_config_path()
+    interactive_onboard = bool(sys.stdin.isatty() and sys.stdout.isatty())
+
+    agent_name = "nanobot"
+    soul_preset = "balanced"
 
     if config_path.exists():
         console.print(f"[yellow]Config already exists at {config_path}[/yellow]")
@@ -207,23 +206,34 @@ def onboard():
         console.print("  [bold]N[/bold] = refresh config, keeping existing values and adding new fields")
         if typer.confirm("Overwrite?"):
             config = Config()
+            if interactive_onboard:
+                agent_name, soul_preset = _interactive_onboard_setup(config)
+            else:
+                agent_name = _normalize_agent_name(config.agents.defaults.name)
             save_config(config)
             console.print(f"[green]✓[/green] Config reset to defaults at {config_path}")
         else:
             config = load_config()
             save_config(config)
+            agent_name = _normalize_agent_name(getattr(config.agents.defaults, "name", "nanobot"))
             console.print(f"[green]✓[/green] Config refreshed at {config_path} (existing values preserved)")
     else:
-        save_config(Config())
+        config = Config()
+        if interactive_onboard:
+            agent_name, soul_preset = _interactive_onboard_setup(config)
+        else:
+            agent_name = _normalize_agent_name(config.agents.defaults.name)
+        save_config(config)
         console.print(f"[green]✓[/green] Created config at {config_path}")
-    
+
     # Create workspace
     workspace = get_workspace_path()
-    
-    if not workspace.exists():
-        workspace.mkdir(parents=True, exist_ok=True)
+    created_workspace = not workspace.exists()
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    if created_workspace:
         console.print(f"[green]✓[/green] Created workspace at {workspace}")
-    
+
     # Create default bootstrap files
     _create_workspace_templates(
         workspace,
@@ -248,7 +258,7 @@ def onboard():
     console.print('  1. Chat: [cyan]nanobot agent -m "Hello!"[/cyan]')
     console.print("  2. Start gateway: [cyan]nanobot gateway[/cyan]")
     console.print(
-        "\n[dim]Want chat app setup? See: https://github.com/HKUDS/nanobot#-chat-apps[/dim]"
+        "\n[dim]Want chat app setup? See: https://github.com/lichman0405/nanobot#-chat-apps[/dim]"
     )
 
 
@@ -551,19 +561,137 @@ def _interactive_onboard_setup(config) -> tuple[str, str]:
     return agent_name, soul_preset
 
 
-def _create_workspace_templates(workspace: Path):
+def _normalize_agent_name(name: str) -> str:
+    """Normalize agent name from user input."""
+    compact = " ".join(name.strip().split())
+    return compact or "nanobot"
+
+
+def _build_soul_template(agent_name: str, soul_preset: str) -> str:
+    """Build SOUL.md content from a preset."""
+    preset = next((item for item in SOUL_PRESETS if item[1] == soul_preset), SOUL_PRESETS[0])
+    _, _, trait_1, trait_2, trait_3, value_1 = preset
+
+    return f"""# Soul
+
+I am {agent_name}, a lightweight AI assistant.
+
+## Personality
+
+- {trait_1}
+- {trait_2}
+- {trait_3}
+
+## Values
+
+- {value_1}
+- User privacy and safety
+- Transparency in actions
+"""
+
+
+def _build_identity_template(agent_name: str) -> str:
+    """Build IDENTITY.md content."""
+    return f"""# Identity
+
+- Name: {agent_name}
+- Role: Personal AI assistant
+
+When introducing yourself, use this name naturally.
+"""
+
+
+def _fetch_ollama_cloud_models(api_base: str, api_key: str) -> tuple[list[str], str | None]:
+    """Fetch available model names from Ollama cloud endpoints.
+
+    Tries Ollama native endpoint first (/api/tags), then OpenAI-compatible
+    endpoint (/v1/models) as fallback.
+    """
+    base = (api_base or "").rstrip("/")
+    if not base:
+        return [], "Missing apiBase"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json",
+    }
+
+    endpoint_candidates: list[str] = []
+    if base.endswith("/api"):
+        endpoint_candidates.append(f"{base}/tags")
+    else:
+        endpoint_candidates.append(f"{base}/api/tags")
+
+    if base.endswith("/v1"):
+        endpoint_candidates.append(f"{base}/models")
+    else:
+        endpoint_candidates.append(f"{base}/v1/models")
+
+    errors: list[str] = []
+    for endpoint in endpoint_candidates:
+        try:
+            response = httpx.get(endpoint, headers=headers, timeout=10.0)
+            response.raise_for_status()
+            payload = response.json()
+
+            models: list[str] = []
+            if isinstance(payload.get("models"), list):
+                for item in payload["models"]:
+                    if isinstance(item, dict):
+                        name = item.get("name") or item.get("model")
+                        if isinstance(name, str) and name:
+                            models.append(name)
+            if isinstance(payload.get("data"), list):
+                for item in payload["data"]:
+                    if isinstance(item, dict):
+                        name = item.get("id")
+                        if isinstance(name, str) and name:
+                            models.append(name)
+
+            uniq_models = sorted(set(models))
+            if uniq_models:
+                return uniq_models, None
+            errors.append(f"{endpoint}: empty model list")
+        except Exception as exc:
+            errors.append(f"{endpoint}: {exc}")
+
+    return [], "; ".join(errors)
+
+
+def _create_workspace_templates(
+    workspace: Path,
+    agent_name: str = "nanobot",
+    soul_preset: str = "balanced",
+):
     """Create default workspace template files from bundled templates."""
     from importlib.resources import files as pkg_files
 
+    agent_name = _normalize_agent_name(agent_name)
     templates_dir = pkg_files("nanobot") / "templates"
 
+    # Create standard bootstrap files from templates, excluding SOUL (customized below).
     for item in templates_dir.iterdir():
         if not item.name.endswith(".md"):
+            continue
+        if item.name == "SOUL.md":
             continue
         dest = workspace / item.name
         if not dest.exists():
             dest.write_text(item.read_text(encoding="utf-8"), encoding="utf-8")
             console.print(f"  [dim]Created {item.name}[/dim]")
+
+    soul_file = workspace / "SOUL.md"
+    if not soul_file.exists():
+        soul_file.write_text(
+            _build_soul_template(agent_name, soul_preset),
+            encoding="utf-8",
+        )
+        console.print("  [dim]Created SOUL.md[/dim]")
+
+    identity_file = workspace / "IDENTITY.md"
+    if not identity_file.exists():
+        identity_file.write_text(_build_identity_template(agent_name), encoding="utf-8")
+        console.print("  [dim]Created IDENTITY.md[/dim]")
 
     memory_dir = workspace / "memory"
     memory_dir.mkdir(exist_ok=True)

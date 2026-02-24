@@ -32,6 +32,7 @@ class SubagentManager:
         workspace: Path,
         bus: MessageBus,
         model: str | None = None,
+        web_config: "WebToolsConfig | None" = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
         brave_api_key: str | None = None,
@@ -46,6 +47,7 @@ class SubagentManager:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.brave_api_key = brave_api_key
+        self.web_config = web_config or WebToolsConfig()
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
         self._running_tasks: dict[str, asyncio.Task[None]] = {}

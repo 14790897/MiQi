@@ -7,7 +7,7 @@ import json
 import re
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from loguru import logger
 
@@ -23,12 +23,17 @@ from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
+from nanobot.config.schema import (
+    AgentMemoryConfig,
+    AgentSelfImprovementConfig,
+    AgentSessionConfig,
+    ChannelsConfig,
+    ExecToolConfig,
+    WebToolsConfig,
+)
+from nanobot.cron.service import CronService
 from nanobot.providers.base import LLMProvider
 from nanobot.session.manager import Session, SessionManager
-
-if TYPE_CHECKING:
-    from nanobot.config.schema import ChannelsConfig, ExecToolConfig
-    from nanobot.cron.service import CronService
 
 
 class AgentLoop:
@@ -51,18 +56,22 @@ class AgentLoop:
         agent_name: str = "nanobot",
         model: str | None = None,
         max_iterations: int = 40,
+        reflect_after_tool_calls: bool = True,
+        web_config: WebToolsConfig | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
         memory_window: int = 100,
         brave_api_key: str | None = None,
         exec_config: ExecToolConfig | None = None,
+        memory_config: AgentMemoryConfig | None = None,
+        self_improvement_config: AgentSelfImprovementConfig | None = None,
+        session_config: AgentSessionConfig | None = None,
         cron_service: CronService | None = None,
         restrict_to_workspace: bool = False,
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
     ):
-        from nanobot.config.schema import ExecToolConfig
         self.bus = bus
         self.channels_config = channels_config
         self.provider = provider
@@ -70,6 +79,8 @@ class AgentLoop:
         self.agent_name = agent_name.strip() or "nanobot"
         self.model = model or provider.get_default_model()
         self.max_iterations = max_iterations
+        self.reflect_after_tool_calls = reflect_after_tool_calls
+        self.web_config = web_config or WebToolsConfig()
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.memory_window = memory_window
@@ -81,14 +92,41 @@ class AgentLoop:
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
 
-        self.context = ContextBuilder(workspace)
-        self.sessions = session_manager or SessionManager(workspace)
+        self.memory = MemoryStore(
+            workspace=workspace,
+            flush_every_updates=self.memory_config.flush_every_updates,
+            flush_interval_seconds=self.memory_config.flush_interval_seconds,
+            short_term_turns=self.memory_config.short_term_turns,
+            pending_limit=self.memory_config.pending_limit,
+            self_improvement_enabled=self.self_improvement_config.enabled,
+            max_lessons_in_prompt=self.self_improvement_config.max_lessons_in_prompt,
+            min_lesson_confidence=self.self_improvement_config.min_lesson_confidence,
+            max_lessons=self.self_improvement_config.max_lessons,
+            lesson_confidence_decay_hours=self.self_improvement_config.lesson_confidence_decay_hours,
+            feedback_max_message_chars=self.self_improvement_config.feedback_max_message_chars,
+            feedback_require_prefix=self.self_improvement_config.feedback_require_prefix,
+            promotion_enabled=self.self_improvement_config.promotion_enabled,
+            promotion_min_users=self.self_improvement_config.promotion_min_users,
+            promotion_triggers=self.self_improvement_config.promotion_triggers,
+        )
+        self.context = ContextBuilder(
+            workspace,
+            memory_store=self.memory,
+            agent_name=self.agent_name,
+        )
+        self.sessions = session_manager or SessionManager(
+            workspace,
+            compact_threshold_messages=self.session_config.compact_threshold_messages,
+            compact_threshold_bytes=self.session_config.compact_threshold_bytes,
+            compact_keep_messages=self.session_config.compact_keep_messages,
+        )
         self.tools = ToolRegistry()
         self.subagents = SubagentManager(
             provider=provider,
             workspace=workspace,
             bus=bus,
             model=self.model,
+            web_config=self.web_config,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             brave_api_key=brave_api_key,
@@ -116,8 +154,22 @@ class AgentLoop:
             timeout=self.exec_config.timeout,
             restrict_to_workspace=self.restrict_to_workspace,
         ))
-        self.tools.register(WebSearchTool(api_key=self.brave_api_key))
-        self.tools.register(WebFetchTool())
+        self.tools.register(
+            WebSearchTool(
+                provider=self.web_config.search.provider,
+                api_key=self.web_config.search.api_key or None,
+                max_results=self.web_config.search.max_results,
+                ollama_api_key=self.web_config.search.ollama_api_key or None,
+                ollama_api_base=self.web_config.search.ollama_api_base,
+            )
+        )
+        self.tools.register(
+            WebFetchTool(
+                provider=self.web_config.fetch.provider,
+                ollama_api_key=self.web_config.fetch.ollama_api_key or None,
+                ollama_api_base=self.web_config.fetch.ollama_api_base,
+            )
+        )
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
@@ -229,6 +281,13 @@ class AgentLoop:
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
+                if self.reflect_after_tool_calls:
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": "Reflect on the results and decide next steps.",
+                        }
+                    )
             else:
                 final_content = self._strip_think(response.content)
                 break
@@ -330,6 +389,7 @@ class AgentLoop:
 
         key = session_key or msg.session_key
         session = self.sessions.get_or_create(key)
+        previous_assistant = self._get_last_assistant_message(session)
 
         # Slash commands
         cmd = msg.content.strip().lower()
@@ -416,6 +476,19 @@ class AgentLoop:
         preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
         logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
 
+        self.memory.record_turn(
+            session_key=session.key,
+            user_message=msg.content,
+            assistant_message=final_content,
+        )
+        self.memory.record_user_feedback(
+            session_key=session.key,
+            user_message=msg.content,
+            previous_assistant=previous_assistant,
+            actor_key=msg.sender_id,
+        )
+        self.memory.flush_if_needed()
+
         self._save_turn(session, all_msgs, 1 + len(history))
         self.sessions.save(session)
 
@@ -443,12 +516,46 @@ class AgentLoop:
             session.messages.append(entry)
         session.updated_at = datetime.now()
 
-    async def _consolidate_memory(self, session, archive_all: bool = False) -> bool:
-        """Delegate to MemoryStore.consolidate(). Returns True on success."""
-        return await MemoryStore(self.workspace).consolidate(
-            session, self.provider, self.model,
-            archive_all=archive_all, memory_window=self.memory_window,
-        )
+    async def _consolidate_memory(self, session: Session, archive_all: bool = False) -> bool:
+        """Archive consolidated turns into memory store and advance cursor."""
+        try:
+            if archive_all:
+                keep_count = 0
+                old_messages = session.messages
+            else:
+                keep_count = self.memory_window // 2
+                if len(session.messages) <= keep_count:
+                    return True
+                if len(session.messages) - session.last_consolidated <= 0:
+                    return True
+                old_messages = session.messages[session.last_consolidated:-keep_count]
+                if not old_messages:
+                    return True
+
+            pending_user: str | None = None
+            for item in old_messages:
+                role = item.get("role")
+                content = str(item.get("content", "")).strip()
+                if not content:
+                    continue
+                if role == "user":
+                    pending_user = content
+                elif role == "assistant" and pending_user is not None:
+                    self.memory.record_turn(
+                        session_key=session.key,
+                        user_message=pending_user,
+                        assistant_message=content,
+                    )
+                    pending_user = None
+                elif role == "assistant":
+                    self.memory.remember(content, immediate=False)
+
+            self.memory.flush(force=True)
+            session.last_consolidated = 0 if archive_all else len(session.messages) - keep_count
+            return True
+        except Exception:
+            logger.exception("Memory consolidation failed")
+            return False
 
     async def process_direct(
         self,

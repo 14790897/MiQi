@@ -246,6 +246,50 @@ class WebFetchTool(Tool):
                               "extractor": extractor, "truncated": truncated, "length": len(text), "text": text}, ensure_ascii=False)
         except Exception as e:
             return json.dumps({"error": str(e), "url": url}, ensure_ascii=False)
+
+    async def _ollama_fetch(self, url: str, max_chars: int | None = None) -> str:
+        if not self.ollama_api_key:
+            return json.dumps(
+                {"error": "OLLAMA_API_KEY not configured for Ollama web_fetch", "url": url},
+                ensure_ascii=False,
+            )
+
+        resolved_max_chars = self.max_chars if max_chars is None else max_chars
+        endpoint = f"{self.ollama_api_base}/api/web_fetch"
+
+        try:
+            async with httpx.AsyncClient() as client:
+                r = await client.post(
+                    endpoint,
+                    json={"url": url},
+                    headers={
+                        "Authorization": f"Bearer {self.ollama_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    timeout=20.0,
+                )
+                r.raise_for_status()
+
+            payload = r.json()
+            content = payload.get("content", "")
+            truncated = len(content) > resolved_max_chars
+            if truncated:
+                content = content[:resolved_max_chars]
+
+            return json.dumps(
+                {
+                    "url": url,
+                    "extractor": "ollama_web_fetch",
+                    "title": payload.get("title", ""),
+                    "links": payload.get("links", []),
+                    "truncated": truncated,
+                    "length": len(content),
+                    "text": content,
+                },
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            return json.dumps({"error": str(e), "url": url}, ensure_ascii=False)
     
     def _to_markdown(self, html: str) -> str:
         """Convert HTML to markdown."""

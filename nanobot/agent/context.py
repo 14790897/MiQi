@@ -95,7 +95,7 @@ Skills with available="false" need dependencies installed first - you can try in
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
         agent_name = self.agent_name
 
-You are nanobot, a helpful AI assistant. 
+        return f"""You are {agent_name}, a helpful AI assistant.
 
 ## Current Time
 {now} ({tz})
