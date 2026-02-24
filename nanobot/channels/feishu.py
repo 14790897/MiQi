@@ -36,7 +36,12 @@ try:
 except ImportError:
     FEISHU_AVAILABLE = False
     lark = None
+    CreateMessageReactionRequest = None
+    CreateMessageReactionRequestBody = None
+    CreateMessageRequest = None
+    CreateMessageRequestBody = None
     Emoji = None
+    P2ImMessageReceiveV1 = Any
 
 # Message type display mapping
 MSG_TYPE_MAP = {
@@ -252,7 +257,7 @@ class FeishuChannel(BaseChannel):
     
     async def start(self) -> None:
         """Start the Feishu bot with WebSocket long connection."""
-        if not FEISHU_AVAILABLE:
+        if not FEISHU_AVAILABLE or lark is None:
             logger.error("Feishu SDK not installed. Run: pip install lark-oapi")
             return
         
@@ -262,35 +267,37 @@ class FeishuChannel(BaseChannel):
         
         self._running = True
         self._loop = asyncio.get_running_loop()
-        
+        lark_sdk = cast(Any, lark)
+
         # Create Lark client for sending messages
-        self._client = lark.Client.builder() \
+        self._client = lark_sdk.Client.builder() \
             .app_id(self.config.app_id) \
             .app_secret(self.config.app_secret) \
-            .log_level(lark.LogLevel.INFO) \
+            .log_level(lark_sdk.LogLevel.INFO) \
             .build()
-        
+
         # Create event handler (only register message receive, ignore other events)
-        event_handler = lark.EventDispatcherHandler.builder(
+        event_handler = lark_sdk.EventDispatcherHandler.builder(
             self.config.encrypt_key or "",
             self.config.verification_token or "",
         ).register_p2_im_message_receive_v1(
             self._on_message_sync
         ).build()
-        
+
         # Create WebSocket client for long connection
-        self._ws_client = lark.ws.Client(
+        self._ws_client = lark_sdk.ws.Client(
             self.config.app_id,
             self.config.app_secret,
             event_handler=event_handler,
-            log_level=lark.LogLevel.INFO
+            log_level=lark_sdk.LogLevel.INFO
         )
-        
+        ws_client = self._ws_client
+
         # Start WebSocket client in a separate thread with reconnect loop
         def run_ws():
             while self._running:
                 try:
-                    self._ws_client.start()
+                    ws_client.start()
                 except Exception as e:
                     logger.warning("Feishu WebSocket error: {}", e)
                 if self._running:
@@ -318,12 +325,24 @@ class FeishuChannel(BaseChannel):
     
     def _add_reaction_sync(self, message_id: str, emoji_type: str) -> None:
         """Sync helper for adding reaction (runs in thread pool)."""
+        if (
+            self._client is None
+            or CreateMessageReactionRequest is None
+            or CreateMessageReactionRequestBody is None
+            or Emoji is None
+        ):
+            return
+
+        create_reaction_request = cast(Any, CreateMessageReactionRequest)
+        create_reaction_body = cast(Any, CreateMessageReactionRequestBody)
+        emoji_cls = cast(Any, Emoji)
+
         try:
-            request = CreateMessageReactionRequest.builder() \
+            request = create_reaction_request.builder() \
                 .message_id(message_id) \
                 .request_body(
-                    CreateMessageReactionRequestBody.builder()
-                    .reaction_type(Emoji.builder().emoji_type(emoji_type).build())
+                    create_reaction_body.builder()
+                    .reaction_type(emoji_cls.builder().emoji_type(emoji_type).build())
                     .build()
                 ).build()
             
@@ -639,7 +658,7 @@ class FeishuChannel(BaseChannel):
         except Exception as e:
             logger.error("Error sending Feishu message: {}", e)
     
-    def _on_message_sync(self, data: "P2ImMessageReceiveV1") -> None:
+    def _on_message_sync(self, data: Any) -> None:
         """
         Sync handler for incoming messages (called from WebSocket thread).
         Schedules async handling in the main event loop.
@@ -647,7 +666,7 @@ class FeishuChannel(BaseChannel):
         if self._loop and self._loop.is_running():
             asyncio.run_coroutine_threadsafe(self._on_message(data), self._loop)
     
-    async def _on_message(self, data: "P2ImMessageReceiveV1") -> None:
+    async def _on_message(self, data: Any) -> None:
         """Handle incoming message from Feishu."""
         try:
             event = data.event
@@ -655,7 +674,10 @@ class FeishuChannel(BaseChannel):
             sender = event.sender
 
             # Deduplication check
-            message_id = message.message_id
+            message_id_raw = getattr(message, "message_id", None)
+            if not isinstance(message_id_raw, str) or not message_id_raw:
+                return
+            message_id = message_id_raw
             if message_id in self._processed_message_ids:
                 return
             self._processed_message_ids[message_id] = None

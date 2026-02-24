@@ -196,6 +196,9 @@ class AgentsConfig(Base):
     """Agent configuration."""
 
     defaults: AgentDefaults = Field(default_factory=AgentDefaults)
+    memory: AgentMemoryConfig = Field(default_factory=AgentMemoryConfig)
+    sessions: AgentSessionConfig = Field(default_factory=AgentSessionConfig)
+    self_improvement: AgentSelfImprovementConfig = Field(default_factory=AgentSelfImprovementConfig)
 
 
 class ProviderConfig(Base):
@@ -239,6 +242,8 @@ class WebSearchConfig(Base):
     """Web search tool configuration."""
 
     api_key: str = ""  # Brave Search API key
+    ollama_api_key: str = ""  # Ollama web search API key
+    ollama_api_base: str = "https://ollama.com"
     max_results: int = 5
 
 
@@ -246,6 +251,7 @@ class WebToolsConfig(Base):
     """Web tools configuration."""
 
     search: WebSearchConfig = Field(default_factory=WebSearchConfig)
+    fetch: WebFetchConfig = Field(default_factory=WebFetchConfig)
 
 
 class ExecToolConfig(Base):
@@ -308,6 +314,11 @@ class Config(BaseSettings):
                 if spec.is_oauth or p.api_key:
                     return p, spec.name
 
+        def _is_configured(spec, provider) -> bool:
+            if spec.is_local:
+                return bool(provider.api_base)
+            return bool(provider.api_key)
+
         # Match by keyword (order follows PROVIDERS registry)
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
@@ -321,7 +332,7 @@ class Config(BaseSettings):
             if spec.is_oauth:
                 continue
             p = getattr(self.providers, spec.name, None)
-            if p and p.api_key:
+            if p and _is_configured(spec, p):
                 return p, spec.name
         return None, None
 

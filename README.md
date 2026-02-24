@@ -111,8 +111,8 @@ pip install nanobot-ai
 ## 🚀 Quick Start
 
 > [!TIP]
-> Set your API key in `~/.nanobot/config.json`.
-> Get API keys: [OpenRouter](https://openrouter.ai/keys) (Global) · [Brave Search](https://brave.com/search/api/) (optional, for web search)
+> `nanobot onboard` now includes an interactive menu to choose provider, model, API base URL, API key, web mode, assistant name, and soul preset.
+> Get API keys: [OpenRouter](https://openrouter.ai/keys) (Global) · [Brave Search](https://brave.com/search/api/) (optional, for web search) · [Ollama Cloud](https://ollama.com/settings/keys)
 
 **1. Initialize**
 
@@ -120,7 +120,7 @@ pip install nanobot-ai
 nanobot onboard
 ```
 
-**2. Configure** (`~/.nanobot/config.json`)
+**2. Follow the interactive setup**
 
 Add or merge these **two parts** into your config (other options have defaults).
 
@@ -578,7 +578,7 @@ Config file: `~/.nanobot/config.json`
 
 ### Providers
 
-> [!TIP]
+
 > - **Groq** provides free voice transcription via Whisper. If configured, Telegram voice messages will be automatically transcribed.
 > - **Zhipu Coding Plan**: If you're on Zhipu's coding plan, set `"apiBase": "https://open.bigmodel.cn/api/coding/paas/v4"` in your zhipu provider config.
 > - **MiniMax (Mainland China)**: If your API key is from MiniMax's mainland China platform (minimaxi.com), set `"apiBase": "https://api.minimaxi.com/v1"` in your minimax provider config.
@@ -805,6 +805,40 @@ MCP tools are automatically discovered and registered on startup. The LLM can us
 |--------|---------|-------------|
 | `tools.restrictToWorkspace` | `false` | When `true`, restricts **all** agent tools (shell, file read/write/edit, list) to the workspace directory. Prevents path traversal and out-of-scope access. |
 | `channels.*.allowFrom` | `[]` (allow all) | Whitelist of user IDs. Empty = allow everyone; non-empty = only listed users can interact. |
+
+### Memory Runtime (RAM-first Checkpoint)
+
+nanobot uses a RAM-first memory path:
+- Long-term memory snapshot: `workspace/memory/LTM_SNAPSHOT.json`
+- Long-term memory audit log: `workspace/memory/LTM_AUDIT.jsonl`
+- Self-improvement lessons: `workspace/memory/LESSONS.jsonl`
+- Self-improvement lesson audit: `workspace/memory/LESSONS_AUDIT.jsonl`
+- Human-readable notes: `workspace/memory/MEMORY.md`
+
+Session storage is append-only by default, then compacted periodically.
+Design notes: `docs/RAM_FIRST_MEMORY_CHECKPOINT.md`
+Self-development notes: `docs/SELF_DEVELOPMENT.md`
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `agents.memory.flushEveryUpdates` | `8` | Flush long-term memory snapshot after N updates |
+| `agents.memory.flushIntervalSeconds` | `120` | Flush long-term memory snapshot at least every N seconds |
+| `agents.memory.shortTermTurns` | `12` | In-memory short-term turn window per session |
+| `agents.memory.pendingLimit` | `20` | Max pending items tracked per session |
+| `agents.defaults.reflectAfterToolCalls` | `true` | Insert reflection prompt after each tool round (disable to reduce token usage) |
+| `agents.sessions.compactThresholdMessages` | `400` | Compact session file when messages exceed threshold |
+| `agents.sessions.compactThresholdBytes` | `2000000` | Compact session file when file size exceeds threshold |
+| `agents.sessions.compactKeepMessages` | `300` | Keep recent N messages after compaction |
+| `agents.selfImprovement.enabled` | `true` | Enable feedback-to-lesson self-development |
+| `agents.selfImprovement.maxLessonsInPrompt` | `5` | Max lessons injected into prompt |
+| `agents.selfImprovement.minLessonConfidence` | `1` | Minimum lesson confidence to be injected |
+| `agents.selfImprovement.maxLessons` | `200` | Maximum lessons retained after compaction |
+| `agents.selfImprovement.lessonConfidenceDecayHours` | `168` | Confidence decay window for stale lessons |
+| `agents.selfImprovement.feedbackMaxMessageChars` | `220` | Ignore feedback learning for overly long user messages |
+| `agents.selfImprovement.feedbackRequirePrefix` | `true` | Require correction prefix (e.g. "不对", "wrong") before learning from user feedback |
+| `agents.selfImprovement.promotionEnabled` | `true` | Promote repeated session lessons to global lessons |
+| `agents.selfImprovement.promotionMinUsers` | `3` | Minimum distinct users required for auto-promotion |
+| `agents.selfImprovement.promotionTriggers` | `["response:length","response:language"]` | Trigger allowlist for auto-promotion |
 
 
 ## CLI Reference

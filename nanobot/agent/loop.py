@@ -48,6 +48,7 @@ class AgentLoop:
         bus: MessageBus,
         provider: LLMProvider,
         workspace: Path,
+        agent_name: str = "nanobot",
         model: str | None = None,
         max_iterations: int = 40,
         temperature: float = 0.1,
@@ -66,6 +67,7 @@ class AgentLoop:
         self.channels_config = channels_config
         self.provider = provider
         self.workspace = workspace
+        self.agent_name = agent_name.strip() or "nanobot"
         self.model = model or provider.get_default_model()
         self.max_iterations = max_iterations
         self.temperature = temperature
@@ -73,6 +75,9 @@ class AgentLoop:
         self.memory_window = memory_window
         self.brave_api_key = brave_api_key
         self.exec_config = exec_config or ExecToolConfig()
+        self.memory_config = memory_config or AgentMemoryConfig()
+        self.self_improvement_config = self_improvement_config or AgentSelfImprovementConfig()
+        self.session_config = session_config or AgentSessionConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
 
@@ -278,6 +283,7 @@ class AgentLoop:
 
     def stop(self) -> None:
         """Stop the agent loop."""
+        self.memory.flush(force=True)
         self._running = False
         logger.info("Agent loop stopping")
 
@@ -457,3 +463,11 @@ class AgentLoop:
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
         response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
         return response.content if response else ""
+
+    @staticmethod
+    def _get_last_assistant_message(session) -> str:
+        """Get the last assistant message from a session, if available."""
+        for item in reversed(session.messages):
+            if item.get("role") == "assistant":
+                return str(item.get("content", ""))
+        return ""

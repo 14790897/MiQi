@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -33,12 +34,7 @@ class Session:
     
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
         """Add a message to the session."""
-        msg = {
-            "role": role,
-            "content": content,
-            "timestamp": datetime.now().isoformat(),
-            **kwargs
-        }
+        msg = {"role": role, "content": content, "timestamp": datetime.now().isoformat(), **kwargs}
         self.messages.append(msg)
         self.updated_at = datetime.now()
     
@@ -67,6 +63,7 @@ class Session:
         self.messages = []
         self.last_consolidated = 0
         self.updated_at = datetime.now()
+        # Keep saved_count so save() can detect history shrink and rewrite the file.
 
 
 class SessionManager:
@@ -81,7 +78,7 @@ class SessionManager:
         self.sessions_dir = ensure_dir(self.workspace / "sessions")
         self.legacy_sessions_dir = Path.home() / ".nanobot" / "sessions"
         self._cache: dict[str, Session] = {}
-    
+
     def _get_session_path(self, key: str) -> Path:
         """Get the file path for a session."""
         safe_key = safe_filename(key.replace(":", "_"))
@@ -95,10 +92,10 @@ class SessionManager:
     def get_or_create(self, key: str) -> Session:
         """
         Get an existing session or create a new one.
-        
+
         Args:
             key: Session key (usually channel:chat_id).
-        
+
         Returns:
             The session.
         """
@@ -108,10 +105,10 @@ class SessionManager:
         session = self._load(key)
         if session is None:
             session = Session(key=key)
-        
+
         self._cache[key] = session
         return session
-    
+
     def _load(self, key: str) -> Session | None:
         """Load a session from disk."""
         path = self._get_session_path(key)
@@ -158,9 +155,9 @@ class SessionManager:
         except Exception as e:
             logger.warning("Failed to load session {}: {}", key, e)
             return None
-    
+
     def save(self, session: Session) -> None:
-        """Save a session to disk."""
+        """Persist session changes using append-only writes."""
         path = self._get_session_path(session.key)
 
         with open(path, "w", encoding="utf-8") as f:
@@ -185,12 +182,12 @@ class SessionManager:
     def list_sessions(self) -> list[dict[str, Any]]:
         """
         List all sessions.
-        
+
         Returns:
             List of session info dicts.
         """
         sessions = []
-        
+
         for path in self.sessions_dir.glob("*.jsonl"):
             try:
                 # Read just the metadata line
@@ -208,5 +205,64 @@ class SessionManager:
                             })
             except Exception:
                 continue
-        
+
         return sorted(sessions, key=lambda x: x.get("updated_at", ""), reverse=True)
+
+    def compact_if_needed(self, key: str) -> bool:
+        """
+        Compact a session file if it exceeds thresholds.
+
+        Returns:
+            True if compacted, False otherwise.
+        """
+        session = self.get_or_create(key)
+        path = self._get_session_path(key)
+        if not path.exists():
+            return False
+
+        by_message_count = len(session.messages) >= self.compact_threshold_messages
+        by_file_size = path.stat().st_size >= self.compact_threshold_bytes
+        if not by_message_count and not by_file_size:
+            return False
+
+        return self.compact(key)
+
+    def compact(self, key: str) -> bool:
+        """
+        Compact a session by rewriting with recent messages only.
+
+        Returns:
+            True if compacted, False if session file does not exist.
+        """
+        path = self._get_session_path(key)
+        if not path.exists():
+            return False
+
+        session = self.get_or_create(key)
+        if len(session.messages) > self.compact_keep_messages:
+            session.messages = session.messages[-self.compact_keep_messages :]
+
+        session.saved_count = len(session.messages)
+        session.updated_at = datetime.now()
+
+        with open(path, "w", encoding="utf-8") as f:
+            metadata_line = {
+                "_type": "metadata",
+                "created_at": session.created_at.isoformat(),
+                "updated_at": session.updated_at.isoformat(),
+                "metadata": session.metadata,
+            }
+            f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
+            for msg in session.messages:
+                f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+
+        self._cache[key] = session
+        return True
+
+    def compact_all(self) -> int:
+        """Compact all existing session files and return compacted count."""
+        compacted = 0
+        for info in self.list_sessions():
+            if self.compact(info["key"]):
+                compacted += 1
+        return compacted
