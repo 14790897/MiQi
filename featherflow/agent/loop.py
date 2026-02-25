@@ -257,9 +257,6 @@ class AgentLoop:
 
             if response.has_tool_calls:
                 if on_progress:
-                    clean = self._strip_think(response.content)
-                    if clean:
-                        await on_progress(clean)
                     await on_progress(self._tool_hint(response.tool_calls), tool_hint=True)
 
                 tool_call_dicts = [
@@ -286,11 +283,14 @@ class AgentLoop:
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
+                    if tool_call.name == "message" and isinstance(result, str) and result.startswith("Message sent"):
+                        final_content = None
+                        return final_content, tools_used, messages
                 if self.reflect_after_tool_calls:
                     messages.append(
                         {
                             "role": "user",
-                            "content": "Reflect on the results and decide next steps.",
+                            "content": "Reason silently about whether more tools are needed. Do not expose this reflection process unless explicitly asked.",
                         }
                     )
             else:

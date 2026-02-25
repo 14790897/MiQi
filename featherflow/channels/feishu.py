@@ -255,6 +255,95 @@ class FeishuChannel(BaseChannel):
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()  # Ordered dedup cache
         self._loop: asyncio.AbstractEventLoop | None = None
 
+    @staticmethod
+    def _has_mentions(message: Any, raw_content: str) -> bool:
+        """Best-effort detection for Feishu @mentions in a message."""
+        mentions = getattr(message, "mentions", None)
+        if isinstance(mentions, list) and len(mentions) > 0:
+            return True
+        if not raw_content:
+            return False
+        return '"tag":"at"' in raw_content or "@_user_" in raw_content or "<at" in raw_content
+
+    @staticmethod
+    def _is_command_like(text: str, prefixes: list[str]) -> bool:
+        """Detect command-like group messages by configurable prefixes."""
+        t = (text or "").strip().lower()
+        if not t:
+            return False
+        for prefix in prefixes:
+            p = (prefix or "").strip().lower()
+            if p and t.startswith(p):
+                return True
+        return False
+
+    @staticmethod
+    def _contains_keyword(text: str, keywords: list[str]) -> bool:
+        """Check if text contains any configured keyword."""
+        if not text:
+            return False
+        for keyword in keywords:
+            kw = (keyword or "").strip()
+            if kw and kw in text:
+                return True
+        return False
+
+    @staticmethod
+    def _matches_any_pattern(text: str, patterns: list[str]) -> bool:
+        """Regex matching with invalid-pattern tolerance."""
+        if not text:
+            return False
+        for pattern in patterns:
+            p = (pattern or "").strip()
+            if not p:
+                continue
+            try:
+                if re.search(p, text):
+                    return True
+            except re.error:
+                logger.warning("Invalid Feishu group smart regex pattern ignored: {}", p)
+        return False
+
+    def _should_process_group_message(self, message: Any, raw_content: str, parsed_text: str) -> bool:
+        """Decide whether a group message should be forwarded to agent loop."""
+        has_mention = self._has_mentions(message, raw_content)
+
+        policy = (self.config.group_read_policy or "smart").strip().lower()
+        if self.config.require_mention_in_group:
+            policy = "mention"
+
+        if policy == "all":
+            return True
+        if policy == "mention":
+            return has_mention
+
+        text = (parsed_text or "").strip()
+
+        if self.config.group_smart_enable_ignore and self._matches_any_pattern(
+            text, self.config.group_smart_ignore_patterns
+        ):
+            return False
+
+        if self.config.group_smart_enable_mention and has_mention:
+            return True
+
+        if self.config.group_smart_enable_prefix and self._is_command_like(
+            text, self.config.group_smart_prefixes
+        ):
+            return True
+
+        if self.config.group_smart_enable_keyword and self._contains_keyword(
+            text, self.config.group_smart_keywords
+        ):
+            return True
+
+        if self.config.group_smart_enable_regex and self._matches_any_pattern(
+            text, self.config.group_smart_patterns
+        ):
+            return True
+
+        return False
+
     async def start(self) -> None:
         """Start the Feishu bot with WebSocket long connection."""
         if not FEISHU_AVAILABLE or lark is None:
@@ -318,9 +407,17 @@ class FeishuChannel(BaseChannel):
         self._running = False
         if self._ws_client:
             try:
-                self._ws_client.stop()
+                stop_method = getattr(self._ws_client, "stop", None)
+                if callable(stop_method):
+                    stop_method()
+                else:
+                    close_method = getattr(self._ws_client, "close", None)
+                    if callable(close_method):
+                        close_method()
             except Exception as e:
                 logger.warning("Error stopping WebSocket client: {}", e)
+        if self._ws_thread and self._ws_thread.is_alive():
+            self._ws_thread.join(timeout=2)
         logger.info("Feishu bot stopped")
 
     def _add_reaction_sync(self, message_id: str, emoji_type: str) -> None:
@@ -697,8 +794,11 @@ class FeishuChannel(BaseChannel):
             chat_type = message.chat_type
             msg_type = message.message_type
 
-            # Add reaction
-            await self._add_reaction(message_id, "THUMBSUP")
+            if self.config.allow_from and sender_id not in self.config.allow_from:
+                return
+
+            if self.config.auto_reaction:
+                await self._add_reaction(message_id, self.config.reaction_emoji)
 
             # Parse content
             content_parts = []
@@ -735,6 +835,10 @@ class FeishuChannel(BaseChannel):
                 content_parts.append(MSG_TYPE_MAP.get(msg_type, f"[{msg_type}]"))
 
             content = "\n".join(content_parts) if content_parts else ""
+
+            raw_content = message.content if isinstance(message.content, str) else ""
+            if chat_type == "group" and not self._should_process_group_message(message, raw_content, content):
+                return
 
             if not content and not media_paths:
                 return
