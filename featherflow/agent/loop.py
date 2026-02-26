@@ -268,7 +268,7 @@ class AgentLoop:
             if isinstance(cron_tool, CronTool):
                 cron_tool.set_context(channel, chat_id)
 
-        for tool_name in ("feishu_doc", "feishu_calendar", "feishu_task", "feishu_drive", "feishu_handoff"):
+        for tool_name in ("feishu_group", "feishu_doc", "feishu_calendar", "feishu_task", "feishu_drive", "feishu_handoff"):
             tool = self.tools.get(tool_name)
             set_context = getattr(tool, "set_context", None)
             if callable(set_context):
