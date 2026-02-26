@@ -481,10 +481,18 @@ class MemoryStore:
                     legacy = TextProcessor.clean_text(long_term, max_len=900)
                     parts.append("## Legacy Long-term Notes\n" + legacy)
                 else:
+                    # Hard cap to avoid token explosion when snapshot is empty.
+                    _LT_MAX = 8000
+                    if len(long_term) > _LT_MAX:
+                        long_term = long_term[:_LT_MAX] + "\n... (truncated)"
                     parts.append("## Long-term Memory\n" + long_term)
 
             today = self.read_today()
             if today:
+                # Today's notes are high-signal but can grow unbounded via heartbeat.
+                _TODAY_MAX = 12000
+                if len(today) > _TODAY_MAX:
+                    today = today[:_TODAY_MAX] + "\n... (truncated)"
                 parts.append("## Today's Notes\n" + today)
 
             if session_key:
