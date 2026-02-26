@@ -8,6 +8,7 @@ import json
 import re
 import time
 import uuid
+import zlib
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -40,9 +41,17 @@ try:
     from lark_oapi.api.drive.v1 import (
         CreateFolderFileRequest,
         CreateFolderFileRequestBody,
+        CreatePermissionMemberRequest,
+        FileUploadInfo,
         ListFileRequest,
+        Member as PermissionMember,
         UploadAllFileRequest,
         UploadAllFileRequestBody,
+        UploadFinishFileRequest,
+        UploadFinishFileRequestBody,
+        UploadPartFileRequest,
+        UploadPartFileRequestBody,
+        UploadPrepareFileRequest,
     )
     from lark_oapi.api.im.v1 import GetChatMembersRequest
     from lark_oapi.api.task.v2 import CreateTaskRequest, Due, InputTask, Member
@@ -51,6 +60,10 @@ try:
 except ImportError:
     FEISHU_AVAILABLE = False
     lark = None
+
+# Files larger than this threshold must use multipart (分片) upload.
+# upload_all API hard-limits: ≤ 20 MB per Feishu official docs (2024-10-23).
+_FEISHU_UPLOAD_ALL_MAX_BYTES: int = 20 * 1024 * 1024  # 20 MB
 
 
 def _normalize_name(value: str) -> str:
@@ -168,6 +181,65 @@ class FeishuToolBase(Tool):
         if self._channel and self._channel != "feishu":
             return f"Current channel is '{self._channel}', not feishu"
         return None
+
+    async def _grant_permission(
+        self,
+        token: str,
+        token_type: str,
+        *,
+        member_type: str = "openchat",
+        member_id: str = "",
+        perm: str = "view",
+    ) -> str | None:
+        """Grant permission for a cloud doc/file to a user or group.
+
+        Args:
+            token: The doc/file token.
+            token_type: Resource type, e.g. "docx", "file", "sheet".
+            member_type: "openchat" for group, "openid" for user.
+            member_id: The group chat_id or user open_id.
+            perm: Permission level: "view", "edit", or "full_access".
+
+        Returns:
+            Error message string on failure, None on success.
+
+        Note (2025-07-03 official docs):
+            - To grant group access with tenant_access_token, the app must be
+              a bot member of the group first.
+            - Direct folder-level app grants are not supported; use group-based
+              access instead.
+        """
+        if not FEISHU_AVAILABLE or self._client is None:
+            return "Feishu client not available"
+        if not token or not member_id:
+            return "token and member_id are required for permission grant"
+        try:
+            member = (
+                PermissionMember.builder()
+                .member_type(member_type)
+                .member_id(member_id)
+                .perm(perm)
+                .build()
+            )
+            request = (
+                CreatePermissionMemberRequest.builder()
+                .token(token)
+                .type(token_type)
+                .need_notification(False)
+                .request_body(member)
+                .build()
+            )
+            response = await self._run_sync(
+                self._client.drive.v1.permission_member.create, request
+            )
+            if not response.success():
+                return (
+                    f"Failed to grant permission: code={response.code}, "
+                    f"msg={response.msg}"
+                )
+            return None
+        except Exception as e:
+            return f"Failed to grant permission: {e}"
 
     def _sender_open_id(self) -> str:
         sender = str((self._metadata or {}).get("sender_open_id") or self._sender_id or "").strip()
@@ -405,6 +477,15 @@ class FeishuDocTool(FeishuToolBase):
                     "type": "string",
                     "description": "Optional plain text content to append into the doc",
                 },
+                "grant_chat_access": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, grant the current group chat view access to the "
+                        "created doc via drive permission-member/create (2025-07-03). "
+                        "Requires the app to be a bot member of the group."
+                    ),
+                    "default": False,
+                },
             },
             "required": ["title"],
         }
@@ -414,6 +495,7 @@ class FeishuDocTool(FeishuToolBase):
         title: str,
         folder_token: str | None = None,
         content: str | None = None,
+        grant_chat_access: bool = False,
         **kwargs: Any,
     ) -> str:
         if error := self._check_ready():
@@ -457,6 +539,21 @@ class FeishuDocTool(FeishuToolBase):
             payload["content_written"] = write_ok
             if write_error:
                 payload["content_write_warning"] = write_error
+
+        # Optional: grant current group chat view access to the newly created doc.
+        # Official docs (2025-07-03): POST /open-apis/drive/v1/permissions/:token/members
+        if grant_chat_access and self._chat_id:
+            perm_error = await self._grant_permission(
+                document_id,
+                "docx",
+                member_type="openchat",
+                member_id=self._chat_id,
+                perm="view",
+            )
+            if perm_error:
+                payload["grant_chat_access_warning"] = perm_error
+            else:
+                payload["grant_chat_access"] = {"ok": True, "chat_id": self._chat_id}
 
         return self._ok_payload(**payload)
 
@@ -887,8 +984,13 @@ class FeishuDriveTool(FeishuToolBase):
                         "ensure_folder_path",
                         "upload_file",
                         "upload_files",
+                        "grant_permission",
                     ],
-                    "description": "Drive action to execute.",
+                    "description": (
+                        "Drive action to execute. "
+                        "grant_permission: call POST /drive/v1/permissions/:token/members "
+                        "to authorize a user or group for a doc/file."
+                    ),
                 },
                 "parent_folder_token": {
                     "type": "string",
@@ -923,7 +1025,41 @@ class FeishuDriveTool(FeishuToolBase):
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 1024,
-                    "description": "Reject upload if local file exceeds this limit.",
+                    "description": (
+                        "Reject upload if local file exceeds this limit (MB). "
+                        "Files >20 MB automatically use multipart upload "
+                        "(upload_prepare/upload_part/upload_finish)."
+                    ),
+                },
+                "file_token": {
+                    "type": "string",
+                    "description": "File/doc token for grant_permission action.",
+                },
+                "token_type": {
+                    "type": "string",
+                    "enum": ["file", "docx", "sheet", "bitable", "wiki"],
+                    "description": "Resource type for grant_permission. Default 'file'.",
+                },
+                "member_type": {
+                    "type": "string",
+                    "enum": ["openchat", "openid", "unionid"],
+                    "description": (
+                        "Member type for grant_permission. "
+                        "'openchat'=group chat, 'openid'=user open_id."
+                    ),
+                },
+                "member_id": {
+                    "type": "string",
+                    "description": (
+                        "Member ID for grant_permission. "
+                        "Chat ID (oc_...) for openchat, open_id (ou_...) for openid. "
+                        "Defaults to current group chat_id when member_type=openchat."
+                    ),
+                },
+                "perm": {
+                    "type": "string",
+                    "enum": ["view", "edit", "full_access"],
+                    "description": "Permission level for grant_permission. Default 'view'.",
                 },
             },
             "required": ["action"],
@@ -940,6 +1076,12 @@ class FeishuDriveTool(FeishuToolBase):
         local_paths: list[str] | None = None,
         file_name: str | None = None,
         max_size_mb: int | None = None,
+        # grant_permission action parameters
+        file_token: str | None = None,
+        token_type: str = "file",
+        member_type: str = "openchat",
+        member_id: str | None = None,
+        perm: str = "view",
         **kwargs: Any,
     ) -> str:
         if error := self._check_ready():
@@ -1027,6 +1169,37 @@ class FeishuDriveTool(FeishuToolBase):
                 uploaded=uploaded,
                 count=len(uploaded),
                 folder_prepare=created_info,
+            )
+
+        if action == "grant_permission":
+            tok = (file_token or "").strip()
+            tok_type = (token_type or "file").strip()
+            mem_type = (member_type or "openchat").strip()
+            mem_id = (member_id or self._chat_id or "").strip()
+            perm_level = (perm or "view").strip()
+            if not tok:
+                return self._error_payload(
+                    "file_token is required for grant_permission action"
+                )
+            if not mem_id:
+                return self._error_payload(
+                    "member_id is required (or invoke from a group chat context "
+                    "so chat_id can be used as default)"
+                )
+            perm_error = await self._grant_permission(
+                tok, tok_type,
+                member_type=mem_type,
+                member_id=mem_id,
+                perm=perm_level,
+            )
+            if perm_error:
+                return self._error_payload(perm_error)
+            return self._ok_payload(
+                file_token=tok,
+                token_type=tok_type,
+                member_type=mem_type,
+                member_id=mem_id,
+                perm=perm_level,
             )
 
         return self._error_payload(f"Unknown action: {action}")
@@ -1164,6 +1337,13 @@ class FeishuDriveTool(FeishuToolBase):
         file_name: str | None,
         max_size_bytes: int,
     ) -> tuple[dict[str, Any], str | None]:
+        """Upload a local file to Feishu Drive.
+
+        Routing logic (per official docs):
+          - size <= 20 MB  → upload_all  (POST /drive/v1/files/upload_all)
+          - size >  20 MB  → multipart   (upload_prepare/upload_part/upload_finish)
+        Files exceeding max_size_bytes are rejected regardless of upload method.
+        """
         try:
             file_path = self._resolve_local_file(local_path)
         except Exception as e:
@@ -1173,11 +1353,25 @@ class FeishuDriveTool(FeishuToolBase):
         if size <= 0:
             return {}, f"Local file is empty: {file_path}"
         if size > max_size_bytes:
-            return {}, f"Local file exceeds size limit ({size} > {max_size_bytes}): {file_path}"
+            return {}, (
+                f"Local file exceeds configured size limit "
+                f"({size / 1024 / 1024:.1f} MB > {max_size_bytes / 1024 / 1024:.0f} MB): "
+                f"{file_path}"
+            )
 
         upload_name = _safe_drive_name(file_name or file_path.name, "file")
-        checksum = self._md5_file(file_path)
 
+        if size > _FEISHU_UPLOAD_ALL_MAX_BYTES:
+            # Use multipart upload for files > 20 MB
+            return await self._upload_file_multipart(
+                file_path=file_path,
+                folder_token=folder_token,
+                upload_name=upload_name,
+                size=size,
+            )
+
+        # Small file (≤ 20 MB): use upload_all with Adler-32 checksum
+        checksum = self._adler32_file(file_path)
         try:
             with open(file_path, "rb") as f:
                 body = (
@@ -1191,7 +1385,9 @@ class FeishuDriveTool(FeishuToolBase):
                     .build()
                 )
                 request = UploadAllFileRequest.builder().request_body(body).build()
-                response = await self._run_sync(self._client.drive.v1.file.upload_all, request)
+                response = await self._run_sync(
+                    self._client.drive.v1.file.upload_all, request
+                )
         except Exception as e:
             return {}, f"Failed to upload file {file_path}: {e}"
 
@@ -1207,7 +1403,131 @@ class FeishuDriveTool(FeishuToolBase):
             "file_name": upload_name,
             "file_token": file_token,
             "size_bytes": size,
-            "checksum_md5": checksum,
+            "checksum_adler32": checksum,
+            "upload_method": "upload_all",
+            "url_candidates": [
+                f"https://www.feishu.cn/file/{file_token}",
+                f"https://www.larksuite.com/file/{file_token}",
+            ],
+        }, None
+
+    async def _upload_file_multipart(
+        self,
+        *,
+        file_path: Path,
+        folder_token: str,
+        upload_name: str,
+        size: int,
+    ) -> tuple[dict[str, Any], str | None]:
+        """Multipart upload for files > 20 MB.
+
+        Steps:
+          1. upload_prepare  → upload_id, block_size, block_num
+          2. upload_part (×block_num)
+          3. upload_finish   → file_token
+
+        See official docs (2024-09-05):
+          POST /open-apis/drive/v1/files/upload_prepare
+          POST /open-apis/drive/v1/files/upload_part
+          POST /open-apis/drive/v1/files/upload_finish
+        """
+        # Step 1: prepare
+        try:
+            prepare_body = (
+                FileUploadInfo.builder()
+                .file_name(upload_name)
+                .parent_type("explorer")
+                .parent_node(folder_token)
+                .size(size)
+                .build()
+            )
+            prepare_request = (
+                UploadPrepareFileRequest.builder()
+                .request_body(prepare_body)
+                .build()
+            )
+            prepare_resp = await self._run_sync(
+                self._client.drive.v1.file.upload_prepare, prepare_request
+            )
+        except Exception as e:
+            return {}, f"Multipart upload_prepare failed for {file_path.name}: {e}"
+
+        if not prepare_resp.success():
+            return {}, (
+                f"Multipart upload_prepare failed for {file_path.name}: "
+                f"code={prepare_resp.code}, msg={prepare_resp.msg}"
+            )
+
+        upload_id = str(getattr(prepare_resp.data, "upload_id", "") or "").strip()
+        block_size = int(getattr(prepare_resp.data, "block_size", 4 * 1024 * 1024) or 4 * 1024 * 1024)
+        block_num = int(getattr(prepare_resp.data, "block_num", 0) or 0)
+        if not upload_id or block_num <= 0:
+            return {}, f"Multipart upload_prepare returned invalid data for {file_path.name}"
+
+        # Step 2: upload parts
+        try:
+            with open(file_path, "rb") as f:
+                for seq in range(block_num):
+                    chunk = f.read(block_size)
+                    if not chunk:
+                        break
+                    part_body = (
+                        UploadPartFileRequestBody.builder()
+                        .upload_id(upload_id)
+                        .seq(seq)
+                        .size(len(chunk))
+                        .file(chunk)
+                        .build()
+                    )
+                    part_request = (
+                        UploadPartFileRequest.builder()
+                        .request_body(part_body)
+                        .build()
+                    )
+                    part_resp = await self._run_sync(
+                        self._client.drive.v1.file.upload_part, part_request
+                    )
+                    if not part_resp.success():
+                        return {}, (
+                            f"Multipart upload_part seq={seq} failed for {file_path.name}: "
+                            f"code={part_resp.code}, msg={part_resp.msg}"
+                        )
+        except Exception as e:
+            return {}, f"Multipart upload_part failed for {file_path.name}: {e}"
+
+        # Step 3: finish
+        try:
+            finish_body = (
+                UploadFinishFileRequestBody.builder()
+                .upload_id(upload_id)
+                .block_num(block_num)
+                .build()
+            )
+            finish_request = (
+                UploadFinishFileRequest.builder()
+                .request_body(finish_body)
+                .build()
+            )
+            finish_resp = await self._run_sync(
+                self._client.drive.v1.file.upload_finish, finish_request
+            )
+        except Exception as e:
+            return {}, f"Multipart upload_finish failed for {file_path.name}: {e}"
+
+        if not finish_resp.success():
+            return {}, (
+                f"Multipart upload_finish failed for {file_path.name}: "
+                f"code={finish_resp.code}, msg={finish_resp.msg}"
+            )
+
+        file_token = str(getattr(finish_resp.data, "file_token", "") or "").strip()
+        return {
+            "local_path": str(file_path),
+            "file_name": upload_name,
+            "file_token": file_token,
+            "size_bytes": size,
+            "upload_method": "multipart",
+            "block_num": block_num,
             "url_candidates": [
                 f"https://www.feishu.cn/file/{file_token}",
                 f"https://www.larksuite.com/file/{file_token}",
@@ -1230,15 +1550,20 @@ class FeishuDriveTool(FeishuToolBase):
         return resolved
 
     @staticmethod
-    def _md5_file(path: Path) -> str:
-        digest = hashlib.md5()
+    def _adler32_file(path: Path) -> str:
+        """Compute Adler-32 checksum as required by Feishu upload_all API.
+
+        The official API parameter 'checksum' expects an Adler-32 value
+        (not MD5/SHA). Returns the checksum as a decimal string.
+        """
+        value = 1  # Adler-32 initial value
         with open(path, "rb") as f:
             while True:
                 chunk = f.read(1024 * 1024)
                 if not chunk:
                     break
-                digest.update(chunk)
-        return digest.hexdigest()
+                value = zlib.adler32(chunk, value)
+        return str(value & 0xFFFFFFFF)  # Ensure unsigned 32-bit
 
 
 class FeishuHandoffTool(FeishuToolBase):

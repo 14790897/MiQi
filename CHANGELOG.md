@@ -44,8 +44,24 @@ All notable changes to this project will be documented in this file.
   - include the generic Feishu handoff tool in runtime registration/context propagation.
 - Added paywall-aware PDF download behavior:
   - detects common login/paywall HTML responses and returns structured errors instead of saving invalid `.pdf` files.
+- Updated Feishu Drive upload implementation to support multipart upload (分片上传) for files > 20 MB:
+  - `_upload_file_multipart()`: full 3-step flow — `upload_prepare` → `upload_part × block_num` → `upload_finish`.
+  - Auto-routing in `_upload_file()`: ≤ 20 MB → `upload_all`, > 20 MB → multipart.
+  - Added `_FEISHU_UPLOAD_ALL_MAX_BYTES = 20 MB` constant (per Feishu official docs 2024-10-23 hard limit).
+- Added `feishu_drive` action `grant_permission`: calls `POST /open-apis/drive/v1/permissions/:token/members` to grant doc/file access to a user or group chat.
+- Added `_grant_permission()` helper to `FeishuToolBase` (shared across doc/drive tools).
+- Added `grant_chat_access` parameter to `feishu_doc`: when `true`, auto-grants current group chat view access after doc creation.
+- Added `docs/API.md` corrections based on Feishu Open Platform official docs (2026-02-26 verification):
+  - `Permission Management` vs `Events & Callback` setup guide reorganized.
+  - Two-layer permission model explanation (scopes ≠ resource access).
+  - Drive: full multipart upload flow documented; Adler-32 checksum requirement noted.
+  - Drive: `permission-member/create` API fully documented including group-chat limitations.
+  - Calendar: corrected HTTP method from GET to POST for `calendar.v4.calendar.primary`.
+  - Task: corrected API version — v2 is the latest (`POST /open-apis/task/v2/tasks`, updated 2025-06-04).
+  - Updated "Current Implementation Limits" to reflect new capabilities.
 
 ### Fixed
+- Fixed Feishu Drive upload checksum algorithm: replaced MD5 (`_md5_file`) with Adler-32 (`_adler32_file` via `zlib.adler32`). The Feishu `upload_all` API requires Adler-32 decimal string; MD5 caused API error `1062008`.
 - Fixed Moonshot/Kimi requests failing with 404 (`/chat/completions`) when `apiBase` was configured without `/v1`.
 
 ### Tests
