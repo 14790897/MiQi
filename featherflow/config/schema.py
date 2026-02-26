@@ -332,6 +332,16 @@ class ExecToolConfig(Base):
     timeout: int = 60
 
 
+class PapersToolConfig(Base):
+    """Paper research tools configuration."""
+
+    provider: str = "hybrid"  # hybrid | semantic_scholar | arxiv
+    semantic_scholar_api_key: str = ""
+    timeout_seconds: int = 20
+    default_limit: int = 8
+    max_limit: int = 20
+
+
 class MCPServerConfig(Base):
     """MCP server connection configuration (stdio or HTTP)."""
 
@@ -348,6 +358,7 @@ class ToolsConfig(Base):
 
     web: WebToolsConfig = Field(default_factory=WebToolsConfig)
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
+    papers: PapersToolConfig = Field(default_factory=PapersToolConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 

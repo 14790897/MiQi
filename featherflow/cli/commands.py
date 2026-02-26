@@ -539,7 +539,172 @@ def _interactive_onboard_setup(config) -> tuple[str, str]:
     else:
         config.tools.web.fetch.ollama_api_key = ""
 
-    console.print("\n[bold]3) Customize assistant identity[/bold]")
+    console.print("\n[bold]3) Configure paper research tools (optional)[/bold]")
+    console.print("  Paper provider options:")
+    console.print("    1. Hybrid (Semantic Scholar first, fallback to arXiv)")
+    console.print("    2. Semantic Scholar only")
+    console.print("    3. arXiv only")
+
+    papers_mode = typer.prompt("Paper provider", type=int, default=1, show_default=True)
+    if papers_mode == 2:
+        config.tools.papers.provider = "semantic_scholar"
+    elif papers_mode == 3:
+        config.tools.papers.provider = "arxiv"
+    else:
+        config.tools.papers.provider = "hybrid"
+
+    if config.tools.papers.provider in {"hybrid", "semantic_scholar"}:
+        current_key = config.tools.papers.semantic_scholar_api_key or ""
+        key = typer.prompt(
+            "Semantic Scholar API key (optional, recommended)",
+            default=current_key,
+            show_default=False,
+        ).strip()
+        config.tools.papers.semantic_scholar_api_key = key
+        if config.tools.papers.provider == "semantic_scholar" and not key:
+            console.print(
+                "[yellow]No API key set. Semantic Scholar requests may be rate-limited.[/yellow]"
+            )
+
+    config.tools.papers.timeout_seconds = typer.prompt(
+        "Papers timeout seconds",
+        type=int,
+        default=max(3, config.tools.papers.timeout_seconds),
+        show_default=True,
+    )
+    config.tools.papers.default_limit = typer.prompt(
+        "Default paper result limit",
+        type=int,
+        default=max(1, config.tools.papers.default_limit),
+        show_default=True,
+    )
+    config.tools.papers.max_limit = typer.prompt(
+        "Maximum paper result limit",
+        type=int,
+        default=max(config.tools.papers.default_limit, config.tools.papers.max_limit),
+        show_default=True,
+    )
+    if config.tools.papers.max_limit < config.tools.papers.default_limit:
+        config.tools.papers.max_limit = config.tools.papers.default_limit
+        console.print("[yellow]maxLimit was smaller than defaultLimit, adjusted automatically.[/yellow]")
+
+    console.print("\n[bold]4) Configure Feishu channel (optional)[/bold]")
+    configure_feishu = typer.confirm("Configure Feishu now?", default=False)
+    if configure_feishu:
+        current_enabled = bool(config.channels.feishu.enabled)
+        config.channels.feishu.enabled = typer.confirm(
+            "Enable Feishu channel",
+            default=current_enabled if current_enabled else True,
+        )
+
+        config.channels.feishu.app_id = typer.prompt(
+            "Feishu app_id",
+            default=config.channels.feishu.app_id,
+            show_default=bool(config.channels.feishu.app_id),
+        ).strip()
+        config.channels.feishu.app_secret = typer.prompt(
+            "Feishu app_secret",
+            default=config.channels.feishu.app_secret,
+            show_default=False,
+        ).strip()
+        config.channels.feishu.encrypt_key = typer.prompt(
+            "Feishu encrypt_key (optional)",
+            default=config.channels.feishu.encrypt_key,
+            show_default=bool(config.channels.feishu.encrypt_key),
+        ).strip()
+        config.channels.feishu.verification_token = typer.prompt(
+            "Feishu verification_token (optional)",
+            default=config.channels.feishu.verification_token,
+            show_default=bool(config.channels.feishu.verification_token),
+        ).strip()
+
+        allow_from_input = typer.prompt(
+            "Feishu allowFrom open_id list (comma-separated, optional)",
+            default=", ".join(config.channels.feishu.allow_from),
+            show_default=bool(config.channels.feishu.allow_from),
+        )
+        config.channels.feishu.allow_from = _parse_csv_list(allow_from_input)
+
+        console.print("  Group message policy:")
+        console.print("    1. smart (recommended)")
+        console.print("    2. mention only")
+        console.print("    3. all group messages")
+        group_policy = typer.prompt("Group policy", type=int, default=1, show_default=True)
+        if group_policy == 2:
+            config.channels.feishu.group_read_policy = "mention"
+            config.channels.feishu.require_mention_in_group = True
+        elif group_policy == 3:
+            config.channels.feishu.group_read_policy = "all"
+            config.channels.feishu.require_mention_in_group = False
+        else:
+            config.channels.feishu.group_read_policy = "smart"
+            config.channels.feishu.require_mention_in_group = False
+
+        if config.channels.feishu.group_read_policy == "smart":
+            customize_smart = typer.confirm("Customize smart group rules?", default=False)
+            if customize_smart:
+                config.channels.feishu.group_smart_enable_mention = typer.confirm(
+                    "Enable mention trigger",
+                    default=config.channels.feishu.group_smart_enable_mention,
+                )
+                config.channels.feishu.group_smart_enable_prefix = typer.confirm(
+                    "Enable prefix trigger",
+                    default=config.channels.feishu.group_smart_enable_prefix,
+                )
+                config.channels.feishu.group_smart_enable_keyword = typer.confirm(
+                    "Enable keyword trigger",
+                    default=config.channels.feishu.group_smart_enable_keyword,
+                )
+                config.channels.feishu.group_smart_enable_regex = typer.confirm(
+                    "Enable regex trigger",
+                    default=config.channels.feishu.group_smart_enable_regex,
+                )
+                config.channels.feishu.group_smart_enable_ignore = typer.confirm(
+                    "Enable ignore regex",
+                    default=config.channels.feishu.group_smart_enable_ignore,
+                )
+                prefixes = typer.prompt(
+                    "Smart prefixes (comma-separated)",
+                    default=", ".join(config.channels.feishu.group_smart_prefixes),
+                    show_default=True,
+                )
+                config.channels.feishu.group_smart_prefixes = _parse_csv_list(prefixes)
+
+                keywords = typer.prompt(
+                    "Smart keywords (comma-separated)",
+                    default=", ".join(config.channels.feishu.group_smart_keywords),
+                    show_default=True,
+                )
+                config.channels.feishu.group_smart_keywords = _parse_csv_list(keywords)
+
+                patterns = typer.prompt(
+                    "Smart regex patterns (separate with ||)",
+                    default=" || ".join(config.channels.feishu.group_smart_patterns),
+                    show_default=True,
+                )
+                config.channels.feishu.group_smart_patterns = _parse_token_list(patterns, "||")
+
+                ignore_patterns = typer.prompt(
+                    "Smart ignore regex patterns (separate with ||)",
+                    default=" || ".join(config.channels.feishu.group_smart_ignore_patterns),
+                    show_default=True,
+                )
+                config.channels.feishu.group_smart_ignore_patterns = _parse_token_list(
+                    ignore_patterns, "||"
+                )
+
+        config.channels.feishu.auto_reaction = typer.confirm(
+            "Enable automatic Feishu reactions",
+            default=config.channels.feishu.auto_reaction,
+        )
+        if config.channels.feishu.auto_reaction:
+            config.channels.feishu.reaction_emoji = typer.prompt(
+                "Reaction emoji type",
+                default=config.channels.feishu.reaction_emoji or "THUMBSUP",
+                show_default=True,
+            ).strip() or "THUMBSUP"
+
+    console.print("\n[bold]5) Customize assistant identity[/bold]")
     agent_name = _normalize_agent_name(
         typer.prompt(
             "Assistant name",
@@ -565,6 +730,19 @@ def _normalize_agent_name(name: str) -> str:
     """Normalize agent name from user input."""
     compact = " ".join(name.strip().split())
     return compact or "featherflow"
+
+
+def _parse_token_list(raw: str, delimiter: str = ",") -> list[str]:
+    """Parse delimited text into normalized non-empty tokens."""
+    if not raw:
+        return []
+    parts = [item.strip() for item in raw.split(delimiter)]
+    return [item for item in parts if item]
+
+
+def _parse_csv_list(raw: str) -> list[str]:
+    """Parse comma-separated values into a cleaned list."""
+    return _parse_token_list(raw, ",")
 
 
 def _build_soul_template(agent_name: str, soul_preset: str) -> str:
@@ -801,6 +979,7 @@ def gateway(
         max_iterations=config.agents.defaults.max_tool_iterations,
         reflect_after_tool_calls=config.agents.defaults.reflect_after_tool_calls,
         web_config=config.tools.web,
+        paper_config=config.tools.papers,
         exec_config=config.tools.exec,
         memory_config=config.agents.memory,
         self_improvement_config=config.agents.self_improvement,
@@ -975,6 +1154,7 @@ def agent(
         max_iterations=config.agents.defaults.max_tool_iterations,
         reflect_after_tool_calls=config.agents.defaults.reflect_after_tool_calls,
         web_config=config.tools.web,
+        paper_config=config.tools.papers,
         memory_window=config.agents.defaults.memory_window,
         exec_config=config.tools.exec,
         memory_config=config.agents.memory,
@@ -1720,6 +1900,7 @@ def cron_run(
         max_iterations=config.agents.defaults.max_tool_iterations,
         reflect_after_tool_calls=config.agents.defaults.reflect_after_tool_calls,
         web_config=config.tools.web,
+        paper_config=config.tools.papers,
         memory_window=config.agents.defaults.memory_window,
         exec_config=config.tools.exec,
         memory_config=config.agents.memory,

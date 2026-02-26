@@ -22,6 +22,7 @@ from featherflow.agent.tools.filesystem import (
     WriteFileTool,
 )
 from featherflow.agent.tools.message import MessageTool
+from featherflow.agent.tools.papers import PaperGetTool, PaperSearchTool
 from featherflow.agent.tools.registry import ToolRegistry
 from featherflow.agent.tools.shell import ExecTool
 from featherflow.agent.tools.spawn import SpawnTool
@@ -34,6 +35,7 @@ from featherflow.config.schema import (
     AgentSessionConfig,
     ChannelsConfig,
     ExecToolConfig,
+    PapersToolConfig,
     WebToolsConfig,
 )
 from featherflow.cron.service import CronService
@@ -63,6 +65,7 @@ class AgentLoop:
         max_iterations: int = 40,
         reflect_after_tool_calls: bool = True,
         web_config: WebToolsConfig | None = None,
+        paper_config: PapersToolConfig | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
         memory_window: int = 100,
@@ -86,6 +89,7 @@ class AgentLoop:
         self.max_iterations = max_iterations
         self.reflect_after_tool_calls = reflect_after_tool_calls
         self.web_config = web_config or WebToolsConfig()
+        self.paper_config = paper_config or PapersToolConfig()
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.memory_window = memory_window
@@ -173,6 +177,22 @@ class AgentLoop:
                 provider=self.web_config.fetch.provider,
                 ollama_api_key=self.web_config.fetch.ollama_api_key or None,
                 ollama_api_base=self.web_config.fetch.ollama_api_base,
+            )
+        )
+        self.tools.register(
+            PaperSearchTool(
+                provider=self.paper_config.provider,
+                semantic_scholar_api_key=self.paper_config.semantic_scholar_api_key or None,
+                timeout_seconds=self.paper_config.timeout_seconds,
+                default_limit=self.paper_config.default_limit,
+                max_limit=self.paper_config.max_limit,
+            )
+        )
+        self.tools.register(
+            PaperGetTool(
+                provider=self.paper_config.provider,
+                semantic_scholar_api_key=self.paper_config.semantic_scholar_api_key or None,
+                timeout_seconds=self.paper_config.timeout_seconds,
             )
         )
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))

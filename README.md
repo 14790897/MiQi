@@ -30,7 +30,7 @@ FeatherFlow is a domain-focused evolution of the upstream [`nanobot`](https://gi
 | Category | Capabilities |
 |---|---|
 | **LLM Providers** | OpenRouter, OpenAI, Anthropic, DeepSeek, Gemini, and any OpenAI-compatible endpoint |
-| **Built-in Tools** | File system, shell, web fetch/search, cron scheduler, sub-agent spawning |
+| **Built-in Tools** | File system, shell, web fetch/search, paper research (search/details), cron scheduler, sub-agent spawning |
 | **Channels** | Feishu (WebSocket, runtime enabled) |
 | **Memory** | RAM-first with snapshots, lesson extraction, and compact session history |
 | **Extensibility** | MCP server integration, skill files, custom provider plugins |
@@ -76,6 +76,11 @@ featherflow agent
 # Launch the long-running gateway (channels + scheduled jobs)
 featherflow gateway
 ```
+
+`featherflow onboard` now also supports:
+
+- Paper research tool configuration (`tools.papers` provider, API key, limits)
+- Optional Feishu channel setup (can be skipped; secure defaults preserved)
 
 ---
 
@@ -157,8 +162,8 @@ FeatherFlow reads from `~/.featherflow/config.json`. The interactive wizard (`fe
 
 - **`providers`** — API keys and base URLs for each LLM provider.
 - **`agents.defaults`** — Default model, temperature, token limits, and agent identity.
-- **`channels`** — Feishu channel credentials and access-control settings.
-- **`tools`** — Web/search/fetch behavior, shell execution policy, and MCP server definitions.
+- **`channels`** — Feishu channel credentials and access-control settings (`allowFrom`, group read policy, reaction behavior).
+- **`tools`** — Web/search/fetch behavior, paper research provider settings (`tools.papers`), shell execution policy, and MCP server definitions.
 - **`heartbeat`** — Periodic background prompts (`enabled`, `intervalSeconds`) for proactive agent behaviors.
 
 > **Security:** Set file permissions to `0600` on your config file and configure strict `allowFrom` lists before exposing to any channel. See [`docs/SECURITY.md`](docs/SECURITY.md) for full guidance.
