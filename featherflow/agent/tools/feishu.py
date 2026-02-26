@@ -809,7 +809,7 @@ class FeishuCalendarTool(FeishuToolBase):
         attendee_models = [
             CalendarEventAttendee.builder()
             .type("user")
-            .attendee_id(item.open_id)
+            .user_id(item.open_id)  # user_id accepts open_id; attendee_id is server-generated
             .build()
             for item in attendees
         ]
@@ -938,7 +938,7 @@ class FeishuTaskTool(FeishuToolBase):
                 due_seconds = self._to_unix_seconds(due_at, "Asia/Shanghai")
                 task_builder.due(
                     Due.builder()
-                    .timestamp(due_seconds)
+                    .timestamp(due_seconds * 1000)  # Task v2 API requires milliseconds
                     .is_all_day(bool(is_all_day))
                     .build()
                 )
