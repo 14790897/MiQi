@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
@@ -35,6 +37,13 @@ try:
         TextElement,
         TextRun,
     )
+    from lark_oapi.api.drive.v1 import (
+        CreateFolderFileRequest,
+        CreateFolderFileRequestBody,
+        ListFileRequest,
+        UploadAllFileRequest,
+        UploadAllFileRequestBody,
+    )
     from lark_oapi.api.im.v1 import GetChatMembersRequest
     from lark_oapi.api.task.v2 import CreateTaskRequest, Due, InputTask, Member
 
@@ -60,6 +69,20 @@ def _clean_target(value: str) -> str:
 
 def _looks_like_open_id(value: str) -> bool:
     return bool(re.match(r"^(ou|on)_[A-Za-z0-9]+$", (value or "").strip()))
+
+
+def _safe_drive_name(value: str, fallback: str = "artifact") -> str:
+    name = (value or "").strip()
+    if not name:
+        name = fallback
+    name = re.sub(r"[\\/:*?\"<>|]+", "_", name)
+    name = re.sub(r"\s+", " ", name).strip()
+    return name[:255] if len(name) > 255 else name
+
+
+def _split_folder_path(path: str) -> list[str]:
+    parts = [seg.strip() for seg in (path or "").split("/") if seg.strip()]
+    return [_safe_drive_name(seg, "folder") for seg in parts]
 
 
 @dataclass
@@ -833,3 +856,693 @@ class FeishuTaskTool(FeishuToolBase):
             url=str(getattr(task, "url", "") or ""),
             assignees=[item.as_dict() for item in resolved],
         )
+
+
+class FeishuDriveTool(FeishuToolBase):
+    """Manage Feishu Drive folders and upload local artifacts."""
+
+    def __init__(self, app_id: str, app_secret: str, workspace: Path):
+        super().__init__(app_id, app_secret)
+        self._workspace = workspace.resolve()
+        self._default_parent_token = "root"
+        self._default_max_file_size_mb = 200
+
+    @property
+    def name(self) -> str:
+        return "feishu_drive"
+
+    @property
+    def description(self) -> str:
+        return "Create Feishu Drive folders and upload local files from workspace."
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "create_folder",
+                        "ensure_folder_path",
+                        "upload_file",
+                        "upload_files",
+                    ],
+                    "description": "Drive action to execute.",
+                },
+                "parent_folder_token": {
+                    "type": "string",
+                    "description": "Parent folder token. Defaults to 'root'.",
+                },
+                "folder_token": {
+                    "type": "string",
+                    "description": "Target folder token for upload.",
+                },
+                "folder_name": {
+                    "type": "string",
+                    "description": "Folder name for create_folder.",
+                },
+                "folder_path": {
+                    "type": "string",
+                    "description": "Folder path like 'reports/2026Q1'. Will auto-create segments.",
+                },
+                "local_path": {
+                    "type": "string",
+                    "description": "Local file path for upload_file.",
+                },
+                "local_paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Local file paths for upload_files.",
+                },
+                "file_name": {
+                    "type": "string",
+                    "description": "Optional override filename on Drive for upload_file.",
+                },
+                "max_size_mb": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1024,
+                    "description": "Reject upload if local file exceeds this limit.",
+                },
+            },
+            "required": ["action"],
+        }
+
+    async def execute(
+        self,
+        action: str,
+        parent_folder_token: str | None = None,
+        folder_token: str | None = None,
+        folder_name: str | None = None,
+        folder_path: str | None = None,
+        local_path: str | None = None,
+        local_paths: list[str] | None = None,
+        file_name: str | None = None,
+        max_size_mb: int | None = None,
+        **kwargs: Any,
+    ) -> str:
+        if error := self._check_ready():
+            return self._error_payload(error)
+        if error := self._check_feishu_channel():
+            return self._error_payload(error)
+
+        parent_token = (parent_folder_token or self._default_parent_token).strip()
+        max_size_bytes = max(1, max_size_mb or self._default_max_file_size_mb) * 1024 * 1024
+
+        if action == "create_folder":
+            if not folder_name:
+                return self._error_payload("folder_name is required for create_folder")
+            folder, create_error = await self._create_folder(parent_token, folder_name)
+            if create_error:
+                return self._error_payload(create_error)
+            return self._ok_payload(**folder)
+
+        if action == "ensure_folder_path":
+            if not folder_path:
+                return self._error_payload("folder_path is required for ensure_folder_path")
+            ensured, ensure_error = await self._ensure_folder_path(parent_token, folder_path)
+            if ensure_error:
+                return self._error_payload(ensure_error)
+            return self._ok_payload(**ensured)
+
+        if action == "upload_file":
+            if not local_path:
+                return self._error_payload("local_path is required for upload_file")
+            target_folder, created_info, folder_error = await self._resolve_target_folder(
+                parent_token=parent_token,
+                folder_token=folder_token,
+                folder_path=folder_path,
+            )
+            if folder_error:
+                return self._error_payload(folder_error)
+            upload, upload_error = await self._upload_file(
+                local_path=local_path,
+                folder_token=target_folder,
+                file_name=file_name,
+                max_size_bytes=max_size_bytes,
+            )
+            if upload_error:
+                return self._error_payload(upload_error, target_folder_token=target_folder)
+            payload = {"target_folder_token": target_folder, **upload}
+            if created_info:
+                payload["folder_prepare"] = created_info
+            return self._ok_payload(**payload)
+
+        if action == "upload_files":
+            if not local_paths:
+                return self._error_payload("local_paths is required for upload_files")
+            target_folder, created_info, folder_error = await self._resolve_target_folder(
+                parent_token=parent_token,
+                folder_token=folder_token,
+                folder_path=folder_path,
+            )
+            if folder_error:
+                return self._error_payload(folder_error)
+
+            uploaded: list[dict[str, Any]] = []
+            failed: list[dict[str, str]] = []
+            for path in local_paths:
+                item, item_error = await self._upload_file(
+                    local_path=path,
+                    folder_token=target_folder,
+                    file_name=None,
+                    max_size_bytes=max_size_bytes,
+                )
+                if item_error:
+                    failed.append({"local_path": str(path), "error": item_error})
+                else:
+                    uploaded.append(item)
+
+            if failed:
+                return self._error_payload(
+                    "Some files failed to upload",
+                    target_folder_token=target_folder,
+                    uploaded=uploaded,
+                    failed=failed,
+                    folder_prepare=created_info,
+                )
+            return self._ok_payload(
+                target_folder_token=target_folder,
+                uploaded=uploaded,
+                count=len(uploaded),
+                folder_prepare=created_info,
+            )
+
+        return self._error_payload(f"Unknown action: {action}")
+
+    async def _resolve_target_folder(
+        self,
+        *,
+        parent_token: str,
+        folder_token: str | None,
+        folder_path: str | None,
+    ) -> tuple[str, dict[str, Any] | None, str | None]:
+        if folder_token and folder_token.strip():
+            return folder_token.strip(), None, None
+        if folder_path and folder_path.strip():
+            ensured, ensure_error = await self._ensure_folder_path(parent_token, folder_path)
+            if ensure_error:
+                return "", None, ensure_error
+            return str(ensured.get("folder_token") or ""), ensured, None
+        return parent_token, None, None
+
+    async def _ensure_folder_path(
+        self,
+        parent_token: str,
+        folder_path: str,
+    ) -> tuple[dict[str, Any], str | None]:
+        parts = _split_folder_path(folder_path)
+        if not parts:
+            return {}, "folder_path is empty"
+
+        current = parent_token
+        created: list[dict[str, str]] = []
+        reused: list[dict[str, str]] = []
+
+        for segment in parts:
+            existing, find_error = await self._find_child_folder(current, segment)
+            if find_error:
+                return {}, find_error
+            if existing:
+                current = existing["folder_token"]
+                reused.append(existing)
+                continue
+
+            created_folder, create_error = await self._create_folder(current, segment)
+            if create_error:
+                return {}, create_error
+            current = created_folder["folder_token"]
+            created.append(created_folder)
+
+        return {
+            "folder_path": "/".join(parts),
+            "folder_token": current,
+            "created": created,
+            "reused": reused,
+        }, None
+
+    async def _find_child_folder(
+        self,
+        parent_token: str,
+        folder_name: str,
+    ) -> tuple[dict[str, str] | None, str | None]:
+        next_page = ""
+        target_name = folder_name.strip()
+        try:
+            while True:
+                builder = (
+                    ListFileRequest.builder()
+                    .folder_token(parent_token)
+                    .page_size(200)
+                )
+                if next_page:
+                    builder.page_token(next_page)
+                request = builder.build()
+                response = await self._run_sync(self._client.drive.v1.file.list, request)
+                if not response.success():
+                    return None, (
+                        "Failed to list drive folder contents: "
+                        f"code={response.code}, msg={response.msg}"
+                    )
+
+                for item in (response.data.files or []):
+                    name = str(getattr(item, "name", "") or "").strip()
+                    ftype = str(getattr(item, "type", "") or "").strip().lower()
+                    token = str(getattr(item, "token", "") or "").strip()
+                    url = str(getattr(item, "url", "") or "").strip()
+                    if name == target_name and token and ftype == "folder":
+                        return {
+                            "folder_name": name,
+                            "folder_token": token,
+                            "folder_url": url,
+                        }, None
+
+                if not getattr(response.data, "has_more", False):
+                    break
+                next_page = str(getattr(response.data, "next_page_token", "") or "").strip()
+                if not next_page:
+                    break
+        except Exception as e:
+            return None, f"Failed to list drive folders: {e}"
+        return None, None
+
+    async def _create_folder(
+        self,
+        parent_token: str,
+        folder_name: str,
+    ) -> tuple[dict[str, str], str | None]:
+        body = (
+            CreateFolderFileRequestBody.builder()
+            .name(_safe_drive_name(folder_name, "folder"))
+            .folder_token(parent_token)
+            .build()
+        )
+        request = CreateFolderFileRequest.builder().request_body(body).build()
+        try:
+            response = await self._run_sync(self._client.drive.v1.file.create_folder, request)
+        except Exception as e:
+            return {}, f"Failed to create folder: {e}"
+
+        if not response.success():
+            return {}, f"Failed to create folder: code={response.code}, msg={response.msg}"
+
+        token = str(getattr(response.data, "token", "") or "").strip()
+        url = str(getattr(response.data, "url", "") or "").strip()
+        return {
+            "folder_name": _safe_drive_name(folder_name, "folder"),
+            "folder_token": token,
+            "folder_url": url,
+            "parent_folder_token": parent_token,
+        }, None
+
+    async def _upload_file(
+        self,
+        *,
+        local_path: str,
+        folder_token: str,
+        file_name: str | None,
+        max_size_bytes: int,
+    ) -> tuple[dict[str, Any], str | None]:
+        try:
+            file_path = self._resolve_local_file(local_path)
+        except Exception as e:
+            return {}, str(e)
+
+        size = file_path.stat().st_size
+        if size <= 0:
+            return {}, f"Local file is empty: {file_path}"
+        if size > max_size_bytes:
+            return {}, f"Local file exceeds size limit ({size} > {max_size_bytes}): {file_path}"
+
+        upload_name = _safe_drive_name(file_name or file_path.name, "file")
+        checksum = self._md5_file(file_path)
+
+        try:
+            with open(file_path, "rb") as f:
+                body = (
+                    UploadAllFileRequestBody.builder()
+                    .file_name(upload_name)
+                    .parent_type("explorer")
+                    .parent_node(folder_token)
+                    .size(size)
+                    .checksum(checksum)
+                    .file(f)
+                    .build()
+                )
+                request = UploadAllFileRequest.builder().request_body(body).build()
+                response = await self._run_sync(self._client.drive.v1.file.upload_all, request)
+        except Exception as e:
+            return {}, f"Failed to upload file {file_path}: {e}"
+
+        if not response.success():
+            return {}, (
+                f"Failed to upload file {file_path.name}: "
+                f"code={response.code}, msg={response.msg}"
+            )
+
+        file_token = str(getattr(response.data, "file_token", "") or "").strip()
+        return {
+            "local_path": str(file_path),
+            "file_name": upload_name,
+            "file_token": file_token,
+            "size_bytes": size,
+            "checksum_md5": checksum,
+            "url_candidates": [
+                f"https://www.feishu.cn/file/{file_token}",
+                f"https://www.larksuite.com/file/{file_token}",
+            ],
+        }, None
+
+    def _resolve_local_file(self, raw_path: str) -> Path:
+        path = Path(raw_path).expanduser()
+        if not path.is_absolute():
+            path = self._workspace / path
+        resolved = path.resolve()
+        try:
+            resolved.relative_to(self._workspace)
+        except ValueError:
+            raise PermissionError(f"Path outside workspace is not allowed: {resolved}")
+        if not resolved.exists():
+            raise FileNotFoundError(f"Local file not found: {resolved}")
+        if not resolved.is_file():
+            raise IsADirectoryError(f"Not a file: {resolved}")
+        return resolved
+
+    @staticmethod
+    def _md5_file(path: Path) -> str:
+        digest = hashlib.md5()
+        with open(path, "rb") as f:
+            while True:
+                chunk = f.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.hexdigest()
+
+
+class FeishuHandoffTool(FeishuToolBase):
+    """Generic collaboration handoff orchestrator for Feishu."""
+
+    def __init__(self, app_id: str, app_secret: str, workspace: Path):
+        super().__init__(app_id, app_secret)
+        self._workspace = workspace.resolve()
+        self._drive = FeishuDriveTool(app_id, app_secret, workspace)
+        self._doc = FeishuDocTool(app_id, app_secret)
+        self._task = FeishuTaskTool(app_id, app_secret)
+        self._calendar = FeishuCalendarTool(app_id, app_secret)
+
+    @property
+    def name(self) -> str:
+        return "feishu_handoff"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Generic Feishu handoff orchestration: archive artifacts to Drive, "
+            "optionally create summary doc/task/calendar, and return unified delivery receipts."
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "artifacts": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Local workspace file paths to upload.",
+                },
+                "folder_path": {
+                    "type": "string",
+                    "description": "Optional Drive folder path like 'deliveries/2026-02-26'.",
+                },
+                "folder_token": {
+                    "type": "string",
+                    "description": "Optional existing Drive folder token (higher priority than folder_path).",
+                },
+                "parent_folder_token": {
+                    "type": "string",
+                    "description": "Parent folder for folder_path creation. Defaults to root.",
+                },
+                "summary_title": {"type": "string", "description": "Optional summary doc title."},
+                "summary_content": {"type": "string", "description": "Optional summary doc content."},
+                "task_summary": {"type": "string", "description": "Optional task summary to create."},
+                "task_description": {"type": "string", "description": "Optional task description."},
+                "task_assignees": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional task assignees (open_id or @name).",
+                },
+                "task_due_at": {"type": "string", "description": "Optional task due datetime."},
+                "task_is_all_day": {"type": "boolean", "default": False},
+                "calendar_title": {"type": "string", "description": "Optional calendar event title."},
+                "calendar_start_time": {
+                    "type": "string",
+                    "description": "Calendar start time when calendar_title is provided.",
+                },
+                "calendar_end_time": {
+                    "type": "string",
+                    "description": "Calendar end time when calendar_title is provided.",
+                },
+                "calendar_timezone": {"type": "string", "default": "Asia/Shanghai"},
+                "calendar_description": {"type": "string"},
+                "calendar_attendees": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional calendar attendees (open_id or @name).",
+                },
+                "continue_on_error": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "If false, stop at first failed sub-step.",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Only return orchestration plan, do not execute API calls.",
+                },
+            },
+        }
+
+    async def execute(
+        self,
+        artifacts: list[str] | None = None,
+        folder_path: str | None = None,
+        folder_token: str | None = None,
+        parent_folder_token: str | None = None,
+        summary_title: str | None = None,
+        summary_content: str | None = None,
+        task_summary: str | None = None,
+        task_description: str | None = None,
+        task_assignees: list[str] | None = None,
+        task_due_at: str | None = None,
+        task_is_all_day: bool = False,
+        calendar_title: str | None = None,
+        calendar_start_time: str | None = None,
+        calendar_end_time: str | None = None,
+        calendar_timezone: str = "Asia/Shanghai",
+        calendar_description: str | None = None,
+        calendar_attendees: list[str] | None = None,
+        continue_on_error: bool = True,
+        dry_run: bool = False,
+        **kwargs: Any,
+    ) -> str:
+        if error := self._check_ready():
+            return self._error_payload(error)
+        if error := self._check_feishu_channel():
+            return self._error_payload(error)
+
+        artifacts = artifacts or []
+        steps: list[dict[str, Any]] = []
+        outputs: dict[str, Any] = {}
+        errors: list[dict[str, Any]] = []
+
+        if dry_run:
+            plan = {
+                "folder": {
+                    "folder_token": folder_token,
+                    "folder_path": folder_path,
+                    "parent_folder_token": parent_folder_token or "root",
+                },
+                "artifacts_count": len(artifacts),
+                "create_summary_doc": bool(summary_title or summary_content),
+                "create_task": bool(task_summary),
+                "create_calendar": bool(calendar_title),
+            }
+            return self._ok_payload(plan=plan, dry_run=True)
+
+        self._set_children_context()
+
+        target_folder_token = (folder_token or "").strip()
+        if folder_path and not target_folder_token:
+            res = await self._drive.execute(
+                action="ensure_folder_path",
+                folder_path=folder_path,
+                parent_folder_token=parent_folder_token or "root",
+            )
+            payload = self._parse_payload(res)
+            step = {"step": "ensure_folder_path", "ok": bool(payload.get("ok", False)), "result": payload}
+            steps.append(step)
+            if payload.get("ok"):
+                target_folder_token = str(payload.get("folder_token") or "")
+                outputs["folder"] = payload
+            else:
+                errors.append({"step": "ensure_folder_path", "error": payload.get("error", "unknown error")})
+                if not continue_on_error:
+                    return self._error_payload(
+                        "handoff failed",
+                        steps=steps,
+                        errors=errors,
+                        outputs=outputs,
+                    )
+        elif target_folder_token:
+            outputs["folder"] = {"folder_token": target_folder_token}
+
+        if artifacts:
+            upload_kwargs: dict[str, Any] = {
+                "action": "upload_files",
+                "local_paths": artifacts,
+            }
+            if target_folder_token:
+                upload_kwargs["folder_token"] = target_folder_token
+            elif parent_folder_token:
+                upload_kwargs["parent_folder_token"] = parent_folder_token
+
+            res = await self._drive.execute(**upload_kwargs)
+            payload = self._parse_payload(res)
+            step = {"step": "upload_files", "ok": bool(payload.get("ok", False)), "result": payload}
+            steps.append(step)
+            if payload.get("ok"):
+                outputs["uploads"] = payload
+                if not target_folder_token:
+                    target_folder_token = str(payload.get("target_folder_token") or "")
+            else:
+                errors.append({"step": "upload_files", "error": payload.get("error", "unknown error")})
+                outputs["uploads"] = payload
+                if not continue_on_error:
+                    return self._error_payload(
+                        "handoff failed",
+                        steps=steps,
+                        errors=errors,
+                        outputs=outputs,
+                    )
+
+        if summary_title or summary_content:
+            res = await self._doc.execute(
+                title=(summary_title or "交接摘要").strip(),
+                content=(summary_content or "").strip(),
+                folder_token=target_folder_token or None,
+            )
+            payload = self._parse_payload(res)
+            step = {"step": "create_summary_doc", "ok": bool(payload.get("ok", False)), "result": payload}
+            steps.append(step)
+            if payload.get("ok"):
+                outputs["summary_doc"] = payload
+            else:
+                errors.append({"step": "create_summary_doc", "error": payload.get("error", "unknown error")})
+                if not continue_on_error:
+                    return self._error_payload(
+                        "handoff failed",
+                        steps=steps,
+                        errors=errors,
+                        outputs=outputs,
+                    )
+
+        if task_summary:
+            res = await self._task.execute(
+                summary=task_summary,
+                description=task_description or "",
+                assignees=task_assignees,
+                due_at=task_due_at,
+                is_all_day=task_is_all_day,
+            )
+            payload = self._parse_payload(res)
+            step = {"step": "create_task", "ok": bool(payload.get("ok", False)), "result": payload}
+            steps.append(step)
+            if payload.get("ok"):
+                outputs["task"] = payload
+            else:
+                errors.append({"step": "create_task", "error": payload.get("error", "unknown error")})
+                if not continue_on_error:
+                    return self._error_payload(
+                        "handoff failed",
+                        steps=steps,
+                        errors=errors,
+                        outputs=outputs,
+                    )
+
+        if calendar_title:
+            if not calendar_start_time or not calendar_end_time:
+                errors.append(
+                    {
+                        "step": "create_calendar",
+                        "error": "calendar_start_time and calendar_end_time are required when calendar_title is set",
+                    }
+                )
+                steps.append(
+                    {
+                        "step": "create_calendar",
+                        "ok": False,
+                        "result": {"ok": False, "error": errors[-1]["error"]},
+                    }
+                )
+                if not continue_on_error:
+                    return self._error_payload(
+                        "handoff failed",
+                        steps=steps,
+                        errors=errors,
+                        outputs=outputs,
+                    )
+            else:
+                res = await self._calendar.execute(
+                    title=calendar_title,
+                    start_time=calendar_start_time,
+                    end_time=calendar_end_time,
+                    timezone=calendar_timezone,
+                    description=calendar_description or "",
+                    attendees=calendar_attendees,
+                )
+                payload = self._parse_payload(res)
+                step = {"step": "create_calendar", "ok": bool(payload.get("ok", False)), "result": payload}
+                steps.append(step)
+                if payload.get("ok"):
+                    outputs["calendar"] = payload
+                else:
+                    errors.append({"step": "create_calendar", "error": payload.get("error", "unknown error")})
+                    if not continue_on_error:
+                        return self._error_payload(
+                            "handoff failed",
+                            steps=steps,
+                            errors=errors,
+                            outputs=outputs,
+                        )
+
+        if errors:
+            return self._error_payload(
+                "handoff completed with partial failures",
+                steps=steps,
+                errors=errors,
+                outputs=outputs,
+            )
+        return self._ok_payload(steps=steps, outputs=outputs)
+
+    def _set_children_context(self) -> None:
+        for tool in (self._drive, self._doc, self._task, self._calendar):
+            tool.set_context(
+                channel=self._channel,
+                chat_id=self._chat_id,
+                message_id=self._message_id,
+                sender_id=self._sender_id,
+                metadata=self._metadata,
+            )
+
+    @staticmethod
+    def _parse_payload(raw: str) -> dict[str, Any]:
+        try:
+            payload = json.loads(raw)
+            if isinstance(payload, dict):
+                return payload
+            return {"ok": False, "error": "Non-dict tool payload", "raw": raw}
+        except Exception:
+            return {"ok": False, "error": "Invalid JSON payload", "raw": raw}

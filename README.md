@@ -30,7 +30,7 @@ FeatherFlow is a domain-focused evolution of the upstream [`nanobot`](https://gi
 | Category | Capabilities |
 |---|---|
 | **LLM Providers** | OpenRouter, OpenAI, Anthropic, DeepSeek, Gemini, and any OpenAI-compatible endpoint |
-| **Built-in Tools** | File system, shell, web fetch/search, paper research (search/details), cron scheduler, sub-agent spawning |
+| **Built-in Tools** | File system, shell, web fetch/search, paper research (search/details/download), Feishu collaboration (doc/calendar/task/drive/handoff), cron scheduler, sub-agent spawning |
 | **Channels** | Feishu (WebSocket, runtime enabled) |
 | **Memory** | RAM-first with snapshots, lesson extraction, and compact session history |
 | **Extensibility** | MCP server integration, skill files, custom provider plugins |
@@ -232,6 +232,25 @@ All jobs can be toggled, triggered manually, or removed via the CLI.
 ### MCP Integration
 
 Connect any MCP-compatible tool server and expose its tools directly to the agent. Define MCP servers under the `tools.mcp` section of your config.
+
+### Feishu Collaboration Workflow
+
+FeatherFlow includes a Feishu-first delivery flow for group collaboration:
+
+- `paper_download`: downloads open-access PDFs into workspace and rejects common paywall/login HTML pages with structured errors.
+- `feishu_drive`: creates Drive folders and uploads local artifacts from workspace.
+- `feishu_doc` / `feishu_task` / `feishu_calendar`: creates cloud docs, tasks, and calendar events.
+- `feishu_handoff`: generic handoff orchestration that combines uploads + optional summary doc + optional task + optional calendar event.
+
+For group assignment (`assignees` / `attendees`), user resolution follows this order:
+- explicit `open_id`
+- current message mentions
+- group member exact name match
+- group member fuzzy name match
+
+If multiple users match the same name, tools return candidates and fail safely instead of guessing.
+
+Feishu Open Platform permission checklist for these tools is documented in [docs/API.md](docs/API.md).
 
 ---
 

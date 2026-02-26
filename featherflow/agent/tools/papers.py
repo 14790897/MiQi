@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlparse
 from xml.etree import ElementTree as ET
 
 import httpx
@@ -35,6 +37,44 @@ def _extract_arxiv_id(entry_id: str) -> str:
     if "/abs/" in v:
         return v.split("/abs/", 1)[1]
     return v
+
+
+def _safe_file_component(value: str, fallback: str = "paper") -> str:
+    text = (value or "").strip()
+    if not text:
+        text = fallback
+    text = unquote(text)
+    text = re.sub(r"[^A-Za-z0-9._-]+", "_", text)
+    text = re.sub(r"_+", "_", text).strip("._")
+    return text or fallback
+
+
+def _looks_like_pdf(bytes_head: bytes) -> bool:
+    return bytes_head.startswith(b"%PDF-")
+
+
+def _looks_like_html(content_type: str, sample: bytes) -> bool:
+    ctype = (content_type or "").lower()
+    if "text/html" in ctype or "application/xhtml+xml" in ctype:
+        return True
+    sample_text = sample[:512].decode("utf-8", errors="ignore").lower()
+    return "<html" in sample_text or "<!doctype html" in sample_text
+
+
+def _detect_paywall_text(sample: bytes) -> tuple[bool, list[str]]:
+    text = sample[:8192].decode("utf-8", errors="ignore").lower()
+    hints = [
+        ("purchase", "purchase"),
+        ("subscribe", "subscribe"),
+        ("paywall", "paywall"),
+        ("institutional access", "institutional_access"),
+        ("access through your institution", "institutional_access"),
+        ("log in", "login_required"),
+        ("sign in", "login_required"),
+        ("buy this article", "purchase"),
+    ]
+    found = [tag for key, tag in hints if key in text]
+    return bool(found), sorted(set(found))
 
 
 def _to_record(
@@ -164,15 +204,21 @@ class PaperSearchTool(Tool):
         self,
         query: str,
         limit: int | None = None,
-        yearFrom: int | None = None,
-        yearTo: int | None = None,
-        fieldsOfStudy: str | None = None,
-        minCitationCount: int | None = None,
-        openAccessOnly: bool = False,
+        year_from: int | None = None,
+        year_to: int | None = None,
+        fields_of_study: str | None = None,
+        min_citation_count: int | None = None,
+        open_access_only: bool = False,
         source: str | None = None,
         sort: str = "relevance",
         **kwargs: Any,
     ) -> str:
+        year_from = kwargs.get("yearFrom", year_from)
+        year_to = kwargs.get("yearTo", year_to)
+        fields_of_study = kwargs.get("fieldsOfStudy", fields_of_study)
+        min_citation_count = kwargs.get("minCitationCount", min_citation_count)
+        open_access_only = kwargs.get("openAccessOnly", open_access_only)
+
         q = _normalize_text(query)
         if not q:
             return json.dumps({"error": "query is required"}, ensure_ascii=False)
@@ -186,11 +232,11 @@ class PaperSearchTool(Tool):
             return await self._search_semantic_scholar(
                 q,
                 n,
-                year_from=yearFrom,
-                year_to=yearTo,
-                fields_of_study=fieldsOfStudy,
-                min_citation_count=minCitationCount,
-                open_access_only=openAccessOnly,
+                year_from=year_from,
+                year_to=year_to,
+                fields_of_study=fields_of_study,
+                min_citation_count=min_citation_count,
+                open_access_only=open_access_only,
             )
 
         if resolved_source == "arxiv":
@@ -199,11 +245,11 @@ class PaperSearchTool(Tool):
         semantic_result = await self._search_semantic_scholar(
             q,
             n,
-            year_from=yearFrom,
-            year_to=yearTo,
-            fields_of_study=fieldsOfStudy,
-            min_citation_count=minCitationCount,
-            open_access_only=openAccessOnly,
+            year_from=year_from,
+            year_to=year_to,
+            fields_of_study=fields_of_study,
+            min_citation_count=min_citation_count,
+            open_access_only=open_access_only,
         )
         semantic_payload = _try_json(semantic_result)
         if isinstance(semantic_payload, dict) and semantic_payload.get("items"):
@@ -396,26 +442,31 @@ class PaperGetTool(Tool):
 
     async def execute(
         self,
-        paperId: str,
+        paper_id: str | None = None,
         source: str | None = None,
-        withReferences: bool = False,
-        withCitations: bool = False,
-        edgeLimit: int = 20,
+        with_references: bool = False,
+        with_citations: bool = False,
+        edge_limit: int = 20,
         **kwargs: Any,
     ) -> str:
-        pid = _normalize_text(paperId)
+        paper_id = kwargs.get("paperId", paper_id)
+        with_references = kwargs.get("withReferences", with_references)
+        with_citations = kwargs.get("withCitations", with_citations)
+        edge_limit = kwargs.get("edgeLimit", edge_limit)
+
+        pid = _normalize_text(paper_id)
         if not pid:
             return json.dumps({"error": "paperId is required"}, ensure_ascii=False)
 
         resolved_source = (source or self.provider or "hybrid").strip().lower()
-        edge_limit = min(max(edgeLimit, 1), 200)
+        edge_limit = min(max(edge_limit, 1), 200)
 
         if resolved_source == "semantic_scholar":
-            return await self._get_semantic_scholar(pid, withReferences, withCitations, edge_limit)
+            return await self._get_semantic_scholar(pid, with_references, with_citations, edge_limit)
         if resolved_source == "arxiv":
             return await self._get_arxiv(pid)
 
-        s2 = await self._get_semantic_scholar(pid, withReferences, withCitations, edge_limit)
+        s2 = await self._get_semantic_scholar(pid, with_references, with_citations, edge_limit)
         s2_payload = _try_json(s2)
         if isinstance(s2_payload, dict) and s2_payload.get("item"):
             return s2
@@ -608,6 +659,299 @@ class PaperGetTool(Tool):
                 },
                 ensure_ascii=False,
             )
+
+
+class PaperDownloadTool(Tool):
+    """Download paper PDFs to workspace with paywall-aware handling."""
+
+    name = "paper_download"
+    description = "Download an open-access paper PDF to workspace and return local file path."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "paperId": {
+                "type": "string",
+                "description": "Paper id/DOI/arXiv id. Required when url is not provided.",
+            },
+            "url": {
+                "type": "string",
+                "description": "Direct PDF URL. If provided, takes precedence over paperId.",
+            },
+            "source": {
+                "type": "string",
+                "enum": ["hybrid", "semantic_scholar", "arxiv"],
+                "default": "hybrid",
+            },
+            "outPath": {
+                "type": "string",
+                "description": "Optional output path (relative to workspace).",
+            },
+            "overwrite": {"type": "boolean", "default": False},
+            "maxSizeMB": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500,
+                "description": "Maximum allowed file size in MB before aborting.",
+            },
+        },
+    }
+
+    def __init__(
+        self,
+        workspace: Path,
+        provider: str = "hybrid",
+        semantic_scholar_api_key: str | None = None,
+        timeout_seconds: int = 30,
+        max_size_mb: int = 80,
+    ):
+        self.workspace = workspace.resolve()
+        self.provider = provider
+        self.semantic_scholar_api_key = (semantic_scholar_api_key or "").strip()
+        self.timeout_seconds = max(5, timeout_seconds)
+        self.max_size_mb = max(1, max_size_mb)
+
+    async def execute(
+        self,
+        paper_id: str | None = None,
+        url: str | None = None,
+        source: str | None = None,
+        out_path: str | None = None,
+        overwrite: bool = False,
+        max_size_mb: int | None = None,
+        **kwargs: Any,
+    ) -> str:
+        paper_id = kwargs.get("paperId", paper_id)
+        out_path = kwargs.get("outPath", out_path)
+        max_size_mb = kwargs.get("maxSizeMB", max_size_mb)
+
+        resolved_source = (source or self.provider or "hybrid").strip().lower()
+        max_size_bytes = max(1, (max_size_mb or self.max_size_mb)) * 1024 * 1024
+
+        download_url = _normalize_text(url)
+        paper_meta: dict[str, Any] | None = None
+        if not download_url:
+            pid = _normalize_text(paper_id)
+            if not pid:
+                return json.dumps(
+                    {"ok": False, "error": "Either url or paperId is required."},
+                    ensure_ascii=False,
+                )
+            paper_payload = await self._resolve_paper_pdf_url(pid, resolved_source)
+            if "error" in paper_payload:
+                return json.dumps(
+                    {
+                        "ok": False,
+                        "error": paper_payload["error"],
+                        "paper_id": pid,
+                        "source": resolved_source,
+                        "paywall_suspected": bool(paper_payload.get("paywall_suspected", False)),
+                        "next_steps": [
+                            "Try another source or open-access mirror.",
+                            "If you already have the PDF, place it in workspace and upload via feishu_drive.",
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
+            download_url = str(paper_payload.get("pdf_url") or "").strip()
+            paper_meta = paper_payload.get("item")
+
+        parsed = urlparse(download_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return json.dumps(
+                {"ok": False, "error": f"Invalid download URL: {download_url}"},
+                ensure_ascii=False,
+            )
+
+        try:
+            save_path = self._resolve_save_path(
+                out_path=out_path,
+                paper_id=_normalize_text(paper_id),
+                download_url=download_url,
+            )
+        except Exception as e:
+            return json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False)
+
+        if save_path.exists() and not overwrite:
+            return json.dumps(
+                {
+                    "ok": False,
+                    "error": f"Target file already exists: {save_path}",
+                    "saved_path": str(save_path),
+                },
+                ensure_ascii=False,
+            )
+
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = save_path.with_suffix(save_path.suffix + ".part")
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+
+        status_code = 0
+        content_type = ""
+        final_url = download_url
+        sample = b""
+        total = 0
+        digest = hashlib.sha256()
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) FeatherFlow/1.0",
+            "Accept": "application/pdf,application/octet-stream;q=0.9,*/*;q=0.5",
+        }
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout_seconds,
+                follow_redirects=True,
+            ) as client:
+                async with client.stream("GET", download_url, headers=headers) as resp:
+                    status_code = int(resp.status_code)
+                    content_type = str(resp.headers.get("content-type", "") or "")
+                    final_url = str(resp.url)
+
+                    if status_code >= 400:
+                        body = await resp.aread()
+                        paywall_suspected, tags = _detect_paywall_text(body)
+                        return json.dumps(
+                            {
+                                "ok": False,
+                                "error": f"Download failed with HTTP {status_code}",
+                                "status_code": status_code,
+                                "content_type": content_type,
+                                "download_url": download_url,
+                                "final_url": final_url,
+                                "paywall_suspected": paywall_suspected
+                                or status_code in {401, 402, 403, 451},
+                                "signals": tags,
+                            },
+                            ensure_ascii=False,
+                        )
+
+                    with open(tmp_path, "wb") as f:
+                        async for chunk in resp.aiter_bytes():
+                            if not chunk:
+                                continue
+                            if not sample:
+                                sample = chunk[:1024]
+                            elif len(sample) < 8192:
+                                remain = 8192 - len(sample)
+                                sample += chunk[:remain]
+
+                            total += len(chunk)
+                            if total > max_size_bytes:
+                                tmp_path.unlink(missing_ok=True)
+                                return json.dumps(
+                                    {
+                                        "ok": False,
+                                        "error": f"File too large (> {max_size_bytes} bytes).",
+                                        "status_code": status_code,
+                                        "download_url": download_url,
+                                        "final_url": final_url,
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            digest.update(chunk)
+                            f.write(chunk)
+        except httpx.TimeoutException:
+            tmp_path.unlink(missing_ok=True)
+            return json.dumps(
+                {
+                    "ok": False,
+                    "error": f"Download timed out after {self.timeout_seconds}s",
+                    "download_url": download_url,
+                },
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            tmp_path.unlink(missing_ok=True)
+            return json.dumps(
+                {"ok": False, "error": f"Download failed: {e}", "download_url": download_url},
+                ensure_ascii=False,
+            )
+
+        if total <= 0:
+            tmp_path.unlink(missing_ok=True)
+            return json.dumps(
+                {"ok": False, "error": "Downloaded file is empty", "download_url": download_url},
+                ensure_ascii=False,
+            )
+
+        paywall_suspected, tags = _detect_paywall_text(sample)
+        if not _looks_like_pdf(sample) and (_looks_like_html(content_type, sample) or paywall_suspected):
+            tmp_path.unlink(missing_ok=True)
+            return json.dumps(
+                {
+                    "ok": False,
+                    "error": "Response is not a PDF (likely paywall/login/interstitial page).",
+                    "status_code": status_code,
+                    "content_type": content_type,
+                    "download_url": download_url,
+                    "final_url": final_url,
+                    "paywall_suspected": True,
+                    "signals": tags,
+                    "next_steps": [
+                        "Try institution/VPN-authenticated access outside the bot.",
+                        "Use an open-access mirror URL and retry.",
+                    ],
+                },
+                ensure_ascii=False,
+            )
+
+        tmp_path.replace(save_path)
+
+        payload: dict[str, Any] = {
+            "ok": True,
+            "paper_id": _normalize_text(paper_id),
+            "source": resolved_source,
+            "download_url": download_url,
+            "final_url": final_url,
+            "status_code": status_code,
+            "content_type": content_type,
+            "saved_path": str(save_path),
+            "size_bytes": total,
+            "sha256": digest.hexdigest(),
+        }
+        if paper_meta:
+            payload["item"] = paper_meta
+        return json.dumps(payload, ensure_ascii=False)
+
+    async def _resolve_paper_pdf_url(self, paper_id: str, source: str) -> dict[str, Any]:
+        getter = PaperGetTool(
+            provider=source,
+            semantic_scholar_api_key=self.semantic_scholar_api_key,
+            timeout_seconds=self.timeout_seconds,
+        )
+        result = await getter.execute(paperId=paper_id, source=source)
+        payload = _try_json(result) or {}
+        item = payload.get("item") if isinstance(payload.get("item"), dict) else {}
+        pdf_url = _normalize_text((item or {}).get("open_access_pdf_url"))
+        if pdf_url:
+            return {"pdf_url": pdf_url, "item": item}
+
+        reason = payload.get("error") or "No open-access PDF URL found in metadata."
+        return {
+            "error": str(reason),
+            "paywall_suspected": True,
+            "item": item,
+        }
+
+    def _resolve_save_path(self, out_path: str | None, paper_id: str, download_url: str) -> Path:
+        if out_path:
+            p = Path(out_path).expanduser()
+            target = p if p.is_absolute() else (self.workspace / p)
+        else:
+            parsed = urlparse(download_url)
+            name_from_url = Path(parsed.path).name
+            candidate = _safe_file_component(name_from_url or paper_id or "paper")
+            if not candidate.lower().endswith(".pdf"):
+                candidate = f"{candidate}.pdf"
+            target = self.workspace / "artifacts" / "papers" / candidate
+
+        resolved = target.resolve()
+        try:
+            resolved.relative_to(self.workspace)
+        except ValueError:
+            raise PermissionError(f"Output path outside workspace is not allowed: {resolved}")
+        return resolved
 
 
 def _try_json(text: str) -> dict[str, Any] | None:

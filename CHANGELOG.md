@@ -22,8 +22,15 @@ All notable changes to this project will be documented in this file.
   - `feishu_doc` for cloud doc creation and optional plain-text write.
   - `feishu_calendar` for calendar event creation and attendee assignment.
   - `feishu_task` for task creation with group-member assignment.
+  - `feishu_drive` for Drive folder creation (`create_folder` / `ensure_folder_path`) and workspace file uploads.
+  - `feishu_handoff` as a generic collaboration handoff layer that orchestrates delivery steps.
 - Added Feishu mention metadata extraction (`sender_open_id`, `mentions`) in `featherflow/channels/feishu.py`.
 - Added Feishu tool usage guidance in `featherflow/templates/TOOLS.md`.
+- Added `paper_download` tool in `featherflow/agent/tools/papers.py` to download PDFs into workspace.
+- Added documentation updates for Feishu collaboration + paper delivery workflow:
+  - README feature/capability updates
+  - API docs for `paper_download`, `feishu_drive`, and `feishu_handoff`
+  - Feishu backend permission checklist in `docs/API.md`
 
 ### Changed
 - Refactored `featherflow/cli/commands.py` into an entry/compatibility layer that registers split command modules.
@@ -34,6 +41,9 @@ All notable changes to this project will be documented in this file.
 - Updated `AgentLoop` tool wiring in `featherflow/agent/loop.py` to:
   - auto-register Feishu business tools when Feishu credentials are configured.
   - propagate message context (`channel`, `chat_id`, `message_id`, `sender_id`, `metadata`) into Feishu tools for group assignment resolution.
+  - include the generic Feishu handoff tool in runtime registration/context propagation.
+- Added paywall-aware PDF download behavior:
+  - detects common login/paywall HTML responses and returns structured errors instead of saving invalid `.pdf` files.
 
 ### Fixed
 - Fixed Moonshot/Kimi requests failing with 404 (`/chat/completions`) when `apiBase` was configured without `/v1`.

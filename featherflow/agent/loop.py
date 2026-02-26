@@ -22,7 +22,7 @@ from featherflow.agent.tools.filesystem import (
     WriteFileTool,
 )
 from featherflow.agent.tools.message import MessageTool
-from featherflow.agent.tools.papers import PaperGetTool, PaperSearchTool
+from featherflow.agent.tools.papers import PaperDownloadTool, PaperGetTool, PaperSearchTool
 from featherflow.agent.tools.registry import ToolRegistry
 from featherflow.agent.tools.shell import ExecTool
 from featherflow.agent.tools.spawn import SpawnTool
@@ -195,6 +195,14 @@ class AgentLoop:
                 timeout_seconds=self.paper_config.timeout_seconds,
             )
         )
+        self.tools.register(
+            PaperDownloadTool(
+                workspace=self.workspace,
+                provider=self.paper_config.provider,
+                semantic_scholar_api_key=self.paper_config.semantic_scholar_api_key or None,
+                timeout_seconds=self.paper_config.timeout_seconds,
+            )
+        )
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         feishu = self.channels_config.feishu if self.channels_config else None
@@ -202,12 +210,16 @@ class AgentLoop:
             from featherflow.agent.tools.feishu import (
                 FeishuCalendarTool,
                 FeishuDocTool,
+                FeishuDriveTool,
+                FeishuHandoffTool,
                 FeishuTaskTool,
             )
 
             self.tools.register(FeishuDocTool(feishu.app_id, feishu.app_secret))
             self.tools.register(FeishuCalendarTool(feishu.app_id, feishu.app_secret))
             self.tools.register(FeishuTaskTool(feishu.app_id, feishu.app_secret))
+            self.tools.register(FeishuDriveTool(feishu.app_id, feishu.app_secret, self.workspace))
+            self.tools.register(FeishuHandoffTool(feishu.app_id, feishu.app_secret, self.workspace))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
 
@@ -254,7 +266,7 @@ class AgentLoop:
             if isinstance(cron_tool, CronTool):
                 cron_tool.set_context(channel, chat_id)
 
-        for tool_name in ("feishu_doc", "feishu_calendar", "feishu_task"):
+        for tool_name in ("feishu_doc", "feishu_calendar", "feishu_task", "feishu_drive", "feishu_handoff"):
             tool = self.tools.get(tool_name)
             set_context = getattr(tool, "set_context", None)
             if callable(set_context):
