@@ -901,6 +901,7 @@ class FeishuChannel(BaseChannel):
                     "chat_type": chat_type,
                     "msg_type": msg_type,
                     "sender_open_id": sender_id,
+                    "source_text": content,
                     "mentions": mentions,
                 }
             )

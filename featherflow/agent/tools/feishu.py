@@ -97,6 +97,39 @@ def _split_folder_path(path: str) -> list[str]:
     return [_safe_drive_name(seg, "folder") for seg in parts]
 
 
+def _parse_people_count_hint(text: str) -> int | None:
+    raw = (text or "").strip()
+    if not raw:
+        return None
+
+    match = re.search(r"([0-9]+)\s*(?:个)?人", raw)
+    if match:
+        try:
+            value = int(match.group(1))
+            return value if value > 0 else None
+        except ValueError:
+            return None
+
+    zh_match = re.search(r"([一二两三四五六七八九十])\s*(?:个)?人", raw)
+    if not zh_match:
+        return None
+
+    mapping = {
+        "一": 1,
+        "二": 2,
+        "两": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+        "十": 10,
+    }
+    return mapping.get(zh_match.group(1))
+
+
 @dataclass
 class ResolvedUser:
     """Resolved Feishu user identity."""
@@ -655,6 +688,14 @@ class FeishuCalendarTool(FeishuToolBase):
                         "action=list_members to check exact names first."
                     ),
                 },
+                "allow_all_attendees": {
+                    "type": "boolean",
+                    "description": (
+                        "Whether to allow inviting all members in the current group. "
+                        "Default false to avoid accidental full-group invitation."
+                    ),
+                    "default": False,
+                },
                 "need_notification": {
                     "type": "boolean",
                     "description": "Whether to notify attendees",
@@ -673,6 +714,7 @@ class FeishuCalendarTool(FeishuToolBase):
         description: str | None = None,
         calendar_id: str | None = None,
         attendees: list[str] | None = None,
+        allow_all_attendees: bool = False,
         need_notification: bool = True,
         **kwargs: Any,
     ) -> str:
@@ -680,6 +722,10 @@ class FeishuCalendarTool(FeishuToolBase):
             return self._error_payload(error)
         if error := self._check_feishu_channel():
             return self._error_payload(error)
+
+        title_text = (title or "").strip()
+        if not title_text:
+            return self._error_payload("title cannot be empty")
 
         try:
             start_unix = self._to_unix_seconds(start_time, timezone)
@@ -706,6 +752,35 @@ class FeishuCalendarTool(FeishuToolBase):
                     resolved=[v.as_dict() for v in resolved_attendees],
                 )
 
+            members, members_error = await self._list_group_members()
+            if not members_error and members:
+                group_member_ids = {str(v.get("open_id") or "").strip() for v in members}
+                resolved_ids = {v.open_id for v in resolved_attendees}
+                if (
+                    not allow_all_attendees
+                    and len(group_member_ids) > 2
+                    and resolved_ids
+                    and resolved_ids == group_member_ids
+                ):
+                    return self._error_payload(
+                        "Refusing to invite all group members by default",
+                        hint=(
+                            "Set allow_all_attendees=true if you really want to invite everyone, "
+                            "or pass only the exact people in attendees."
+                        ),
+                        group_member_count=len(group_member_ids),
+                    )
+
+            source_text = str((self._metadata or {}).get("source_text") or "")
+            hinted_count = _parse_people_count_hint(source_text)
+            if hinted_count is not None and hinted_count != len(resolved_attendees):
+                return self._error_payload(
+                    "Attendee count mismatch with user request",
+                    expected_count=hinted_count,
+                    resolved_count=len(resolved_attendees),
+                    resolved=[v.as_dict() for v in resolved_attendees],
+                )
+
         final_calendar_id = (calendar_id or "").strip()
         if not final_calendar_id:
             final_calendar_id, calendar_error = await self._primary_calendar_id()
@@ -714,7 +789,7 @@ class FeishuCalendarTool(FeishuToolBase):
 
         event = (
             CalendarEvent.builder()
-            .summary(title.strip())
+            .summary(title_text)
             .description((description or "").strip())
             .start_time(
                 TimeInfo.builder()
@@ -767,7 +842,7 @@ class FeishuCalendarTool(FeishuToolBase):
         payload: dict[str, Any] = {
             "calendar_id": final_calendar_id,
             "event_id": event_id,
-            "title": title.strip(),
+            "title": title_text,
             "start_time_unix": start_unix,
             "end_time_unix": end_unix,
             "app_link": app_link,
