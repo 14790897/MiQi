@@ -18,6 +18,12 @@ All notable changes to this project will be documented in this file.
   - `docs/DEVELOPER_GUIDE.md`
   - `docs/ARCHITECTURE.md`
   - `CONTRIBUTING.md`
+- Added Feishu business tools in `featherflow/agent/tools/feishu.py`:
+  - `feishu_doc` for cloud doc creation and optional plain-text write.
+  - `feishu_calendar` for calendar event creation and attendee assignment.
+  - `feishu_task` for task creation with group-member assignment.
+- Added Feishu mention metadata extraction (`sender_open_id`, `mentions`) in `featherflow/channels/feishu.py`.
+- Added Feishu tool usage guidance in `featherflow/templates/TOOLS.md`.
 
 ### Changed
 - Refactored `featherflow/cli/commands.py` into an entry/compatibility layer that registers split command modules.
@@ -25,6 +31,9 @@ All notable changes to this project will be documented in this file.
 - Replaced remaining built-in `print()` calls with `loguru.logger` warnings in `featherflow/config/loader.py`.
 - Split memory implementation into package modules with `MemoryStore` facade in `featherflow/agent/memory/store.py`.
 - Normalized provider `api_base` handling in `LiteLLMProvider` to auto-fill missing default base paths (for example `/v1`, `/api/v1`) when users provide host-only URLs, while preserving explicit custom paths.
+- Updated `AgentLoop` tool wiring in `featherflow/agent/loop.py` to:
+  - auto-register Feishu business tools when Feishu credentials are configured.
+  - propagate message context (`channel`, `chat_id`, `message_id`, `sender_id`, `metadata`) into Feishu tools for group assignment resolution.
 
 ### Fixed
 - Fixed Moonshot/Kimi requests failing with 404 (`/chat/completions`) when `apiBase` was configured without `/v1`.

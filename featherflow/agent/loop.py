@@ -197,6 +197,17 @@ class AgentLoop:
         )
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
+        feishu = self.channels_config.feishu if self.channels_config else None
+        if feishu and feishu.app_id and feishu.app_secret:
+            from featherflow.agent.tools.feishu import (
+                FeishuCalendarTool,
+                FeishuDocTool,
+                FeishuTaskTool,
+            )
+
+            self.tools.register(FeishuDocTool(feishu.app_id, feishu.app_secret))
+            self.tools.register(FeishuCalendarTool(feishu.app_id, feishu.app_secret))
+            self.tools.register(FeishuTaskTool(feishu.app_id, feishu.app_secret))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
 
@@ -222,7 +233,14 @@ class AgentLoop:
         finally:
             self._mcp_connecting = False
 
-    def _set_tool_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
+    def _set_tool_context(
+        self,
+        channel: str,
+        chat_id: str,
+        message_id: str | None = None,
+        sender_id: str | None = None,
+        metadata: dict | None = None,
+    ) -> None:
         """Update context for all tools that need routing info."""
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool):
@@ -235,6 +253,18 @@ class AgentLoop:
         if cron_tool := self.tools.get("cron"):
             if isinstance(cron_tool, CronTool):
                 cron_tool.set_context(channel, chat_id)
+
+        for tool_name in ("feishu_doc", "feishu_calendar", "feishu_task"):
+            tool = self.tools.get(tool_name)
+            set_context = getattr(tool, "set_context", None)
+            if callable(set_context):
+                set_context(
+                    channel=channel,
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    sender_id=sender_id,
+                    metadata=metadata,
+                )
 
     @staticmethod
     def _strip_think(text: str | None) -> str | None:
@@ -397,7 +427,13 @@ class AgentLoop:
             logger.info("Processing system message from {}", msg.sender_id)
             key = f"{channel}:{chat_id}"
             session = self.sessions.get_or_create(key)
-            self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
+            self._set_tool_context(
+                channel,
+                chat_id,
+                msg.metadata.get("message_id"),
+                sender_id=msg.sender_id,
+                metadata=msg.metadata,
+            )
             history = session.get_history(max_messages=self.memory_window)
             messages = self.context.build_messages(
                 history=history,
@@ -470,7 +506,13 @@ class AgentLoop:
             _task = asyncio.create_task(_consolidate_and_unlock())
             self._consolidation_tasks.add(_task)
 
-        self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
+        self._set_tool_context(
+            msg.channel,
+            msg.chat_id,
+            msg.metadata.get("message_id"),
+            sender_id=msg.sender_id,
+            metadata=msg.metadata,
+        )
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()

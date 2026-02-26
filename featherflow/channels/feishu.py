@@ -266,6 +266,50 @@ class FeishuChannel(BaseChannel):
         return '"tag":"at"' in raw_content or "@_user_" in raw_content or "<at" in raw_content
 
     @staticmethod
+    def _extract_mentions(message: Any) -> list[dict[str, str]]:
+        """Extract mention list in normalized shape [{open_id, name, key?}]."""
+        raw_mentions = getattr(message, "mentions", None)
+        if not isinstance(raw_mentions, list):
+            return []
+
+        mentions: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for item in raw_mentions:
+            open_id = ""
+            name = ""
+            key = ""
+
+            mention_id = getattr(item, "id", None)
+            if mention_id is not None:
+                open_id = str(getattr(mention_id, "open_id", "") or "").strip()
+                if not open_id and isinstance(mention_id, dict):
+                    open_id = str(mention_id.get("open_id") or "").strip()
+
+            if not open_id and isinstance(item, dict):
+                open_id = str(item.get("open_id") or "").strip()
+
+            name = str(getattr(item, "name", "") or "").strip()
+            if not name and isinstance(item, dict):
+                name = str(item.get("name") or "").strip()
+
+            key = str(getattr(item, "key", "") or "").strip()
+            if not key and isinstance(item, dict):
+                key = str(item.get("key") or "").strip()
+
+            if not open_id or open_id in seen:
+                continue
+
+            seen.add(open_id)
+            mention_payload = {"open_id": open_id}
+            if name:
+                mention_payload["name"] = name
+            if key:
+                mention_payload["key"] = key
+            mentions.append(mention_payload)
+
+        return mentions
+
+    @staticmethod
     def _is_command_like(text: str, prefixes: list[str]) -> bool:
         """Detect command-like group messages by configurable prefixes."""
         t = (text or "").strip().lower()
@@ -843,6 +887,8 @@ class FeishuChannel(BaseChannel):
             if not content and not media_paths:
                 return
 
+            mentions = self._extract_mentions(message)
+
             # Forward to message bus
             reply_to = chat_id if chat_type == "group" else sender_id
             await self._handle_message(
@@ -854,6 +900,8 @@ class FeishuChannel(BaseChannel):
                     "message_id": message_id,
                     "chat_type": chat_type,
                     "msg_type": msg_type,
+                    "sender_open_id": sender_id,
+                    "mentions": mentions,
                 }
             )
 
