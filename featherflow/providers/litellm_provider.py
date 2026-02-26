@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 import json_repair
 import litellm
@@ -60,13 +61,43 @@ class LiteLLMProvider(LLMProvider):
         """Normalize provider-specific base URLs before passing to LiteLLM."""
         if not api_base:
             return api_base
+
+        api_base = api_base.strip()
+
         if self._selected_spec and self._selected_spec.name in {"ollama_local", "ollama_cloud"}:
             # LiteLLM Ollama provider expects host base and appends /api/* internally.
             if api_base.endswith("/api"):
                 return api_base[:-4]
             if api_base.endswith("/api/"):
                 return api_base[:-5]
+
+        if self._selected_spec and self._selected_spec.default_api_base:
+            api_base = self._fill_default_base_path(api_base, self._selected_spec.default_api_base)
+
         return api_base
+
+    @staticmethod
+    def _fill_default_base_path(api_base: str, default_api_base: str) -> str:
+        """Fill missing path in api_base using the provider's default base path.
+
+        Example:
+            api_base=https://api.moonshot.cn + default=/v1 -> https://api.moonshot.cn/v1
+        """
+        parsed_api = urlparse(api_base)
+        parsed_default = urlparse(default_api_base)
+
+        # Non-URL values or already path-qualified values are kept as-is.
+        if not parsed_api.scheme or not parsed_api.netloc:
+            return api_base
+
+        if parsed_api.path not in {"", "/"}:
+            return api_base
+
+        default_path = parsed_default.path.rstrip("/")
+        if not default_path:
+            return api_base
+
+        return urlunparse(parsed_api._replace(path=default_path))
 
     def _setup_env(self, api_key: str, api_base: str | None, model: str) -> None:
         """Set environment variables based on detected provider."""

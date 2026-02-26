@@ -24,3 +24,10 @@ All notable changes to this project will be documented in this file.
 - Refactored arXiv XML parsing in `featherflow/agent/tools/papers.py` by extracting shared `_parse_arxiv_entry` logic.
 - Replaced remaining built-in `print()` calls with `loguru.logger` warnings in `featherflow/config/loader.py`.
 - Split memory implementation into package modules with `MemoryStore` facade in `featherflow/agent/memory/store.py`.
+- Normalized provider `api_base` handling in `LiteLLMProvider` to auto-fill missing default base paths (for example `/v1`, `/api/v1`) when users provide host-only URLs, while preserving explicit custom paths.
+
+### Fixed
+- Fixed Moonshot/Kimi requests failing with 404 (`/chat/completions`) when `apiBase` was configured without `/v1`.
+
+### Tests
+- Added provider routing regression tests for API base normalization behavior in `tests/test_provider_routing.py`.
