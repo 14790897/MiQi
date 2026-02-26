@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import re
 import time
@@ -614,7 +613,12 @@ class FeishuCalendarTool(FeishuToolBase):
 
     @property
     def description(self) -> str:
-        return "Create a Feishu calendar event and add attendees from group members."
+        return (
+            "Create a Feishu calendar event and add attendees. "
+            "Pass attendee display names (e.g. '张三') or open_ids in 'attendees'; "
+            "the tool automatically resolves them from group members — "
+            "NO need to call feishu_group first unless you want to verify names."
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -643,7 +647,13 @@ class FeishuCalendarTool(FeishuToolBase):
                 "attendees": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Optional attendee list (open_id or @name)",
+                    "description": (
+                        "Attendee list. Each entry can be a display name (e.g. '张三') "
+                        "or an open_id (e.g. 'ou_xxx'). "
+                        "Names are automatically resolved from the current group member list. "
+                        "If a name cannot be resolved, the whole call fails — use feishu_group "
+                        "action=list_members to check exact names first."
+                    ),
                 },
                 "need_notification": {
                     "type": "boolean",
@@ -839,7 +849,12 @@ class FeishuTaskTool(FeishuToolBase):
 
     @property
     def description(self) -> str:
-        return "Create a Feishu task and assign it to people in the current group."
+        return (
+            "Create a Feishu task and assign it to people in the current group. "
+            "Pass assignee display names (e.g. '张三') or open_ids; "
+            "the tool automatically resolves them from group members — "
+            "NO need to call feishu_group first unless you want to verify names."
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -851,7 +866,12 @@ class FeishuTaskTool(FeishuToolBase):
                 "assignees": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Optional assignee list (open_id or @name)",
+                    "description": (
+                        "Assignee list. Each entry can be a display name (e.g. '张三') "
+                        "or an open_id (e.g. 'ou_xxx'). "
+                        "Names are automatically resolved from the current group member list. "
+                        "Use feishu_group action=list_members to check exact names if resolution fails."
+                    ),
                 },
                 "due_at": {
                     "type": "string",
@@ -1086,9 +1106,10 @@ class FeishuDriveTool(FeishuToolBase):
     ) -> str:
         if error := self._check_ready():
             return self._error_payload(error)
-        if error := self._check_feishu_channel():
-            return self._error_payload(error)
 
+        # Drive operations only require app credentials, not a Feishu channel context.
+        # Intentionally skipping _check_feishu_channel() here so Drive can be used
+        # from any channel (CLI, Telegram, cron, heartbeat, etc.).
         parent_token = (parent_folder_token or self._default_parent_token).strip()
         max_size_bytes = max(1, max_size_mb or self._default_max_file_size_mb) * 1024 * 1024
 
@@ -1566,6 +1587,66 @@ class FeishuDriveTool(FeishuToolBase):
         return str(value & 0xFFFFFFFF)  # Ensure unsigned 32-bit
 
 
+class FeishuGroupTool(FeishuToolBase):
+    """Query Feishu group information: list members of the current group chat."""
+
+    @property
+    def name(self) -> str:
+        return "feishu_group"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Query Feishu group information. Use action='list_members' to get the "
+            "display name and open_id of every member in the current group chat. "
+            "Call this when you need to know who is in the group, or when "
+            "feishu_calendar / feishu_task attendee/assignee resolution fails."
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["list_members"],
+                    "description": "'list_members': return all members of the current group chat.",
+                },
+            },
+            "required": ["action"],
+        }
+
+    async def execute(self, action: str = "list_members", **kwargs: Any) -> str:
+        if error := self._check_ready():
+            return self._error_payload(error)
+        if error := self._check_feishu_channel():
+            return self._error_payload(error)
+
+        if action == "list_members":
+            if not self._chat_id:
+                return self._error_payload(
+                    "No chat context — this tool only works when invoked from a Feishu channel."
+                )
+            members, error = await self._list_group_members()
+            if error:
+                return self._error_payload(
+                    error,
+                    hint=(
+                        "Ensure the app has 'im:chat.group_info:readonly' permission in "
+                        "Feishu Open Platform > Permissions & Scopes, and that the bot "
+                        "is a member of the target group."
+                    ),
+                )
+            return self._ok_payload(
+                chat_id=self._chat_id,
+                count=len(members),
+                members=members,
+            )
+
+        return self._error_payload(f"Unknown action: {action}")
+
+
 class FeishuHandoffTool(FeishuToolBase):
     """Generic collaboration handoff orchestrator for Feishu."""
 
@@ -1675,8 +1756,10 @@ class FeishuHandoffTool(FeishuToolBase):
     ) -> str:
         if error := self._check_ready():
             return self._error_payload(error)
-        if error := self._check_feishu_channel():
-            return self._error_payload(error)
+        # Note: intentionally not calling _check_feishu_channel() here.
+        # Handoff orchestrates Drive uploads which work from any channel.
+        # Individual sub-tools (doc/task/calendar) that need Feishu group context
+        # will return their own errors if invoked without a Feishu channel.
 
         artifacts = artifacts or []
         steps: list[dict[str, Any]] = []

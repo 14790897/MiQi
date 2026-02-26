@@ -20,6 +20,15 @@ This file documents non-obvious constraints and usage patterns.
 - For group assignment, pass assignees/attendees as `open_id` or exact display names.
 - In group chats, user resolution first uses message mentions, then falls back to group member list.
 - If names are ambiguous, the tool returns candidates instead of guessing.
+- **IMPORTANT**: Do NOT ask the user for member info first — just pass names/open_ids and let the tool resolve. Resolution happens automatically from the group member list.
+
+## feishu_group
+
+- Use `feishu_group` with `action=list_members` to explicitly list all members of the current group chat.
+- Returns each member's `open_id` and display `name`.
+- Call this when feishu_calendar or feishu_task reports unresolved attendees/assignees.
+- Requires `im:chat.group_info:readonly` permission in Feishu Open Platform and the bot must be a group member.
+
 
 ## paper_download
 

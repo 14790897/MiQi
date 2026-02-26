@@ -211,10 +211,12 @@ class AgentLoop:
                 FeishuCalendarTool,
                 FeishuDocTool,
                 FeishuDriveTool,
+                FeishuGroupTool,
                 FeishuHandoffTool,
                 FeishuTaskTool,
             )
 
+            self.tools.register(FeishuGroupTool(feishu.app_id, feishu.app_secret))
             self.tools.register(FeishuDocTool(feishu.app_id, feishu.app_secret))
             self.tools.register(FeishuCalendarTool(feishu.app_id, feishu.app_secret))
             self.tools.register(FeishuTaskTool(feishu.app_id, feishu.app_secret))
