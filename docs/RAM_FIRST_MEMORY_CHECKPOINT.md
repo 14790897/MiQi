@@ -61,7 +61,7 @@ Long-term snapshot item:
 On each turn:
 
 1. Update short-term ring buffer in RAM
-2. Detect explicit memory intents (e.g. `记住...`, `remember ...`)
+2. Detect explicit memory intents (e.g. `remember ...`, `please remember ...`)
 3. Upsert long-term snapshot item in RAM
 4. Flush when one of these triggers:
 - dirty updates >= `flushEveryUpdates`

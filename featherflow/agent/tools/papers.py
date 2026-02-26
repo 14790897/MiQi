@@ -76,6 +76,44 @@ def _to_record(
     return data
 
 
+def _parse_arxiv_entry(entry: ET.Element, ns: dict[str, str]) -> dict[str, Any]:
+    """Parse one arXiv Atom entry into normalized metadata fields."""
+    entry_id = _normalize_text(entry.findtext("a:id", default="", namespaces=ns))
+    arxiv_id = _extract_arxiv_id(entry_id)
+    title = _normalize_text(entry.findtext("a:title", default="", namespaces=ns))
+    summary = _normalize_text(entry.findtext("a:summary", default="", namespaces=ns))
+    published = _normalize_text(entry.findtext("a:published", default="", namespaces=ns))
+    year = _safe_int(published[:4]) if published else None
+    authors = [
+        _normalize_text(author.findtext("a:name", default="", namespaces=ns))
+        for author in entry.findall("a:author", ns)
+    ]
+    authors = [a for a in authors if a]
+
+    pdf_url = ""
+    doi = ""
+    for link in entry.findall("a:link", ns):
+        if (link.attrib.get("title") or "").lower() == "pdf":
+            pdf_url = _normalize_text(link.attrib.get("href", ""))
+        if (link.attrib.get("title") or "").lower() == "doi":
+            doi = _normalize_text(link.attrib.get("href", ""))
+
+    category_terms = [c.attrib.get("term", "") for c in entry.findall("a:category", ns)]
+    venue = category_terms[0] if category_terms else ""
+
+    return {
+        "entry_id": entry_id,
+        "arxiv_id": arxiv_id,
+        "title": title,
+        "summary": summary,
+        "year": year,
+        "authors": authors,
+        "pdf_url": pdf_url,
+        "doi": doi,
+        "venue": venue,
+    }
+
+
 class PaperSearchTool(Tool):
     """Search papers from Semantic Scholar / arXiv."""
 
@@ -283,45 +321,24 @@ class PaperSearchTool(Tool):
             entries = root.findall("a:entry", ns)
             items = []
             for entry in entries:
-                entry_id = _normalize_text(entry.findtext("a:id", default="", namespaces=ns))
-                arxiv_id = _extract_arxiv_id(entry_id)
-                title = _normalize_text(entry.findtext("a:title", default="", namespaces=ns))
-                summary = _normalize_text(entry.findtext("a:summary", default="", namespaces=ns))
-                published = _normalize_text(entry.findtext("a:published", default="", namespaces=ns))
-                year = _safe_int(published[:4]) if published else None
-                authors = [
-                    _normalize_text(author.findtext("a:name", default="", namespaces=ns))
-                    for author in entry.findall("a:author", ns)
-                ]
-                authors = [a for a in authors if a]
-
-                pdf_url = ""
-                doi = ""
-                for link in entry.findall("a:link", ns):
-                    if (link.attrib.get("title") or "").lower() == "pdf":
-                        pdf_url = _normalize_text(link.attrib.get("href", ""))
-                    if (link.attrib.get("title") or "").lower() == "doi":
-                        doi = _normalize_text(link.attrib.get("href", ""))
-
-                category_terms = [c.attrib.get("term", "") for c in entry.findall("a:category", ns)]
-                venue = category_terms[0] if category_terms else ""
+                parsed = _parse_arxiv_entry(entry, ns)
 
                 items.append(
                     _to_record(
                         source="arxiv",
-                        paper_id=f"ARXIV:{arxiv_id}" if arxiv_id else entry_id,
-                        title=title,
-                        abstract=summary,
-                        authors=authors,
-                        year=year,
-                        venue=venue,
-                        doi=doi,
-                        arxiv_id=arxiv_id,
+                        paper_id=f"ARXIV:{parsed['arxiv_id']}" if parsed["arxiv_id"] else parsed["entry_id"],
+                        title=parsed["title"],
+                        abstract=parsed["summary"],
+                        authors=parsed["authors"],
+                        year=parsed["year"],
+                        venue=parsed["venue"],
+                        doi=parsed["doi"],
+                        arxiv_id=parsed["arxiv_id"],
                         citation_count=None,
                         reference_count=None,
-                        is_open_access=bool(pdf_url),
-                        open_access_pdf_url=pdf_url,
-                        source_url=entry_id,
+                        is_open_access=bool(parsed["pdf_url"]),
+                        open_access_pdf_url=parsed["pdf_url"],
+                        source_url=parsed["entry_id"],
                     )
                 )
 
@@ -554,44 +571,23 @@ class PaperGetTool(Tool):
                     ensure_ascii=False,
                 )
 
-            entry_id = _normalize_text(entry.findtext("a:id", default="", namespaces=ns))
-            parsed_arxiv_id = _extract_arxiv_id(entry_id)
-            title = _normalize_text(entry.findtext("a:title", default="", namespaces=ns))
-            summary = _normalize_text(entry.findtext("a:summary", default="", namespaces=ns))
-            published = _normalize_text(entry.findtext("a:published", default="", namespaces=ns))
-            year = _safe_int(published[:4]) if published else None
-            authors = [
-                _normalize_text(author.findtext("a:name", default="", namespaces=ns))
-                for author in entry.findall("a:author", ns)
-            ]
-            authors = [a for a in authors if a]
-
-            pdf_url = ""
-            doi = ""
-            for link in entry.findall("a:link", ns):
-                if (link.attrib.get("title") or "").lower() == "pdf":
-                    pdf_url = _normalize_text(link.attrib.get("href", ""))
-                if (link.attrib.get("title") or "").lower() == "doi":
-                    doi = _normalize_text(link.attrib.get("href", ""))
-
-            category_terms = [c.attrib.get("term", "") for c in entry.findall("a:category", ns)]
-            venue = category_terms[0] if category_terms else ""
+            parsed = _parse_arxiv_entry(entry, ns)
 
             item = _to_record(
                 source="arxiv",
-                paper_id=f"ARXIV:{parsed_arxiv_id}" if parsed_arxiv_id else entry_id,
-                title=title,
-                abstract=summary,
-                authors=authors,
-                year=year,
-                venue=venue,
-                doi=doi,
-                arxiv_id=parsed_arxiv_id,
+                paper_id=f"ARXIV:{parsed['arxiv_id']}" if parsed["arxiv_id"] else parsed["entry_id"],
+                title=parsed["title"],
+                abstract=parsed["summary"],
+                authors=parsed["authors"],
+                year=parsed["year"],
+                venue=parsed["venue"],
+                doi=parsed["doi"],
+                arxiv_id=parsed["arxiv_id"],
                 citation_count=None,
                 reference_count=None,
-                is_open_access=bool(pdf_url),
-                open_access_pdf_url=pdf_url,
-                source_url=entry_id,
+                is_open_access=bool(parsed["pdf_url"]),
+                open_access_pdf_url=parsed["pdf_url"],
+                source_url=parsed["entry_id"],
             )
 
             return json.dumps(

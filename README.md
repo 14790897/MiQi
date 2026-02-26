@@ -271,6 +271,46 @@ Backward-compatible fallbacks for old config and data paths are retained where p
 
 ---
 
+## Documentation Index
+
+### Root Documents
+
+- [README.md](README.md)
+- [CHANGELOG.md](CHANGELOG.md)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+
+### Project Docs (`docs/`)
+
+- [docs/API.md](docs/API.md)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md)
+- [docs/RAM_FIRST_MEMORY_CHECKPOINT.md](docs/RAM_FIRST_MEMORY_CHECKPOINT.md)
+- [docs/SECURITY.md](docs/SECURITY.md)
+- [docs/SELF_DEVELOPMENT.md](docs/SELF_DEVELOPMENT.md)
+
+### Skills Docs (`featherflow/skills/`)
+
+- [featherflow/skills/README.md](featherflow/skills/README.md)
+- [featherflow/skills/clawhub/SKILL.md](featherflow/skills/clawhub/SKILL.md)
+- [featherflow/skills/cron/SKILL.md](featherflow/skills/cron/SKILL.md)
+- [featherflow/skills/github/SKILL.md](featherflow/skills/github/SKILL.md)
+- [featherflow/skills/memory/SKILL.md](featherflow/skills/memory/SKILL.md)
+- [featherflow/skills/skill-creator/SKILL.md](featherflow/skills/skill-creator/SKILL.md)
+- [featherflow/skills/summarize/SKILL.md](featherflow/skills/summarize/SKILL.md)
+- [featherflow/skills/tmux/SKILL.md](featherflow/skills/tmux/SKILL.md)
+- [featherflow/skills/weather/SKILL.md](featherflow/skills/weather/SKILL.md)
+
+### Template Docs (`featherflow/templates/`)
+
+- [featherflow/templates/AGENTS.md](featherflow/templates/AGENTS.md)
+- [featherflow/templates/HEARTBEAT.md](featherflow/templates/HEARTBEAT.md)
+- [featherflow/templates/SOUL.md](featherflow/templates/SOUL.md)
+- [featherflow/templates/TOOLS.md](featherflow/templates/TOOLS.md)
+- [featherflow/templates/USER.md](featherflow/templates/USER.md)
+- [featherflow/templates/memory/MEMORY.md](featherflow/templates/memory/MEMORY.md)
+
+---
+
 ## License
 
 [MIT](LICENSE)
