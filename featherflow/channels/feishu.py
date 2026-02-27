@@ -71,8 +71,17 @@ class FeishuChannel(BaseChannel):
             log_level=lark.LogLevel.INFO,
         )
 
+        def _run_ws() -> None:
+            """Run lark WS client in its own event loop to avoid conflict."""
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                self._ws_client.start()
+            finally:
+                new_loop.close()
+
         self._ws_thread = threading.Thread(
-            target=self._ws_client.start,
+            target=_run_ws,
             daemon=True,
             name="feishu-ws",
         )
