@@ -2,12 +2,16 @@
 
 import html
 import json
+import logging
 import os
 import re
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+
+# Suppress noisy readability tracebacks for empty/broken pages
+logging.getLogger("readability.readability").setLevel(logging.WARNING)
 
 from featherflow.agent.tools.base import Tool
 
@@ -227,15 +231,23 @@ class WebFetchTool(Tool):
                 text, extractor = json.dumps(r.json(), indent=2, ensure_ascii=False), "json"
             # HTML
             elif "text/html" in ctype or r.text[:256].lower().startswith(("<!doctype", "<html")):
-                doc = Document(r.text)
-                content = (
-                    self._to_markdown(doc.summary())
-                    if extract_mode == "markdown"
-                    else _strip_tags(doc.summary())
-                )
-                text = f"# {doc.title()}\n\n{content}" if doc.title(
-                ) else content
-                extractor = "readability"
+                raw_html = r.text.strip()
+                if not raw_html:
+                    text, extractor = "(empty page)", "raw"
+                else:
+                    doc = Document(raw_html)
+                    try:
+                        summary_html = doc.summary()
+                    except Exception:
+                        summary_html = raw_html[:max_chars]
+                    content = (
+                        self._to_markdown(summary_html)
+                        if extract_mode == "markdown"
+                        else _strip_tags(summary_html)
+                    )
+                    text = f"# {doc.title()}\n\n{content}" if doc.title(
+                    ) else content
+                    extractor = "readability"
             else:
                 text, extractor = r.text, "raw"
 
