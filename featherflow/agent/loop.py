@@ -205,23 +205,6 @@ class AgentLoop:
         )
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
-        feishu = self.channels_config.feishu if self.channels_config else None
-        if feishu and feishu.app_id and feishu.app_secret:
-            from featherflow.agent.tools.feishu import (
-                FeishuCalendarTool,
-                FeishuDocTool,
-                FeishuDriveTool,
-                FeishuGroupTool,
-                FeishuHandoffTool,
-                FeishuTaskTool,
-            )
-
-            self.tools.register(FeishuGroupTool(feishu.app_id, feishu.app_secret))
-            self.tools.register(FeishuDocTool(feishu.app_id, feishu.app_secret))
-            self.tools.register(FeishuCalendarTool(feishu.app_id, feishu.app_secret))
-            self.tools.register(FeishuTaskTool(feishu.app_id, feishu.app_secret))
-            self.tools.register(FeishuDriveTool(feishu.app_id, feishu.app_secret, self.workspace))
-            self.tools.register(FeishuHandoffTool(feishu.app_id, feishu.app_secret, self.workspace))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
 
@@ -267,18 +250,6 @@ class AgentLoop:
         if cron_tool := self.tools.get("cron"):
             if isinstance(cron_tool, CronTool):
                 cron_tool.set_context(channel, chat_id)
-
-        for tool_name in ("feishu_group", "feishu_doc", "feishu_calendar", "feishu_task", "feishu_drive", "feishu_handoff"):
-            tool = self.tools.get(tool_name)
-            set_context = getattr(tool, "set_context", None)
-            if callable(set_context):
-                set_context(
-                    channel=channel,
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    sender_id=sender_id,
-                    metadata=metadata,
-                )
 
     @staticmethod
     def _strip_think(text: str | None) -> str | None:

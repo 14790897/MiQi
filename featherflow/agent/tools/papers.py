@@ -747,7 +747,6 @@ class PaperDownloadTool(Tool):
                         "paywall_suspected": bool(paper_payload.get("paywall_suspected", False)),
                         "next_steps": [
                             "Try another source or open-access mirror.",
-                            "If you already have the PDF, place it in workspace and upload via feishu_drive.",
                         ],
                     },
                     ensure_ascii=False,

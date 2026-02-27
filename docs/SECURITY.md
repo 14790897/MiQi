@@ -16,8 +16,6 @@ We aim to respond to security reports within 48 hours.
 
 ## Security Best Practices
 
-> Runtime note: current channel wiring is Feishu-only. Other channel adapters may exist in the repository but are not enabled by default.
-
 ### 1. API Key Management
 
 **CRITICAL**: Never commit API keys to version control.
@@ -47,10 +45,6 @@ chmod 600 ~/.featherflow/config.json
       "enabled": true,
       "token": "YOUR_BOT_TOKEN",
       "allowFrom": ["123456789", "987654321"]
-    },
-    "feishu": {
-      "enabled": true,
-      "allowFrom": ["oc_xxxxxxxxxxxxxxxx"]
     }
   }
 }
@@ -59,7 +53,6 @@ chmod 600 ~/.featherflow/config.json
 **Security Notes:**
 - Empty `allowFrom` list will **ALLOW ALL** users (open by default for personal use)
 - Get your Telegram user ID from `@userinfobot`
-- For Feishu, use stable user/chat identifiers in `allowFrom`
 - Review access logs regularly for unauthorized access attempts
 
 ### 3. Shell Command Execution

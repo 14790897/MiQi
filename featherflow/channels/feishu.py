@@ -1,910 +1,167 @@
-"""Feishu/Lark channel implementation using lark-oapi SDK with WebSocket long connection."""
+"""Feishu (Lark) channel — WebSocket long-connection inbound, HTTP API outbound."""
+
+from __future__ import annotations
 
 import asyncio
 import json
-import os
-import re
 import threading
-import time
-from collections import OrderedDict
-from typing import Any, cast
+from typing import Any
 
 from loguru import logger
 
 from featherflow.bus.events import OutboundMessage
 from featherflow.bus.queue import MessageBus
 from featherflow.channels.base import BaseChannel
-from featherflow.config.schema import FeishuConfig
-from featherflow.utils.helpers import get_data_path
-
-try:
-    import lark_oapi as lark
-    from lark_oapi.api.im.v1 import (
-        CreateFileRequest,
-        CreateFileRequestBody,
-        CreateImageRequest,
-        CreateImageRequestBody,
-        CreateMessageReactionRequest,
-        CreateMessageReactionRequestBody,
-        CreateMessageRequest,
-        CreateMessageRequestBody,
-        Emoji,
-        GetMessageResourceRequest,
-        P2ImMessageReceiveV1,
-    )
-    FEISHU_AVAILABLE = True
-except ImportError:
-    FEISHU_AVAILABLE = False
-    lark = None
-    CreateMessageReactionRequest = None
-    CreateMessageReactionRequestBody = None
-    CreateMessageRequest = None
-    CreateMessageRequestBody = None
-    Emoji = None
-    P2ImMessageReceiveV1 = Any
-
-# Message type display mapping
-MSG_TYPE_MAP = {
-    "image": "[image]",
-    "audio": "[audio]",
-    "file": "[file]",
-    "sticker": "[sticker]",
-}
-
-
-def _extract_share_card_content(content_json: dict, msg_type: str) -> str:
-    """Extract text representation from share cards and interactive messages."""
-    parts = []
-
-    if msg_type == "share_chat":
-        parts.append(f"[shared chat: {content_json.get('chat_id', '')}]")
-    elif msg_type == "share_user":
-        parts.append(f"[shared user: {content_json.get('user_id', '')}]")
-    elif msg_type == "interactive":
-        parts.extend(_extract_interactive_content(content_json))
-    elif msg_type == "share_calendar_event":
-        parts.append(f"[shared calendar event: {content_json.get('event_key', '')}]")
-    elif msg_type == "system":
-        parts.append("[system message]")
-    elif msg_type == "merge_forward":
-        parts.append("[merged forward messages]")
-
-    return "\n".join(parts) if parts else f"[{msg_type}]"
-
-
-def _extract_interactive_content(content: dict) -> list[str]:
-    """Recursively extract text and links from interactive card content."""
-    parts = []
-
-    if isinstance(content, str):
-        try:
-            content = json.loads(content)
-        except (json.JSONDecodeError, TypeError):
-            return [content] if content.strip() else []
-
-    if not isinstance(content, dict):
-        return parts
-
-    if "title" in content:
-        title = content["title"]
-        if isinstance(title, dict):
-            title_content = title.get("content", "") or title.get("text", "")
-            if title_content:
-                parts.append(f"title: {title_content}")
-        elif isinstance(title, str):
-            parts.append(f"title: {title}")
-
-    for element in content.get("elements", []) if isinstance(content.get("elements"), list) else []:
-        parts.extend(_extract_element_content(element))
-
-    card = content.get("card", {})
-    if card:
-        parts.extend(_extract_interactive_content(card))
-
-    header = content.get("header", {})
-    if header:
-        header_title = header.get("title", {})
-        if isinstance(header_title, dict):
-            header_text = header_title.get("content", "") or header_title.get("text", "")
-            if header_text:
-                parts.append(f"title: {header_text}")
-
-    return parts
-
-
-def _extract_element_content(element: dict) -> list[str]:
-    """Extract content from a single card element."""
-    parts = []
-
-    if not isinstance(element, dict):
-        return parts
-
-    tag = element.get("tag", "")
-
-    if tag in ("markdown", "lark_md"):
-        content = element.get("content", "")
-        if content:
-            parts.append(content)
-
-    elif tag == "div":
-        text = element.get("text", {})
-        if isinstance(text, dict):
-            text_content = text.get("content", "") or text.get("text", "")
-            if text_content:
-                parts.append(text_content)
-        elif isinstance(text, str):
-            parts.append(text)
-        for field in element.get("fields", []):
-            if isinstance(field, dict):
-                field_text = field.get("text", {})
-                if isinstance(field_text, dict):
-                    c = field_text.get("content", "")
-                    if c:
-                        parts.append(c)
-
-    elif tag == "a":
-        href = element.get("href", "")
-        text = element.get("text", "")
-        if href:
-            parts.append(f"link: {href}")
-        if text:
-            parts.append(text)
-
-    elif tag == "button":
-        text = element.get("text", {})
-        if isinstance(text, dict):
-            c = text.get("content", "")
-            if c:
-                parts.append(c)
-        url = element.get("url", "") or element.get("multi_url", {}).get("url", "")
-        if url:
-            parts.append(f"link: {url}")
-
-    elif tag == "img":
-        alt = element.get("alt", {})
-        parts.append(alt.get("content", "[image]") if isinstance(alt, dict) else "[image]")
-
-    elif tag == "note":
-        for ne in element.get("elements", []):
-            parts.extend(_extract_element_content(ne))
-
-    elif tag == "column_set":
-        for col in element.get("columns", []):
-            for ce in col.get("elements", []):
-                parts.extend(_extract_element_content(ce))
-
-    elif tag == "plain_text":
-        content = element.get("content", "")
-        if content:
-            parts.append(content)
-
-    else:
-        for ne in element.get("elements", []):
-            parts.extend(_extract_element_content(ne))
-
-    return parts
-
-
-def _extract_post_text(content_json: dict) -> str:
-    """Extract plain text from Feishu post (rich text) message content.
-
-    Supports two formats:
-    1. Direct format: {"title": "...", "content": [...]}
-    2. Localized format: {"zh_cn": {"title": "...", "content": [...]}}
-    """
-    def extract_from_lang(lang_content: dict) -> str | None:
-        if not isinstance(lang_content, dict):
-            return None
-        title = lang_content.get("title", "")
-        content_blocks = lang_content.get("content", [])
-        if not isinstance(content_blocks, list):
-            return None
-        text_parts = []
-        if title:
-            text_parts.append(title)
-        for block in content_blocks:
-            if not isinstance(block, list):
-                continue
-            for element in block:
-                if isinstance(element, dict):
-                    tag = element.get("tag")
-                    if tag == "text":
-                        text_parts.append(element.get("text", ""))
-                    elif tag == "a":
-                        text_parts.append(element.get("text", ""))
-                    elif tag == "at":
-                        text_parts.append(f"@{element.get('user_name', 'user')}")
-        return " ".join(text_parts).strip() if text_parts else None
-
-    # Try direct format first
-    if "content" in content_json:
-        result = extract_from_lang(content_json)
-        if result:
-            return result
-
-    # Try localized format
-    for lang_key in ("zh_cn", "en_us", "ja_jp"):
-        lang_content = content_json.get(lang_key)
-        result = extract_from_lang(lang_content)
-        if result:
-            return result
-
-    return ""
+from featherflow.config.schema import FeishuChannelConfig
 
 
 class FeishuChannel(BaseChannel):
     """
-    Feishu/Lark channel using WebSocket long connection.
+    Feishu channel using lark-oapi WebSocket long connection.
 
-    Uses WebSocket to receive events - no public IP or webhook required.
+    - **Inbound**: Feishu server pushes events over WebSocket (no public IP needed).
+    - **Outbound**: Feishu HTTP API via lark-oapi Client (for progress/hint messages).
 
-    Requires:
-    - App ID and App Secret from Feishu Open Platform
-    - Bot capability enabled
-    - Event subscription enabled (im.message.receive_v1)
+    Main agent responses should be sent via the feishu-mcp MCP tool
+    ``mcp_feishu_send_message`` / ``mcp_feishu_reply_message`` so that the
+    agent itself controls formatting and threading.
     """
 
     name = "feishu"
 
-    def __init__(self, config: FeishuConfig, bus: MessageBus):
+    def __init__(self, config: FeishuChannelConfig, bus: MessageBus):
         super().__init__(config, bus)
-        self.config: FeishuConfig = config
-        self._client: Any = None
-        self._ws_client: Any = None
+        self.config: FeishuChannelConfig = config
         self._ws_thread: threading.Thread | None = None
-        self._processed_message_ids: OrderedDict[str, None] = OrderedDict()  # Ordered dedup cache
+        self._ws_client: Any = None   # lark.ws.Client — assigned on start()
+        self._api_client: Any = None  # lark.Client   — assigned on start()
         self._loop: asyncio.AbstractEventLoop | None = None
 
-    @staticmethod
-    def _has_mentions(message: Any, raw_content: str) -> bool:
-        """Best-effort detection for Feishu @mentions in a message."""
-        mentions = getattr(message, "mentions", None)
-        if isinstance(mentions, list) and len(mentions) > 0:
-            return True
-        if not raw_content:
-            return False
-        return '"tag":"at"' in raw_content or "@_user_" in raw_content or "<at" in raw_content
-
-    @staticmethod
-    def _extract_mentions(message: Any) -> list[dict[str, str]]:
-        """Extract mention list in normalized shape [{open_id, name, key?}]."""
-        raw_mentions = getattr(message, "mentions", None)
-        if not isinstance(raw_mentions, list):
-            return []
-
-        mentions: list[dict[str, str]] = []
-        seen: set[str] = set()
-        for item in raw_mentions:
-            open_id = ""
-            name = ""
-            key = ""
-
-            mention_id = getattr(item, "id", None)
-            if mention_id is not None:
-                open_id = str(getattr(mention_id, "open_id", "") or "").strip()
-                if not open_id and isinstance(mention_id, dict):
-                    open_id = str(mention_id.get("open_id") or "").strip()
-
-            if not open_id and isinstance(item, dict):
-                open_id = str(item.get("open_id") or "").strip()
-
-            name = str(getattr(item, "name", "") or "").strip()
-            if not name and isinstance(item, dict):
-                name = str(item.get("name") or "").strip()
-
-            key = str(getattr(item, "key", "") or "").strip()
-            if not key and isinstance(item, dict):
-                key = str(item.get("key") or "").strip()
-
-            if not open_id or open_id in seen:
-                continue
-
-            seen.add(open_id)
-            mention_payload = {"open_id": open_id}
-            if name:
-                mention_payload["name"] = name
-            if key:
-                mention_payload["key"] = key
-            mentions.append(mention_payload)
-
-        return mentions
-
-    @staticmethod
-    def _is_command_like(text: str, prefixes: list[str]) -> bool:
-        """Detect command-like group messages by configurable prefixes."""
-        t = (text or "").strip().lower()
-        if not t:
-            return False
-        for prefix in prefixes:
-            p = (prefix or "").strip().lower()
-            if p and t.startswith(p):
-                return True
-        return False
-
-    @staticmethod
-    def _contains_keyword(text: str, keywords: list[str]) -> bool:
-        """Check if text contains any configured keyword."""
-        if not text:
-            return False
-        for keyword in keywords:
-            kw = (keyword or "").strip()
-            if kw and kw in text:
-                return True
-        return False
-
-    @staticmethod
-    def _matches_any_pattern(text: str, patterns: list[str]) -> bool:
-        """Regex matching with invalid-pattern tolerance."""
-        if not text:
-            return False
-        for pattern in patterns:
-            p = (pattern or "").strip()
-            if not p:
-                continue
-            try:
-                if re.search(p, text):
-                    return True
-            except re.error:
-                logger.warning("Invalid Feishu group smart regex pattern ignored: {}", p)
-        return False
-
-    def _should_process_group_message(self, message: Any, raw_content: str, parsed_text: str) -> bool:
-        """Decide whether a group message should be forwarded to agent loop."""
-        has_mention = self._has_mentions(message, raw_content)
-
-        policy = (self.config.group_read_policy or "smart").strip().lower()
-        if self.config.require_mention_in_group:
-            policy = "mention"
-
-        if policy == "all":
-            return True
-        if policy == "mention":
-            return has_mention
-
-        text = (parsed_text or "").strip()
-
-        if self.config.group_smart_enable_ignore and self._matches_any_pattern(
-            text, self.config.group_smart_ignore_patterns
-        ):
-            return False
-
-        if self.config.group_smart_enable_mention and has_mention:
-            return True
-
-        if self.config.group_smart_enable_prefix and self._is_command_like(
-            text, self.config.group_smart_prefixes
-        ):
-            return True
-
-        if self.config.group_smart_enable_keyword and self._contains_keyword(
-            text, self.config.group_smart_keywords
-        ):
-            return True
-
-        if self.config.group_smart_enable_regex and self._matches_any_pattern(
-            text, self.config.group_smart_patterns
-        ):
-            return True
-
-        return False
+    # ------------------------------------------------------------------
+    # BaseChannel interface
+    # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """Start the Feishu bot with WebSocket long connection."""
-        if not FEISHU_AVAILABLE or lark is None:
-            logger.error("Feishu SDK not installed. Run: pip install lark-oapi")
-            return
+        """Start the WebSocket long connection in a daemon background thread."""
+        import lark_oapi as lark
 
-        if not self.config.app_id or not self.config.app_secret:
-            logger.error("Feishu app_id and app_secret not configured")
-            return
-
+        self._loop = asyncio.get_event_loop()
         self._running = True
-        self._loop = asyncio.get_running_loop()
-        lark_sdk = cast(Any, lark)
 
-        # Create Lark client for sending messages
-        self._client = lark_sdk.Client.builder() \
-            .app_id(self.config.app_id) \
-            .app_secret(self.config.app_secret) \
-            .log_level(lark_sdk.LogLevel.INFO) \
+        # HTTP API client reused for all outbound sends
+        self._api_client = (
+            lark.Client.builder()
+            .app_id(self.config.app_id)
+            .app_secret(self.config.app_secret)
             .build()
+        )
 
-        # Create event handler (only register message receive, ignore other events)
-        event_handler = lark_sdk.EventDispatcherHandler.builder(
-            self.config.encrypt_key or "",
-            self.config.verification_token or "",
-        ).register_p2_im_message_receive_v1(
-            self._on_message_sync
-        ).build()
+        # Register event handler for incoming @bot / DM messages
+        handler = (
+            lark.EventDispatcherHandler.builder("", "")
+            .register_p2_im_message_receive_v1(self._on_message_receive)
+            .build()
+        )
 
-        # Create WebSocket client for long connection
-        self._ws_client = lark_sdk.ws.Client(
+        # WebSocket client — .start() is blocking, so run in a daemon thread
+        self._ws_client = lark.ws.Client(
             self.config.app_id,
             self.config.app_secret,
-            event_handler=event_handler,
-            log_level=lark_sdk.LogLevel.INFO
+            event_handler=handler,
+            log_level=lark.LogLevel.INFO,
         )
-        ws_client = self._ws_client
 
-        # Start WebSocket client in a separate thread with reconnect loop
-        def run_ws():
-            while self._running:
-                try:
-                    ws_client.start()
-                except Exception as e:
-                    logger.warning("Feishu WebSocket error: {}", e)
-                if self._running:
-                    time.sleep(5)
-
-        self._ws_thread = threading.Thread(target=run_ws, daemon=True)
+        self._ws_thread = threading.Thread(
+            target=self._ws_client.start,
+            daemon=True,
+            name="feishu-ws",
+        )
         self._ws_thread.start()
+        logger.info("Feishu WebSocket long connection started (app_id={}...)", self.config.app_id[:12])
 
-        logger.info("Feishu bot started with WebSocket long connection")
-        logger.info("No public IP required - using WebSocket to receive events")
-
-        # Keep running until stopped
+        # Keep the async coroutine alive until stopped
         while self._running:
             await asyncio.sleep(1)
 
     async def stop(self) -> None:
-        """Stop the Feishu bot."""
+        """Stop the channel. The daemon WS thread will exit with the process."""
         self._running = False
-        if self._ws_client:
-            try:
-                stop_method = getattr(self._ws_client, "stop", None)
-                if callable(stop_method):
-                    stop_method()
-                else:
-                    close_method = getattr(self._ws_client, "close", None)
-                    if callable(close_method):
-                        close_method()
-            except Exception as e:
-                logger.warning("Error stopping WebSocket client: {}", e)
-        if self._ws_thread and self._ws_thread.is_alive():
-            self._ws_thread.join(timeout=2)
-        logger.info("Feishu bot stopped")
-
-    def _add_reaction_sync(self, message_id: str, emoji_type: str) -> None:
-        """Sync helper for adding reaction (runs in thread pool)."""
-        if (
-            self._client is None
-            or CreateMessageReactionRequest is None
-            or CreateMessageReactionRequestBody is None
-            or Emoji is None
-        ):
-            return
-
-        create_reaction_request = cast(Any, CreateMessageReactionRequest)
-        create_reaction_body = cast(Any, CreateMessageReactionRequestBody)
-        emoji_cls = cast(Any, Emoji)
-
-        try:
-            request = create_reaction_request.builder() \
-                .message_id(message_id) \
-                .request_body(
-                    create_reaction_body.builder()
-                    .reaction_type(emoji_cls.builder().emoji_type(emoji_type).build())
-                    .build()
-                ).build()
-
-            response = self._client.im.v1.message_reaction.create(request)
-
-            if not response.success():
-                logger.warning("Failed to add reaction: code={}, msg={}", response.code, response.msg)
-            else:
-                logger.debug("Added {} reaction to message {}", emoji_type, message_id)
-        except Exception as e:
-            logger.warning("Error adding reaction: {}", e)
-
-    async def _add_reaction(self, message_id: str, emoji_type: str = "THUMBSUP") -> None:
-        """
-        Add a reaction emoji to a message (non-blocking).
-
-        Common emoji types: THUMBSUP, OK, EYES, DONE, OnIt, HEART
-        """
-        if not self._client or not Emoji:
-            return
-
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._add_reaction_sync, message_id, emoji_type)
-
-    # Regex to match markdown tables (header + separator + data rows)
-    _TABLE_RE = re.compile(
-        r"((?:^[ \t]*\|.+\|[ \t]*\n)(?:^[ \t]*\|[-:\s|]+\|[ \t]*\n)(?:^[ \t]*\|.+\|[ \t]*\n?)+)",
-        re.MULTILINE,
-    )
-
-    _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
-
-    _CODE_BLOCK_RE = re.compile(r"(```[\s\S]*?```)", re.MULTILINE)
-
-    @staticmethod
-    def _parse_md_table(table_text: str) -> dict | None:
-        """Parse a markdown table into a Feishu table element."""
-        lines = [line.strip() for line in table_text.strip().split("\n") if line.strip()]
-        if len(lines) < 3:
-            return None
-        def split_row(row_text: str) -> list[str]:
-            return [cell.strip() for cell in row_text.strip("|").split("|")]
-
-        headers = split_row(lines[0])
-        rows = [split_row(row_text) for row_text in lines[2:]]
-        columns = [{"tag": "column", "name": f"c{i}", "display_name": h, "width": "auto"}
-                   for i, h in enumerate(headers)]
-        return {
-            "tag": "table",
-            "page_size": len(rows) + 1,
-            "columns": columns,
-            "rows": [{f"c{i}": r[i] if i < len(r) else "" for i in range(len(headers))} for r in rows],
-        }
-
-    def _build_card_elements(self, content: str) -> list[dict]:
-        """Split content into div/markdown + table elements for Feishu card."""
-        elements, last_end = [], 0
-        for m in self._TABLE_RE.finditer(content):
-            before = content[last_end:m.start()]
-            if before.strip():
-                elements.extend(self._split_headings(before))
-            elements.append(self._parse_md_table(m.group(1)) or {"tag": "markdown", "content": m.group(1)})
-            last_end = m.end()
-        remaining = content[last_end:]
-        if remaining.strip():
-            elements.extend(self._split_headings(remaining))
-        return elements or [{"tag": "markdown", "content": content}]
-
-    def _split_headings(self, content: str) -> list[dict]:
-        """Split content by headings, converting headings to div elements."""
-        protected = content
-        code_blocks = []
-        for m in self._CODE_BLOCK_RE.finditer(content):
-            code_blocks.append(m.group(1))
-            protected = protected.replace(m.group(1), f"\x00CODE{len(code_blocks)-1}\x00", 1)
-
-        elements = []
-        last_end = 0
-        for m in self._HEADING_RE.finditer(protected):
-            before = protected[last_end:m.start()].strip()
-            if before:
-                elements.append({"tag": "markdown", "content": before})
-            text = m.group(2).strip()
-            elements.append({
-                "tag": "div",
-                "text": {
-                    "tag": "lark_md",
-                    "content": f"**{text}**",
-                },
-            })
-            last_end = m.end()
-        remaining = protected[last_end:].strip()
-        if remaining:
-            elements.append({"tag": "markdown", "content": remaining})
-
-        for i, cb in enumerate(code_blocks):
-            for el in elements:
-                if el.get("tag") == "markdown":
-                    el["content"] = el["content"].replace(f"\x00CODE{i}\x00", cb)
-
-        return elements or [{"tag": "markdown", "content": content}]
-
-    _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif"}
-    _AUDIO_EXTS = {".opus"}
-    _FILE_TYPE_MAP = {
-        ".opus": "opus", ".mp4": "mp4", ".pdf": "pdf", ".doc": "doc", ".docx": "doc",
-        ".xls": "xls", ".xlsx": "xls", ".ppt": "ppt", ".pptx": "ppt",
-    }
-
-    def _upload_image_sync(self, file_path: str) -> str | None:
-        """Upload an image to Feishu and return the image_key."""
-        try:
-            with open(file_path, "rb") as f:
-                request = CreateImageRequest.builder() \
-                    .request_body(
-                        CreateImageRequestBody.builder()
-                        .image_type("message")
-                        .image(f)
-                        .build()
-                    ).build()
-                response = self._client.im.v1.image.create(request)
-                if response.success():
-                    image_key = response.data.image_key
-                    logger.debug("Uploaded image {}: {}", os.path.basename(file_path), image_key)
-                    return image_key
-                else:
-                    logger.error("Failed to upload image: code={}, msg={}", response.code, response.msg)
-                    return None
-        except Exception as e:
-            logger.error("Error uploading image {}: {}", file_path, e)
-            return None
-
-    def _upload_file_sync(self, file_path: str) -> str | None:
-        """Upload a file to Feishu and return the file_key."""
-        ext = os.path.splitext(file_path)[1].lower()
-        file_type = self._FILE_TYPE_MAP.get(ext, "stream")
-        file_name = os.path.basename(file_path)
-        try:
-            with open(file_path, "rb") as f:
-                request = CreateFileRequest.builder() \
-                    .request_body(
-                        CreateFileRequestBody.builder()
-                        .file_type(file_type)
-                        .file_name(file_name)
-                        .file(f)
-                        .build()
-                    ).build()
-                response = self._client.im.v1.file.create(request)
-                if response.success():
-                    file_key = response.data.file_key
-                    logger.debug("Uploaded file {}: {}", file_name, file_key)
-                    return file_key
-                else:
-                    logger.error("Failed to upload file: code={}, msg={}", response.code, response.msg)
-                    return None
-        except Exception as e:
-            logger.error("Error uploading file {}: {}", file_path, e)
-            return None
-
-    def _download_image_sync(self, message_id: str, image_key: str) -> tuple[bytes | None, str | None]:
-        """Download an image from Feishu message by message_id and image_key."""
-        try:
-            request = GetMessageResourceRequest.builder() \
-                .message_id(message_id) \
-                .file_key(image_key) \
-                .type("image") \
-                .build()
-            response = self._client.im.v1.message_resource.get(request)
-            if response.success():
-                file_data = response.file
-                # GetMessageResourceRequest returns BytesIO, need to read bytes
-                if hasattr(file_data, 'read'):
-                    file_data = file_data.read()
-                return file_data, response.file_name
-            else:
-                logger.error("Failed to download image: code={}, msg={}", response.code, response.msg)
-                return None, None
-        except Exception as e:
-            logger.error("Error downloading image {}: {}", image_key, e)
-            return None, None
-
-    def _download_file_sync(
-        self, message_id: str, file_key: str, resource_type: str = "file"
-    ) -> tuple[bytes | None, str | None]:
-        """Download a file/audio/media from a Feishu message by message_id and file_key."""
-        try:
-            request = (
-                GetMessageResourceRequest.builder()
-                .message_id(message_id)
-                .file_key(file_key)
-                .type(resource_type)
-                .build()
-            )
-            response = self._client.im.v1.message_resource.get(request)
-            if response.success():
-                file_data = response.file
-                if hasattr(file_data, "read"):
-                    file_data = file_data.read()
-                return file_data, response.file_name
-            else:
-                logger.error("Failed to download {}: code={}, msg={}", resource_type, response.code, response.msg)
-                return None, None
-        except Exception:
-            logger.exception("Error downloading {} {}", resource_type, file_key)
-            return None, None
-
-    async def _download_and_save_media(
-        self,
-        msg_type: str,
-        content_json: dict,
-        message_id: str | None = None
-    ) -> tuple[str | None, str]:
-        """
-        Download media from Feishu and save to local disk.
-
-        Returns:
-            (file_path, content_text) - file_path is None if download failed
-        """
-        loop = asyncio.get_running_loop()
-        media_dir = get_data_path() / "media"
-        media_dir.mkdir(parents=True, exist_ok=True)
-
-        data, filename = None, None
-
-        if msg_type == "image":
-            image_key = content_json.get("image_key")
-            if image_key and message_id:
-                data, filename = await loop.run_in_executor(
-                    None, self._download_image_sync, message_id, image_key
-                )
-                if not filename:
-                    filename = f"{image_key[:16]}.jpg"
-
-        elif msg_type in ("audio", "file", "media"):
-            file_key = content_json.get("file_key")
-            if file_key and message_id:
-                data, filename = await loop.run_in_executor(
-                    None, self._download_file_sync, message_id, file_key, msg_type
-                )
-                if not filename:
-                    ext = {"audio": ".opus", "media": ".mp4"}.get(msg_type, "")
-                    filename = f"{file_key[:16]}{ext}"
-
-        if data and filename:
-            file_path = media_dir / filename
-            file_path.write_bytes(data)
-            logger.debug("Downloaded {} to {}", msg_type, file_path)
-            return str(file_path), f"[{msg_type}: {filename}]"
-
-        return None, f"[{msg_type}: download failed]"
-
-    def _send_message_sync(self, receive_id_type: str, receive_id: str, msg_type: str, content: str) -> bool:
-        """Send a single message (text/image/file/interactive) synchronously."""
-        try:
-            request = CreateMessageRequest.builder() \
-                .receive_id_type(receive_id_type) \
-                .request_body(
-                    CreateMessageRequestBody.builder()
-                    .receive_id(receive_id)
-                    .msg_type(msg_type)
-                    .content(content)
-                    .build()
-                ).build()
-            response = self._client.im.v1.message.create(request)
-            if not response.success():
-                logger.error(
-                    "Failed to send Feishu {} message: code={}, msg={}, log_id={}",
-                    msg_type, response.code, response.msg, response.get_log_id()
-                )
-                return False
-            logger.debug("Feishu {} message sent to {}", msg_type, receive_id)
-            return True
-        except Exception as e:
-            logger.error("Error sending Feishu {} message: {}", msg_type, e)
-            return False
+        logger.info("Feishu channel stopped")
 
     async def send(self, msg: OutboundMessage) -> None:
-        """Send a message through Feishu, including media (images/files) if present."""
-        if not self._client:
-            logger.warning("Feishu client not initialized")
+        """
+        Send a message to the Feishu chat via the HTTP API.
+
+        Used for progress updates and tool hints (controlled by
+        ``channels.sendProgress`` / ``channels.sendToolHints`` config).
+        """
+        if not self._api_client:
             return
-
         try:
-            receive_id_type = "chat_id" if msg.chat_id.startswith("oc_") else "open_id"
-            loop = asyncio.get_running_loop()
+            import lark_oapi as lark
 
-            for file_path in msg.media:
-                if not os.path.isfile(file_path):
-                    logger.warning("Media file not found: {}", file_path)
-                    continue
-                ext = os.path.splitext(file_path)[1].lower()
-                if ext in self._IMAGE_EXTS:
-                    key = await loop.run_in_executor(None, self._upload_image_sync, file_path)
-                    if key:
-                        await loop.run_in_executor(
-                            None, self._send_message_sync,
-                            receive_id_type, msg.chat_id, "image", json.dumps({"image_key": key}, ensure_ascii=False),
-                        )
-                else:
-                    key = await loop.run_in_executor(None, self._upload_file_sync, file_path)
-                    if key:
-                        media_type = "audio" if ext in self._AUDIO_EXTS else "file"
-                        await loop.run_in_executor(
-                            None, self._send_message_sync,
-                            receive_id_type, msg.chat_id, media_type, json.dumps({"file_key": key}, ensure_ascii=False),
-                        )
-
-            if msg.content and msg.content.strip():
-                card = {"config": {"wide_screen_mode": True}, "elements": self._build_card_elements(msg.content)}
-                await loop.run_in_executor(
-                    None, self._send_message_sync,
-                    receive_id_type, msg.chat_id, "interactive", json.dumps(card, ensure_ascii=False),
+            content_json = json.dumps({"text": msg.content}, ensure_ascii=False)
+            request = (
+                lark.im.v1.CreateMessageRequest.builder()
+                .receive_id_type("chat_id")
+                .request_body(
+                    lark.im.v1.CreateMessageRequestBody.builder()
+                    .receive_id(msg.chat_id)
+                    .msg_type("text")
+                    .content(content_json)
+                    .build()
                 )
-
-        except Exception as e:
-            logger.error("Error sending Feishu message: {}", e)
-
-    def _on_message_sync(self, data: Any) -> None:
-        """
-        Sync handler for incoming messages (called from WebSocket thread).
-        Schedules async handling in the main event loop.
-        """
-        if self._loop and self._loop.is_running():
-            asyncio.run_coroutine_threadsafe(self._on_message(data), self._loop)
-
-    async def _on_message(self, data: Any) -> None:
-        """Handle incoming message from Feishu."""
-        try:
-            event = data.event
-            message = event.message
-            sender = event.sender
-
-            # Deduplication check
-            message_id_raw = getattr(message, "message_id", None)
-            if not isinstance(message_id_raw, str) or not message_id_raw:
-                return
-            message_id = message_id_raw
-            if message_id in self._processed_message_ids:
-                return
-            self._processed_message_ids[message_id] = None
-
-            # Trim cache
-            while len(self._processed_message_ids) > 1000:
-                self._processed_message_ids.popitem(last=False)
-
-            # Skip bot messages
-            if sender.sender_type == "bot":
-                return
-
-            sender_id = sender.sender_id.open_id if sender.sender_id else "unknown"
-            chat_id = message.chat_id
-            chat_type = message.chat_type
-            msg_type = message.message_type
-
-            if self.config.allow_from and sender_id not in self.config.allow_from:
-                return
-
-            if self.config.auto_reaction:
-                await self._add_reaction(message_id, self.config.reaction_emoji)
-
-            # Parse content
-            content_parts = []
-            media_paths = []
-
-            try:
-                content_json = json.loads(message.content) if message.content else {}
-            except json.JSONDecodeError:
-                content_json = {}
-
-            if msg_type == "text":
-                text = content_json.get("text", "")
-                if text:
-                    content_parts.append(text)
-
-            elif msg_type == "post":
-                text = _extract_post_text(content_json)
-                if text:
-                    content_parts.append(text)
-
-            elif msg_type in ("image", "audio", "file", "media"):
-                file_path, content_text = await self._download_and_save_media(msg_type, content_json, message_id)
-                if file_path:
-                    media_paths.append(file_path)
-                content_parts.append(content_text)
-
-            elif msg_type in ("share_chat", "share_user", "interactive", "share_calendar_event", "system", "merge_forward"):
-                # Handle share cards and interactive messages
-                text = _extract_share_card_content(content_json, msg_type)
-                if text:
-                    content_parts.append(text)
-
-            else:
-                content_parts.append(MSG_TYPE_MAP.get(msg_type, f"[{msg_type}]"))
-
-            content = "\n".join(content_parts) if content_parts else ""
-
-            raw_content = message.content if isinstance(message.content, str) else ""
-            if chat_type == "group" and not self._should_process_group_message(message, raw_content, content):
-                return
-
-            if not content and not media_paths:
-                return
-
-            mentions = self._extract_mentions(message)
-
-            # Forward to message bus
-            reply_to = chat_id if chat_type == "group" else sender_id
-            await self._handle_message(
-                sender_id=sender_id,
-                chat_id=reply_to,
-                content=content,
-                media=media_paths,
-                metadata={
-                    "message_id": message_id,
-                    "chat_type": chat_type,
-                    "msg_type": msg_type,
-                    "sender_open_id": sender_id,
-                    "source_text": content,
-                    "mentions": mentions,
-                }
+                .build()
             )
-
+            # run_in_executor so we don't block the event loop
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self._api_client.im.v1.message.create(request),
+            )
         except Exception as e:
-            logger.error("Error processing Feishu message: {}", e)
+            logger.error("Feishu send error: {}", e)
+
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
+    def _on_message_receive(self, data: Any) -> None:
+        """
+        lark-oapi event callback (runs in the WS daemon thread).
+
+        Parses the Feishu message event and forwards it to the MessageBus
+        via ``asyncio.run_coroutine_threadsafe`` so it executes on the
+        main event loop.
+        """
+        try:
+            msg = data.event.message
+            sender = data.event.sender
+
+            chat_id: str = msg.chat_id or ""
+            sender_id: str = sender.sender_id.open_id or ""
+
+            # Feishu message content is JSON-encoded, e.g. {"text": "hello"}
+            raw: str = msg.content or "{}"
+            try:
+                text: str = json.loads(raw).get("text", raw).strip()
+            except json.JSONDecodeError:
+                text = raw.strip()
+
+            if not text:
+                return
+
+            if self._loop and self._loop.is_running():
+                asyncio.run_coroutine_threadsafe(
+                    self._handle_message(
+                        sender_id=sender_id,
+                        chat_id=chat_id,
+                        content=text,
+                        metadata={
+                            "msg_type": msg.msg_type,
+                            "message_id": msg.message_id,
+                        },
+                    ),
+                    self._loop,
+                )
+        except Exception as e:
+            logger.error("Feishu _on_message_receive error: {}", e)

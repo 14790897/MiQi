@@ -29,10 +29,10 @@ dependencies = [
     "readability-lxml>=0.8.4,<1.0.0",
     "rich>=14.0.0,<15.0.0",
     "croniter>=6.0.0,<7.0.0",
-    "lark-oapi>=1.5.0,<2.0.0",
     "prompt-toolkit>=3.0.50,<4.0.0",
     "mcp>=1.26.0,<2.0.0",
     "json-repair>=0.57.0,<1.0.0",
+    "lark-oapi>=1.5.0,<2.0.0",
 ]
 
 [project.optional-dependencies]

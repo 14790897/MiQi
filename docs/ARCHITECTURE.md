@@ -13,7 +13,6 @@ FeatherFlow follows a "message bus + agent loop + tool system + channel adapters
 
 - `agent/loop.py`: main loop, tool-call orchestration, MCP lifecycle management
 - `agent/context.py`: context assembly (session, memory, skills)
-- `agent/tools/feishu.py`: Feishu business tools (doc/calendar/task/drive) + generic handoff orchestrator
 - `agent/memory/`:
   - `store.py`: `MemoryStore` facade
   - `snapshot.py`: long-term snapshot memory
@@ -26,7 +25,7 @@ FeatherFlow follows a "message bus + agent loop + tool system + channel adapters
 ## Data Flow
 
 - Input: Channel -> `InboundMessage`
-- Metadata enrichment: channel adapters can attach routing context (for example Feishu `sender_open_id` + `mentions`)
+- Metadata enrichment: channel adapters can attach routing context (sender identity, mentions, etc.)
 - Processing: `AgentLoop.process_*` -> Provider -> optional tool calls
 - Output: `OutboundMessage` -> Channel
 - Memory update: `MemoryStore.record_turn` updates short-term and long-term state per turn
@@ -37,7 +36,6 @@ FeatherFlow follows a "message bus + agent loop + tool system + channel adapters
 - Tool registry: decouples tool definitions, validation, and execution
 - Provider abstraction: unifies chat interface and reduces upper-layer coupling
 - Session compaction: controls context size while preserving readable history
-- Composable delivery: low-level Feishu primitives remain available while `feishu_handoff` provides a reusable cross-scenario handoff layer
 
 ## CLI Architecture
 

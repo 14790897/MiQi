@@ -26,19 +26,10 @@ def register_management_commands(
     def channels_status():
         from featherflow.config.loader import load_config
 
-        config = load_config()
+        load_config()
 
-        table = Table(title="Channel Status")
-        table.add_column("Channel", style="cyan")
-        table.add_column("Enabled", style="green")
-        table.add_column("Configuration", style="yellow")
-
-        fs = config.channels.feishu
-        fs_config = f"app_id: {fs.app_id[:10]}..." if fs.app_id else "[dim]not configured[/dim]"
-        table.add_row("Feishu", "✓" if fs.enabled else "✗", fs_config)
-
-        console.print(table)
-        console.print("[dim]Runtime channel wiring: Feishu only.[/dim]")
+        console.print("[dim]No built-in channels configured.[/dim]")
+        console.print("[dim]Use tools.mcpServers to connect external services (e.g. feishu-mcp).[/dim]")
 
     memory_app = typer.Typer(help="Manage agent memory")
     app.add_typer(memory_app, name="memory")

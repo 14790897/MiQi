@@ -23,46 +23,6 @@ class TelegramConfig(Base):
     reply_to_message: bool = False  # If true, bot replies quote the original message
 
 
-class FeishuConfig(Base):
-    """Feishu/Lark channel configuration using WebSocket long connection."""
-
-    enabled: bool = False
-    app_id: str = ""  # App ID from Feishu Open Platform
-    app_secret: str = ""  # App Secret from Feishu Open Platform
-    encrypt_key: str = ""  # Encrypt Key for event subscription (optional)
-    verification_token: str = ""  # Verification Token for event subscription (optional)
-    allow_from: list[str] = Field(default_factory=list)  # Allowed user open_ids
-    group_read_policy: str = "smart"  # smart | mention | all
-    require_mention_in_group: bool = True  # Backward-compatible switch; when true, acts like policy=mention
-    group_smart_enable_mention: bool = True
-    group_smart_enable_prefix: bool = True
-    group_smart_enable_keyword: bool = True
-    group_smart_enable_regex: bool = True
-    group_smart_enable_ignore: bool = True
-    group_smart_prefixes: list[str] = Field(
-        default_factory=lambda: ["/", "featherflow", "bot ", "机器人", "小助手"]
-    )
-    group_smart_keywords: list[str] = Field(
-        default_factory=lambda: [
-            "调研", "总结", "布置任务", "安排任务", "提醒", "帮我", "请你", "再试一次", "反思", "下一步"
-        ]
-    )
-    group_smart_patterns: list[str] = Field(
-        default_factory=lambda: [
-            r"^给.{0,12}(布置|安排).{0,12}任务",
-            r"(调研|分析|总结|汇总).{0,12}(一下|一份|一个)?",
-        ]
-    )
-    group_smart_ignore_patterns: list[str] = Field(
-        default_factory=lambda: [
-            r"^(收到|好的|ok|OK|嗯|看|赞|1)$",
-            r"^\[[^\]]+\]$",
-        ]
-    )
-    auto_reaction: bool = False  # Automatically react to inbound messages
-    reaction_emoji: str = "THUMBSUP"  # Emoji type used when auto_reaction is enabled
-
-
 class DingTalkConfig(Base):
     """DingTalk channel configuration using Stream mode."""
 
@@ -186,17 +146,21 @@ class QQConfig(Base):
     allow_from: list[str] = Field(default_factory=list)  # Allowed user openids (empty = public access)
 
 
-class ChannelsConfig(Base):
-    """Configuration for chat channels.
+class FeishuChannelConfig(Base):
+    """Feishu (Lark) channel configuration using WebSocket long connection."""
 
-    Note:
-        Runtime wiring currently enables Feishu only. Other channel adapters
-        may exist in the repository but are not activated by ChannelManager.
-    """
+    enabled: bool = False
+    app_id: str = ""      # Developer Console App ID (cli_xxx)
+    app_secret: str = ""  # Developer Console App Secret
+    allow_from: list[str] = Field(default_factory=list)  # Allowed open_ids (empty = anyone)
+
+
+class ChannelsConfig(Base):
+    """Configuration for chat channels."""
 
     send_progress: bool = True    # stream agent's text progress to the channel
     send_tool_hints: bool = False  # stream tool-call hints (e.g. read_file("…"))
-    feishu: FeishuConfig = Field(default_factory=FeishuConfig)
+    feishu: FeishuChannelConfig = Field(default_factory=FeishuChannelConfig)
 
 
 class AgentDefaults(Base):

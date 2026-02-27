@@ -22,8 +22,8 @@ python -m pytest tests/test_commands.py tests/test_cron_commands.py -q
 # Run additional core tests
 python -m pytest tests/test_agent_loop_core.py tests/test_cron_service_core.py -q
 
-# Feishu group policy + paper tool coverage
-python -m pytest tests/test_feishu_group_policy.py tests/test_paper_tools.py -q
+# Paper tool coverage
+python -m pytest tests/test_paper_tools.py -q
 ```
 
 ## Project Structure (Core)
@@ -54,10 +54,6 @@ python -m pytest tests/test_feishu_group_policy.py tests/test_paper_tools.py -q
 
 - Run nearby tests first, then broader suites
 - For async tests, ensure `pytest-asyncio` is installed
-- For Feishu tool changes, always run:
-  - `tests/test_agent_loop_core.py`
-  - `tests/test_feishu_group_policy.py`
-  - `tests/test_paper_tools.py`
 
 ## Commit Guidance
 

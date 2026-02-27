@@ -275,7 +275,6 @@ def test_interactive_onboard_configures_papers_and_skips_feishu(monkeypatch):
     confirm_values = iter(
         [
             False,  # custom API base URL
-            False,  # configure feishu now
         ]
     )
 
@@ -290,57 +289,3 @@ def test_interactive_onboard_configures_papers_and_skips_feishu(monkeypatch):
     assert config.tools.papers.timeout_seconds == 20
     assert config.tools.papers.default_limit == 8
     assert config.tools.papers.max_limit == 20
-    assert config.channels.feishu.enabled is False
-
-
-def test_interactive_onboard_configures_feishu_defaults(monkeypatch):
-    from featherflow.cli.commands import _interactive_onboard_setup
-
-    config = Config()
-
-    prompt_values = iter(
-        [
-            1,  # provider number: OpenRouter
-            "sk-or-v1-test",  # OpenRouter key
-            "",  # model name => default
-            1,  # search mode: Brave
-            "",  # Brave key (optional)
-            1,  # fetch mode: built-in
-            1,  # papers provider: hybrid
-            "",  # semantic scholar key optional
-            20,  # papers timeout
-            8,  # papers default limit
-            20,  # papers max limit
-            "cli_xxx",  # app_id
-            "sec_xxx",  # app_secret
-            "",  # encrypt_key
-            "",  # verification_token
-            "ou_1, ou_2",  # allowFrom
-            2,  # group policy: mention
-            "FeatherFlow",  # assistant name
-            1,  # soul preset
-        ]
-    )
-    confirm_values = iter(
-        [
-            False,  # custom API base URL
-            True,  # configure feishu now
-            True,  # feishu enabled
-            False,  # auto reaction
-        ]
-    )
-
-    monkeypatch.setattr("featherflow.cli.commands.typer.prompt", lambda *a, **k: next(prompt_values))
-    monkeypatch.setattr("featherflow.cli.commands.typer.confirm", lambda *a, **k: next(confirm_values))
-
-    agent_name, soul = _interactive_onboard_setup(config)
-
-    assert agent_name == "FeatherFlow"
-    assert soul == "balanced"
-    assert config.channels.feishu.enabled is True
-    assert config.channels.feishu.app_id == "cli_xxx"
-    assert config.channels.feishu.app_secret == "sec_xxx"
-    assert config.channels.feishu.allow_from == ["ou_1", "ou_2"]
-    assert config.channels.feishu.group_read_policy == "mention"
-    assert config.channels.feishu.require_mention_in_group is True
-    assert config.channels.feishu.auto_reaction is False

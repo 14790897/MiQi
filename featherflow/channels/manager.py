@@ -17,7 +17,7 @@ class ChannelManager:
     Manages chat channels and coordinates message routing.
 
     Responsibilities:
-    - Initialize enabled channels (currently Feishu only)
+    - Initialize enabled channels
     - Start/stop channels
     - Route outbound messages
     """
@@ -32,17 +32,10 @@ class ChannelManager:
 
     def _init_channels(self) -> None:
         """Initialize channels based on config."""
-
-        # Feishu channel
         if self.config.channels.feishu.enabled:
-            try:
-                from featherflow.channels.feishu import FeishuChannel
-                self.channels["feishu"] = FeishuChannel(
-                    self.config.channels.feishu, self.bus
-                )
-                logger.info("Feishu channel enabled")
-            except ImportError as e:
-                logger.warning("Feishu channel not available: {}", e)
+            from featherflow.channels.feishu import FeishuChannel
+            self.channels["feishu"] = FeishuChannel(self.config.channels.feishu, self.bus)
+            logger.info("Feishu channel enabled")
 
     async def _start_channel(self, name: str, channel: BaseChannel) -> None:
         """Start a channel and log any exceptions."""

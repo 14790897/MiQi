@@ -19,7 +19,7 @@
 
 FeatherFlow is a compact AI agent runtime designed for developers who want a self-hosted, programmable assistant. It connects to any OpenAI-compatible LLM provider and exposes a rich toolset — file operations, shell execution, web search, scheduled tasks, sub-agents, and external MCP servers — all configurable via a single JSON file.
 
-FeatherFlow is a domain-focused evolution of the upstream [`nanobot`](https://github.com/HKUDS/nanobot) project, optimized for Feishu-first production workflows. Full credit to the upstream team for the excellent engineering baseline in runtime design and tool abstraction.
+FeatherFlow is a domain-focused evolution of the upstream [`nanobot`](https://github.com/HKUDS/nanobot) project. Full credit to the upstream team for the excellent engineering baseline in runtime design and tool abstraction.
 
 > **Reference baseline:** `nanobot` @ [`30361c9`](https://github.com/HKUDS/nanobot/commit/30361c9307f9014f49530d80abd5717bc97f554a) (2026-02-23)
 
@@ -30,13 +30,12 @@ FeatherFlow is a domain-focused evolution of the upstream [`nanobot`](https://gi
 | Category | Capabilities |
 |---|---|
 | **LLM Providers** | OpenRouter, OpenAI, Anthropic, DeepSeek, Gemini, and any OpenAI-compatible endpoint |
-| **Built-in Tools** | File system, shell, web fetch/search, paper research (search/details/download), Feishu collaboration (doc/calendar/task/drive/handoff), cron scheduler, sub-agent spawning |
-| **Channels** | Feishu (WebSocket, runtime enabled) |
+| **Built-in Tools** | File system, shell, web fetch/search, paper research (search/details/download), cron scheduler, sub-agent spawning |
+| **Channels** | Channel adapters exist for Feishu/Telegram/Discord/Slack/Email/QQ/DingTalk/MoChat (runtime wiring via config) |
+| **MCP Integration** | Connect any MCP-compatible tool server (e.g. [feishu-mcp](https://github.com/lichman0405/feishu-mcp)) |
 | **Memory** | RAM-first with snapshots, lesson extraction, and compact session history |
 | **Extensibility** | MCP server integration, skill files, custom provider plugins |
 | **CLI** | Interactive onboarding, agent chat, gateway mode, cron and memory management |
-
-> Channel adapters for Telegram/Discord/Slack/Email/QQ/DingTalk/MoChat may exist in code, but current runtime wiring is Feishu-only.
 
 ---
 
@@ -80,7 +79,6 @@ featherflow gateway
 `featherflow onboard` now also supports:
 
 - Paper research tool configuration (`tools.papers` provider, API key, limits)
-- Optional Feishu channel setup (can be skipped; secure defaults preserved)
 
 ---
 
@@ -139,12 +137,6 @@ FeatherFlow reads from `~/.featherflow/config.json`. The interactive wizard (`fe
     }
   },
   "channels": {
-    "feishu": {
-      "enabled": true,
-      "appId": "cli_xxx",
-      "appSecret": "xxx",
-      "allowFrom": []
-    }
   },
   "tools": {
     "web": {
@@ -162,7 +154,7 @@ FeatherFlow reads from `~/.featherflow/config.json`. The interactive wizard (`fe
 
 - **`providers`** — API keys and base URLs for each LLM provider.
 - **`agents.defaults`** — Default model, temperature, token limits, and agent identity.
-- **`channels`** — Feishu channel credentials and access-control settings (`allowFrom`, group read policy, reaction behavior).
+- **`channels`** — Channel configuration for each IM adapter (see individual channel docs).
 - **`tools`** — Web/search/fetch behavior, paper research provider settings (`tools.papers`), shell execution policy, and MCP server definitions.
 - **`heartbeat`** — Periodic background prompts (`enabled`, `intervalSeconds`) for proactive agent behaviors.
 
@@ -231,26 +223,7 @@ All jobs can be toggled, triggered manually, or removed via the CLI.
 
 ### MCP Integration
 
-Connect any MCP-compatible tool server and expose its tools directly to the agent. Define MCP servers under the `tools.mcp` section of your config.
-
-### Feishu Collaboration Workflow
-
-FeatherFlow includes a Feishu-first delivery flow for group collaboration:
-
-- `paper_download`: downloads open-access PDFs into workspace and rejects common paywall/login HTML pages with structured errors.
-- `feishu_drive`: creates Drive folders and uploads local artifacts from workspace.
-- `feishu_doc` / `feishu_task` / `feishu_calendar`: creates cloud docs, tasks, and calendar events.
-- `feishu_handoff`: generic handoff orchestration that combines uploads + optional summary doc + optional task + optional calendar event.
-
-For group assignment (`assignees` / `attendees`), user resolution follows this order:
-- explicit `open_id`
-- current message mentions
-- group member exact name match
-- group member fuzzy name match
-
-If multiple users match the same name, tools return candidates and fail safely instead of guessing.
-
-Feishu Open Platform permission checklist for these tools is documented in [docs/API.md](docs/API.md).
+Connect any MCP-compatible tool server and expose its tools directly to the agent. Define MCP servers under `tools.mcpServers` in your config. For example, connect [feishu-mcp](https://github.com/lichman0405/feishu-mcp) to bring Feishu collaboration capabilities (messages, calendar, tasks, documents) into the agent via a clean MCP interface.
 
 ---
 
