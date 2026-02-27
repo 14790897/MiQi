@@ -193,7 +193,7 @@ class FeishuChannel(BaseChannel):
                         chat_id=chat_id,
                         content=text,
                         metadata={
-                            "msg_type": msg.msg_type,
+                            "msg_type": msg.message_type,
                             "message_id": msg.message_id,
                         },
                     ),
