@@ -56,39 +56,63 @@ class FeishuChannel(BaseChannel):
             .build()
         )
 
-        # Capture config values — lark.ws.Client must be created INSIDE the
-        # daemon thread so it never touches the main running event loop.
+        # Capture values for the thread closure
         app_id = self.config.app_id
         app_secret = self.config.app_secret
         on_msg = self._on_message_receive
 
         def _run_ws() -> None:
             """
-            Create and run the lark WS client entirely inside its own event
-            loop. Creating the client here (not in the main coroutine) ensures
-            lark-oapi never captures the already-running main loop.
+            Run the Feishu WebSocket client in a fully isolated event loop.
+
+            lark_oapi/ws/client.py captures the current event loop at MODULE
+            IMPORT TIME into a module-level global `loop` variable.  If the
+            module is first imported while the main asyncio loop is running,
+            every call to `client.start()` (which uses that global `loop`)
+            triggers "This event loop is already running".
+
+            Fix: bypass `start()` entirely.  Use `asyncio.run()` to spin up a
+            brand-new, fully-isolated event loop in this daemon thread, then
+            await the client's internal `_connect()` coroutine directly.
+            `asyncio.run()` is the only API that guarantees a truly fresh loop
+            with no contamination from the main thread.
             """
-            import lark_oapi as _lark  # local import — thread-safe
+            import lark_oapi as _lark
 
-            new_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(new_loop)
+            async def _ws_main() -> None:
+                _handler = (
+                    _lark.EventDispatcherHandler.builder("", "")
+                    .register_p2_im_message_receive_v1(on_msg)
+                    .build()
+                )
+                _ws = _lark.ws.Client(
+                    app_id,
+                    app_secret,
+                    event_handler=_handler,
+                    log_level=_lark.LogLevel.INFO,
+                )
+                self._ws_client = _ws
 
-            _handler = (
-                _lark.EventDispatcherHandler.builder("", "")
-                .register_p2_im_message_receive_v1(on_msg)
-                .build()
-            )
-            _ws = _lark.ws.Client(
-                app_id,
-                app_secret,
-                event_handler=_handler,
-                log_level=_lark.LogLevel.INFO,
-            )
-            self._ws_client = _ws
-            try:
-                _ws.start()
-            finally:
-                new_loop.close()
+                # Replicate what Client.start() does, but with await instead
+                # of the module-level loop.run_until_complete():
+                try:
+                    await _ws._connect()
+                except Exception as e:
+                    logger.error("Feishu WS connect failed: {}", e)
+                    try:
+                        await _ws._disconnect()
+                    except Exception:
+                        pass
+                    if _ws._auto_reconnect:
+                        await _ws._reconnect()
+                    return
+
+                # Start ping loop and keep the coroutine alive
+                asyncio.get_event_loop().create_task(_ws._ping_loop())
+                while self._running:
+                    await asyncio.sleep(1)
+
+            asyncio.run(_ws_main())
 
         self._ws_thread = threading.Thread(
             target=_run_ws,
