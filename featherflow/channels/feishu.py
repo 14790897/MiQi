@@ -91,9 +91,12 @@ class FeishuChannel(BaseChannel):
             _ws_mod.loop = _new_loop
 
             # 3. Build handler & client inside this thread
+            _noop = lambda data: None
             _handler = (
                 _lark.EventDispatcherHandler.builder("", "")
                 .register_p2_im_message_receive_v1(on_msg)
+                .register_p2_im_message_reaction_created_v1(_noop)
+                .register_p2_im_message_reaction_deleted_v1(_noop)
                 .build()
             )
             _ws = _lark.ws.Client(
