@@ -63,56 +63,49 @@ class FeishuChannel(BaseChannel):
 
         def _run_ws() -> None:
             """
-            Run the Feishu WebSocket client in a fully isolated event loop.
+            Run the Feishu WebSocket client in a dedicated thread with its
+            own event loop.
 
-            lark_oapi/ws/client.py captures the current event loop at MODULE
-            IMPORT TIME into a module-level global `loop` variable.  If the
-            module is first imported while the main asyncio loop is running,
-            every call to `client.start()` (which uses that global `loop`)
-            triggers "This event loop is already running".
+            lark_oapi/ws/client.py stores a module-level global variable
+            ``loop`` that is captured once at import time.  Every internal
+            method (start, _connect, _receive_message_loop, _ping_loop, …)
+            references that same global ``loop``.  If the module was first
+            imported while the main asyncio loop was already running, ``loop``
+            points to the main loop, and ALL internal operations fail with
+            "This event loop is already running" or "Future attached to a
+            different loop".
 
-            Fix: bypass `start()` entirely.  Use `asyncio.run()` to spin up a
-            brand-new, fully-isolated event loop in this daemon thread, then
-            await the client's internal `_connect()` coroutine directly.
-            `asyncio.run()` is the only API that guarantees a truly fresh loop
-            with no contamination from the main thread.
+            The only viable fix is to **monkey-patch** that module-level
+            ``loop`` to a fresh event loop created in this thread, then call
+            ``start()`` normally so all internal code paths use it.
             """
             import lark_oapi as _lark
+            import lark_oapi.ws.client as _ws_mod
 
-            async def _ws_main() -> None:
-                _handler = (
-                    _lark.EventDispatcherHandler.builder("", "")
-                    .register_p2_im_message_receive_v1(on_msg)
-                    .build()
-                )
-                _ws = _lark.ws.Client(
-                    app_id,
-                    app_secret,
-                    event_handler=_handler,
-                    log_level=_lark.LogLevel.INFO,
-                )
-                self._ws_client = _ws
+            # 1. Create a brand-new loop for this thread
+            _new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(_new_loop)
 
-                # Replicate what Client.start() does, but with await instead
-                # of the module-level loop.run_until_complete():
-                try:
-                    await _ws._connect()
-                except Exception as e:
-                    logger.error("Feishu WS connect failed: {}", e)
-                    try:
-                        await _ws._disconnect()
-                    except Exception:
-                        pass
-                    if _ws._auto_reconnect:
-                        await _ws._reconnect()
-                    return
+            # 2. Monkey-patch the module-level loop so every internal use
+            #    (run_until_complete, create_task, etc.) targets THIS loop
+            _ws_mod.loop = _new_loop
 
-                # Start ping loop and keep the coroutine alive
-                asyncio.get_event_loop().create_task(_ws._ping_loop())
-                while self._running:
-                    await asyncio.sleep(1)
+            # 3. Build handler & client inside this thread
+            _handler = (
+                _lark.EventDispatcherHandler.builder("", "")
+                .register_p2_im_message_receive_v1(on_msg)
+                .build()
+            )
+            _ws = _lark.ws.Client(
+                app_id,
+                app_secret,
+                event_handler=_handler,
+                log_level=_lark.LogLevel.INFO,
+            )
+            self._ws_client = _ws
 
-            asyncio.run(_ws_main())
+            # 4. start() is blocking — it uses the (now-patched) module loop
+            _ws.start()
 
         self._ws_thread = threading.Thread(
             target=_run_ws,
