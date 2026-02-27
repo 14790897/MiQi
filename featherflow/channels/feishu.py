@@ -56,27 +56,37 @@ class FeishuChannel(BaseChannel):
             .build()
         )
 
-        # Register event handler for incoming @bot / DM messages
-        handler = (
-            lark.EventDispatcherHandler.builder("", "")
-            .register_p2_im_message_receive_v1(self._on_message_receive)
-            .build()
-        )
-
-        # WebSocket client — .start() is blocking, so run in a daemon thread
-        self._ws_client = lark.ws.Client(
-            self.config.app_id,
-            self.config.app_secret,
-            event_handler=handler,
-            log_level=lark.LogLevel.INFO,
-        )
+        # Capture config values — lark.ws.Client must be created INSIDE the
+        # daemon thread so it never touches the main running event loop.
+        app_id = self.config.app_id
+        app_secret = self.config.app_secret
+        on_msg = self._on_message_receive
 
         def _run_ws() -> None:
-            """Run lark WS client in its own event loop to avoid conflict."""
+            """
+            Create and run the lark WS client entirely inside its own event
+            loop. Creating the client here (not in the main coroutine) ensures
+            lark-oapi never captures the already-running main loop.
+            """
+            import lark_oapi as _lark  # local import — thread-safe
+
             new_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(new_loop)
+
+            _handler = (
+                _lark.EventDispatcherHandler.builder("", "")
+                .register_p2_im_message_receive_v1(on_msg)
+                .build()
+            )
+            _ws = _lark.ws.Client(
+                app_id,
+                app_secret,
+                event_handler=_handler,
+                log_level=_lark.LogLevel.INFO,
+            )
+            self._ws_client = _ws
             try:
-                self._ws_client.start()
+                _ws.start()
             finally:
                 new_loop.close()
 
