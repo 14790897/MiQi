@@ -109,3 +109,34 @@ If `set_doc_permission` returns error `1063003`, the bot is not in the target
 group. Inform the user: "请将飞书机器人添加到群组：群设置 → 群机器人 → 添加机器人"。
 Do NOT silently skip permissions — at minimum ensure `set_doc_public_access` is
 called so the link is still accessible.
+## Zeo++ MCP — Passing Structure Files
+
+The `mcp_zeopp_*` tools run inside a **Docker container** and cannot access
+paths on the host filesystem (e.g. `/home/miqroera-featherflow/…`).
+**Never pass `structure_path` with a host-side path.** It will fail.
+
+Instead, use `structure_text` to pass the file content directly:
+
+```python
+# 1. Download the CIF file from Feishu (returns a host-side path)
+path = mcp_feishu-mcp_download_message_file(message_id=..., file_key=...)
+
+# 2. Read its content with the read_file tool
+content = read_file(path)   # returns the raw CIF/CSSR/XYZ text
+
+# 3. Pass the content directly to every zeopp tool
+mcp_zeopp_pore_diameter(structure_text=content, filename="structure.cif")
+mcp_zeopp_surface_area(structure_text=content, filename="structure.cif")
+mcp_zeopp_accessible_volume(structure_text=content, filename="structure.cif")
+mcp_zeopp_channel_analysis(structure_text=content, filename="structure.cif")
+mcp_zeopp_framework_info(structure_text=content, filename="structure.cif")
+mcp_zeopp_open_metal_sites(structure_text=content, filename="structure.cif")
+```
+
+If the file content is already in memory (e.g. created by a previous tool),
+skip the `read_file` step and pass the string directly.
+
+`structure_base64` is also supported if you have Base64-encoded bytes.
+
+> **mofchecker** runs as a stdio process on the host, so it **does** accept
+> host-side file paths normally — no workaround needed.
