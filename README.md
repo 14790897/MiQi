@@ -198,6 +198,18 @@ FeatherFlow reads from `~/.featherflow/config.json`. The interactive wizard (`fe
 |---|---|
 | `featherflow provider login <provider>` | Authenticate with an LLM provider |
 
+**Config (interactive wizards)**
+
+| Command | Description |
+|---|---|
+| `featherflow config show` | Print current config (keys masked) |
+| `featherflow config provider <name>` | Set API key / base URL for a provider |
+| `featherflow config feishu` | Configure Feishu channel **and** feishu-mcp in one step |
+| `featherflow config pdf2zh` | Configure pdf2zh MCP, auto-filling credentials from your provider |
+| `featherflow config mcp list` | List all configured MCP servers |
+| `featherflow config mcp add` | Add a custom MCP server interactively |
+| `featherflow config mcp remove <name>` | Remove an MCP server |
+
 ---
 
 ## Core Capabilities
@@ -223,7 +235,96 @@ All jobs can be toggled, triggered manually, or removed via the CLI.
 
 ### MCP Integration
 
-Connect any MCP-compatible tool server and expose its tools directly to the agent. Define MCP servers under `tools.mcpServers` in your config. For example, connect [feishu-mcp](https://github.com/lichman0405/feishu-mcp) to bring Feishu collaboration capabilities (messages, calendar, tasks, documents) into the agent via a clean MCP interface.
+Connect any MCP-compatible tool server and expose its tools directly to the agent.
+MCP servers are defined under `tools.mcpServers` in your config — but you don't need to edit JSON by hand.
+Use the `featherflow config` commands described below.
+
+---
+
+## Chat App Setup
+
+This guide walks through connecting FeatherFlow to a Feishu group with PDF translation.
+All steps use the interactive `featherflow config` wizards — no JSON editing required.
+
+### Prerequisites
+
+1. **Feishu Open Platform app** — create an in-house app at <https://open.feishu.cn/>, note down:
+   - **App ID** — looks like `cli_xxxxxxxxxxxxxxxxxx`
+   - **App Secret** — 32-character hex string
+   - Grant permissions: `im:message`, `im:chat.members:read`, `drive:drive`, `docx:document`, `drive:permission:write`
+   - Add bot to your target group: Group Settings → Group Bots → Add Bot
+
+2. **feishu-mcp installed** in a venv:
+   ```bash
+   git clone https://github.com/lichman0405/feishu-mcp ~/feishu-mcp
+   cd ~/feishu-mcp && python3 -m venv .venv && .venv/bin/pip install -e .
+   ```
+
+3. *(Optional)* **pdftranslate-mcp installed** in a separate Python 3.12 venv
+   (required because its dependencies need Python < 3.13):
+   ```bash
+   git clone https://github.com/lichman0405/pdftranslate-mcp ~/pdftranslate-mcp
+   cd ~/pdftranslate-mcp
+   uv venv .venv --python 3.12   # or: python3.12 -m venv .venv
+   .venv/bin/pip install -e .
+   ```
+
+---
+
+### Step 1 — Configure Feishu channel + feishu-mcp
+
+```bash
+featherflow config feishu
+```
+
+What it asks:
+
+| Prompt | What to enter |
+|---|---|
+| `Feishu App ID` | `cli_xxxxxxxxxxxxxxxxxx` from the open platform |
+| `Feishu App Secret` | the 32-char secret (input is hidden) |
+| `Path to feishu-mcp Python executable` | auto-detected from `~/feishu-mcp/.venv/bin/python`; press Enter to accept, or paste the path manually |
+
+This writes both `channels.feishu` and `tools.mcpServers.feishu-mcp` in one shot.
+
+---
+
+### Step 2 — Configure pdf2zh MCP (optional)
+
+```bash
+featherflow config pdf2zh
+```
+
+What it asks:
+
+| Prompt | What to enter |
+|---|---|
+| `Model name for translation` | defaults to your current model — press Enter to keep it, or type e.g. `kimi-k2.5` |
+| `Path to pdf2zh Python executable` | auto-detected from `~/pdftranslate-mcp/.venv/bin/python`; press Enter or paste path |
+
+> **Note:** API key and base URL are copied automatically from the provider you configured during `featherflow onboard`. You do **not** need to re-enter them.
+
+If your provider base URL doesn't already end in `/v1`, the command appends it automatically.
+
+---
+
+### Step 3 — Start the gateway
+
+```bash
+featherflow gateway
+```
+
+FeatherFlow will connect to Feishu via WebSocket long connection and start the MCP servers as child processes. Send a message to the bot in your Feishu group to verify.
+
+---
+
+### Verify configuration
+
+```bash
+featherflow config show          # see full config (keys masked)
+featherflow config mcp list      # confirm feishu-mcp and pdf2zh are listed
+featherflow channels status      # check Feishu WebSocket connection
+```
 
 ---
 
