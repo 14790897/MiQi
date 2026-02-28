@@ -235,6 +235,111 @@ def register_config_commands(app, *, console) -> None:
         console.print(f"[green]✓[/green] MCP server feishu-mcp configured  ({mcp_python})")
 
     # ------------------------------------------------------------------ #
+    # featherflow config pdf2zh
+    # ------------------------------------------------------------------ #
+
+    @config_app.command("pdf2zh")
+    def config_pdf2zh(
+        mcp_python: str = typer.Option(None, "--mcp-python", help="Python executable for pdf2zh"),
+        mcp_module: str = typer.Option("pdf2zh.mcp_server", "--mcp-module", help="Module to run"),
+        provider: str = typer.Option(
+            None, "--provider", "-p",
+            help="Provider name to copy credentials from (e.g. moonshot, openai). "
+                 "Default: auto-detect from current model.",
+        ),
+        model: str = typer.Option(None, "--model", "-m", help="Model name for pdf2zh translation"),
+        timeout: int = typer.Option(800, "--timeout", "-t", help="Tool call timeout seconds"),
+    ):
+        """Configure pdf2zh MCP server, auto-filling LLM credentials from featherflow config.
+
+        pdf2zh needs OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL env vars.
+        This command reads them from your featherflow provider configuration so
+        you never have to copy-paste credentials twice.
+        """
+        from featherflow.config.loader import get_config_path, load_config, save_config
+        from featherflow.config.schema import MCPServerConfig
+
+        config = load_config()
+        interactive = sys.stdin.isatty() and sys.stdout.isatty()
+
+        # ---- Resolve provider ----
+        if provider is None:
+            # Auto-detect from the current model
+            provider = config.get_provider_name(config.agents.defaults.model)
+
+        norm_provider = (provider or "").lower().replace("-", "_").replace(" ", "_")
+        provider_cfg = getattr(config.providers, norm_provider, None) if norm_provider else None
+
+        api_key = (provider_cfg.api_key if provider_cfg else "") or ""
+        api_base = (provider_cfg.api_base if provider_cfg else "") or ""
+
+        if not api_key and interactive:
+            api_key = typer.prompt(
+                f"API key for {norm_provider or 'provider'} (OPENAI_API_KEY)",
+                default="",
+                show_default=False,
+            ).strip()
+
+        if not api_base and interactive:
+            api_base = typer.prompt(
+                "API base URL (OPENAI_BASE_URL, e.g. https://api.openai.com/v1)",
+                default="",
+                show_default=False,
+            ).strip()
+
+        # Ensure /v1 suffix for base URL
+        if api_base and not api_base.rstrip("/").endswith("/v1"):
+            api_base = api_base.rstrip("/") + "/v1"
+
+        # ---- Resolve model ----
+        if model is None:
+            model = config.agents.defaults.model
+            # Strip provider prefix if present (e.g. "anthropic/claude-opus-4-5" → "claude-opus-4-5")
+            if "/" in model:
+                model = model.split("/", 1)[1]
+
+        if interactive:
+            model = typer.prompt("Model name for translation", default=model, show_default=True).strip()
+
+        # ---- Resolve python executable ----
+        if mcp_python is None:
+            mcp_python = _detect_pdf2zh_mcp_python()
+            if mcp_python is None:
+                if interactive:
+                    mcp_python = typer.prompt(
+                        "Path to pdf2zh Python executable (e.g. /path/to/.venv/bin/python)",
+                        default="",
+                        show_default=False,
+                    ).strip()
+                if not mcp_python:
+                    console.print(
+                        "[red]pdf2zh not found.[/red]\n"
+                        "Install: git clone https://github.com/lichman0405/pdftranslate-mcp && "
+                        "cd pdftranslate-mcp && python -m venv .venv && .venv/bin/pip install -e ."
+                    )
+                    raise typer.Exit(1)
+
+        # ---- Build / update mcpServers.pdf2zh ----
+        existing = config.tools.mcp_servers.get("pdf2zh", MCPServerConfig())
+        existing.command = mcp_python
+        existing.args = ["-m", mcp_module]
+        existing.tool_timeout = timeout
+        existing.env = {
+            "OPENAI_API_KEY": api_key,
+            "OPENAI_BASE_URL": api_base,
+            "OPENAI_MODEL": model,
+        }
+        config.tools.mcp_servers["pdf2zh"] = existing
+
+        save_config(config, get_config_path())
+        console.print(f"[green]✓[/green] MCP server [cyan]pdf2zh[/cyan] configured")
+        console.print(f"  provider:  [cyan]{norm_provider or '(none)'}[/cyan]")
+        console.print(f"  model:     [cyan]{model}[/cyan]")
+        console.print(f"  api_base:  [cyan]{api_base or '(default)'}[/cyan]")
+        console.print(f"  python:    [dim]{mcp_python}[/dim]")
+        console.print(f"  timeout:   {timeout}s")
+
+    # ------------------------------------------------------------------ #
     # featherflow config mcp list
     # ------------------------------------------------------------------ #
 
@@ -416,6 +521,29 @@ def _detect_feishu_mcp_python() -> str | None:
     # Try finding feishu_mcp module in current python
     try:
         import feishu_mcp  # noqa: F401
+        return sys.executable
+    except ImportError:
+        pass
+
+    return None
+
+
+def _detect_pdf2zh_mcp_python() -> str | None:
+    """Try common installation paths for pdftranslate-mcp / pdf2zh."""
+    from pathlib import Path
+
+    candidates = [
+        Path.home() / "pdftranslate-mcp" / ".venv" / "bin" / "python",
+        Path.home() / "pdftranslate-mcp" / "pdftranslate-mcp" / "bin" / "python",
+        Path.home() / "pdf2zh" / ".venv" / "bin" / "python",
+    ]
+    for p in candidates:
+        if p.exists():
+            return str(p)
+
+    # Try finding pdf2zh module in current python
+    try:
+        import pdf2zh  # noqa: F401
         return sys.executable
     except ImportError:
         pass
