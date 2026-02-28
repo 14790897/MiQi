@@ -553,6 +553,8 @@ def register_management_commands(
             web_config=config.tools.web,
             paper_config=config.tools.papers,
             memory_window=config.agents.defaults.memory_window,
+            max_tool_result_chars=config.agents.defaults.max_tool_result_chars,
+            context_limit_chars=config.agents.defaults.context_limit_chars,
             exec_config=config.tools.exec,
             memory_config=config.agents.memory,
             self_improvement_config=config.agents.self_improvement,

@@ -69,6 +69,8 @@ class AgentLoop:
         temperature: float = 0.1,
         max_tokens: int = 4096,
         memory_window: int = 100,
+        max_tool_result_chars: int = 16000,
+        context_limit_chars: int = 600000,
         brave_api_key: str | None = None,
         exec_config: ExecToolConfig | None = None,
         memory_config: AgentMemoryConfig | None = None,
@@ -93,6 +95,8 @@ class AgentLoop:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.memory_window = memory_window
+        self.max_tool_result_chars = max_tool_result_chars
+        self.context_limit_chars = context_limit_chars
         self.brave_api_key = brave_api_key
         self.exec_config = exec_config or ExecToolConfig()
         self.memory_config = memory_config or AgentMemoryConfig()
@@ -259,6 +263,66 @@ class AgentLoop:
         return re.sub(r"<think>[\s\S]*?</think>", "", text).strip() or None
 
     @staticmethod
+    def _estimate_chars(messages: list[dict]) -> int:
+        """Rough character count of all message content (no tokenisation needed)."""
+        total = 0
+        for m in messages:
+            c = m.get("content")
+            if isinstance(c, str):
+                total += len(c)
+            elif isinstance(c, list):  # multimodal: list of blocks
+                for block in c:
+                    if isinstance(block, dict) and isinstance(block.get("text"), str):
+                        total += len(block["text"])
+        return total
+
+    @staticmethod
+    def _trim_context(
+        messages: list[dict],
+        limit_chars: int,
+        current_chars: int,
+    ) -> list[dict]:
+        """Drop oldest assistant↔tool pairs until total chars fit under limit.
+
+        Always keeps the system prompt (index 0) and the final user message.
+        Returns the trimmed list (original is NOT mutated).
+        """
+        if limit_chars <= 0 or current_chars <= limit_chars:
+            return messages
+
+        # Identify trimmable range: after the system prompt, before the last user msg.
+        # We look for (assistant, tool…) pairs to remove from the front.
+        work = list(messages)
+        while current_chars > limit_chars and len(work) > 2:
+            # Find the first assistant message (after the system prompt)
+            cut_start = None
+            for i in range(1, len(work) - 1):
+                if work[i].get("role") == "assistant":
+                    cut_start = i
+                    break
+            if cut_start is None:
+                break  # nothing left to trim
+
+            # Collect consecutive assistant + tool result messages to drop together
+            cut_end = cut_start + 1
+            while cut_end < len(work) - 1 and work[cut_end].get("role") == "tool":
+                cut_end += 1
+
+            removed = work[cut_start:cut_end]
+            removed_chars = sum(
+                len(m.get("content", "")) if isinstance(m.get("content"), str) else 0
+                for m in removed
+            )
+            work = work[:cut_start] + work[cut_end:]
+            current_chars -= removed_chars
+            logger.debug(
+                "Context trim: dropped {} msgs ({} chars); remaining ~{} chars",
+                len(removed), removed_chars, current_chars,
+            )
+
+        return work
+
+    @staticmethod
     def _tool_hint(tool_calls: list) -> str:
         """Format tool calls as concise hint, e.g. 'web_search("query")'."""
         def _fmt(tc):
@@ -281,6 +345,16 @@ class AgentLoop:
 
         while iteration < self.max_iterations:
             iteration += 1
+
+            # Trim oversized context before each LLM call
+            if self.context_limit_chars > 0:
+                est = self._estimate_chars(messages)
+                if est > self.context_limit_chars:
+                    logger.warning(
+                        "Context too large (~{} chars, limit {}); trimming oldest turns",
+                        est, self.context_limit_chars,
+                    )
+                    messages = self._trim_context(messages, self.context_limit_chars, est)
 
             response = await self.provider.chat(
                 messages=messages,
@@ -331,6 +405,19 @@ class AgentLoop:
                         tool_call.arguments,
                         _on_progress=_mcp_on_progress,
                     )
+                    # Truncate large tool results to prevent context explosion.
+                    # This applies to the live prompt; saved-session truncation is
+                    # separate (see _save_turn / _TOOL_RESULT_MAX_CHARS).
+                    if (
+                        self.max_tool_result_chars > 0
+                        and isinstance(result, str)
+                        and len(result) > self.max_tool_result_chars
+                    ):
+                        truncated_note = (
+                            f"\n... [truncated: original {len(result)} chars, "
+                            f"showing first {self.max_tool_result_chars}]"
+                        )
+                        result = result[: self.max_tool_result_chars] + truncated_note
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )

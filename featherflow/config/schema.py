@@ -175,6 +175,14 @@ class AgentDefaults(Base):
     max_tool_iterations: int = 40
     memory_window: int = 100
     reflect_after_tool_calls: bool = True
+    # Maximum characters kept per tool result in the live prompt.
+    # Prevents runaway context growth when MCP tools return large payloads.
+    # Saved-session truncation (_TOOL_RESULT_MAX_CHARS) is separate and smaller.
+    max_tool_result_chars: int = 16000
+    # Soft cap on total estimated context chars before LLM call.
+    # When exceeded, oldest assistant↔tool exchange pairs are dropped.
+    # 0 = disabled.  A rough rule: chars ≈ tokens × 4.
+    context_limit_chars: int = 600000
 
 
 class AgentMemoryConfig(Base):
