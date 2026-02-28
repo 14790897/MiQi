@@ -110,12 +110,19 @@ async def connect_mcp_servers(
                 logger.warning("MCP server '{}': no command or url configured, skipping", name)
                 continue
 
-            session = await stack.enter_async_context(
-                ClientSession(
-                    read, write,
-                    progress_notification_handler=_handle_progress_notification,
+            try:
+                session = await stack.enter_async_context(
+                    ClientSession(
+                        read, write,
+                        progress_notification_handler=_handle_progress_notification,
+                    )
                 )
-            )
+            except TypeError:
+                logger.debug(
+                    "MCP server '{}': SDK does not support progress_notification_handler, "
+                    "progress reporting disabled", name
+                )
+                session = await stack.enter_async_context(ClientSession(read, write))
             await session.initialize()
 
             tools = await session.list_tools()
