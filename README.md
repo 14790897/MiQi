@@ -29,7 +29,7 @@ FeatherFlow is a domain-focused evolution of the upstream [`nanobot`](https://gi
 
 | Category | Capabilities |
 |---|---|
-| **LLM Providers** | OpenRouter, OpenAI, Anthropic, DeepSeek, Gemini, and any OpenAI-compatible endpoint |
+| **LLM Providers** | OpenRouter, OpenAI, Anthropic, DeepSeek, Gemini, Groq, Moonshot, MiniMax, ZhipuAI, DashScope (Qwen), SiliconFlow, VolcEngine, AiHubMix, vLLM, Ollama, OpenAI Codex (OAuth), GitHub Copilot (OAuth), and any OpenAI-compatible endpoint |
 | **Built-in Tools** | File system, shell, web fetch/search, paper research (search/details/download), cron scheduler, sub-agent spawning |
 | **Channels** | Channel adapters exist for Feishu/Telegram/Discord/Slack/Email/QQ/DingTalk/MoChat (runtime wiring via config) |
 | **MCP Integration** | Connect any MCP-compatible tool server (e.g. [feishu-mcp](https://github.com/lichman0405/feishu-mcp)) |
@@ -152,13 +152,31 @@ FeatherFlow reads from `~/.featherflow/config.json`. The interactive wizard (`fe
 
 ### Key Sections
 
-- **`providers`** — API keys and base URLs for each LLM provider.
-- **`agents.defaults`** — Default model, temperature, token limits, and agent identity.
-- **`channels`** — Channel configuration for each IM adapter (see individual channel docs).
-- **`tools`** — Web/search/fetch behavior, paper research provider settings (`tools.papers`), shell execution policy, and MCP server definitions.
+- **`providers`** — API keys, custom `apiBase` URLs, and optional `extraHeaders` (e.g. `APP-Code` for AiHubMix) for each LLM provider.
+- **`agents.defaults`** — Default model, temperature, `maxTokens`, `maxToolIterations`, `memoryWindow`, and agent identity (`name`, `workspace`).
+- **`agents.memory`** — Memory flush cadence (`flushEveryUpdates`, `flushIntervalSeconds`) and short-term window sizes.
+- **`agents.sessions`** — Session compaction thresholds (`compactThresholdMessages`, `compactThresholdBytes`, `compactKeepMessages`).
+- **`agents.selfImprovement`** — Lesson extraction settings: `enabled`, `maxLessonsInPrompt`, `minLessonConfidence`, `maxLessons`, `promotionEnabled`, etc.
+- **`channels`** — Channel configuration for each IM adapter; also controls `sendProgress` (stream text to channel) and `sendToolHints` (stream tool-call hints).
+- **`gateway`** — HTTP gateway listen address (`host`, `port`; default `0.0.0.0:18790`).
+- **`tools`** — Web/search/fetch behavior, paper research provider settings (`tools.papers`), shell execution policy (`tools.exec.timeout`), `restrictToWorkspace` flag, and MCP server definitions (`tools.mcpServers`).
 - **`heartbeat`** — Periodic background prompts (`enabled`, `intervalSeconds`) for proactive agent behaviors.
 
 > **Security:** Set file permissions to `0600` on your config file and configure strict `allowFrom` lists before exposing to any channel. See [`docs/SECURITY.md`](docs/SECURITY.md) for full guidance.
+
+### Environment Variable Overrides
+
+Every config field can be overridden at runtime via environment variables using the prefix `FEATHERFLOW_` and `__` as the nesting delimiter:
+
+```bash
+# Override the default model
+FEATHERFLOW_AGENTS__DEFAULTS__MODEL=deepseek/deepseek-chat featherflow agent
+
+# Inject an API key without editing config.json
+FEATHERFLOW_PROVIDERS__OPENROUTER__API_KEY=sk-or-v1-xxx featherflow gateway
+```
+
+This is particularly useful in containerised deployments where secrets are injected as environment variables rather than mounted files.
 
 ---
 
@@ -179,7 +197,30 @@ FeatherFlow reads from `~/.featherflow/config.json`. The interactive wizard (`fe
 |---|---|
 | `featherflow status` | Show runtime and provider status |
 | `featherflow channels status` | Show channel connection status |
+
+**Memory Management**
+
+| Command | Description |
+|---|---|
 | `featherflow memory status` | Show memory snapshot and stats |
+| `featherflow memory flush` | Force-persist pending memory updates immediately |
+| `featherflow memory compact [--max-items N]` | Prune long-term snapshot to at most N items |
+| `featherflow memory list [--limit N] [--session S]` | Browse long-term snapshot entries |
+| `featherflow memory delete <id>` | Remove a snapshot entry by ID |
+| `featherflow memory lessons status` | Show self-improvement lesson stats |
+| `featherflow memory lessons list` | List lessons (filter by `--scope`, `--session`, `--limit`) |
+| `featherflow memory lessons enable <id>` | Re-enable a disabled lesson |
+| `featherflow memory lessons disable <id>` | Suppress a lesson from future prompts |
+| `featherflow memory lessons delete <id>` | Permanently remove a lesson |
+| `featherflow memory lessons compact [--max-lessons N]` | Prune lessons to at most N entries |
+| `featherflow memory lessons reset` | Wipe all lessons |
+
+**Session Management**
+
+| Command | Description |
+|---|---|
+| `featherflow session compact --session <id>` | Compact a single conversation session |
+| `featherflow session compact --all` | Compact all stored sessions |
 
 **Cron Scheduler**
 
@@ -192,23 +233,24 @@ FeatherFlow reads from `~/.featherflow/config.json`. The interactive wizard (`fe
 | `featherflow cron disable <id>` | Disable a job |
 | `featherflow cron remove <id>` | Remove a job permanently |
 
+**Configuration**
+
+| Command | Description |
+|---|---|
+| `featherflow config show` | Print all non-default config values |
+| `featherflow config provider <name>` | Set or update a provider's API key / base URL |
+| `featherflow config feishu` | One-shot Feishu channel + feishu-mcp setup |
+| `featherflow config pdf2zh` | Configure pdf2zh MCP server (auto-fills LLM credentials) |
+| `featherflow config mcp list` | List all configured MCP servers |
+| `featherflow config mcp add <name>` | Add or update an MCP server (stdio or HTTP) |
+| `featherflow config mcp remove <name>` | Remove an MCP server |
+
 **Providers**
 
 | Command | Description |
 |---|---|
-| `featherflow provider login <provider>` | Authenticate with an LLM provider |
-
-**Config (interactive wizards)**
-
-| Command | Description |
-|---|---|
-| `featherflow config show` | Print current config (keys masked) |
-| `featherflow config provider <name>` | Set API key / base URL for a provider |
-| `featherflow config feishu` | Configure Feishu channel **and** feishu-mcp in one step |
-| `featherflow config pdf2zh` | Configure pdf2zh MCP, auto-filling credentials from your provider |
-| `featherflow config mcp list` | List all configured MCP servers |
-| `featherflow config mcp add` | Add a custom MCP server interactively |
-| `featherflow config mcp remove <name>` | Remove an MCP server |
+| `featherflow provider login openai-codex` | Authenticate with OpenAI Codex (OAuth) |
+| `featherflow provider login github-copilot` | Authenticate with GitHub Copilot (OAuth) |
 
 ---
 
@@ -235,96 +277,7 @@ All jobs can be toggled, triggered manually, or removed via the CLI.
 
 ### MCP Integration
 
-Connect any MCP-compatible tool server and expose its tools directly to the agent.
-MCP servers are defined under `tools.mcpServers` in your config — but you don't need to edit JSON by hand.
-Use the `featherflow config` commands described below.
-
----
-
-## Chat App Setup
-
-This guide walks through connecting FeatherFlow to a Feishu group with PDF translation.
-All steps use the interactive `featherflow config` wizards — no JSON editing required.
-
-### Prerequisites
-
-1. **Feishu Open Platform app** — create an in-house app at <https://open.feishu.cn/>, note down:
-   - **App ID** — looks like `cli_xxxxxxxxxxxxxxxxxx`
-   - **App Secret** — 32-character hex string
-   - Grant permissions: `im:message`, `im:chat.members:read`, `drive:drive`, `docx:document`, `drive:permission:write`
-   - Add bot to your target group: Group Settings → Group Bots → Add Bot
-
-2. **feishu-mcp installed** in a venv:
-   ```bash
-   git clone https://github.com/lichman0405/feishu-mcp ~/feishu-mcp
-   cd ~/feishu-mcp && python3 -m venv .venv && .venv/bin/pip install -e .
-   ```
-
-3. *(Optional)* **pdftranslate-mcp installed** in a separate Python 3.12 venv
-   (required because its dependencies need Python < 3.13):
-   ```bash
-   git clone https://github.com/lichman0405/pdftranslate-mcp ~/pdftranslate-mcp
-   cd ~/pdftranslate-mcp
-   uv venv .venv --python 3.12   # or: python3.12 -m venv .venv
-   .venv/bin/pip install -e .
-   ```
-
----
-
-### Step 1 — Configure Feishu channel + feishu-mcp
-
-```bash
-featherflow config feishu
-```
-
-What it asks:
-
-| Prompt | What to enter |
-|---|---|
-| `Feishu App ID` | `cli_xxxxxxxxxxxxxxxxxx` from the open platform |
-| `Feishu App Secret` | the 32-char secret (input is hidden) |
-| `Path to feishu-mcp Python executable` | auto-detected from `~/feishu-mcp/.venv/bin/python`; press Enter to accept, or paste the path manually |
-
-This writes both `channels.feishu` and `tools.mcpServers.feishu-mcp` in one shot.
-
----
-
-### Step 2 — Configure pdf2zh MCP (optional)
-
-```bash
-featherflow config pdf2zh
-```
-
-What it asks:
-
-| Prompt | What to enter |
-|---|---|
-| `Model name for translation` | defaults to your current model — press Enter to keep it, or type e.g. `kimi-k2.5` |
-| `Path to pdf2zh Python executable` | auto-detected from `~/pdftranslate-mcp/.venv/bin/python`; press Enter or paste path |
-
-> **Note:** API key and base URL are copied automatically from the provider you configured during `featherflow onboard`. You do **not** need to re-enter them.
-
-If your provider base URL doesn't already end in `/v1`, the command appends it automatically.
-
----
-
-### Step 3 — Start the gateway
-
-```bash
-featherflow gateway
-```
-
-FeatherFlow will connect to Feishu via WebSocket long connection and start the MCP servers as child processes. Send a message to the bot in your Feishu group to verify.
-
----
-
-### Verify configuration
-
-```bash
-featherflow config show          # see full config (keys masked)
-featherflow config mcp list      # confirm feishu-mcp and pdf2zh are listed
-featherflow channels status      # check Feishu WebSocket connection
-```
+Connect any MCP-compatible tool server and expose its tools directly to the agent. Define MCP servers under `tools.mcpServers` in your config. For example, connect [feishu-mcp](https://github.com/lichman0405/feishu-mcp) to bring Feishu collaboration capabilities (messages, calendar, tasks, documents) into the agent via a clean MCP interface.
 
 ---
 
