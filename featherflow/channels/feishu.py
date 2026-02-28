@@ -130,25 +130,38 @@ class FeishuChannel(BaseChannel):
         self._running = False
         logger.info("Feishu channel stopped")
 
+    # Feishu text message hard limit is 30 720 bytes.
+    # We use a conservative character limit (Chinese chars are 3 bytes each).
+    _MAX_MSG_CHARS = 8000
+
     async def send(self, msg: OutboundMessage) -> None:
         """
         Send a message to the Feishu chat via the HTTP API.
 
         Used for progress updates and tool hints (controlled by
         ``channels.sendProgress`` / ``channels.sendToolHints`` config).
+        Long messages are automatically split into chunks.
         """
         if not self._api_client:
             return
+        text = msg.content
+        # Split into chunks to stay within Feishu's 30 720-byte hard limit.
+        chunks = [text[i:i + self._MAX_MSG_CHARS] for i in range(0, max(len(text), 1), self._MAX_MSG_CHARS)]
+        for chunk in chunks:
+            await self._send_text_chunk(msg.chat_id, chunk)
+
+    async def _send_text_chunk(self, chat_id: str, text: str) -> None:
+        """Send a single text chunk via the Feishu HTTP API."""
         try:
             import lark_oapi as lark
 
-            content_json = json.dumps({"text": msg.content}, ensure_ascii=False)
+            content_json = json.dumps({"text": text}, ensure_ascii=False)
             request = (
                 lark.im.v1.CreateMessageRequest.builder()
                 .receive_id_type("chat_id")
                 .request_body(
                     lark.im.v1.CreateMessageRequestBody.builder()
-                    .receive_id(msg.chat_id)
+                    .receive_id(chat_id)
                     .msg_type("text")
                     .content(content_json)
                     .build()

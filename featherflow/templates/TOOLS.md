@@ -19,6 +19,35 @@ This file documents non-obvious constraints and usage patterns.
 - Use this tool to download paper PDFs into workspace.
 - It detects common paywall/login interstitial pages and returns structured errors instead of saving fake PDFs.
 
+## Feishu Message Length Limits
+
+The Feishu API enforces a **30 720-byte hard limit** on `text` message content
+(roughly 8 000 Chinese characters or 30 000 ASCII characters).
+Sending a message that exceeds this limit results in a `400 Bad Request` error.
+
+**Rules for `mcp_feishu-mcp_send_message` and `mcp_feishu-mcp_reply_message`:**
+
+1. Keep the `text` value inside `content` under **6 000 characters** (conservative
+   limit that accounts for multi-byte characters and formatting overhead).
+2. If the response is longer, **split it into multiple sequential messages**:
+   - Part 1: summary / key findings
+   - Part 2: detailed data / tables
+   - Part 3: conclusions / recommendations
+3. Call `reply_message` (not `send_message`) when replying in the same thread so
+   Feishu groups the messages correctly.
+
+**Example split pattern:**
+```
+# Part 1 – summary (< 6000 chars)
+reply_message(message_id=..., content='{"text": "📊 分析摘要\n..."}')
+
+# Part 2 – detailed numbers (< 6000 chars)
+reply_message(message_id=..., content='{"text": "📐 详细数据\n..."}')
+```
+
+> Never concatenate all analysis output into a single message when the total
+> exceeds ~6000 characters.
+
 ## Feishu File Messages — Required Workflow
 
 When a message starts with `[收到文件]`, `[收到图片]`, `[收到语音]`, or `[收到视频]`,
