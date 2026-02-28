@@ -314,7 +314,23 @@ class AgentLoop:
                     tools_used.append(tool_call.name)
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                     logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
-                    result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                    # For MCP tools, create a progress forwarder that sends
+                    # page-level progress to the user's chat channel
+                    _mcp_on_progress = None
+                    if tool_call.name.startswith("mcp_") and on_progress:
+                        async def _mcp_on_progress(progress, total, _on_progress=on_progress):
+                            if total:
+                                pct = int(progress / total * 100)
+                                await _on_progress(
+                                    f"\u23f3 {progress}/{total} ({pct}%)",
+                                    tool_hint=True,
+                                )
+
+                    result = await self.tools.execute(
+                        tool_call.name,
+                        tool_call.arguments,
+                        _on_progress=_mcp_on_progress,
+                    )
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )

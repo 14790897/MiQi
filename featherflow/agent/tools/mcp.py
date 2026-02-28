@@ -1,6 +1,7 @@
 """MCP client: connects to MCP servers and wraps their tools for runtime use."""
 
 import asyncio
+import uuid
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -9,6 +10,9 @@ from loguru import logger
 
 from featherflow.agent.tools.base import Tool
 from featherflow.agent.tools.registry import ToolRegistry
+
+# Track active progress callbacks keyed by progress_token string
+_progress_callbacks: dict[str, Any] = {}
 
 
 class MCPToolWrapper(Tool):
@@ -34,16 +38,30 @@ class MCPToolWrapper(Tool):
     def parameters(self) -> dict[str, Any]:
         return self._parameters
 
-    async def execute(self, **kwargs: Any) -> str:
+    async def execute(self, *, _on_progress=None, **kwargs: Any) -> str:
         from mcp import types
+
+        progress_token = None
+        if _on_progress:
+            progress_token = str(uuid.uuid4())
+            _progress_callbacks[progress_token] = _on_progress
+
         try:
             result = await asyncio.wait_for(
-                self._session.call_tool(self._original_name, arguments=kwargs),
+                self._session.call_tool(
+                    self._original_name,
+                    arguments=kwargs,
+                    progress_token=progress_token,
+                ),
                 timeout=self._tool_timeout,
             )
         except asyncio.TimeoutError:
             logger.warning("MCP tool '{}' timed out after {}s", self._name, self._tool_timeout)
             return f"(MCP tool call timed out after {self._tool_timeout}s)"
+        finally:
+            if progress_token:
+                _progress_callbacks.pop(progress_token, None)
+
         parts = []
         for block in result.content:
             if isinstance(block, types.TextContent):
@@ -51,6 +69,14 @@ class MCPToolWrapper(Tool):
             else:
                 parts.append(str(block))
         return "\n".join(parts) or "(no output)"
+
+
+async def _handle_progress_notification(notification) -> None:
+    """Handle MCP notifications/progress from servers."""
+    token = str(notification.progress_token) if notification.progress_token else None
+    if token and token in _progress_callbacks:
+        cb = _progress_callbacks[token]
+        await cb(notification.progress, notification.total)
 
 
 async def connect_mcp_servers(
@@ -84,7 +110,12 @@ async def connect_mcp_servers(
                 logger.warning("MCP server '{}': no command or url configured, skipping", name)
                 continue
 
-            session = await stack.enter_async_context(ClientSession(read, write))
+            session = await stack.enter_async_context(
+                ClientSession(
+                    read, write,
+                    progress_notification_handler=_handle_progress_notification,
+                )
+            )
             await session.initialize()
 
             tools = await session.list_tools()
