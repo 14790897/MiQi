@@ -772,6 +772,9 @@ register_management_commands(
     print_agent_response=_print_agent_response,
 )
 
+from featherflow.cli.config_cmd import register_config_commands
+register_config_commands(app, console=console)
+
 
 if __name__ == "__main__":
     app()

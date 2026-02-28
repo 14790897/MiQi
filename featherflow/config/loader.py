@@ -62,6 +62,17 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
 
     data = config.model_dump(by_alias=True)
 
+    # Prune providers that are completely unconfigured (apiKey="" apiBase=null
+    # extraHeaders=null) so they don't clutter the config file.
+    providers = data.get("providers", {})
+    pruned = {
+        k: v
+        for k, v in providers.items()
+        if v.get("apiKey") or v.get("apiBase") is not None or v.get("extraHeaders")
+    }
+    if pruned != providers:
+        data["providers"] = pruned
+
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
