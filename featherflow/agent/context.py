@@ -1,6 +1,7 @@
 """Context builder for assembling agent prompts."""
 
 import base64
+import importlib.resources
 import mimetypes
 import platform
 from pathlib import Path
@@ -124,15 +125,47 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
 - Remember important facts: write to {workspace_path}/memory/MEMORY.md
 - Recall past events: grep {workspace_path}/memory/HISTORY.md"""
 
+    # Bootstrap files that are system-maintained (always loaded from the installed
+    # package templates so updates propagate automatically without re-onboarding).
+    # If a copy also exists in the workspace, it is appended as user overrides.
+    SYSTEM_BOOTSTRAP_FILES = {"TOOLS.md"}
+
     def _load_bootstrap_files(self) -> str:
-        """Load all bootstrap files from workspace."""
+        """Load all bootstrap files from workspace (and package for system files)."""
         parts = []
 
         for filename in self.BOOTSTRAP_FILES:
-            file_path = self.workspace / filename
-            if file_path.exists():
-                content = file_path.read_text(encoding="utf-8")
-                parts.append(f"## {filename}\n\n{content}")
+            sections: list[str] = []
+
+            # System-maintained files: always read from the installed package first.
+            if filename in self.SYSTEM_BOOTSTRAP_FILES:
+                try:
+                    pkg_text = (
+                        importlib.resources.files("featherflow.templates")
+                        .joinpath(filename)
+                        .read_text(encoding="utf-8")
+                    )
+                    if pkg_text.strip():
+                        sections.append(pkg_text)
+                except Exception:
+                    pass  # fall through to workspace copy below
+
+            # Workspace copy: always used for non-system files;
+            # appended as user extensions for system files.
+            ws_path = self.workspace / filename
+            if ws_path.exists():
+                ws_text = ws_path.read_text(encoding="utf-8")
+                if ws_text.strip():
+                    if sections:
+                        # Avoid duplicating content if workspace is identical to package
+                        if ws_text.strip() != sections[0].strip():
+                            sections.append(f"## {filename} (workspace overrides)\n\n{ws_text}")
+                    else:
+                        sections.append(ws_text)
+
+            if sections:
+                combined = "\n\n".join(sections)
+                parts.append(f"## {filename}\n\n{combined}")
 
         return "\n\n".join(parts) if parts else ""
 

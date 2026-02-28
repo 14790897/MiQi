@@ -644,6 +644,12 @@ def _fetch_ollama_cloud_models(api_base: str, api_key: str) -> tuple[list[str], 
     return [], "; ".join(errors)
 
 
+# Bootstrap files that are system-maintained: always overwritten on onboard
+# so that package updates (e.g. new MCP tool instructions) take effect
+# automatically when users run 'featherflow onboard'.
+_SYSTEM_TEMPLATE_FILES = {"TOOLS.md", "AGENTS.md", "HEARTBEAT.md"}
+
+
 def _create_workspace_templates(
     workspace: Path,
     agent_name: str = "featherflow",
@@ -662,9 +668,13 @@ def _create_workspace_templates(
         if item.name == "SOUL.md":
             continue
         dest = workspace / item.name
+        is_system = item.name in _SYSTEM_TEMPLATE_FILES
         if not dest.exists():
             dest.write_text(item.read_text(encoding="utf-8"), encoding="utf-8")
             console.print(f"  [dim]Created {item.name}[/dim]")
+        elif is_system:
+            dest.write_text(item.read_text(encoding="utf-8"), encoding="utf-8")
+            console.print(f"  [dim]Updated {item.name} (system template)[/dim]")
 
     soul_file = workspace / "SOUL.md"
     if not soul_file.exists():
