@@ -153,6 +153,7 @@ class FeishuChannelConfig(Base):
     app_id: str = ""      # Developer Console App ID (cli_xxx)
     app_secret: str = ""  # Developer Console App Secret
     allow_from: list[str] = Field(default_factory=list)  # Allowed open_ids (empty = anyone)
+    reply_delay_ms: int = 3000  # Debounce window in ms: coalesce rapid messages before sending to agent (0 = off)
 
 
 class ChannelsConfig(Base):

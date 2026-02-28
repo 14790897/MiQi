@@ -36,6 +36,9 @@ class FeishuChannel(BaseChannel):
         self._ws_client: Any = None   # lark.ws.Client — assigned on start()
         self._api_client: Any = None  # lark.Client   — assigned on start()
         self._loop: asyncio.AbstractEventLoop | None = None
+        # Per-chat debounce state (keyed by chat_id)
+        self._debounce_tasks: dict[str, asyncio.Task] = {}
+        self._debounce_buffers: dict[str, list[dict]] = {}
 
     # ------------------------------------------------------------------
     # BaseChannel interface
@@ -283,7 +286,7 @@ class FeishuChannel(BaseChannel):
 
             if self._loop and self._loop.is_running():
                 asyncio.run_coroutine_threadsafe(
-                    self._handle_message(
+                    self._enqueue_debounced(
                         sender_id=sender_id,
                         chat_id=chat_id,
                         content=text,
@@ -293,3 +296,78 @@ class FeishuChannel(BaseChannel):
                 )
         except Exception as e:
             logger.error("Feishu _on_message_receive error: {}", e)
+
+    async def _enqueue_debounced(
+        self,
+        *,
+        sender_id: str,
+        chat_id: str,
+        content: str,
+        metadata: dict,
+    ) -> None:
+        """Debounce rapid messages from the same chat before forwarding to the bus.
+
+        Within the ``reply_delay_ms`` window, all messages from the same chat
+        are buffered.  When the window expires the buffered messages are merged
+        (content joined with a newline separator) and forwarded as a single
+        inbound message.  This prevents the agent from responding to a file
+        attachment before the user has finished typing the accompanying text.
+
+        Set ``channels.feishu.replyDelayMs`` to 0 to disable debouncing.
+        """
+        delay = self.config.reply_delay_ms / 1000.0
+        if delay <= 0:
+            await self._handle_message(
+                sender_id=sender_id,
+                chat_id=chat_id,
+                content=content,
+                metadata=metadata,
+            )
+            return
+
+        # Append to per-chat buffer
+        buf = self._debounce_buffers.setdefault(chat_id, [])
+        buf.append({"sender_id": sender_id, "content": content, "metadata": metadata})
+
+        # Cancel any existing timer for this chat
+        existing = self._debounce_tasks.get(chat_id)
+        if existing and not existing.done():
+            existing.cancel()
+
+        async def _fire() -> None:
+            try:
+                await asyncio.sleep(delay)
+            except asyncio.CancelledError:
+                return  # reset by a later message — do nothing
+
+            msgs = self._debounce_buffers.pop(chat_id, [])
+            self._debounce_tasks.pop(chat_id, None)
+            if not msgs:
+                return
+
+            # Merge: sender + metadata from first message, content joined
+            first = msgs[0]
+            if len(msgs) == 1:
+                merged_content = first["content"]
+                merged_metadata = first["metadata"]
+            else:
+                merged_content = "\n".join(m["content"] for m in msgs)
+                # Use metadata of the last message (typically the follow-up text)
+                merged_metadata = dict(msgs[-1]["metadata"])
+                # Preserve raw_content from any file/image/etc. messages
+                raw_list = [
+                    m["metadata"]["raw_content"]
+                    for m in msgs
+                    if m["metadata"].get("raw_content")
+                ]
+                if raw_list:
+                    merged_metadata["raw_contents"] = raw_list
+
+            await self._handle_message(
+                sender_id=first["sender_id"],
+                chat_id=chat_id,
+                content=merged_content,
+                metadata=merged_metadata,
+            )
+
+        self._debounce_tasks[chat_id] = asyncio.ensure_future(_fire())
