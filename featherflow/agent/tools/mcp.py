@@ -47,14 +47,31 @@ class MCPToolWrapper(Tool):
             _progress_callbacks[progress_token] = _on_progress
 
         try:
-            result = await asyncio.wait_for(
-                self._session.call_tool(
-                    self._original_name,
-                    arguments=kwargs,
-                    progress_token=progress_token,
-                ),
-                timeout=self._tool_timeout,
-            )
+            try:
+                result = await asyncio.wait_for(
+                    self._session.call_tool(
+                        self._original_name,
+                        arguments=kwargs,
+                        progress_token=progress_token,
+                    ),
+                    timeout=self._tool_timeout,
+                )
+            except TypeError:
+                # SDK does not support progress_token in call_tool — fall back
+                logger.debug(
+                    "MCP tool '{}': SDK does not support progress_token, "
+                    "progress reporting disabled", self._name
+                )
+                if progress_token:
+                    _progress_callbacks.pop(progress_token, None)
+                    progress_token = None
+                result = await asyncio.wait_for(
+                    self._session.call_tool(
+                        self._original_name,
+                        arguments=kwargs,
+                    ),
+                    timeout=self._tool_timeout,
+                )
         except asyncio.TimeoutError:
             logger.warning("MCP tool '{}' timed out after {}s", self._name, self._tool_timeout)
             return f"(MCP tool call timed out after {self._tool_timeout}s)"
