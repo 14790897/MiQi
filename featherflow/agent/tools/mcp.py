@@ -38,11 +38,11 @@ class MCPToolWrapper(Tool):
         from mcp import types
 
         # The mcp SDK calls progress_callback as:
-        #   await progress_callback(progress: float, total: float | None)
-        # SDK handles progressToken generation internally.
+        #   await progress_callback(progress_token, progress, total)
+        # (SDK added progress_token as the first arg in a recent version)
         progress_callback = None
         if _on_progress:
-            async def progress_callback(progress: float, total: float | None) -> None:
+            async def progress_callback(progress_token: Any, progress: float, total: float | None) -> None:
                 await _on_progress(progress, total or 0)
 
         try:
