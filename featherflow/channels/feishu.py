@@ -164,6 +164,75 @@ class FeishuChannel(BaseChannel):
     # Internal
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _extract_non_text_content(msg_type: str, content: dict, message_id: str) -> str:
+        """Build a descriptive text string for non-text message types.
+
+        The returned text tells the agent what was received and how to
+        retrieve the actual file via feishu-mcp tools.
+        """
+        if msg_type == "file":
+            file_key = content.get("file_key", "")
+            file_name = content.get("file_name", "unknown")
+            file_size = content.get("file_size")
+            size_str = f"，大小 {int(file_size)} 字节" if file_size else ""
+            return (
+                f"[收到文件] 文件名: {file_name}{size_str}\n"
+                f"message_id: {message_id}, file_key: {file_key}\n"
+                f"请使用 feishu-mcp 的 download_message_file 工具下载该文件 "
+                f"(message_id=\"{message_id}\", file_key=\"{file_key}\", type=\"file\")。"
+            )
+
+        if msg_type == "image":
+            image_key = content.get("image_key", "")
+            return (
+                f"[收到图片] image_key: {image_key}\n"
+                f"message_id: {message_id}\n"
+                f"请使用 feishu-mcp 的 download_message_file 工具下载该图片 "
+                f"(message_id=\"{message_id}\", file_key=\"{image_key}\", type=\"image\")。"
+            )
+
+        if msg_type == "audio":
+            file_key = content.get("file_key", "")
+            duration = content.get("duration")
+            dur_str = f"，时长 {duration}ms" if duration else ""
+            return (
+                f"[收到语音] file_key: {file_key}{dur_str}\n"
+                f"message_id: {message_id}\n"
+                f"请使用 feishu-mcp 的 download_message_file 工具下载该语音 "
+                f"(message_id=\"{message_id}\", file_key=\"{file_key}\", type=\"audio\")。"
+            )
+
+        if msg_type == "video":
+            file_key = content.get("file_key", "")
+            image_key = content.get("image_key", "")
+            duration = content.get("duration")
+            dur_str = f"，时长 {duration}ms" if duration else ""
+            return (
+                f"[收到视频] file_key: {file_key}{dur_str}\n"
+                f"message_id: {message_id}\n"
+                f"请使用 feishu-mcp 的 download_message_file 工具下载该视频 "
+                f"(message_id=\"{message_id}\", file_key=\"{file_key}\", type=\"video\")。"
+            )
+
+        if msg_type == "media":
+            file_key = content.get("file_key", "")
+            file_name = content.get("file_name", "unknown")
+            return (
+                f"[收到媒体文件] 文件名: {file_name}, file_key: {file_key}\n"
+                f"message_id: {message_id}\n"
+                f"请使用 feishu-mcp 的 download_message_file 工具下载该文件 "
+                f"(message_id=\"{message_id}\", file_key=\"{file_key}\", type=\"file\")。"
+            )
+
+        # Fallback for unknown non-text types (sticker, share_chat, etc.)
+        return (
+            f"[收到 {msg_type} 类型消息]\n"
+            f"message_id: {message_id}\n"
+            f"请使用 feishu-mcp 的 get_message 工具查看完整消息内容 "
+            f"(message_id=\"{message_id}\")。"
+        )
+
     def _on_message_receive(self, data: Any) -> None:
         """
         lark-oapi event callback (runs in the WS daemon thread).
@@ -171,6 +240,11 @@ class FeishuChannel(BaseChannel):
         Parses the Feishu message event and forwards it to the MessageBus
         via ``asyncio.run_coroutine_threadsafe`` so it executes on the
         main event loop.
+
+        Supports text messages (original behaviour) as well as non-text
+        messages (file, image, audio, video, media, etc.).  For non-text
+        types a descriptive prompt is constructed so the agent knows what
+        was received and which feishu-mcp tools to use to fetch the file.
         """
         try:
             msg = data.event.message
@@ -178,16 +252,34 @@ class FeishuChannel(BaseChannel):
 
             chat_id: str = msg.chat_id or ""
             sender_id: str = sender.sender_id.open_id or ""
+            message_id: str = msg.message_id or ""
+            msg_type: str = msg.message_type or "text"
 
-            # Feishu message content is JSON-encoded, e.g. {"text": "hello"}
             raw: str = msg.content or "{}"
             try:
-                text: str = json.loads(raw).get("text", raw).strip()
+                content_dict: dict = json.loads(raw)
             except json.JSONDecodeError:
-                text = raw.strip()
+                content_dict = {}
 
-            if not text:
-                return
+            if msg_type == "text":
+                # Original text handling — extract "text" field
+                text = content_dict.get("text", raw).strip()
+                if not text:
+                    return
+            else:
+                # Non-text message — build descriptive text for the agent
+                text = self._extract_non_text_content(msg_type, content_dict, message_id)
+                if not text:
+                    return
+
+            metadata: dict[str, Any] = {
+                "msg_type": msg_type,
+                "message_id": message_id,
+            }
+            # Attach raw content for non-text messages so the agent can
+            # parse file_key / image_key etc. directly if needed.
+            if msg_type != "text":
+                metadata["raw_content"] = raw
 
             if self._loop and self._loop.is_running():
                 asyncio.run_coroutine_threadsafe(
@@ -195,10 +287,7 @@ class FeishuChannel(BaseChannel):
                         sender_id=sender_id,
                         chat_id=chat_id,
                         content=text,
-                        metadata={
-                            "msg_type": msg.message_type,
-                            "message_id": msg.message_id,
-                        },
+                        metadata=metadata,
                     ),
                     self._loop,
                 )
