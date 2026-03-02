@@ -114,15 +114,33 @@ class FeishuChannel(BaseChannel):
             # 4. start() is blocking — it uses the (now-patched) module loop
             _ws.start()
 
-        # Fetch bot's own open_id so we can detect @mentions reliably
+        # Fetch bot's own open_id via REST API so we can detect @mentions reliably.
+        # The lark-oapi Client does not expose a .bot namespace in all versions,
+        # so we call the Feishu HTTP API directly with requests.
         try:
-            import lark_oapi as lark
-            _bot_resp = self._api_client.bot.v3.bot.get()
-            if _bot_resp.success() and _bot_resp.data and _bot_resp.data.bot:
-                self._bot_open_id = getattr(_bot_resp.data.bot, "open_id", "") or ""
-                logger.info("Feishu bot open_id: {}", self._bot_open_id)
+            import requests as _requests
+            # Step 1: get app_access_token
+            _token_resp = _requests.post(
+                "https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal",
+                json={"app_id": self.config.app_id, "app_secret": self.config.app_secret},
+                timeout=10,
+            )
+            _token = _token_resp.json().get("app_access_token", "")
+            if _token:
+                # Step 2: get bot info
+                _bot_resp = _requests.get(
+                    "https://open.feishu.cn/open-apis/bot/v3/info",
+                    headers={"Authorization": f"Bearer {_token}"},
+                    timeout=10,
+                )
+                _bot_data = _bot_resp.json()
+                self._bot_open_id = _bot_data.get("bot", {}).get("open_id", "") or ""
+                if self._bot_open_id:
+                    logger.info("Feishu bot open_id: {}", self._bot_open_id)
+                else:
+                    logger.warning("Feishu: bot open_id not found in response: {}", _bot_data)
             else:
-                logger.warning("Feishu: could not fetch bot open_id: {}", _bot_resp.msg)
+                logger.warning("Feishu: failed to obtain app_access_token")
         except Exception as _e:
             logger.warning("Feishu: error fetching bot open_id: {}", _e)
 
