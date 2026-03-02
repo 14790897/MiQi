@@ -362,13 +362,15 @@ def register_config_commands(app, *, console) -> None:
         table.add_column("Type")
         table.add_column("Command / URL")
         table.add_column("Timeout", justify="right")
+        table.add_column("Lazy")
 
         for name, srv in servers.items():
+            lazy_mark = "[green]yes[/green]" if srv.lazy else "[dim]no[/dim]"
             if srv.command:
                 cmd = f"{srv.command} {' '.join(srv.args)}".strip()
-                table.add_row(name, "stdio", cmd, f"{srv.tool_timeout}s")
+                table.add_row(name, "stdio", cmd, f"{srv.tool_timeout}s", lazy_mark)
             elif srv.url:
-                table.add_row(name, "http", srv.url, f"{srv.tool_timeout}s")
+                table.add_row(name, "http", srv.url, f"{srv.tool_timeout}s", lazy_mark)
 
         console.print(table)
 
@@ -391,6 +393,16 @@ def register_config_commands(app, *, console) -> None:
             help="HTTP header KEY=VALUE (repeatable)",
         ),
         timeout: int = typer.Option(30, "--timeout", "-t", help="Tool call timeout (seconds)"),
+        lazy: bool = typer.Option(
+            False, "--lazy/--no-lazy",
+            help="Register a single gateway entry-point instead of all tools upfront. "
+                 "Reduces per-call token cost when the server has many tools.",
+        ),
+        description: str = typer.Option(
+            "", "--description", "-d",
+            help="Description shown to the LLM in the gateway tool (lazy mode only). "
+                 "Leave blank to auto-generate from tool names.",
+        ),
     ):
         """Add or update an MCP server connection.
 
@@ -398,7 +410,9 @@ def register_config_commands(app, *, console) -> None:
           # stdio\n
           featherflow config mcp add pdf2zh --command /path/to/python --arg -m --arg pdf2zh.mcp_server\n\n
           # HTTP with auth header\n
-          featherflow config mcp add zeopp --url http://192.168.1.10:9877/mcp --header "Authorization=Bearer secret"
+          featherflow config mcp add zeopp --url http://192.168.1.10:9877/mcp --header "Authorization=Bearer secret"\n\n
+          # lazy mode (reduces token cost for servers with many tools)\n
+          featherflow config mcp add raspa2 --command /path/to/python --arg -m --arg raspa_mcp.server --lazy --description "RASPA molecular simulation: gas adsorption, GCMC/MD"
         """
         from featherflow.config.loader import get_config_path, load_config, save_config
         from featherflow.config.schema import MCPServerConfig
@@ -449,6 +463,9 @@ def register_config_commands(app, *, console) -> None:
 
         srv = config.tools.mcp_servers.get(name, MCPServerConfig())
         srv.tool_timeout = timeout
+        srv.lazy = lazy
+        if description:
+            srv.description = description
 
         if url:
             srv.url = url
@@ -471,7 +488,8 @@ def register_config_commands(app, *, console) -> None:
         save_config(config, get_config_path())
 
         verb = "Updated" if exists else "Added"
-        console.print(f"[green]✓[/green] {verb} MCP server [cyan]{name}[/cyan]")
+        lazy_hint = "  [green](lazy gateway)[/green]" if lazy else ""
+        console.print(f"[green]✓[/green] {verb} MCP server [cyan]{name}[/cyan]{lazy_hint}")
 
     # ------------------------------------------------------------------ #
     # featherflow config mcp remove
