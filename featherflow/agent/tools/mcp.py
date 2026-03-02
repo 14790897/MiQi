@@ -99,6 +99,96 @@ class MCPToolWrapper(Tool):
         return "\n".join(parts) or "(no output)"
 
 
+class MCPGatewayTool(Tool):
+    """Entry-point tool for a lazy-loaded MCP server.
+
+    Instead of registering all tools upfront (which inflates the tool list
+    sent to the LLM on every call), a single gateway tool per server is
+    registered.  When the LLM selects the gateway, all real tools for that
+    server are injected into the ToolRegistry for the remainder of the
+    current agent-loop run.  After the run completes, ``deactivate()`` is
+    called to unregister them, returning to the compact tool list.
+
+    This keeps the per-call tool-definition token cost at ~18 tools
+    (12 built-ins + N gateway stubs) instead of 90+.
+    """
+
+    def __init__(
+        self,
+        server_name: str,
+        wrappers: list,  # list[MCPToolWrapper]
+        registry: ToolRegistry,
+        gateway_description: str = "",
+    ):
+        self._server_name = server_name
+        self._wrappers = wrappers
+        self._registry = registry
+        self._gateway_description = gateway_description
+        self._active = False
+
+    @property
+    def name(self) -> str:
+        return f"use_{self._server_name}"
+
+    @property
+    def description(self) -> str:
+        base = self._gateway_description or f"激活 {self._server_name} 工具集"
+        sample = ", ".join(w._original_name for w in self._wrappers[:6])
+        if len(self._wrappers) > 6:
+            sample += "..."
+        return (
+            f"{base}。"
+            f"共 {len(self._wrappers)} 个工具（如 {sample}）。"
+            "调用此工具并描述你的任务，即可激活该工具集，之后可直接调用其中的具体工具。"
+        )
+
+    @property
+    def parameters(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "需要完成的任务描述，用于激活后的上下文提示",
+                }
+            },
+            "required": ["task"],
+        }
+
+    async def execute(self, task: str = "", **kwargs) -> str:  # type: ignore[override]
+        """Activate: register all real tools into the shared registry."""
+        if not self._active:
+            for wrapper in self._wrappers:
+                self._registry.register(wrapper)
+            self._active = True
+            logger.info(
+                "MCPGateway: activated '{}' ({} tools loaded)",
+                self._server_name, len(self._wrappers),
+            )
+        tool_lines = "\n".join(
+            f"- {w.name}: {(w.description or '')[:80]}"
+            for w in self._wrappers
+        )
+        return (
+            f"{self._server_name} 工具集已激活，共 {len(self._wrappers)} 个工具：\n\n"
+            f"{tool_lines}\n\n"
+            f"任务：{task}\n"
+            "请直接调用上述工具完成任务。"
+        )
+
+    def deactivate(self) -> None:
+        """Unregister all real tools; call after each agent-loop run."""
+        if self._active:
+            for wrapper in self._wrappers:
+                self._registry.unregister(wrapper.name)
+            self._active = False
+            logger.debug("MCPGateway: deactivated '{}'", self._server_name)
+
+    @property
+    def is_active(self) -> bool:
+        return self._active
+
+
 async def _connect_one_server(
     name: str, cfg, registry: ToolRegistry
 ) -> AsyncExitStack | None:
@@ -143,17 +233,33 @@ async def _connect_one_server(
         await session.initialize()
 
         tools = await session.list_tools()
-        for tool_def in tools.tools:
-            progress_interval = getattr(cfg, "progress_interval_seconds", 15)
-            wrapper = MCPToolWrapper(
+        progress_interval = getattr(cfg, "progress_interval_seconds", 15)
+        wrappers = [
+            MCPToolWrapper(
                 session, name, tool_def,
                 tool_timeout=cfg.tool_timeout,
                 progress_interval=progress_interval,
             )
-            registry.register(wrapper)
-            logger.debug("MCP: registered tool '{}' from server '{}'", wrapper.name, name)
+            for tool_def in tools.tools
+        ]
 
-        logger.info("MCP server '{}': connected, {} tools registered", name, len(tools.tools))
+        lazy = getattr(cfg, "lazy", False)
+        if lazy:
+            # Register a single gateway entry-point tool; real tools are
+            # injected into the registry on demand when the gateway executes.
+            gateway_desc = getattr(cfg, "description", "") or ""
+            gateway = MCPGatewayTool(name, wrappers, registry, gateway_desc)
+            registry.register(gateway)
+            logger.info(
+                "MCP server '{}': connected, {} tools ready (lazy gateway registered)",
+                name, len(wrappers),
+            )
+        else:
+            for wrapper in wrappers:
+                registry.register(wrapper)
+                logger.debug("MCP: registered tool '{}' from server '{}'", wrapper.name, name)
+            logger.info("MCP server '{}': connected, {} tools registered", name, len(wrappers))
+
         return server_stack  # caller keeps it alive
 
     except BaseException as e:

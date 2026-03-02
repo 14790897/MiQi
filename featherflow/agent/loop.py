@@ -213,6 +213,7 @@ class AgentLoop:
         self._consolidation_tasks: set[asyncio.Task] = set()  # Strong refs to in-flight tasks
         self._consolidation_locks: dict[str, asyncio.Lock] = {}
         self._task_tracker = TaskTracker()
+        self._mcp_gateways: list = []  # MCPGatewayTool instances; deactivated after each run
         self._register_default_tools()
 
     def _register_default_tools(self) -> None:
@@ -281,6 +282,18 @@ class AgentLoop:
             await self._mcp_stack.__aenter__()
             await connect_mcp_servers(self._mcp_servers, self.tools, self._mcp_stack)
             self._mcp_connected = True
+            # Collect lazy gateway stubs so _process_message can deactivate them
+            from featherflow.agent.tools.mcp import MCPGatewayTool as _MCPGatewayTool
+            self._mcp_gateways = [
+                t for t in self.tools._tools.values()
+                if isinstance(t, _MCPGatewayTool)
+            ]
+            if self._mcp_gateways:
+                logger.info(
+                    "Lazy MCP: {} gateway(s) registered: {}",
+                    len(self._mcp_gateways),
+                    [gw.name for gw in self._mcp_gateways],
+                )
         except (Exception, asyncio.CancelledError) as e:
             logger.error("Failed to connect MCP servers (will retry next message): {}", e)
             if self._mcp_stack:
@@ -668,7 +681,11 @@ class AgentLoop:
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
             )
-            final_content, _, all_msgs = await self._run_agent_loop(messages)
+            try:
+                final_content, _, all_msgs = await self._run_agent_loop(messages)
+            finally:
+                for _gw in self._mcp_gateways:
+                    _gw.deactivate()
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
             return OutboundMessage(channel=channel, chat_id=chat_id,
@@ -762,9 +779,13 @@ class AgentLoop:
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))
 
-        final_content, _, all_msgs = await self._run_agent_loop(
-            initial_messages, on_progress=on_progress or _bus_progress,
-        )
+        try:
+            final_content, _, all_msgs = await self._run_agent_loop(
+                initial_messages, on_progress=on_progress or _bus_progress,
+            )
+        finally:
+            for _gw in self._mcp_gateways:
+                _gw.deactivate()
 
         if final_content is None:
             final_content = "I've completed processing but have no response to give."

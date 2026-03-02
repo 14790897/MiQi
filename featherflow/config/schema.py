@@ -327,6 +327,8 @@ class MCPServerConfig(Base):
     headers: dict[str, str] = Field(default_factory=dict)  # HTTP: Custom HTTP Headers
     tool_timeout: int = 30  # Seconds before a tool call is cancelled
     progress_interval_seconds: int = 15  # Interval for heartbeat progress messages during long-running tool calls (0 = off)
+    description: str = ""  # Description shown to LLM in the gateway entry-point tool (lazy mode)
+    lazy: bool = False  # If true, register a single gateway tool instead of all tools upfront; activate on demand
 
 
 class ToolsConfig(Base):
