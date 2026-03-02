@@ -14,13 +14,16 @@ from featherflow.agent.tools.registry import ToolRegistry
 class MCPToolWrapper(Tool):
     """Wrap a single MCP server tool as a native runtime Tool."""
 
-    def __init__(self, session, server_name: str, tool_def, tool_timeout: int = 30):
+    def __init__(self, session, server_name: str, tool_def, tool_timeout: int = 30,
+                 progress_interval: int = 15):
         self._session = session
+        self._server_name = server_name
         self._original_name = tool_def.name
         self._name = f"mcp_{server_name}_{tool_def.name}"
         self._description = tool_def.description or tool_def.name
         self._parameters = tool_def.inputSchema or {"type": "object", "properties": {}}
         self._tool_timeout = tool_timeout
+        self._progress_interval = progress_interval
 
     @property
     def name(self) -> str:
@@ -45,6 +48,26 @@ class MCPToolWrapper(Tool):
             async def progress_callback(progress_token: Any, progress: float, total: float | None) -> None:
                 await _on_progress(progress, total or 0)
 
+        # Heartbeat: periodically notify the user that a long-running
+        # MCP tool is still executing, even if the server sends no
+        # progress events.
+        heartbeat_task: asyncio.Task | None = None
+        if _on_progress and self._progress_interval > 0:
+            async def _heartbeat():
+                elapsed = 0
+                try:
+                    while True:
+                        await asyncio.sleep(self._progress_interval)
+                        elapsed += self._progress_interval
+                        await _on_progress(
+                            elapsed,
+                            0,  # total unknown
+                            heartbeat=True,
+                        )
+                except asyncio.CancelledError:
+                    pass
+            heartbeat_task = asyncio.create_task(_heartbeat())
+
         try:
             result = await asyncio.wait_for(
                 self._session.call_tool(
@@ -59,6 +82,13 @@ class MCPToolWrapper(Tool):
                 "MCP tool '{}' timed out after {}s", self._name, self._tool_timeout
             )
             return f"(MCP tool call timed out after {self._tool_timeout}s)"
+        finally:
+            if heartbeat_task:
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    pass
 
         parts = []
         for block in result.content:
@@ -114,7 +144,12 @@ async def _connect_one_server(
 
         tools = await session.list_tools()
         for tool_def in tools.tools:
-            wrapper = MCPToolWrapper(session, name, tool_def, tool_timeout=cfg.tool_timeout)
+            progress_interval = getattr(cfg, "progress_interval_seconds", 15)
+            wrapper = MCPToolWrapper(
+                session, name, tool_def,
+                tool_timeout=cfg.tool_timeout,
+                progress_interval=progress_interval,
+            )
             registry.register(wrapper)
             logger.debug("MCP: registered tool '{}' from server '{}'", wrapper.name, name)
 

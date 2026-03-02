@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time as _time_mod
+from collections import deque
 from contextlib import AsyncExitStack
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -41,6 +44,60 @@ from featherflow.config.schema import (
 from featherflow.cron.service import CronService
 from featherflow.providers.base import LLMProvider
 from featherflow.session.manager import Session, SessionManager
+
+
+# ---------------------------------------------------------------------------
+# Task queue tracker — gives users visibility into pending / active work
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _QueuedTask:
+    """A message waiting in the task queue."""
+    msg: InboundMessage
+    enqueue_time: float = field(default_factory=_time_mod.monotonic)
+
+    @property
+    def sender_display(self) -> str:
+        return self.msg.sender_name or self.msg.sender_id
+
+    @property
+    def preview(self) -> str:
+        text = self.msg.content
+        return (text[:40] + "...") if len(text) > 40 else text
+
+
+class TaskTracker:
+    """Track the active task and pending queue for user-visible notifications."""
+
+    def __init__(self):
+        self.active: _QueuedTask | None = None
+        self.pending: deque[_QueuedTask] = deque()
+
+    def enqueue(self, msg: InboundMessage) -> int:
+        """Add a message to the pending queue. Returns queue position (1-based)."""
+        task = _QueuedTask(msg=msg)
+        self.pending.append(task)
+        return len(self.pending)
+
+    def start_next(self) -> _QueuedTask | None:
+        """Pop the next pending task and mark it active. Returns the task or None."""
+        if not self.pending:
+            self.active = None
+            return None
+        self.active = self.pending.popleft()
+        return self.active
+
+    def finish_active(self) -> None:
+        """Mark the current active task as finished."""
+        self.active = None
+
+    @property
+    def pending_count(self) -> int:
+        return len(self.pending)
+
+    @property
+    def is_busy(self) -> bool:
+        return self.active is not None
 
 
 class AgentLoop:
@@ -155,6 +212,7 @@ class AgentLoop:
         self._consolidating: set[str] = set()  # Session keys with consolidation in progress
         self._consolidation_tasks: set[asyncio.Task] = set()  # Strong refs to in-flight tasks
         self._consolidation_locks: dict[str, asyncio.Lock] = {}
+        self._task_tracker = TaskTracker()
         self._register_default_tools()
 
     def _register_default_tools(self) -> None:
@@ -389,11 +447,27 @@ class AgentLoop:
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                     logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
                     # For MCP tools, create a progress forwarder that sends
-                    # page-level progress to the user's chat channel
+                    # page-level progress to the user's chat channel.
+                    # Also supports heartbeat mode: when the MCP server
+                    # sends no progress events, the wrapper periodically
+                    # fires _on_progress(elapsed, 0, heartbeat=True) to
+                    # let users know the tool is still running.
                     _mcp_on_progress = None
                     if tool_call.name.startswith("mcp_") and on_progress:
-                        async def _mcp_on_progress(progress, total, _on_progress=on_progress):
-                            if total:
+                        _tool_display = tool_call.name.removeprefix("mcp_")
+
+                        async def _mcp_on_progress(
+                            progress, total, _on_progress=on_progress,
+                            _display=_tool_display, *, heartbeat=False,
+                        ):
+                            if heartbeat:
+                                mins, secs = divmod(int(progress), 60)
+                                elapsed_str = f"{mins}m{secs:02d}s" if mins else f"{secs}s"
+                                await _on_progress(
+                                    f"\u23f3 {_display} \u6b63\u5728\u6267\u884c\u4e2d... (\u5df2\u7528\u65f6 {elapsed_str})",
+                                    tool_hint=True,
+                                )
+                            elif total:
                                 pct = int(progress / total * 100)
                                 await _on_progress(
                                     f"\u23f3 {progress}/{total} ({pct}%)",
@@ -444,25 +518,80 @@ class AgentLoop:
 
         return final_content, tools_used, messages
 
+    async def _send_queue_notification(self, channel: str, chat_id: str, text: str) -> None:
+        """Send a queue-related notification to a specific chat."""
+        send_queue = True
+        if self.channels_config:
+            send_queue = self.channels_config.send_queue_notifications
+        if not send_queue:
+            return
+        await self.bus.publish_outbound(OutboundMessage(
+            channel=channel, chat_id=chat_id, content=text,
+            metadata={"_progress": True, "_tool_hint": False},
+        ))
+
     async def run(self) -> None:
-        """Run the agent loop, processing messages from the bus."""
+        """Run the agent loop, processing messages from the bus.
+
+        When the agent is busy processing a task, newly arriving messages
+        are placed into a pending queue and the sender is notified of their
+        queue position.  Once the active task finishes, the next pending
+        task is automatically started.
+        """
         self._running = True
         await self._connect_mcp()
         logger.info("Agent loop started")
 
         while self._running:
+            # If there is no active task, try to start the next pending one
+            if not self._task_tracker.is_busy:
+                task = self._task_tracker.start_next()
+                if task:
+                    sender = task.sender_display
+                    logger.info("Starting queued task from {}", sender)
+                    await self._send_queue_notification(
+                        task.msg.channel, task.msg.chat_id,
+                        f"\U0001f680 开始处理您的任务...",
+                    )
+                    try:
+                        response = await self._process_message(task.msg)
+                        if response is not None:
+                            await self.bus.publish_outbound(response)
+                        elif task.msg.channel == "cli":
+                            await self.bus.publish_outbound(OutboundMessage(
+                                channel=task.msg.channel, chat_id=task.msg.chat_id,
+                                content="", metadata=task.msg.metadata or {},
+                            ))
+                    except Exception as e:
+                        logger.error("Error processing message: {}", e)
+                        await self.bus.publish_outbound(OutboundMessage(
+                            channel=task.msg.channel,
+                            chat_id=task.msg.chat_id,
+                            content=f"Sorry, I encountered an error: {str(e)}"
+                        ))
+                    finally:
+                        self._task_tracker.finish_active()
+                    continue  # immediately check for next pending task
+
+            # Poll for new inbound messages
             try:
                 msg = await asyncio.wait_for(
                     self.bus.consume_inbound(),
-                    timeout=1.0
+                    timeout=1.0,
                 )
+            except asyncio.TimeoutError:
+                continue
+
+            # CLI / system messages bypass the queue for immediate processing
+            if msg.channel == "cli" or msg.channel == "system":
                 try:
                     response = await self._process_message(msg)
                     if response is not None:
                         await self.bus.publish_outbound(response)
                     elif msg.channel == "cli":
                         await self.bus.publish_outbound(OutboundMessage(
-                            channel=msg.channel, chat_id=msg.chat_id, content="", metadata=msg.metadata or {},
+                            channel=msg.channel, chat_id=msg.chat_id,
+                            content="", metadata=msg.metadata or {},
                         ))
                 except Exception as e:
                     logger.error("Error processing message: {}", e)
@@ -471,8 +600,20 @@ class AgentLoop:
                         chat_id=msg.chat_id,
                         content=f"Sorry, I encountered an error: {str(e)}"
                     ))
-            except asyncio.TimeoutError:
                 continue
+
+            # Enqueue the message into the task tracker
+            position = self._task_tracker.enqueue(msg)
+
+            if self._task_tracker.is_busy:
+                # Agent is busy — notify the sender of their queue position
+                active = self._task_tracker.active
+                active_sender = active.sender_display if active else "someone"
+                await self._send_queue_notification(
+                    msg.channel, msg.chat_id,
+                    f"\u2705 收到！当前正在处理 {active_sender} 的任务，"
+                    f"您排在第 {position} 位，请稍候。",
+                )
 
     async def close_mcp(self) -> None:
         """Close MCP connections."""

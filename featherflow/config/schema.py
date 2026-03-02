@@ -154,6 +154,7 @@ class FeishuChannelConfig(Base):
     app_secret: str = ""  # Developer Console App Secret
     allow_from: list[str] = Field(default_factory=list)  # Allowed open_ids (empty = anyone)
     reply_delay_ms: int = 3000  # Debounce window in ms: coalesce rapid messages before sending to agent (0 = off)
+    require_mention_in_groups: bool = True  # If true, only respond when @mentioned in group chats
 
 
 class ChannelsConfig(Base):
@@ -161,6 +162,7 @@ class ChannelsConfig(Base):
 
     send_progress: bool = True    # stream agent's text progress to the channel
     send_tool_hints: bool = False  # stream tool-call hints (e.g. read_file("…"))
+    send_queue_notifications: bool = True  # Notify users about their position in the task queue
     feishu: FeishuChannelConfig = Field(default_factory=FeishuChannelConfig)
 
 
@@ -324,6 +326,7 @@ class MCPServerConfig(Base):
     url: str = ""  # HTTP: streamable HTTP endpoint URL
     headers: dict[str, str] = Field(default_factory=dict)  # HTTP: Custom HTTP Headers
     tool_timeout: int = 30  # Seconds before a tool call is cancelled
+    progress_interval_seconds: int = 15  # Interval for heartbeat progress messages during long-running tool calls (0 = off)
 
 
 class ToolsConfig(Base):

@@ -157,9 +157,12 @@ FeatherFlow reads from `~/.featherflow/config.json`. The interactive wizard (`fe
 - **`agents.memory`** — Memory flush cadence (`flushEveryUpdates`, `flushIntervalSeconds`) and short-term window sizes.
 - **`agents.sessions`** — Session compaction thresholds (`compactThresholdMessages`, `compactThresholdBytes`, `compactKeepMessages`).
 - **`agents.selfImprovement`** — Lesson extraction settings: `enabled`, `maxLessonsInPrompt`, `minLessonConfidence`, `maxLessons`, `promotionEnabled`, etc.
-- **`channels`** — Channel configuration for each IM adapter; also controls `sendProgress` (stream text to channel) and `sendToolHints` (stream tool-call hints).
+- **`channels`** — Channel configuration for each IM adapter; also controls `sendProgress` (stream text to channel), `sendToolHints` (stream tool-call hints), and `sendQueueNotifications` (notify users about task queue position).
+  - **`channels.feishu.requireMentionInGroups`** — When `true` (default), the bot only responds to group messages where it is @mentioned. Private chats are unaffected.
 - **`gateway`** — HTTP gateway listen address (`host`, `port`; default `0.0.0.0:18790`).
 - **`tools`** — Web/search/fetch behavior, paper research provider settings (`tools.papers`), shell execution policy (`tools.exec.timeout`), `restrictToWorkspace` flag, and MCP server definitions (`tools.mcpServers`).
+  - **`tools.mcpServers.<name>.progressIntervalSeconds`** — Heartbeat interval (seconds) for long-running MCP tool calls. Set to `0` to disable. Default `15`.
+  - **`tools.mcpServers.<name>.toolTimeout`** — Timeout in seconds before a tool call is cancelled. For scientific computing MCP servers (e.g. raspa, mofstructure), set to `300`–`600`.
 - **`heartbeat`** — Periodic background prompts (`enabled`, `intervalSeconds`) for proactive agent behaviors.
 
 > **Security:** Set file permissions to `0600` on your config file and configure strict `allowFrom` lists before exposing to any channel. See [`docs/SECURITY.md`](docs/SECURITY.md) for full guidance.
@@ -278,6 +281,12 @@ All jobs can be toggled, triggered manually, or removed via the CLI.
 ### MCP Integration
 
 Connect any MCP-compatible tool server and expose its tools directly to the agent. Define MCP servers under `tools.mcpServers` in your config. For example, connect [feishu-mcp](https://github.com/lichman0405/feishu-mcp) to bring Feishu collaboration capabilities (messages, calendar, tasks, documents) into the agent via a clean MCP interface.
+
+For long-running MCP tools (e.g. scientific computing), FeatherFlow automatically sends periodic heartbeat progress messages to the user so they know the task is still running. Configure `progressIntervalSeconds` per MCP server (default 15s) and increase `toolTimeout` for compute-heavy operations.
+
+### Task Queue Awareness
+
+When multiple users send messages simultaneously (e.g. in a group chat), FeatherFlow queues tasks and notifies each user of their queue position. Users see when their task starts processing and how many tasks are ahead. This is enabled by default via `channels.sendQueueNotifications`.
 
 ---
 

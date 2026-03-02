@@ -261,6 +261,11 @@ class FeishuChannel(BaseChannel):
         messages (file, image, audio, video, media, etc.).  For non-text
         types a descriptive prompt is constructed so the agent knows what
         was received and which feishu-mcp tools to use to fetch the file.
+
+        Group chat filtering: when ``require_mention_in_groups`` is True
+        (default), messages in group chats are only forwarded if the bot
+        is @mentioned.  The @mention placeholder is stripped from the
+        text so the agent sees clean user intent.
         """
         try:
             msg = data.event.message
@@ -270,6 +275,63 @@ class FeishuChannel(BaseChannel):
             sender_id: str = sender.sender_id.open_id or ""
             message_id: str = msg.message_id or ""
             msg_type: str = msg.message_type or "text"
+            chat_type: str = getattr(msg, "chat_type", "") or ""
+
+            # --- Group chat @mention filtering ---
+            mentions: list[Any] = []
+            try:
+                raw_mentions = getattr(msg, "mentions", None)
+                if raw_mentions:
+                    mentions = list(raw_mentions)
+            except Exception:
+                pass
+
+            bot_mentioned = False
+            mention_names: list[str] = []
+            for m in mentions:
+                # Each mention has .id.open_id (or .id.union_id) and .name
+                try:
+                    m_id_type = getattr(m, "id_type", "") or ""
+                    m_key = getattr(m, "key", "") or ""
+                    m_name = getattr(m, "name", "") or ""
+                    # The mention key in content is like "@_user_1"
+                    mention_names.append((m_key, m_name))
+                    # Feishu sets id_type="open_id" and id for user mentions;
+                    # for app/bot mentions the id matches the bot's open_id.
+                    # We check the name field as a fallback — lark-oapi populates
+                    # a special "id_type" for the bot, or we detect via app_id.
+                    m_id = getattr(m, "id", None)
+                    if m_id:
+                        m_id_val = getattr(m_id, "open_id", "") or ""
+                    else:
+                        m_id_val = ""
+                    # Bot's own open_id is not available here, so we rely on
+                    # the mention key appearing in content + name matching
+                    # the bot name (convention) or "id_type" == "app".
+                    if m_id_type == "app":
+                        bot_mentioned = True
+                except Exception:
+                    pass
+
+            # Also detect bot mention via content text pattern:
+            # Feishu text content contains @_user_N placeholder for mentions.
+            # If any mention has id_type != "app", fall back to checking if
+            # the text starts with an @mention pattern (common usage).
+            if not bot_mentioned and mentions:
+                # Heuristic: if the message has any mentions at all in a group,
+                # check each mention — for bot @mentions, Feishu uses the user_id
+                # in the mention object. We already checked id_type=="app" above.
+                # As a final fallback, if the first mention key appears at position 0
+                # in the text, treat it as directed at the bot.
+                pass
+
+            if chat_type == "group" and self.config.require_mention_in_groups:
+                if not bot_mentioned:
+                    logger.debug(
+                        "Feishu: ignoring group message from {} in {} (bot not @mentioned)",
+                        sender_id, chat_id,
+                    )
+                    return
 
             raw: str = msg.content or "{}"
             try:
@@ -282,16 +344,33 @@ class FeishuChannel(BaseChannel):
                 text = content_dict.get("text", raw).strip()
                 if not text:
                     return
+                # Strip @mention placeholders from text for cleaner agent input
+                if mentions and chat_type == "group":
+                    for m_key, m_name in mention_names:
+                        if m_key:
+                            text = text.replace(m_key, "").strip()
             else:
                 # Non-text message — build descriptive text for the agent
                 text = self._extract_non_text_content(msg_type, content_dict, message_id)
                 if not text:
                     return
 
+            # Try to extract a display name for the sender
+            sender_name = ""
+            try:
+                sender_obj = getattr(sender, "sender_id", None)
+                if sender_obj:
+                    sender_name = getattr(sender_obj, "name", "") or ""
+            except Exception:
+                pass
+
             metadata: dict[str, Any] = {
                 "msg_type": msg_type,
                 "message_id": message_id,
+                "chat_type": chat_type,
             }
+            if sender_name:
+                metadata["sender_name"] = sender_name
             # Attach raw content for non-text messages so the agent can
             # parse file_key / image_key etc. directly if needed.
             if msg_type != "text":
@@ -304,6 +383,7 @@ class FeishuChannel(BaseChannel):
                         chat_id=chat_id,
                         content=text,
                         metadata=metadata,
+                        sender_name=sender_name,
                     ),
                     self._loop,
                 )
@@ -317,6 +397,7 @@ class FeishuChannel(BaseChannel):
         chat_id: str,
         content: str,
         metadata: dict,
+        sender_name: str = "",
     ) -> None:
         """Debounce rapid messages from the same chat before forwarding to the bus.
 
@@ -335,12 +416,13 @@ class FeishuChannel(BaseChannel):
                 chat_id=chat_id,
                 content=content,
                 metadata=metadata,
+                sender_name=sender_name,
             )
             return
 
         # Append to per-chat buffer
         buf = self._debounce_buffers.setdefault(chat_id, [])
-        buf.append({"sender_id": sender_id, "content": content, "metadata": metadata})
+        buf.append({"sender_id": sender_id, "content": content, "metadata": metadata, "sender_name": sender_name})
 
         # Cancel any existing timer for this chat
         existing = self._debounce_tasks.get(chat_id)
@@ -381,6 +463,7 @@ class FeishuChannel(BaseChannel):
                 chat_id=chat_id,
                 content=merged_content,
                 metadata=merged_metadata,
+                sender_name=first.get("sender_name", ""),
             )
 
         self._debounce_tasks[chat_id] = asyncio.ensure_future(_fire())

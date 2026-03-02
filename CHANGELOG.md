@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added Feishu group chat @mention filtering (`channels/feishu.py`):
+  - New config `channels.feishu.requireMentionInGroups` (default `true`).
+  - In group chats, messages are only forwarded to the agent when the bot is @mentioned.
+  - @mention placeholder (`@_user_N`) is automatically stripped from the message text.
+  - Private chats (p2p) remain unaffected and always forwarded.
+- Added MCP tool heartbeat progress reporting (`agent/tools/mcp.py`, `agent/loop.py`):
+  - New config `tools.mcpServers.<name>.progressIntervalSeconds` (default `15`).
+  - During long-running MCP tool calls, periodic status messages are sent to the user (e.g. "⏳ raspa_run_simulation 正在执行中... (已用时 1m30s)").
+  - Heartbeat task is automatically cancelled when the tool finishes.
+  - Existing MCP SDK progress callbacks remain functional alongside heartbeat.
+- Added task queue tracker with user notifications (`agent/loop.py`):
+  - New `TaskTracker` class tracks active and pending tasks.
+  - New config `channels.sendQueueNotifications` (default `true`).
+  - When agent is busy, new messages are queued and senders receive position notifications (e.g. "✅ 收到！当前正在处理 Alice 的任务，您排在第 2 位，请稍候。").
+  - When a queued task starts processing, sender receives "🚀 开始处理您的任务...".
+  - CLI and system messages bypass the queue for immediate processing.
+- Added `sender_name` field to `InboundMessage` (`bus/events.py`) for display-friendly queue notifications.
+- Added `sender_name` parameter to `BaseChannel._handle_message()` (`channels/base.py`).
+- Added tests for new features:
+  - `tests/test_task_tracker.py`: TaskTracker unit tests, MCP heartbeat integration test, InboundMessage sender_name tests.
+  - `tests/test_feishu_mention_filter.py`: Feishu group @mention filtering tests, config schema tests.
 - Added modular CLI command files:
   - `featherflow/cli/onboard.py`
   - `featherflow/cli/agent_cmd.py`
