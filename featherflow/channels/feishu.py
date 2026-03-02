@@ -36,6 +36,7 @@ class FeishuChannel(BaseChannel):
         self._ws_client: Any = None   # lark.ws.Client — assigned on start()
         self._api_client: Any = None  # lark.Client   — assigned on start()
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._bot_open_id: str = ""   # bot's own open_id, fetched at startup
         # Per-chat debounce state (keyed by chat_id)
         self._debounce_tasks: dict[str, asyncio.Task] = {}
         self._debounce_buffers: dict[str, list[dict]] = {}
@@ -112,6 +113,18 @@ class FeishuChannel(BaseChannel):
 
             # 4. start() is blocking — it uses the (now-patched) module loop
             _ws.start()
+
+        # Fetch bot's own open_id so we can detect @mentions reliably
+        try:
+            import lark_oapi as lark
+            _bot_resp = self._api_client.bot.v3.bot.get()
+            if _bot_resp.success() and _bot_resp.data and _bot_resp.data.bot:
+                self._bot_open_id = getattr(_bot_resp.data.bot, "open_id", "") or ""
+                logger.info("Feishu bot open_id: {}", self._bot_open_id)
+            else:
+                logger.warning("Feishu: could not fetch bot open_id: {}", _bot_resp.msg)
+        except Exception as _e:
+            logger.warning("Feishu: error fetching bot open_id: {}", _e)
 
         self._ws_thread = threading.Thread(
             target=_run_ws,
@@ -305,10 +318,12 @@ class FeishuChannel(BaseChannel):
                         m_id_val = getattr(m_id, "open_id", "") or ""
                     else:
                         m_id_val = ""
-                    # Bot's own open_id is not available here, so we rely on
-                    # the mention key appearing in content + name matching
-                    # the bot name (convention) or "id_type" == "app".
+                    # Feishu sends bot @mentions with id_type="open_id" and
+                    # id.open_id equal to the bot's own open_id (NOT id_type="app").
+                    # We also keep the id_type=="app" check as a fallback.
                     if m_id_type == "app":
+                        bot_mentioned = True
+                    elif self._bot_open_id and m_id_val == self._bot_open_id:
                         bot_mentioned = True
                 except Exception:
                     pass
