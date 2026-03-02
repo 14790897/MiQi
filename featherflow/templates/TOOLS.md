@@ -140,32 +140,30 @@ Do NOT silently skip permissions — at minimum ensure `set_doc_public_access` i
 called so the link is still accessible.
 ## Zeo++ MCP — Passing Structure Files
 
-The `mcp_zeopp_*` tools run inside a **Docker container** and cannot access
-paths on the host filesystem (e.g. `/home/miqroera-featherflow/…`).
-**Never pass `structure_path` with a host-side path.** It will fail.
+The `mcp_zeopp_*` tools run as a **local stdio process on the host** (not in
+Docker). They can accept host-side file paths via `structure_path`, or inline
+content via `structure_text`.
 
-Instead, use `structure_text` to pass the file content directly:
+Preferred workflow when a file has been downloaded from Feishu:
 
 ```python
 # 1. Download the CIF file from Feishu (returns a host-side path)
 path = mcp_feishu-mcp_download_message_file(message_id=..., file_key=...)
 
-# 2. Read its content with the read_file tool
-content = read_file(path)   # returns the raw CIF/CSSR/XYZ text
+# Option A — pass the path directly (simpler)
+mcp_zeopp_pore_diameter(structure_path=path)
+mcp_zeopp_surface_area(structure_path=path)
+mcp_zeopp_accessible_volume(structure_path=path)
+mcp_zeopp_channel_analysis(structure_path=path)
+mcp_zeopp_framework_info(structure_path=path)
+mcp_zeopp_open_metal_sites(structure_path=path)
 
-# 3. Pass the content directly to every zeopp tool
+# Option B — read content and pass as text (when content is already in memory)
+content = read_file(path)
 mcp_zeopp_pore_diameter(structure_text=content, filename="structure.cif")
-mcp_zeopp_surface_area(structure_text=content, filename="structure.cif")
-mcp_zeopp_accessible_volume(structure_text=content, filename="structure.cif")
-mcp_zeopp_channel_analysis(structure_text=content, filename="structure.cif")
-mcp_zeopp_framework_info(structure_text=content, filename="structure.cif")
-mcp_zeopp_open_metal_sites(structure_text=content, filename="structure.cif")
 ```
-
-If the file content is already in memory (e.g. created by a previous tool),
-skip the `read_file` step and pass the string directly.
 
 `structure_base64` is also supported if you have Base64-encoded bytes.
 
-> **mofchecker** runs as a stdio process on the host, so it **does** accept
-> host-side file paths normally — no workaround needed.
+> **mofchecker** also runs as a stdio process on the host and accepts
+> host-side file paths normally.
