@@ -403,6 +403,23 @@ class AgentLoop:
             return f'{tc.name}("{val[:40]}…")' if len(val) > 40 else f'{tc.name}("{val}")'
         return ", ".join(_fmt(tc) for tc in tool_calls)
 
+    @staticmethod
+    def _format_mention(
+        channel: str,
+        sender_id: str,
+        sender_name: str,
+        chat_type: str,
+    ) -> str:
+        """Format a user mention appropriate for the channel and chat type.
+
+        - Feishu group chat: ``<at user_id="ou_xxx">name</at>`` (renders as a real @mention)
+        - Everything else: plain display name (or sender_id as fallback)
+        """
+        display = sender_name or sender_id or "您"
+        if channel == "feishu" and chat_type == "group" and sender_id:
+            return f'<at user_id="{sender_id}">{display}</at>'
+        return display
+
     async def _run_agent_loop(
         self,
         initial_messages: list[dict],
@@ -437,7 +454,10 @@ class AgentLoop:
 
             if response.has_tool_calls:
                 if on_progress:
-                    await on_progress(self._tool_hint(response.tool_calls), tool_hint=True)
+                    await on_progress(
+                        f"🔄 第{iteration}步：{self._tool_hint(response.tool_calls)}",
+                        tool_hint=True,
+                    )
 
                 tool_call_dicts = [
                     {
@@ -531,13 +551,26 @@ class AgentLoop:
 
         return final_content, tools_used, messages
 
-    async def _send_queue_notification(self, channel: str, chat_id: str, text: str) -> None:
+    async def _send_queue_notification(
+        self,
+        channel: str,
+        chat_id: str,
+        text: str,
+        *,
+        sender_id: str = "",
+        sender_name: str = "",
+        chat_type: str = "",
+    ) -> None:
         """Send a queue-related notification to a specific chat."""
         send_queue = True
         if self.channels_config:
             send_queue = self.channels_config.send_queue_notifications
         if not send_queue:
             return
+        # Replace placeholder "您" with a real @mention when we have sender info
+        if sender_id or sender_name:
+            mention = self._format_mention(channel, sender_id, sender_name, chat_type)
+            text = text.replace("您", mention)
         await self.bus.publish_outbound(OutboundMessage(
             channel=channel, chat_id=chat_id, content=text,
             metadata={"_progress": True, "_tool_hint": False},
@@ -565,6 +598,9 @@ class AgentLoop:
                     await self._send_queue_notification(
                         task.msg.channel, task.msg.chat_id,
                         f"\U0001f680 开始处理您的任务...",
+                        sender_id=task.msg.sender_id,
+                        sender_name=task.msg.sender_name,
+                        chat_type=task.msg.metadata.get("chat_type", ""),
                     )
                     try:
                         response = await self._process_message(task.msg)
@@ -771,12 +807,22 @@ class AgentLoop:
             channel=msg.channel, chat_id=msg.chat_id,
         )
 
+        _chat_type = (msg.metadata or {}).get("chat_type", "")
+        _mention_prefix = ""
+        if _chat_type == "group" and msg.sender_id:
+            _mention_prefix = self._format_mention(
+                msg.channel, msg.sender_id, msg.sender_name, _chat_type
+            ) + " "
+
         async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
             meta = dict(msg.metadata or {})
             meta["_progress"] = True
             meta["_tool_hint"] = tool_hint
+            # In group chats, prefix subtask-step notifications with @mention
+            # so the user knows which step of their task is being executed.
+            prefixed = (_mention_prefix + content) if (tool_hint and _mention_prefix) else content
             await self.bus.publish_outbound(OutboundMessage(
-                channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
+                channel=msg.channel, chat_id=msg.chat_id, content=prefixed, metadata=meta,
             ))
 
         try:
