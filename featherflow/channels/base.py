@@ -30,6 +30,14 @@ class BaseChannel(ABC):
         self.config = config
         self.bus = bus
         self._running = False
+        # SEC-08: Warn operators when no access control list is configured.
+        if not getattr(config, "allow_from", None):
+            logger.warning(
+                "Channel '{}' has an empty allow_from list — ALL users are permitted. "
+                "Set allow_from in your channel configuration to restrict access "
+                "before exposing this bot to the internet.",
+                self.name,
+            )
 
     @abstractmethod
     async def start(self) -> None:

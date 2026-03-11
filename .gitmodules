@@ -1,0 +1,18 @@
+[submodule "mcps/zeopp-backend"]
+	path = mcps/zeopp-backend
+	url = https://github.com/lichman0405/zeopp-backend.git
+[submodule "mcps/raspa-mcp"]
+	path = mcps/raspa-mcp
+	url = https://github.com/lichman0405/raspa-mcp.git
+[submodule "mcps/mofstructure-mcp"]
+	path = mcps/mofstructure-mcp
+	url = https://github.com/lichman0405/mofstructure-mcp.git
+[submodule "mcps/mofchecker-mcp"]
+	path = mcps/mofchecker-mcp
+	url = https://github.com/lichman0405/mofchecker-mcp.git
+[submodule "mcps/pdftranslate-mcp"]
+	path = mcps/pdftranslate-mcp
+	url = https://github.com/lichman0405/pdftranslate-mcp.git
+[submodule "mcps/feishu-mcp"]
+	path = mcps/feishu-mcp
+	url = https://github.com/lichman0405/feishu-mcp.git

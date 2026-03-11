@@ -118,6 +118,7 @@ class SubagentManager:
                 working_dir=str(self.workspace),
                 timeout=self.exec_config.timeout,
                 restrict_to_workspace=self.restrict_to_workspace,
+                env_passthrough=list(self.exec_config.env_passthrough),
             ))
             tools.register(WebSearchTool(
                 provider=self.web_config.search.provider,

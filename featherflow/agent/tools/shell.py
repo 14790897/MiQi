@@ -19,9 +19,11 @@ class ExecTool(Tool):
         deny_patterns: list[str] | None = None,
         allow_patterns: list[str] | None = None,
         restrict_to_workspace: bool = False,
+        env_passthrough: list[str] | None = None,
     ):
         self.timeout = timeout
         self.working_dir = working_dir
+        self.env_passthrough: frozenset[str] = frozenset(env_passthrough or [])
         self.deny_patterns = deny_patterns or [
             r"\brm\s+-[rf]{1,2}\b",          # rm -r, rm -rf, rm -fr
             r"\bdel\s+/[fq]\b",              # del /f, del /q
@@ -32,6 +34,13 @@ class ExecTool(Tool):
             r">\s*/dev/sd",                  # write to disk
             r"\b(shutdown|reboot|poweroff)\b",  # system power
             r":\(\)\s*\{.*\};\s*:",          # fork bomb
+            r"\bsudo\b",                     # privilege escalation
+            r"\beval\b",                     # code/string evaluation
+            r"\bsource\b",                   # source external scripts
+            r"`[^`\n]{1,500}`",              # backtick command substitution
+            r"\$\([^)\n]{1,500}\)",          # $() command substitution
+            r"\|\s*(ba|da|z|fi|c)?sh\b",    # pipe to any shell variant
+            r"\b(?:curl|wget)\b[^;\n]{0,200}\|\s*python[23]?\b",  # download-and-execute via Python
         ]
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace
@@ -73,6 +82,7 @@ class ExecTool(Tool):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
+                env=self._build_safe_env(),
             )
 
             try:
@@ -114,6 +124,37 @@ class ExecTool(Tool):
 
         except Exception as e:
             return f"Error executing command: {str(e)}"
+
+    def _build_safe_env(self) -> dict[str, str]:
+        """Return a sanitised copy of os.environ with credential variables removed.
+
+        MCP servers inject secrets (API keys, tokens, passwords) into the
+        process environment.  Without this filter, any shell subprocess spawned
+        by the agent would inherit those secrets, leaking them to executed
+        commands (e.g. ``exec("env")``).
+
+        Variables listed in ``self.env_passthrough`` are explicitly exempted
+        from the filter.  This lets operators selectively allow scripts run via
+        the exec tool to access specific credentials (e.g. ``OPENAI_API_KEY``)
+        without opening the door to every secret in the environment.
+
+        Note: this filter does NOT apply to MCP server processes — those are
+        started by the MCP SDK (StdioServerParameters) and always inherit the
+        parent environment unchanged.
+        """
+        _sensitive = re.compile(
+            r"(api[_-]?key|secret|token|password|passwd)", re.IGNORECASE
+        )
+        _sensitive_prefixes = (
+            "OPENAI_", "ANTHROPIC_", "FEISHU_", "DINGTALK_",
+            "TELEGRAM_", "SLACK_", "DISCORD_", "QQ_", "GROQ_",
+            "AZURE_", "AWS_", "GOOGLE_", "GITHUB_", "BRAVE_", "OLLAMA_",
+        )
+        return {
+            k: v for k, v in os.environ.items()
+            if k in self.env_passthrough
+            or (not _sensitive.search(k) and not k.startswith(_sensitive_prefixes))
+        }
 
     def _guard_command(self, command: str, cwd: str) -> str | None:
         """Best-effort safety guard for potentially destructive commands."""

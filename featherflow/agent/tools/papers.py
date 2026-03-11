@@ -359,7 +359,7 @@ class PaperSearchTool(Tool):
         }
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-                resp = await client.get("http://export.arxiv.org/api/query", params=params)
+                resp = await client.get("https://export.arxiv.org/api/query", params=params)
                 resp.raise_for_status()
 
             root = ET.fromstring(resp.text)
@@ -610,7 +610,7 @@ class PaperGetTool(Tool):
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-                resp = await client.get("http://export.arxiv.org/api/query", params=params)
+                resp = await client.get("https://export.arxiv.org/api/query", params=params)
                 resp.raise_for_status()
 
             root = ET.fromstring(resp.text)

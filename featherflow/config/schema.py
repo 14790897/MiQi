@@ -305,6 +305,18 @@ class ExecToolConfig(Base):
     """Shell exec tool configuration."""
 
     timeout: int = 60
+    env_passthrough: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Explicit list of environment variable names that are permitted to pass through "
+            "to shell subprocesses spawned by the exec tool.  By default ALL credential "
+            "variables (API keys, tokens, secrets, passwords) are stripped before the "
+            "subprocess starts (SEC-09).  Use this list to selectively restore access to "
+            "specific variables needed by your scripts, e.g. ['OPENAI_API_KEY'].  "
+            "Note: MCP server processes are NOT affected — they always inherit the full "
+            "parent environment via StdioServerParameters."
+        ),
+    )
 
 
 class PapersToolConfig(Base):

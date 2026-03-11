@@ -225,6 +225,7 @@ class AgentLoop:
             working_dir=str(self.workspace),
             timeout=self.exec_config.timeout,
             restrict_to_workspace=self.restrict_to_workspace,
+            env_passthrough=list(self.exec_config.env_passthrough),
         ))
         self.tools.register(
             WebSearchTool(

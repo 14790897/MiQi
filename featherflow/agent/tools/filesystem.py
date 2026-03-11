@@ -7,11 +7,34 @@ from typing import Any
 from featherflow.agent.tools.base import Tool
 
 
+def _has_symlink_in_path(p: Path) -> bool:
+    """Return True if any existing component of *p* is a symbolic link.
+
+    Used as defense-in-depth when a directory restriction is active:
+    symlinks inside the allowed directory that point outside it would
+    otherwise pass the ``relative_to`` check after ``resolve()``.
+    """
+    accumulated = Path(p.anchor)
+    for part in p.parts[1:]:  # Skip the root anchor ('/' or 'C:\\')
+        accumulated = accumulated / part
+        if accumulated.is_symlink():
+            return True
+        if not accumulated.exists():
+            break  # Remaining components don't exist yet; no further symlinks.
+    return False
+
+
 def _resolve_path(path: str, workspace: Path | None = None, allowed_dir: Path | None = None) -> Path:
     """Resolve path against workspace (if relative) and enforce directory restriction."""
     p = Path(path).expanduser()
     if not p.is_absolute() and workspace:
         p = workspace / p
+    # Defense-in-depth: reject symlink components before resolving (SEC-06).
+    if allowed_dir and _has_symlink_in_path(p):
+        raise PermissionError(
+            f"Path '{path}' contains a symbolic link, which is not permitted "
+            "in restricted mode."
+        )
     resolved = p.resolve()
     if allowed_dir:
         try:

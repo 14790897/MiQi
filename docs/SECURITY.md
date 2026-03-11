@@ -71,6 +71,13 @@ The `exec` tool can execute shell commands. While dangerous command patterns are
 - Fork bombs
 - Filesystem formatting (`mkfs.*`)
 - Raw disk writes
+- `sudo` — privilege escalation
+- `eval` — dynamic code evaluation
+- `source` / `.` — script sourcing
+- Backtick substitution `` `cmd` `` — command injection via legacy syntax
+- `$()` substitution inside quoted strings — shell command injection
+- Pipe-to-shell (`` | bash ``, `` | sh ``, `` | zsh ``, etc.) — piped execution of untrusted input
+- `curl`/`wget` piped to `python`/`python3` — remote code execution via download
 - Other destructive operations
 
 ### 4. File System Access
@@ -206,12 +213,21 @@ If you suspect a security breach:
 ✅ **Resource Protection**
 - Command execution timeouts (60s default)
 - Output truncation (10KB limit)
-- HTTP request timeouts (10-30s)
+- HTTP request timeouts (10–30s)
+- SSRF protection — web tool blocks requests to private/link-local/loopback IP ranges (`10.x`, `172.16/12`, `192.168.x`, `127.x`, `169.254.x`, IPv6 equivalents)
 
 ✅ **Secure Communication**
 - HTTPS for all external API calls
 - TLS for Telegram API
 - TLS/Webhook verification for Feishu API calls
+
+✅ **Container Hardening**
+- Container runs as unprivileged user `featherflow` (UID 1000) — not root
+- Gateway port bound to `127.0.0.1` by default in Docker Compose
+- Volume mount uses user home directory, not `/root`
+
+✅ **MCP Tool Isolation**
+- Per-server `allowedTools` and `deniedTools` config fields to restrict which MCP tools the agent can invoke
 
 ## Known Limitations
 
@@ -220,17 +236,20 @@ If you suspect a security breach:
 1. **No Rate Limiting** - Users can send unlimited messages (add your own if needed)
 2. **Plain Text Config** - API keys stored in plain text (use keyring for production)
 3. **No Session Management** - No automatic session expiry
-4. **Limited Command Filtering** - Only blocks obvious dangerous patterns
-5. **No Audit Trail** - Limited security event logging (enhance as needed)
+4. **Command Filtering** - Dangerous patterns are blocked (see list above), but a determined attacker with arbitrary command execution can still cause damage — always run with a dedicated low-privilege account
+5. **Limited Audit Trail** - Security events are logged via loguru but there is no structured SIEM integration
 
 ## Security Checklist
 
 Before deploying featherflow:
 
+- [x] Container runs as unprivileged user `featherflow` (UID 1000) — **automatic when using Docker**
+- [x] Memory / session files written with `0600` permissions — **automatic**
+- [x] SSRF protection — web tool blocks requests to private/link-local IP ranges — **automatic**
 - [ ] API keys stored securely (not in code)
 - [ ] Config file permissions set to 0600
 - [ ] `allowFrom` lists configured for all channels
-- [ ] Running as non-root user
+- [ ] Running as non-root user (bare-metal deploys)
 - [ ] File system permissions properly restricted
 - [ ] Dependencies updated to latest secure versions
 - [ ] Logs monitored for security events

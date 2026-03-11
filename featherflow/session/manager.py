@@ -185,6 +185,7 @@ class SessionManager:
                 f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
                 for msg in session.messages:
                     f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+            path.chmod(0o600)  # Restrict to owner only (SEC-07)
             session.saved_count = len(session.messages)
         else:
             new_messages = session.messages[session.saved_count :]
@@ -192,6 +193,7 @@ class SessionManager:
                 with open(path, "a", encoding="utf-8") as f:
                     for msg in new_messages:
                         f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+                path.chmod(0o600)  # Restrict to owner only (SEC-07)
                 session.saved_count = len(session.messages)
 
         self._cache[session.key] = session

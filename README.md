@@ -105,7 +105,9 @@ docker compose --profile cli run --rm featherflow-cli status
 | Location | Path |
 |---|---|
 | Host | `~/.featherflow` |
-| Container | `/root/.featherflow` |
+| Container | `/home/featherflow/.featherflow` |
+
+> **Security:** The container runs as unprivileged user `featherflow` (UID 1000) — not root. The gateway port (`18790`) is bound to `127.0.0.1` by default and is **not** exposed to the network. Use a reverse proxy (e.g. Nginx) to expose it externally.
 
 ---
 
@@ -159,10 +161,12 @@ FeatherFlow reads from `~/.featherflow/config.json`. The interactive wizard (`fe
 - **`agents.selfImprovement`** — Lesson extraction settings: `enabled`, `maxLessonsInPrompt`, `minLessonConfidence`, `maxLessons`, `promotionEnabled`, etc.
 - **`channels`** — Channel configuration for each IM adapter; also controls `sendProgress` (stream text to channel), `sendToolHints` (stream tool-call hints), and `sendQueueNotifications` (notify users about task queue position).
   - **`channels.feishu.requireMentionInGroups`** — When `true` (default), the bot only responds to group messages where it is @mentioned. Private chats are unaffected.
-- **`gateway`** — HTTP gateway listen address (`host`, `port`; default `0.0.0.0:18790`).
+- **`gateway`** — HTTP gateway listen address (`host`, `port`; default `0.0.0.0:18790` for bare-metal runs). When using Docker Compose the port is bound to `127.0.0.1:18790` by default.
 - **`tools`** — Web/search/fetch behavior, paper research provider settings (`tools.papers`), shell execution policy (`tools.exec.timeout`), `restrictToWorkspace` flag, and MCP server definitions (`tools.mcpServers`).
   - **`tools.mcpServers.<name>.progressIntervalSeconds`** — Heartbeat interval (seconds) for long-running MCP tool calls. Set to `0` to disable. Default `15`.
   - **`tools.mcpServers.<name>.toolTimeout`** — Timeout in seconds before a tool call is cancelled. For scientific computing MCP servers (e.g. raspa, mofstructure), set to `300`–`600`.
+  - **`tools.mcpServers.<name>.allowedTools`** — Optional allowlist of tool names. When non-empty, only the listed tools from this MCP server are registered. All others are silently dropped.
+  - **`tools.mcpServers.<name>.deniedTools`** — Optional denylist of tool names. Any tool whose name appears here is never registered, regardless of `allowedTools`.
 - **`heartbeat`** — Periodic background prompts (`enabled`, `intervalSeconds`) for proactive agent behaviors.
 
 > **Security:** Set file permissions to `0600` on your config file and configure strict `allowFrom` lists before exposing to any channel. See [`docs/SECURITY.md`](docs/SECURITY.md) for full guidance.
@@ -326,6 +330,77 @@ Backward-compatible fallbacks for old config and data paths are retained where p
 
 ---
 
+## MCP Ecosystem
+
+FeatherFlow ships with six domain-specific MCP servers as git submodules under `mcps/`.
+They cover porous-material simulation, PDF translation, and team collaboration.
+
+### Bundled MCP Servers
+
+| Name | Submodule | Python | Description |
+|---|---|---|---|
+| **zeopp** | `mcps/zeopp-backend` | 3.10+ | Zeo++ porous material geometry (volume, pore size, channels) |
+| **raspa2** | `mcps/raspa-mcp` | 3.11+ | RASPA2 molecular simulation — input templates, output parsing |
+| **mofstructure** | `mcps/mofstructure-mcp` | 3.9+ | MOF structural analysis — building blocks, topology, metal nodes |
+| **mofchecker** | `mcps/mofchecker-mcp` | **<3.11** | MOF structure validation — CIF integrity, geometry defects |
+| **pdf2zh** | `mcps/pdftranslate-mcp` | 3.10–3.12 | PDF paper translation preserving LaTeX layout (needs OpenAI key) |
+| **feishu** | `mcps/feishu-mcp` | 3.11+ | Feishu/Lark — messaging, docs, tasks (needs App ID & Secret) |
+
+### Setup
+
+**1. Clone with submodules** (one-time):
+
+```bash
+git clone --recurse-submodules https://github.com/lichman0405/featherflow.git
+# or, if you already cloned without --recurse-submodules:
+git submodule update --init --recursive
+```
+
+**2. Install Python venvs** for each MCP:
+
+```bash
+bash scripts/setup_mcps.sh
+```
+
+The script uses [`uv`](https://docs.astral.sh/uv/) and pins the correct Python version per MCP
+(notably `mofchecker` requires Python 3.10; `pdf2zh` requires ≤3.12).
+
+**3. Register MCPs with featherflow**:
+
+```bash
+bash scripts/configure_mcps.sh
+```
+
+This calls `featherflow config mcp add` for every server with recommended timeouts and lazy-mode settings.
+
+**4. Add credentials** for the two servers that need them — open `~/.featherflow/config.json` and fill in:
+
+```jsonc
+"tools": {
+  "mcpServers": {
+    "pdf2zh": {
+      "env": {
+        "OPENAI_BASE_URL": "https://api.openai.com/v1",
+        "OPENAI_API_KEY":  "sk-...",
+        "OPENAI_MODEL":    "gpt-4o"
+      }
+    },
+    "feishu": {
+      "env": {
+        "FEISHU_APP_ID":     "cli_...",
+        "FEISHU_APP_SECRET": "..."
+      }
+    }
+  }
+}
+```
+
+> **Security note**: MCP subprocesses launched via the stdio transport inherit only a minimal environment
+> (`HOME`, `PATH`, `SHELL`, `USER`, `TERM`, `LOGNAME`) — your LLM provider API keys are never exposed
+> to MCP servers unless you explicitly add them to `cfg.env` as shown above.
+
+---
+
 ## Documentation Index
 
 ### Root Documents
@@ -342,6 +417,11 @@ Backward-compatible fallbacks for old config and data paths are retained where p
 - [docs/RAM_FIRST_MEMORY_CHECKPOINT.md](docs/RAM_FIRST_MEMORY_CHECKPOINT.md)
 - [docs/SECURITY.md](docs/SECURITY.md)
 - [docs/SELF_DEVELOPMENT.md](docs/SELF_DEVELOPMENT.md)
+
+### Scripts (`scripts/`)
+
+- [scripts/setup_mcps.sh](scripts/setup_mcps.sh) — Create isolated Python venvs for all bundled MCP servers
+- [scripts/configure_mcps.sh](scripts/configure_mcps.sh) — Register all bundled MCPs into `~/.featherflow/config.json`
 
 ### Skills Docs (`featherflow/skills/`)
 

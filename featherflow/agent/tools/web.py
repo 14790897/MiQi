@@ -1,10 +1,12 @@
 """Web tools: web_search and web_fetch."""
 
 import html
+import ipaddress
 import json
 import logging
 import os
 import re
+import socket
 from typing import Any
 from urllib.parse import urlparse
 
@@ -34,14 +36,80 @@ def _normalize(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
+# Private / reserved IP networks that must never be fetched (SSRF protection).
+_PRIVATE_NETWORKS: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = [
+    ipaddress.ip_network("127.0.0.0/8"),      # Loopback
+    ipaddress.ip_network("10.0.0.0/8"),        # RFC 1918
+    ipaddress.ip_network("172.16.0.0/12"),     # RFC 1918
+    ipaddress.ip_network("192.168.0.0/16"),    # RFC 1918
+    ipaddress.ip_network("169.254.0.0/16"),    # Link-local / cloud metadata (AWS/GCP/Azure)
+    ipaddress.ip_network("100.64.0.0/10"),     # Shared address space (RFC 6598)
+    ipaddress.ip_network("0.0.0.0/8"),         # "This" network
+    ipaddress.ip_network("::1/128"),           # IPv6 loopback
+    ipaddress.ip_network("fc00::/7"),          # IPv6 unique local
+    ipaddress.ip_network("fe80::/10"),         # IPv6 link-local
+]
+
+# Hostnames that must never be fetched regardless of resolved IP.
+_BLOCKED_HOSTNAMES: frozenset[str] = frozenset({
+    "localhost",
+    "metadata.google.internal",
+    "metadata.aws.com",
+})
+
+
+def _is_private_host(host: str) -> bool:
+    """Return True if *host* is a private/loopback/link-local address.
+
+    Checks literal IPs directly; for hostnames, performs a DNS look-up and
+    inspects every returned address.  Blocks known metadata service hostnames
+    by name even before resolution.
+    """
+    host_lower = host.lower()
+    if host_lower in _BLOCKED_HOSTNAMES:
+        return True
+
+    # Fast path: if the host is already a numeric IP, check it directly.
+    try:
+        addr = ipaddress.ip_address(host)
+        return any(addr in net for net in _PRIVATE_NETWORKS)
+    except ValueError:
+        pass  # Not a literal IP; fall through to DNS resolution.
+
+    # Resolve the hostname and check every returned address.
+    try:
+        infos = socket.getaddrinfo(host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for info in infos:
+            ip_str = info[4][0].split("%")[0]  # Strip IPv6 zone ID if present.
+            try:
+                addr = ipaddress.ip_address(ip_str)
+                if any(addr in net for net in _PRIVATE_NETWORKS):
+                    return True
+            except ValueError:
+                continue
+    except socket.gaierror:
+        pass  # DNS lookup failed; let the HTTP layer report the error.
+
+    return False
+
+
 def _validate_url(url: str) -> tuple[bool, str]:
-    """Validate URL: must be http(s) with valid domain."""
+    """Validate URL: must be http(s) with a publicly routable destination.
+
+    Rejects requests targeting private, loopback, or link-local addresses to
+    prevent Server-Side Request Forgery (SSRF) attacks.
+    """
     try:
         p = urlparse(url)
         if p.scheme not in ("http", "https"):
             return False, f"Only http/https allowed, got '{p.scheme or 'none'}'"
-        if not p.netloc:
+        host = p.hostname
+        if not host:
             return False, "Missing domain"
+        if _is_private_host(host):
+            return False, (
+                f"Requests to private/reserved addresses are not allowed (host: {host})"
+            )
         return True, ""
     except Exception as e:
         return False, str(e)
@@ -273,6 +341,15 @@ class WebFetchTool(Tool):
         if not self.ollama_api_key:
             return json.dumps(
                 {"error": "OLLAMA_API_KEY not configured for Ollama web_fetch", "url": url},
+                ensure_ascii=False,
+            )
+
+        # SEC-11: Validate URL before forwarding to Ollama backend to prevent
+        # SSRF via Ollama-as-proxy.  The same guard as _builtin_fetch applies.
+        is_valid, error_msg = _validate_url(url)
+        if not is_valid:
+            return json.dumps(
+                {"error": f"URL validation failed: {error_msg}", "url": url},
                 ensure_ascii=False,
             )
 

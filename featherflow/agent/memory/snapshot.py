@@ -91,12 +91,14 @@ class SnapshotStore:
             tmp = self.snapshot_file.with_suffix(".json.tmp")
             tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
             tmp.replace(self.snapshot_file)
+            self.snapshot_file.chmod(0o600)  # Restrict to owner only (SEC-07)
             self._snapshot["updated_at"] = now
 
         if self._audit_buffer:
             with open(self.audit_file, "a", encoding="utf-8") as f:
                 for event in self._audit_buffer:
                     f.write(json.dumps(event, ensure_ascii=False) + "\n")
+            self.audit_file.chmod(0o600)  # Restrict to owner only (SEC-07)
             self._audit_buffer = []
 
         self._dirty = False

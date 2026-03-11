@@ -141,11 +141,13 @@ class LessonStore:
                 for lesson in self._lessons:
                     f.write(json.dumps(lesson, ensure_ascii=False) + "\n")
             tmp.replace(self.lessons_file)
+            self.lessons_file.chmod(0o600)  # Restrict to owner only (SEC-07)
 
         if self._audit_buffer:
             with open(self.lessons_audit_file, "a", encoding="utf-8") as f:
                 for event in self._audit_buffer:
                     f.write(json.dumps(event, ensure_ascii=False) + "\n")
+            self.lessons_audit_file.chmod(0o600)  # Restrict to owner only (SEC-07)
             self._audit_buffer = []
 
         self._dirty = False
