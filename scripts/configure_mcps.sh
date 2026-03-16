@@ -43,6 +43,8 @@ done
 # Resolve per-MCP Python interpreters
 # ──────────────────────────────────────────────────────────────────────────────
 
+ZEOPP_CMD="$(command -v uv)"
+RASPA2_CMD="$(command -v uv)"
 MOFSTRUCTURE_CMD="$MCPS_DIR/mofstructure-mcp/.venv/bin/python"
 MOFCHECKER_CMD="$MCPS_DIR/mofchecker-mcp/.venv/bin/python"
 PDF2ZH_CMD="$MCPS_DIR/pdftranslate-mcp/.venv/bin/python"
