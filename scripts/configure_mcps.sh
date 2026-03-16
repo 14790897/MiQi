@@ -105,23 +105,6 @@ register "mofchecker" mofchecker \
     --lazy \
     --description "MOF structure checker: validate CIF files, detect common defects, check geometry"
 
-# pdftranslate-mcp — needs OPENAI_* credentials (not set here)
-register "pdf2zh" pdf2zh \
-    --command "$PDF2ZH_CMD" \
-    --arg -m \
-    --arg pdf2zh.mcp_server \
-    --timeout 600 \
-    --lazy \
-    --description "PDF scientific paper translation (pdf2zh): translate full PDFs preserving LaTeX layout"
-
-# feishu-mcp — needs FEISHU_APP_ID / FEISHU_APP_SECRET (not set here)
-register "feishu" feishu \
-    --command "$FEISHU_CMD" \
-    --arg -m \
-    --arg feishu_mcp.server \
-    --timeout 30 \
-    --description "Feishu/Lark: send messages, manage docs, create/assign tasks"
-
 # miqrophi-mcp — epitaxial lattice matching, no credentials needed
 register "miqrophi" miqrophi \
     --command "$MIQROPHI_CMD" \
@@ -132,23 +115,31 @@ register "miqrophi" miqrophi \
     --description "Epitaxial lattice matching: CIF surface analysis, substrate screening, strain calculation"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Post-registration credential reminder
+# Feishu — prompt for credentials, then configure channel + MCP in one shot
 # ──────────────────────────────────────────────────────────────────────────────
 
 echo ""
-info "All MCP servers registered."
+info "Configuring Feishu channel and feishu-mcp..."
+read -rp "  Feishu App ID (cli_xxx, leave blank to skip): " FEISHU_APP_ID
+if [[ -n "$FEISHU_APP_ID" ]]; then
+    read -rsp "  Feishu App Secret: " FEISHU_APP_SECRET
+    echo ""
+    featherflow config feishu \
+        --app-id "$FEISHU_APP_ID" \
+        --app-secret "$FEISHU_APP_SECRET" \
+        --mcp-python "$FEISHU_CMD"
+else
+    warn "Skipping Feishu — run 'featherflow config feishu' later."
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# pdf2zh — auto-fills LLM credentials already configured in featherflow
+# ──────────────────────────────────────────────────────────────────────────────
+
 echo ""
-echo -e "${YELLOW}⚠️  Credentials still required — edit ~/.featherflow/config.json:${NC}"
+info "Configuring pdf2zh MCP (auto-reads provider credentials)..."
+featherflow config pdf2zh --mcp-python "$PDF2ZH_CMD"
+
 echo ""
-echo "  pdf2zh  →  tools.mcpServers.pdf2zh.env:"
-echo '               "OPENAI_BASE_URL": "https://api.openai.com/v1"'
-echo '               "OPENAI_API_KEY":  "sk-..."'
-echo '               "OPENAI_MODEL":    "gpt-4o"'
-echo ""
-echo "  feishu  →  tools.mcpServers.feishu.env:"
-echo '               "FEISHU_APP_ID":     "cli_..."'
-echo '               "FEISHU_APP_SECRET": "..."'
-echo ""
-echo "  For restricted feishu tool access, also add an allowedTools list."
-echo "  See docs/MCP_SETUP.md for the recommended allowedTools subset."
+info "All MCP servers configured."
 echo ""
