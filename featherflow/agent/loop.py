@@ -536,7 +536,7 @@ class AgentLoop:
                     messages.append(
                         {
                             "role": "user",
-                            "content": "Reason silently about whether more tools are needed. Do not expose this reflection process unless explicitly asked.",
+                            "content": self._REFLECT_PROMPT,
                         }
                     )
             else:
@@ -866,11 +866,23 @@ class AgentLoop:
         )
 
     _TOOL_RESULT_MAX_CHARS = 500
+    _REFLECT_PROMPT = (
+        "Reason silently about whether more tools are needed. "
+        "Do not expose this reflection process unless explicitly asked."
+    )
 
     def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:
-        """Save new-turn messages into session, truncating large tool results."""
+        """Save new-turn messages into session, truncating large tool results.
+
+        Internal reflection prompts (_REFLECT_PROMPT) are loop-only control
+        signals and must NOT leak into persistent session history — they cause
+        the LLM to re-execute stale tasks when loaded as conversation context.
+        """
         from datetime import datetime
         for m in messages[skip:]:
+            # Skip internal reflection prompts
+            if m.get("role") == "user" and m.get("content") == self._REFLECT_PROMPT:
+                continue
             entry = {k: v for k, v in m.items() if k != "reasoning_content"}
             if entry.get("role") == "tool" and isinstance(entry.get("content"), str):
                 content = entry["content"]
