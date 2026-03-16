@@ -16,3 +16,6 @@
 [submodule "mcps/feishu-mcp"]
 	path = mcps/feishu-mcp
 	url = https://github.com/lichman0405/feishu-mcp.git
+[submodule "mcps/miqrophi-mcp"]
+	path = mcps/miqrophi-mcp
+	url = https://github.com/lichman0405/miqrophi.git

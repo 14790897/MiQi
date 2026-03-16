@@ -109,6 +109,87 @@ docker compose --profile cli run --rm featherflow-cli status
 
 > **Security:** The container runs as unprivileged user `featherflow` (UID 1000) — not root. The gateway port (`18790`) is bound to `127.0.0.1` by default and is **not** exposed to the network. Use a reverse proxy (e.g. Nginx) to expose it externally.
 
+### Bare-Metal (Non-Docker) Deployment
+
+For running the gateway directly on a Linux/macOS host as a long-running service:
+
+**1. Prepare configuration** (if not done already):
+
+```bash
+# Interactive setup — creates ~/.featherflow/config.json
+featherflow onboard
+
+# Verify the config
+featherflow status
+```
+
+**2. (Optional) Set up MCP servers:**
+
+```bash
+bash scripts/setup_mcps.sh      # install isolated venvs
+bash scripts/configure_mcps.sh  # register MCPs into config
+```
+
+**3. Run with systemd** (Linux, recommended):
+
+Create `/etc/systemd/system/featherflow.service`:
+
+```ini
+[Unit]
+Description=FeatherFlow AI Agent Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=featherflow
+WorkingDirectory=/home/featherflow
+ExecStart=/home/featherflow/.local/bin/featherflow gateway
+Restart=on-failure
+RestartSec=10
+Environment=HOME=/home/featherflow
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now featherflow
+sudo journalctl -u featherflow -f   # tail logs
+```
+
+On macOS, use `launchd` or a process manager like `supervisord` instead.
+
+**4. Reverse proxy** (optional, for external access):
+
+The gateway listens on `127.0.0.1:18790`. To expose it, place it behind Nginx:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name featherflow.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:18790;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+### Upgrading
+
+```bash
+cd featherflow
+git pull --recurse-submodules
+pip install -e .                    # reinstall core
+bash scripts/setup_mcps.sh          # update MCP venvs
+bash scripts/configure_mcps.sh      # re-register MCPs (idempotent)
+# then restart the gateway (systemctl restart featherflow / docker compose up --build)
+```
+
+> **Note:** The Docker image does **not** include MCP submodules — MCP servers run as separate stdio subprocesses on the host. When using Docker, mount or install MCP venvs on the host and configure `tools.mcpServers` commands to point at host-side interpreters, or run MCP servers as separate containers and use HTTP transport (`url` instead of `command`).
+
 ---
 
 ## Configuration
@@ -332,8 +413,8 @@ Backward-compatible fallbacks for old config and data paths are retained where p
 
 ## MCP Ecosystem
 
-FeatherFlow ships with six domain-specific MCP servers as git submodules under `mcps/`.
-They cover porous-material simulation, PDF translation, and team collaboration.
+FeatherFlow ships with seven domain-specific MCP servers as git submodules under `mcps/`.
+They cover porous-material science, epitaxial surface analysis, PDF translation, and team collaboration.
 
 ### Bundled MCP Servers
 
@@ -343,6 +424,7 @@ They cover porous-material simulation, PDF translation, and team collaboration.
 | **raspa2** | `mcps/raspa-mcp` | 3.11+ | RASPA2 molecular simulation — input templates, output parsing |
 | **mofstructure** | `mcps/mofstructure-mcp` | 3.9+ | MOF structural analysis — building blocks, topology, metal nodes |
 | **mofchecker** | `mcps/mofchecker-mcp` | **<3.11** | MOF structure validation — CIF integrity, geometry defects |
+| **miqrophi** | `mcps/miqrophi-mcp` | 3.10+ | Epitaxial lattice matching — CIF surface analysis, substrate screening, strain calculation |
 | **pdf2zh** | `mcps/pdftranslate-mcp` | 3.10–3.12 | PDF paper translation preserving LaTeX layout (needs OpenAI key) |
 | **feishu** | `mcps/feishu-mcp` | 3.11+ | Feishu/Lark — messaging, docs, tasks (needs App ID & Secret) |
 
@@ -416,6 +498,7 @@ This calls `featherflow config mcp add` for every server with recommended timeou
 - [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md)
 - [docs/RAM_FIRST_MEMORY_CHECKPOINT.md](docs/RAM_FIRST_MEMORY_CHECKPOINT.md)
 - [docs/SECURITY.md](docs/SECURITY.md)
+- [docs/SECURITY_IMPROVEMENTS.md](docs/SECURITY_IMPROVEMENTS.md)
 - [docs/SELF_DEVELOPMENT.md](docs/SELF_DEVELOPMENT.md)
 
 ### Scripts (`scripts/`)

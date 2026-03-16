@@ -33,7 +33,7 @@ error() { echo -e "${RED}[configure_mcps] ERROR:${NC} $*" >&2; exit 1; }
 command -v featherflow &>/dev/null || error \
     "featherflow is not in PATH. Install it first: pip install -e ."
 
-for dir in zeopp-backend raspa-mcp mofstructure-mcp mofchecker-mcp pdftranslate-mcp feishu-mcp; do
+for dir in zeopp-backend raspa-mcp mofstructure-mcp mofchecker-mcp pdftranslate-mcp feishu-mcp miqrophi-mcp; do
     [[ -d "$MCPS_DIR/$dir/.venv" || -f "$MCPS_DIR/$dir/uv.lock" ]] || {
         warn "mcps/$dir does not appear set up — run scripts/setup_mcps.sh first."
     }
@@ -47,6 +47,7 @@ MOFSTRUCTURE_CMD="$MCPS_DIR/mofstructure-mcp/.venv/bin/python"
 MOFCHECKER_CMD="$MCPS_DIR/mofchecker-mcp/.venv/bin/python"
 PDF2ZH_CMD="$MCPS_DIR/pdftranslate-mcp/.venv/bin/python"
 FEISHU_CMD="$MCPS_DIR/feishu-mcp/.venv/bin/python"
+MIQROPHI_CMD="$MCPS_DIR/miqrophi-mcp/.venv/bin/python"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Register each server (non-interactive, no credentials)
@@ -118,6 +119,15 @@ register "feishu" feishu \
     --arg feishu_mcp.server \
     --timeout 30 \
     --description "Feishu/Lark: send messages, manage docs, create/assign tasks"
+
+# miqrophi-mcp — epitaxial lattice matching, no credentials needed
+register "miqrophi" miqrophi \
+    --command "$MIQROPHI_CMD" \
+    --arg -m \
+    --arg miqrophi.mcp_server \
+    --timeout 120 \
+    --lazy \
+    --description "Epitaxial lattice matching: CIF surface analysis, substrate screening, strain calculation"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Post-registration credential reminder

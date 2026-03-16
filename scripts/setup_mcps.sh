@@ -46,7 +46,7 @@ if [[ "${1:-}" == "--init" ]]; then
 fi
 
 # Verify submodule directories are populated
-for dir in zeopp-backend raspa-mcp mofstructure-mcp mofchecker-mcp pdftranslate-mcp feishu-mcp; do
+for dir in zeopp-backend raspa-mcp mofstructure-mcp mofchecker-mcp pdftranslate-mcp feishu-mcp miqrophi-mcp; do
     [[ -d "$MCPS_DIR/$dir" ]] || error \
         "Directory mcps/$dir is missing. Run: bash scripts/setup_mcps.sh --init"
 done
@@ -114,6 +114,14 @@ setup_venv "pdftranslate-mcp" "3.12"
 
 # feishu-mcp — Python 3.11+
 setup_venv "feishu-mcp" "3.12"
+
+# miqrophi-mcp — Python 3.10+ (epitaxial lattice matching), install with MCP extras
+info "Setting up miqrophi-mcp (Python 3.12)..."
+pushd "$MCPS_DIR/miqrophi-mcp" > /dev/null
+uv venv .venv --python 3.12
+uv pip install --python .venv/bin/python -e ".[mcp]" --quiet
+popd > /dev/null
+info "  ✓ miqrophi-mcp"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Done
