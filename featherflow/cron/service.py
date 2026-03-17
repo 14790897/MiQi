@@ -27,7 +27,7 @@ def _compute_next_run(schedule: CronSchedule, now_ms: int, last_run_at_ms: int |
             return None
         # If we have a last run, compute next as last_run + interval.
         # This preserves schedule continuity across restarts.
-        if last_run_at_ms:
+        if last_run_at_ms is not None:
             candidate = last_run_at_ms + schedule.every_ms
             if candidate > now_ms:
                 return candidate

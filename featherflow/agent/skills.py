@@ -225,11 +225,11 @@ class SkillsLoader:
                     if ":" in line:
                         key, value = line.split(":", 1)
                         raw = value.strip().strip("\"'")
-                        # Boolean coercion
+                        # Boolean coercion to Python bool
                         if raw.lower() in ("true", "yes"):
-                            metadata[key.strip()] = "true"
+                            metadata[key.strip()] = True
                         elif raw.lower() in ("false", "no"):
-                            metadata[key.strip()] = "false"
+                            metadata[key.strip()] = False
                         else:
                             metadata[key.strip()] = raw
                 return metadata
