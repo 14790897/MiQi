@@ -3,12 +3,14 @@
 import asyncio
 import json
 import os
+import random
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 import json_repair
 import litellm
 from litellm import acompletion
+from loguru import logger
 
 from featherflow.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from featherflow.providers.registry import find_by_model, find_by_name, find_gateway
@@ -272,7 +274,9 @@ class LiteLLMProvider(LLMProvider):
                 return self._parse_response(response)
             except Exception as e:
                 if attempt < max_attempts and self._is_transient_network_error(e):
-                    await asyncio.sleep(0.5 * attempt)
+                    # Exponential backoff with jitter: ~1s, ~2s, ~4s …
+                    delay = min(30, (2 ** (attempt - 1)) * (0.5 + random.random() * 0.5))
+                    await asyncio.sleep(delay)
                     continue
                 # Return error as content for graceful handling
                 return LLMResponse(
@@ -314,7 +318,18 @@ class LiteLLMProvider(LLMProvider):
                 # Parse arguments from JSON string if needed
                 args = tc.function.arguments
                 if isinstance(args, str):
-                    args = json_repair.loads(args)
+                    repaired = json_repair.loads(args)
+                    # Warn if json_repair silently fixed malformed JSON
+                    try:
+                        original = json.loads(args)
+                    except (json.JSONDecodeError, ValueError):
+                        logger.warning(
+                            "json_repair fixed malformed tool args for '{}': {}",
+                            tc.function.name,
+                            args[:200],
+                        )
+                        original = None
+                    args = repaired if original is None else original
 
                 tool_calls.append(ToolCallRequest(
                     id=tc.id,

@@ -1,8 +1,12 @@
 """Tool registry for dynamic tool management."""
 
+import asyncio
 from typing import Any
 
 from featherflow.agent.tools.base import Tool
+
+# Default timeout for individual tool execution (seconds)
+DEFAULT_TOOL_TIMEOUT = 120
 
 
 class ToolRegistry:
@@ -12,8 +16,9 @@ class ToolRegistry:
     Allows dynamic registration and execution of tools.
     """
 
-    def __init__(self):
+    def __init__(self, tool_timeout: float = DEFAULT_TOOL_TIMEOUT):
         self._tools: dict[str, Tool] = {}
+        self.tool_timeout = tool_timeout
 
     def register(self, tool: Tool) -> None:
         """Register a tool."""
@@ -61,10 +66,15 @@ class ToolRegistry:
             errors = tool.validate_params(params)
             if errors:
                 return f"Error: Invalid parameters for tool '{name}': " + "; ".join(errors) + hint
-            result = await tool.execute(**params, **extra)
+            result = await asyncio.wait_for(
+                tool.execute(**params, **extra),
+                timeout=self.tool_timeout,
+            )
             if isinstance(result, str) and result.startswith("Error"):
                 return result + hint
             return result
+        except asyncio.TimeoutError:
+            return f"Error: Tool '{name}' timed out after {self.tool_timeout}s" + hint
         except Exception as e:
             return f"Error executing {name}: {str(e)}" + hint
 

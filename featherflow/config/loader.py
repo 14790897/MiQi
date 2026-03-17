@@ -75,6 +75,7 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
 
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+    path.chmod(0o600)  # Restrict to owner only — config contains API keys
 
 
 def _migrate_config(data: dict) -> dict:

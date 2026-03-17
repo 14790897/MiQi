@@ -243,17 +243,23 @@ class CronService:
         self._arm_timer()
 
     async def _execute_job(self, job: CronJob) -> None:
-        """Execute a single job."""
+        """Execute a single job with a timeout guard."""
         start_ms = _now_ms()
         logger.info("Cron: executing job '{}' ({})", job.name, job.id)
 
         try:
             if self.on_job:
-                await self.on_job(job)
+                # Guard against stuck jobs blocking the entire cron scheduler
+                await asyncio.wait_for(self.on_job(job), timeout=600)
 
             job.state.last_status = "ok"
             job.state.last_error = None
             logger.info("Cron: job '{}' completed", job.name)
+
+        except asyncio.TimeoutError:
+            job.state.last_status = "error"
+            job.state.last_error = "Job execution timed out (600s)"
+            logger.error("Cron: job '{}' timed out after 600s", job.name)
 
         except Exception as e:
             job.state.last_status = "error"

@@ -2,6 +2,8 @@
 
 import asyncio
 
+from loguru import logger
+
 from featherflow.bus.events import InboundMessage, OutboundMessage
 
 
@@ -18,16 +20,42 @@ class MessageBus:
         self.outbound: asyncio.Queue[OutboundMessage] = asyncio.Queue(maxsize=maxsize)
 
     async def publish_inbound(self, msg: InboundMessage) -> None:
-        """Publish a message from a channel to the agent."""
-        await self.inbound.put(msg)
+        """Publish a message from a channel to the agent.
+
+        If the inbound queue is full, the oldest message is dropped to prevent
+        channels from blocking indefinitely.
+        """
+        try:
+            self.inbound.put_nowait(msg)
+        except asyncio.QueueFull:
+            # Drop the oldest message to make room
+            try:
+                dropped = self.inbound.get_nowait()
+                logger.warning(
+                    "Inbound queue full — dropped oldest message from {}:{}",
+                    dropped.channel, dropped.chat_id,
+                )
+            except asyncio.QueueEmpty:
+                pass
+            self.inbound.put_nowait(msg)
 
     async def consume_inbound(self) -> InboundMessage:
         """Consume the next inbound message (blocks until available)."""
         return await self.inbound.get()
 
     async def publish_outbound(self, msg: OutboundMessage) -> None:
-        """Publish a response from the agent to channels."""
-        await self.outbound.put(msg)
+        """Publish a response from the agent to channels.
+
+        Uses a timeout to avoid blocking the agent indefinitely if outbound
+        consumers stall.
+        """
+        try:
+            await asyncio.wait_for(self.outbound.put(msg), timeout=10.0)
+        except asyncio.TimeoutError:
+            logger.error(
+                "Outbound queue full for 10s — dropping response to {}:{}",
+                msg.channel, msg.chat_id,
+            )
 
     async def consume_outbound(self) -> OutboundMessage:
         """Consume the next outbound message (blocks until available)."""

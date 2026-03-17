@@ -212,6 +212,8 @@ class AgentLoop:
         self._mcp_stack: AsyncExitStack | None = None
         self._mcp_connected = False
         self._mcp_connecting = False
+        self._mcp_retry_after: float = 0.0  # monotonic time before which MCP reconnect is skipped
+        self._mcp_backoff_secs: float = 0.0  # current backoff duration (exponential)
         self._consolidating: set[str] = set()  # Session keys with consolidation in progress
         self._consolidation_tasks: set[asyncio.Task] = set()  # Strong refs to in-flight tasks
         self._consolidation_locks: dict[str, asyncio.Lock] = {}
@@ -276,8 +278,11 @@ class AgentLoop:
             self.tools.register(CronTool(self.cron_service))
 
     async def _connect_mcp(self) -> None:
-        """Connect to configured MCP servers (one-time, lazy)."""
+        """Connect to configured MCP servers (one-time, lazy with exponential backoff)."""
         if self._mcp_connected or self._mcp_connecting or not self._mcp_servers:
+            return
+        # Respect backoff window from previous failures
+        if self._mcp_retry_after and _time_mod.monotonic() < self._mcp_retry_after:
             return
         self._mcp_connecting = True
         from featherflow.agent.tools.mcp import connect_mcp_servers
@@ -286,6 +291,8 @@ class AgentLoop:
             await self._mcp_stack.__aenter__()
             await connect_mcp_servers(self._mcp_servers, self.tools, self._mcp_stack)
             self._mcp_connected = True
+            self._mcp_backoff_secs = 0.0  # reset on success
+            self._mcp_retry_after = 0.0
             # Collect lazy gateway stubs so _process_message can deactivate them
             from featherflow.agent.tools.mcp import MCPGatewayTool as _MCPGatewayTool
             self._mcp_gateways = [
@@ -299,7 +306,13 @@ class AgentLoop:
                     [gw.name for gw in self._mcp_gateways],
                 )
         except (Exception, asyncio.CancelledError) as e:
-            logger.error("Failed to connect MCP servers (will retry next message): {}", e)
+            # Exponential backoff: 2s → 4s → 8s → … → 60s cap
+            self._mcp_backoff_secs = min(60, max(2, self._mcp_backoff_secs * 2))
+            self._mcp_retry_after = _time_mod.monotonic() + self._mcp_backoff_secs
+            logger.error(
+                "Failed to connect MCP servers (retry in {}s): {}",
+                self._mcp_backoff_secs, e,
+            )
             if self._mcp_stack:
                 try:
                     await self._mcp_stack.aclose()
@@ -717,8 +730,12 @@ class AgentLoop:
             self._mcp_stack = None
 
     def stop(self) -> None:
-        """Stop the agent loop."""
+        """Stop the agent loop and cancel pending consolidation tasks."""
         self.memory.flush(force=True)
+        # Cancel in-flight consolidation tasks so they don't become orphaned
+        for task in list(self._consolidation_tasks):
+            task.cancel()
+        self._consolidation_tasks.clear()
         self._running = False
         logger.info("Agent loop stopping")
 
