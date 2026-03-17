@@ -219,12 +219,19 @@ class SkillsLoader:
         if content.startswith("---"):
             match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
             if match:
-                # Simple YAML parsing
+                # Simple YAML parsing with basic type coercion
                 metadata = {}
                 for line in match.group(1).split("\n"):
                     if ":" in line:
                         key, value = line.split(":", 1)
-                        metadata[key.strip()] = value.strip().strip('"\'')
+                        raw = value.strip().strip("\"'")
+                        # Boolean coercion
+                        if raw.lower() in ("true", "yes"):
+                            metadata[key.strip()] = "true"
+                        elif raw.lower() in ("false", "no"):
+                            metadata[key.strip()] = "false"
+                        else:
+                            metadata[key.strip()] = raw
                 return metadata
 
         return None

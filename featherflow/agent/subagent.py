@@ -14,12 +14,13 @@ from featherflow.agent.tools.filesystem import (
     ReadFileTool,
     WriteFileTool,
 )
+from featherflow.agent.tools.papers import PaperDownloadTool, PaperGetTool, PaperSearchTool
 from featherflow.agent.tools.registry import ToolRegistry
 from featherflow.agent.tools.shell import ExecTool
 from featherflow.agent.tools.web import WebFetchTool, WebSearchTool
 from featherflow.bus.events import InboundMessage
 from featherflow.bus.queue import MessageBus
-from featherflow.config.schema import ExecToolConfig, WebToolsConfig
+from featherflow.config.schema import ExecToolConfig, PapersToolConfig, WebToolsConfig
 from featherflow.providers.base import LLMProvider
 
 
@@ -39,8 +40,9 @@ class SubagentManager:
         bus: MessageBus,
         model: str | None = None,
         web_config: WebToolsConfig | None = None,
-        temperature: float = 0.7,
-        max_tokens: int = 4096,
+        paper_config: PapersToolConfig | None = None,
+        temperature: float = 0.1,
+        max_tokens: int = 8192,
         brave_api_key: str | None = None,
         exec_config: ExecToolConfig | None = None,
         restrict_to_workspace: bool = False,
@@ -53,6 +55,7 @@ class SubagentManager:
         self.max_tokens = max_tokens
         self.brave_api_key = brave_api_key
         self.web_config = web_config or WebToolsConfig()
+        self.paper_config = paper_config or PapersToolConfig()
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
@@ -131,6 +134,24 @@ class SubagentManager:
                 provider=self.web_config.fetch.provider,
                 ollama_api_key=self.web_config.fetch.ollama_api_key or None,
                 ollama_api_base=self.web_config.fetch.ollama_api_base,
+            ))
+            tools.register(PaperSearchTool(
+                provider=self.paper_config.provider,
+                semantic_scholar_api_key=self.paper_config.semantic_scholar_api_key or None,
+                timeout_seconds=self.paper_config.timeout_seconds,
+                default_limit=self.paper_config.default_limit,
+                max_limit=self.paper_config.max_limit,
+            ))
+            tools.register(PaperGetTool(
+                provider=self.paper_config.provider,
+                semantic_scholar_api_key=self.paper_config.semantic_scholar_api_key or None,
+                timeout_seconds=self.paper_config.timeout_seconds,
+            ))
+            tools.register(PaperDownloadTool(
+                workspace=self.workspace,
+                provider=self.paper_config.provider,
+                semantic_scholar_api_key=self.paper_config.semantic_scholar_api_key or None,
+                timeout_seconds=self.paper_config.timeout_seconds,
             ))
 
             # Build messages with subagent-specific prompt

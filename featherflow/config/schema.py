@@ -202,6 +202,7 @@ class AgentSessionConfig(Base):
     compact_threshold_messages: int = 400
     compact_threshold_bytes: int = 2_000_000
     compact_keep_messages: int = 300
+    session_tool_result_max_chars: int = 500
 
 
 class AgentSelfImprovementConfig(Base):

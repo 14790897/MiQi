@@ -151,10 +151,6 @@ def register_gateway_command(
         else:
             console.print("[yellow]Warning: No channels enabled[/yellow]")
 
-        cron_status = cron.status()
-        if cron_status["jobs"] > 0:
-            console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
-
         if config.heartbeat.enabled:
             if heartbeat_interval_s % 60 == 0:
                 console.print(
@@ -168,6 +164,11 @@ def register_gateway_command(
         async def run():
             try:
                 await cron.start()
+
+                cron_status = cron.status()
+                if cron_status["jobs"] > 0:
+                    console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
+
                 await heartbeat.start()
                 await asyncio.gather(
                     agent.run(),

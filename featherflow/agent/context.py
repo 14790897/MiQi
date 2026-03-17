@@ -123,7 +123,7 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
 
 ## Memory
 - Remember important facts: write to {workspace_path}/memory/MEMORY.md
-- Recall past events: grep {workspace_path}/memory/HISTORY.md"""
+- Recall past context: the system automatically maintains short-term conversation memory and long-term snapshots — you don't need to manage HISTORY files manually."""
 
     # Bootstrap files that are system-maintained (always loaded from the installed
     # package templates so updates propagate automatically without re-onboarding).

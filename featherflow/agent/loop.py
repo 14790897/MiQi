@@ -126,7 +126,7 @@ class AgentLoop:
         web_config: WebToolsConfig | None = None,
         paper_config: PapersToolConfig | None = None,
         temperature: float = 0.1,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
         memory_window: int = 100,
         max_tool_result_chars: int = 16000,
         context_limit_chars: int = 600000,
@@ -199,6 +199,7 @@ class AgentLoop:
             bus=bus,
             model=self.model,
             web_config=self.web_config,
+            paper_config=self.paper_config,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             brave_api_key=brave_api_key,
@@ -427,6 +428,7 @@ class AgentLoop:
         self,
         initial_messages: list[dict],
         on_progress: Callable[..., Awaitable[None]] | None = None,
+        session_key: str = "",
     ) -> tuple[str | None, list[str], list[dict]]:
         """Run the agent iteration loop. Returns (final_content, tools_used, messages)."""
         messages = initial_messages
@@ -535,6 +537,11 @@ class AgentLoop:
                         tool_call.arguments,
                         _on_progress=_mcp_on_progress,
                     )
+                    # Record tool feedback for self-improvement lessons
+                    if session_key and isinstance(result, str):
+                        self.memory.record_tool_feedback(
+                            session_key, tool_call.name, result,
+                        )
                     # Truncate large tool results to prevent context explosion.
                     # This applies to the live prompt; saved-session truncation is
                     # separate (see _save_turn / _TOOL_RESULT_MAX_CHARS).
@@ -557,12 +564,19 @@ class AgentLoop:
                 if self.reflect_after_tool_calls:
                     messages.append(
                         {
-                            "role": "user",
+                            "role": "system",
                             "content": self._REFLECT_PROMPT,
                         }
                     )
             else:
-                final_content = self._strip_think(response.content)
+                # Check for LLM API errors returned as content
+                if response.finish_reason == "error":
+                    logger.error("LLM API error: {}", response.content)
+                    final_content = (
+                        "\u26a0\ufe0f \u8c03\u7528\u8bed\u8a00\u6a21\u578b\u65f6\u51fa\u9519\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002"
+                    )
+                else:
+                    final_content = self._strip_think(response.content)
                 break
 
         if final_content is None and iteration >= self.max_iterations:
@@ -599,7 +613,7 @@ class AgentLoop:
             text = text.replace("您", mention)
         await self.bus.publish_outbound(OutboundMessage(
             channel=channel, chat_id=chat_id, content=text,
-            metadata={"_progress": True, "_tool_hint": False},
+            metadata={"_queue_notification": True},
         ))
 
     async def run(self) -> None:
@@ -747,7 +761,9 @@ class AgentLoop:
                 current_message=msg.content, channel=channel, chat_id=chat_id,
             )
             try:
-                final_content, _, all_msgs = await self._run_agent_loop(messages)
+                final_content, _, all_msgs = await self._run_agent_loop(
+                    messages, session_key=key,
+                )
             finally:
                 for _gw in self._mcp_gateways:
                     _gw.deactivate()
@@ -857,6 +873,7 @@ class AgentLoop:
         try:
             final_content, _, all_msgs = await self._run_agent_loop(
                 initial_messages, on_progress=on_progress or _bus_progress,
+                session_key=key,
             )
         finally:
             for _gw in self._mcp_gateways:
@@ -893,7 +910,7 @@ class AgentLoop:
             metadata=msg.metadata or {},
         )
 
-    _TOOL_RESULT_MAX_CHARS = 500
+    _TOOL_RESULT_MAX_CHARS_DEFAULT = 500
     _REFLECT_PROMPT = (
         "Check if the task is complete. If more tools are needed, call them now. "
         "If the task is done, provide a clear, helpful final answer to the user."
@@ -910,15 +927,16 @@ class AgentLoop:
         the LLM to re-execute stale tasks when loaded as conversation context.
         """
         from datetime import datetime
+        max_chars = self.session_config.session_tool_result_max_chars
         for m in messages[skip:]:
             # Skip internal reflection prompts
-            if m.get("role") == "user" and m.get("content") == self._REFLECT_PROMPT:
+            if m.get("role") == "system" and m.get("content") == self._REFLECT_PROMPT:
                 continue
             entry = {k: v for k, v in m.items() if k != "reasoning_content"}
             if entry.get("role") == "tool" and isinstance(entry.get("content"), str):
                 content = entry["content"]
-                if len(content) > self._TOOL_RESULT_MAX_CHARS:
-                    entry["content"] = content[:self._TOOL_RESULT_MAX_CHARS] + "\n... (truncated)"
+                if len(content) > max_chars:
+                    entry["content"] = content[:max_chars] + "\n... (truncated)"
             entry.setdefault("timestamp", datetime.now().isoformat())
             session.messages.append(entry)
         session.updated_at = datetime.now()
