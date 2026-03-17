@@ -55,6 +55,7 @@ class _QueuedTask:
     """A message waiting in the task queue."""
     msg: InboundMessage
     enqueue_time: float = field(default_factory=_time_mod.monotonic)
+    start_time: float = 0.0  # set when task becomes active
 
     @property
     def sender_display(self) -> str:
@@ -85,6 +86,7 @@ class TaskTracker:
             self.active = None
             return None
         self.active = self.pending.popleft()
+        self.active.start_time = _time_mod.monotonic()
         return self.active
 
     def finish_active(self) -> None:
@@ -682,7 +684,7 @@ class AgentLoop:
                 # Agent is busy — notify the sender of their queue position
                 active = self._task_tracker.active
                 active_sender = active.sender_display if active else "someone"
-                elapsed_secs = int(_time_mod.monotonic() - active.enqueue_time) if active else 0
+                elapsed_secs = int(_time_mod.monotonic() - active.start_time) if active and active.start_time else 0
                 elapsed_mins, elapsed_s = divmod(elapsed_secs, 60)
                 elapsed_info = f"已进行 {elapsed_mins} 分钟" if elapsed_mins else f"已进行 {elapsed_s} 秒"
                 await self._send_queue_notification(
