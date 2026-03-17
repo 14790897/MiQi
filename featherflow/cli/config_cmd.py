@@ -248,7 +248,7 @@ def register_config_commands(app, *, console) -> None:
                  "Default: auto-detect from current model.",
         ),
         model: str = typer.Option(None, "--model", "-m", help="Model name for pdf2zh translation"),
-        timeout: int = typer.Option(800, "--timeout", "-t", help="Tool call timeout seconds"),
+        timeout: int = typer.Option(3600, "--timeout", "-t", help="Tool call timeout seconds (default 3600 = 1 h; increase for large documents)"),
     ):
         """Configure pdf2zh MCP server, auto-filling LLM credentials from featherflow config.
 

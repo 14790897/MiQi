@@ -138,7 +138,7 @@ fi
 
 echo ""
 info "Configuring pdf2zh MCP (auto-reads provider credentials)..."
-featherflow config pdf2zh --mcp-python "$PDF2ZH_CMD"
+featherflow config pdf2zh --mcp-python "$PDF2ZH_CMD" --timeout 3600
 
 echo ""
 info "All MCP servers configured."
