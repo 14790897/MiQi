@@ -174,7 +174,7 @@ class AgentDefaults(Base):
     model: str = "anthropic/claude-opus-4-5"
     max_tokens: int = 8192
     temperature: float = 0.1
-    max_tool_iterations: int = 40
+    max_tool_iterations: int = 100
     memory_window: int = 100
     reflect_after_tool_calls: bool = True
     # Maximum characters kept per tool result in the live prompt.
