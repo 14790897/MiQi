@@ -435,6 +435,21 @@ class AgentLoop:
         while iteration < self.max_iterations:
             iteration += 1
 
+            # Send progress milestone every N iterations so users know
+            # the agent is still working on long tasks.
+            if (
+                on_progress
+                and iteration > 1
+                and iteration % self._PROGRESS_MILESTONE_INTERVAL == 1
+            ):
+                unique_tools = sorted(set(tools_used[-self._PROGRESS_MILESTONE_INTERVAL:]))
+                await on_progress(
+                    f"📊 已执行 {iteration - 1} 步，"
+                    f"使用工具：{', '.join(unique_tools) if unique_tools else '—'}，"
+                    f"继续处理中...",
+                    tool_hint=True,
+                )
+
             # Trim oversized context before each LLM call
             if self.context_limit_chars > 0:
                 est = self._estimate_chars(messages)
@@ -545,9 +560,12 @@ class AgentLoop:
 
         if final_content is None and iteration >= self.max_iterations:
             logger.warning("Max iterations ({}) reached", self.max_iterations)
+            unique_tools = sorted(set(tools_used))
+            summary = ', '.join(unique_tools) if unique_tools else '无'
             final_content = (
-                f"I reached the maximum number of tool call iterations ({self.max_iterations}) "
-                "without completing the task. You can try breaking the task into smaller steps."
+                f"⚠️ 已达到最大执行步数（{self.max_iterations}），任务尚未完全完成。\n"
+                f"已执行 {len(tools_used)} 次工具调用，使用工具：{summary}。\n"
+                f"建议：将任务拆分为更小的步骤，或使用 /new 开启新会话后继续。"
             )
 
         return final_content, tools_used, messages
@@ -867,9 +885,12 @@ class AgentLoop:
 
     _TOOL_RESULT_MAX_CHARS = 500
     _REFLECT_PROMPT = (
-        "Reason silently about whether more tools are needed. "
-        "Do not expose this reflection process unless explicitly asked."
+        "Check if the task is complete. If more tools are needed, call them now. "
+        "If the task is done, provide a clear, helpful final answer to the user."
     )
+
+    # Interval (in iterations) at which a progress milestone is sent to the user
+    _PROGRESS_MILESTONE_INTERVAL = 10
 
     def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:
         """Save new-turn messages into session, truncating large tool results.

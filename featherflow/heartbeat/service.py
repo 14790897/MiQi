@@ -26,10 +26,22 @@ def _is_heartbeat_empty(content: str | None) -> bool:
 
     # Lines to skip: empty, headers, HTML comments, empty checkboxes
     skip_patterns = {"- [ ]", "* [ ]", "- [x]", "* [x]"}
+    in_comment = False
 
     for line in content.split("\n"):
         line = line.strip()
-        if not line or line.startswith("#") or line.startswith("<!--") or line in skip_patterns:
+        # Track multi-line HTML comments
+        if in_comment:
+            if "-->" in line:
+                in_comment = False
+            continue
+        if line.startswith("<!--"):
+            if "-->" not in line or line.endswith("-->"):
+                # Single-line comment (<!-- ... -->) or start of multi-line
+                if "-->" not in line:
+                    in_comment = True
+                continue
+        if not line or line.startswith("#") or line in skip_patterns:
             continue
         return False  # Found actionable content
 
