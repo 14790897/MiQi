@@ -447,7 +447,7 @@ class AgentLoop:
                     f"📊 已执行 {iteration - 1} 步，"
                     f"使用工具：{', '.join(unique_tools) if unique_tools else '—'}，"
                     f"继续处理中...",
-                    tool_hint=True,
+                    tool_hint=False,
                 )
 
             # Trim oversized context before each LLM call
@@ -510,11 +510,16 @@ class AgentLoop:
                             _display=_tool_display, *, heartbeat=False,
                         ):
                             if heartbeat:
-                                mins, secs = divmod(int(progress), 60)
+                                elapsed = int(progress)
+                                mins, secs = divmod(elapsed, 60)
                                 elapsed_str = f"{mins}m{secs:02d}s" if mins else f"{secs}s"
+                                # Long-running (>=60s) heartbeats are important status
+                                # updates — mark tool_hint=False so they bypass the
+                                # default send_tool_hints=False filter.
+                                important = elapsed >= 60
                                 await _on_progress(
                                     f"\u23f3 {_display} \u6b63\u5728\u6267\u884c\u4e2d... (\u5df2\u7528\u65f6 {elapsed_str})",
-                                    tool_hint=True,
+                                    tool_hint=not important,
                                 )
                             elif total:
                                 pct = int(progress / total * 100)
@@ -677,9 +682,12 @@ class AgentLoop:
                 # Agent is busy — notify the sender of their queue position
                 active = self._task_tracker.active
                 active_sender = active.sender_display if active else "someone"
+                elapsed_secs = int(_time_mod.monotonic() - active.enqueue_time) if active else 0
+                elapsed_mins, elapsed_s = divmod(elapsed_secs, 60)
+                elapsed_info = f"已进行 {elapsed_mins} 分钟" if elapsed_mins else f"已进行 {elapsed_s} 秒"
                 await self._send_queue_notification(
                     msg.channel, msg.chat_id,
-                    f"\u2705 收到！当前正在处理 {active_sender} 的任务，"
+                    f"\u2705 收到！当前正在处理 {active_sender} 的任务（{elapsed_info}），"
                     f"您排在第 {position} 位，请稍候。",
                 )
 
