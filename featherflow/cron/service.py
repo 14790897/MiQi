@@ -72,10 +72,12 @@ class CronService:
     def __init__(
         self,
         store_path: Path,
-        on_job: Callable[[CronJob], Coroutine[Any, Any, str | None]] | None = None
+        on_job: Callable[[CronJob], Coroutine[Any, Any, str | None]] | None = None,
+        job_timeout: int = 86400,  # Default 24 h — accommodates long-running simulations (e.g. RASPA)
     ):
         self.store_path = store_path
         self.on_job = on_job  # Callback to execute job, returns response text
+        self.job_timeout = max(1, job_timeout)
         self._store: CronStore | None = None
         self._timer_task: asyncio.Task | None = None
         self._running = False
@@ -250,7 +252,7 @@ class CronService:
         try:
             if self.on_job:
                 # Guard against stuck jobs blocking the entire cron scheduler
-                await asyncio.wait_for(self.on_job(job), timeout=600)
+                await asyncio.wait_for(self.on_job(job), timeout=self.job_timeout)
 
             job.state.last_status = "ok"
             job.state.last_error = None
@@ -258,8 +260,8 @@ class CronService:
 
         except asyncio.TimeoutError:
             job.state.last_status = "error"
-            job.state.last_error = "Job execution timed out (600s)"
-            logger.error("Cron: job '{}' timed out after 600s", job.name)
+            job.state.last_error = f"Job execution timed out ({self.job_timeout}s)"
+            logger.error("Cron: job '{}' timed out after {}s", job.name, self.job_timeout)
 
         except Exception as e:
             job.state.last_status = "error"

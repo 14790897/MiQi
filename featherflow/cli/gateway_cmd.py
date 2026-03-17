@@ -49,7 +49,7 @@ def register_gateway_command(
         )
 
         cron_store_path = get_data_dir() / "cron" / "jobs.json"
-        cron = CronService(cron_store_path)
+        cron = CronService(cron_store_path, job_timeout=config.cron.job_timeout_seconds)
 
         agent = AgentLoop(
             bus=bus,

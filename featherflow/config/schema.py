@@ -277,6 +277,12 @@ class HeartbeatConfig(Base):
     interval_seconds: int = 30 * 60
 
 
+class CronConfig(Base):
+    """Cron scheduler configuration."""
+
+    job_timeout_seconds: int = 86400  # Max time a single cron job may run (default 24 h)
+
+
 class WebSearchConfig(Base):
     """Web search tool configuration."""
 
@@ -362,6 +368,7 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
+    cron: CronConfig = Field(default_factory=CronConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
 
     @property

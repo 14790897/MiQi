@@ -72,18 +72,18 @@ register "zeopp" zeopp \
     --arg python \
     --arg -m \
     --arg app.mcp.stdio_main \
-    --timeout 300 \
+    --timeout 600 \
     --lazy \
     --description "Zeo++ porous material geometry analysis: accessible volume, pore size, channel detection"
 
-# raspa-mcp — RASPA2 simulation templates
+# raspa-mcp — RASPA2 simulation can run for several hours
 register "raspa2" raspa2 \
     --command "$RASPA2_CMD" \
     --arg run \
     --arg --directory \
     --arg "$MCPS_DIR/raspa-mcp" \
     --arg raspa-mcp \
-    --timeout 60 \
+    --timeout 21600 \
     --lazy \
     --description "RASPA2 molecular simulation: build input files, parse outputs, GCMC/MD workflows"
 
@@ -92,7 +92,7 @@ register "mofstructure" mofstructure \
     --command "$MOFSTRUCTURE_CMD" \
     --arg -m \
     --arg mofstructure.mcp_server \
-    --timeout 120 \
+    --timeout 600 \
     --lazy \
     --description "MOF structural analysis: identify building blocks, topology, metal nodes, linkers"
 
@@ -110,7 +110,7 @@ register "miqrophi" miqrophi \
     --command "$MIQROPHI_CMD" \
     --arg -m \
     --arg miqrophi.mcp_server \
-    --timeout 120 \
+    --timeout 600 \
     --lazy \
     --description "Epitaxial lattice matching: CIF surface analysis, substrate screening, strain calculation"
 
