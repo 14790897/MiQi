@@ -60,6 +60,10 @@ class ProviderSpec:
     # Provider supports cache_control on content blocks (e.g. Anthropic prompt caching)
     supports_prompt_caching: bool = False
 
+    # Provider requires reasoning_content preserved in message history for multi-turn
+    # conversations (DeepSeek official API for deepseek-reasoner requires this).
+    supports_reasoning_history: bool = False
+
     @property
     def label(self) -> str:
         return self.display_name or self.name.title()
@@ -237,6 +241,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ),
 
     # DeepSeek: needs "deepseek/" prefix for LiteLLM routing.
+    # deepseek-reasoner (R1) requires reasoning_content preserved in multi-turn history.
     ProviderSpec(
         name="deepseek",
         keywords=("deepseek",),
@@ -252,6 +257,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="",
         strip_model_prefix=False,
         model_overrides=(),
+        supports_reasoning_history=True,    # R1 multi-turn needs reasoning_content back
     ),
 
     # Gemini: needs "gemini/" prefix for LiteLLM.

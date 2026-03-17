@@ -593,6 +593,20 @@ class AgentLoop:
                     )
                 else:
                     final_content = self._strip_think(response.content)
+                    if final_content is None:
+                        # Model returned only <think>…</think> with no visible answer.
+                        # This usually means max_tokens was exhausted during reasoning
+                        # (e.g. DeepSeek-R1 via OpenRouter). Log and surface a hint.
+                        logger.warning(
+                            "Model response empty after stripping think tags "
+                            "(finish_reason={}, has reasoning={}) — likely max_tokens too low",
+                            response.finish_reason,
+                            response.reasoning_content is not None,
+                        )
+                        final_content = (
+                            "\u26a0\ufe0f \u6a21\u578b\u5b8c\u6210\u4e86\u63a8\u7406\u4f46\u672a\u8f93\u51fa\u6700\u7ec8\u56de\u590d"
+                            "\uff08\u53ef\u80fd\u662f max_tokens \u8bbe\u7f6e\u8fc7\u4f4e\uff09\uff0c\u8bf7\u5c1d\u8bd5\u5bf9\u8be5\u4efb\u52a1\u589e\u5927 max_tokens \u540e\u91cd\u8bd5\u3002"
+                        )
                 break
 
         if final_content is None and iteration >= self.max_iterations:

@@ -172,7 +172,7 @@ class AgentDefaults(Base):
     name: str = "featherflow"
     workspace: str = "~/.featherflow/workspace"
     model: str = "anthropic/claude-opus-4-5"
-    max_tokens: int = 8192
+    max_tokens: int = 16000
     temperature: float = 0.1
     max_tool_iterations: int = 100
     memory_window: int = 100

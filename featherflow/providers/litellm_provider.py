@@ -198,12 +198,21 @@ class LiteLLMProvider(LLMProvider):
                     kwargs.update(overrides)
                     return
 
-    @staticmethod
-    def _sanitize_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Strip non-standard keys and ensure assistant messages have a content key."""
+    def _sanitize_messages(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        keep_reasoning: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Strip non-standard keys and ensure assistant messages have a content key.
+
+        When keep_reasoning=True (DeepSeek official API), reasoning_content is
+        preserved in assistant messages so the multi-turn reasoning chain is intact.
+        """
+        allowed = _ALLOWED_MSG_KEYS | {"reasoning_content"} if keep_reasoning else _ALLOWED_MSG_KEYS
         sanitized = []
         for msg in messages:
-            clean = {k: v for k, v in msg.items() if k in _ALLOWED_MSG_KEYS}
+            clean = {k: v for k, v in msg.items() if k in allowed}
             # Strict providers require "content" even when assistant only has tool_calls
             if clean.get("role") == "assistant" and "content" not in clean:
                 clean["content"] = None
@@ -241,9 +250,15 @@ class LiteLLMProvider(LLMProvider):
         # LiteLLM to reject the request with "max_tokens must be at least 1".
         max_tokens = max(1, max_tokens)
 
+        spec = self._selected_spec or find_by_model(original_model)
+        keep_reasoning = bool(spec and spec.supports_reasoning_history)
+
         kwargs: dict[str, Any] = {
             "model": model,
-            "messages": self._sanitize_messages(self._sanitize_empty_content(messages)),
+            "messages": self._sanitize_messages(
+                self._sanitize_empty_content(messages),
+                keep_reasoning=keep_reasoning,
+            ),
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
