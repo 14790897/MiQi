@@ -245,12 +245,12 @@ FeatherFlow reads from `~/.featherflow/config.json`. The interactive wizard (`fe
 - **`gateway`** — HTTP gateway listen address (`host`, `port`; default `0.0.0.0:18790` for bare-metal runs). When using Docker Compose the port is bound to `127.0.0.1:18790` by default.
 - **`tools`** — Web/search/fetch behavior, paper research provider settings (`tools.papers`), shell execution policy (`tools.exec.timeout`), `restrictToWorkspace` flag, and MCP server definitions (`tools.mcpServers`).
   - **`tools.mcpServers.<name>.progressIntervalSeconds`** — Heartbeat interval (seconds) for long-running MCP tool calls. Set to `0` to disable. Default `15`.
-  - **`tools.mcpServers.<name>.toolTimeout`** — Timeout in seconds before a tool call is cancelled. For scientific computing MCP servers (e.g. raspa, mofstructure), set to `300`–`600`.
+  - **`tools.mcpServers.<name>.toolTimeout`** — Timeout in seconds before a tool call is cancelled. For scientific computing MCP servers (e.g. raspa, mofstructure), set to `300`–`600`. Default `30`.
   - **`tools.mcpServers.<name>.allowedTools`** — Optional allowlist of tool names. When non-empty, only the listed tools from this MCP server are registered. All others are silently dropped.
   - **`tools.mcpServers.<name>.deniedTools`** — Optional denylist of tool names. Any tool whose name appears here is never registered, regardless of `allowedTools`.
 - **`heartbeat`** — Periodic background prompts (`enabled`, `intervalSeconds`) for proactive agent behaviors.
 
-> **Security:** Set file permissions to `0600` on your config file and configure strict `allowFrom` lists before exposing to any channel. See [`docs/SECURITY.md`](docs/SECURITY.md) for full guidance.
+> **Security:** Config files are automatically saved with `0600` permissions (owner-read-only) to protect API keys. Set strict `allowFrom` lists before exposing to any channel. See [`docs/SECURITY.md`](docs/SECURITY.md) for full guidance.
 
 ### Environment Variable Overrides
 

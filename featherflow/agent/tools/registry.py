@@ -66,15 +66,18 @@ class ToolRegistry:
             errors = tool.validate_params(params)
             if errors:
                 return f"Error: Invalid parameters for tool '{name}': " + "; ".join(errors) + hint
+            # Per-tool timeout takes priority (e.g. MCPToolWrapper exposes its
+            # own configured toolTimeout); fall back to the registry-level default.
+            timeout = tool.execution_timeout if tool.execution_timeout is not None else self.tool_timeout
             result = await asyncio.wait_for(
                 tool.execute(**params, **extra),
-                timeout=self.tool_timeout,
+                timeout=timeout,
             )
             if isinstance(result, str) and result.startswith("Error"):
                 return result + hint
             return result
         except asyncio.TimeoutError:
-            return f"Error: Tool '{name}' timed out after {self.tool_timeout}s" + hint
+            return f"Error: Tool '{name}' timed out after {timeout}s" + hint
         except Exception as e:
             return f"Error executing {name}: {str(e)}" + hint
 

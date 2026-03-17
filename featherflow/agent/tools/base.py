@@ -39,6 +39,16 @@ class Tool(ABC):
         """JSON Schema for tool parameters."""
         pass
 
+    @property
+    def execution_timeout(self) -> float | None:
+        """Optional per-tool execution timeout (seconds).
+
+        When not None, ToolRegistry uses this value instead of the global
+        default timeout.  Override in subclasses that manage their own
+        async timeout (e.g. MCPToolWrapper).
+        """
+        return None
+
     @abstractmethod
     async def execute(self, **kwargs: Any) -> str:
         """

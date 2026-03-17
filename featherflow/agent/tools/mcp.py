@@ -26,6 +26,13 @@ class MCPToolWrapper(Tool):
         self._progress_interval = progress_interval
 
     @property
+    def execution_timeout(self) -> float | None:
+        """Expose per-MCP-server toolTimeout so ToolRegistry defers to us."""
+        # Return a value slightly larger than our own internal wait_for so
+        # the outer wrapper never fires before the inner one does.
+        return float(self._tool_timeout) + 5
+
+    @property
     def name(self) -> str:
         return self._name
 

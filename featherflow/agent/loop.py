@@ -217,6 +217,9 @@ class AgentLoop:
         self._consolidating: set[str] = set()  # Session keys with consolidation in progress
         self._consolidation_tasks: set[asyncio.Task] = set()  # Strong refs to in-flight tasks
         self._consolidation_locks: dict[str, asyncio.Lock] = {}
+        # Limit simultaneous background consolidations to avoid memory pressure
+        # when many sessions become eligible for consolidation at the same time.
+        self._consolidation_semaphore: asyncio.Semaphore = asyncio.Semaphore(5)
         self._task_tracker = TaskTracker()
         self._mcp_gateways: list = []  # MCPGatewayTool instances; deactivated after each run
         self._register_default_tools()
@@ -838,8 +841,9 @@ class AgentLoop:
 
             async def _consolidate_and_unlock():
                 try:
-                    async with lock:
-                        await self._consolidate_memory(session)
+                    async with self._consolidation_semaphore:
+                        async with lock:
+                            await self._consolidate_memory(session)
                 finally:
                     self._consolidating.discard(session.key)
                     self._prune_consolidation_lock(session.key, lock)
