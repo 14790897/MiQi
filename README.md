@@ -509,14 +509,16 @@ This calls `featherflow config mcp add` for every server with recommended timeou
 ### Skills Docs (`featherflow/skills/`)
 
 - [featherflow/skills/README.md](featherflow/skills/README.md)
-- [featherflow/skills/clawhub/SKILL.md](featherflow/skills/clawhub/SKILL.md)
 - [featherflow/skills/cron/SKILL.md](featherflow/skills/cron/SKILL.md)
+- [featherflow/skills/feishu-report/SKILL.md](featherflow/skills/feishu-report/SKILL.md)
 - [featherflow/skills/github/SKILL.md](featherflow/skills/github/SKILL.md)
 - [featherflow/skills/memory/SKILL.md](featherflow/skills/memory/SKILL.md)
+- [featherflow/skills/paper-research/SKILL.md](featherflow/skills/paper-research/SKILL.md)
 - [featherflow/skills/skill-creator/SKILL.md](featherflow/skills/skill-creator/SKILL.md)
 - [featherflow/skills/summarize/SKILL.md](featherflow/skills/summarize/SKILL.md)
 - [featherflow/skills/tmux/SKILL.md](featherflow/skills/tmux/SKILL.md)
 - [featherflow/skills/weather/SKILL.md](featherflow/skills/weather/SKILL.md)
+- [featherflow/skills/workspace-cleanup/SKILL.md](featherflow/skills/workspace-cleanup/SKILL.md)
 
 ### Template Docs (`featherflow/templates/`)
 

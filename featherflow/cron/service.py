@@ -41,7 +41,10 @@ def _compute_next_run(schedule: CronSchedule, now_ms: int, last_run_at_ms: int |
             from croniter import croniter
             # Use caller-provided reference time for deterministic scheduling
             base_time = now_ms / 1000
-            tz = ZoneInfo(schedule.tz) if schedule.tz else datetime.now().astimezone().tzinfo
+            # Fall back to UTC rather than server local time: UTC is predictable
+            # regardless of deployment environment. Callers should pass schedule.tz
+            # explicitly when the user's intent is in a non-UTC timezone.
+            tz = ZoneInfo(schedule.tz) if schedule.tz else ZoneInfo("UTC")
             base_dt = datetime.fromtimestamp(base_time, tz=tz)
             cron = croniter(schedule.expr, base_dt)
             next_dt = cron.get_next(datetime)

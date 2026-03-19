@@ -40,7 +40,7 @@ class CronTool(Tool):
                 },
                 "message": {
                     "type": "string",
-                    "description": "Reminder message (for add)"
+                    "description": "The full task instruction that the agent will execute when the job triggers. Write it as a self-contained prompt, e.g. 'Search for the latest quantum computing news and academic papers, summarize into a briefing with references.' The more detail here, the better the output."
                 },
                 "every_seconds": {
                     "type": "integer",
@@ -48,15 +48,15 @@ class CronTool(Tool):
                 },
                 "cron_expr": {
                     "type": "string",
-                    "description": "Cron expression like '0 9 * * *' (for scheduled tasks)"
+                    "description": "Cron expression like '0 9 * * *'. IMPORTANT: cron expressions are evaluated in UTC by default. Always pass tz= together with cron_expr so times match the user's local timezone (e.g. tz='Asia/Shanghai' for China Standard Time)."
                 },
                 "tz": {
                     "type": "string",
-                    "description": "IANA timezone for cron expressions (e.g. 'America/Vancouver')"
+                    "description": "IANA timezone (e.g. 'Asia/Shanghai', 'America/Vancouver'). Required with cron_expr when the user's timezone differs from server UTC. Also used with at= when the datetime string has no timezone offset."
                 },
                 "at": {
                     "type": "string",
-                    "description": "ISO datetime for one-time execution (e.g. '2026-02-12T10:30:00')"
+                    "description": "ISO datetime for one-time execution. Always include timezone offset (e.g. '2026-02-12T10:30:00+08:00' for UTC+8). You may also pass tz= together with a naive datetime."
                 },
                 "job_id": {
                     "type": "string",
@@ -97,8 +97,8 @@ class CronTool(Tool):
             return "Error: message is required for add"
         if not self._channel or not self._chat_id:
             return "Error: no session context (channel/chat_id)"
-        if tz and not cron_expr:
-            return "Error: tz can only be used with cron_expr"
+        if tz and not cron_expr and not at:
+            return "Error: tz can only be used with cron_expr or at"
         if tz:
             from zoneinfo import ZoneInfo
             try:
@@ -113,8 +113,16 @@ class CronTool(Tool):
         elif cron_expr:
             schedule = CronSchedule(kind="cron", expr=cron_expr, tz=tz)
         elif at:
-            from datetime import datetime
+            from datetime import datetime, timezone
+            from zoneinfo import ZoneInfo
             dt = datetime.fromisoformat(at)
+            if dt.tzinfo is None:
+                # Naive datetime: apply explicit tz, or fall back to UTC to avoid
+                # server-local-time ambiguity (users are rarely on the same tz as server).
+                if tz:
+                    dt = dt.replace(tzinfo=ZoneInfo(tz))
+                else:
+                    dt = dt.replace(tzinfo=timezone.utc)
             at_ms = int(dt.timestamp() * 1000)
             schedule = CronSchedule(kind="at", at_ms=at_ms)
             delete_after = True

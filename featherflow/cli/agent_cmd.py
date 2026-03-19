@@ -50,7 +50,7 @@ def register_agent_command(
         provider = make_provider(config)
 
         cron_store_path = get_data_dir() / "cron" / "jobs.json"
-        cron = CronService(cron_store_path)
+        cron = CronService(cron_store_path, job_timeout=config.cron.job_timeout_seconds)
 
         if logs:
             logger.enable("featherflow")
@@ -95,6 +95,26 @@ def register_agent_command(
                 return
             console.print(f"  [dim]↳ {content}[/dim]")
 
+        async def on_cron_job(job) -> str | None:
+            from featherflow.bus.events import OutboundMessage
+            response = await agent_loop.process_direct(
+                job.payload.message,
+                session_key=f"cron:{job.id}",
+                channel=job.payload.channel or "cli",
+                chat_id=job.payload.to or "direct",
+            )
+            if job.payload.deliver and job.payload.to:
+                await bus.publish_outbound(
+                    OutboundMessage(
+                        channel=job.payload.channel or "cli",
+                        chat_id=job.payload.to,
+                        content=response or "",
+                    )
+                )
+            return response
+
+        cron.on_job = on_cron_job
+
         if message:
             async def run_once():
                 with _thinking_ctx():
@@ -125,6 +145,7 @@ def register_agent_command(
             signal.signal(signal.SIGINT, _exit_on_sigint)
 
             async def run_interactive():
+                await cron.start()
                 bus_task = asyncio.create_task(agent_loop.run())
                 turn_done = asyncio.Event()
                 turn_done.set()

@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added `paper-research` skill (`featherflow/skills/paper-research/SKILL.md`):
+  - Full workflow: `paper_search` → `paper_download` → `translate_pdf` → summarize with references.
+  - Covers scheduled briefing scenarios (cron + feishu delivery).
+  - Includes `web_search` fallback for news and preprints not indexed in Semantic Scholar.
+- Added `feishu-report` skill (`featherflow/skills/feishu-report/SKILL.md`):
+  - Format decision table: plain text / card message / Feishu Doc / calendar event / task.
+  - Covers `send_message`, `send_card_message`, `create_document` + `write_document_markdown`, `create_calendar_event`, `create_task`.
+  - Includes user identity resolution via `resolve_users_by_name` and `get_chat_members`.
+- Added `workspace-cleanup` skill (`featherflow/skills/workspace-cleanup/SKILL.md`):
+  - Organizes `~/.featherflow/workspace` into structured `artifacts/` subdirectories.
+  - Archives files older than 30 days to `archive/YYYY-MM/`.
+  - Defines sacred directories (memory/, skills/, sessions/, system .md files) that are never touched.
+
+### Changed
+- Updated `cron` skill (`featherflow/skills/cron/SKILL.md`):
+  - Corrected timezone fallback documentation: without `tz`, cron expressions are now evaluated in **UTC** (not server local time).
+  - Updated `at` mode examples to always include timezone offset (e.g. `+08:00`) or explicit `tz=`.
+  - Added China Standard Time (`Asia/Shanghai`) examples to time expression table.
+- Updated `cron` tool parameter descriptions (`featherflow/agent/tools/cron.py`):
+  - `message`: clarified it is the full task prompt executed at trigger time, not just a label.
+  - `cron_expr`: added explicit warning that expressions default to UTC; must pass `tz=` for non-UTC users.
+  - `at`: updated example to include timezone offset; documents `tz=` fallback for naive datetimes.
+  - `tz`: extended to apply to both `cron_expr` and `at` modes.
+
+### Fixed
+- Fixed cron `at` mode silently using server local timezone for naive datetime strings: naive datetimes now interpreted as UTC when no `tz` is provided; `tz=` can be passed together with `at=` to override (`featherflow/agent/tools/cron.py`).
+- Fixed `tz` parameter rejected when combined with `at`: removed erroneous validation that blocked `tz` + `at` combinations (`featherflow/agent/tools/cron.py`).
+- Fixed cron `cron` mode using unpredictable server local timezone as fallback: now falls back to UTC for deterministic behavior across deployment environments (`featherflow/cron/service.py`).
+- Fixed `ff agent` mode (CLI) silently ignoring all cron jobs: `on_job` callback was never registered and `cron.start()` was never called; both now wired correctly in `cli/agent_cmd.py`.
+- Fixed `ff agent` mode not propagating `job_timeout` from config to `CronService` (`featherflow/cli/agent_cmd.py`).
+
+### Removed
+- Removed `clawhub` skill (`featherflow/skills/clawhub/`) — not applicable to this deployment.
+
+---
+
+## [Unreleased — previous]
+
+### Added
 - Added Feishu group chat @mention filtering (`channels/feishu.py`):
   - New config `channels.feishu.requireMentionInGroups` (default `true`).
   - In group chats, messages are only forwarded to the agent when the bot is @mentioned.

@@ -17,9 +17,13 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 
 | Skill | Description |
 |-------|-------------|
+| `cron` | Schedule reminders and recurring tasks |
 | `github` | Interact with GitHub using the `gh` CLI |
-| `weather` | Get weather info using wttr.in and Open-Meteo |
+| `memory` | RAM-first memory system with short-term and long-term recall |
+| `paper-research` | Search, download, translate, and summarize academic papers |
+| `feishu-report` | Deliver content to Feishu in the right format (text/card/doc/calendar/task) |
 | `summarize` | Summarize URLs, files, and YouTube videos |
 | `tmux` | Remote-control tmux sessions |
-| `clawhub` | Search and install skills from ClawHub registry |
+| `weather` | Get weather info using wttr.in and Open-Meteo |
+| `workspace-cleanup` | Organize the featherflow workspace directory |
 | `skill-creator` | Create new skills |
