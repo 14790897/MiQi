@@ -170,7 +170,7 @@ def test_agent_command_passes_runtime_configs(monkeypatch, tmp_path):
     captured: dict = {}
 
     class FakeCronService:
-        def __init__(self, _store_path):
+        def __init__(self, _store_path, **kwargs):
             self.on_job = None
 
     class FakeAgentLoop:

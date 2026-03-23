@@ -33,6 +33,7 @@ dependencies = [
     "mcp>=1.26.0,<2.0.0",
     "json-repair>=0.57.0,<1.0.0",
     "lark-oapi>=1.5.0,<2.0.0",
+    "tzdata>=2024.1 ; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
