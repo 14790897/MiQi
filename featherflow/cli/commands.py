@@ -199,7 +199,7 @@ def _interactive_onboard_setup(config) -> tuple[str, str]:
         ("Moonshot", "moonshot", "kimi-k2.5"),
         ("DashScope (Qwen)", "dashscope", "qwen-max"),
         ("Zhipu", "zhipu", "glm-4"),
-        ("MiniMax", "minimax", "MiniMax-M2.1"),
+        ("MiniMax", "minimax", "MiniMax-M2.7"),
         ("AiHubMix", "aihubmix", "claude-opus-4.1"),
         ("vLLM / local OpenAI-compatible", "vllm", "meta-llama/Llama-3.1-8B-Instruct"),
         ("Ollama Local", "ollama_local", "llama3.2"),

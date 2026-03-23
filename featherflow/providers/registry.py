@@ -343,20 +343,23 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ),
 
     # MiniMax: needs "minimax/" prefix for LiteLLM routing.
-    # Uses OpenAI-compatible API at api.minimax.io/v1.
+    # Token Plan API (and new pay-per-use) lives at api.minimaxi.com/v1.
+    # LiteLLM requires MINIMAX_API_BASE env var to find the endpoint.
     ProviderSpec(
         name="minimax",
         keywords=("minimax",),
         env_key="MINIMAX_API_KEY",
         display_name="MiniMax",
-        litellm_prefix="minimax",            # MiniMax-M2.1 → minimax/MiniMax-M2.1
+        litellm_prefix="minimax",            # MiniMax-M2.7 → minimax/MiniMax-M2.7
         skip_prefixes=("minimax/", "openrouter/"),
-        env_extras=(),
+        env_extras=(
+            ("MINIMAX_API_BASE", "{api_base}"),
+        ),
         is_gateway=False,
         is_local=False,
         detect_by_key_prefix="",
         detect_by_base_keyword="",
-        default_api_base="https://api.minimax.io/v1",
+        default_api_base="https://api.minimaxi.com/v1",
         strip_model_prefix=False,
         model_overrides=(),
     ),
