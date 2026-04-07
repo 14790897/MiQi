@@ -5,10 +5,10 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-from featherflow.cli.commands import app
-from featherflow.config.schema import Config
-from featherflow.providers.openai_codex_provider import _strip_model_prefix
-from featherflow.providers.registry import find_by_model
+from miqi.cli.commands import app
+from miqi.config.schema import Config
+from miqi.providers.openai_codex_provider import _strip_model_prefix
+from miqi.providers.registry import find_by_model
 
 runner = CliRunner()
 
@@ -16,10 +16,10 @@ runner = CliRunner()
 @pytest.fixture
 def mock_paths():
     """Mock config/workspace paths for test isolation."""
-    with patch("featherflow.config.loader.get_config_path") as mock_cp, \
-         patch("featherflow.config.loader.save_config") as mock_sc, \
-         patch("featherflow.config.loader.load_config"), \
-         patch("featherflow.utils.helpers.get_workspace_path") as mock_ws:
+    with patch("miqi.config.loader.get_config_path") as mock_cp, \
+         patch("miqi.config.loader.save_config") as mock_sc, \
+         patch("miqi.config.loader.load_config"), \
+         patch("miqi.utils.helpers.get_workspace_path") as mock_ws:
 
         base_dir = Path("./test_onboard_data")
         if base_dir.exists():
@@ -48,7 +48,7 @@ def test_onboard_fresh_install(mock_paths):
     assert result.exit_code == 0
     assert "Created config" in result.stdout
     assert "Created workspace" in result.stdout
-    assert "featherflow is ready" in result.stdout
+    assert "miqi is ready" in result.stdout
     assert config_file.exists()
     assert (workspace_dir / "AGENTS.md").exists()
     assert (workspace_dir / "memory" / "MEMORY.md").exists()
@@ -116,13 +116,13 @@ def test_status_with_existing_config_no_crash(monkeypatch, tmp_path):
     config.providers.openrouter.api_key = "sk-or-v1-test"
     config.agents.defaults.model = "anthropic/claude-opus-4-5"
 
-    monkeypatch.setattr("featherflow.config.loader.get_config_path", lambda: config_path)
-    monkeypatch.setattr("featherflow.config.loader.load_config", lambda: config)
+    monkeypatch.setattr("miqi.config.loader.get_config_path", lambda: config_path)
+    monkeypatch.setattr("miqi.config.loader.load_config", lambda: config)
 
     result = runner.invoke(app, ["status"])
 
     assert result.exit_code == 0
-    assert "FeatherFlow Status" in result.stdout
+    assert "MiQi Status" in result.stdout
     assert "OpenRouter" in result.stdout
 
 
@@ -161,11 +161,11 @@ def test_agent_command_passes_runtime_configs(monkeypatch, tmp_path):
         async def close_mcp(self):
             return None
 
-    monkeypatch.setattr("featherflow.config.loader.load_config", lambda: config)
-    monkeypatch.setattr("featherflow.config.loader.get_data_dir", lambda: tmp_path)
-    monkeypatch.setattr("featherflow.cli.commands._make_provider", lambda _cfg: object())
-    monkeypatch.setattr("featherflow.cron.service.CronService", FakeCronService)
-    monkeypatch.setattr("featherflow.agent.loop.AgentLoop", FakeAgentLoop)
+    monkeypatch.setattr("miqi.config.loader.load_config", lambda: config)
+    monkeypatch.setattr("miqi.config.loader.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("miqi.cli.commands._make_provider", lambda _cfg: object())
+    monkeypatch.setattr("miqi.cron.service.CronService", FakeCronService)
+    monkeypatch.setattr("miqi.agent.loop.AgentLoop", FakeAgentLoop)
 
     result = runner.invoke(app, ["agent", "-m", "hello"])
 
@@ -208,11 +208,11 @@ def test_cron_run_passes_runtime_configs(monkeypatch, tmp_path):
         def stop(self):
             return None
 
-    monkeypatch.setattr("featherflow.config.loader.load_config", lambda: config)
-    monkeypatch.setattr("featherflow.config.loader.get_data_dir", lambda: tmp_path)
-    monkeypatch.setattr("featherflow.cli.commands._make_provider", lambda _cfg: object())
-    monkeypatch.setattr("featherflow.cron.service.CronService", FakeCronService)
-    monkeypatch.setattr("featherflow.agent.loop.AgentLoop", FakeAgentLoop)
+    monkeypatch.setattr("miqi.config.loader.load_config", lambda: config)
+    monkeypatch.setattr("miqi.config.loader.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("miqi.cli.commands._make_provider", lambda _cfg: object())
+    monkeypatch.setattr("miqi.cron.service.CronService", FakeCronService)
+    monkeypatch.setattr("miqi.agent.loop.AgentLoop", FakeAgentLoop)
 
     result = runner.invoke(app, ["cron", "run", "demo", "--force"])
 
@@ -228,7 +228,7 @@ def test_cron_run_passes_runtime_configs(monkeypatch, tmp_path):
 
 
 def test_interactive_onboard_configures_papers_and_skips_feishu(monkeypatch):
-    from featherflow.cli.commands import _interactive_onboard_setup
+    from miqi.cli.commands import _interactive_onboard_setup
 
     config = Config()
 
@@ -255,12 +255,12 @@ def test_interactive_onboard_configures_papers_and_skips_feishu(monkeypatch):
         ]
     )
 
-    monkeypatch.setattr("featherflow.cli.commands.typer.prompt", lambda *a, **k: next(prompt_values))
-    monkeypatch.setattr("featherflow.cli.commands.typer.confirm", lambda *a, **k: next(confirm_values))
+    monkeypatch.setattr("miqi.cli.commands.typer.prompt", lambda *a, **k: next(prompt_values))
+    monkeypatch.setattr("miqi.cli.commands.typer.confirm", lambda *a, **k: next(confirm_values))
 
     agent_name, soul = _interactive_onboard_setup(config)
 
-    assert agent_name == "featherflow"
+    assert agent_name == "miqi"
     assert soul == "balanced"
     assert config.tools.papers.provider == "hybrid"
     assert config.tools.papers.timeout_seconds == 20

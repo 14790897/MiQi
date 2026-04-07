@@ -1,8 +1,8 @@
-# FeatherFlow Architecture
+# MiQi Architecture
 
 ## System Overview
 
-FeatherFlow follows a "message bus + agent loop + tool system + channel adapters" architecture:
+MiQi follows a "message bus + agent loop + tool system + channel adapters" architecture:
 
 1. Channels receive external messages and publish to `MessageBus.inbound`
 2. `AgentLoop` consumes messages, builds context, and calls the LLM

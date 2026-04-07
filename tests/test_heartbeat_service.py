@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from featherflow.heartbeat.service import (
+from miqi.heartbeat.service import (
     HEARTBEAT_OK_TOKEN,
     HeartbeatService,
 )

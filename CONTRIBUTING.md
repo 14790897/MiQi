@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to FeatherFlow.
+Thanks for contributing to MiQi.
 
 ## Before You Start
 

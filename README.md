@@ -1,4 +1,4 @@
-# FeatherFlow
+# MiQi
 
 <p align="center">
   <em>🐈‍⬛🪶 A lightweight, extensible personal AI agent framework for production automation and conversational workflows.</em>
@@ -17,9 +17,9 @@
 
 ## Overview
 
-FeatherFlow is a compact AI agent runtime designed for developers who want a self-hosted, programmable assistant. It connects to any OpenAI-compatible LLM provider and exposes a rich toolset — file operations, shell execution, web search, scheduled tasks, sub-agents, and external MCP servers — all configurable via a single JSON file.
+MiQi is a compact AI agent runtime designed for developers who want a self-hosted, programmable assistant. It connects to any OpenAI-compatible LLM provider and exposes a rich toolset — file operations, shell execution, web search, scheduled tasks, sub-agents, and external MCP servers — all configurable via a single JSON file.
 
-FeatherFlow is a domain-focused evolution of the upstream [`nanobot`](https://github.com/HKUDS/nanobot) project. Full credit to the upstream team for the excellent engineering baseline in runtime design and tool abstraction.
+MiQi is a domain-focused evolution of the upstream [`nanobot`](https://github.com/HKUDS/nanobot) project. Full credit to the upstream team for the excellent engineering baseline in runtime design and tool abstraction.
 
 > **Reference baseline:** `nanobot` @ [`30361c9`](https://github.com/HKUDS/nanobot/commit/30361c9307f9014f49530d80abd5717bc97f554a) (2026-02-23)
 
@@ -45,38 +45,38 @@ FeatherFlow is a domain-focused evolution of the upstream [`nanobot`](https://gi
 
 ```bash
 # Clone the repository
-git clone https://github.com/lichman0405/featherflow.git
-cd featherflow
+git clone https://github.com/lichman0405/miqi.git
+cd miqi
 
 # Create and activate a virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install FeatherFlow
+# Install MiQi
 pip install --upgrade pip
 pip install -e .
 
 # Verify
-featherflow --version
+miqi --version
 ```
 
 ### First Run
 
 ```bash
 # Interactive setup wizard — configures your provider, model, and identity
-featherflow onboard
+miqi onboard
 
 # Send a one-shot message
-featherflow agent -m "hello"
+miqi agent -m "hello"
 
 # Start an interactive chat session
-featherflow agent
+miqi agent
 
 # Launch the long-running gateway (channels + scheduled jobs)
-featherflow gateway
+miqi gateway
 ```
 
-`featherflow onboard` now also supports:
+`miqi onboard` now also supports:
 
 - Paper research tool configuration (`tools.papers` provider, API key, limits)
 
@@ -94,20 +94,20 @@ pip install -e '.[dev]'
 
 ```bash
 # Start the gateway
-docker compose up --build featherflow-gateway
+docker compose up --build miqi-gateway
 
 # Run a one-off CLI command in the container
-docker compose --profile cli run --rm featherflow-cli status
+docker compose --profile cli run --rm miqi-cli status
 ```
 
 **Runtime data directory mapping:**
 
 | Location | Path |
 |---|---|
-| Host | `~/.featherflow` |
-| Container | `/home/featherflow/.featherflow` |
+| Host | `~/.miqi` |
+| Container | `/home/miqi/.miqi` |
 
-> **Security:** The container runs as unprivileged user `featherflow` (UID 1000) — not root. The gateway port (`18790`) is bound to `127.0.0.1` by default and is **not** exposed to the network. Use a reverse proxy (e.g. Nginx) to expose it externally.
+> **Security:** The container runs as unprivileged user `miqi` (UID 1000) — not root. The gateway port (`18790`) is bound to `127.0.0.1` by default and is **not** exposed to the network. Use a reverse proxy (e.g. Nginx) to expose it externally.
 
 ### Bare-Metal (Non-Docker) Deployment
 
@@ -116,11 +116,11 @@ For running the gateway directly on a Linux/macOS host as a long-running service
 **1. Prepare configuration** (if not done already):
 
 ```bash
-# Interactive setup — creates ~/.featherflow/config.json
-featherflow onboard
+# Interactive setup — creates ~/.miqi/config.json
+miqi onboard
 
 # Verify the config
-featherflow status
+miqi status
 ```
 
 **2. (Optional) Set up MCP servers:**
@@ -132,21 +132,21 @@ bash scripts/configure_mcps.sh  # register MCPs into config
 
 **3. Run with systemd** (Linux, recommended):
 
-Create `/etc/systemd/system/featherflow.service`:
+Create `/etc/systemd/system/miqi.service`:
 
 ```ini
 [Unit]
-Description=FeatherFlow AI Agent Gateway
+Description=MiQi AI Agent Gateway
 After=network.target
 
 [Service]
 Type=simple
-User=featherflow
-WorkingDirectory=/home/featherflow
-ExecStart=/home/featherflow/.local/bin/featherflow gateway
+User=miqi
+WorkingDirectory=/home/miqi
+ExecStart=/home/miqi/.local/bin/miqi gateway
 Restart=on-failure
 RestartSec=10
-Environment=HOME=/home/featherflow
+Environment=HOME=/home/miqi
 
 [Install]
 WantedBy=multi-user.target
@@ -154,8 +154,8 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now featherflow
-sudo journalctl -u featherflow -f   # tail logs
+sudo systemctl enable --now miqi
+sudo journalctl -u miqi -f   # tail logs
 ```
 
 On macOS, use `launchd` or a process manager like `supervisord` instead.
@@ -167,7 +167,7 @@ The gateway listens on `127.0.0.1:18790`. To expose it, place it behind Nginx:
 ```nginx
 server {
     listen 443 ssl;
-    server_name featherflow.example.com;
+    server_name miqi.example.com;
 
     location / {
         proxy_pass http://127.0.0.1:18790;
@@ -180,12 +180,12 @@ server {
 ### Upgrading
 
 ```bash
-cd featherflow
+cd miqi
 git pull --recurse-submodules
 pip install -e .                    # reinstall core
 bash scripts/setup_mcps.sh          # update MCP venvs
 bash scripts/configure_mcps.sh      # re-register MCPs (idempotent)
-# then restart the gateway (systemctl restart featherflow / docker compose up --build)
+# then restart the gateway (systemctl restart miqi / docker compose up --build)
 ```
 
 > **Note:** The Docker image does **not** include MCP submodules — MCP servers run as separate stdio subprocesses on the host. When using Docker, mount or install MCP venvs on the host and configure `tools.mcpServers` commands to point at host-side interpreters, or run MCP servers as separate containers and use HTTP transport (`url` instead of `command`).
@@ -194,14 +194,14 @@ bash scripts/configure_mcps.sh      # re-register MCPs (idempotent)
 
 ## Configuration
 
-FeatherFlow reads from `~/.featherflow/config.json`. The interactive wizard (`featherflow onboard`) can generate this file for you.
+MiQi reads from `~/.miqi/config.json`. The interactive wizard (`miqi onboard`) can generate this file for you.
 
 **Default paths:**
 
 | Item | Path |
 |---|---|
-| Config file | `~/.featherflow/config.json` |
-| Workspace | `~/.featherflow/workspace` |
+| Config file | `~/.miqi/config.json` |
+| Workspace | `~/.miqi/workspace` |
 
 ### Configuration Skeleton
 
@@ -215,7 +215,7 @@ FeatherFlow reads from `~/.featherflow/config.json`. The interactive wizard (`fe
   "agents": {
     "defaults": {
       "model": "anthropic/claude-opus-4-5",
-      "name": "featherflow",
+      "name": "miqi",
       "temperature": 0.7
     }
   },
@@ -254,14 +254,14 @@ FeatherFlow reads from `~/.featherflow/config.json`. The interactive wizard (`fe
 
 ### Environment Variable Overrides
 
-Every config field can be overridden at runtime via environment variables using the prefix `FEATHERFLOW_` and `__` as the nesting delimiter:
+Every config field can be overridden at runtime via environment variables using the prefix `MIQI_` and `__` as the nesting delimiter:
 
 ```bash
 # Override the default model
-FEATHERFLOW_AGENTS__DEFAULTS__MODEL=deepseek/deepseek-chat featherflow agent
+MIQI_AGENTS__DEFAULTS__MODEL=deepseek/deepseek-chat miqi agent
 
 # Inject an API key without editing config.json
-FEATHERFLOW_PROVIDERS__OPENROUTER__API_KEY=sk-or-v1-xxx featherflow gateway
+MIQI_PROVIDERS__OPENROUTER__API_KEY=sk-or-v1-xxx miqi gateway
 ```
 
 This is particularly useful in containerised deployments where secrets are injected as environment variables rather than mounted files.
@@ -274,70 +274,70 @@ This is particularly useful in containerised deployments where secrets are injec
 
 | Command | Description |
 |---|---|
-| `featherflow onboard` | Interactive setup wizard |
-| `featherflow agent` | Start an interactive chat session |
-| `featherflow agent -m "<prompt>"` | Send a single prompt and exit |
-| `featherflow gateway` | Run the long-running gateway (channels + cron) |
+| `miqi onboard` | Interactive setup wizard |
+| `miqi agent` | Start an interactive chat session |
+| `miqi agent -m "<prompt>"` | Send a single prompt and exit |
+| `miqi gateway` | Run the long-running gateway (channels + cron) |
 
 **Status & Diagnostics**
 
 | Command | Description |
 |---|---|
-| `featherflow status` | Show runtime and provider status |
-| `featherflow channels status` | Show channel connection status |
+| `miqi status` | Show runtime and provider status |
+| `miqi channels status` | Show channel connection status |
 
 **Memory Management**
 
 | Command | Description |
 |---|---|
-| `featherflow memory status` | Show memory snapshot and stats |
-| `featherflow memory flush` | Force-persist pending memory updates immediately |
-| `featherflow memory compact [--max-items N]` | Prune long-term snapshot to at most N items |
-| `featherflow memory list [--limit N] [--session S]` | Browse long-term snapshot entries |
-| `featherflow memory delete <id>` | Remove a snapshot entry by ID |
-| `featherflow memory lessons status` | Show self-improvement lesson stats |
-| `featherflow memory lessons list` | List lessons (filter by `--scope`, `--session`, `--limit`) |
-| `featherflow memory lessons enable <id>` | Re-enable a disabled lesson |
-| `featherflow memory lessons disable <id>` | Suppress a lesson from future prompts |
-| `featherflow memory lessons delete <id>` | Permanently remove a lesson |
-| `featherflow memory lessons compact [--max-lessons N]` | Prune lessons to at most N entries |
-| `featherflow memory lessons reset` | Wipe all lessons |
+| `miqi memory status` | Show memory snapshot and stats |
+| `miqi memory flush` | Force-persist pending memory updates immediately |
+| `miqi memory compact [--max-items N]` | Prune long-term snapshot to at most N items |
+| `miqi memory list [--limit N] [--session S]` | Browse long-term snapshot entries |
+| `miqi memory delete <id>` | Remove a snapshot entry by ID |
+| `miqi memory lessons status` | Show self-improvement lesson stats |
+| `miqi memory lessons list` | List lessons (filter by `--scope`, `--session`, `--limit`) |
+| `miqi memory lessons enable <id>` | Re-enable a disabled lesson |
+| `miqi memory lessons disable <id>` | Suppress a lesson from future prompts |
+| `miqi memory lessons delete <id>` | Permanently remove a lesson |
+| `miqi memory lessons compact [--max-lessons N]` | Prune lessons to at most N entries |
+| `miqi memory lessons reset` | Wipe all lessons |
 
 **Session Management**
 
 | Command | Description |
 |---|---|
-| `featherflow session compact --session <id>` | Compact a single conversation session |
-| `featherflow session compact --all` | Compact all stored sessions |
+| `miqi session compact --session <id>` | Compact a single conversation session |
+| `miqi session compact --all` | Compact all stored sessions |
 
 **Cron Scheduler**
 
 | Command | Description |
 |---|---|
-| `featherflow cron list` | List all scheduled jobs |
-| `featherflow cron add` | Add a new scheduled job |
-| `featherflow cron run <id>` | Trigger a job manually |
-| `featherflow cron enable <id>` | Enable a job |
-| `featherflow cron disable <id>` | Disable a job |
-| `featherflow cron remove <id>` | Remove a job permanently |
+| `miqi cron list` | List all scheduled jobs |
+| `miqi cron add` | Add a new scheduled job |
+| `miqi cron run <id>` | Trigger a job manually |
+| `miqi cron enable <id>` | Enable a job |
+| `miqi cron disable <id>` | Disable a job |
+| `miqi cron remove <id>` | Remove a job permanently |
 
 **Configuration**
 
 | Command | Description |
 |---|---|
-| `featherflow config show` | Print all non-default config values |
-| `featherflow config provider <name>` | Set or update a provider's API key / base URL |
-| `featherflow config feishu` | One-shot Feishu channel + feishu-mcp setup |
-| `featherflow config pdf2zh` | Configure pdf2zh MCP server (auto-fills LLM credentials) |
-| `featherflow config mcp list` | List all configured MCP servers |
-| `featherflow config mcp add <name>` | Add or update an MCP server (stdio or HTTP) |
-| `featherflow config mcp remove <name>` | Remove an MCP server |
+| `miqi config show` | Print all non-default config values |
+| `miqi config provider <name>` | Set or update a provider's API key / base URL |
+| `miqi config feishu` | One-shot Feishu channel + feishu-mcp setup |
+| `miqi config pdf2zh` | Configure pdf2zh MCP server (auto-fills LLM credentials) |
+| `miqi config mcp list` | List all configured MCP servers |
+| `miqi config mcp add <name>` | Add or update an MCP server (stdio or HTTP) |
+| `miqi config mcp remove <name>` | Remove an MCP server |
 
 **Providers**
 
 | Command | Description |
 |---|---|
-| `featherflow provider login openai-codex` | Authenticate with OpenAI Codex (OAuth) |
+| `miqi provider login openai-codex` | Authenticate with OpenAI Codex (OAuth) |
 
 ---
 
@@ -345,7 +345,7 @@ This is particularly useful in containerised deployments where secrets are injec
 
 ### Memory & Self-Improvement
 
-FeatherFlow uses a RAM-first memory architecture:
+MiQi uses a RAM-first memory architecture:
 
 - **Session window** — unconsolidated recent context for fast recall
 - **Long-term snapshots** — periodic persistence with audit trails
@@ -366,11 +366,11 @@ All jobs can be toggled, triggered manually, or removed via the CLI.
 
 Connect any MCP-compatible tool server and expose its tools directly to the agent. Define MCP servers under `tools.mcpServers` in your config. For example, connect [feishu-mcp](https://github.com/lichman0405/feishu-mcp) to bring Feishu collaboration capabilities (messages, calendar, tasks, documents) into the agent via a clean MCP interface.
 
-For long-running MCP tools (e.g. scientific computing), FeatherFlow automatically sends periodic heartbeat progress messages to the user so they know the task is still running. Configure `progressIntervalSeconds` per MCP server (default 15s) and increase `toolTimeout` for compute-heavy operations.
+For long-running MCP tools (e.g. scientific computing), MiQi automatically sends periodic heartbeat progress messages to the user so they know the task is still running. Configure `progressIntervalSeconds` per MCP server (default 15s) and increase `toolTimeout` for compute-heavy operations.
 
 ### Task Queue Awareness
 
-When multiple users send messages simultaneously (e.g. in a group chat), FeatherFlow queues tasks and notifies each user of their queue position. Users see when their task starts processing and how many tasks are ahead. This is enabled by default via `channels.sendQueueNotifications`.
+When multiple users send messages simultaneously (e.g. in a group chat), MiQi queues tasks and notifies each user of their queue position. Users see when their task starts processing and how many tasks are ahead. This is enabled by default via `channels.sendQueueNotifications`.
 
 ---
 
@@ -401,10 +401,10 @@ If upgrading from a previous version or migrating from `nanobot`:
 
 | Item | Old | New |
 |---|---|---|
-| Python package | `nanobot.*` | `featherflow.*` |
-| CLI command | `assistant` | `featherflow` |
-| Runtime directory | `~/.assistant` | `~/.featherflow` |
-| Workspace directory | `~/.assistant/workspace` | `~/.featherflow/workspace` |
+| Python package | `nanobot.*` | `miqi.*` |
+| CLI command | `assistant` | `miqi` |
+| Runtime directory | `~/.assistant` | `~/.miqi` |
+| Workspace directory | `~/.assistant/workspace` | `~/.miqi/workspace` |
 
 Backward-compatible fallbacks for old config and data paths are retained where possible.
 
@@ -412,7 +412,7 @@ Backward-compatible fallbacks for old config and data paths are retained where p
 
 ## MCP Ecosystem
 
-FeatherFlow ships with seven domain-specific MCP servers as git submodules under `mcps/`.
+MiQi ships with seven domain-specific MCP servers as git submodules under `mcps/`.
 They cover porous-material science, epitaxial surface analysis, PDF translation, and team collaboration.
 
 ### Bundled MCP Servers
@@ -432,7 +432,7 @@ They cover porous-material science, epitaxial surface analysis, PDF translation,
 **1. Clone with submodules** (one-time):
 
 ```bash
-git clone --recurse-submodules https://github.com/lichman0405/featherflow.git
+git clone --recurse-submodules https://github.com/lichman0405/miqi.git
 # or, if you already cloned without --recurse-submodules:
 git submodule update --init --recursive
 ```
@@ -446,15 +446,15 @@ bash scripts/setup_mcps.sh
 The script uses [`uv`](https://docs.astral.sh/uv/) and pins the correct Python version per MCP
 (notably `mofchecker` requires Python 3.10; `pdf2zh` requires ≤3.12).
 
-**3. Register MCPs with featherflow**:
+**3. Register MCPs with miqi**:
 
 ```bash
 bash scripts/configure_mcps.sh
 ```
 
-This calls `featherflow config mcp add` for every server with recommended timeouts and lazy-mode settings.
+This calls `miqi config mcp add` for every server with recommended timeouts and lazy-mode settings.
 
-**4. Add credentials** for the two servers that need them — open `~/.featherflow/config.json` and fill in:
+**4. Add credentials** for the two servers that need them — open `~/.miqi/config.json` and fill in:
 
 ```jsonc
 "tools": {
@@ -503,30 +503,30 @@ This calls `featherflow config mcp add` for every server with recommended timeou
 ### Scripts (`scripts/`)
 
 - [scripts/setup_mcps.sh](scripts/setup_mcps.sh) — Create isolated Python venvs for all bundled MCP servers
-- [scripts/configure_mcps.sh](scripts/configure_mcps.sh) — Register all bundled MCPs into `~/.featherflow/config.json`
+- [scripts/configure_mcps.sh](scripts/configure_mcps.sh) — Register all bundled MCPs into `~/.miqi/config.json`
 
-### Skills Docs (`featherflow/skills/`)
+### Skills Docs (`miqi/skills/`)
 
-- [featherflow/skills/README.md](featherflow/skills/README.md)
-- [featherflow/skills/cron/SKILL.md](featherflow/skills/cron/SKILL.md)
-- [featherflow/skills/feishu-report/SKILL.md](featherflow/skills/feishu-report/SKILL.md)
-- [featherflow/skills/github/SKILL.md](featherflow/skills/github/SKILL.md)
-- [featherflow/skills/memory/SKILL.md](featherflow/skills/memory/SKILL.md)
-- [featherflow/skills/paper-research/SKILL.md](featherflow/skills/paper-research/SKILL.md)
-- [featherflow/skills/skill-creator/SKILL.md](featherflow/skills/skill-creator/SKILL.md)
-- [featherflow/skills/summarize/SKILL.md](featherflow/skills/summarize/SKILL.md)
-- [featherflow/skills/tmux/SKILL.md](featherflow/skills/tmux/SKILL.md)
-- [featherflow/skills/weather/SKILL.md](featherflow/skills/weather/SKILL.md)
-- [featherflow/skills/workspace-cleanup/SKILL.md](featherflow/skills/workspace-cleanup/SKILL.md)
+- [miqi/skills/README.md](miqi/skills/README.md)
+- [miqi/skills/cron/SKILL.md](miqi/skills/cron/SKILL.md)
+- [miqi/skills/feishu-report/SKILL.md](miqi/skills/feishu-report/SKILL.md)
+- [miqi/skills/github/SKILL.md](miqi/skills/github/SKILL.md)
+- [miqi/skills/memory/SKILL.md](miqi/skills/memory/SKILL.md)
+- [miqi/skills/paper-research/SKILL.md](miqi/skills/paper-research/SKILL.md)
+- [miqi/skills/skill-creator/SKILL.md](miqi/skills/skill-creator/SKILL.md)
+- [miqi/skills/summarize/SKILL.md](miqi/skills/summarize/SKILL.md)
+- [miqi/skills/tmux/SKILL.md](miqi/skills/tmux/SKILL.md)
+- [miqi/skills/weather/SKILL.md](miqi/skills/weather/SKILL.md)
+- [miqi/skills/workspace-cleanup/SKILL.md](miqi/skills/workspace-cleanup/SKILL.md)
 
-### Template Docs (`featherflow/templates/`)
+### Template Docs (`miqi/templates/`)
 
-- [featherflow/templates/AGENTS.md](featherflow/templates/AGENTS.md)
-- [featherflow/templates/HEARTBEAT.md](featherflow/templates/HEARTBEAT.md)
-- [featherflow/templates/SOUL.md](featherflow/templates/SOUL.md)
-- [featherflow/templates/TOOLS.md](featherflow/templates/TOOLS.md)
-- [featherflow/templates/USER.md](featherflow/templates/USER.md)
-- [featherflow/templates/memory/MEMORY.md](featherflow/templates/memory/MEMORY.md)
+- [miqi/templates/AGENTS.md](miqi/templates/AGENTS.md)
+- [miqi/templates/HEARTBEAT.md](miqi/templates/HEARTBEAT.md)
+- [miqi/templates/SOUL.md](miqi/templates/SOUL.md)
+- [miqi/templates/TOOLS.md](miqi/templates/TOOLS.md)
+- [miqi/templates/USER.md](miqi/templates/USER.md)
+- [miqi/templates/memory/MEMORY.md](miqi/templates/memory/MEMORY.md)
 
 ---
 

@@ -1,12 +1,12 @@
 from typer.testing import CliRunner
 
-from featherflow.cli.commands import app
+from miqi.cli.commands import app
 
 runner = CliRunner()
 
 
 def test_cron_add_rejects_invalid_timezone(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("featherflow.config.loader.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("miqi.config.loader.get_data_dir", lambda: tmp_path)
 
     result = runner.invoke(
         app,

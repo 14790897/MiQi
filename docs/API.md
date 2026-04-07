@@ -1,21 +1,21 @@
-# FeatherFlow API Documentation
+# MiQi API Documentation
 
 ## CLI Overview
 
-Entry command: `featherflow`
+Entry command: `miqi`
 
 Common commands:
-- `featherflow onboard`: Initialize config and workspace
-- `featherflow agent`: Interact with the agent (one-shot or interactive)
-- `featherflow gateway`: Start gateway and channel services
-- `featherflow status`: Show runtime status
+- `miqi onboard`: Initialize config and workspace
+- `miqi agent`: Interact with the agent (one-shot or interactive)
+- `miqi gateway`: Start gateway and channel services
+- `miqi status`: Show runtime status
 
 Subcommand groups:
-- `featherflow channels status`
-- `featherflow memory ...`
-- `featherflow session compact ...`
-- `featherflow cron ...`
-- `featherflow provider login ...`
+- `miqi channels status`
+- `miqi memory ...`
+- `miqi session compact ...`
+- `miqi cron ...`
+- `miqi provider login ...`
 
 ## Tool Invocation Interface (Internal)
 
@@ -54,7 +54,7 @@ Config path: `tools.papers`
 
 ## Cron Data Model
 
-Core types are defined in `featherflow/cron/types.py`:
+Core types are defined in `miqi/cron/types.py`:
 - `CronSchedule`: `at` / `every` / `cron`
 - `CronPayload`: Job message and delivery config
 - `CronJob`: Job entity with runtime state and timestamps
@@ -67,5 +67,5 @@ Default store path is under runtime data directory: `cron/jobs.json`.
 - Memory: `MemoryStore` provides snapshot memory, short-term memory, pending items, and self-improvement lessons.
 
 Primary memory management commands:
-- `featherflow memory status|flush|compact|list|delete`
-- `featherflow memory lessons status|list|enable|disable|delete|compact|reset`
+- `miqi memory status|flush|compact|list|delete`
+- `miqi memory lessons status|list|enable|disable|delete|compact|reset`

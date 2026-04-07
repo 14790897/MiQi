@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from featherflow.providers.openai_provider import OpenAIProvider
+from miqi.providers.openai_provider import OpenAIProvider
 
 
 def _build_response(content: str):

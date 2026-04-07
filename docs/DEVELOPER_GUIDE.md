@@ -1,4 +1,4 @@
-# FeatherFlow Developer Guide
+# MiQi Developer Guide
 
 ## Requirements
 
@@ -28,12 +28,12 @@ python -m pytest tests/test_paper_tools.py -q
 
 ## Project Structure (Core)
 
-- `featherflow/agent/`: Agent loop, context builder, memory system, and tool wiring
-- `featherflow/cli/`: CLI entrypoint and command modules
-- `featherflow/channels/`: Channel adapters
-- `featherflow/providers/`: LLM provider integrations
-- `featherflow/cron/`: Scheduled task service
-- `featherflow/session/`: Session management
+- `miqi/agent/`: Agent loop, context builder, memory system, and tool wiring
+- `miqi/cli/`: CLI entrypoint and command modules
+- `miqi/channels/`: Channel adapters
+- `miqi/providers/`: LLM provider integrations
+- `miqi/cron/`: Scheduled task service
+- `miqi/session/`: Session management
 - `tests/`: Test cases
 
 ## CLI Split Conventions
@@ -60,6 +60,6 @@ python -m pytest tests/test_paper_tools.py -q
 - Keep each commit focused on one theme (for example, "CLI split" or "papers parser dedup")
 - Commit messages should include motivation, scope, and verification commands
 - When adding/updating tools, keep docs in sync:
-  - `featherflow/templates/TOOLS.md`
+  - `miqi/templates/TOOLS.md`
   - `docs/API.md`
   - `CHANGELOG.md`

@@ -2,12 +2,12 @@ import json
 from datetime import datetime, timedelta
 from typing import Any
 
-from featherflow.agent.memory import MemoryStore
-from featherflow.agent.tools.base import Tool
-from featherflow.agent.tools.registry import ToolRegistry
-from featherflow.agent.tools.web import WebFetchTool
-from featherflow.bus.events import InboundMessage
-from featherflow.session.manager import SessionManager
+from miqi.agent.memory import MemoryStore
+from miqi.agent.tools.base import Tool
+from miqi.agent.tools.registry import ToolRegistry
+from miqi.agent.tools.web import WebFetchTool
+from miqi.bus.events import InboundMessage
+from miqi.session.manager import SessionManager
 
 
 class SampleTool(Tool):
@@ -245,7 +245,7 @@ async def test_web_fetch_ollama_respects_per_call_max_chars(monkeypatch) -> None
         async def post(self, *args: Any, **kwargs: Any) -> DummyResponse:
             return DummyResponse()
 
-    monkeypatch.setattr("featherflow.agent.tools.web.httpx.AsyncClient", lambda: DummyClient())
+    monkeypatch.setattr("miqi.agent.tools.web.httpx.AsyncClient", lambda: DummyClient())
 
     result = await tool.execute(url="https://example.com", maxChars=120)
     payload = json.loads(result)

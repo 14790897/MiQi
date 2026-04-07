@@ -3,11 +3,11 @@ x-common-config: &common-config
     context: .
     dockerfile: Dockerfile
   volumes:
-    - ~/.featherflow:/home/featherflow/.featherflow
+    - ~/.miqi:/home/miqi/.miqi
 
 services:
-  featherflow-gateway:
-    container_name: featherflow-gateway
+  miqi-gateway:
+    container_name: miqi-gateway
     <<: *common-config
     command: ["gateway"]
     restart: unless-stopped
@@ -22,7 +22,7 @@ services:
           cpus: '0.25'
           memory: 256M
   
-  featherflow-cli:
+  miqi-cli:
     <<: *common-config
     profiles:
       - cli

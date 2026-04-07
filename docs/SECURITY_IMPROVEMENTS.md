@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-A comprehensive security audit of the FeatherFlow deployment surface identified **10 critical/high-severity issues** across four areas: network exposure, code-level injection risks, data isolation, and MCP integration security. Issues are categorised by OWASP Top 10 mapping where applicable and ordered by exploitability in a typical deployed environment.
+A comprehensive security audit of the MiQi deployment surface identified **10 critical/high-severity issues** across four areas: network exposure, code-level injection risks, data isolation, and MCP integration security. Issues are categorised by OWASP Top 10 mapping where applicable and ordered by exploitability in a typical deployed environment.
 
 No issues require emergency hot-patches at the time of writing; all remediations are planned in coordinated phases below.
 
@@ -37,7 +37,7 @@ No issues require emergency hot-patches at the time of writing; all remediations
 ### SEC-01: SSRF in Web Tools
 
 **OWASP**: A10 — Server-Side Request Forgery  
-**File**: `featherflow/agent/tools/web.py` — `_validate_url()`
+**File**: `miqi/agent/tools/web.py` — `_validate_url()`
 
 **Description**  
 The current URL validator only checks that the scheme is `http` or `https` and that a domain is present. It does not block requests to private, loopback, or link-local addresses. An attacker can craft a prompt that causes the agent to fetch:
@@ -71,7 +71,7 @@ Add a private/reserved IP blocklist. Resolve the hostname to an IP address and r
 ### SEC-02: TLS Verification Bypass
 
 **OWASP**: A02 — Cryptographic Failures  
-**File**: `featherflow/providers/openai_codex_provider.py` — lines 63–68
+**File**: `miqi/providers/openai_codex_provider.py` — lines 63–68
 
 **Description**  
 On SSL errors, the Codex provider silently retries the request with `verify=False`, disabling certificate validation entirely. This opens a Man-in-the-Middle attack window: an attacker on the network path can intercept the TLS handshake, present a self-signed certificate, and receive the full request payload including the `chatgpt-account-id` OAuth header and conversation content.
@@ -95,7 +95,7 @@ Remove the `verify=False` retry path entirely. If verification fails, raise a de
 ### SEC-03: Gateway Unauthenticated Port
 
 **OWASP**: A01 — Broken Access Control  
-**File**: `featherflow/config/schema.py` (`GatewayConfig`), `docker-compose.yml`
+**File**: `miqi/config/schema.py` (`GatewayConfig`), `docker-compose.yml`
 
 **Description**  
 The HTTP gateway defaults to binding `0.0.0.0:18790` and does not require any authentication. Any host that can reach port 18790 can inject arbitrary messages into the agent's queue and receive responses — effectively impersonating any user.
@@ -125,9 +125,9 @@ The Dockerfile contains no `USER` directive. All container processes, including 
 **Remediation**  
 Add a non-root user in the Dockerfile:
 ```dockerfile
-RUN useradd -m -s /bin/bash -u 1000 featherflow \
-    && chown -R featherflow /app
-USER featherflow
+RUN useradd -m -s /bin/bash -u 1000 miqi \
+    && chown -R miqi /app
+USER miqi
 ```
 
 ---
@@ -135,7 +135,7 @@ USER featherflow
 ### SEC-05: Shell Injection via Incomplete Blocklist
 
 **OWASP**: A03 — Injection  
-**File**: `featherflow/agent/tools/shell.py` — `_guard_command()`
+**File**: `miqi/agent/tools/shell.py` — `_guard_command()`
 
 **Description**  
 The shell tool (`exec`) relies on a regex deny-list to block dangerous commands. This approach is fundamentally fragile: any pattern-based filter can be bypassed by obfuscation, quoting, or operators not present in the list. Current gaps include:
@@ -161,14 +161,14 @@ Additionally, environment variables set for MCP subprocesses (`FEISHU_APP_SECRET
 ### SEC-06: Symlink Path Traversal
 
 **OWASP**: A01 — Broken Access Control  
-**File**: `featherflow/agent/tools/filesystem.py` — `_resolve_path()`
+**File**: `miqi/agent/tools/filesystem.py` — `_resolve_path()`
 
 **Description**  
 `Path.resolve()` expands symlinks before the `relative_to(allowed_dir)` check. A symlink placed *inside* the workspace that points *outside* it passes the check because the symlink path itself is within the allowed directory.
 
 ```
-Workspace: /home/user/.featherflow/workspace/
-Symlink:    /home/user/.featherflow/workspace/secrets -> /etc
+Workspace: /home/user/.miqi/workspace/
+Symlink:    /home/user/.miqi/workspace/secrets -> /etc
 Result:     read_file("secrets/passwd") resolves to /etc/passwd ✓ (bypasses guard)
 ```
 
@@ -187,7 +187,7 @@ def _has_symlink_component(p: Path) -> bool:
 ### SEC-07: Sensitive File Permissions
 
 **OWASP**: A02 — Cryptographic / Data Exposure  
-**Files**: `featherflow/agent/memory/snapshot.py`, `lessons.py`, `featherflow/session/manager.py`
+**Files**: `miqi/agent/memory/snapshot.py`, `lessons.py`, `miqi/session/manager.py`
 
 **Description**  
 Memory snapshots (`LTM_SNAPSHOT.json`), lesson files (`LESSONS.jsonl`), and session JSONL files are written without explicit mode. On most Linux systems the default umask produces `0644`, meaning any local user can read all stored conversation history, learned lessons, and memory items.
@@ -200,7 +200,7 @@ After every file write, apply `os.chmod(path, 0o600)`. Create containing directo
 ### SEC-08: Open-by-Default Channels Without Warning
 
 **OWASP**: A05 — Security Misconfiguration  
-**File**: `featherflow/channels/base.py`
+**File**: `miqi/channels/base.py`
 
 **Description**  
 When `allow_from` is an empty list the channel allows *all* users. This is intentional for personal use, but there is no runtime warning when a channel is started in this state. Users who intend to restrict access may not realise the channel is open.
@@ -217,7 +217,7 @@ WARNING: Channel 'telegram' allow_from list is empty — ALL users are permitted
 ### SEC-09: MCP Env Variable Leakage
 
 **OWASP**: A02 — Sensitive Data Exposure  
-**File**: `featherflow/agent/tools/mcp.py` — `_connect_one_server()`, `featherflow/agent/tools/shell.py`
+**File**: `miqi/agent/tools/mcp.py` — `_connect_one_server()`, `miqi/agent/tools/shell.py`
 
 **Description**  
 MCP stdio servers are launched with credentials in their `env` block (e.g. `FEISHU_APP_SECRET`, `OPENAI_API_KEY`). These environment variables are visible in the process's full environment, which is inherited by any shell subprocess the agent spawns via the `exec` tool.
@@ -232,10 +232,10 @@ When building the subprocess environment for the `exec` tool, create a sanitised
 ### SEC-10: MCP No Tool-Level Access Control
 
 **OWASP**: A01 — Broken Access Control  
-**File**: `featherflow/config/schema.py` (`MCPServerConfig`), `featherflow/agent/tools/mcp.py`
+**File**: `miqi/config/schema.py` (`MCPServerConfig`), `miqi/agent/tools/mcp.py`
 
 **Description**  
-All tools exposed by an MCP server are registered without filtering. For high-privilege MCP servers (e.g. `feishu-mcp` exposes `send_message`, `set_doc_permission`, `upload_file_and_share`) there is no way to selectively disable sensitive tools at the FeatherFlow configuration level. A prompt-injection attack or a mis-triggered LLM call could invoke these tools unintentionally.
+All tools exposed by an MCP server are registered without filtering. For high-privilege MCP servers (e.g. `feishu-mcp` exposes `send_message`, `set_doc_permission`, `upload_file_and_share`) there is no way to selectively disable sensitive tools at the MiQi configuration level. A prompt-injection attack or a mis-triggered LLM call could invoke these tools unintentionally.
 
 **Remediation**  
 Add `allowed_tools` and `denied_tools` fields to `MCPServerConfig`:
@@ -257,10 +257,10 @@ Target: eliminate remotely exploitable issues in a deployed instance.
 
 | ID | File(s) | Change | Commit |
 |----|---------|--------|--------|
-| SEC-01 | `featherflow/agent/tools/web.py` | Added `_PRIVATE_NETWORKS`, `_BLOCKED_HOSTNAMES`, `_is_private_host()`. `_validate_url()` now resolves hostnames and rejects private/reserved IPs. | ✅ |
-| SEC-02 | `featherflow/providers/openai_codex_provider.py` | Removed `verify=False` retry path entirely. SSL failures now propagate as errors. | ✅ |
+| SEC-01 | `miqi/agent/tools/web.py` | Added `_PRIVATE_NETWORKS`, `_BLOCKED_HOSTNAMES`, `_is_private_host()`. `_validate_url()` now resolves hostnames and rejects private/reserved IPs. | ✅ |
+| SEC-02 | `miqi/providers/openai_codex_provider.py` | Removed `verify=False` retry path entirely. SSL failures now propagate as errors. | ✅ |
 | SEC-03 | `docker-compose.yml` | Port changed from `18790:18790` to `127.0.0.1:18790:18790` — loopback-only. | ✅ |
-| SEC-04 | `Dockerfile`, `docker-compose.yml` | Added `featherflow` user (UID 1000); `USER featherflow` set before `ENTRYPOINT`; volume mount updated to `/home/featherflow/.featherflow`. | ✅ |
+| SEC-04 | `Dockerfile`, `docker-compose.yml` | Added `miqi` user (UID 1000); `USER miqi` set before `ENTRYPOINT`; volume mount updated to `/home/miqi/.miqi`. | ✅ |
 
 ### Phase 2 — Code-Level Vulnerabilities (P1) ✅ Implemented 2026-03-10
 
@@ -268,10 +268,10 @@ Target: close injection and access-control gaps reachable via normal agent use.
 
 | ID | File(s) | Change | Commit |
 |----|---------|--------|--------|
-| SEC-05 | `featherflow/agent/tools/shell.py` | Extended `deny_patterns` with 7 new entries (`sudo`, `eval`, `source`, backtick substitution, `$()` substitution, pipe-to-shell, curl/wget→python). Added `_build_safe_env()` method; subprocesses now inherit a sanitised environment. | ✅ |
-| SEC-06 | `featherflow/agent/tools/filesystem.py` | Added `_has_symlink_in_path()` helper. `_resolve_path()` now rejects paths containing symlink components before the `relative_to` check when `allowed_dir` is set. | ✅ |
-| SEC-07 | `featherflow/agent/memory/snapshot.py`, `lessons.py`, `featherflow/session/manager.py` | `Path.chmod(0o600)` applied after every file write to memory snapshots, lesson files, audit logs, and session JSONL files. | ✅ |
-| SEC-08 | `featherflow/channels/base.py` | `BaseChannel.__init__` now emits a `WARNING`-level log when `allow_from` is empty. | ✅ |
+| SEC-05 | `miqi/agent/tools/shell.py` | Extended `deny_patterns` with 7 new entries (`sudo`, `eval`, `source`, backtick substitution, `$()` substitution, pipe-to-shell, curl/wget→python). Added `_build_safe_env()` method; subprocesses now inherit a sanitised environment. | ✅ |
+| SEC-06 | `miqi/agent/tools/filesystem.py` | Added `_has_symlink_in_path()` helper. `_resolve_path()` now rejects paths containing symlink components before the `relative_to` check when `allowed_dir` is set. | ✅ |
+| SEC-07 | `miqi/agent/memory/snapshot.py`, `lessons.py`, `miqi/session/manager.py` | `Path.chmod(0o600)` applied after every file write to memory snapshots, lesson files, audit logs, and session JSONL files. | ✅ |
+| SEC-08 | `miqi/channels/base.py` | `BaseChannel.__init__` now emits a `WARNING`-level log when `allow_from` is empty. | ✅ |
 
 ### Phase 3 — MCP Security (P2) ✅ Implemented 2026-03-10
 
@@ -279,8 +279,8 @@ Target: reduce blast radius of MCP integrations.
 
 | ID | File(s) | Change | Commit |
 |----|---------|--------|--------|
-| SEC-09 | `featherflow/agent/tools/shell.py` | Covered by SEC-05 env sanitisation: `_build_safe_env()` strips all MCP-injected credentials before subprocess creation. | ✅ |
-| SEC-10 | `featherflow/config/schema.py`, `featherflow/agent/tools/mcp.py` | Added `allowed_tools` and `denied_tools` fields to `MCPServerConfig`. `_connect_one_server()` filters tool wrappers during registration and logs the result. | ✅ |
+| SEC-09 | `miqi/agent/tools/shell.py` | Covered by SEC-05 env sanitisation: `_build_safe_env()` strips all MCP-injected credentials before subprocess creation. | ✅ |
+| SEC-10 | `miqi/config/schema.py`, `miqi/agent/tools/mcp.py` | Added `allowed_tools` and `denied_tools` fields to `MCPServerConfig`. `_connect_one_server()` filters tool wrappers during registration and logs the result. | ✅ |
 
 ### Phase 4 — Operational Hardening (P3, optional)
 
@@ -299,7 +299,7 @@ curl -s 'http://localhost:8080/fetch?url=http://127.0.0.1:18790'
 # Expected: Error: URL targets a private/reserved IP address
 
 # SEC-02: TLS — no verify=False fallback in logs after cert error
-grep -i "retrying with verify=False" ~/.featherflow/logs/*.log
+grep -i "retrying with verify=False" ~/.miqi/logs/*.log
 # Expected: no output
 
 # SEC-03: Gateway only on loopback
@@ -307,8 +307,8 @@ ss -tlnp | grep 18790
 # Expected: 127.0.0.1:18790
 
 # SEC-04: Container user
-docker exec featherflow whoami
-# Expected: featherflow
+docker exec miqi whoami
+# Expected: miqi
 ```
 
 **Phase 2**
@@ -318,16 +318,16 @@ docker exec featherflow whoami
 # Expected: Error: Command blocked by safety guard
 
 # SEC-06: Symlink traversal
-cd ~/.featherflow/workspace && ln -s /etc secrets_link
+cd ~/.miqi/workspace && ln -s /etc secrets_link
 # (via agent prompt) read_file("secrets_link/passwd")
 # Expected: PermissionError
 
 # SEC-07: File permissions
-stat -c '%a' ~/.featherflow/memory/LTM_SNAPSHOT.json
+stat -c '%a' ~/.miqi/memory/LTM_SNAPSHOT.json
 # Expected: 600
 
 # SEC-08: Channel warning
-grep "allow_from list is empty" ~/.featherflow/logs/*.log
+grep "allow_from list is empty" ~/.miqi/logs/*.log
 # Expected: line present for each enabled channel with empty allow_from
 ```
 

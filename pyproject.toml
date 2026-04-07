@@ -1,11 +1,11 @@
 [project]
-name = "featherflow-ai"
+name = "miqi"
 version = "0.1.4.post1"
 description = "A lightweight personal AI assistant framework"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
-    {name = "featherflow contributors"}
+    {name = "miqi contributors"}
 ]
 keywords = ["ai", "agent", "chatbot"]
 classifiers = [
@@ -45,30 +45,30 @@ dev = [
 ]
 
 [project.scripts]
-featherflow = "featherflow.cli.commands:app"
+miqi = "miqi.cli.commands:app"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["featherflow"]
+packages = ["miqi"]
 
 [tool.hatch.build.targets.wheel.sources]
-"featherflow" = "featherflow"
+"miqi" = "miqi"
 
 # Include non-Python files in skills and templates
 [tool.hatch.build]
 include = [
-    "featherflow/**/*.py",
-    "featherflow/templates/**/*.md",
-    "featherflow/skills/**/*.md",
-    "featherflow/skills/**/*.sh",
+    "miqi/**/*.py",
+    "miqi/templates/**/*.md",
+    "miqi/skills/**/*.md",
+    "miqi/skills/**/*.sh",
 ]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "featherflow/",
+    "miqi/",
     "README.md",
     "LICENSE",
 ]

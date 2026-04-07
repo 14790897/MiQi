@@ -1,4 +1,4 @@
-from featherflow.providers.openai_provider import OpenAIProvider
+from miqi.providers.openai_provider import OpenAIProvider
 
 
 def test_ollama_cloud_api_base_normalized_from_api_suffix() -> None:

@@ -2,19 +2,19 @@
 set -euo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
-IMAGE_NAME="featherflow-test"
+IMAGE_NAME="miqi-test"
 
 echo "=== Building Docker image ==="
 docker build -t "$IMAGE_NAME" .
 
 echo ""
-echo "=== Running 'featherflow onboard' ==="
-docker run --name featherflow-test-run "$IMAGE_NAME" onboard
+echo "=== Running 'miqi onboard' ==="
+docker run --name miqi-test-run "$IMAGE_NAME" onboard
 
 echo ""
-echo "=== Running 'featherflow status' ==="
-STATUS_OUTPUT=$(docker commit featherflow-test-run featherflow-test-onboarded > /dev/null && \
-    docker run --rm featherflow-test-onboarded status 2>&1) || true
+echo "=== Running 'miqi status' ==="
+STATUS_OUTPUT=$(docker commit miqi-test-run miqi-test-onboarded > /dev/null && \
+    docker run --rm miqi-test-onboarded status 2>&1) || true
 
 echo "$STATUS_OUTPUT"
 
@@ -31,7 +31,7 @@ check() {
     fi
 }
 
-check "featherflow Status"
+check "miqi Status"
 check "Config:"
 check "Workspace:"
 check "Model:"
@@ -50,7 +50,7 @@ fi
 # Cleanup
 echo ""
 echo "=== Cleanup ==="
-docker rm -f featherflow-test-run 2>/dev/null || true
-docker rmi -f featherflow-test-onboarded 2>/dev/null || true
+docker rm -f miqi-test-run 2>/dev/null || true
+docker rmi -f miqi-test-onboarded 2>/dev/null || true
 docker rmi -f "$IMAGE_NAME" 2>/dev/null || true
 echo "Done."

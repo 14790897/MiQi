@@ -2,7 +2,7 @@
 
 ## Why this design
 
-featherflow is intentionally lightweight. This design keeps memory fast and simple by making the hot path in-memory and moving disk writes to checkpoint events.
+miqi is intentionally lightweight. This design keeps memory fast and simple by making the hot path in-memory and moving disk writes to checkpoint events.
 
 ## Goals
 
@@ -37,7 +37,7 @@ The runtime is split into three layers:
 - Optional lesson audit log at `memory/LESSONS_AUDIT.jsonl`
 
 3. Session log storage (append-only)
-- Conversation messages append to `~/.featherflow/sessions/*.jsonl`
+- Conversation messages append to `~/.miqi/sessions/*.jsonl`
 - Periodic compaction rewrites to keep only recent history
 
 ## Data model
@@ -109,7 +109,7 @@ Session compaction:
 
 ## Why no embeddings
 
-This design avoids embedding/vector systems to preserve featherflow's lightweight footprint and operational simplicity:
+This design avoids embedding/vector systems to preserve miqi's lightweight footprint and operational simplicity:
 
 - No extra service dependencies
 - No vector index build/maintenance cost
@@ -118,17 +118,17 @@ This design avoids embedding/vector systems to preserve featherflow's lightweigh
 ## Operational commands
 
 ```bash
-featherflow memory status
-featherflow memory list
-featherflow memory delete <memory-id> --yes
-featherflow memory flush
-featherflow memory compact --max-items 300
-featherflow memory lessons status
-featherflow memory lessons list
-featherflow memory lessons disable <lesson-id>
-featherflow memory lessons enable <lesson-id>
-featherflow memory lessons delete <lesson-id> --yes
-featherflow memory lessons compact --max-lessons 200
-featherflow memory lessons reset --yes
-featherflow session compact --all
+miqi memory status
+miqi memory list
+miqi memory delete <memory-id> --yes
+miqi memory flush
+miqi memory compact --max-items 300
+miqi memory lessons status
+miqi memory lessons list
+miqi memory lessons disable <lesson-id>
+miqi memory lessons enable <lesson-id>
+miqi memory lessons delete <lesson-id> --yes
+miqi memory lessons compact --max-lessons 200
+miqi memory lessons reset --yes
+miqi session compact --all
 ```

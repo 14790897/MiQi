@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# configure_mcps.sh — Register all bundled MCP servers into your featherflow config.
+# configure_mcps.sh — Register all bundled MCP servers into your miqi config.
 #
-# This script calls `featherflow config mcp add` for each bundled MCP so you
+# This script calls `miqi config mcp add` for each bundled MCP so you
 # do not have to edit config.json by hand.  Credentials (API keys etc.) are
 # purposely NOT written here — see the prompts at the end.
 #
 # Prerequisites:
-#   1. featherflow is installed (pip install -e . or uv pip install -e .)
+#   1. miqi is installed (pip install -e . or uv pip install -e .)
 #   2. scripts/setup_mcps.sh has already been run (venvs exist)
 #
 # Usage:
@@ -30,8 +30,8 @@ error() { echo -e "${RED}[configure_mcps] ERROR:${NC} $*" >&2; exit 1; }
 # Pre-flight
 # ──────────────────────────────────────────────────────────────────────────────
 
-command -v featherflow &>/dev/null || error \
-    "featherflow is not in PATH. Install it first: pip install -e ."
+command -v miqi &>/dev/null || error \
+    "miqi is not in PATH. Install it first: pip install -e ."
 
 for dir in zeopp-backend raspa-mcp mofstructure-mcp mofchecker-mcp pdftranslate-mcp feishu-mcp miqrophi-mcp; do
     [[ -d "$MCPS_DIR/$dir/.venv" || -f "$MCPS_DIR/$dir/uv.lock" ]] || {
@@ -59,7 +59,7 @@ register() {
     local label="$1"
     shift
     info "Registering $label..."
-    featherflow config mcp add "$@"
+    miqi config mcp add "$@"
     info "  ✓ $label"
 }
 
@@ -124,21 +124,21 @@ read -rp "  Feishu App ID (cli_xxx, leave blank to skip): " FEISHU_APP_ID
 if [[ -n "$FEISHU_APP_ID" ]]; then
     read -rsp "  Feishu App Secret: " FEISHU_APP_SECRET
     echo ""
-    featherflow config feishu \
+    miqi config feishu \
         --app-id "$FEISHU_APP_ID" \
         --app-secret "$FEISHU_APP_SECRET" \
         --mcp-python "$FEISHU_CMD"
 else
-    warn "Skipping Feishu — run 'featherflow config feishu' later."
+    warn "Skipping Feishu — run 'miqi config feishu' later."
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
-# pdf2zh — auto-fills LLM credentials already configured in featherflow
+# pdf2zh — auto-fills LLM credentials already configured in miqi
 # ──────────────────────────────────────────────────────────────────────────────
 
 echo ""
 info "Configuring pdf2zh MCP (auto-reads provider credentials)..."
-featherflow config pdf2zh --mcp-python "$PDF2ZH_CMD" --timeout 3600
+miqi config pdf2zh --mcp-python "$PDF2ZH_CMD" --timeout 3600
 
 echo ""
 info "All MCP servers configured."

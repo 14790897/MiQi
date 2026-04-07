@@ -1,4 +1,4 @@
-from featherflow.providers.openai_provider import OpenAIProvider
+from miqi.providers.openai_provider import OpenAIProvider
 
 
 def test_is_transient_network_error_detects_connection_reset() -> None:

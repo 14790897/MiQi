@@ -3,10 +3,10 @@ from email.message import EmailMessage
 
 import pytest
 
-from featherflow.bus.events import OutboundMessage
-from featherflow.bus.queue import MessageBus
-from featherflow.channels.email import EmailChannel
-from featherflow.config.schema import EmailConfig
+from miqi.bus.events import OutboundMessage
+from miqi.bus.queue import MessageBus
+from miqi.channels.email import EmailChannel
+from miqi.config.schema import EmailConfig
 
 
 def _make_config() -> EmailConfig:
@@ -66,7 +66,7 @@ def test_fetch_new_messages_parses_unseen_and_marks_seen(monkeypatch) -> None:
             return "BYE", [b""]
 
     fake = FakeIMAP()
-    monkeypatch.setattr("featherflow.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("miqi.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
 
     channel = EmailChannel(_make_config(), MessageBus())
     items = channel._fetch_new_messages()
@@ -143,7 +143,7 @@ async def test_send_uses_smtp_and_reply_subject(monkeypatch) -> None:
         fake_instances.append(instance)
         return instance
 
-    monkeypatch.setattr("featherflow.channels.email.smtplib.SMTP", _smtp_factory)
+    monkeypatch.setattr("miqi.channels.email.smtplib.SMTP", _smtp_factory)
 
     channel = EmailChannel(_make_config(), MessageBus())
     channel._last_subject_by_chat["alice@example.com"] = "Invoice #42"
@@ -196,7 +196,7 @@ async def test_send_skips_when_auto_reply_disabled(monkeypatch) -> None:
         fake_instances.append(instance)
         return instance
 
-    monkeypatch.setattr("featherflow.channels.email.smtplib.SMTP", _smtp_factory)
+    monkeypatch.setattr("miqi.channels.email.smtplib.SMTP", _smtp_factory)
 
     cfg = _make_config()
     cfg.auto_reply_enabled = False
@@ -249,7 +249,7 @@ async def test_send_skips_when_consent_not_granted(monkeypatch) -> None:
         called["smtp"] = True
         return FakeSMTP(host, port, timeout=timeout)
 
-    monkeypatch.setattr("featherflow.channels.email.smtplib.SMTP", _smtp_factory)
+    monkeypatch.setattr("miqi.channels.email.smtplib.SMTP", _smtp_factory)
 
     cfg = _make_config()
     cfg.consent_granted = False
@@ -294,7 +294,7 @@ def test_fetch_messages_between_dates_uses_imap_since_before_without_mark_seen(m
             return "BYE", [b""]
 
     fake = FakeIMAP()
-    monkeypatch.setattr("featherflow.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("miqi.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
 
     channel = EmailChannel(_make_config(), MessageBus())
     items = channel.fetch_messages_between_dates(

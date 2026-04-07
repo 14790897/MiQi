@@ -5,39 +5,39 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- Added `paper-research` skill (`featherflow/skills/paper-research/SKILL.md`):
+- Added `paper-research` skill (`miqi/skills/paper-research/SKILL.md`):
   - Full workflow: `paper_search` → `paper_download` → `translate_pdf` → summarize with references.
   - Covers scheduled briefing scenarios (cron + feishu delivery).
   - Includes `web_search` fallback for news and preprints not indexed in Semantic Scholar.
-- Added `feishu-report` skill (`featherflow/skills/feishu-report/SKILL.md`):
+- Added `feishu-report` skill (`miqi/skills/feishu-report/SKILL.md`):
   - Format decision table: plain text / card message / Feishu Doc / calendar event / task.
   - Covers `send_message`, `send_card_message`, `create_document` + `write_document_markdown`, `create_calendar_event`, `create_task`.
   - Includes user identity resolution via `resolve_users_by_name` and `get_chat_members`.
-- Added `workspace-cleanup` skill (`featherflow/skills/workspace-cleanup/SKILL.md`):
-  - Organizes `~/.featherflow/workspace` into structured `artifacts/` subdirectories.
+- Added `workspace-cleanup` skill (`miqi/skills/workspace-cleanup/SKILL.md`):
+  - Organizes `~/.miqi/workspace` into structured `artifacts/` subdirectories.
   - Archives files older than 30 days to `archive/YYYY-MM/`.
   - Defines sacred directories (memory/, skills/, sessions/, system .md files) that are never touched.
 
 ### Changed
-- Updated `cron` skill (`featherflow/skills/cron/SKILL.md`):
+- Updated `cron` skill (`miqi/skills/cron/SKILL.md`):
   - Corrected timezone fallback documentation: without `tz`, cron expressions are now evaluated in **UTC** (not server local time).
   - Updated `at` mode examples to always include timezone offset (e.g. `+08:00`) or explicit `tz=`.
   - Added China Standard Time (`Asia/Shanghai`) examples to time expression table.
-- Updated `cron` tool parameter descriptions (`featherflow/agent/tools/cron.py`):
+- Updated `cron` tool parameter descriptions (`miqi/agent/tools/cron.py`):
   - `message`: clarified it is the full task prompt executed at trigger time, not just a label.
   - `cron_expr`: added explicit warning that expressions default to UTC; must pass `tz=` for non-UTC users.
   - `at`: updated example to include timezone offset; documents `tz=` fallback for naive datetimes.
   - `tz`: extended to apply to both `cron_expr` and `at` modes.
 
 ### Fixed
-- Fixed cron `at` mode silently using server local timezone for naive datetime strings: naive datetimes now interpreted as UTC when no `tz` is provided; `tz=` can be passed together with `at=` to override (`featherflow/agent/tools/cron.py`).
-- Fixed `tz` parameter rejected when combined with `at`: removed erroneous validation that blocked `tz` + `at` combinations (`featherflow/agent/tools/cron.py`).
-- Fixed cron `cron` mode using unpredictable server local timezone as fallback: now falls back to UTC for deterministic behavior across deployment environments (`featherflow/cron/service.py`).
+- Fixed cron `at` mode silently using server local timezone for naive datetime strings: naive datetimes now interpreted as UTC when no `tz` is provided; `tz=` can be passed together with `at=` to override (`miqi/agent/tools/cron.py`).
+- Fixed `tz` parameter rejected when combined with `at`: removed erroneous validation that blocked `tz` + `at` combinations (`miqi/agent/tools/cron.py`).
+- Fixed cron `cron` mode using unpredictable server local timezone as fallback: now falls back to UTC for deterministic behavior across deployment environments (`miqi/cron/service.py`).
 - Fixed `ff agent` mode (CLI) silently ignoring all cron jobs: `on_job` callback was never registered and `cron.start()` was never called; both now wired correctly in `cli/agent_cmd.py`.
-- Fixed `ff agent` mode not propagating `job_timeout` from config to `CronService` (`featherflow/cli/agent_cmd.py`).
+- Fixed `ff agent` mode not propagating `job_timeout` from config to `CronService` (`miqi/cli/agent_cmd.py`).
 
 ### Removed
-- Removed `clawhub` skill (`featherflow/skills/clawhub/`) — not applicable to this deployment.
+- Removed `clawhub` skill (`miqi/skills/clawhub/`) — not applicable to this deployment.
 
 ---
 
@@ -66,10 +66,10 @@ All notable changes to this project will be documented in this file.
   - `tests/test_task_tracker.py`: TaskTracker unit tests, MCP heartbeat integration test, InboundMessage sender_name tests.
   - `tests/test_feishu_mention_filter.py`: Feishu group @mention filtering tests, config schema tests.
 - Added modular CLI command files:
-  - `featherflow/cli/onboard.py`
-  - `featherflow/cli/agent_cmd.py`
-  - `featherflow/cli/gateway_cmd.py`
-  - `featherflow/cli/management.py`
+  - `miqi/cli/onboard.py`
+  - `miqi/cli/agent_cmd.py`
+  - `miqi/cli/gateway_cmd.py`
+  - `miqi/cli/management.py`
 - Added core regression tests:
   - `tests/test_agent_loop_core.py`
   - `tests/test_cron_service_core.py`
@@ -78,27 +78,27 @@ All notable changes to this project will be documented in this file.
   - `docs/DEVELOPER_GUIDE.md`
   - `docs/ARCHITECTURE.md`
   - `CONTRIBUTING.md`
-- Added Feishu business tools in `featherflow/agent/tools/feishu.py`:
+- Added Feishu business tools in `miqi/agent/tools/feishu.py`:
   - `feishu_doc` for cloud doc creation and optional plain-text write.
   - `feishu_calendar` for calendar event creation and attendee assignment.
   - `feishu_task` for task creation with group-member assignment.
   - `feishu_drive` for Drive folder creation (`create_folder` / `ensure_folder_path`) and workspace file uploads.
   - `feishu_handoff` as a generic collaboration handoff layer that orchestrates delivery steps.
-- Added Feishu mention metadata extraction (`sender_open_id`, `mentions`) in `featherflow/channels/feishu.py`.
-- Added Feishu tool usage guidance in `featherflow/templates/TOOLS.md`.
-- Added `paper_download` tool in `featherflow/agent/tools/papers.py` to download PDFs into workspace.
+- Added Feishu mention metadata extraction (`sender_open_id`, `mentions`) in `miqi/channels/feishu.py`.
+- Added Feishu tool usage guidance in `miqi/templates/TOOLS.md`.
+- Added `paper_download` tool in `miqi/agent/tools/papers.py` to download PDFs into workspace.
 - Added documentation updates for Feishu collaboration + paper delivery workflow:
   - README feature/capability updates
   - API docs for `paper_download`, `feishu_drive`, and `feishu_handoff`
   - Feishu backend permission checklist in `docs/API.md`
 
 ### Changed
-- Refactored `featherflow/cli/commands.py` into an entry/compatibility layer that registers split command modules.
-- Refactored arXiv XML parsing in `featherflow/agent/tools/papers.py` by extracting shared `_parse_arxiv_entry` logic.
-- Replaced remaining built-in `print()` calls with `loguru.logger` warnings in `featherflow/config/loader.py`.
-- Split memory implementation into package modules with `MemoryStore` facade in `featherflow/agent/memory/store.py`.
+- Refactored `miqi/cli/commands.py` into an entry/compatibility layer that registers split command modules.
+- Refactored arXiv XML parsing in `miqi/agent/tools/papers.py` by extracting shared `_parse_arxiv_entry` logic.
+- Replaced remaining built-in `print()` calls with `loguru.logger` warnings in `miqi/config/loader.py`.
+- Split memory implementation into package modules with `MemoryStore` facade in `miqi/agent/memory/store.py`.
 - Normalized provider `api_base` handling in `LiteLLMProvider` to auto-fill missing default base paths (for example `/v1`, `/api/v1`) when users provide host-only URLs, while preserving explicit custom paths.
-- Updated `AgentLoop` tool wiring in `featherflow/agent/loop.py` to:
+- Updated `AgentLoop` tool wiring in `miqi/agent/loop.py` to:
   - auto-register Feishu business tools when Feishu credentials are configured.
   - propagate message context (`channel`, `chat_id`, `message_id`, `sender_id`, `metadata`) into Feishu tools for group assignment resolution.
   - include the generic Feishu handoff tool in runtime registration/context propagation.
@@ -151,9 +151,9 @@ All notable changes to this project will be documented in this file.
 - Fixed `ToolRegistry` 120 s outer timeout overriding per-MCP `toolTimeout`: `Tool` base class gains `execution_timeout` property (default `None`); `MCPToolWrapper` overrides it to `toolTimeout + 5 s`; `ToolRegistry.execute()` prefers per-tool timeout when set (`agent/tools/base.py`, `agent/tools/mcp.py`, `agent/tools/registry.py`).
 - Fixed unbounded parallel session consolidations: `AgentLoop` now holds `asyncio.Semaphore(5)` used by every consolidation task to cap concurrency and prevent memory spikes (`agent/loop.py`).
 - Fixed critically underestimated MCP tool timeouts in `configure_mcps.sh`: raspa2 60 s → 21 600 s (6 h), zeopp 300 s → 600 s, mofstructure/miqrophi 120 s → 600 s — RASPA GCMC/MD simulations routinely run 4-5+ hours (`scripts/configure_mcps.sh`).
-- Fixed pdf2zh MCP timeout severely underestimated at 800 s: default raised to 3 600 s (1 h) in both `featherflow config pdf2zh` and `configure_mcps.sh` — translating a 50+ page paper can easily exceed 30 min depending on LLM response time (`cli/config_cmd.py`, `scripts/configure_mcps.sh`).
+- Fixed pdf2zh MCP timeout severely underestimated at 800 s: default raised to 3 600 s (1 h) in both `miqi config pdf2zh` and `configure_mcps.sh` — translating a 50+ page paper can easily exceed 30 min depending on LLM response time (`cli/config_cmd.py`, `scripts/configure_mcps.sh`).
 - Fixed `max_tool_iterations` default of 40 stopping complex scientific workflows mid-task: raised to 100. A RASPA GCMC + result parsing workflow can easily consume 30-50+ steps; 40 caused "⚠️ 已达到最大执行步数" errors. Configurable via `agents.defaults.maxToolIterations` in `config.json` (`config/schema.py`).
-- Fixed `max_tokens` default of 8192 being too small for DeepSeek-R1 and extended Claude 4 responses: raised to 16 000 in `AgentDefaults`. LiteLLM itself has no cap; the 8192 ceiling was featherflow's own config default (`config/schema.py`).
+- Fixed `max_tokens` default of 8192 being too small for DeepSeek-R1 and extended Claude 4 responses: raised to 16 000 in `AgentDefaults`. LiteLLM itself has no cap; the 8192 ceiling was miqi's own config default (`config/schema.py`).
 - Fixed DeepSeek-R1 (deepseek-reasoner) multi-turn conversations breaking when used via the official DeepSeek API: `_sanitize_messages` now preserves `reasoning_content` in assistant message history when the provider spec sets `supports_reasoning_history=True`; DeepSeek spec updated accordingly. OpenRouter/gateway paths are unaffected — reasoning is still stripped there (`providers/registry.py`, `providers/litellm_provider.py`).
 - Fixed agent returning a silent empty response when a reasoning model (e.g. DeepSeek-R1 via OpenRouter) exhausts `max_tokens` during thinking and emits no visible answer text: `_strip_think` returning `None` now logs a warning and surfaces "⚠️ 模型完成了推理但未输出最终回复（可能是 max_tokens 设置过低）" to the user instead of sending nothing (`agent/loop.py`).
 - Fixed cron `_execute_job()` hardcoded 600 s timeout killing long-running scientific jobs: `CronService` now accepts `job_timeout` parameter (default 86 400 s / 24 h) read from `config.cron.job_timeout_seconds`; gateway plumbs the value from config (`cron/service.py`, `config/schema.py`, `cli/gateway_cmd.py`).
