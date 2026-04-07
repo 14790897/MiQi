@@ -115,7 +115,7 @@ pip install --upgrade featherflow-ai
 ```
 
 **Important Notes:**
-- Keep `litellm` updated to the latest version for security fixes
+- Keep `openai` and `anthropic` SDKs updated to the latest version for security fixes
 - We've updated `ws` to `>=8.17.1` to fix DoS vulnerability
 - Run `pip-audit` regularly
 - Subscribe to security advisories for featherflow and its dependencies

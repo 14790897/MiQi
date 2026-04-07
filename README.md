@@ -29,7 +29,7 @@ FeatherFlow is a domain-focused evolution of the upstream [`nanobot`](https://gi
 
 | Category | Capabilities |
 |---|---|
-| **LLM Providers** | OpenRouter, OpenAI, Anthropic, DeepSeek, Gemini, Groq, Moonshot, MiniMax, ZhipuAI, DashScope (Qwen), SiliconFlow, VolcEngine, AiHubMix, vLLM, Ollama, OpenAI Codex (OAuth), GitHub Copilot (OAuth), and any OpenAI-compatible endpoint |
+| **LLM Providers** | OpenRouter, OpenAI, Anthropic, DeepSeek, Gemini, Groq, Moonshot, MiniMax, ZhipuAI, DashScope (Qwen), SiliconFlow, VolcEngine, AiHubMix, vLLM, Ollama, OpenAI Codex (OAuth), and any OpenAI-compatible endpoint |
 | **Built-in Tools** | File system, shell, web fetch/search, paper research (search/details/download), cron scheduler, sub-agent spawning |
 | **Channels** | Channel adapters exist for Feishu/Telegram/Discord/Slack/Email/QQ/DingTalk/MoChat (runtime wiring via config) |
 | **MCP Integration** | Connect any MCP-compatible tool server (e.g. [feishu-mcp](https://github.com/lichman0405/feishu-mcp)) |
@@ -338,7 +338,6 @@ This is particularly useful in containerised deployments where secrets are injec
 | Command | Description |
 |---|---|
 | `featherflow provider login openai-codex` | Authenticate with OpenAI Codex (OAuth) |
-| `featherflow provider login github-copilot` | Authenticate with GitHub Copilot (OAuth) |
 
 ---
 

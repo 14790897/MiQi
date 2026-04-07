@@ -693,19 +693,3 @@ def register_management_commands(
         except ImportError:
             console.print("[red]oauth_cli_kit not installed. Run: pip install oauth-cli-kit[/red]")
             raise typer.Exit(1)
-
-    @_register_login("github_copilot")
-    def _login_github_copilot() -> None:
-        console.print("[cyan]Starting GitHub Copilot device flow...[/cyan]\n")
-
-        async def _trigger():
-            from litellm import acompletion
-
-            await acompletion(model="github_copilot/gpt-4o", messages=[{"role": "user", "content": "hi"}], max_tokens=1)
-
-        try:
-            asyncio.run(_trigger())
-            console.print("[green]✓ Authenticated with GitHub Copilot[/green]")
-        except Exception as e:
-            console.print(f"[red]Authentication error: {e}[/red]")
-            raise typer.Exit(1)

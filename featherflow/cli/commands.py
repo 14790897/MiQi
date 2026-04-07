@@ -704,8 +704,8 @@ def _create_workspace_templates(
 def _make_provider(config: Config):
     """Create the appropriate LLM provider from config."""
     from featherflow.providers.custom_provider import CustomProvider
-    from featherflow.providers.litellm_provider import LiteLLMProvider
     from featherflow.providers.openai_codex_provider import OpenAICodexProvider
+    from featherflow.providers.registry import find_by_name
 
     model = config.agents.defaults.model
     provider_name = config.get_provider_name(model)
@@ -715,7 +715,7 @@ def _make_provider(config: Config):
     if provider_name == "openai_codex" or model.startswith("openai-codex/"):
         return OpenAICodexProvider(default_model=model)
 
-    # Custom: direct OpenAI-compatible endpoint, bypasses LiteLLM
+    # Custom: direct OpenAI-compatible endpoint
     if provider_name == "custom":
         return CustomProvider(
             api_key=p.api_key if p else "no-key",
@@ -723,20 +723,32 @@ def _make_provider(config: Config):
             default_model=model,
         )
 
-    from featherflow.providers.registry import find_by_name
     spec = find_by_name(provider_name)
     if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and spec.is_oauth):
         console.print("[red]Error: No API key configured.[/red]")
         console.print("Set one in your config file under providers section")
         raise typer.Exit(1)
 
-    return LiteLLMProvider(
+    provider_type = spec.provider_type if spec else "openai"
+
+    common_kwargs = dict(
         api_key=p.api_key if p else None,
         api_base=config.get_api_base(model),
         default_model=model,
         extra_headers=p.extra_headers if p else None,
         provider_name=provider_name,
     )
+
+    if provider_type == "anthropic":
+        from featherflow.providers.anthropic_provider import AnthropicProvider
+        return AnthropicProvider(**common_kwargs)
+
+    if provider_type == "gemini":
+        from featherflow.providers.gemini_provider import GeminiProvider
+        return GeminiProvider(**common_kwargs)
+
+    from featherflow.providers.openai_provider import OpenAIProvider
+    return OpenAIProvider(**common_kwargs)
 
 
 # Register split command modules.

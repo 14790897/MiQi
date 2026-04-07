@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from featherflow.providers.litellm_provider import LiteLLMProvider
+from featherflow.providers.openai_provider import OpenAIProvider
 
 
 def _build_response(content: str):
@@ -10,7 +10,7 @@ def _build_response(content: str):
 
 
 def test_parse_plain_json_tool_call_from_content() -> None:
-    provider = LiteLLMProvider(default_model="ollama/gpt-oss", provider_name="ollama_cloud")
+    provider = OpenAIProvider(default_model="ollama/gpt-oss", provider_name="ollama_cloud")
     response = _build_response(
         'I will search now. {"name":"web_search","arguments":{"query":"best food in korea","count":5}}'
     )
@@ -23,7 +23,7 @@ def test_parse_plain_json_tool_call_from_content() -> None:
 
 
 def test_parse_function_wrapped_tool_call_from_content() -> None:
-    provider = LiteLLMProvider(default_model="ollama/gpt-oss", provider_name="ollama_cloud")
+    provider = OpenAIProvider(default_model="ollama/gpt-oss", provider_name="ollama_cloud")
     response = _build_response(
         '{"function":{"name":"web_fetch","arguments":{"url":"https://example.com"}}}'
     )
