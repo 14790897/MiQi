@@ -220,6 +220,25 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_oauth=True,                      # OAuth-based authentication
     ),
 
+    # Github Copilot: uses OAuth, not API key.
+    ProviderSpec(
+        name="github_copilot",
+        keywords=("github_copilot", "copilot"),
+        env_key="",                         # OAuth-based, no API key
+        display_name="Github Copilot",
+        model_prefix="github_copilot",
+        skip_prefixes=("github_copilot/",),
+        env_extras=(),
+        is_gateway=False,
+        is_local=False,
+        detect_by_key_prefix="",
+        detect_by_base_keyword="",
+        default_api_base="",
+        strip_model_prefix=False,
+        model_overrides=(),
+        is_oauth=True,                      # OAuth-based authentication
+    ),
+
     # DeepSeek: deepseek-reasoner (R1) requires reasoning_content in multi-turn history.
     ProviderSpec(
         name="deepseek",
