@@ -1,4 +1,4 @@
-# Security Policy
+# Security
 
 ## Reporting a Vulnerability
 
@@ -259,12 +259,9 @@ Before deploying miqi:
 
 ## Updates
 
-**Last Updated**: 2026-02-24
+**Last Updated**: 2026-03-10
 
-For the latest security updates and announcements, check:
-- GitHub Security Advisories: https://github.com/lichman0405/miqi/security/advisories
-- Release Notes: https://github.com/lichman0405/miqi/releases
+For the latest security updates and announcements, see:
 
-## License
-
-See LICENSE file for details.
+- [GitHub Security Advisories](https://github.com/lichman0405/MiQi/security/advisories)
+- [Releases](https://github.com/lichman0405/MiQi/releases)
