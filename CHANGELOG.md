@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Documentation
+- Updated README and project docs to match current code paths and schema defaults:
+  - corrected workspace-relative memory/session storage paths (`<workspace>/memory`, `<workspace>/sessions`)
+  - documented current packaged gateway scope (Feishu wired today; other channel adapters remain extension modules)
+  - refreshed config defaults for memory, sessions, self-improvement, heartbeat, cron, and shell execution
+  - documented MCP `lazy`, `description`, `headers`, and environment-inheritance behavior
+  - clarified that SQLite session storage, provider fallback chains, command approval, and smart routing exist as shipped modules/helpers but are not all enabled by default in the packaged CLI/gateway path
+
 ### Added
 - Added `paper-research` skill (`miqi/skills/paper-research/SKILL.md`):
   - Full workflow: `paper_search` → `paper_download` → `translate_pdf` → summarize with references.

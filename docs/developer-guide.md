@@ -38,6 +38,17 @@ mcps/             # Bundled MCP server submodules
 scripts/          # Setup and configuration helpers
 ```
 
+### Runtime Modules Worth Knowing
+
+| File | Role |
+|---|---|
+| `agent/context_compressor.py` | Optional 5-phase context compression helper |
+| `agent/iteration_budget.py` | Iteration-pressure tracking used inside `AgentLoop` |
+| `agent/smart_routing.py` | Cheap-model routing helper for embedded runtimes |
+| `agent/command_approval.py` | Dangerous-command approval helper module |
+| `providers/fallback.py` | Provider fallback-chain helper |
+| `session/sqlite_store.py` | Optional SQLite+FTS5 session backend module |
+
 ### CLI Module Structure
 
 | File | Purpose |
@@ -66,6 +77,8 @@ PYTHONPATH=. python -m pytest tests/test_tool_validation.py tests/test_tool_call
 # Run the full test suite
 PYTHONPATH=. python -m pytest -q
 ```
+
+Install dev extras first with `pip install -e '.[dev]'`. Provider-related tests import optional SDKs such as `anthropic` during collection.
 
 **Available test files:**
 
@@ -144,3 +157,12 @@ mkdocs build          # build static site to site/
 ```
 
 When changing behavior or interfaces, update the relevant doc in `docs/` and add an entry to `CHANGELOG.md`.
+
+When changing config schema, runtime data layout, MCP behavior, or shell safety semantics, the minimum review set is:
+
+- `README.md`
+- `docs/configuration.md`
+- `docs/architecture.md`
+- `docs/mcp-integration.md`
+- `docs/security.md`
+- `CHANGELOG.md`

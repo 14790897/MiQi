@@ -41,10 +41,11 @@ chmod 600 ~/.miqi/config.json
 ```json
 {
   "channels": {
-    "telegram": {
+      "feishu": {
       "enabled": true,
-      "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["123456789", "987654321"]
+         "appId": "cli_...",
+         "appSecret": "...",
+         "allowFrom": ["ou_xxx", "ou_yyy"]
     }
   }
 }
@@ -52,12 +53,14 @@ chmod 600 ~/.miqi/config.json
 
 **Security Notes:**
 - Empty `allowFrom` list will **ALLOW ALL** users (open by default for personal use)
-- Get your Telegram user ID from `@userinfobot`
+- Prefer explicit user/chat allowlists before exposing the gateway to any real users
 - Review access logs regularly for unauthorized access attempts
 
 ### 3. Shell Command Execution
 
-The `exec` tool can execute shell commands. While dangerous command patterns are blocked, you should:
+The `exec` tool can execute shell commands. Today it uses a **static deny-list safety guard**, optional workspace restriction, and credential-environment stripping for spawned subprocesses. The separate helper in `miqi/agent/command_approval.py` exists in the repository, but it is not yet wired into the packaged CLI/gateway shell path.
+
+You should still:
 
 - ✅ Review all tool usage in agent logs
 - ✅ Understand what commands the agent is running
@@ -66,7 +69,7 @@ The `exec` tool can execute shell commands. While dangerous command patterns are
 - ❌ Don't disable security checks
 - ❌ Don't run on systems with sensitive data without careful review
 
-**Blocked patterns:**
+**Blocked patterns include:**
 - `rm -rf /` - Root filesystem deletion
 - Fork bombs
 - Filesystem formatting (`mkfs.*`)
@@ -95,6 +98,11 @@ File operations have path traversal protection, but:
 - All external API calls use HTTPS by default
 - Timeouts are configured to prevent hanging requests
 - Consider using a firewall to restrict outbound connections if needed
+
+**MCP subprocesses:**
+- Stdio MCP servers inherit the MiQi process environment when `tools.mcpServers.<name>.env` is omitted
+- Treat stdio MCP servers as trusted local code, or explicitly provide a minimal `env` mapping
+- HTTP MCP servers can use `headers` for explicit auth instead of inheriting process credentials
 
 **Channel adapters:**
 - Use HTTPS webhook endpoints only
@@ -166,7 +174,7 @@ For production use:
 - Use separate API keys
 - Test with non-sensitive data
 - Enable verbose logging
-- Use a test Telegram bot
+- Use a test Feishu app or isolated staging workspace
 
 **Production:**
 - Use dedicated API keys with spending limits
@@ -202,7 +210,7 @@ If you suspect a security breach:
 
 ✅ **Input Validation**
 - Path traversal protection on file operations
-- Dangerous command pattern detection
+- Dangerous command deny-list for `exec`
 - Input length limits on HTTP requests
 
 ✅ **Authentication**
@@ -212,7 +220,9 @@ If you suspect a security breach:
 
 ✅ **Resource Protection**
 - Command execution timeouts (60s default)
-- Output truncation (10KB limit)
+- `exec` output truncation (10KB limit)
+- Live prompt tool-result truncation (`agents.defaults.maxToolResultChars`, default 16000)
+- Per-tool timeout override support (for example MCP `toolTimeout`)
 - HTTP request timeouts (10–30s)
 - SSRF protection — web tool blocks requests to private/link-local/loopback IP ranges (`10.x`, `172.16/12`, `192.168.x`, `127.x`, `169.254.x`, IPv6 equivalents)
 
@@ -226,8 +236,10 @@ If you suspect a security breach:
 - Gateway port bound to `127.0.0.1` by default in Docker Compose
 - Volume mount uses user home directory, not `/root`
 
-✅ **MCP Tool Isolation**
-- Per-server `allowedTools` and `deniedTools` config fields to restrict which MCP tools the agent can invoke
+✅ **MCP Runtime Controls**
+- Per-server `toolTimeout` and `progressIntervalSeconds`
+- Optional `lazy` gateway mode to avoid sending large MCP tool lists on every model call
+- Explicit `env` and `headers` fields per MCP server
 
 ## Known Limitations
 
@@ -237,7 +249,8 @@ If you suspect a security breach:
 2. **Plain Text Config** - API keys stored in plain text (use keyring for production)
 3. **No Session Management** - No automatic session expiry
 4. **Command Filtering** - Dangerous patterns are blocked (see list above), but a determined attacker with arbitrary command execution can still cause damage — always run with a dedicated low-privilege account
-5. **Limited Audit Trail** - Security events are logged via loguru but there is no structured SIEM integration
+5. **MCP Environment Inheritance** - Stdio MCP servers inherit the parent process environment unless you explicitly provide `tools.mcpServers.<name>.env`
+6. **Limited Audit Trail** - Security events are logged via loguru but there is no structured SIEM integration
 
 ## Security Checklist
 
@@ -259,7 +272,7 @@ Before deploying miqi:
 
 ## Updates
 
-**Last Updated**: 2026-03-10
+**Last Updated**: 2026-04-11
 
 For the latest security updates and announcements, see:
 

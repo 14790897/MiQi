@@ -166,6 +166,12 @@ class ChannelsConfig(Base):
     feishu: FeishuChannelConfig = Field(default_factory=FeishuChannelConfig)
 
 
+class FallbackChainEntry(Base):
+    """One entry in the provider fallback chain."""
+
+    model: str = ""    # full model string, e.g. "openai/gpt-4o"
+
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -178,13 +184,11 @@ class AgentDefaults(Base):
     memory_window: int = 100
     reflect_after_tool_calls: bool = True
     # Maximum characters kept per tool result in the live prompt.
-    # Prevents runaway context growth when MCP tools return large payloads.
-    # Saved-session truncation (_TOOL_RESULT_MAX_CHARS) is separate and smaller.
     max_tool_result_chars: int = 16000
     # Soft cap on total estimated context chars before LLM call.
-    # When exceeded, oldest assistant↔tool exchange pairs are dropped.
-    # 0 = disabled.  A rough rule: chars ≈ tokens × 4.
     context_limit_chars: int = 600000
+    # Provider fallback chain — tried in order when primary fails
+    fallback_chain: list[FallbackChainEntry] = Field(default_factory=list)
 
 
 class AgentMemoryConfig(Base):
@@ -203,6 +207,33 @@ class AgentSessionConfig(Base):
     compact_threshold_bytes: int = 2_000_000
     compact_keep_messages: int = 300
     session_tool_result_max_chars: int = 500
+    # SQLite backend (new): when True use miqi/session/sqlite_store.py instead of JSONL
+    use_sqlite: bool = False
+
+
+class SmartRoutingCheapModel(Base):
+    """Cheap model config for smart routing."""
+
+    provider: str = ""   # e.g. "openai"
+    model: str = ""      # e.g. "gpt-4o-mini"
+
+
+class SmartRoutingConfig(Base):
+    """Smart model routing configuration (routes simple turns to a cheaper model)."""
+
+    enabled: bool = False
+    cheap_model: SmartRoutingCheapModel = Field(default_factory=SmartRoutingCheapModel)
+    max_chars: int = 160    # turns exceeding this go to primary
+    max_words: int = 28     # turns exceeding this go to primary
+
+
+class CommandApprovalConfig(Base):
+    """Dangerous command approval configuration."""
+
+    enabled: bool = True         # when False, all commands approved silently
+    mode: str = "manual"         # manual | off
+    timeout: int = 60            # CLI approval prompt timeout (seconds)
+    allowlist: list[str] = Field(default_factory=list)  # pattern descriptions permanently approved
 
 
 class AgentSelfImprovementConfig(Base):
@@ -229,6 +260,8 @@ class AgentsConfig(Base):
     memory: AgentMemoryConfig = Field(default_factory=AgentMemoryConfig)
     sessions: AgentSessionConfig = Field(default_factory=AgentSessionConfig)
     self_improvement: AgentSelfImprovementConfig = Field(default_factory=AgentSelfImprovementConfig)
+    smart_routing: SmartRoutingConfig = Field(default_factory=SmartRoutingConfig)
+    command_approval: CommandApprovalConfig = Field(default_factory=CommandApprovalConfig)
 
 
 class ProviderConfig(Base):
@@ -447,5 +480,40 @@ class Config(BaseSettings):
             if spec and spec.is_gateway and spec.default_api_base:
                 return spec.default_api_base
         return None
+
+    def build_provider(self, model: str) -> "LLMProvider | None":
+        """Build an LLMProvider instance for the given model string.
+
+        Used by ProviderFallbackChain to construct fallback provider instances.
+        Returns None if the model/provider cannot be resolved.
+        """
+        from miqi.providers.base import LLMProvider  # noqa: F401 (type hint only)
+
+        api_key = self.get_api_key(model)
+        api_base = self.get_api_base(model)
+        provider_name = self.get_provider_name(model)
+
+        if not provider_name:
+            return None
+
+        from miqi.providers.registry import find_by_name
+        spec = find_by_name(provider_name)
+        if spec is None:
+            return None
+
+        try:
+            if spec.provider_type == "anthropic":
+                from miqi.providers.anthropic_provider import AnthropicProvider
+                return AnthropicProvider(api_key=api_key, api_base=api_base)
+            elif spec.provider_type == "gemini":
+                from miqi.providers.gemini_provider import GeminiProvider
+                return GeminiProvider(api_key=api_key, api_base=api_base)
+            else:
+                from miqi.providers.openai_provider import OpenAIProvider
+                extra_headers = getattr(self.providers, provider_name, None)
+                headers = extra_headers.extra_headers if extra_headers else None
+                return OpenAIProvider(api_key=api_key, api_base=api_base, extra_headers=headers)
+        except Exception:
+            return None
 
     model_config = ConfigDict(env_prefix="MIQI_", env_nested_delimiter="__")

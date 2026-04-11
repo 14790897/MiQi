@@ -81,6 +81,8 @@ miqi agent
 miqi gateway
 ```
 
+The packaged gateway path currently wires Feishu, cron, memory/session persistence, and configured MCP servers. Additional channel adapter modules live in the repository but are not yet surfaced through the public config schema.
+
 ### 4. Check Status
 
 ```bash

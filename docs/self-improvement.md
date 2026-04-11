@@ -2,6 +2,8 @@
 
 MiQi includes a lightweight **feedback-to-lessons** loop that allows the agent to learn from mistakes and user corrections without requiring embeddings or external retrieval systems.
 
+Lesson files live under the configured workspace by default: `<workspace>/memory/LESSONS.jsonl` and `<workspace>/memory/LESSONS_AUDIT.jsonl`.
+
 ---
 
 ## Overview
@@ -20,7 +22,7 @@ Reinforce or compact over time
 
 ## Lesson Schema
 
-Each lesson is stored as a JSON object in `~/.miqi/memory/LESSONS.jsonl`:
+Each lesson is stored as a JSON object in `<workspace>/memory/LESSONS.jsonl`:
 
 ```json
 {
@@ -103,14 +105,14 @@ All settings are under `agents.selfImprovement` in `~/.miqi/config.json`:
 |---|---|---|
 | `enabled` | `true` | Enable/disable the self-improvement system |
 | `maxLessonsInPrompt` | `5` | Maximum lessons injected per prompt |
-| `minLessonConfidence` | `0.5` | Minimum confidence to include a lesson |
-| `maxLessons` | `500` | Maximum lessons retained in the store |
+| `minLessonConfidence` | `1` | Minimum confidence to include a lesson |
+| `maxLessons` | `200` | Maximum lessons retained in the store |
 | `lessonConfidenceDecayHours` | `168` | Hours before confidence decay begins |
-| `feedbackMaxMessageChars` | `500` | Max message length to treat as user feedback |
+| `feedbackMaxMessageChars` | `220` | Max message length to treat as user feedback |
 | `feedbackRequirePrefix` | `true` | Require correction cue as a message prefix |
 | `promotionEnabled` | `true` | Allow session-to-global promotion |
-| `promotionMinUsers` | `2` | Min distinct users to trigger promotion |
-| `promotionTriggers` | `[]` | Trigger pattern list for promotion candidates |
+| `promotionMinUsers` | `3` | Min distinct users to trigger promotion |
+| `promotionTriggers` | `["response:length", "response:language"]` | Trigger pattern list for promotion candidates |
 
 ---
 

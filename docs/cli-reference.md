@@ -82,7 +82,7 @@ All commands support `--help` for usage details.
 | `miqi config feishu` | One-shot Feishu channel + feishu-mcp setup |
 | `miqi config pdf2zh` | Configure pdf2zh MCP server (auto-fills LLM credentials) |
 | `miqi config mcp list` | List all configured MCP servers |
-| `miqi config mcp add <name>` | Add or update an MCP server (stdio or HTTP) |
+| `miqi config mcp add <name>` | Add or update an MCP server (stdio or HTTP, supports `--lazy` and `--description`) |
 | `miqi config mcp remove <name>` | Remove an MCP server |
 
 ---
@@ -112,7 +112,7 @@ Tools are executed through `ToolRegistry` and return string results.
 
 | Tool | Description |
 |---|---|
-| `exec` | Run a shell command. Subject to deny-list safety guards and a configurable timeout. |
+| `exec` | Run a shell command. Subject to deny-list safety guards, credential env stripping, optional workspace restriction, and a configurable timeout. |
 
 ### Web Tools
 

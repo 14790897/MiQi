@@ -2,6 +2,8 @@
 
 MiQi uses a **RAM-first memory architecture** that keeps the hot path in-memory and moves disk writes to checkpoint events. This design avoids per-turn disk I/O, eliminates embedding/vector system dependencies, and keeps memory behavior deterministic and inspectable.
 
+By default, all runtime data below lives under `~/.miqi/workspace/`. If you change `agents.defaults.workspace`, the memory and session paths move with it.
+
 ---
 
 ## Design Goals
@@ -27,20 +29,21 @@ Memory is split into three layers:
 ### 2. Long-Term Snapshot Memory (RAM-first)
 
 - In-memory long-term items are updated during turns
-- Persisted to `~/.miqi/memory/LTM_SNAPSHOT.json` at checkpoint events
-- Optional audit log at `~/.miqi/memory/LTM_AUDIT.jsonl`
+- Persisted to `<workspace>/memory/LTM_SNAPSHOT.json` at checkpoint events
+- Optional audit log at `<workspace>/memory/LTM_AUDIT.jsonl`
 
 ### 2.5. Self-Improvement Lessons (RAM-first)
 
 - In-memory lessons are derived from tool failures and user corrections
-- Persisted to `~/.miqi/memory/LESSONS.jsonl` at checkpoint events
-- Optional audit log at `~/.miqi/memory/LESSONS_AUDIT.jsonl`
+- Persisted to `<workspace>/memory/LESSONS.jsonl` at checkpoint events
+- Optional audit log at `<workspace>/memory/LESSONS_AUDIT.jsonl`
 - See [Self-Improvement](self-improvement.md) for full details
 
 ### 3. Session Log Storage (append-only)
 
-- Conversation messages append to `~/.miqi/sessions/*.jsonl`
+- Conversation messages append to `<workspace>/sessions/*.jsonl`
 - Periodic compaction rewrites to keep only recent history
+- The repository also ships `miqi/session/sqlite_store.py`, an optional SQLite+FTS5 backend module. The current CLI/gateway path still instantiates the JSONL `SessionManager` by default.
 
 ---
 

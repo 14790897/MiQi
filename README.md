@@ -31,9 +31,10 @@ MiQi is a domain-focused evolution of the upstream [`nanobot`](https://github.co
 |---|---|
 | **LLM Providers** | OpenRouter, OpenAI, Anthropic, DeepSeek, Gemini, Groq, Moonshot, MiniMax, ZhipuAI, DashScope (Qwen), SiliconFlow, VolcEngine, AiHubMix, vLLM, Ollama, OpenAI Codex (OAuth), and any OpenAI-compatible endpoint |
 | **Built-in Tools** | File system, shell, web fetch/search, paper research (search/details/download), cron scheduler, sub-agent spawning |
-| **Channels** | Channel adapters exist for Feishu/Telegram/Discord/Slack/Email/QQ/DingTalk/MoChat (runtime wiring via config) |
+| **Channels** | Feishu is wired in the packaged gateway today; additional adapter modules for Telegram/Discord/Slack/Email/QQ/DingTalk/MoChat are present in the repository for extension work |
 | **MCP Integration** | Connect any MCP-compatible tool server (e.g. [feishu-mcp](https://github.com/lichman0405/feishu-mcp)) |
-| **Memory** | RAM-first with snapshots, lesson extraction, and compact session history |
+| **Memory** | RAM-first long-term snapshots, lesson extraction, and append-only JSONL session history under the configured workspace |
+| **Agent Runtime** | Safe concurrent tool execution for read-only batches, iteration-budget safeguards, MCP heartbeat progress, and optional embedded routing/compression hooks |
 | **Extensibility** | MCP server integration, skill files, custom provider plugins |
 | **CLI** | Interactive onboarding, agent chat, gateway mode, cron and memory management |
 
@@ -216,16 +217,11 @@ MiQi reads from `~/.miqi/config.json`. The interactive wizard (`miqi onboard`) c
     "defaults": {
       "model": "anthropic/claude-opus-4-5",
       "name": "miqi",
-      "temperature": 0.7
+      "temperature": 0.1
     }
   },
-  "channels": {
-  },
-  "tools": {
-    "web": {
-      "enabled": true
-    }
-  },
+  "channels": {},
+  "tools": {},
   "heartbeat": {
     "enabled": true,
     "intervalSeconds": 1800
@@ -235,22 +231,24 @@ MiQi reads from `~/.miqi/config.json`. The interactive wizard (`miqi onboard`) c
 
 ### Key Sections
 
-- **`providers`** — API keys, custom `apiBase` URLs, and optional `extraHeaders` (e.g. `APP-Code` for AiHubMix) for each LLM provider.
-- **`agents.defaults`** — Default model, temperature, `maxTokens`, `maxToolIterations`, `memoryWindow`, and agent identity (`name`, `workspace`).
-- **`agents.memory`** — Memory flush cadence (`flushEveryUpdates`, `flushIntervalSeconds`) and short-term window sizes.
-- **`agents.sessions`** — Session compaction thresholds (`compactThresholdMessages`, `compactThresholdBytes`, `compactKeepMessages`).
-- **`agents.selfImprovement`** — Lesson extraction settings: `enabled`, `maxLessonsInPrompt`, `minLessonConfidence`, `maxLessons`, `promotionEnabled`, etc.
-- **`channels`** — Channel configuration for each IM adapter; also controls `sendProgress` (stream text to channel), `sendToolHints` (stream tool-call hints), and `sendQueueNotifications` (notify users about task queue position).
-  - **`channels.feishu.requireMentionInGroups`** — When `true` (default), the bot only responds to group messages where it is @mentioned. Private chats are unaffected.
-- **`gateway`** — HTTP gateway listen address (`host`, `port`; default `0.0.0.0:18790` for bare-metal runs). When using Docker Compose the port is bound to `127.0.0.1:18790` by default.
-- **`tools`** — Web/search/fetch behavior, paper research provider settings (`tools.papers`), shell execution policy (`tools.exec.timeout`), `restrictToWorkspace` flag, and MCP server definitions (`tools.mcpServers`).
-  - **`tools.mcpServers.<name>.progressIntervalSeconds`** — Heartbeat interval (seconds) for long-running MCP tool calls. Set to `0` to disable. Default `15`.
-  - **`tools.mcpServers.<name>.toolTimeout`** — Timeout in seconds before a tool call is cancelled. For scientific computing MCP servers (e.g. raspa, mofstructure), set to `300`–`600`. Default `30`.
-  - **`tools.mcpServers.<name>.allowedTools`** — Optional allowlist of tool names. When non-empty, only the listed tools from this MCP server are registered. All others are silently dropped.
-  - **`tools.mcpServers.<name>.deniedTools`** — Optional denylist of tool names. Any tool whose name appears here is never registered, regardless of `allowedTools`.
-- **`heartbeat`** — Periodic background prompts (`enabled`, `intervalSeconds`) for proactive agent behaviors.
+- **`providers`** — API keys, custom `apiBase` URLs, and optional `extraHeaders` (for example `APP-Code` on AiHubMix) for each provider.
+- **`agents.defaults`** — Default model, temperature, `maxTokens`, `maxToolIterations`, `maxToolResultChars`, `contextLimitChars`, `memoryWindow`, and the workspace path.
+- **`agents.memory`** — Flush cadence plus in-memory short-term window sizing. Runtime files live under `<workspace>/memory/`.
+- **`agents.sessions`** — JSONL session compaction thresholds and saved-tool-result truncation. The schema also exposes `useSqlite` for the shipped SQLite+FTS5 session backend module, but the packaged CLI/gateway path still instantiates the JSONL `SessionManager` by default.
+- **`agents.selfImprovement`** — Lesson extraction settings such as `maxLessonsInPrompt`, `minLessonConfidence`, `feedbackMaxMessageChars`, and promotion controls.
+- **`agents.smartRouting`** — Cheap-model routing settings. `AgentLoop` supports them programmatically; the packaged CLI/gateway path currently leaves this disabled unless you embed the runtime yourself.
+- **`agents.commandApproval`** — Schema for interactive dangerous-command approval. The repository ships the helper module, while the default `exec` tool path still relies on static deny-pattern guards.
+- **`channels`** — Global channel delivery flags (`sendProgress`, `sendToolHints`, `sendQueueNotifications`) plus Feishu gateway configuration. Other adapter modules exist in the repo but are not currently surfaced by the public config schema.
+- **`gateway`** — HTTP gateway listen address (`host`, `port`; default `0.0.0.0:18790` for bare-metal runs). Docker Compose binds the published port to `127.0.0.1:18790` by default.
+- **`tools`** — Web/search/fetch behavior, paper research provider settings, shell execution policy (`tools.exec.timeout`, `tools.exec.envPassthrough`), the global `restrictToWorkspace` flag, and MCP server definitions.
+  - **`tools.mcpServers.<name>.progressIntervalSeconds`** — Heartbeat interval for long-running MCP tools. Set `0` to disable. Default `15`.
+  - **`tools.mcpServers.<name>.toolTimeout`** — Timeout before a single MCP tool call is cancelled. Default `30`.
+  - **`tools.mcpServers.<name>.lazy`** — Register one lightweight gateway tool instead of all server tools up front.
+  - **`tools.mcpServers.<name>.description`** — LLM-facing description for lazy gateway mode.
+- **`heartbeat`** — Periodic background prompts (`enabled`, `intervalSeconds`) for proactive behaviors.
+- **`cron`** — Scheduler-wide job timeout (`jobTimeoutSeconds`; default `86400`).
 
-> **Security:** Config files are automatically saved with `0600` permissions (owner-read-only) to protect API keys. Set strict `allowFrom` lists before exposing to any channel. See [`docs/SECURITY.md`](docs/SECURITY.md) for full guidance.
+> **Security:** Config files are automatically saved with `0600` permissions (owner-read-only) to protect API keys. See [docs/security.md](docs/security.md) for the current security model and operational limits.
 
 ### Environment Variable Overrides
 
@@ -347,10 +345,16 @@ This is particularly useful in containerised deployments where secrets are injec
 
 MiQi uses a RAM-first memory architecture:
 
-- **Session window** — unconsolidated recent context for fast recall
-- **Long-term snapshots** — periodic persistence with audit trails
+- **Session window** — unconsolidated recent context for fast recall, persisted by default as append-only JSONL files under `<workspace>/sessions/`
+- **Long-term snapshots** — periodic persistence with audit trails under `<workspace>/memory/`
 - **Lesson extraction** — automatically distills insights from user feedback and tool outcomes
 - **Configurable confidence thresholds** — controls promotion of lessons to long-term memory
+
+### Agent Runtime Controls
+
+- **Iteration budget** — the main loop injects pressure hints as it approaches `maxToolIterations`
+- **Concurrent dispatch** — safe read-only or path-disjoint tool batches run via `asyncio.gather`
+- **Embedded hooks** — the `AgentLoop` constructor exposes optional smart-routing and context-compression controls for programmatic use
 
 ### Scheduled Tasks
 
@@ -366,7 +370,7 @@ All jobs can be toggled, triggered manually, or removed via the CLI.
 
 Connect any MCP-compatible tool server and expose its tools directly to the agent. Define MCP servers under `tools.mcpServers` in your config. For example, connect [feishu-mcp](https://github.com/lichman0405/feishu-mcp) to bring Feishu collaboration capabilities (messages, calendar, tasks, documents) into the agent via a clean MCP interface.
 
-For long-running MCP tools (e.g. scientific computing), MiQi automatically sends periodic heartbeat progress messages to the user so they know the task is still running. Configure `progressIntervalSeconds` per MCP server (default 15s) and increase `toolTimeout` for compute-heavy operations.
+For long-running MCP tools (e.g. scientific computing), MiQi automatically sends periodic heartbeat progress messages to the user so they know the task is still running. Configure `progressIntervalSeconds` per MCP server (default 15s), increase `toolTimeout` for compute-heavy operations, and use `lazy` mode when a server exposes a large tool surface.
 
 ### Task Queue Awareness
 
@@ -492,13 +496,17 @@ This calls `miqi config mcp add` for every server with recommended timeouts and 
 
 ### Project Docs (`docs/`)
 
-- [docs/API.md](docs/API.md)
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md)
-- [docs/RAM_FIRST_MEMORY_CHECKPOINT.md](docs/RAM_FIRST_MEMORY_CHECKPOINT.md)
-- [docs/SECURITY.md](docs/SECURITY.md)
-- [docs/SECURITY_IMPROVEMENTS.md](docs/SECURITY_IMPROVEMENTS.md)
-- [docs/SELF_DEVELOPMENT.md](docs/SELF_DEVELOPMENT.md)
+- [docs/index.md](docs/index.md)
+- [docs/getting-started.md](docs/getting-started.md)
+- [docs/configuration.md](docs/configuration.md)
+- [docs/cli-reference.md](docs/cli-reference.md)
+- [docs/mcp-integration.md](docs/mcp-integration.md)
+- [docs/architecture.md](docs/architecture.md)
+- [docs/memory-system.md](docs/memory-system.md)
+- [docs/self-improvement.md](docs/self-improvement.md)
+- [docs/security.md](docs/security.md)
+- [docs/developer-guide.md](docs/developer-guide.md)
+- [docs/changelog.md](docs/changelog.md)
 
 ### Scripts (`scripts/`)
 

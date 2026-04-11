@@ -78,7 +78,7 @@ miqi config feishu     # configures Feishu channel + feishu-mcp together
 ```
 
 !!! note "Security"
-    MCP subprocesses launched via stdio transport inherit only a minimal environment (`HOME`, `PATH`, `SHELL`, `USER`, `TERM`, `LOGNAME`). Your LLM provider API keys are **never** exposed to MCP servers unless you explicitly add them to `env` as shown above.
+  For stdio transport, MiQi forwards the `env` mapping you configure for that server. If you omit `env`, the MCP subprocess inherits the current MiQi process environment. Treat stdio MCP servers as trusted local code and explicitly scope `env` when you need tighter isolation.
 
 ---
 
@@ -126,39 +126,50 @@ miqi config mcp add my-http-server
 
 ---
 
-## Tool Filtering
+## Lazy Gateway Mode
 
-You can restrict which tools from an MCP server are exposed to the agent:
+When an MCP server exposes many tools, send the tool surface lazily instead of registering everything on every model call:
 
 ```json
 "tools": {
   "mcpServers": {
-    "feishu": {
-      "command": "...",
-      "allowedTools": ["send_message", "create_document"],
-      "deniedTools": ["set_doc_permission", "set_doc_public_access"]
+    "raspa2": {
+      "command": "/path/to/python",
+      "args": ["-m", "raspa_mcp.server"],
+      "lazy": true,
+      "description": "RASPA molecular simulation: gas adsorption, GCMC and MD workflows"
     }
   }
 }
 ```
 
-| Field | Behavior |
-|---|---|
-| `allowedTools` | When non-empty, only these tools are registered. All others are silently dropped. |
-| `deniedTools` | These tools are never registered, regardless of `allowedTools`. |
+In lazy mode, MiQi initially registers one gateway tool such as `use_raspa2`. Once the model activates it, the concrete MCP tools are loaded into the registry for the remainder of that agent-loop run.
+
+Equivalent CLI example:
+
+```bash
+miqi config mcp add raspa2 \
+  --command /path/to/python \
+  --arg -m \
+  --arg raspa_mcp.server \
+  --lazy \
+  --description "RASPA molecular simulation: gas adsorption, GCMC and MD workflows"
+```
 
 ---
 
-## Timeouts and Progress Reporting
+## Runtime Fields
 
-For long-running operations (e.g. scientific computing, PDF translation):
+For long-running operations (e.g. scientific computing, PDF translation), these fields control transport and execution behavior:
 
 ```json
 "tools": {
   "mcpServers": {
     "raspa2": {
       "toolTimeout": 600,
-      "progressIntervalSeconds": 30
+      "progressIntervalSeconds": 30,
+      "lazy": true,
+      "description": "RASPA molecular simulation workflows"
     }
   }
 }
@@ -166,8 +177,15 @@ For long-running operations (e.g. scientific computing, PDF translation):
 
 | Field | Default | Description |
 |---|---|---|
+| `command` | — | Executable for stdio transport |
+| `args` | `[]` | Arguments for the stdio process |
+| `env` | `{}` | Environment mapping passed to the stdio server. If omitted, the server inherits the current process environment. |
+| `url` | — | Streamable HTTP endpoint |
+| `headers` | `{}` | Custom HTTP headers for streamable HTTP transport |
 | `toolTimeout` | `30` | Seconds before a tool call is cancelled |
 | `progressIntervalSeconds` | `15` | Heartbeat interval. Set `0` to disable. |
+| `lazy` | `false` | Register one lightweight gateway tool until activation |
+| `description` | `""` | LLM-facing description for lazy gateway mode |
 
 MiQi sends the user elapsed-time updates (e.g. "⏳ raspa_run_simulation — 1m 30s elapsed") every `progressIntervalSeconds` while a tool is running.
 

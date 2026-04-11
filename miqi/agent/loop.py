@@ -15,7 +15,10 @@ from typing import Awaitable, Callable
 from loguru import logger
 
 from miqi.agent.context import ContextBuilder
+from miqi.agent.context_compressor import ContextCompressor
+from miqi.agent.iteration_budget import IterationBudget
 from miqi.agent.memory import MemoryStore
+from miqi.agent.smart_routing import SmartModelRouter
 from miqi.agent.subagent import SubagentManager
 from miqi.agent.tools.cron import CronTool
 from miqi.agent.tools.filesystem import (
@@ -39,6 +42,7 @@ from miqi.config.schema import (
     ChannelsConfig,
     ExecToolConfig,
     PapersToolConfig,
+    SmartRoutingConfig,
     WebToolsConfig,
 )
 from miqi.cron.service import CronService
@@ -140,6 +144,9 @@ class AgentLoop:
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
+        smart_routing_config: SmartRoutingConfig | None = None,
+        enable_context_compression: bool = False,
+        compression_threshold_chars: int = 400_000,
     ):
         self.bus = bus
         self.channels_config = channels_config
@@ -222,6 +229,32 @@ class AgentLoop:
         self._consolidation_semaphore: asyncio.Semaphore = asyncio.Semaphore(5)
         self._task_tracker = TaskTracker()
         self._mcp_gateways: list = []  # MCPGatewayTool instances; deactivated after each run
+
+        # ── New subsystems (Phase 1-3) ──────────────────────────────────────
+        # Smart model router (route simple turns to cheap model)
+        _routing_cfg = smart_routing_config or SmartRoutingConfig()
+        self._smart_router = SmartModelRouter(
+            routing_config={
+                "enabled": _routing_cfg.enabled,
+                "cheap_model": {
+                    "provider": _routing_cfg.cheap_model.provider,
+                    "model": _routing_cfg.cheap_model.model,
+                },
+                "max_chars": _routing_cfg.max_chars,
+                "max_words": _routing_cfg.max_words,
+            }
+        )
+
+        # Context compressor (5-phase LLM compression when context grows large)
+        self._enable_compression = enable_context_compression
+        self._compression_threshold_chars = compression_threshold_chars
+        self._compressor: ContextCompressor | None = None
+        if enable_context_compression:
+            self._compressor = ContextCompressor(
+                llm_call_fn=self._call_llm_for_summary,
+                context_limit_chars=context_limit_chars,
+            )
+
         self._register_default_tools()
 
     def _register_default_tools(self) -> None:
@@ -346,6 +379,21 @@ class AgentLoop:
             if isinstance(cron_tool, CronTool):
                 cron_tool.set_context(channel, chat_id)
 
+    async def _call_llm_for_summary(
+        self,
+        messages: list[dict],
+        model: str,
+    ) -> str:
+        """Thin wrapper for ContextCompressor: call the LLM and return text."""
+        response = await self.provider.chat(
+            messages=messages,
+            tools=None,
+            model=model,
+            max_tokens=4096,
+            temperature=0.3,
+        )
+        return response.content or ""
+
     @staticmethod
     def _strip_think(text: str | None) -> str | None:
         """Remove <think>…</think> blocks that some models embed in content."""
@@ -448,12 +496,13 @@ class AgentLoop:
     ) -> tuple[str | None, list[str], list[dict]]:
         """Run the agent iteration loop. Returns (final_content, tools_used, messages)."""
         messages = initial_messages
-        iteration = 0
         final_content = None
         tools_used: list[str] = []
+        budget = IterationBudget(self.max_iterations)
 
-        while iteration < self.max_iterations:
-            iteration += 1
+        while not budget.exhausted:
+            budget.consume()
+            iteration = budget.used
 
             # Send progress milestone every N iterations so users know
             # the agent is still working on long tasks.
@@ -470,20 +519,49 @@ class AgentLoop:
                     tool_hint=False,
                 )
 
-            # Trim oversized context before each LLM call
+            # Context management: try compressor first, fall back to hard trim
             if self.context_limit_chars > 0:
                 est = self._estimate_chars(messages)
-                if est > self.context_limit_chars:
+                if (
+                    self._compressor
+                    and self._compression_threshold_chars > 0
+                    and est > self._compression_threshold_chars
+                ):
+                    try:
+                        messages = await self._compressor.compress(
+                            messages, self.model, session_key
+                        )
+                    except Exception:
+                        logger.exception("ContextCompressor failed; falling back to hard trim")
+                        messages = self._trim_context(messages, self.context_limit_chars, est)
+                elif est > self.context_limit_chars:
                     logger.warning(
                         "Context too large (~{} chars, limit {}); trimming oldest turns",
                         est, self.context_limit_chars,
                     )
                     messages = self._trim_context(messages, self.context_limit_chars, est)
 
+            # Smart routing: use cheap model for simple turns
+            _model = self.model
+            if self._smart_router:
+                _user_content: str = next(
+                    (
+                        m.get("content", "")
+                        for m in reversed(messages)
+                        if m.get("role") == "user"
+                    ),
+                    "",
+                )
+                if isinstance(_user_content, list):
+                    _user_content = " ".join(
+                        p.get("text", "") for p in _user_content if isinstance(p, dict)
+                    )
+                _model = self._smart_router.resolve(_user_content, self.model)
+
             response = await self.provider.chat(
                 messages=messages,
                 tools=self.tools.get_definitions(),
-                model=self.model,
+                model=_model,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
             )
@@ -511,72 +589,114 @@ class AgentLoop:
                     reasoning_content=response.reasoning_content,
                 )
 
-                for tool_call in response.tool_calls:
-                    tools_used.append(tool_call.name)
-                    args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
-                    logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
-                    # For MCP tools, create a progress forwarder that sends
-                    # page-level progress to the user's chat channel.
-                    # Also supports heartbeat mode: when the MCP server
-                    # sends no progress events, the wrapper periodically
-                    # fires _on_progress(elapsed, 0, heartbeat=True) to
-                    # let users know the tool is still running.
-                    _mcp_on_progress = None
-                    if tool_call.name.startswith("mcp_") and on_progress:
-                        _tool_display = tool_call.name.removeprefix("mcp_")
+                # Build flat dicts for the registry dispatch helpers
+                _tc_dicts = [
+                    {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                    for tc in response.tool_calls
+                ]
 
-                        async def _mcp_on_progress(
-                            progress, total, _on_progress=on_progress,
-                            _display=_tool_display, *, heartbeat=False,
+                # Dispatch tool calls: run parallelisable batches concurrently,
+                # fall back to sequential for tools that must run one at a time.
+                if self.tools.should_parallelize(_tc_dicts):
+                    parallel_results = await self.tools.execute_concurrent(_tc_dicts)
+                    # execute_concurrent returns list[tuple[tc_id, result_str]]
+                    result_by_id = dict(parallel_results)
+                    for tool_call in response.tool_calls:
+                        result = result_by_id.get(tool_call.id, "")
+                        tools_used.append(tool_call.name)
+                        logger.info(
+                            "Tool call (parallel): {}",
+                            tool_call.name,
+                        )
+                        if (
+                            self.max_tool_result_chars > 0
+                            and isinstance(result, str)
+                            and len(result) > self.max_tool_result_chars
                         ):
-                            if heartbeat:
-                                elapsed = int(progress)
-                                mins, secs = divmod(elapsed, 60)
-                                elapsed_str = f"{mins}m{secs:02d}s" if mins else f"{secs}s"
-                                # Long-running (>=60s) heartbeats are important status
-                                # updates — mark tool_hint=False so they bypass the
-                                # default send_tool_hints=False filter.
-                                important = elapsed >= 60
-                                await _on_progress(
-                                    f"\u23f3 {_display} \u6b63\u5728\u6267\u884c\u4e2d... (\u5df2\u7528\u65f6 {elapsed_str})",
-                                    tool_hint=not important,
-                                )
-                            elif total:
-                                pct = int(progress / total * 100)
-                                await _on_progress(
-                                    f"\u23f3 {progress}/{total} ({pct}%)",
-                                    tool_hint=True,
-                                )
+                            result = (
+                                result[: self.max_tool_result_chars]
+                                + f"\n... [truncated: original {len(result)} chars]"
+                            )
+                        if session_key and isinstance(result, str):
+                            self.memory.record_tool_feedback(
+                                session_key, tool_call.name, result,
+                            )
+                        messages = self.context.add_tool_result(
+                            messages, tool_call.id, tool_call.name, result
+                        )
+                else:
+                    for tool_call in response.tool_calls:
+                        tools_used.append(tool_call.name)
+                        args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
+                        logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
+                        # For MCP tools, create a progress forwarder that sends
+                        # page-level progress to the user's chat channel.
+                        # Also supports heartbeat mode: when the MCP server
+                        # sends no progress events, the wrapper periodically
+                        # fires _on_progress(elapsed, 0, heartbeat=True) to
+                        # let users know the tool is still running.
+                        _mcp_on_progress = None
+                        if tool_call.name.startswith("mcp_") and on_progress:
+                            _tool_display = tool_call.name.removeprefix("mcp_")
 
-                    result = await self.tools.execute(
-                        tool_call.name,
-                        tool_call.arguments,
-                        _on_progress=_mcp_on_progress,
-                    )
-                    # Record tool feedback for self-improvement lessons
-                    if session_key and isinstance(result, str):
-                        self.memory.record_tool_feedback(
-                            session_key, tool_call.name, result,
+                            async def _mcp_on_progress(
+                                progress, total, _on_progress=on_progress,
+                                _display=_tool_display, *, heartbeat=False,
+                            ):
+                                if heartbeat:
+                                    elapsed = int(progress)
+                                    mins, secs = divmod(elapsed, 60)
+                                    elapsed_str = f"{mins}m{secs:02d}s" if mins else f"{secs}s"
+                                    # Long-running (>=60s) heartbeats are important status
+                                    # updates — mark tool_hint=False so they bypass the
+                                    # default send_tool_hints=False filter.
+                                    important = elapsed >= 60
+                                    await _on_progress(
+                                        f"\u23f3 {_display} \u6b63\u5728\u6267\u884c\u4e2d... (\u5df2\u7528\u65f6 {elapsed_str})",
+                                        tool_hint=not important,
+                                    )
+                                elif total:
+                                    pct = int(progress / total * 100)
+                                    await _on_progress(
+                                        f"\u23f3 {progress}/{total} ({pct}%)",
+                                        tool_hint=True,
+                                    )
+
+                        result = await self.tools.execute(
+                            tool_call.name,
+                            tool_call.arguments,
+                            _on_progress=_mcp_on_progress,
                         )
-                    # Truncate large tool results to prevent context explosion.
-                    # This applies to the live prompt; saved-session truncation is
-                    # separate (see _save_turn / _TOOL_RESULT_MAX_CHARS).
-                    if (
-                        self.max_tool_result_chars > 0
-                        and isinstance(result, str)
-                        and len(result) > self.max_tool_result_chars
-                    ):
-                        truncated_note = (
-                            f"\n... [truncated: original {len(result)} chars, "
-                            f"showing first {self.max_tool_result_chars}]"
+                        # Record tool feedback for self-improvement lessons
+                        if session_key and isinstance(result, str):
+                            self.memory.record_tool_feedback(
+                                session_key, tool_call.name, result,
+                            )
+                        # Truncate large tool results to prevent context explosion.
+                        # This applies to the live prompt; saved-session truncation is
+                        # separate (see _save_turn / _TOOL_RESULT_MAX_CHARS).
+                        if (
+                            self.max_tool_result_chars > 0
+                            and isinstance(result, str)
+                            and len(result) > self.max_tool_result_chars
+                        ):
+                            truncated_note = (
+                                f"\n... [truncated: original {len(result)} chars, "
+                                f"showing first {self.max_tool_result_chars}]"
+                            )
+                            result = result[: self.max_tool_result_chars] + truncated_note
+                        messages = self.context.add_tool_result(
+                            messages, tool_call.id, tool_call.name, result
                         )
-                        result = result[: self.max_tool_result_chars] + truncated_note
-                    messages = self.context.add_tool_result(
-                        messages, tool_call.id, tool_call.name, result
-                    )
-                    if tool_call.name == "message" and isinstance(result, str) and result.startswith("Message sent"):
-                        final_content = None
-                        return final_content, tools_used, messages
+                        if tool_call.name == "message" and isinstance(result, str) and result.startswith("Message sent"):
+                            final_content = None
+                            return final_content, tools_used, messages
+
+                # Inject iteration-budget pressure warning into most recent tool result
+                if messages:
+                    last_msg = messages[-1]
+                    if last_msg.get("role") == "tool":
+                        budget.maybe_inject_warning(last_msg)
                 if self.reflect_after_tool_calls:
                     messages.append(
                         {
@@ -609,7 +729,7 @@ class AgentLoop:
                         )
                 break
 
-        if final_content is None and iteration >= self.max_iterations:
+        if final_content is None and budget.exhausted:
             logger.warning("Max iterations ({}) reached", self.max_iterations)
             unique_tools = sorted(set(tools_used))
             summary = ', '.join(unique_tools) if unique_tools else '无'
