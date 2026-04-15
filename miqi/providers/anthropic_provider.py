@@ -41,7 +41,7 @@ class AnthropicProvider(LLMProvider):
         self.extra_headers = extra_headers or {}
 
         client_kwargs: dict[str, Any] = {
-            "api_key": api_key,
+            "api_key": api_key or None,
             "default_headers": self.extra_headers,
         }
         if api_base:

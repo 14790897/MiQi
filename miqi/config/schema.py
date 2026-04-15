@@ -178,7 +178,7 @@ class AgentDefaults(Base):
     name: str = "miqi"
     workspace: str = "~/.miqi/workspace"
     model: str = "anthropic/claude-opus-4-5"
-    max_tokens: int = 16000
+    max_tokens: int = 8192
     temperature: float = 0.1
     max_tool_iterations: int = 100
     memory_window: int = 100
@@ -422,23 +422,23 @@ class Config(BaseSettings):
             kw = kw.lower()
             return kw in model_lower or kw.replace("-", "_") in model_normalized
 
-        # Explicit provider prefix wins — prevents `github-copilot/...codex` matching openai_codex.
-        for spec in PROVIDERS:
-            p = getattr(self.providers, spec.name, None)
-            if p and model_prefix and normalized_prefix == spec.name:
-                if spec.is_oauth or p.api_key:
-                    return p, spec.name
-
         def _is_configured(spec, provider) -> bool:
             if spec.is_local:
                 return bool(provider.api_base)
             return bool(provider.api_key)
 
+        # Explicit provider prefix wins — prevents `github-copilot/...codex` matching openai_codex.
+        for spec in PROVIDERS:
+            p = getattr(self.providers, spec.name, None)
+            if p and model_prefix and normalized_prefix == spec.name:
+                if spec.is_oauth or _is_configured(spec, p):
+                    return p, spec.name
+
         # Match by keyword (order follows PROVIDERS registry)
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
             if p and any(_kw_matches(kw) for kw in spec.keywords):
-                if spec.is_oauth or p.api_key:
+                if spec.is_oauth or _is_configured(spec, p):
                     return p, spec.name
 
         # Fallback: gateways first, then others (follows registry order)
@@ -504,15 +504,15 @@ class Config(BaseSettings):
         try:
             if spec.provider_type == "anthropic":
                 from miqi.providers.anthropic_provider import AnthropicProvider
-                return AnthropicProvider(api_key=api_key, api_base=api_base)
+                return AnthropicProvider(api_key=api_key, api_base=api_base, provider_name=provider_name, default_model=model)
             elif spec.provider_type == "gemini":
                 from miqi.providers.gemini_provider import GeminiProvider
-                return GeminiProvider(api_key=api_key, api_base=api_base)
+                return GeminiProvider(api_key=api_key, api_base=api_base, provider_name=provider_name, default_model=model)
             else:
                 from miqi.providers.openai_provider import OpenAIProvider
                 extra_headers = getattr(self.providers, provider_name, None)
                 headers = extra_headers.extra_headers if extra_headers else None
-                return OpenAIProvider(api_key=api_key, api_base=api_base, extra_headers=headers)
+                return OpenAIProvider(api_key=api_key, api_base=api_base, extra_headers=headers, provider_name=provider_name, default_model=model)
         except Exception:
             return None
 
