@@ -526,6 +526,12 @@ def _detect_feishu_mcp_python() -> str | None:
     import shutil
     from pathlib import Path
 
+    # Bundled submodule path (set up by scripts/setup_mcps.sh)
+    repo_root = Path(__file__).resolve().parents[2]
+    bundled = repo_root / "mcps" / "feishu-mcp" / ".venv" / "bin" / "python"
+    if bundled.exists():
+        return str(bundled)
+
     # Check PATH for feishu-mcp virtual env python
     candidates = [
         Path.home() / "feishu-mcp" / "feishu-mcp" / "bin" / "python",
@@ -549,6 +555,12 @@ def _detect_feishu_mcp_python() -> str | None:
 def _detect_pdf2zh_mcp_python() -> str | None:
     """Try common installation paths for pdftranslate-mcp / pdf2zh."""
     from pathlib import Path
+
+    # Bundled submodule path (set up by scripts/setup_mcps.sh)
+    repo_root = Path(__file__).resolve().parents[2]
+    bundled = repo_root / "mcps" / "pdftranslate-mcp" / ".venv" / "bin" / "python"
+    if bundled.exists():
+        return str(bundled)
 
     candidates = [
         Path.home() / "pdftranslate-mcp" / ".venv" / "bin" / "python",

@@ -6,7 +6,7 @@
 # purposely NOT written here — see the prompts at the end.
 #
 # Prerequisites:
-#   1. miqi is installed (pip install -e . or uv pip install -e .)
+#   1. miqi is installed (uv sync or pip install -e .)
 #   2. scripts/setup_mcps.sh has already been run (venvs exist)
 #
 # Usage:
@@ -138,7 +138,13 @@ fi
 
 echo ""
 info "Configuring pdf2zh MCP (auto-reads provider credentials)..."
-miqi config pdf2zh --mcp-python "$PDF2ZH_CMD" --timeout 3600
+if [[ -t 0 ]]; then
+    miqi config pdf2zh --mcp-python "$PDF2ZH_CMD" --timeout 3600
+else
+    # Non-interactive: skip if provider cannot be auto-detected
+    miqi config pdf2zh --mcp-python "$PDF2ZH_CMD" --timeout 3600 2>/dev/null || \
+        warn "pdf2zh auto-config failed (non-interactive). Run 'miqi config pdf2zh' manually."
+fi
 
 echo ""
 info "All MCP servers configured."

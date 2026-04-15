@@ -10,15 +10,14 @@ RUN useradd -m -s /bin/bash -u 1000 miqi
 
 WORKDIR /app
 
-# Install Python dependencies first (cached layer)
-COPY pyproject.toml README.md LICENSE ./
-RUN mkdir -p miqi && touch miqi/__init__.py && \
-    uv pip install --system --no-cache . && \
-    rm -rf miqi
+# Copy project metadata and lockfile first (cached layer)
+COPY pyproject.toml uv.lock README.md LICENSE ./
 
-# Copy the full source and install
+# Copy the full source
 COPY miqi/ miqi/
-RUN uv pip install --system --no-cache .
+
+# Install with uv sync using the lockfile for reproducible builds
+RUN uv sync --frozen --no-dev --no-editable
 
 # Transfer ownership and create the config directory for the non-root user
 RUN chown -R miqi:miqi /app && \
@@ -27,6 +26,9 @@ RUN chown -R miqi:miqi /app && \
 
 # Switch to non-root user
 USER miqi
+
+# Add the project venv to PATH
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Gateway default port
 EXPOSE 18790
