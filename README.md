@@ -29,7 +29,7 @@ MiQi is a domain-focused evolution of the upstream [`nanobot`](https://github.co
 
 | Category | Capabilities |
 |---|---|
-| **LLM Providers** | OpenRouter, OpenAI, Anthropic, DeepSeek, Gemini, Groq, Moonshot, MiniMax, ZhipuAI, DashScope (Qwen), SiliconFlow, VolcEngine, AiHubMix, vLLM, Ollama, OpenAI Codex (OAuth), and any OpenAI-compatible endpoint |
+| **LLM Providers** | OpenRouter, OpenAI, Anthropic, DeepSeek, Gemini, Groq, Moonshot, MiniMax, ZhipuAI, DashScope (Qwen), SiliconFlow, VolcEngine, AiHubMix, vLLM, Ollama, OpenAI Codex (OAuth), GitHub Copilot (OAuth), and any OpenAI-compatible endpoint |
 | **Built-in Tools** | File system, shell, web fetch/search, paper research (search/details/download), cron scheduler, sub-agent spawning |
 | **Channels** | Feishu is wired in the packaged gateway today; additional adapter modules for Telegram/Discord/Slack/Email/QQ/DingTalk/MoChat are present in the repository for extension work |
 | **MCP Integration** | Connect any MCP-compatible tool server (e.g. [feishu-mcp](https://github.com/lichman0405/feishu-mcp)) |
@@ -44,20 +44,40 @@ MiQi is a domain-focused evolution of the upstream [`nanobot`](https://github.co
 
 ### Installation
 
-```bash
-# Clone the repository
-git clone https://github.com/lichman0405/miqi.git
-cd miqi
+#### Using [uv](https://docs.astral.sh/uv/) (Recommended)
 
-# Create and activate a virtual environment
+[uv](https://github.com/astral-sh/uv) is a fast Python package manager that uses the `uv.lock` lockfile shipped in this repository for reproducible installs.
+
+```bash
+# Install uv (skip if already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Verify uv
+uv --version   # e.g. uv 0.11.x
+
+# Clone and install
+git clone https://github.com/lichman0405/MiQi.git
+cd MiQi
+uv sync            # creates .venv, installs locked dependencies + miqi
+
+# Activate the virtual environment
+source .venv/bin/activate
+
+# Verify
+miqi --version
+```
+
+#### Using pip
+
+```bash
+git clone https://github.com/lichman0405/MiQi.git
+cd MiQi
+
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install MiQi
 pip install --upgrade pip
 pip install -e .
 
-# Verify
 miqi --version
 ```
 
@@ -88,6 +108,10 @@ miqi gateway
 ### With Dev Dependencies
 
 ```bash
+# uv (recommended) — installs pytest, ruff, pytest-asyncio
+uv sync --extra dev
+
+# pip alternative
 pip install -e '.[dev]'
 ```
 
@@ -181,9 +205,12 @@ server {
 ### Upgrading
 
 ```bash
-cd miqi
+cd MiQi
 git pull --recurse-submodules
-pip install -e .                    # reinstall core
+
+# Reinstall core
+uv sync                              # or: pip install -e .
+
 bash scripts/setup_mcps.sh          # update MCP venvs
 bash scripts/configure_mcps.sh      # re-register MCPs (idempotent)
 # then restart the gateway (systemctl restart miqi / docker compose up --build)

@@ -10,7 +10,23 @@
 
 ## Installation
 
-### Standard Install
+### Using [uv](https://docs.astral.sh/uv/) (Recommended)
+
+[uv](https://github.com/astral-sh/uv) is a fast Python package manager. MiQi ships a `uv.lock` lockfile for reproducible installs.
+
+```bash
+# Install uv (skip if already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv --version   # e.g. uv 0.11.x
+
+git clone https://github.com/lichman0405/MiQi.git
+cd MiQi
+uv sync            # creates .venv, installs locked dependencies + miqi
+source .venv/bin/activate
+miqi --version
+```
+
+### Using pip
 
 ```bash
 git clone https://github.com/lichman0405/MiQi.git
@@ -28,6 +44,10 @@ miqi --version
 ### With Dev Dependencies
 
 ```bash
+# uv
+uv sync --extra dev
+
+# pip
 pip install -e '.[dev]'
 ```
 
@@ -171,7 +191,10 @@ server {
 ```bash
 cd MiQi
 git pull --recurse-submodules
-pip install -e .
+
+# Reinstall core
+uv sync                              # or: pip install -e .
+
 bash scripts/setup_mcps.sh          # update MCP venvs
 bash scripts/configure_mcps.sh      # re-register MCPs (idempotent)
 # then restart the gateway:

@@ -8,6 +8,18 @@
 ## Local Installation
 
 ```bash
+# Using uv (recommended)
+curl -LsSf https://astral.sh/uv/install.sh | sh   # skip if uv already installed
+uv --version
+
+git clone https://github.com/lichman0405/MiQi.git
+cd MiQi
+uv sync --extra dev     # creates .venv, installs all deps + dev tools
+source .venv/bin/activate
+```
+
+```bash
+# Using pip (alternative)
 git clone https://github.com/lichman0405/MiQi.git
 cd MiQi
 python3 -m venv .venv

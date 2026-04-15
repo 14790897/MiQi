@@ -5,7 +5,7 @@ Thanks for contributing to MiQi.
 ## Before You Start
 
 1. Fork the repository and create a branch.
-2. Install the local development environment: `pip install -e .`
+2. Install the local development environment: `uv sync --extra dev` (or `pip install -e '.[dev]'`)
 3. Read these docs before making changes:
    - `README.md`
    - `docs/DEVELOPER_GUIDE.md`

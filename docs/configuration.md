@@ -89,7 +89,7 @@ Default settings applied to all agent instances.
 | `name` | string | `"miqi"` | Agent display name |
 | `workspace` | string | `~/.miqi/workspace` | Working directory and runtime data root |
 | `temperature` | float | `0.1` | LLM sampling temperature |
-| `maxTokens` | int | `16000` | Maximum output tokens per response |
+| `maxTokens` | int | `8192` | Maximum output tokens per response |
 | `maxToolIterations` | int | `100` | Maximum tool-call rounds per turn |
 | `memoryWindow` | int | `100` | Session history window used during context build |
 | `reflectAfterToolCalls` | bool | `true` | Insert the internal reflection prompt after tool batches |

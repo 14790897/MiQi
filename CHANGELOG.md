@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Documentation
+- Added uv installation instructions to README, getting-started, developer-guide, and contributing docs; uv is the recommended install method, pip retained as fallback.
+- Updated `maxTokens` default from `16000` to `8192` in `docs/configuration.md` to match code.
+- Added GitHub Copilot (OAuth) to README LLM Providers feature list.
+- Fixed `ff agent` → `miqi agent` in historical changelog entries.
 - Updated README and project docs to match current code paths and schema defaults:
   - corrected workspace-relative memory/session storage paths (`<workspace>/memory`, `<workspace>/sessions`)
   - documented current packaged gateway scope (Feishu wired today; other channel adapters remain extension modules)
@@ -38,11 +42,16 @@ All notable changes to this project will be documented in this file.
   - `tz`: extended to apply to both `cron_expr` and `at` modes.
 
 ### Fixed
+- Fixed `max_tokens` default of 16000 exceeding DeepSeek API maximum (8192 output tokens): lowered `AgentDefaults.max_tokens` back to 8192. After migration from litellm (which auto-capped per model) to direct SDK calls (which do not), the previous 16000 default caused 400 BadRequest errors on DeepSeek (`config/schema.py`).
+- Fixed `_match_provider()` using bare `api_key` truthiness check, preventing `is_local` providers (vLLM, Ollama Local) from matching when they use `api_base` instead of `api_key`: replaced with `_is_configured()` helper that checks both `api_key` and `api_base` (`config/schema.py`).
+- Fixed `build_provider()` not passing `provider_name` and `default_model` to fallback-chain provider constructors, causing fallback providers to use wrong endpoints and model names (`config/schema.py`).
+- Fixed `_make_provider()` in onboard CLI requiring `api_key` for `is_local` providers (vLLM, Ollama Local) that only need `api_base`: added `is_local` exemption to the api_key requirement check (`cli/commands.py`).
+- Fixed `AnthropicProvider` passing empty-string `api_key` to SDK instead of `None`, preventing the SDK from falling back to `ANTHROPIC_API_KEY` environment variable (`providers/anthropic_provider.py`).
 - Fixed cron `at` mode silently using server local timezone for naive datetime strings: naive datetimes now interpreted as UTC when no `tz` is provided; `tz=` can be passed together with `at=` to override (`miqi/agent/tools/cron.py`).
 - Fixed `tz` parameter rejected when combined with `at`: removed erroneous validation that blocked `tz` + `at` combinations (`miqi/agent/tools/cron.py`).
 - Fixed cron `cron` mode using unpredictable server local timezone as fallback: now falls back to UTC for deterministic behavior across deployment environments (`miqi/cron/service.py`).
-- Fixed `ff agent` mode (CLI) silently ignoring all cron jobs: `on_job` callback was never registered and `cron.start()` was never called; both now wired correctly in `cli/agent_cmd.py`.
-- Fixed `ff agent` mode not propagating `job_timeout` from config to `CronService` (`miqi/cli/agent_cmd.py`).
+- Fixed `miqi agent` mode (CLI) silently ignoring all cron jobs: `on_job` callback was never registered and `cron.start()` was never called; both now wired correctly in `cli/agent_cmd.py`.
+- Fixed `miqi agent` mode not propagating `job_timeout` from config to `CronService` (`miqi/cli/agent_cmd.py`).
 
 ### Removed
 - Removed `clawhub` skill (`miqi/skills/clawhub/`) — not applicable to this deployment.

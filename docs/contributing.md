@@ -7,7 +7,8 @@ Thanks for contributing to MiQi.
 1. Fork the repository and create a branch.
 2. Install the local development environment:
    ```bash
-   pip install -e '.[dev]'
+   uv sync --extra dev        # recommended
+   # or: pip install -e '.[dev]'
    ```
 3. Read these docs before making changes:
    - [Architecture](architecture.md)
