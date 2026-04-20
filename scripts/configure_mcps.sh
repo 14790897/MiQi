@@ -26,14 +26,26 @@ info()  { echo -e "${GREEN}[configure_mcps]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[configure_mcps] WARN:${NC} $*"; }
 error() { echo -e "${RED}[configure_mcps] ERROR:${NC} $*" >&2; exit 1; }
 
+STEP=0
+step() { STEP=$((STEP+1)); echo -e "\n${GREEN}[configure_mcps]${NC} ── Step ${STEP}: $* ──"; }
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Pre-flight
 # ──────────────────────────────────────────────────────────────────────────────
 
+echo ""
+info "MiQi MCP configure — registering 7 MCP servers into miqi config"
+
+step "Pre-flight: verify miqi is installed and submodules are set up"
 command -v miqi &>/dev/null || error \
     "miqi is not in PATH. Install it first: pip install -e ."
+info "  ✓ $(miqi --version 2>/dev/null | head -1)"
 
 for dir in zeopp-backend raspa-mcp mofstructure-mcp mofchecker-mcp pdftranslate-mcp feishu-mcp miqrophi-mcp; do
+    if [[ ! -f "$MCPS_DIR/$dir/pyproject.toml" ]]; then
+        warn "mcps/$dir has no pyproject.toml — submodule not checked out. Run: bash scripts/setup_mcps.sh --init"
+        continue
+    fi
     [[ -d "$MCPS_DIR/$dir/.venv" || -f "$MCPS_DIR/$dir/uv.lock" ]] || {
         warn "mcps/$dir does not appear set up — run scripts/setup_mcps.sh first."
     }
@@ -43,6 +55,7 @@ done
 # Resolve per-MCP Python interpreters
 # ──────────────────────────────────────────────────────────────────────────────
 
+step "Resolve per-MCP interpreter paths"
 ZEOPP_CMD="$(command -v uv)"
 RASPA2_CMD="$(command -v uv)"
 MOFSTRUCTURE_CMD="$MCPS_DIR/mofstructure-mcp/.venv/bin/python"
@@ -50,17 +63,25 @@ MOFCHECKER_CMD="$MCPS_DIR/mofchecker-mcp/.venv/bin/python"
 PDF2ZH_CMD="$MCPS_DIR/pdftranslate-mcp/.venv/bin/python"
 FEISHU_CMD="$MCPS_DIR/feishu-mcp/.venv/bin/python"
 MIQROPHI_CMD="$MCPS_DIR/miqrophi-mcp/.venv/bin/python"
+info "  zeopp / raspa2 → uv (project-local run)"
+info "  mofstructure   → $MOFSTRUCTURE_CMD"
+info "  mofchecker     → $MOFCHECKER_CMD"
+info "  pdf2zh         → $PDF2ZH_CMD"
+info "  feishu-mcp     → $FEISHU_CMD"
+info "  miqrophi       → $MIQROPHI_CMD"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Register each server (non-interactive, no credentials)
 # ──────────────────────────────────────────────────────────────────────────────
+
+step "Register MCP servers with miqi config (5 non-interactive servers)"
 
 register() {
     local label="$1"
     shift
     info "Registering $label..."
     miqi config mcp add "$@"
-    info "  ✓ $label"
+    info "  ✓ $label registered"
 }
 
 # zeopp-backend — no credentials needed, long-running analysis
@@ -118,7 +139,7 @@ register "miqrophi" miqrophi \
 # Feishu — prompt for credentials, then configure channel + MCP in one shot
 # ──────────────────────────────────────────────────────────────────────────────
 
-echo ""
+step "Configure Feishu channel and feishu-mcp (interactive)"
 info "Configuring Feishu channel and feishu-mcp..."
 read -rp "  Feishu App ID (cli_xxx, leave blank to skip): " FEISHU_APP_ID
 if [[ -n "$FEISHU_APP_ID" ]]; then
@@ -136,7 +157,7 @@ fi
 # pdf2zh — auto-fills LLM credentials already configured in miqi
 # ──────────────────────────────────────────────────────────────────────────────
 
-echo ""
+step "Configure pdf2zh MCP (reads LLM provider credentials from miqi config)"
 info "Configuring pdf2zh MCP (auto-reads provider credentials)..."
 if [[ -t 0 ]]; then
     miqi config pdf2zh --mcp-python "$PDF2ZH_CMD" --timeout 3600

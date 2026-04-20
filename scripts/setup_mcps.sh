@@ -32,23 +32,39 @@ check_cmd() {
     command -v "$1" &>/dev/null || error "'$1' is not installed. $2"
 }
 
+STEP=0
+step() { STEP=$((STEP+1)); echo -e "\n${GREEN}[setup_mcps]${NC} ── Step ${STEP}: $* ──"; }
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Pre-flight checks
 # ──────────────────────────────────────────────────────────────────────────────
 
+echo ""
+info "MiQi MCP setup — 7 submodules:"
+info "  zeopp-backend · raspa-mcp · mofstructure-mcp · mofchecker-mcp"
+info "  pdftranslate-mcp · feishu-mcp · miqrophi-mcp"
+
+step "Pre-flight: checking required tools (uv, git)"
 check_cmd uv "Install via: curl -LsSf https://astral.sh/uv/install.sh | sh"
 check_cmd git "Install git first."
+info "  ✓ uv $(uv --version 2>/dev/null | head -1)"
+info "  ✓ git $(git --version)"
 
 # Optional: initialise / update submodules
 if [[ "${1:-}" == "--init" ]]; then
-    info "Initialising git submodules..."
-    git -C "$REPO_ROOT" submodule update --init --recursive
+    step "Initialise git submodules (--force, --recursive)"
+    info "  Cloning / checking out all mcps/* submodules from upstream..."
+    git -C "$REPO_ROOT" submodule update --init --force --recursive
+    info "  ✓ All submodules checked out"
 fi
 
-# Verify submodule directories are populated
+step "Verify submodule contents (pyproject.toml / uv.lock)"
+info "  Checking each mcps/* directory is fully checked out..."
+# Verify submodule directories contain project files (not just git placeholders)
 for dir in zeopp-backend raspa-mcp mofstructure-mcp mofchecker-mcp pdftranslate-mcp feishu-mcp miqrophi-mcp; do
-    [[ -d "$MCPS_DIR/$dir" ]] || error \
-        "Directory mcps/$dir is missing. Run: bash scripts/setup_mcps.sh --init"
+    [[ -f "$MCPS_DIR/$dir/pyproject.toml" || -f "$MCPS_DIR/$dir/uv.lock" ]] || error \
+        "mcps/$dir has no pyproject.toml — submodule not checked out. Run: bash scripts/setup_mcps.sh --init"
+    info "  ✓ mcps/$dir"
 done
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -61,14 +77,18 @@ setup_venv() {
     local dir="$MCPS_DIR/$name"
 
     info "Setting up $name (Python ${python_ver:-auto})..."
+    [[ -f "$dir/pyproject.toml" || -f "$dir/setup.py" ]] || error \
+        "mcps/$name has no pyproject.toml — submodule not checked out. Run: bash scripts/setup_mcps.sh --init"
     pushd "$dir" > /dev/null
 
+    info "  → Creating virtual environment (.venv)..."
     if [[ -n "$python_ver" ]]; then
         uv venv .venv --python "$python_ver"
     else
         uv venv .venv
     fi
 
+    info "  → Installing package in editable mode (uv pip install -e .)..."
     # Install package in editable mode into the new venv
     uv pip install --python .venv/bin/python -e . --quiet
 
@@ -85,7 +105,10 @@ setup_uv_sync() {
     local dir="$MCPS_DIR/$name"
 
     info "Setting up $name (uv sync)..."
+    [[ -f "$dir/pyproject.toml" || -f "$dir/uv.lock" ]] || error \
+        "mcps/$name has no pyproject.toml — submodule not checked out. Run: bash scripts/setup_mcps.sh --init"
     pushd "$dir" > /dev/null
+    info "  → Syncing and installing all dependencies (uv sync)..."
     uv sync --quiet
     popd > /dev/null
     info "  ✓ $name"
@@ -94,6 +117,9 @@ setup_uv_sync() {
 # ──────────────────────────────────────────────────────────────────────────────
 # Per-MCP setup
 # ──────────────────────────────────────────────────────────────────────────────
+
+step "Install Python environments for all 7 MCPs"
+info "  First run may take several minutes per MCP (downloading packages)."
 
 # zeopp-backend — Python 3.10+, uses uv natively
 setup_uv_sync "zeopp-backend"
@@ -117,8 +143,12 @@ setup_venv "feishu-mcp" "3.12"
 
 # miqrophi-mcp — Python 3.10+ (epitaxial lattice matching), install with MCP extras
 info "Setting up miqrophi-mcp (Python 3.12)..."
+[[ -f "$MCPS_DIR/miqrophi-mcp/pyproject.toml" || -f "$MCPS_DIR/miqrophi-mcp/setup.py" ]] || error \
+    "mcps/miqrophi-mcp has no pyproject.toml — submodule not checked out. Run: bash scripts/setup_mcps.sh --init"
 pushd "$MCPS_DIR/miqrophi-mcp" > /dev/null
+info "  → Creating virtual environment (.venv)..."
 uv venv .venv --python 3.12
+info "  → Installing package with MCP extras (uv pip install -e '.[mcp]')..."
 uv pip install --python .venv/bin/python -e ".[mcp]" --quiet
 popd > /dev/null
 info "  ✓ miqrophi-mcp"
