@@ -19,6 +19,20 @@ This file documents non-obvious constraints and usage patterns.
 - Use this tool to download paper PDFs into workspace.
 - It detects common paywall/login interstitial pages and returns structured errors instead of saving fake PDFs.
 
+## Feishu Channel — Runtime Behaviors
+
+These are enforced by the MiQi Feishu channel itself (not by the MCP tool):
+
+- **Group chats require an @mention.** The bot only replies in a group when it is explicitly
+  @-mentioned. In group replies, address the original sender with a real Feishu mention via
+  `<at user_id="ou_xxx">name</at>` (the runtime constructs this for incoming events).
+- **3-second debounce.** Multiple consecutive user messages within ~3s are coalesced into one
+  agent turn. Do not send progress pings for every fragment; respond once the burst settles.
+- **Non-text messages arrive as descriptive text.** Files / images / audio / video / media
+  events are converted to a `[收到文件]` / `[收到图片]` / … prefix containing `message_id` and
+  `file_key`. Always call `mcp_feishu-mcp_download_message_file` to fetch the actual bytes —
+  never assume a local path exists.
+
 ## Feishu Message Length Limits
 
 The Feishu API enforces a **30 720-byte hard limit** on `text` message content

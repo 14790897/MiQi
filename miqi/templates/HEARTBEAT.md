@@ -4,6 +4,10 @@
 This file is checked every 30 minutes by your MiQi runtime.
 Add tasks below that you want the agent to work on periodically.
 If this file has no tasks (only headers and comments), the agent will skip the heartbeat.
+
+NOTE: This file is for open-ended periodic background work only.
+For fixed-time reminders or strict recurring schedules, use the `cron` tool instead.
+This file is NOT loaded into the system prompt — it is read by the heartbeat service.
 -->
 
 ## Active Tasks

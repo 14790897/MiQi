@@ -15,7 +15,7 @@ Full workflow: search → download → (translate) → summarize → report.
 | `paper_search` | Search by keyword/author/topic (Semantic Scholar) |
 | `paper_get` | Fetch metadata + abstract for a known paper ID or DOI |
 | `paper_download` | Download PDF to `workspace/artifacts/papers/` |
-| `translate_pdf` | Translate PDF (en→zh or other); returns mono + dual PDF paths |
+| `mcp_pdf2zh_translate_pdf` | Translate PDF (en→zh or other); returns mono + dual PDF paths. Requires `pdf2zh` MCP server (`miqi config pdf2zh`). |
 | `web_search` | Fallback for news, preprints not yet indexed |
 
 ## Standard Research Briefing
@@ -41,8 +41,8 @@ Never fabricate DOIs or URLs — only use what `paper_search`/`paper_get` return
 # Download (saves to workspace/artifacts/papers/<title>.pdf)
 paper_download(paper_id="<semantic_scholar_id_or_doi>")
 
-# Translate to Chinese (requires pdftranslate-mcp)
-translate_pdf(file="<absolute_path>", lang_in="en", lang_out="zh")
+# Translate to Chinese (requires pdftranslate-mcp, registered as the `pdf2zh` server)
+mcp_pdf2zh_translate_pdf(file="<absolute_path>", lang_in="en", lang_out="zh")
 # Returns: {"mono_pdf": "...", "dual_pdf": "..."}
 ```
 
