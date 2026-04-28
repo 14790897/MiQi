@@ -201,6 +201,7 @@ def _interactive_onboard_setup(config) -> tuple[str, str]:
         ("Zhipu", "zhipu", "glm-4"),
         ("MiniMax", "minimax", "MiniMax-M2.7"),
         ("AiHubMix", "aihubmix", "claude-opus-4.1"),
+        ("SiliconFlow", "siliconflow", "deepseek-ai/DeepSeek-V3"),
         ("vLLM / local OpenAI-compatible", "vllm", "meta-llama/Llama-3.1-8B-Instruct"),
         ("Ollama Local", "ollama_local", "llama3.2"),
         ("Ollama Cloud", "ollama_cloud", "gpt-oss:20b-cloud"),
@@ -223,6 +224,11 @@ def _interactive_onboard_setup(config) -> tuple[str, str]:
     console.print(f"Selected: [cyan]{provider_label}[/cyan]")
 
     provider_cfg = getattr(config.providers, provider_key)
+
+    # SiliconFlow gateway: must set api_base for gateway detection
+    if provider_key == "siliconflow":
+        provider_cfg.api_base = "https://api.siliconflow.cn/v1"
+
     if provider_key == "ollama_local":
         provider_cfg.api_base = typer.prompt(
             "Ollama local base URL",
@@ -704,16 +710,11 @@ def _create_workspace_templates(
 def _make_provider(config: Config):
     """Create the appropriate LLM provider from config."""
     from miqi.providers.custom_provider import CustomProvider
-    from miqi.providers.openai_codex_provider import OpenAICodexProvider
     from miqi.providers.registry import find_by_name
 
     model = config.agents.defaults.model
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
-
-    # OpenAI Codex (OAuth)
-    if provider_name == "openai_codex" or model.startswith("openai-codex/"):
-        return OpenAICodexProvider(default_model=model)
 
     # Custom: direct OpenAI-compatible endpoint
     if provider_name == "custom":
@@ -724,7 +725,7 @@ def _make_provider(config: Config):
         )
 
     spec = find_by_name(provider_name)
-    if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and spec.is_oauth) and not (spec and spec.is_local):
+    if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and spec.is_local):
         console.print("[red]Error: No API key configured.[/red]")
         console.print("Set one in your config file under providers section")
         raise typer.Exit(1)

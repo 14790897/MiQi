@@ -292,8 +292,6 @@ class ProvidersConfig(Base):
     ollama_cloud: ProviderConfig = Field(default_factory=ProviderConfig)
     siliconflow: ProviderConfig = Field(default_factory=ProviderConfig)  # SiliconFlow (硅基流动) API gateway
     volcengine: ProviderConfig = Field(default_factory=ProviderConfig)  # VolcEngine (火山引擎) API gateway
-    openai_codex: ProviderConfig = Field(default_factory=ProviderConfig)  # OpenAI Codex (OAuth)
-    github_copilot: ProviderConfig = Field(default_factory=ProviderConfig)  # Github Copilot (OAuth)
 
 
 class GatewayConfig(Base):
@@ -427,25 +425,22 @@ class Config(BaseSettings):
                 return bool(provider.api_base)
             return bool(provider.api_key)
 
-        # Explicit provider prefix wins — prevents `github-copilot/...codex` matching openai_codex.
+        # Explicit provider prefix wins.
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
             if p and model_prefix and normalized_prefix == spec.name:
-                if spec.is_oauth or _is_configured(spec, p):
+                if _is_configured(spec, p):
                     return p, spec.name
 
         # Match by keyword (order follows PROVIDERS registry)
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
             if p and any(_kw_matches(kw) for kw in spec.keywords):
-                if spec.is_oauth or _is_configured(spec, p):
+                if _is_configured(spec, p):
                     return p, spec.name
 
         # Fallback: gateways first, then others (follows registry order)
-        # OAuth providers are NOT valid fallbacks — they require explicit model selection
         for spec in PROVIDERS:
-            if spec.is_oauth:
-                continue
             p = getattr(self.providers, spec.name, None)
             if p and _is_configured(spec, p):
                 return p, spec.name

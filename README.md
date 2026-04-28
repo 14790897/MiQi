@@ -29,7 +29,7 @@ MiQi is a domain-focused evolution of the upstream [`nanobot`](https://github.co
 
 | Category | Capabilities |
 |---|---|
-| **LLM Providers** | OpenRouter, OpenAI, Anthropic, DeepSeek, Gemini, Groq, Moonshot, MiniMax, ZhipuAI, DashScope (Qwen), SiliconFlow, VolcEngine, AiHubMix, vLLM, Ollama, OpenAI Codex (OAuth), GitHub Copilot (OAuth), and any OpenAI-compatible endpoint |
+| **LLM Providers** | OpenRouter, OpenAI, Anthropic, DeepSeek, Gemini, Groq, Moonshot, MiniMax, ZhipuAI, DashScope (Qwen), SiliconFlow, VolcEngine, AiHubMix, vLLM, Ollama, and any OpenAI-compatible endpoint |
 | **Built-in Tools** | File system, shell, web fetch/search, paper research (search/details/download), cron scheduler, sub-agent spawning |
 | **Channels** | Feishu is wired in the packaged gateway today; additional adapter modules for Telegram/Discord/Slack/Email/QQ/DingTalk/MoChat are present in the repository for extension work |
 | **MCP Integration** | Connect any MCP-compatible tool server (e.g. [feishu-mcp](https://github.com/lichman0405/feishu-mcp)) |
@@ -357,12 +357,6 @@ This is particularly useful in containerised deployments where secrets are injec
 | `miqi config mcp list` | List all configured MCP servers |
 | `miqi config mcp add <name>` | Add or update an MCP server (stdio or HTTP) |
 | `miqi config mcp remove <name>` | Remove an MCP server |
-
-**Providers**
-
-| Command | Description |
-|---|---|
-| `miqi provider login openai-codex` | Authenticate with OpenAI Codex (OAuth) |
 
 ---
 

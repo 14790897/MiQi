@@ -52,10 +52,7 @@ class ProviderSpec:
     # per-model param overrides, e.g. (("kimi-k2.5", {"temperature": 1.0}),)
     model_overrides: tuple[tuple[str, dict[str, Any]], ...] = ()
 
-    # OAuth-based providers (e.g., OpenAI Codex) don't use API keys
-    is_oauth: bool = False                   # if True, uses OAuth flow instead of API key
-
-    # Direct providers use their own SDK (e.g., CustomProvider, OpenAICodexProvider)
+    # Direct providers use their own SDK (e.g., CustomProvider)
     is_direct: bool = False
 
     # Provider supports cache_control on content blocks (e.g. Anthropic prompt caching)
@@ -199,44 +196,6 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="",
         strip_model_prefix=False,
         model_overrides=(),
-    ),
-
-    # OpenAI Codex: uses OAuth, not API key.
-    ProviderSpec(
-        name="openai_codex",
-        keywords=("openai-codex", "codex"),
-        env_key="",                         # OAuth-based, no API key
-        display_name="OpenAI Codex",
-        model_prefix="",
-        skip_prefixes=(),
-        env_extras=(),
-        is_gateway=False,
-        is_local=False,
-        detect_by_key_prefix="",
-        detect_by_base_keyword="codex",
-        default_api_base="https://chatgpt.com/backend-api",
-        strip_model_prefix=False,
-        model_overrides=(),
-        is_oauth=True,                      # OAuth-based authentication
-    ),
-
-    # Github Copilot: uses OAuth, not API key.
-    ProviderSpec(
-        name="github_copilot",
-        keywords=("github_copilot", "copilot"),
-        env_key="",                         # OAuth-based, no API key
-        display_name="Github Copilot",
-        model_prefix="github_copilot",
-        skip_prefixes=("github_copilot/",),
-        env_extras=(),
-        is_gateway=False,
-        is_local=False,
-        detect_by_key_prefix="",
-        detect_by_base_keyword="",
-        default_api_base="",
-        strip_model_prefix=False,
-        model_overrides=(),
-        is_oauth=True,                      # OAuth-based authentication
     ),
 
     # DeepSeek: deepseek-reasoner (R1) requires reasoning_content in multi-turn history.

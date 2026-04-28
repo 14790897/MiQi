@@ -18,7 +18,7 @@ MiQi is a compact AI agent runtime designed for developers who want a self-hoste
 
 | Category | Capabilities |
 |---|---|
-| **LLM Providers** | OpenRouter, OpenAI, Anthropic, DeepSeek, Gemini, Groq, Moonshot, MiniMax, ZhipuAI, DashScope (Qwen), SiliconFlow, VolcEngine, AiHubMix, vLLM, Ollama, OpenAI Codex (OAuth), and any OpenAI-compatible endpoint |
+| **LLM Providers** | OpenRouter, OpenAI, Anthropic, DeepSeek, Gemini, Groq, Moonshot, MiniMax, ZhipuAI, DashScope (Qwen), SiliconFlow, VolcEngine, AiHubMix, vLLM, Ollama, and any OpenAI-compatible endpoint |
 | **Built-in Tools** | File system, shell, web fetch/search, paper research (search/details/download), cron scheduler, sub-agent spawning |
 | **Channels** | Feishu is wired in the packaged gateway today; additional adapter modules for Telegram/Discord/Slack/Email/QQ/DingTalk/MoChat are present in the repository |
 | **MCP Integration** | Connect any MCP-compatible tool server; seven domain-specific MCP servers bundled |

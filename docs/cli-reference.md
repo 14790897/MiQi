@@ -87,14 +87,6 @@ All commands support `--help` for usage details.
 
 ---
 
-## Providers
-
-| Command | Description |
-|---|---|
-| `miqi provider login openai-codex` | Authenticate with OpenAI Codex (OAuth) |
-
----
-
 ## Built-in Tool Reference
 
 Tools are executed through `ToolRegistry` and return string results.

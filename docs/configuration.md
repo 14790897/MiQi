@@ -73,7 +73,7 @@ API keys and base URLs for each LLM provider. Any provider supported by the Open
 }
 ```
 
-Supported provider keys in the current schema: `custom`, `openrouter`, `openai`, `anthropic`, `deepseek`, `gemini`, `groq`, `moonshot`, `minimax`, `zhipu`, `dashscope`, `siliconflow`, `volcengine`, `aihubmix`, `vllm`, `ollama_local`, `ollama_cloud`, `openai_codex`, `github_copilot`.
+Supported provider keys in the current schema: `custom`, `openrouter`, `openai`, `anthropic`, `deepseek`, `gemini`, `groq`, `moonshot`, `minimax`, `zhipu`, `dashscope`, `siliconflow`, `volcengine`, `aihubmix`, `vllm`, `ollama_local`, `ollama_cloud`.
 
 ---
 
