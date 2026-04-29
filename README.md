@@ -155,6 +155,19 @@ bash scripts/setup_mcps.sh      # install isolated venvs
 bash scripts/configure_mcps.sh  # register MCPs into config
 ```
 
+> **Note — single source of truth for LLM-backed MCPs.**
+> Any bundled MCP that needs an LLM (currently `pdf2zh`) automatically uses
+> the model and provider you set with `miqi onboard` / `miqi config defaults`.
+> To switch the model for everything in one step, run:
+>
+> ```bash
+> miqi config defaults --model <new-model>
+> miqi config sync-llm        # also performed at the end of configure_mcps.sh
+> ```
+>
+> Do **not** pass `-m` / `--model` to `miqi config pdf2zh` directly — the
+> next `sync-llm` run would overwrite it anyway.
+
 **3. Run with systemd** (Linux, recommended):
 
 Create `/etc/systemd/system/miqi.service`:
