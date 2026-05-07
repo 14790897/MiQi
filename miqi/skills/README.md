@@ -27,3 +27,4 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 | `weather` | Get weather info using wttr.in and Open-Meteo |
 | `workspace-cleanup` | Organize the miqi workspace directory |
 | `skill-creator` | Create new skills |
+| `slurm` | Submit, monitor, and manage SLURM jobs on the PVE cluster |

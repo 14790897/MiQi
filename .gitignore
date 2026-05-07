@@ -23,3 +23,6 @@ tests/
 .ruff_cache/
 featherflow/agent/memory.py.bak
 .miqi/
+
+# 文档
+.workbuddy/memory/
