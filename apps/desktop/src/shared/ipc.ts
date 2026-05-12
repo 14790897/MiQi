@@ -33,6 +33,22 @@ export const IPC = {
   APPROVALS_LIST: 'approvals:list',
   APPROVALS_RESOLVE: 'approvals:resolve',
   APPROVALS_CLEAR_PERMANENT: 'approvals:clear_permanent',
+  CRON_LIST: 'cron:list',
+  CRON_CREATE: 'cron:create',
+  CRON_UPDATE: 'cron:update',
+  CRON_DELETE: 'cron:delete',
+  CRON_TOGGLE: 'cron:toggle',
+  CRON_RUN: 'cron:run',
+  CRON_RUNS: 'cron:runs',
+  MEMORY_LIST: 'memory:list',
+  MEMORY_GET: 'memory:get',
+  MEMORY_UPDATE: 'memory:update',
+  MEMORY_LESSONS: 'memory:lessons',
+  SKILLS_LIST: 'skills:list',
+  SKILLS_GET: 'skills:get',
+  FILES_TREE: 'files:tree',
+  FILES_READ: 'files:read',
+  FILES_WRITE: 'files:write',
 
   // Python check
   PYTHON_CHECK: 'python:check',
@@ -54,6 +70,7 @@ export const IPC_EVENTS = {
   CHAT_ERROR: 'chat:error',
   CHAT_ABORTED: 'chat:aborted',
   APPROVAL_REQUEST: 'approval:request',
+  APPROVAL_CLEARED: 'approval:cleared',
 } as const
 
 // ---------------------------------------------------------------------------
@@ -175,6 +192,235 @@ export interface ApprovalsListResult {
   permanent_allowlist: string[]
   enabled: boolean
   timeout: number
+}
+
+export interface ApprovalCleared {
+  reason: 'abort' | 'resolved' | 'timeout'
+}
+
+// ---------------------------------------------------------------------------
+// Cron schemas
+// ---------------------------------------------------------------------------
+
+export const CronCreateInput = z.object({
+  name: z.string().min(1),
+  scheduleKind: z.enum(['at', 'every', 'cron']),
+  atMs: z.number().optional(),
+  everyMs: z.number().optional(),
+  expr: z.string().optional(),
+  tz: z.string().optional(),
+  message: z.string().optional(),
+  deliver: z.boolean().optional(),
+  channel: z.string().nullable().optional(),
+  to: z.string().nullable().optional(),
+})
+
+export const CronUpdateInput = z.object({
+  jobId: z.string().min(1),
+  name: z.string().optional(),
+  scheduleKind: z.enum(['at', 'every', 'cron']).optional(),
+  atMs: z.number().optional(),
+  everyMs: z.number().optional(),
+  expr: z.string().optional(),
+  tz: z.string().nullable().optional(),
+  message: z.string().optional(),
+  deliver: z.boolean().optional(),
+  channel: z.string().nullable().optional(),
+  to: z.string().nullable().optional(),
+})
+
+export const CronToggleInput = z.object({
+  jobId: z.string().min(1),
+  enabled: z.boolean(),
+})
+
+export const CronDeleteInput = z.object({
+  jobId: z.string().min(1),
+})
+
+export const CronRunInput = z.object({
+  jobId: z.string().min(1),
+})
+
+export const CronRunsInput = z.object({
+  jobId: z.string().optional(),
+})
+
+export interface CronSchedule {
+  kind: 'at' | 'every' | 'cron'
+  atMs: number | null
+  everyMs: number | null
+  expr: string | null
+  tz: string | null
+}
+
+export interface CronPayload {
+  kind: 'system_event' | 'agent_turn'
+  message: string
+  deliver: boolean
+  channel: string | null
+  to: string | null
+}
+
+export interface CronState {
+  nextRunAtMs: number | null
+  lastRunAtMs: number | null
+  lastStatus: 'ok' | 'error' | 'skipped' | null
+  lastError: string | null
+}
+
+export interface CronJob {
+  id: string
+  name: string
+  enabled: boolean
+  schedule: CronSchedule
+  payload: CronPayload
+  state: CronState
+  createdAtMs: number
+  updatedAtMs: number
+  deleteAfterRun: boolean
+}
+
+export interface CronRunEntry {
+  jobId: string
+  jobName: string
+  startedAtMs: number
+  status: 'ok' | 'error' | 'skipped' | null
+  error: string | null
+}
+
+export interface CronListResult {
+  jobs: CronJob[]
+}
+
+export interface CronCreateResult {
+  job: CronJob
+}
+
+export interface CronUpdateResult {
+  job: CronJob
+}
+
+export interface CronRunsResult {
+  runs: CronRunEntry[]
+}
+
+// ---------------------------------------------------------------------------
+// Memory schemas
+// ---------------------------------------------------------------------------
+
+export const MemoryGetInput = z.object({
+  path: z.string().min(1),
+})
+
+export const MemoryUpdateInput = z.object({
+  path: z.string().min(1),
+  content: z.string(),
+})
+
+export interface MemoryFileInfo {
+  path: string
+  scope: 'workspace' | 'agent'
+  size: number
+  updatedAtMs: number
+}
+
+export interface MemoryListResult {
+  files: MemoryFileInfo[]
+}
+
+export interface MemoryGetResult {
+  path: string
+  content: string
+  size: number
+}
+
+export interface MemoryLessonEntry {
+  id: string
+  trigger: string
+  badAction: string
+  betterAction: string
+  scope: string
+  sessionKey: string | null
+  confidence: number
+  effectiveConfidence: number
+  hits: number
+  enabled: boolean
+  source: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface MemoryLessonsResult {
+  lessons: MemoryLessonEntry[]
+}
+
+// ---------------------------------------------------------------------------
+// Skills schemas
+// ---------------------------------------------------------------------------
+
+export const SkillsGetInput = z.object({
+  name: z.string().min(1),
+})
+
+export interface SkillSummary {
+  name: string
+  source: 'builtin' | 'workspace'
+  path: string
+  description: string
+  available: boolean
+  missingRequirements: string | null
+}
+
+export interface SkillsListResult {
+  skills: SkillSummary[]
+}
+
+export interface SkillDetail {
+  name: string
+  source: 'builtin' | 'workspace'
+  path: string
+  description: string
+  available: boolean
+  missingRequirements: string | null
+  content: string
+  metadata: Record<string, unknown> | null
+}
+
+// ---------------------------------------------------------------------------
+// Files schemas
+// ---------------------------------------------------------------------------
+
+export const FilesReadInput = z.object({
+  path: z.string().min(1),
+})
+
+export const FilesWriteInput = z.object({
+  path: z.string().min(1),
+  content: z.string(),
+})
+
+export interface FileNode {
+  name: string
+  path: string
+  is_dir: boolean
+  children?: FileNode[]
+}
+
+export interface FilesTreeResult {
+  root: FileNode
+  workspace_path: string
+}
+
+export interface FilesReadResult {
+  path: string
+  content: string
+  size: number
+}
+
+export interface FilesWriteResult {
+  saved: boolean
+  path: string
 }
 
 // ---------------------------------------------------------------------------

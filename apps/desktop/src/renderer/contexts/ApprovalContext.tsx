@@ -15,10 +15,16 @@ export function ApprovalProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<ApprovalRequest | null>(null)
 
   useEffect(() => {
-    const unsub = window.miqi.approvals.onRequest((data) => {
+    const unsubReq = window.miqi.approvals.onRequest((data) => {
       setPending(data)
     })
-    return unsub
+    const unsubClear = window.miqi.approvals.onCleared(() => {
+      setPending(null)
+    })
+    return () => {
+      unsubReq()
+      unsubClear()
+    }
   }, [])
 
   const resolve = async (decision: 'once' | 'session' | 'always' | 'deny') => {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useRestartRequired } from '../../contexts/RestartRequiredContext'
 import {
   Zap, Server, Globe, HardDrive,
   CheckCircle, Circle, Edit2, TestTube2,
@@ -23,6 +24,7 @@ interface EditSheetProps {
 }
 
 function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
+  const { markRestartRequired } = useRestartRequired()
   const [apiKey, setApiKey] = useState('')
   const [apiBase, setApiBase] = useState(provider.api_base ?? '')
   const [extraHeadersText, setExtraHeadersText] = useState('')
@@ -48,6 +50,7 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
         extraHeaders,
       )
       onSaved()
+      markRestartRequired()
       onClose()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)

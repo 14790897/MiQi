@@ -10,10 +10,15 @@ import { SettingsPage } from './features/settings/SettingsPage'
 import { ProvidersPage } from './features/providers/ProvidersPage'
 import { ChannelsPage } from './features/channels/ChannelsPage'
 import { ApprovalProvider } from './contexts/ApprovalContext'
+import { RestartRequiredProvider } from './contexts/RestartRequiredContext'
 import { ApprovalModal } from './features/approvals/ApprovalModal'
 import { ApprovalsPage } from './features/approvals/ApprovalsPage'
+import { CronPage } from './features/cron/CronPage'
+import { MemoryPage } from './features/memory/MemoryPage'
+import { SkillsPage } from './features/skills/SkillsPage'
+import { WorkspacePage } from './features/workspace/WorkspacePage'
 
-type NavId = 'chat' | 'sessions' | 'providers' | 'channels' | 'approvals' | 'settings'
+type NavId = 'chat' | 'sessions' | 'providers' | 'channels' | 'approvals' | 'cron' | 'memory' | 'skills' | 'workspace' | 'settings'
 
 function AppShell() {
   const { status } = useRuntime()
@@ -76,30 +81,36 @@ function AppShell() {
   // Main app
   return (
     <TooltipProvider>
-      <ApprovalProvider>
-        <div className="flex flex-col h-screen bg-[var(--background)]">
-          <div className="flex flex-1 overflow-hidden">
-            <Sidebar activeNav={activeNav} onNavChange={(id) => setActiveNav(id as NavId)} />
+      <RestartRequiredProvider>
+        <ApprovalProvider>
+          <div className="flex flex-col h-screen bg-[var(--background)]">
+            <div className="flex flex-1 overflow-hidden">
+              <Sidebar activeNav={activeNav} onNavChange={(id) => setActiveNav(id as NavId)} />
 
-            <main className="flex-1 flex flex-col overflow-hidden bg-[var(--background)]">
-              {activeNav === 'chat' && <ChatConsole />}
-              {activeNav === 'sessions' && (
-                <SessionExplorer onOpenSession={(key) => {
-                  // Navigate to chat with this session — for M1, just switch to chat
-                  setActiveNav('chat')
-                }} />
-              )}
-              {activeNav === 'providers' && <ProvidersPage />}
-              {activeNav === 'channels' && <ChannelsPage />}
-              {activeNav === 'approvals' && <ApprovalsPage />}
-              {activeNav === 'settings' && <SettingsPage />}
-            </main>
+              <main className="flex-1 flex flex-col overflow-hidden bg-[var(--background)]">
+                {activeNav === 'chat' && <ChatConsole />}
+                {activeNav === 'sessions' && (
+                  <SessionExplorer onOpenSession={(key) => {
+                    // Navigate to chat with this session — for M1, just switch to chat
+                    setActiveNav('chat')
+                  }} />
+                )}
+                {activeNav === 'providers' && <ProvidersPage />}
+                {activeNav === 'channels' && <ChannelsPage />}
+                {activeNav === 'approvals' && <ApprovalsPage />}
+                {activeNav === 'cron' && <CronPage />}
+                {activeNav === 'memory' && <MemoryPage />}
+                {activeNav === 'skills' && <SkillsPage />}
+                {activeNav === 'workspace' && <WorkspacePage />}
+                {activeNav === 'settings' && <SettingsPage />}
+              </main>
+            </div>
+
+            <StatusBar />
           </div>
-
-          <StatusBar />
-        </div>
-        <ApprovalModal />
-      </ApprovalProvider>
+          <ApprovalModal />
+        </ApprovalProvider>
+      </RestartRequiredProvider>
     </TooltipProvider>
   )
 }

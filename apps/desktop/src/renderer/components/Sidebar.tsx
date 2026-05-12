@@ -5,6 +5,9 @@ import {
   Cpu,
   Radio,
   ShieldAlert,
+  Clock,
+  BookOpen,
+  Wrench,
   Settings,
   type LucideIcon,
 } from 'lucide-react'
@@ -21,6 +24,10 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'providers', label: 'Providers', icon: Cpu },
   { id: 'channels', label: 'Channels', icon: Radio },
   { id: 'approvals', label: 'Approvals', icon: ShieldAlert },
+  { id: 'cron', label: 'Cron', icon: Clock },
+  { id: 'memory', label: 'Memory', icon: BookOpen },
+  { id: 'skills', label: 'Skills', icon: Wrench },
+  { id: 'workspace', label: 'Workspace', icon: FolderOpen },
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
 

@@ -8,7 +8,26 @@ import type {
   ProviderUpdateResult,
   ChannelsConfig,
   ApprovalRequest,
+  ApprovalCleared,
   ApprovalsListResult,
+  CronJob,
+  CronListResult,
+  CronCreateResult,
+  CronUpdateResult,
+  CronRunEntry,
+  CronRunsResult,
+  MemoryFileInfo,
+  MemoryListResult,
+  MemoryGetResult,
+  MemoryLessonEntry,
+  MemoryLessonsResult,
+  SkillSummary,
+  SkillDetail,
+  SkillsListResult,
+  FileNode,
+  FilesTreeResult,
+  FilesReadResult,
+  FilesWriteResult,
   ChatProgress,
   ChatFinal,
   ChatError,
@@ -130,6 +149,59 @@ const api = {
       ipcRenderer.on(IPC_EVENTS.APPROVAL_REQUEST, handler)
       return () => { ipcRenderer.removeListener(IPC_EVENTS.APPROVAL_REQUEST, handler) }
     },
+    onCleared: (callback: (data: ApprovalCleared) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: ApprovalCleared) => callback(data)
+      ipcRenderer.on(IPC_EVENTS.APPROVAL_CLEARED, handler)
+      return () => { ipcRenderer.removeListener(IPC_EVENTS.APPROVAL_CLEARED, handler) }
+    },
+  },
+
+  // -- Cron --------------------------------------------------------------------
+  cron: {
+    list: (): Promise<CronListResult> =>
+      ipcRenderer.invoke(IPC.CRON_LIST),
+    create: (payload: Record<string, unknown>): Promise<CronCreateResult> =>
+      ipcRenderer.invoke(IPC.CRON_CREATE, payload),
+    update: (payload: Record<string, unknown>): Promise<CronUpdateResult> =>
+      ipcRenderer.invoke(IPC.CRON_UPDATE, payload),
+    delete: (jobId: string): Promise<{ deleted: boolean }> =>
+      ipcRenderer.invoke(IPC.CRON_DELETE, { jobId }),
+    toggle: (jobId: string, enabled: boolean): Promise<CronUpdateResult> =>
+      ipcRenderer.invoke(IPC.CRON_TOGGLE, { jobId, enabled }),
+    run: (jobId: string): Promise<CronUpdateResult> =>
+      ipcRenderer.invoke(IPC.CRON_RUN, { jobId }),
+    runs: (jobId?: string): Promise<CronRunsResult> =>
+      ipcRenderer.invoke(IPC.CRON_RUNS, jobId ? { jobId } : {}),
+  },
+
+  // -- Memory ------------------------------------------------------------------
+  memory: {
+    list: (): Promise<MemoryListResult> =>
+      ipcRenderer.invoke(IPC.MEMORY_LIST),
+    get: (path: string): Promise<MemoryGetResult> =>
+      ipcRenderer.invoke(IPC.MEMORY_GET, { path }),
+    update: (path: string, content: string): Promise<{ saved: boolean; path: string }> =>
+      ipcRenderer.invoke(IPC.MEMORY_UPDATE, { path, content }),
+    lessons: (): Promise<MemoryLessonsResult> =>
+      ipcRenderer.invoke(IPC.MEMORY_LESSONS),
+  },
+
+  // -- Skills ------------------------------------------------------------------
+  skills: {
+    list: (): Promise<SkillsListResult> =>
+      ipcRenderer.invoke(IPC.SKILLS_LIST),
+    get: (name: string): Promise<SkillDetail> =>
+      ipcRenderer.invoke(IPC.SKILLS_GET, { name }),
+  },
+
+  // -- Files (Workspace Editor) ------------------------------------------------
+  files: {
+    tree: (): Promise<FilesTreeResult> =>
+      ipcRenderer.invoke(IPC.FILES_TREE),
+    read: (path: string): Promise<FilesReadResult> =>
+      ipcRenderer.invoke(IPC.FILES_READ, { path }),
+    write: (path: string, content: string): Promise<FilesWriteResult> =>
+      ipcRenderer.invoke(IPC.FILES_WRITE, { path, content }),
   },
 
   // -- Python check -----------------------------------------------------------

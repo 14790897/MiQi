@@ -21,6 +21,7 @@ import asyncio
 import json
 import sys
 import threading
+import time
 import traceback
 import uuid
 from pathlib import Path
@@ -273,6 +274,8 @@ def handle_chat_abort(req_id: str, params: dict) -> None:
     aborted = result["aborted"]
     active_req_id = result.get("req_id")
     if aborted and active_req_id:
+        # Notify frontend to dismiss any orphan approval modal immediately
+        _event(active_req_id, "approval_cleared", {"reason": "abort"})
         _terminal_event(active_req_id, "aborted", {"message": "Chat aborted by user"})
     _result(req_id, {"aborted": aborted})
 
@@ -511,6 +514,573 @@ def handle_approvals_clear_permanent(req_id: str, params: dict) -> None:
     _result(req_id, {"cleared": True})
 
 
+# ---------------------------------------------------------------------------
+# Cron handlers
+# ---------------------------------------------------------------------------
+
+def _get_cron_service():
+    """Create a CronService pointed at the standard data dir."""
+    from miqi.config.loader import get_data_dir
+    from miqi.cron.service import CronService
+
+    config = _state.load_config()
+    store_path = get_data_dir() / "cron" / "jobs.json"
+    return CronService(store_path, job_timeout=config.cron.job_timeout_seconds)
+
+
+def _job_to_dict(job) -> dict:
+    """Serialize a CronJob to a dict with camelCase keys for the frontend."""
+    return {
+        "id": job.id,
+        "name": job.name,
+        "enabled": job.enabled,
+        "schedule": {
+            "kind": job.schedule.kind,
+            "atMs": job.schedule.at_ms,
+            "everyMs": job.schedule.every_ms,
+            "expr": job.schedule.expr,
+            "tz": job.schedule.tz,
+        },
+        "payload": {
+            "kind": job.payload.kind,
+            "message": job.payload.message,
+            "deliver": job.payload.deliver,
+            "channel": job.payload.channel,
+            "to": job.payload.to,
+        },
+        "state": {
+            "nextRunAtMs": job.state.next_run_at_ms,
+            "lastRunAtMs": job.state.last_run_at_ms,
+            "lastStatus": job.state.last_status,
+            "lastError": job.state.last_error,
+        },
+        "createdAtMs": job.created_at_ms,
+        "updatedAtMs": job.updated_at_ms,
+        "deleteAfterRun": job.delete_after_run,
+    }
+
+
+def handle_cron_list(req_id: str, params: dict) -> None:
+    service = _get_cron_service()
+    jobs = service.list_jobs(include_disabled=True)
+    _result(req_id, {"jobs": [_job_to_dict(j) for j in jobs]})
+
+
+def handle_cron_create(req_id: str, params: dict) -> None:
+    from miqi.cron.types import CronSchedule
+
+    name = params.get("name", "").strip()
+    if not name:
+        _error(req_id, "name is required")
+        return
+
+    schedule_kind = params.get("scheduleKind", "every")
+    if schedule_kind not in ("at", "every", "cron"):
+        _error(req_id, f"Invalid schedule kind: {schedule_kind}")
+        return
+
+    try:
+        schedule = CronSchedule(kind=schedule_kind)
+        if schedule_kind == "at":
+            at_ms = params.get("atMs")
+            if not at_ms:
+                _error(req_id, "atMs is required for at schedules")
+                return
+            schedule.at_ms = int(at_ms)
+        elif schedule_kind == "every":
+            every_ms = params.get("everyMs")
+            if not every_ms:
+                _error(req_id, "everyMs is required for every schedules")
+                return
+            schedule.every_ms = int(every_ms)
+        elif schedule_kind == "cron":
+            expr = params.get("expr", "").strip()
+            if not expr:
+                _error(req_id, "expr is required for cron schedules")
+                return
+            schedule.expr = expr
+            schedule.tz = params.get("tz") or None
+
+        service = _get_cron_service()
+        job = service.add_job(
+            name=name,
+            schedule=schedule,
+            message=params.get("message", ""),
+            deliver=bool(params.get("deliver", False)),
+            channel=params.get("channel") or None,
+            to=params.get("to") or None,
+        )
+        _result(req_id, {"job": _job_to_dict(job)})
+    except ValueError as exc:
+        _error(req_id, str(exc))
+
+
+def handle_cron_update(req_id: str, params: dict) -> None:
+    job_id = params.get("jobId", "").strip()
+    if not job_id:
+        _error(req_id, "jobId is required")
+        return
+
+    service = _get_cron_service()
+    jobs = service.list_jobs(include_disabled=True)
+    target = None
+    for j in jobs:
+        if j.id == job_id:
+            target = j
+            break
+
+    if target is None:
+        _error(req_id, f"Job not found: {job_id}")
+        return
+
+    if "name" in params:
+        target.name = params["name"].strip()
+    if "message" in params:
+        target.payload.message = params.get("message", "")
+    if "deliver" in params:
+        target.payload.deliver = bool(params.get("deliver"))
+    if "channel" in params:
+        target.payload.channel = params.get("channel") or None
+    if "to" in params:
+        target.payload.to = params.get("to") or None
+
+    # Schedule updates
+    if "scheduleKind" in params:
+        kind = params["scheduleKind"]
+        if kind not in ("at", "every", "cron"):
+            _error(req_id, f"Invalid schedule kind: {kind}")
+            return
+        from miqi.cron.types import _validate_schedule_for_add
+
+        target.schedule.kind = kind
+        if kind == "at" and "atMs" in params:
+            target.schedule.at_ms = int(params["atMs"])
+            target.schedule.every_ms = None
+            target.schedule.expr = None
+            target.schedule.tz = None
+        elif kind == "every" and "everyMs" in params:
+            target.schedule.every_ms = int(params["everyMs"])
+            target.schedule.at_ms = None
+            target.schedule.expr = None
+            target.schedule.tz = None
+        elif kind == "cron":
+            if "expr" in params:
+                target.schedule.expr = params["expr"].strip()
+            target.schedule.at_ms = None
+            target.schedule.every_ms = None
+            target.schedule.tz = params.get("tz") or None
+
+        try:
+            _validate_schedule_for_add(target.schedule)
+        except ValueError as exc:
+            _error(req_id, str(exc))
+            return
+
+        # Recompute next run
+        from miqi.cron.service import _compute_next_run, _now_ms
+        target.state.next_run_at_ms = _compute_next_run(target.schedule, _now_ms())
+
+    target.updated_at_ms = int(time.time() * 1000)
+    service._save_store()
+    _result(req_id, {"job": _job_to_dict(target)})
+
+
+def handle_cron_delete(req_id: str, params: dict) -> None:
+    job_id = params.get("jobId", "").strip()
+    if not job_id:
+        _error(req_id, "jobId is required")
+        return
+
+    service = _get_cron_service()
+    removed = service.remove_job(job_id)
+    _result(req_id, {"deleted": removed})
+
+
+def handle_cron_toggle(req_id: str, params: dict) -> None:
+    job_id = params.get("jobId", "").strip()
+    if not job_id:
+        _error(req_id, "jobId is required")
+        return
+
+    enabled = bool(params.get("enabled", True))
+    service = _get_cron_service()
+    job = service.enable_job(job_id, enabled=enabled)
+    if job is None:
+        _error(req_id, f"Job not found: {job_id}")
+        return
+    _result(req_id, {"job": _job_to_dict(job)})
+
+
+def handle_cron_run(req_id: str, params: dict) -> None:
+    job_id = params.get("jobId", "").strip()
+    if not job_id:
+        _error(req_id, "jobId is required")
+        return
+
+    async def _run():
+        service = _get_cron_service()
+        ok = await service.run_job(job_id, force=True)
+        if not ok:
+            _error(req_id, f"Job not found: {job_id}")
+            return
+        # Re-fetch to return updated state
+        jobs = service.list_jobs(include_disabled=True)
+        for j in jobs:
+            if j.id == job_id:
+                _result(req_id, {"job": _job_to_dict(j)})
+                return
+        _error(req_id, f"Job disappeared: {job_id}")
+
+    asyncio.run(_run())
+
+
+def handle_cron_runs(req_id: str, params: dict) -> None:
+    job_id = params.get("jobId", "").strip()
+    service = _get_cron_service()
+    jobs = service.list_jobs(include_disabled=True)
+
+    if job_id:
+        jobs = [j for j in jobs if j.id == job_id]
+
+    runs = []
+    for j in jobs:
+        if j.state.last_run_at_ms:
+            runs.append({
+                "jobId": j.id,
+                "jobName": j.name,
+                "startedAtMs": j.state.last_run_at_ms,
+                "status": j.state.last_status,
+                "error": j.state.last_error,
+            })
+
+    runs.sort(key=lambda r: r["startedAtMs"], reverse=True)
+    _result(req_id, {"runs": runs})
+
+
+# ---------------------------------------------------------------------------
+# Memory handlers
+# ---------------------------------------------------------------------------
+
+def _get_memory_dir() -> Path:
+    """Return the workspace memory directory."""
+    config = _state.load_config()
+    return config.workspace_path / "memory"
+
+
+def _validate_memory_path(file_path: str) -> Path:
+    """Validate and resolve a memory file path, preventing directory traversal."""
+    memory_dir = _get_memory_dir()
+    # Resolve the requested path relative to memory dir
+    resolved = (memory_dir / file_path).resolve()
+    # Must be within the memory directory
+    if not str(resolved).startswith(str(memory_dir.resolve())):
+        raise ValueError(f"Path escapes memory directory: {file_path}")
+    return resolved
+
+
+def handle_memory_list(req_id: str, params: dict) -> None:
+    memory_dir = _get_memory_dir()
+    files: list[dict] = []
+
+    # Editable markdown files
+    if memory_dir.exists():
+        for f in sorted(memory_dir.glob("*.md")):
+            files.append({
+                "path": f.name,
+                "scope": "workspace" if f.name != "MEMORY.md" else "agent",
+                "size": f.stat().st_size,
+                "updatedAtMs": int(f.stat().st_mtime * 1000),
+            })
+        # Also list MEMORY.md if it exists (it's the legacy long-term file)
+        mem_file = memory_dir / "MEMORY.md"
+        if mem_file.exists() and "MEMORY.md" not in {f["path"] for f in files}:
+            files.insert(0, {
+                "path": "MEMORY.md",
+                "scope": "agent",
+                "size": mem_file.stat().st_size,
+                "updatedAtMs": int(mem_file.stat().st_mtime * 1000),
+            })
+
+    _result(req_id, {"files": files})
+
+
+def handle_memory_get(req_id: str, params: dict) -> None:
+    file_path = params.get("path", "").strip()
+    if not file_path:
+        _error(req_id, "path is required")
+        return
+
+    try:
+        resolved = _validate_memory_path(file_path)
+    except ValueError as exc:
+        _error(req_id, str(exc))
+        return
+
+    if not resolved.exists():
+        _error(req_id, f"File not found: {file_path}")
+        return
+
+    content = resolved.read_text(encoding="utf-8")
+    _result(req_id, {
+        "path": file_path,
+        "content": content,
+        "size": len(content),
+    })
+
+
+def handle_memory_update(req_id: str, params: dict) -> None:
+    file_path = params.get("path", "").strip()
+    content = params.get("content", "")
+    if not file_path:
+        _error(req_id, "path is required")
+        return
+
+    try:
+        resolved = _validate_memory_path(file_path)
+    except ValueError as exc:
+        _error(req_id, str(exc))
+        return
+
+    # Only allow .md files for safety
+    if resolved.suffix not in (".md",):
+        _error(req_id, "Only .md files can be edited")
+        return
+
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    resolved.write_text(content, encoding="utf-8")
+    _result(req_id, {"saved": True, "path": file_path})
+
+
+def handle_memory_lessons(req_id: str, params: dict) -> None:
+    from miqi.agent.memory import MemoryStore
+
+    config = _state.load_config()
+    memory = MemoryStore(
+        workspace=config.workspace_path,
+        self_improvement_enabled=config.agents.self_improvement.enabled,
+        max_lessons=config.agents.self_improvement.max_lessons,
+        min_lesson_confidence=config.agents.self_improvement.min_lesson_confidence,
+        max_lessons_in_prompt=config.agents.self_improvement.max_lessons_in_prompt,
+        lesson_confidence_decay_hours=config.agents.self_improvement.lesson_confidence_decay_hours,
+        feedback_max_message_chars=config.agents.self_improvement.feedback_max_message_chars,
+        feedback_require_prefix=config.agents.self_improvement.feedback_require_prefix,
+        promotion_enabled=config.agents.self_improvement.promotion_enabled,
+        promotion_min_users=config.agents.self_improvement.promotion_min_users,
+        promotion_triggers=config.agents.self_improvement.promotion_triggers,
+    )
+    lessons = memory.list_lessons(scope="all", limit=100, include_disabled=True)
+    result = []
+    for lesson in lessons:
+        result.append({
+            "id": str(lesson.get("id", "")),
+            "trigger": str(lesson.get("trigger", "")),
+            "badAction": str(lesson.get("bad_action", "")),
+            "betterAction": str(lesson.get("better_action", "")),
+            "scope": str(lesson.get("scope", "session")),
+            "sessionKey": lesson.get("session_key"),
+            "confidence": lesson.get("confidence", 0),
+            "effectiveConfidence": lesson.get("effective_confidence", 0),
+            "hits": lesson.get("hits", 0),
+            "enabled": lesson.get("enabled", True),
+            "source": str(lesson.get("source", "")),
+            "createdAt": str(lesson.get("created_at", "")),
+            "updatedAt": str(lesson.get("updated_at", "")),
+        })
+    _result(req_id, {"lessons": result})
+
+
+# ---------------------------------------------------------------------------
+# Skills handlers
+# ---------------------------------------------------------------------------
+
+def _get_skills_loader():
+    from miqi.agent.skills import SkillsLoader
+
+    config = _state.load_config()
+    return SkillsLoader(workspace=config.workspace_path)
+
+
+def handle_skills_list(req_id: str, params: dict) -> None:
+    loader = _get_skills_loader()
+    all_skills = loader.list_skills(filter_unavailable=False)
+    result = []
+    for s in all_skills:
+        meta = loader._get_skill_meta(s["name"])
+        desc = loader._get_skill_description(s["name"])
+        available = loader._check_requirements(meta)
+        missing = loader._get_missing_requirements(meta) if not available else None
+        result.append({
+            "name": s["name"],
+            "source": s["source"],
+            "path": s["path"],
+            "description": desc,
+            "available": available,
+            "missingRequirements": missing,
+        })
+    result.sort(key=lambda x: (0 if x["available"] else 1, x["name"]))
+    _result(req_id, {"skills": result})
+
+
+def handle_skills_get(req_id: str, params: dict) -> None:
+    name = params.get("name", "").strip()
+    if not name:
+        _error(req_id, "name is required")
+        return
+
+    loader = _get_skills_loader()
+    content = loader.load_skill(name)
+    if content is None:
+        _error(req_id, f"Skill not found: {name}")
+        return
+
+    skill_info = None
+    for s in loader.list_skills(filter_unavailable=False):
+        if s["name"] == name:
+            skill_info = s
+            break
+
+    meta = loader._get_skill_meta(name)
+    available = loader._check_requirements(meta)
+    missing = loader._get_missing_requirements(meta) if not available else None
+    metadata = loader.get_skill_metadata(name)
+
+    _result(req_id, {
+        "name": name,
+        "source": skill_info["source"] if skill_info else "unknown",
+        "path": skill_info["path"] if skill_info else "",
+        "description": loader._get_skill_description(name),
+        "available": available,
+        "missingRequirements": missing,
+        "content": content,
+        "metadata": metadata,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Files handlers
+# ---------------------------------------------------------------------------
+
+def _get_workspace_path() -> Path:
+    config = _state.load_config()
+    return config.workspace_path.resolve()
+
+
+def _validate_file_path(file_path: str) -> Path:
+    """Resolve a relative path against workspace and block traversal."""
+    workspace = _get_workspace_path()
+    if not file_path or file_path.startswith("/") or file_path.startswith("\\"):
+        raise ValueError("Only relative paths are allowed")
+    resolved = (workspace / file_path).resolve()
+    if not str(resolved).startswith(str(workspace) + str(Path("/"))) and resolved != workspace:
+        raise ValueError(f"Path escapes workspace: {file_path}")
+    return resolved
+
+
+def _build_tree(path: Path, relative_to: Path, depth: int = 0, max_depth: int = 6) -> dict:
+    """Build a FileNode tree for a directory."""
+    node: dict[str, Any] = {
+        "name": path.name or str(path),
+        "path": str(path.relative_to(relative_to)).replace("\\", "/"),
+        "is_dir": path.is_dir(),
+    }
+    if path.is_dir() and depth < max_depth:
+        children = []
+        try:
+            for child in sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
+                if child.name.startswith(".") or child.name == "__pycache__":
+                    continue
+                if child.name.endswith(".pyc") or child.name.endswith(".pyo"):
+                    continue
+                children.append(_build_tree(child, relative_to, depth + 1, max_depth))
+        except PermissionError:
+            pass
+        node["children"] = children
+    return node
+
+
+def handle_files_tree(req_id: str, params: dict) -> None:
+    workspace = _get_workspace_path()
+    if not workspace.exists():
+        _result(req_id, {"root": {"name": workspace.name, "path": ".", "is_dir": True, "children": []}, "workspace_path": str(workspace)})
+        return
+    root = _build_tree(workspace, workspace)
+    _result(req_id, {"root": root, "workspace_path": str(workspace)})
+
+
+def handle_files_read(req_id: str, params: dict) -> None:
+    file_path = params.get("path", "").strip()
+    if not file_path:
+        _error(req_id, "path is required")
+        return
+
+    try:
+        resolved = _validate_file_path(file_path)
+    except ValueError as exc:
+        _error(req_id, str(exc))
+        return
+
+    if not resolved.exists():
+        _error(req_id, f"File not found: {file_path}")
+        return
+
+    if resolved.is_dir():
+        _error(req_id, f"Path is a directory: {file_path}")
+        return
+
+    # Only allow text-like files
+    allowed = {".md", ".txt", ".py", ".json", ".yaml", ".yml", ".toml", ".cfg", ".ini",
+               ".js", ".ts", ".tsx", ".jsx", ".css", ".html", ".xml", ".svg",
+               ".sh", ".bash", ".zsh", ".ps1", ".bat",
+               ".env", ".gitignore", ".dockerignore", ".editorconfig",
+               ".csv", ".log", ".lock", ".jsonl"}
+    if resolved.suffix not in allowed and resolved.name not in {".gitignore", ".dockerignore", ".editorconfig", ".env"}:
+        _error(req_id, f"File type not supported: {resolved.suffix or resolved.name}")
+        return
+
+    try:
+        content = resolved.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        _error(req_id, "File is not valid UTF-8 text")
+        return
+    except Exception as exc:
+        _error(req_id, str(exc))
+        return
+
+    _result(req_id, {
+        "path": file_path,
+        "content": content,
+        "size": len(content),
+    })
+
+
+def handle_files_write(req_id: str, params: dict) -> None:
+    file_path = params.get("path", "").strip()
+    content = params.get("content", "")
+    if not file_path:
+        _error(req_id, "path is required")
+        return
+
+    try:
+        resolved = _validate_file_path(file_path)
+    except ValueError as exc:
+        _error(req_id, str(exc))
+        return
+
+    # Only allow text-like files for write
+    allowed = {".md", ".txt", ".py", ".json", ".yaml", ".yml", ".toml", ".cfg", ".ini",
+               ".js", ".ts", ".tsx", ".jsx", ".css", ".html", ".xml", ".svg",
+               ".sh", ".bash", ".zsh", ".ps1", ".bat",
+               ".env", ".gitignore", ".dockerignore", ".editorconfig",
+               ".csv", ".log", ".lock", ".jsonl"}
+    if resolved.suffix not in allowed and resolved.name not in {".gitignore", ".dockerignore", ".editorconfig", ".env"}:
+        _error(req_id, f"File type not supported for write: {resolved.suffix or resolved.name}")
+        return
+
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    resolved.write_text(content, encoding="utf-8")
+    _result(req_id, {"saved": True, "path": file_path})
+
+
 def handle_python_check(req_id: str, params: dict) -> None:
     """Check if Python and MiQi are available."""
     import importlib
@@ -590,6 +1160,22 @@ _METHODS = {
     "approvals.list": handle_approvals_list,
     "approvals.resolve": handle_approvals_resolve,
     "approvals.clear_permanent": handle_approvals_clear_permanent,
+    "cron.list": handle_cron_list,
+    "cron.create": handle_cron_create,
+    "cron.update": handle_cron_update,
+    "cron.delete": handle_cron_delete,
+    "cron.toggle": handle_cron_toggle,
+    "cron.run": handle_cron_run,
+    "cron.runs": handle_cron_runs,
+    "memory.list": handle_memory_list,
+    "memory.get": handle_memory_get,
+    "memory.update": handle_memory_update,
+    "memory.lessons": handle_memory_lessons,
+    "skills.list": handle_skills_list,
+    "skills.get": handle_skills_get,
+    "files.tree": handle_files_tree,
+    "files.read": handle_files_read,
+    "files.write": handle_files_write,
     "python.check": handle_python_check,
 }
 

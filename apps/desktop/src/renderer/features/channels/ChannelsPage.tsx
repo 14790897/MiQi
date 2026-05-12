@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Save, Loader2, Radio, ToggleLeft, ToggleRight } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { useRestartRequired } from '../../contexts/RestartRequiredContext'
 import type { ChannelsConfig } from '../../../shared/ipc'
 
 // ─── Toggle row ──────────────────────────────────────────────────────────────
@@ -187,6 +188,7 @@ function FeishuSection({ config, onChange }: FeishuSectionProps) {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export function ChannelsPage() {
+  const { markRestartRequired } = useRestartRequired()
   const [config, setConfig] = useState<ChannelsConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -215,6 +217,7 @@ export function ChannelsPage() {
     try {
       await window.miqi.channels.update(config as unknown as Record<string, unknown>)
       setSaved(true)
+      markRestartRequired()
       setTimeout(() => setSaved(false), 2000)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Save failed')

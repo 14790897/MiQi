@@ -1,6 +1,6 @@
 import { electron } from '../../shared/electron'
 import type { BridgeManager } from '../bridge'
-import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, ConfigUpdateInput, ProviderTestInput, ProviderUpdateInput, ChannelsUpdateInput } from '../../shared/ipc'
+import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, ConfigUpdateInput, ProviderTestInput, ProviderUpdateInput, ChannelsUpdateInput, CronCreateInput, CronUpdateInput, CronToggleInput, CronDeleteInput, CronRunInput, CronRunsInput, MemoryGetInput, MemoryUpdateInput, SkillsGetInput, FilesReadInput, FilesWriteInput } from '../../shared/ipc'
 
 const { ipcMain, dialog } = electron
 
@@ -47,6 +47,8 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         mainWindow.send('chat:aborted', data)
       } else if (type === 'approval_request') {
         mainWindow.send('approval:request', data)
+      } else if (type === 'approval_cleared') {
+        mainWindow.send('approval:cleared', data)
       }
     })
 
@@ -147,5 +149,92 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   ipcMain.handle('approvals:clear_permanent', async (_event, payload: unknown) => {
     const p = (payload ?? {}) as { pattern?: string }
     return bridge.send('approvals.clear_permanent', p as Record<string, unknown>)
+  })
+
+  // -----------------------------------------------------------------------
+  // Cron
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.CRON_LIST, async () => {
+    return bridge.send('cron.list')
+  })
+
+  ipcMain.handle(IPC.CRON_CREATE, async (_event, payload: unknown) => {
+    const input = CronCreateInput.parse(payload)
+    return bridge.send('cron.create', input as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.CRON_UPDATE, async (_event, payload: unknown) => {
+    const input = CronUpdateInput.parse(payload)
+    return bridge.send('cron.update', input as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.CRON_DELETE, async (_event, payload: unknown) => {
+    const input = CronDeleteInput.parse(payload)
+    return bridge.send('cron.delete', input as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.CRON_TOGGLE, async (_event, payload: unknown) => {
+    const input = CronToggleInput.parse(payload)
+    return bridge.send('cron.toggle', input as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.CRON_RUN, async (_event, payload: unknown) => {
+    const input = CronRunInput.parse(payload)
+    return bridge.send('cron.run', input as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.CRON_RUNS, async (_event, payload: unknown) => {
+    const input = CronRunsInput.parse(payload ?? {})
+    return bridge.send('cron.runs', input as Record<string, unknown>)
+  })
+
+  // -----------------------------------------------------------------------
+  // Memory
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.MEMORY_LIST, async () => {
+    return bridge.send('memory.list')
+  })
+
+  ipcMain.handle(IPC.MEMORY_GET, async (_event, payload: unknown) => {
+    const input = MemoryGetInput.parse(payload)
+    return bridge.send('memory.get', input as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.MEMORY_UPDATE, async (_event, payload: unknown) => {
+    const input = MemoryUpdateInput.parse(payload)
+    return bridge.send('memory.update', input as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.MEMORY_LESSONS, async () => {
+    return bridge.send('memory.lessons')
+  })
+
+  // -----------------------------------------------------------------------
+  // Skills
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.SKILLS_LIST, async () => {
+    return bridge.send('skills.list')
+  })
+
+  ipcMain.handle(IPC.SKILLS_GET, async (_event, payload: unknown) => {
+    const input = SkillsGetInput.parse(payload)
+    return bridge.send('skills.get', input as Record<string, unknown>)
+  })
+
+  // -----------------------------------------------------------------------
+  // Files (Workspace Editor)
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.FILES_TREE, async () => {
+    return bridge.send('files.tree')
+  })
+
+  ipcMain.handle(IPC.FILES_READ, async (_event, payload: unknown) => {
+    const input = FilesReadInput.parse(payload)
+    return bridge.send('files.read', input as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.FILES_WRITE, async (_event, payload: unknown) => {
+    const input = FilesWriteInput.parse(payload)
+    return bridge.send('files.write', input as Record<string, unknown>)
   })
 }
