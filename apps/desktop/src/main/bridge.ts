@@ -4,7 +4,7 @@ import { createInterface, Interface } from 'readline'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
-import type { RuntimeState, RuntimeStatus } from '../../shared/ipc'
+import type { RuntimeState, RuntimeStatus } from '../shared/ipc'
 
 export interface BridgeRequest {
   id: string

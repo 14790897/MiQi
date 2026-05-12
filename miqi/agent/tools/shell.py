@@ -20,6 +20,7 @@ class ExecTool(Tool):
         allow_patterns: list[str] | None = None,
         restrict_to_workspace: bool = False,
         env_passthrough: list[str] | None = None,
+        approval_callback=None,
     ):
         self.timeout = timeout
         self.working_dir = working_dir
@@ -44,6 +45,7 @@ class ExecTool(Tool):
         ]
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace
+        self.approval_callback = approval_callback
 
     @property
     def name(self) -> str:
@@ -72,9 +74,27 @@ class ExecTool(Tool):
 
     async def execute(self, command: str, working_dir: str | None = None, **kwargs: Any) -> str:
         cwd = working_dir or self.working_dir or os.getcwd()
-        guard_error = self._guard_command(command, cwd)
-        if guard_error:
-            return guard_error
+        # If desktop approval callback is wired in, use the full approval system.
+        # Otherwise fall back to the static guard.
+        if self.approval_callback is not None:
+            import functools
+            from miqi.agent.command_approval import check_dangerous_command
+            loop = asyncio.get_event_loop()
+            check_fn = functools.partial(
+                check_dangerous_command,
+                command,
+                approval_callback=self.approval_callback,
+            )
+            approval_result = await loop.run_in_executor(None, check_fn)
+            if not approval_result.get("approved", True):
+                return approval_result.get(
+                    "message",
+                    "Error: Command blocked — user denied approval.",
+                )
+        else:
+            guard_error = self._guard_command(command, cwd)
+            if guard_error:
+                return guard_error
 
         try:
             process = await asyncio.create_subprocess_shell(

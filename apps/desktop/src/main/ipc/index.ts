@@ -1,6 +1,8 @@
-import { ipcMain, dialog } from 'electron'
+import { electron } from '../../shared/electron'
 import type { BridgeManager } from '../bridge'
-import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, ConfigUpdateInput, ProviderTestInput } from '../../shared/ipc'
+import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, ConfigUpdateInput, ProviderTestInput, ProviderUpdateInput, ChannelsUpdateInput } from '../../shared/ipc'
+
+const { ipcMain, dialog } = electron
 
 export function registerIpcHandlers(bridge: BridgeManager): void {
   // -----------------------------------------------------------------------
@@ -41,6 +43,10 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         mainWindow.send('chat:final', data)
       } else if (type === 'error') {
         mainWindow.send('chat:error', data)
+      } else if (type === 'aborted') {
+        mainWindow.send('chat:aborted', data)
+      } else if (type === 'approval_request') {
+        mainWindow.send('approval:request', data)
       }
     })
 
@@ -48,8 +54,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   })
 
   ipcMain.handle(IPC.CHAT_ABORT, async () => {
-    // M1: abort not yet implemented in bridge
-    return { aborted: false }
+    return bridge.send('chat.abort')
   })
 
   // -----------------------------------------------------------------------
@@ -93,6 +98,23 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     return bridge.send('providers.test', input as Record<string, unknown>)
   })
 
+  ipcMain.handle(IPC.PROVIDERS_UPDATE, async (_event, payload: unknown) => {
+    const input = ProviderUpdateInput.parse(payload)
+    return bridge.send('providers.update', input as Record<string, unknown>)
+  })
+
+  // -----------------------------------------------------------------------
+  // Channels
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.CHANNELS_LIST, async () => {
+    return bridge.send('channels.list')
+  })
+
+  ipcMain.handle(IPC.CHANNELS_UPDATE, async (_event, payload: unknown) => {
+    const input = ChannelsUpdateInput.parse(payload)
+    return bridge.send('channels.update', input as Record<string, unknown>)
+  })
+
   // -----------------------------------------------------------------------
   // Python check (no bridge needed — just spawn a quick python process)
   // -----------------------------------------------------------------------
@@ -108,5 +130,22 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
       properties: ['openFile', 'openDirectory'],
     })
     return result.canceled ? null : result.filePaths[0] ?? null
+  })
+
+  // -----------------------------------------------------------------------
+  // Approvals
+  // -----------------------------------------------------------------------
+  ipcMain.handle('approvals:list', async () => {
+    return bridge.send('approvals.list')
+  })
+
+  ipcMain.handle('approvals:resolve', async (_event, payload: unknown) => {
+    const p = payload as { approval_id: string; decision: string }
+    return bridge.send('approvals.resolve', p as Record<string, unknown>)
+  })
+
+  ipcMain.handle('approvals:clear_permanent', async (_event, payload: unknown) => {
+    const p = (payload ?? {}) as { pattern?: string }
+    return bridge.send('approvals.clear_permanent', p as Record<string, unknown>)
   })
 }

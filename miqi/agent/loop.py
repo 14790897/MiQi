@@ -147,6 +147,7 @@ class AgentLoop:
         smart_routing_config: SmartRoutingConfig | None = None,
         enable_context_compression: bool = False,
         compression_threshold_chars: int = 400_000,
+        approval_callback=None,
     ):
         self.bus = bus
         self.channels_config = channels_config
@@ -215,6 +216,8 @@ class AgentLoop:
         )
 
         self._running = False
+        self._abort_event = asyncio.Event()
+        self._approval_callback = approval_callback
         self._mcp_servers = mcp_servers or {}
         self._mcp_stack: AsyncExitStack | None = None
         self._mcp_connected = False
@@ -267,6 +270,7 @@ class AgentLoop:
             timeout=self.exec_config.timeout,
             restrict_to_workspace=self.restrict_to_workspace,
             env_passthrough=list(self.exec_config.env_passthrough),
+            approval_callback=self._approval_callback,
         ))
         self.tools.register(
             WebSearchTool(
@@ -501,6 +505,8 @@ class AgentLoop:
         budget = IterationBudget(self.max_iterations)
 
         while not budget.exhausted:
+            if self._abort_event.is_set():
+                break
             budget.consume()
             iteration = budget.used
 

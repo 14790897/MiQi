@@ -20,9 +20,14 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import threading
 import traceback
+import uuid
 from pathlib import Path
 from typing import Any
+
+
+_stdout_lock = threading.Lock()
 
 
 def _log(msg: str) -> None:
@@ -30,8 +35,11 @@ def _log(msg: str) -> None:
 
 
 def _send(data: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(data, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    """Write one atomic JSON line to stdout (thread-safe)."""
+    line = json.dumps(data, ensure_ascii=False) + "\n"
+    with _stdout_lock:
+        sys.stdout.write(line)
+        sys.stdout.flush()
 
 
 def _result(req_id: str, result: Any = None) -> None:
@@ -46,15 +54,35 @@ def _event(req_id: str, event_type: str, data: Any) -> None:
     _send({"id": req_id, "type": event_type, "data": data})
 
 
+def _terminal_event(req_id: str, event_type: str, data: Any) -> bool:
+    """Send a terminal event (final/error/aborted) for req_id.
+
+    Returns True if this is the first terminal event for this request.
+    Returns False (and drops the event) if a terminal event was already sent
+    — this prevents duplicate terminal states from racing abort vs completion.
+    """
+    if not _state.mark_terminated(req_id):
+        _log(f"Dropping duplicate terminal event {event_type} for {req_id}")
+        return False
+    _event(req_id, event_type, data)
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Bridge state
 # ---------------------------------------------------------------------------
 
 class BridgeState:
-    """Holds cached config and agent loops across requests."""
+    """Holds cached config, active agent, and abort state."""
 
     def __init__(self) -> None:
         self.config = None  # lazy-loaded
+        self._lock = threading.Lock()
+        self._active_agent: Any = None
+        self._active_req_id: str | None = None
+        self._terminated: set[str] = set()
+        self._pending_approvals: dict[str, threading.Event] = {}
+        self._approval_decisions: dict[str, str] = {}
 
     def load_config(self):
         from miqi.config.loader import load_config
@@ -62,7 +90,7 @@ class BridgeState:
         self.config = load_config()
         return self.config
 
-    def build_agent(self, session_key: str):
+    def build_agent(self, session_key: str, approval_callback=None):
         """Create an AgentLoop for the given session."""
         from miqi.agent.loop import AgentLoop
         from miqi.bus.queue import MessageBus
@@ -101,8 +129,71 @@ class BridgeState:
             mcp_servers={},
             channels_config=config.channels,
             smart_routing_config=config.agents.smart_routing,
+            approval_callback=approval_callback,
         )
         return agent
+
+    def set_active(self, agent: Any, req_id: str) -> None:
+        with self._lock:
+            self._active_agent = agent
+            self._active_req_id = req_id
+
+    def abort_active(self) -> dict:
+        with self._lock:
+            agent = self._active_agent
+            req_id = self._active_req_id
+            self._active_agent = None
+            self._active_req_id = None
+        # Wake all pending approvals so the blocked chat daemon thread can exit.
+        # Without this, a thread waiting on evt.wait() in _desktop_approval_callback
+        # would remain stuck until the approval timeout expires.
+        pending_ids = self.list_pending_approval_ids()
+        for aid in pending_ids:
+            self.resolve_approval(aid, "deny")
+        if agent is not None:
+            agent._abort_event.set()
+            agent.stop()
+            return {"aborted": True, "req_id": req_id}
+        return {"aborted": False}
+
+    def mark_terminated(self, req_id: str) -> bool:
+        """Atomically check-and-mark a request as terminated.
+
+        Returns True if this call is the first to mark the request,
+        False if it was already terminated by a concurrent path (e.g. abort
+        raced natural completion).
+        """
+        with self._lock:
+            if req_id in self._terminated:
+                return False
+            self._terminated.add(req_id)
+            return True
+
+    def register_approval(self, approval_id: str) -> threading.Event:
+        """Create and store an event for a pending approval. Returns the event."""
+        evt = threading.Event()
+        with self._lock:
+            self._pending_approvals[approval_id] = evt
+        return evt
+
+    def resolve_approval(self, approval_id: str, decision: str) -> bool:
+        """Set the decision and unblock the waiting callback. Returns True if found."""
+        with self._lock:
+            evt = self._pending_approvals.pop(approval_id, None)
+            if evt is None:
+                return False
+            self._approval_decisions[approval_id] = decision
+        evt.set()
+        return True
+
+    def get_approval_decision(self, approval_id: str) -> str:
+        """Retrieve and remove the stored decision. Returns 'deny' if not found."""
+        with self._lock:
+            return self._approval_decisions.pop(approval_id, "deny")
+
+    def list_pending_approval_ids(self) -> list[str]:
+        with self._lock:
+            return list(self._pending_approvals.keys())
 
 
 _state = BridgeState()
@@ -125,26 +216,65 @@ def handle_chat_send(req_id: str, params: dict) -> None:
     content = params["content"]
     session_key = params.get("session_key", "desktop:default")
 
-    async def _run() -> None:
-        agent = _state.build_agent(session_key)
+    def _run_in_thread() -> None:
+        async def _run() -> None:
+            # Build desktop approval callback (blocks thread, sends event to renderer)
+            config = _state.load_config()
+            approval_timeout = config.agents.command_approval.timeout
+            approval_enabled = config.agents.command_approval.enabled
 
-        async def on_progress(text: str, tool_hint: bool = False) -> None:
-            _event(req_id, "progress", {"text": text, "tool_hint": tool_hint})
+            def _desktop_approval_callback(command: str, description: str, *, allow_permanent: bool = True) -> str:
+                if not approval_enabled:
+                    return "once"
+                approval_id = str(uuid.uuid4())
+                evt = _state.register_approval(approval_id)
+                _event(req_id, "approval_request", {
+                    "approval_id": approval_id,
+                    "command": command,
+                    "description": description,
+                    "allow_permanent": allow_permanent,
+                })
+                if not evt.wait(timeout=approval_timeout):
+                    _state.resolve_approval(approval_id, "deny")
+                    return "deny"
+                return _state.get_approval_decision(approval_id)
 
-        result = await agent.process_direct(
-            content=content,
-            session_key=session_key,
-            channel="desktop",
-            chat_id=session_key,
-            on_progress=on_progress,
-        )
-        _event(req_id, "final", {"content": result})
+            agent = _state.build_agent(session_key, approval_callback=_desktop_approval_callback)
+            _state.set_active(agent, req_id)
 
-    try:
+            async def on_progress(text: str, tool_hint: bool = False) -> None:
+                _event(req_id, "progress", {"text": text, "tool_hint": tool_hint})
+
+            try:
+                result = await agent.process_direct(
+                    content=content,
+                    session_key=session_key,
+                    channel="desktop",
+                    chat_id=session_key,
+                    on_progress=on_progress,
+                )
+                aborted = agent._abort_event.is_set()
+                _terminal_event(req_id, "final", {"content": result, "aborted": aborted})
+            except Exception as exc:
+                _log(f"chat.send error: {exc}")
+                _terminal_event(req_id, "error", {"message": str(exc)})
+            finally:
+                _state.set_active(None, "")
+
         asyncio.run(_run())
-    except Exception as exc:
-        _log(f"chat.send error: {exc}")
-        _event(req_id, "error", {"message": str(exc)})
+
+    t = threading.Thread(target=_run_in_thread, daemon=True)
+    t.start()
+    _result(req_id, {"accepted": True})
+
+
+def handle_chat_abort(req_id: str, params: dict) -> None:
+    result = _state.abort_active()
+    aborted = result["aborted"]
+    active_req_id = result.get("req_id")
+    if aborted and active_req_id:
+        _terminal_event(active_req_id, "aborted", {"message": "Chat aborted by user"})
+    _result(req_id, {"aborted": aborted})
 
 
 def handle_sessions_list(req_id: str, params: dict) -> None:
@@ -225,8 +355,21 @@ def handle_providers_list(req_id: str, params: dict) -> None:
 
 def handle_providers_test(req_id: str, params: dict) -> None:
     provider_name = params.get("provider_name", "")
-    api_key = params.get("api_key", "")
+    api_key = params.get("api_key") or ""
     api_base = params.get("api_base") or None
+
+    # If no API key provided, read from current saved config
+    if not api_key:
+        config = _state.load_config()
+        pc = getattr(config.providers, provider_name, None)
+        if pc is not None:
+            api_key = pc.api_key or ""
+            if not api_base:
+                api_base = pc.api_base
+
+    if not api_key:
+        _error(req_id, "No API key configured — enter one in Edit or save a provider first")
+        return
 
     async def _test() -> None:
         from miqi.providers.registry import find_by_name
@@ -259,6 +402,113 @@ def handle_providers_test(req_id: str, params: dict) -> None:
             _error(req_id, str(exc))
 
     asyncio.run(_test())
+
+
+def handle_providers_update(req_id: str, params: dict) -> None:
+    """Update a single provider's api_key / api_base / extra_headers in config."""
+    from miqi.config.loader import save_config
+
+    provider_name = params.get("provider_name", "").strip()
+    if not provider_name:
+        _error(req_id, "provider_name is required")
+        return
+
+    from miqi.config.schema import ProvidersConfig
+    valid_names = set(ProvidersConfig.model_fields.keys())
+    if provider_name not in valid_names:
+        _error(req_id, f"Unknown provider: {provider_name}")
+        return
+
+    config = _state.load_config()
+    pc = getattr(config.providers, provider_name, None)
+    if pc is None:
+        _error(req_id, f"Provider config not found: {provider_name}")
+        return
+
+    update: dict = {}
+    if "api_key" in params:
+        update["api_key"] = str(params["api_key"])
+    if "api_base" in params:
+        v = params["api_base"]
+        update["api_base"] = str(v) if v else None
+    if "extra_headers" in params:
+        v = params["extra_headers"]
+        update["extra_headers"] = dict(v) if v else None
+
+    if not update:
+        _error(req_id, "No fields to update")
+        return
+
+    current_dict = pc.model_dump(by_alias=False)
+    current_dict.update(update)
+
+    from miqi.config.schema import ProviderConfig
+    new_pc = ProviderConfig.model_validate(current_dict)
+    setattr(config.providers, provider_name, new_pc)
+    save_config(config)
+    _state.config = config
+    _result(req_id, {"saved": True, "provider_name": provider_name})
+
+
+def handle_channels_list(req_id: str, params: dict) -> None:
+    """Return current channels config as a serializable dict, with secrets redacted."""
+    config = _state.load_config()
+    data = config.channels.model_dump(by_alias=False)
+    _redact_secrets(data)
+    _result(req_id, {"channels": data})
+
+
+def handle_channels_update(req_id: str, params: dict) -> None:
+    """Merge partial update into channels config and save."""
+    from miqi.config.loader import save_config
+
+    updates = params.get("channels", {})
+    if not isinstance(updates, dict):
+        _error(req_id, "channels must be a dict")
+        return
+
+    config = _state.load_config()
+    from miqi.config.schema import ChannelsConfig
+
+    current = config.channels.model_dump(by_alias=False)
+    merged = _deep_merge(current, updates)
+    config.channels = ChannelsConfig.model_validate(merged)
+    save_config(config)
+    _state.config = config
+    _result(req_id, {"saved": True})
+
+
+def handle_approvals_list(req_id: str, params: dict) -> None:
+    from miqi.agent.command_approval import get_permanent_allowlist
+    config = _state.load_config()
+    pending_ids = _state.list_pending_approval_ids()
+    _result(req_id, {
+        "pending_ids": pending_ids,
+        "permanent_allowlist": sorted(get_permanent_allowlist()),
+        "enabled": config.agents.command_approval.enabled,
+        "timeout": config.agents.command_approval.timeout,
+    })
+
+
+def handle_approvals_resolve(req_id: str, params: dict) -> None:
+    approval_id = params.get("approval_id", "")
+    decision = params.get("decision", "deny")
+    if decision not in ("once", "session", "always", "deny"):
+        _error(req_id, f"Invalid decision: {decision}")
+        return
+    found = _state.resolve_approval(approval_id, decision)
+    _result(req_id, {"resolved": found, "approval_id": approval_id})
+
+
+def handle_approvals_clear_permanent(req_id: str, params: dict) -> None:
+    from miqi.agent.command_approval import _lock, _permanent_approved
+    pattern = params.get("pattern")
+    with _lock:
+        if pattern:
+            _permanent_approved.discard(pattern)
+        else:
+            _permanent_approved.clear()
+    _result(req_id, {"cleared": True})
 
 
 def handle_python_check(req_id: str, params: dict) -> None:
@@ -326,6 +576,7 @@ def _deep_merge(base: dict, updates: dict) -> dict:
 _METHODS = {
     "status": handle_status,
     "chat.send": handle_chat_send,
+    "chat.abort": handle_chat_abort,
     "sessions.list": handle_sessions_list,
     "sessions.get": handle_sessions_get,
     "sessions.delete": handle_sessions_delete,
@@ -333,6 +584,12 @@ _METHODS = {
     "config.update": handle_config_update,
     "providers.list": handle_providers_list,
     "providers.test": handle_providers_test,
+    "providers.update": handle_providers_update,
+    "channels.list": handle_channels_list,
+    "channels.update": handle_channels_update,
+    "approvals.list": handle_approvals_list,
+    "approvals.resolve": handle_approvals_resolve,
+    "approvals.clear_permanent": handle_approvals_clear_permanent,
     "python.check": handle_python_check,
 }
 

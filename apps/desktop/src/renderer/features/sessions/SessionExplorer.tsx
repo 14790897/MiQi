@@ -150,7 +150,7 @@ export function SessionExplorer({ onOpenSession }: { onOpenSession: (key: string
                     )}
                   >
                     {isTool ? (
-                      <span className="text-[var(--text-faint)]">tool: {msg.name ?? 'result'}</span>
+                      <span className="text-[var(--text-faint)]">tool: {String(msg.name ?? 'result')}</span>
                     ) : null}
                     <div className={cn(isTool && 'mt-1')}>{content.slice(0, 500)}{content.length > 500 && '...'}</div>
                   </div>

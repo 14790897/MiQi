@@ -1,11 +1,11 @@
-import { BrowserWindow, app, shell } from 'electron'
 import { join } from 'path'
+import { electron } from '../shared/electron'
 import { registerIpcHandlers } from './ipc'
 import { BridgeManager } from './bridge'
 
-const isDev = !app.isPackaged
+const { app, BrowserWindow, shell } = electron
 
-let mainWindow: BrowserWindow | null = null
+let mainWindow: typeof BrowserWindow.prototype | null = null
 let bridgeManager: BridgeManager | null = null
 
 function createWindow(): void {
@@ -33,33 +33,35 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
-  if (isDev && process.env['ELECTRON_RENDERER_URL']) {
+  if (process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
-app.whenReady().then(() => {
-  bridgeManager = new BridgeManager()
-  registerIpcHandlers(bridgeManager)
+export function main(): void {
+  app.whenReady().then(() => {
+    bridgeManager = new BridgeManager()
+    registerIpcHandlers(bridgeManager)
 
-  createWindow()
+    createWindow()
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow()
+      }
+    })
+  })
+
+  app.on('window-all-closed', () => {
+    bridgeManager?.stop()
+    if (process.platform !== 'darwin') {
+      app.quit()
     }
   })
-})
 
-app.on('window-all-closed', () => {
-  bridgeManager?.stop()
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
-})
-
-app.on('before-quit', () => {
-  bridgeManager?.stop()
-})
+  app.on('before-quit', () => {
+    bridgeManager?.stop()
+  })
+}

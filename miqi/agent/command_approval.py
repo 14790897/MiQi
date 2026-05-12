@@ -160,12 +160,14 @@ def check_dangerous_command(
     if is_approved(session_key, pattern_key):
         return {"approved": True, "message": None}
 
-    # Non-interactive mode: approve (matches Hermes behaviour for non-CLI/gateway)
-    is_cli = os.getenv("MIQI_INTERACTIVE")
-    if not is_cli:
-        return {"approved": True, "message": None}
+    # If a custom callback is provided (e.g. desktop bridge), always prompt.
+    # Otherwise fall back to MIQI_INTERACTIVE guard for CLI mode.
+    if approval_callback is None:
+        is_cli = os.getenv("MIQI_INTERACTIVE")
+        if not is_cli:
+            return {"approved": True, "message": None}
 
-    # CLI interactive approval
+    # CLI interactive approval (or custom callback)
     choice = prompt_dangerous_approval(
         command, description,
         approval_callback=approval_callback,

@@ -9,6 +9,7 @@ export default defineConfig({
       outDir: 'out/main',
       rollupOptions: {
         input: {
+          'electron-trampoline': resolve(__dirname, 'src/main/electron-trampoline.js'),
           index: resolve(__dirname, 'src/main/index.ts'),
         },
       },

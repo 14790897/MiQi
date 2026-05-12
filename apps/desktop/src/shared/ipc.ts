@@ -27,6 +27,12 @@ export const IPC = {
   // Providers
   PROVIDERS_LIST: 'providers:list',
   PROVIDERS_TEST: 'providers:test',
+  PROVIDERS_UPDATE: 'providers:update',
+  CHANNELS_LIST: 'channels:list',
+  CHANNELS_UPDATE: 'channels:update',
+  APPROVALS_LIST: 'approvals:list',
+  APPROVALS_RESOLVE: 'approvals:resolve',
+  APPROVALS_CLEAR_PERMANENT: 'approvals:clear_permanent',
 
   // Python check
   PYTHON_CHECK: 'python:check',
@@ -46,6 +52,8 @@ export const IPC_EVENTS = {
   CHAT_PROGRESS: 'chat:progress',
   CHAT_FINAL: 'chat:final',
   CHAT_ERROR: 'chat:error',
+  CHAT_ABORTED: 'chat:aborted',
+  APPROVAL_REQUEST: 'approval:request',
 } as const
 
 // ---------------------------------------------------------------------------
@@ -71,8 +79,15 @@ export const ConfigUpdateInput = z.object({
 
 export const ProviderTestInput = z.object({
   provider_name: z.string().min(1),
-  api_key: z.string().min(1),
+  api_key: z.string().optional(),
   api_base: z.string().nullable().optional(),
+})
+
+export const ProviderUpdateInput = z.object({
+  provider_name: z.string().min(1),
+  api_key: z.string().optional(),
+  api_base: z.string().nullable().optional(),
+  extra_headers: z.record(z.string()).nullable().optional(),
 })
 
 // ---------------------------------------------------------------------------
@@ -123,6 +138,45 @@ export interface ProviderInfo {
   api_base: string | null
 }
 
+export interface ProviderUpdateResult {
+  saved: boolean
+  provider_name: string
+}
+
+export interface FeishuChannelConfig {
+  enabled: boolean
+  app_id: string
+  app_secret: string
+  allow_from: string[]
+  reply_delay_ms: number
+  require_mention_in_groups: boolean
+}
+
+export interface ChannelsConfig {
+  send_progress: boolean
+  send_tool_hints: boolean
+  send_queue_notifications: boolean
+  feishu: FeishuChannelConfig
+}
+
+export const ChannelsUpdateInput = z.object({
+  channels: z.record(z.unknown()),
+})
+
+export interface ApprovalRequest {
+  approval_id: string
+  command: string
+  description: string
+  allow_permanent: boolean
+}
+
+export interface ApprovalsListResult {
+  pending_ids: string[]
+  permanent_allowlist: string[]
+  enabled: boolean
+  timeout: number
+}
+
 // ---------------------------------------------------------------------------
 // Chat types
 // ---------------------------------------------------------------------------
@@ -134,9 +188,14 @@ export interface ChatProgress {
 
 export interface ChatFinal {
   content: string
+  aborted?: boolean
 }
 
 export interface ChatError {
+  message: string
+}
+
+export interface ChatAborted {
   message: string
 }
 

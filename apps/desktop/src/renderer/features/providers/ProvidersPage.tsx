@@ -1,0 +1,415 @@
+import { useState, useEffect, useCallback } from 'react'
+import {
+  Zap, Server, Globe, HardDrive,
+  CheckCircle, Circle, Edit2, TestTube2,
+  Eye, EyeOff, Save, X, Loader2, ChevronDown, ChevronRight,
+} from 'lucide-react'
+import { cn } from '../../lib/utils'
+import type { ProviderInfo } from '../../../shared/ipc'
+
+const DOMESTIC_NAMES = new Set(['dashscope', 'zhipu', 'moonshot', 'minimax', 'siliconflow', 'volcengine'])
+
+function getCategory(p: ProviderInfo): 'gateway' | 'domestic' | 'local' | 'international' {
+  if (p.is_local) return 'local'
+  if (p.is_gateway) return 'gateway'
+  if (DOMESTIC_NAMES.has(p.name)) return 'domestic'
+  return 'international'
+}
+
+interface EditSheetProps {
+  provider: ProviderInfo
+  onClose: () => void
+  onSaved: () => void
+}
+
+function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
+  const [apiKey, setApiKey] = useState('')
+  const [apiBase, setApiBase] = useState(provider.api_base ?? '')
+  const [extraHeadersText, setExtraHeadersText] = useState('')
+  const [showKey, setShowKey] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const placeholderBase = provider.default_api_base || ''
+
+  const handleSave = async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      const extraHeaders = extraHeadersText.trim()
+        ? JSON.parse(extraHeadersText) as Record<string, string>
+        : null
+      await window.miqi.providers.update(
+        provider.name,
+        apiKey || undefined,
+        apiBase || null,
+        extraHeaders,
+      )
+      onSaved()
+      onClose()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('JSON')) {
+        setError('Extra headers must be valid JSON, e.g. {"APP-Code": "xxx"}')
+      } else {
+        setError(msg)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleTest = async () => {
+    if (!apiKey && !provider.configured) {
+      setTestResult({ ok: false, message: 'Enter an API key first' })
+      return
+    }
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const result = await window.miqi.providers.test(
+        provider.name,
+        apiKey || undefined,
+        apiBase || undefined,
+      )
+      setTestResult({ ok: result.ok, message: result.ok ? 'Connection OK' : 'Connection failed' })
+    } catch (err: unknown) {
+      setTestResult({ ok: false, message: err instanceof Error ? err.message : 'Test failed' })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+      <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[480px] max-h-[80vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-subtle)]">
+          <div>
+            <h2 className="text-sm font-semibold text-[var(--text)]">{provider.display_name}</h2>
+            <p className="text-xs text-[var(--text-muted)] mt-0.5">{provider.name}</p>
+          </div>
+          <button onClick={onClose} className="text-[var(--text-faint)] hover:text-[var(--text)] transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="px-5 py-4 flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">API Key</label>
+            <div className="relative">
+              <input
+                type={showKey ? 'text' : 'password'}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={
+                  provider.configured
+                    ? '●●●●●●●●●●●● (leave blank to keep current)'
+                    : provider.env_key
+                    ? `Set ${provider.env_key} or enter here`
+                    : 'Enter API key'
+                }
+                className="w-full px-3 py-2 pr-10 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <button
+                onClick={() => setShowKey(!showKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)] hover:text-[var(--text-muted)]"
+                tabIndex={-1}
+                type="button"
+              >
+                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
+              API Base URL <span className="font-normal text-[var(--text-faint)]">(optional)</span>
+            </label>
+            <input
+              type="url"
+              value={apiBase}
+              onChange={(e) => setApiBase(e.target.value)}
+              placeholder={placeholderBase || 'https://api.example.com/v1'}
+              className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+              spellCheck={false}
+            />
+            {placeholderBase && (
+              <p className="text-xs text-[var(--text-faint)]">Default: {placeholderBase}</p>
+            )}
+          </div>
+
+          <ExtraHeadersField value={extraHeadersText} onChange={setExtraHeadersText} />
+
+          {error && (
+            <div className="rounded-lg px-3 py-2 bg-[var(--accent-soft)] text-xs text-[var(--danger)]">{error}</div>
+          )}
+          {testResult && (
+            <div className={cn(
+              'rounded-lg px-3 py-2 text-xs',
+              testResult.ok
+                ? 'bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]'
+                : 'bg-[var(--accent-soft)] text-[var(--danger)]',
+            )}>
+              {testResult.message}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between px-5 py-3 border-t border-[var(--border-subtle)]">
+          <button
+            onClick={handleTest}
+            disabled={testing}
+            className="flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors disabled:opacity-50"
+          >
+            {testing ? <Loader2 size={14} className="animate-spin" /> : <TestTube2 size={14} />}
+            Test connection
+          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ExtraHeadersField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-xs text-[var(--text-faint)] hover:text-[var(--text-muted)] transition-colors"
+      >
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        Extra HTTP Headers <span className="text-[var(--text-faint)]">(JSON, optional)</span>
+      </button>
+      {open && (
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={'{"APP-Code": "your-code"}'}
+          rows={3}
+          className="mt-2 w-full px-3 py-2 rounded-lg text-xs bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono resize-none"
+          spellCheck={false}
+        />
+      )}
+    </div>
+  )
+}
+
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  dashscope: 'DashScope · 通义千问',
+  zhipu: 'Zhipu AI · 智谱',
+  moonshot: 'Moonshot · 月之暗面',
+  siliconflow: 'SiliconFlow · 硅基流动',
+  volcengine: 'VolcEngine · 火山引擎',
+  ollama_local: 'Ollama Local',
+  ollama_cloud: 'Ollama Cloud',
+}
+
+interface ProviderRowProps {
+  provider: ProviderInfo
+  onEdit: (p: ProviderInfo) => void
+  onTest: (p: ProviderInfo) => void
+  testingName: string | null
+  testResults: Record<string, boolean>
+}
+
+function ProviderRow({ provider, onEdit, onTest, testingName, testResults }: ProviderRowProps) {
+  const label = PROVIDER_DISPLAY_NAMES[provider.name] ?? provider.display_name
+  const isTesting = testingName === provider.name
+  const testOk = testResults[provider.name]
+  const hasTestResult = provider.name in testResults
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--surface-muted)] transition-colors group">
+      <div className={cn('shrink-0', provider.configured ? 'text-[var(--success)]' : 'text-[var(--border)]')}>
+        {provider.configured ? <CheckCircle size={14} /> : <Circle size={14} />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <span className="text-sm text-[var(--text)]">{label}</span>
+        {provider.default_api_base && (
+          <span className="ml-2 text-xs text-[var(--text-faint)] truncate hidden group-hover:inline">
+            {provider.default_api_base}
+          </span>
+        )}
+      </div>
+      <span className={cn(
+        'text-xs px-2 py-0.5 rounded-full shrink-0',
+        provider.is_gateway
+          ? 'bg-[color-mix(in_srgb,var(--info)_15%,transparent)] text-[var(--info)]'
+          : provider.is_local
+          ? 'bg-[color-mix(in_srgb,var(--warning)_15%,transparent)] text-[var(--warning)]'
+          : 'bg-[var(--surface-muted)] text-[var(--text-muted)]',
+      )}>
+        {provider.is_gateway ? 'Gateway' : provider.is_local ? 'Local' : provider.provider_type}
+      </span>
+      <span className={cn(
+        'text-xs px-2 py-0.5 rounded-full shrink-0',
+        provider.configured
+          ? 'bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]'
+          : 'bg-[var(--surface-muted)] text-[var(--text-faint)]',
+      )}>
+        {provider.configured ? 'Configured' : 'Not set'}
+      </span>
+      {hasTestResult && (
+        <span className={cn('text-xs shrink-0', testOk ? 'text-[var(--success)]' : 'text-[var(--danger)]')}>
+          {testOk ? '✓ OK' : '✗ Failed'}
+        </span>
+      )}
+      <div className="flex items-center gap-1 shrink-0">
+        <button
+          onClick={() => onTest(provider)}
+          disabled={isTesting}
+          title="Test connection"
+          className="p-1.5 rounded-md text-[var(--text-faint)] hover:text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors disabled:opacity-40"
+        >
+          {isTesting ? <Loader2 size={14} className="animate-spin" /> : <TestTube2 size={14} />}
+        </button>
+        <button
+          onClick={() => onEdit(provider)}
+          title="Edit provider"
+          className="p-1.5 rounded-md text-[var(--text-faint)] hover:text-[var(--text)] hover:bg-[var(--surface-muted)] transition-colors"
+        >
+          <Edit2 size={14} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+interface CategorySectionProps {
+  title: string
+  icon: React.ReactNode
+  providers: ProviderInfo[]
+  onEdit: (p: ProviderInfo) => void
+  onTest: (p: ProviderInfo) => void
+  testingName: string | null
+  testResults: Record<string, boolean>
+}
+
+function CategorySection({ title, icon, providers, onEdit, onTest, testingName, testResults }: CategorySectionProps) {
+  if (providers.length === 0) return null
+  return (
+    <div>
+      <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)] border-b border-[var(--border-subtle)]">
+        {icon}
+        {title}
+        <span className="ml-auto font-normal normal-case tracking-normal">
+          {providers.filter(p => p.configured).length}/{providers.length} configured
+        </span>
+      </div>
+      <div className="divide-y divide-[var(--border-subtle)]">
+        {providers.map(p => (
+          <ProviderRow
+            key={p.name}
+            provider={p}
+            onEdit={onEdit}
+            onTest={onTest}
+            testingName={testingName}
+            testResults={testResults}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export function ProvidersPage() {
+  const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [loading, setLoading] = useState(true)
+  const [editProvider, setEditProvider] = useState<ProviderInfo | null>(null)
+  const [testingName, setTestingName] = useState<string | null>(null)
+  const [testResults, setTestResults] = useState<Record<string, boolean>>({})
+
+  const load = useCallback(async () => {
+    try {
+      const result = await window.miqi.providers.list()
+      setProviders(result.providers)
+    } catch {
+      // silent — runtime may not be running
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const handleTest = async (p: ProviderInfo) => {
+    if (!p.configured) {
+      setTestResults(prev => ({ ...prev, [p.name]: false }))
+      return
+    }
+    setTestingName(p.name)
+    try {
+      const result = await window.miqi.providers.test(p.name, undefined, p.api_base ?? undefined)
+      setTestResults(prev => ({ ...prev, [p.name]: result.ok }))
+    } catch {
+      setTestResults(prev => ({ ...prev, [p.name]: false }))
+    } finally {
+      setTestingName(null)
+    }
+  }
+
+  const gateways = providers.filter(p => getCategory(p) === 'gateway')
+  const international = providers.filter(p => getCategory(p) === 'international')
+  const domestic = providers.filter(p => getCategory(p) === 'domestic')
+  const local = providers.filter(p => getCategory(p) === 'local')
+  const configuredCount = providers.filter(p => p.configured).length
+
+  return (
+    <div className="flex flex-col h-full bg-[var(--background)]">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] bg-[var(--surface)] shrink-0">
+        <div>
+          <h1 className="text-base font-semibold text-[var(--text)]">Providers</h1>
+          <p className="text-xs text-[var(--text-muted)] mt-0.5">
+            {loading ? 'Loading...' : `${configuredCount} of ${providers.length} providers configured`}
+          </p>
+        </div>
+        <button onClick={load} className="text-xs text-[var(--text-faint)] hover:text-[var(--text-muted)] transition-colors px-2 py-1 rounded">
+          Refresh
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {loading ? (
+          <div className="flex items-center justify-center h-40 text-sm text-[var(--text-faint)]">
+            <Loader2 size={16} className="animate-spin mr-2" /> Loading providers...
+          </div>
+        ) : providers.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-40 gap-2 text-sm text-[var(--text-faint)]">
+            <Server size={24} />
+            <span>Runtime not running — start MiQi first</span>
+          </div>
+        ) : (
+          <div className="divide-y divide-[var(--border-subtle)]">
+            <CategorySection title="Gateways" icon={<Globe size={12} />} providers={gateways} onEdit={setEditProvider} onTest={handleTest} testingName={testingName} testResults={testResults} />
+            <CategorySection title="International" icon={<Zap size={12} />} providers={international} onEdit={setEditProvider} onTest={handleTest} testingName={testingName} testResults={testResults} />
+            <CategorySection title="国内 / Domestic" icon={<Server size={12} />} providers={domestic} onEdit={setEditProvider} onTest={handleTest} testingName={testingName} testResults={testResults} />
+            <CategorySection title="Local" icon={<HardDrive size={12} />} providers={local} onEdit={setEditProvider} onTest={handleTest} testingName={testingName} testResults={testResults} />
+          </div>
+        )}
+      </div>
+
+      {editProvider && (
+        <EditSheet provider={editProvider} onClose={() => setEditProvider(null)} onSaved={load} />
+      )}
+    </div>
+  )
+}

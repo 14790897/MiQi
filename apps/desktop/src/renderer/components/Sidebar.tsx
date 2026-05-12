@@ -2,6 +2,9 @@ import { cn } from '../lib/utils'
 import {
   MessageSquare,
   FolderOpen,
+  Cpu,
+  Radio,
+  ShieldAlert,
   Settings,
   type LucideIcon,
 } from 'lucide-react'
@@ -15,6 +18,9 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'chat', label: 'Chat', icon: MessageSquare },
   { id: 'sessions', label: 'Sessions', icon: FolderOpen },
+  { id: 'providers', label: 'Providers', icon: Cpu },
+  { id: 'channels', label: 'Channels', icon: Radio },
+  { id: 'approvals', label: 'Approvals', icon: ShieldAlert },
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
 

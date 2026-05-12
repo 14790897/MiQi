@@ -13,7 +13,7 @@ import {
   Copy,
   Check,
 } from 'lucide-react'
-import type { ChatProgress, ChatFinal, ChatError } from '../../../shared/ipc'
+import type { ChatProgress, ChatFinal, ChatError, ChatAborted } from '../../../shared/ipc'
 
 interface Message {
   role: 'user' | 'assistant' | 'progress' | 'error'
@@ -36,6 +36,28 @@ export function ChatConsole() {
     }
   }, [messages])
 
+  // Store active listeners in a ref so abort can clean them up
+  const unsubsRef = useRef<Array<() => void>>([])
+
+  const cleanupListeners = useCallback(() => {
+    for (const unsub of unsubsRef.current) {
+      unsub()
+    }
+    unsubsRef.current = []
+  }, [])
+
+  const handleAbort = useCallback(async () => {
+    // Clean up event listeners immediately so no more events arrive
+    cleanupListeners()
+    await window.miqi.chat.abort()
+    setStreaming(false)
+    setMessages((prev) => [...prev, {
+      role: 'progress',
+      content: 'Chat aborted by user.',
+      timestamp: Date.now(),
+    }])
+  }, [cleanupListeners])
+
   const handleSend = useCallback(async () => {
     const content = input.trim()
     if (!content || streaming) return
@@ -45,7 +67,9 @@ export function ChatConsole() {
     setInput('')
     setStreaming(true)
 
-    // Clean up previous listeners
+    // Clean up any previous listeners
+    cleanupListeners()
+
     const unsubProgress = window.miqi.chat.onProgress((data: ChatProgress) => {
       setMessages((prev) => [...prev, {
         role: 'progress',
@@ -62,9 +86,7 @@ export function ChatConsole() {
         timestamp: Date.now(),
       }])
       setStreaming(false)
-      unsubProgress()
-      unsubFinal()
-      unsubError()
+      cleanupListeners()
     })
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
@@ -74,27 +96,33 @@ export function ChatConsole() {
         timestamp: Date.now(),
       }])
       setStreaming(false)
-      unsubProgress()
-      unsubFinal()
-      unsubError()
+      cleanupListeners()
     })
+
+    const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
+      setStreaming(false)
+      setMessages((prev) => [...prev, {
+        role: 'progress',
+        content: 'Chat aborted by user.',
+        timestamp: Date.now(),
+      }])
+      cleanupListeners()
+    })
+
+    unsubsRef.current = [unsubProgress, unsubFinal, unsubError, unsubAborted]
 
     try {
       await window.miqi.chat.send(content)
     } catch (e: any) {
-      if (streaming) {
-        setMessages((prev) => [...prev, {
-          role: 'error',
-          content: e.message ?? String(e),
-          timestamp: Date.now(),
-        }])
-        setStreaming(false)
-      }
-      unsubProgress()
-      unsubFinal()
-      unsubError()
+      setMessages((prev) => [...prev, {
+        role: 'error',
+        content: e.message ?? String(e),
+        timestamp: Date.now(),
+      }])
+      setStreaming(false)
+      cleanupListeners()
     }
-  }, [input, streaming])
+  }, [input, streaming, cleanupListeners])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -158,7 +186,7 @@ export function ChatConsole() {
               disabled={streaming}
             />
             {streaming ? (
-              <Button size="icon" variant="ghost" onClick={() => window.miqi.chat.abort()} className="shrink-0">
+              <Button size="icon" variant="ghost" onClick={handleAbort} className="shrink-0">
                 <Square size={16} />
               </Button>
             ) : (

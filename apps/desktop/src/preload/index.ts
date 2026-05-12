@@ -5,9 +5,14 @@ import type {
   SessionInfo,
   SessionDetail,
   ProviderInfo,
+  ProviderUpdateResult,
+  ChannelsConfig,
+  ApprovalRequest,
+  ApprovalsListResult,
   ChatProgress,
   ChatFinal,
   ChatError,
+  ChatAborted,
   PythonCheckResult,
 } from '../shared/ipc'
 
@@ -59,6 +64,11 @@ const api = {
       ipcRenderer.on(IPC_EVENTS.CHAT_ERROR, handler)
       return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_ERROR, handler)
     },
+    onAborted: (callback: (data: ChatAborted) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: ChatAborted) => callback(data)
+      ipcRenderer.on(IPC_EVENTS.CHAT_ABORTED, handler)
+      return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_ABORTED, handler)
+    },
   },
 
   // -- Sessions ---------------------------------------------------------------
@@ -83,8 +93,43 @@ const api = {
   providers: {
     list: (): Promise<{ providers: ProviderInfo[] }> =>
       ipcRenderer.invoke(IPC.PROVIDERS_LIST),
-    test: (providerName: string, apiKey: string, apiBase?: string): Promise<{ ok: boolean }> =>
+    test: (providerName: string, apiKey?: string, apiBase?: string): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke(IPC.PROVIDERS_TEST, { provider_name: providerName, api_key: apiKey, api_base: apiBase ?? null }),
+    update: (
+      providerName: string,
+      apiKey?: string,
+      apiBase?: string | null,
+      extraHeaders?: Record<string, string> | null,
+    ): Promise<ProviderUpdateResult> =>
+      ipcRenderer.invoke(IPC.PROVIDERS_UPDATE, {
+        provider_name: providerName,
+        api_key: apiKey,
+        api_base: apiBase ?? null,
+        extra_headers: extraHeaders ?? null,
+      }),
+  },
+
+  // -- Channels ---------------------------------------------------------------
+  channels: {
+    list: (): Promise<{ channels: ChannelsConfig }> =>
+      ipcRenderer.invoke(IPC.CHANNELS_LIST),
+    update: (channels: Partial<Record<string, unknown>>): Promise<{ saved: boolean }> =>
+      ipcRenderer.invoke(IPC.CHANNELS_UPDATE, { channels }),
+  },
+
+  // -- Approvals --------------------------------------------------------------
+  approvals: {
+    list: (): Promise<ApprovalsListResult> =>
+      ipcRenderer.invoke(IPC.APPROVALS_LIST),
+    resolve: (approvalId: string, decision: string): Promise<{ resolved: boolean }> =>
+      ipcRenderer.invoke(IPC.APPROVALS_RESOLVE, { approval_id: approvalId, decision }),
+    clearPermanent: (pattern?: string): Promise<{ cleared: boolean }> =>
+      ipcRenderer.invoke(IPC.APPROVALS_CLEAR_PERMANENT, pattern ? { pattern } : {}),
+    onRequest: (callback: (data: ApprovalRequest) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: ApprovalRequest) => callback(data)
+      ipcRenderer.on(IPC_EVENTS.APPROVAL_REQUEST, handler)
+      return () => { ipcRenderer.removeListener(IPC_EVENTS.APPROVAL_REQUEST, handler) }
+    },
   },
 
   // -- Python check -----------------------------------------------------------
