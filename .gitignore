@@ -23,3 +23,4 @@ tests/
 .ruff_cache/
 featherflow/agent/memory.py.bak
 .miqi/
+CLAUDE.md

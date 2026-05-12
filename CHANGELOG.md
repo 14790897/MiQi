@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- M1 Electron desktop shell (`apps/desktop/`):
+  - Python bridge (`miqi/bridge/server.py`) with stdin/stdout JSON-line protocol for chat streaming, session management, config CRUD, and provider operations.
+  - Electron main process with secure BrowserWindow (contextIsolation + sandbox), BridgeManager for MiQi subprocess lifecycle, and 12 typed IPC handlers with zod validation.
+  - Secure preload API via contextBridge exposing only typed RPC methods.
+  - Setup wizard: 4-step flow (welcome → environment check → provider config with connection test → save & launch).
+  - Chat console with streaming progress display, tool-call hints, code rendering, and copy support.
+  - Session explorer: split-pane list and detail view with delete.
+  - Settings: runtime logs viewer with auto-scroll, error highlighting, and export.
+  - MiQi design system: warm neutral palette, Inter font bundled locally, Tailwind v4 + Radix primitives.
+
 ### Documentation
 - Added uv installation instructions to README, getting-started, developer-guide, and contributing docs; uv is the recommended install method, pip retained as fallback.
 - Updated `maxTokens` default from `16000` to `8192` in `docs/configuration.md` to match code.
