@@ -17,8 +17,8 @@ const SCOPE_ICONS: Record<string, LucideIcon> = {
 }
 
 const SCOPE_LABELS: Record<string, string> = {
-  workspace: 'Daily Notes',
-  agent: 'Agent Memory',
+  workspace: '日常笔记',
+  agent: 'Agent 记忆',
 }
 
 function formatSize(bytes: number): string {
@@ -50,21 +50,20 @@ function SaveConfirmDialog({
       <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[400px]">
         <div className="flex items-center gap-2 px-5 py-4 border-b border-[var(--border-subtle)]">
           <AlertTriangle size={16} className="text-[var(--warning)]" />
-          <h2 className="text-sm font-semibold text-[var(--text)]">Overwrite File</h2>
+          <h2 className="text-sm font-semibold text-[var(--text)]">覆盖文件</h2>
         </div>
         <div className="px-5 py-4 text-sm text-[var(--text-muted)]">
-          This will overwrite the contents of <code className="text-[var(--text)] font-mono">{filePath}</code>.
-          This action cannot be undone.
+          此操作将覆盖 <code className="text-[var(--text)] font-mono">{filePath}</code> 的内容，此操作不可撤销。
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
           <button onClick={onCancel} className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
-            Cancel
+            取消
           </button>
           <button
             onClick={onConfirm}
             className="px-4 py-1.5 rounded-lg bg-[var(--warning)] hover:brightness-110 text-white text-sm font-medium transition-all"
           >
-            Overwrite
+            确认覆盖
           </button>
         </div>
       </div>
@@ -111,7 +110,7 @@ export function MemoryPage() {
   const selectFile = useCallback(async (info: MemoryFileInfo) => {
     // Warn if dirty
     if (dirty && activeFile && info.path !== activeFile.path) {
-      const ok = confirm(`You have unsaved changes to ${activeFile.path}. Discard them?`)
+      const ok = confirm(`文件 ${activeFile.path} 有未保存的更改，确认丢弃？`)
       if (!ok) return
     }
 
@@ -126,7 +125,7 @@ export function MemoryPage() {
       setFileContent(result.content)
       setEditorContent(result.content)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load file')
+      setError(err instanceof Error ? err.message : '加载文件失败')
     }
   }, [dirty, activeFile])
 
@@ -139,10 +138,10 @@ export function MemoryPage() {
       await window.miqi.memory.update(activeFile.path, editorContent)
       setFileContent(editorContent)
       setDirty(false)
-      setSuccess(`Saved ${activeFile.path}`)
+      setSuccess(`已保存 ${activeFile.path}`)
       setTimeout(() => setSuccess(null), 2000)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Save failed')
+      setError(err instanceof Error ? err.message : '保存失败')
     } finally {
       setSaving(false)
     }
@@ -163,9 +162,9 @@ export function MemoryPage() {
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] bg-[var(--surface)] shrink-0">
         <div>
-          <h1 className="text-base font-semibold text-[var(--text)]">Memory</h1>
+          <h1 className="text-base font-semibold text-[var(--text)]">记忆</h1>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
-            {loading ? 'Loading...' : `${files.length} file${files.length !== 1 ? 's' : ''}, ${lessons.length} lessons`}
+            {loading ? '加载中…' : `${files.length} 个文件，${lessons.length} 条 Lesson`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -195,7 +194,7 @@ export function MemoryPage() {
             )}
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            {hasUnsaved ? 'Save *' : 'Save'}
+            {hasUnsaved ? '保存 *' : '保存'}
           </button>
         </div>
       </div>
@@ -211,19 +210,19 @@ export function MemoryPage() {
           ) : files.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-20 gap-1.5 text-xs text-[var(--text-faint)]">
               <FileText size={16} />
-              <span>No memory files</span>
+              <span>暂无记忆文件</span>
             </div>
           ) : (
             <div className="py-1">
               <FileGroup
-                label="Agent Memory"
+                label="Agent 记忆"
                 icon={BookOpen}
                 files={agentFiles}
                 activePath={activeFile?.path ?? null}
                 onSelect={selectFile}
               />
               <FileGroup
-                label="Daily Notes"
+                label="日常笔记"
                 icon={FileText}
                 files={workspaceFiles}
                 activePath={activeFile?.path ?? null}
@@ -238,7 +237,7 @@ export function MemoryPage() {
           {!activeFile ? (
             <div className="flex flex-col items-center justify-center flex-1 gap-3 text-sm text-[var(--text-faint)]">
               <BookOpen size={28} />
-              <span>Select a file from the left to view and edit</span>
+              <span>从左侧选择文件查看和编辑</span>
             </div>
           ) : (
             <>
@@ -248,7 +247,7 @@ export function MemoryPage() {
                 <span className="text-xs text-[var(--text-faint)]">{formatSize(activeFile.size)}</span>
                 <span className="text-xs text-[var(--text-faint)]">{formatTime(activeFile.updatedAtMs)}</span>
                 {dirty && (
-                  <span className="text-xs text-[var(--warning)] font-medium ml-auto">Unsaved changes</span>
+                  <span className="text-xs text-[var(--warning)] font-medium ml-auto">未保存</span>
                 )}
               </div>
 
@@ -262,7 +261,7 @@ export function MemoryPage() {
                   }}
                   className="w-full h-full px-5 py-4 resize-none text-sm font-mono bg-[var(--background)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none leading-relaxed"
                   spellCheck={false}
-                  placeholder="File content..."
+                  placeholder="文件内容…"
                 />
               </div>
 
@@ -271,7 +270,7 @@ export function MemoryPage() {
                 <div className="flex items-center gap-2 px-5 py-2 bg-[var(--surface-muted)] border-b border-[var(--border-subtle)]">
                   <Lightbulb size={13} className="text-[var(--warning)]" />
                   <span className="text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">
-                    Self-Improvement Lessons
+                    自我优化 Lessons
                   </span>
                   <span className="text-xs text-[var(--text-faint)] ml-auto">
                     {lessons.length} total
@@ -281,8 +280,8 @@ export function MemoryPage() {
                   {lessons.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-8 gap-2 text-xs text-[var(--text-faint)]">
                       <Lightbulb size={18} />
-                      <span>No lessons learned yet.</span>
-                      <span>Lessons are recorded when the agent receives user corrections.</span>
+                      <span>暂无 Lesson 记录。</span>
+                      <span>Agent 收到用户纠正后会自动记录 Lesson。</span>
                     </div>
                   ) : (
                     <div className="divide-y divide-[var(--border-subtle)]">

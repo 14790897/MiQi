@@ -19,16 +19,16 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'chat', label: 'Chat', icon: MessageSquare },
-  { id: 'sessions', label: 'Sessions', icon: FolderOpen },
-  { id: 'providers', label: 'Providers', icon: Cpu },
-  { id: 'channels', label: 'Channels', icon: Radio },
-  { id: 'approvals', label: 'Approvals', icon: ShieldAlert },
-  { id: 'cron', label: 'Cron', icon: Clock },
-  { id: 'memory', label: 'Memory', icon: BookOpen },
-  { id: 'skills', label: 'Skills', icon: Wrench },
-  { id: 'workspace', label: 'Workspace', icon: FolderOpen },
-  { id: 'settings', label: 'Settings', icon: Settings },
+  { id: 'chat', label: '对话', icon: MessageSquare },
+  { id: 'sessions', label: '会话', icon: FolderOpen },
+  { id: 'providers', label: 'Provider', icon: Cpu },
+  { id: 'channels', label: '渠道', icon: Radio },
+  { id: 'approvals', label: '命令审批', icon: ShieldAlert },
+  { id: 'cron', label: '定时任务', icon: Clock },
+  { id: 'memory', label: '记忆', icon: BookOpen },
+  { id: 'skills', label: '技能', icon: Wrench },
+  { id: 'workspace', label: '工作区', icon: FolderOpen },
+  { id: 'settings', label: '设置', icon: Settings },
 ]
 
 interface SidebarProps {

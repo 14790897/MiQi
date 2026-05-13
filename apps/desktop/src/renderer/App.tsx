@@ -72,7 +72,7 @@ function AppShell() {
           <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#c96442', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '18px', fontWeight: 700 }}>
             M
           </div>
-          <div style={{ fontSize: '13px', color: '#766b5f' }}>Loading MiQi Desktop...</div>
+          <div style={{ fontSize: '13px', color: '#766b5f' }}>正在加载 MiQi…</div>
         </div>
       </div>
     )
@@ -87,14 +87,14 @@ function AppShell() {
             <span className="text-red-600 dark:text-red-400 text-xl font-bold">!</span>
           </div>
           <div>
-            <h2 className="text-base font-semibold text-[var(--text)] mb-1">Preload bridge not available</h2>
+            <h2 className="text-base font-semibold text-[var(--text)] mb-1">预加载桥接不可用</h2>
             <p className="text-sm text-[var(--text-muted)]">
-              The application preload script failed to inject.<br />
-              Please restart the app. If the issue persists, verify the preload script path and reinstall.
+              应用预加载脚本注入失败。<br />
+              请重启应用。如问题持续，请检查预加载脚本路径或重新安装。
             </p>
           </div>
           <div className="text-xs text-[var(--text-faint)]">
-            Open DevTools (Ctrl+Shift+I) to inspect errors.
+            按 Ctrl+Shift+I 打开 DevTools 查看错误。
           </div>
         </div>
       </div>
