@@ -3,8 +3,8 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   BookOpen, FileText, RefreshCw, Save, Loader2,
-  AlertTriangle, Lightbulb, Shield, X,
-  ChevronRight, type LucideIcon,
+  AlertTriangle, Lightbulb, Shield, X, Plus,
+  Trash2, Copy, Check, ChevronRight, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { MemoryFileInfo, MemoryLessonEntry } from '../../../shared/ipc'
@@ -74,6 +74,50 @@ function SaveConfirmDialog({
 }
 
 // ---------------------------------------------------------------------------
+// Confirm dialog (generic)
+// ---------------------------------------------------------------------------
+
+function ConfirmDialog({
+  title,
+  message,
+  onConfirm,
+  onCancel,
+  danger = false,
+}: {
+  title: string
+  message: string
+  onConfirm: () => void
+  onCancel: () => void
+  danger?: boolean
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+      <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[400px]">
+        <div className="flex items-center gap-2 px-5 py-4 border-b border-[var(--border-subtle)]">
+          <AlertTriangle size={16} className={danger ? 'text-[var(--danger)]' : 'text-[var(--warning)]'} />
+          <h2 className="text-sm font-semibold text-[var(--text)]">{title}</h2>
+        </div>
+        <div className="px-5 py-4 text-sm text-[var(--text-muted)]">{message}</div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
+          <button onClick={onCancel} className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
+            取消
+          </button>
+          <button
+            onClick={onConfirm}
+            className={cn(
+              'px-4 py-1.5 rounded-lg text-white text-sm font-medium transition-all',
+              danger ? 'bg-[var(--danger)] hover:brightness-110' : 'bg-[var(--accent)] hover:bg-[var(--accent-hover)]',
+            )}
+          >
+            确认
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -90,6 +134,10 @@ export function MemoryPage() {
   const [success, setSuccess] = useState<string | null>(null)
   const [showSaveConfirm, setShowSaveConfirm] = useState(false)
   const [previewMode, setPreviewMode] = useState(false)
+  const [showNewFileDialog, setShowNewFileDialog] = useState(false)
+  const [newFileName, setNewFileName] = useState('')
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null)
+  const [copiedAll, setCopiedAll] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -111,7 +159,6 @@ export function MemoryPage() {
 
   // Load file content when switching active file
   const selectFile = useCallback(async (info: MemoryFileInfo) => {
-    // Warn if dirty
     if (dirty && activeFile && info.path !== activeFile.path) {
       const ok = confirm(`文件 ${activeFile.path} 有未保存的更改，确认丢弃？`)
       if (!ok) return
@@ -152,6 +199,47 @@ export function MemoryPage() {
 
   const requestSave = () => {
     setShowSaveConfirm(true)
+  }
+
+  // Create new file
+  const handleCreateFile = async () => {
+    const name = newFileName.trim()
+    if (!name) return
+    const path = name.endsWith('.md') ? name : `${name}.md`
+    try {
+      await window.miqi.memory.update(path, '')
+      await load()
+      const newFile = files.find(f => f.path === path) ?? { path, scope: 'workspace', size: 0, updatedAtMs: Date.now() }
+      selectFile(newFile)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '创建文件失败')
+    }
+    setShowNewFileDialog(false)
+    setNewFileName('')
+  }
+
+  // Delete file
+  const handleDeleteFile = async (path: string) => {
+    try {
+      await window.miqi.memory.delete(path)
+      if (activeFile?.path === path) {
+        setActiveFile(null)
+        setFileContent(null)
+        setEditorContent('')
+        setDirty(false)
+      }
+      await load()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '删除文件失败')
+    }
+    setShowDeleteConfirm(null)
+  }
+
+  // Copy all content
+  const handleCopyAll = () => {
+    navigator.clipboard.writeText(editorContent)
+    setCopiedAll(true)
+    setTimeout(() => setCopiedAll(false), 2000)
   }
 
   // Group files by scope
@@ -205,7 +293,18 @@ export function MemoryPage() {
       {/* Body: left files + right editor */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar: file list */}
-        <div className="w-[240px] shrink-0 border-r border-[var(--border-subtle)] bg-[var(--surface)] overflow-y-auto">
+        <div className="w-[240px] shrink-0 border-r border-[var(--border-subtle)] bg-[var(--surface)] overflow-y-auto flex flex-col">
+          {/* New file button */}
+          <div className="px-2 py-2 border-b border-[var(--border-subtle)]">
+            <button
+              onClick={() => setShowNewFileDialog(true)}
+              className="flex items-center gap-1.5 w-full px-2 py-1.5 rounded-lg text-xs text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+            >
+              <Plus size={13} />
+              <span>新建</span>
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className="flex items-center justify-center h-20 text-xs text-[var(--text-faint)]">
               <Loader2 size={14} className="animate-spin mr-1.5" /> Loading...
@@ -223,6 +322,7 @@ export function MemoryPage() {
                 files={agentFiles}
                 activePath={activeFile?.path ?? null}
                 onSelect={selectFile}
+                onDelete={(path) => setShowDeleteConfirm(path)}
               />
               <FileGroup
                 label="日常笔记"
@@ -230,9 +330,11 @@ export function MemoryPage() {
                 files={workspaceFiles}
                 activePath={activeFile?.path ?? null}
                 onSelect={selectFile}
+                onDelete={(path) => setShowDeleteConfirm(path)}
               />
             </div>
           )}
+          </div>
         </div>
 
         {/* Right: editor + lessons */}
@@ -252,8 +354,16 @@ export function MemoryPage() {
                 {dirty && (
                   <span className="text-xs text-[var(--warning)] font-medium ml-auto">未保存</span>
                 )}
+                {/* Copy all button */}
+                <button
+                  onClick={handleCopyAll}
+                  className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  {copiedAll ? <Check size={12} /> : <Copy size={12} />}
+                  <span>{copiedAll ? '已复制' : '复制全部'}</span>
+                </button>
                 {!dirty && (
-                  <div className="ml-auto flex items-center gap-1 rounded-md border border-[var(--border-subtle)] overflow-hidden">
+                  <div className="flex items-center gap-1 rounded-md border border-[var(--border-subtle)] overflow-hidden">
                     <button
                       onClick={() => setPreviewMode(false)}
                       className={cn('px-2 py-0.5 text-xs', !previewMode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]')}
@@ -322,6 +432,52 @@ export function MemoryPage() {
         </div>
       </div>
 
+      {/* New file dialog */}
+      {showNewFileDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[360px]">
+            <div className="flex items-center gap-2 px-5 py-4 border-b border-[var(--border-subtle)]">
+              <Plus size={16} className="text-[var(--accent)]" />
+              <h2 className="text-sm font-semibold text-[var(--text)]">新建记忆文件</h2>
+            </div>
+            <div className="px-5 py-4">
+              <input
+                type="text"
+                value={newFileName}
+                onChange={(e) => setNewFileName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFile() }}
+                placeholder="文件名（自动添加 .md）"
+                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)]"
+                autoFocus
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
+              <button onClick={() => { setShowNewFileDialog(false); setNewFileName('') }} className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
+                取消
+              </button>
+              <button
+                onClick={handleCreateFile}
+                disabled={!newFileName.trim()}
+                className="px-4 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-all disabled:opacity-50"
+              >
+                创建
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm dialog */}
+      {showDeleteConfirm && (
+        <ConfirmDialog
+          title="删除文件"
+          message={`确定删除 ${showDeleteConfirm}？此操作不可撤销。`}
+          danger
+          onConfirm={() => handleDeleteFile(showDeleteConfirm)}
+          onCancel={() => setShowDeleteConfirm(null)}
+        />
+      )}
+
       {/* Save confirm dialog */}
       {showSaveConfirm && activeFile && (
         <SaveConfirmDialog
@@ -347,12 +503,14 @@ function FileGroup({
   files,
   activePath,
   onSelect,
+  onDelete,
 }: {
   label: string
   icon: LucideIcon
   files: MemoryFileInfo[]
   activePath: string | null
   onSelect: (f: MemoryFileInfo) => void
+  onDelete: (path: string) => void
 }) {
   if (files.length === 0) return null
   return (
@@ -365,20 +523,34 @@ function FileGroup({
         {files.map(f => {
           const isActive = activePath === f.path
           return (
-            <button
+            <div
               key={f.path}
-              onClick={() => onSelect(f)}
               className={cn(
-                'flex items-center gap-2 w-full px-3 py-1.5 text-left text-sm transition-colors',
-                isActive
-                  ? 'bg-[var(--accent-soft)] text-[var(--accent)] font-medium'
-                  : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)]',
+                'flex items-center gap-1 group w-full',
+                isActive ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--surface-muted)]',
               )}
             >
-              <ChevronRight size={10} className={cn('shrink-0', isActive ? 'text-[var(--accent)]' : 'text-[var(--text-faint)]')} />
-              <span className="truncate flex-1">{f.path}</span>
-              <span className="text-xs text-[var(--text-faint)] shrink-0">{formatSize(f.size)}</span>
-            </button>
+              <button
+                onClick={() => onSelect(f)}
+                className={cn(
+                  'flex items-center gap-2 flex-1 px-3 py-1.5 text-left text-sm transition-colors min-w-0',
+                  isActive
+                    ? 'text-[var(--accent)] font-medium'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text)]',
+                )}
+              >
+                <ChevronRight size={10} className={cn('shrink-0', isActive ? 'text-[var(--accent)]' : 'text-[var(--text-faint)]')} />
+                <span className="truncate flex-1">{f.path}</span>
+                <span className="text-xs text-[var(--text-faint)] shrink-0">{formatSize(f.size)}</span>
+              </button>
+              <button
+                onClick={() => onDelete(f.path)}
+                className="shrink-0 pr-2 opacity-0 group-hover:opacity-100 text-[var(--text-faint)] hover:text-[var(--danger)] transition-all"
+                title="删除文件"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
           )
         })}
       </div>

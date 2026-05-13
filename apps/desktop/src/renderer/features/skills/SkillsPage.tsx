@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Search, Wrench, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
+import { Search, Wrench, CheckCircle2, XCircle, AlertTriangle, Copy, Check, FolderOpen } from 'lucide-react'
 import type { SkillSummary, SkillDetail } from '../../../shared/ipc'
 
 export function SkillsPage() {
@@ -11,6 +11,8 @@ export function SkillsPage() {
   const [loading, setLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
   const [query, setQuery] = useState('')
+  const [copied, setCopied] = useState(false)
+  const [openingFolder, setOpeningFolder] = useState(false)
 
   useEffect(() => {
     window.miqi.skills.list().then((res) => {
@@ -39,6 +41,24 @@ export function SkillsPage() {
 
   const builtin = filtered.filter((s) => s.source === 'builtin')
   const workspace = filtered.filter((s) => s.source === 'workspace')
+
+  const handleCopyContent = () => {
+    if (!detail) return
+    navigator.clipboard.writeText(detail.content)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleOpenFolder = async () => {
+    if (!selectedName) return
+    setOpeningFolder(true)
+    try {
+      await window.miqi.skills.openFolder(selectedName)
+    } catch {
+      // ignore
+    }
+    setOpeningFolder(false)
+  }
 
   if (loading) {
     return (
@@ -118,6 +138,26 @@ export function SkillsPage() {
                     不可用
                   </span>
                 )}
+                {/* Action buttons */}
+                <div className="ml-auto flex items-center gap-1">
+                  <button
+                    onClick={handleCopyContent}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                    title="复制 SKILL.md 内容"
+                  >
+                    {copied ? <Check size={12} /> : <Copy size={12} />}
+                    <span>{copied ? '已复制' : '复制内容'}</span>
+                  </button>
+                  <button
+                    onClick={handleOpenFolder}
+                    disabled={openingFolder}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                    title="在文件管理器中打开"
+                  >
+                    <FolderOpen size={12} />
+                    <span>{openingFolder ? '打开中…' : '打开目录'}</span>
+                  </button>
+                </div>
               </div>
               {detail.description && (
                 <p className="text-sm text-[var(--text-muted)] mb-2">{detail.description}</p>
