@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Button } from '../../components/ui/Button'
 import { ScrollArea } from '../../components/ui/ScrollArea'
 import { cn } from '../../lib/utils'
@@ -11,7 +13,7 @@ import {
 } from 'lucide-react'
 import type { SessionInfo, SessionDetail } from '../../../shared/ipc'
 
-export function SessionExplorer({ onOpenSession }: { onOpenSession: (key: string) => void }) {
+export function SessionExplorer({ onOpenSession, refreshKey }: { onOpenSession: (key: string) => void; refreshKey?: number }) {
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<string | null>(null)
@@ -29,7 +31,7 @@ export function SessionExplorer({ onOpenSession }: { onOpenSession: (key: string
     setLoading(false)
   }, [])
 
-  useEffect(() => { loadSessions() }, [loadSessions])
+  useEffect(() => { loadSessions() }, [loadSessions, refreshKey])
 
   const loadDetail = async (key: string) => {
     setSelected(key)
@@ -152,7 +154,12 @@ export function SessionExplorer({ onOpenSession }: { onOpenSession: (key: string
                     {isTool ? (
                       <span className="text-[var(--text-faint)]">tool: {String(msg.name ?? 'result')}</span>
                     ) : null}
-                    <div className={cn(isTool && 'mt-1')}>{content.slice(0, 500)}{content.length > 500 && '...'}</div>
+                    <div className={cn(isTool && 'mt-1')}>
+                      {isUser || isTool
+                        ? <>{content.slice(0, 500)}{content.length > 500 && '...'}</>
+                        : <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-sm max-w-none text-[var(--text)]">{content.slice(0, 1000)}{content.length > 1000 ? '\n\n...' : ''}</ReactMarkdown>
+                      }
+                    </div>
                   </div>
                 )
               })}
