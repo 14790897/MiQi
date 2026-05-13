@@ -184,6 +184,8 @@ const api = {
       ipcRenderer.invoke(IPC.MEMORY_GET, { path }),
     update: (path: string, content: string): Promise<{ saved: boolean; path: string }> =>
       ipcRenderer.invoke(IPC.MEMORY_UPDATE, { path, content }),
+    delete: (path: string): Promise<{ deleted: boolean; path: string }> =>
+      ipcRenderer.invoke(IPC.MEMORY_DELETE, { path }),
     lessons: (): Promise<MemoryLessonsResult> =>
       ipcRenderer.invoke(IPC.MEMORY_LESSONS),
   },
@@ -194,6 +196,8 @@ const api = {
       ipcRenderer.invoke(IPC.SKILLS_LIST),
     get: (name: string): Promise<SkillDetail> =>
       ipcRenderer.invoke(IPC.SKILLS_GET, { name }),
+    openFolder: (name: string): Promise<{ opened: boolean; path: string }> =>
+      ipcRenderer.invoke(IPC.SKILLS_OPEN_FOLDER, { name }),
   },
 
   // -- Files (Workspace Editor) ------------------------------------------------
@@ -204,6 +208,8 @@ const api = {
       ipcRenderer.invoke(IPC.FILES_READ, { path }),
     write: (path: string, content: string): Promise<FilesWriteResult> =>
       ipcRenderer.invoke(IPC.FILES_WRITE, { path, content }),
+    delete: (path: string): Promise<{ deleted: boolean; path: string }> =>
+      ipcRenderer.invoke(IPC.FILES_DELETE, { path }),
   },
 
   // -- Python check -----------------------------------------------------------

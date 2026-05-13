@@ -56,6 +56,19 @@ class SkillsLoader:
             return [s for s in skills if self._check_requirements(self._get_skill_meta(s["name"]))]
         return skills
 
+    def get_skill_path(self, name: str) -> Path | None:
+        """Return the path to a skill's SKILL.md file."""
+        workspace_skill = self.workspace_skills / name / "SKILL.md"
+        if workspace_skill.exists():
+            return workspace_skill
+
+        if self.builtin_skills:
+            builtin_skill = self.builtin_skills / name / "SKILL.md"
+            if builtin_skill.exists():
+                return builtin_skill
+
+        return None
+
     def load_skill(self, name: str) -> str | None:
         """
         Load a skill by name.

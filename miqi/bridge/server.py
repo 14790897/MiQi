@@ -875,6 +875,31 @@ def handle_memory_update(req_id: str, params: dict) -> None:
     _result(req_id, {"saved": True, "path": file_path})
 
 
+def handle_memory_delete(req_id: str, params: dict) -> None:
+    """Delete a memory file."""
+    file_path = params.get("path", "").strip()
+    if not file_path:
+        _error(req_id, "path is required")
+        return
+
+    try:
+        resolved = _validate_memory_path(file_path)
+    except ValueError as exc:
+        _error(req_id, str(exc))
+        return
+
+    if not resolved.exists():
+        _error(req_id, f"File not found: {file_path}")
+        return
+
+    if resolved.suffix not in (".md",):
+        _error(req_id, "Only .md files can be deleted")
+        return
+
+    resolved.unlink()
+    _result(req_id, {"deleted": True, "path": file_path})
+
+
 def handle_memory_lessons(req_id: str, params: dict) -> None:
     from miqi.agent.memory import MemoryStore
 
@@ -1105,6 +1130,68 @@ def handle_files_write(req_id: str, params: dict) -> None:
     _result(req_id, {"saved": True, "path": file_path})
 
 
+def handle_files_delete(req_id: str, params: dict) -> None:
+    """Delete a workspace file or empty directory."""
+    file_path = params.get("path", "").strip()
+    if not file_path:
+        _error(req_id, "path is required")
+        return
+
+    try:
+        resolved = _validate_file_path(file_path)
+    except ValueError as exc:
+        _error(req_id, str(exc))
+        return
+
+    if not resolved.exists():
+        _error(req_id, f"Not found: {file_path}")
+        return
+
+    workspace = _get_workspace_path()
+    if resolved == workspace:
+        _error(req_id, "Cannot delete workspace root")
+        return
+
+    if resolved.is_dir():
+        if any(resolved.iterdir()):
+            _error(req_id, "Directory is not empty")
+            return
+        resolved.rmdir()
+    else:
+        resolved.unlink()
+
+    _result(req_id, {"deleted": True, "path": file_path})
+
+
+def handle_skills_open_folder(req_id: str, params: dict) -> None:
+    """Open the skill's containing folder in the system file manager."""
+    name = params.get("name", "").strip()
+    if not name:
+        _error(req_id, "name is required")
+        return
+
+    loader = _get_skills_loader()
+    skill_path = loader.get_skill_path(name)
+    if skill_path is None:
+        _error(req_id, f"Skill not found: {name}")
+        return
+
+    import subprocess
+    import sys as _sys
+
+    folder = str(skill_path.parent if skill_path.is_file() else skill_path)
+    try:
+        if _sys.platform == "win32":
+            subprocess.run(["explorer", folder], check=False)
+        elif _sys.platform == "darwin":
+            subprocess.run(["open", folder], check=False)
+        else:
+            subprocess.run(["xdg-open", folder], check=False)
+        _result(req_id, {"opened": True, "path": folder})
+    except Exception as exc:
+        _error(req_id, f"Failed to open folder: {exc}")
+
+
 def handle_python_check(req_id: str, params: dict) -> None:
     """Check if Python and MiQi are available."""
     import importlib
@@ -1194,12 +1281,15 @@ _METHODS = {
     "memory.list": handle_memory_list,
     "memory.get": handle_memory_get,
     "memory.update": handle_memory_update,
+    "memory.delete": handle_memory_delete,
     "memory.lessons": handle_memory_lessons,
     "skills.list": handle_skills_list,
     "skills.get": handle_skills_get,
+    "skills.open_folder": handle_skills_open_folder,
     "files.tree": handle_files_tree,
     "files.read": handle_files_read,
     "files.write": handle_files_write,
+    "files.delete": handle_files_delete,
     "python.check": handle_python_check,
 }
 

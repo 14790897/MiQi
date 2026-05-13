@@ -290,6 +290,11 @@ for m in ("pydantic", "httpx", "loguru"):
     return bridge.send('memory.lessons')
   })
 
+  ipcMain.handle(IPC.MEMORY_DELETE, async (_event, payload: unknown) => {
+    const p = payload as { path: string }
+    return bridge.send('memory.delete', p as Record<string, unknown>)
+  })
+
   // -----------------------------------------------------------------------
   // Skills
   // -----------------------------------------------------------------------
@@ -300,6 +305,11 @@ for m in ("pydantic", "httpx", "loguru"):
   ipcMain.handle(IPC.SKILLS_GET, async (_event, payload: unknown) => {
     const input = SkillsGetInput.parse(payload)
     return bridge.send('skills.get', input as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.SKILLS_OPEN_FOLDER, async (_event, payload: unknown) => {
+    const p = payload as { name: string }
+    return bridge.send('skills.open_folder', p as Record<string, unknown>)
   })
 
   // -----------------------------------------------------------------------
@@ -317,6 +327,11 @@ for m in ("pydantic", "httpx", "loguru"):
   ipcMain.handle(IPC.FILES_WRITE, async (_event, payload: unknown) => {
     const input = FilesWriteInput.parse(payload)
     return bridge.send('files.write', input as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.FILES_DELETE, async (_event, payload: unknown) => {
+    const p = payload as { path: string }
+    return bridge.send('files.delete', p as Record<string, unknown>)
   })
 
   // -----------------------------------------------------------------------

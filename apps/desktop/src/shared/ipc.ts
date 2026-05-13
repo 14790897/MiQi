@@ -43,12 +43,15 @@ export const IPC = {
   MEMORY_LIST: 'memory:list',
   MEMORY_GET: 'memory:get',
   MEMORY_UPDATE: 'memory:update',
+  MEMORY_DELETE: 'memory:delete',
   MEMORY_LESSONS: 'memory:lessons',
   SKILLS_LIST: 'skills:list',
   SKILLS_GET: 'skills:get',
+  SKILLS_OPEN_FOLDER: 'skills:open_folder',
   FILES_TREE: 'files:tree',
   FILES_READ: 'files:read',
   FILES_WRITE: 'files:write',
+  FILES_DELETE: 'files:delete',
 
   // Python check
   PYTHON_CHECK: 'python:check',
