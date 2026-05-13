@@ -108,6 +108,7 @@ export const ProviderUpdateInput = z.object({
   api_key: z.string().optional(),
   api_base: z.string().nullable().optional(),
   extra_headers: z.record(z.string()).nullable().optional(),
+  model: z.string().optional(),
 })
 
 // ---------------------------------------------------------------------------
@@ -156,6 +157,7 @@ export interface ProviderInfo {
   default_api_base: string
   configured: boolean
   api_base: string | null
+  configured_model?: string
 }
 
 export interface ProviderUpdateResult {

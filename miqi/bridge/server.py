@@ -366,6 +366,7 @@ def handle_providers_list(req_id: str, params: dict) -> None:
             "default_api_base": spec.default_api_base,
             "configured": bool(pc and (pc.api_key or pc.api_base)),
             "api_base": pc.api_base if pc else None,
+            "configured_model": config.agents.defaults.model,
         })
     _result(req_id, {"providers": providers_out})
 
@@ -452,16 +453,25 @@ def handle_providers_update(req_id: str, params: dict) -> None:
         v = params["extra_headers"]
         update["extra_headers"] = dict(v) if v else None
 
-    if not update:
+    model_override: str | None = None
+    if "model" in params and params["model"]:
+        model_override = str(params["model"]).strip()
+
+    if not update and not model_override:
         _error(req_id, "No fields to update")
         return
 
-    current_dict = pc.model_dump(by_alias=False)
-    current_dict.update(update)
+    if update:
+        current_dict = pc.model_dump(by_alias=False)
+        current_dict.update(update)
 
-    from miqi.config.schema import ProviderConfig
-    new_pc = ProviderConfig.model_validate(current_dict)
-    setattr(config.providers, provider_name, new_pc)
+        from miqi.config.schema import ProviderConfig
+        new_pc = ProviderConfig.model_validate(current_dict)
+        setattr(config.providers, provider_name, new_pc)
+
+    if model_override:
+        config.agents.defaults.model = model_override
+
     save_config(config)
     _state.config = config
     _result(req_id, {"saved": True, "provider_name": provider_name})

@@ -27,6 +27,7 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
   const { markRestartRequired } = useRestartRequired()
   const [apiKey, setApiKey] = useState('')
   const [apiBase, setApiBase] = useState(provider.api_base ?? '')
+  const [model, setModel] = useState(provider.configured_model ?? '')
   const [extraHeadersText, setExtraHeadersText] = useState('')
   const [showKey, setShowKey] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -48,6 +49,7 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
         apiKey || undefined,
         apiBase || null,
         extraHeaders,
+        model || undefined,
       )
       onSaved()
       markRestartRequired()
@@ -146,6 +148,21 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
           </div>
 
           <ExtraHeadersField value={extraHeadersText} onChange={setExtraHeadersText} />
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
+              默认模型 <span className="font-normal text-[var(--text-faint)]">(可选)</span>
+            </label>
+            <input
+              type="text"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="例： siliconflow/Qwen/Qwen3-235B-A22B"
+              className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+              spellCheck={false}
+            />
+            <p className="text-xs text-[var(--text-faint)]">修改此字段会更新全局默认模型</p>
+          </div>
 
           {error && (
             <div className="rounded-lg px-3 py-2 bg-[var(--accent-soft)] text-xs text-[var(--danger)]">{error}</div>

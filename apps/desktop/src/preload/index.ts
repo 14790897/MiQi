@@ -119,12 +119,14 @@ const api = {
       apiKey?: string,
       apiBase?: string | null,
       extraHeaders?: Record<string, string> | null,
+      model?: string,
     ): Promise<ProviderUpdateResult> =>
       ipcRenderer.invoke(IPC.PROVIDERS_UPDATE, {
         provider_name: providerName,
         api_key: apiKey,
         api_base: apiBase ?? null,
         extra_headers: extraHeaders ?? null,
+        model: model ?? undefined,
       }),
   },
 
