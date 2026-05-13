@@ -41,7 +41,7 @@ export function SkillsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-sm text-[var(--text-muted)]">Loading skills...</div>
+        <div className="text-sm text-[var(--text-muted)]">正在加载技能…</div>
       </div>
     )
   }
@@ -55,7 +55,7 @@ export function SkillsPage() {
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-faint)]" />
             <input
               type="text"
-              placeholder="Search skills..."
+              placeholder="搜索技能…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)]"
@@ -66,13 +66,13 @@ export function SkillsPage() {
         <div className="flex-1 overflow-auto px-2 pb-2">
           {filtered.length === 0 && (
             <div className="text-xs text-[var(--text-muted)] text-center mt-8">
-              {query.trim() ? 'No matching skills' : 'No skills found'}
+              {query.trim() ? '无匹配技能' : '未找到技能'}
             </div>
           )}
 
           {builtin.length > 0 && (
             <SkillGroup
-              label="Built-in"
+              label="内置"
               skills={builtin}
               selectedName={selectedName}
               onSelect={setSelectedName}
@@ -80,7 +80,7 @@ export function SkillsPage() {
           )}
           {workspace.length > 0 && (
             <SkillGroup
-              label="Workspace"
+              label="工作区"
               skills={workspace}
               selectedName={selectedName}
               onSelect={setSelectedName}
@@ -93,7 +93,7 @@ export function SkillsPage() {
       <div className="flex-1 flex flex-col overflow-hidden bg-[var(--background)]">
         {detailLoading ? (
           <div className="flex items-center justify-center h-full">
-            <div className="text-sm text-[var(--text-muted)]">Loading skill...</div>
+            <div className="text-sm text-[var(--text-muted)]">正在加载技能详情…</div>
           </div>
         ) : detail ? (
           <div className="flex flex-col h-full overflow-auto">
@@ -108,12 +108,12 @@ export function SkillsPage() {
                 {detail.available ? (
                   <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium bg-[var(--accent-soft)] text-[var(--accent)]">
                     <CheckCircle2 size={10} />
-                    Available
+                    可用
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
                     <AlertTriangle size={10} />
-                    Unavailable
+                    不可用
                   </span>
                 )}
               </div>
@@ -122,7 +122,7 @@ export function SkillsPage() {
               )}
               {!detail.available && detail.missingRequirements && (
                 <div className="text-xs text-[var(--danger)] mt-1">
-                  Missing: {detail.missingRequirements}
+                  缺少：{detail.missingRequirements}
                 </div>
               )}
               <div className="text-[11px] text-[var(--text-faint)] mt-1 font-mono">{detail.path}</div>
@@ -138,7 +138,7 @@ export function SkillsPage() {
             {/* Metadata footer */}
             {detail.metadata && Object.keys(detail.metadata).length > 0 && (
               <div className="shrink-0 px-6 py-3 border-t border-[var(--border-subtle)]">
-                <h3 className="text-xs font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">Metadata</h3>
+                <h3 className="text-xs font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">元数据</h3>
                 <div className="grid grid-cols-2 gap-2">
                   {Object.entries(detail.metadata).map(([key, value]) => (
                     <div key={key} className="text-xs">
@@ -155,7 +155,7 @@ export function SkillsPage() {
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-[var(--text-muted)]">
             <Wrench size={32} strokeWidth={1.5} />
-            <div className="text-sm">Select a skill to view details</div>
+            <div className="text-sm">从左侧选择技能查看详情</div>
           </div>
         )}
       </div>

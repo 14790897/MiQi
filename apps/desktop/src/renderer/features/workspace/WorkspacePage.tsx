@@ -94,7 +94,7 @@ export function WorkspacePage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-sm text-[var(--text-muted)]">Loading workspace...</div>
+        <div className="text-sm text-[var(--text-muted)]">正在加载工作区…</div>
       </div>
     )
   }
@@ -105,7 +105,7 @@ export function WorkspacePage() {
       <div className="w-[260px] shrink-0 border-r border-[var(--border-subtle)] bg-[var(--surface)] flex flex-col">
         <div className="px-3 py-3 border-b border-[var(--border-subtle)]">
           <div className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">
-            Workspace Files
+            工作区文件
           </div>
         </div>
         <div className="flex-1 overflow-auto px-1.5 py-1.5">
@@ -113,7 +113,7 @@ export function WorkspacePage() {
             <FileTree node={tree} onSelect={openFile} selectedPath={currentPath} />
           ) : (
             <div className="text-xs text-[var(--text-muted)] text-center mt-8">
-              No files found
+              未找到文件
             </div>
           )}
         </div>
@@ -130,7 +130,7 @@ export function WorkspacePage() {
                 <span className="text-xs font-mono text-[var(--text)] truncate">{currentPath}</span>
                 {isUnsaved && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 shrink-0">
-                    Unsaved
+                    未保存
                   </span>
                 )}
               </div>
@@ -144,7 +144,7 @@ export function WorkspacePage() {
                 }`}
               >
                 <Save size={12} />
-                {saving ? 'Saving...' : 'Save'}
+                {saving ? '保存中…' : '保存'}
               </button>
             </div>
 
@@ -160,7 +160,7 @@ export function WorkspacePage() {
             <div className="flex-1 overflow-hidden">
               {fileLoading ? (
                 <div className="flex items-center justify-center h-full">
-                  <div className="text-sm text-[var(--text-muted)]">Loading file...</div>
+                  <div className="text-sm text-[var(--text-muted)]">正在加载文件…</div>
                 </div>
               ) : (
                 <textarea
@@ -169,7 +169,7 @@ export function WorkspacePage() {
                   className={`w-full h-full resize-none bg-transparent text-[var(--text)] outline-none font-mono p-5 leading-relaxed ${
                     isMdFile ? 'text-[15px] leading-[1.7]' : 'text-[13px]'
                   }`}
-                  placeholder="File is empty"
+                  placeholder="文件为空"
                   spellCheck={false}
                 />
               )}
@@ -178,7 +178,7 @@ export function WorkspacePage() {
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-[var(--text-muted)]">
             <FolderOpen size={32} strokeWidth={1.5} />
-            <div className="text-sm">Select a file to edit</div>
+            <div className="text-sm">从左侧选择文件进行编辑</div>
           </div>
         )}
       </div>
@@ -187,22 +187,22 @@ export function WorkspacePage() {
       {showConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20">
           <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-lg p-5 max-w-sm w-full mx-4">
-            <h3 className="text-sm font-semibold text-[var(--text)] mb-2">Unsaved Changes</h3>
+            <h3 className="text-sm font-semibold text-[var(--text)] mb-2">有未保存的更改</h3>
             <p className="text-xs text-[var(--text-muted)] mb-4">
-              You have unsaved changes in <span className="font-mono">{currentPath}</span>. Discard them and open another file?
+              文件 <span className="font-mono">{currentPath}</span> 有未保存的更改，确认丢弃并打开其他文件？
             </p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => confirmSwitch(false)}
                 className="px-3 py-1.5 text-xs rounded-lg text-[var(--text-muted)] hover:bg-[var(--surface-muted)] transition-colors"
               >
-                Cancel
+                取消
               </button>
               <button
                 onClick={() => confirmSwitch(true)}
                 className="px-3 py-1.5 text-xs rounded-lg bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition-colors"
               >
-                Discard & Switch
+                丢弃并切换
               </button>
             </div>
           </div>
@@ -255,7 +255,7 @@ function FileTree({
           </div>
         )}
         {open && children.length === 0 && (
-          <div className="ml-7 text-[10px] text-[var(--text-faint)] py-0.5">(empty)</div>
+          <div className="ml-7 text-[10px] text-[var(--text-faint)] py-0.5">（空）</div>
         )}
       </div>
     )

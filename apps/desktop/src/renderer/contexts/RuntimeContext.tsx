@@ -18,7 +18,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<RuntimeStatus>(
     hasApi
       ? { state: 'stopped', configured: false }
-      : { state: 'error', configured: false, error: 'Preload API unavailable' },
+      : { state: 'error', configured: false, error: 'Preload API 不可用' },
   )
   const [logs, setLogs] = useState<string[]>([])
 

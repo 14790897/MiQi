@@ -5,11 +5,11 @@ import { useRestartRequired } from '../contexts/RestartRequiredContext'
 import { Loader2, RefreshCw } from 'lucide-react'
 
 const STATES: Record<string, { label: string; color: string }> = {
-  stopped: { label: 'Stopped', color: 'var(--text-faint)' },
-  starting: { label: 'Starting', color: 'var(--warning)' },
-  running: { label: 'Running', color: 'var(--success)' },
-  stopping: { label: 'Stopping', color: 'var(--warning)' },
-  error: { label: 'Error', color: 'var(--danger)' },
+  stopped: { label: '已停止', color: 'var(--text-faint)' },
+  starting: { label: '启动中', color: 'var(--warning)' },
+  running: { label: '运行中', color: 'var(--success)' },
+  stopping: { label: '停止中', color: 'var(--warning)' },
+  error: { label: '错误', color: 'var(--danger)' },
 }
 
 export function StatusBar() {
@@ -46,16 +46,16 @@ export function StatusBar() {
           className={cn('inline-block w-2 h-2 rounded-full', restartRequired && 'animate-pulse')}
           style={{ backgroundColor: restartRequired ? 'var(--warning)' : s.color }}
         />
-        {restartRequired ? 'Restart required' : s.label}
+        {restartRequired ? '需要重启' : s.label}
       </span>
       {status.configured && !restartRequired && (
-        <span className="text-[var(--text-faint)]">Configured</span>
+        <span className="text-[var(--text-faint)]">已配置</span>
       )}
 
       {/* Restart prompt */}
       {restartRequired && (
         <span className="flex items-center gap-2 text-[var(--warning)]">
-          Config changed
+          配置已变更
           <button
             onClick={handleRestart}
             disabled={restarting}
@@ -66,9 +66,13 @@ export function StatusBar() {
             ) : (
               <RefreshCw size={10} />
             )}
-            Restart now
+            立即重启
           </button>
         </span>
+      )}
+
+      {restartError && (
+        <span className="text-[var(--danger)]">{restartError}</span>
       )}
 
       {restartError && (

@@ -83,7 +83,7 @@ function CreateEditModal({
 
   const handleSubmit = async () => {
     if (!form.name.trim()) {
-      setError('Name is required')
+      setError('请填写任务名称')
       return
     }
     setSaving(true)
@@ -97,7 +97,7 @@ function CreateEditModal({
     if (form.scheduleKind === 'at') {
       const ms = parseInt(form.atMs, 10)
       if (!ms || ms <= Date.now()) {
-        setError('atMs must be a future timestamp in milliseconds')
+        setError('请填写一个未来的毫秒时间戳')
         setSaving(false)
         return
       }
@@ -105,14 +105,14 @@ function CreateEditModal({
     } else if (form.scheduleKind === 'every') {
       const ms = parseInt(form.everyMs, 10)
       if (!ms || ms < 1000) {
-        setError('everyMs must be at least 1000 (1 second)')
+        setError('间隔至少 1000 毫秒（1秒）')
         setSaving(false)
         return
       }
       payload.everyMs = ms
     } else if (form.scheduleKind === 'cron') {
       if (!form.expr.trim()) {
-        setError('expr is required for cron schedules')
+        setError('Cron 调度必须填写表达式')
         setSaving(false)
         return
       }
@@ -140,7 +140,7 @@ function CreateEditModal({
       <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[520px] max-h-[80vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-subtle)]">
           <h2 className="text-sm font-semibold text-[var(--text)]">
-            {isEdit ? 'Edit Job' : 'Create Job'}
+            {isEdit ? '编辑任务' : '创建任务'}
           </h2>
           <button onClick={onClose} className="text-[var(--text-faint)] hover:text-[var(--text)] transition-colors">
             <X size={16} />
@@ -150,19 +150,19 @@ function CreateEditModal({
         <div className="px-5 py-4 flex flex-col gap-4">
           {/* Name */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Name</label>
+            <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">名称</label>
             <input
               type="text"
               value={form.name}
               onChange={(e) => set('name', e.target.value)}
-              placeholder="e.g. Daily report"
+              placeholder="例如：每日报告"
               className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)]"
             />
           </div>
 
           {/* Schedule kind */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Schedule Kind</label>
+            <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">调度类型</label>
             <div className="flex gap-1.5">
               {(['at', 'every', 'cron'] as ScheduleKind[]).map(k => (
                 <button
@@ -184,7 +184,7 @@ function CreateEditModal({
           {/* Schedule expression */}
           {form.scheduleKind === 'at' && (
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">At (ms timestamp)</label>
+              <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">指定时间（毫秒时间戳）</label>
               <input
                 type="number"
                 value={form.atMs}
@@ -196,7 +196,7 @@ function CreateEditModal({
           )}
           {form.scheduleKind === 'every' && (
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Every (ms)</label>
+              <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">间隔执行（毫秒）</label>
               <input
                 type="number"
                 value={form.everyMs}
@@ -210,7 +210,7 @@ function CreateEditModal({
           {form.scheduleKind === 'cron' && (
             <>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Cron Expression</label>
+                <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Cron 表达式</label>
                 <input
                   type="text"
                   value={form.expr}
@@ -221,7 +221,7 @@ function CreateEditModal({
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
-                  Timezone <span className="font-normal text-[var(--text-faint)]">(optional, e.g. Asia/Shanghai)</span>
+                  时区 <span className="font-normal text-[var(--text-faint)]">（可选，例如 Asia/Shanghai）</span>
                 </label>
                 <input
                   type="text"
@@ -237,12 +237,12 @@ function CreateEditModal({
           {/* Message / Prompt */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
-              Message / Prompt
+              消息 / Prompt
             </label>
             <textarea
               value={form.message}
               onChange={(e) => set('message', e.target.value)}
-              placeholder="What the agent should do when the job fires..."
+              placeholder="任务触发时 Agent 应执行的操作…"
               rows={3}
               className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] resize-none"
             />
@@ -255,11 +255,11 @@ function CreateEditModal({
 
         <div className="flex items-center justify-between px-5 py-3 border-t border-[var(--border-subtle)]">
           <span className="text-xs text-[var(--text-faint)]">
-            {isEdit ? 'Update this cron job' : 'Jobs run in the MiQi runtime process'}
+            {isEdit ? '更新此定时任务' : '任务在 MiQi 运行时中执行'}
           </span>
           <div className="flex items-center gap-2">
             <button onClick={onClose} className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
-              Cancel
+              取消
             </button>
             <button
               onClick={handleSubmit}
@@ -267,7 +267,7 @@ function CreateEditModal({
               className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-50"
             >
               {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-              {isEdit ? 'Save' : 'Create'}
+              {isEdit ? '保存' : '创建'}
             </button>
           </div>
         </div>
@@ -317,7 +317,7 @@ export function CronPage() {
       await window.miqi.cron.toggle(job.id, !job.enabled)
       await load()
     } catch (err: unknown) {
-      setActionError(err instanceof Error ? err.message : 'Toggle failed')
+      setActionError(err instanceof Error ? err.message : '切换失败')
     } finally {
       setTogglingId(null)
     }
@@ -329,7 +329,7 @@ export function CronPage() {
       await window.miqi.cron.run(job.id)
       await load()
     } catch (err: unknown) {
-      setActionError(err instanceof Error ? err.message : 'Run failed')
+      setActionError(err instanceof Error ? err.message : '执行失败')
     } finally {
       setRunningId(null)
     }
@@ -341,7 +341,7 @@ export function CronPage() {
       await window.miqi.cron.delete(job.id)
       await load()
     } catch (err: unknown) {
-      setActionError(err instanceof Error ? err.message : 'Delete failed')
+      setActionError(err instanceof Error ? err.message : '删除失败')
     } finally {
       setDeletingId(null)
     }
@@ -356,9 +356,9 @@ export function CronPage() {
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] bg-[var(--surface)] shrink-0">
         <div>
-          <h1 className="text-base font-semibold text-[var(--text)]">Cron Studio</h1>
+          <h1 className="text-base font-semibold text-[var(--text)]">定时任务</h1>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
-            {loading ? 'Loading...' : `${jobs.length} job${jobs.length !== 1 ? 's' : ''}, ${runs.length} recent runs`}
+            {loading ? '加载中…' : `${jobs.length} 个任务，${runs.length} 条执行记录`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -370,7 +370,7 @@ export function CronPage() {
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors"
           >
             <Plus size={14} />
-            Create Job
+            创建任务
           </button>
         </div>
       </div>
@@ -389,23 +389,23 @@ export function CronPage() {
       <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-6">
         {loading ? (
           <div className="flex items-center justify-center h-40 text-sm text-[var(--text-faint)]">
-            <Loader2 size={16} className="animate-spin mr-2" /> Loading jobs...
+            <Loader2 size={16} className="animate-spin mr-2" /> 正在加载任务…
           </div>
         ) : jobs.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 gap-3 text-sm text-[var(--text-faint)]">
             <Clock size={28} />
-            <span>No cron jobs yet — create your first scheduled task</span>
+            <span>暂无定时任务，创建第一个吧</span>
           </div>
         ) : (
           <>
             {/* Jobs table */}
             <div className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
               <div className="flex items-center gap-3 px-5 py-2.5 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)] text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">
-                <span className="flex-1">Job</span>
-                <span className="w-[120px] shrink-0">Schedule</span>
-                <span className="w-[140px] shrink-0">Next Run</span>
-                <span className="w-[100px] shrink-0">Last Status</span>
-                <span className="w-[140px] shrink-0">Actions</span>
+                <span className="flex-1">任务</span>
+                <span className="w-[120px] shrink-0">调度</span>
+                <span className="w-[140px] shrink-0">下次运行</span>
+                <span className="w-[100px] shrink-0">最近状态</span>
+                <span className="w-[140px] shrink-0">操作</span>
               </div>
               <div className="divide-y divide-[var(--border-subtle)]">
                 {jobs.map(job => (
@@ -430,7 +430,7 @@ export function CronPage() {
             {runs.length > 0 && (
               <div className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
                 <div className="flex items-center px-5 py-2.5 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)] text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">
-                  Recent Runs
+                  最近执行记录
                   <span className="ml-auto font-normal normal-case tracking-normal">{runs.length}</span>
                 </div>
                 <div className="divide-y divide-[var(--border-subtle)]">
@@ -498,7 +498,7 @@ function JobRow({ job, isExpanded, onToggleExpand, onToggle, onRun, onDelete, on
         <button onClick={onEdit} className="flex-1 text-left min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-[var(--text)]">{job.name}</span>
-            <span className={cn('text-xs', statusColor)}>{job.enabled ? 'Running' : 'Disabled'}</span>
+            <span className={cn('text-xs', statusColor)}>{job.enabled ? '运行中' : '已禁用'}</span>
           </div>
         </button>
         <span className="w-[120px] shrink-0 text-xs text-[var(--text-faint)] font-mono">{scheduleLabel(job)}</span>
@@ -517,7 +517,7 @@ function JobRow({ job, isExpanded, onToggleExpand, onToggle, onRun, onDelete, on
           <button
             onClick={onToggle}
             disabled={toggling}
-            title={job.enabled ? 'Disable' : 'Enable'}
+            title={job.enabled ? '禁用' : '启用'}
             className="p-1.5 rounded-md text-[var(--text-faint)] hover:text-[var(--text)] hover:bg-[var(--surface-muted)] transition-colors disabled:opacity-40"
           >
             {toggling ? <Loader2 size={14} className="animate-spin" /> :
@@ -526,7 +526,7 @@ function JobRow({ job, isExpanded, onToggleExpand, onToggle, onRun, onDelete, on
           <button
             onClick={onRun}
             disabled={running}
-            title="Run now"
+            title="立即执行"
             className="p-1.5 rounded-md text-[var(--text-faint)] hover:text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors disabled:opacity-40"
           >
             {running ? <Loader2 size={14} className="animate-spin" /> : <Power size={14} />}
@@ -534,7 +534,7 @@ function JobRow({ job, isExpanded, onToggleExpand, onToggle, onRun, onDelete, on
           <button
             onClick={onDelete}
             disabled={deleting}
-            title="Delete"
+            title="删除"
             className="p-1.5 rounded-md text-[var(--text-faint)] hover:text-[var(--danger)] hover:bg-[var(--surface-muted)] transition-colors disabled:opacity-40"
           >
             {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
@@ -545,10 +545,10 @@ function JobRow({ job, isExpanded, onToggleExpand, onToggle, onRun, onDelete, on
       {isExpanded && (
         <div className="px-10 py-3 bg-[var(--surface-muted)] text-xs text-[var(--text-muted)] flex flex-col gap-1 border-b border-[var(--border-subtle)]">
           <div><span className="text-[var(--text-faint)]">ID:</span> {job.id}</div>
-          <div><span className="text-[var(--text-faint)]">Created:</span> {formatMs(job.createdAtMs)}</div>
-          <div><span className="text-[var(--text-faint)]">Message:</span> {job.payload.message || '(empty)'}</div>
+          <div><span className="text-[var(--text-faint)]">创建于：</span> {formatMs(job.createdAtMs)}</div>
+          <div><span className="text-[var(--text-faint)]">消息：</span> {job.payload.message || '（空）'}</div>
           {job.state.lastError && (
-            <div className="text-[var(--danger)]">Last error: {job.state.lastError}</div>
+            <div className="text-[var(--danger)]">最后错误： {job.state.lastError}</div>
           )}
         </div>
       )}
