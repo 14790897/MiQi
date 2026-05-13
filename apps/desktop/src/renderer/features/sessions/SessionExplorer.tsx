@@ -31,7 +31,9 @@ export function SessionExplorer({ onOpenSession, refreshKey }: { onOpenSession: 
     setLoading(false)
   }, [])
 
-  useEffect(() => { loadSessions() }, [loadSessions, refreshKey])
+  useEffect(() => {
+    loadSessions()
+  }, [loadSessions, refreshKey])
 
   const loadDetail = async (key: string) => {
     setSelected(key)
@@ -90,9 +92,7 @@ export function SessionExplorer({ onOpenSession, refreshKey }: { onOpenSession: 
                   onClick={() => loadDetail(s.key)}
                   className={cn(
                     'flex items-start gap-3 px-4 py-3 text-left transition-colors border-b border-[var(--border-subtle)]',
-                    selected === s.key
-                      ? 'bg-[var(--accent-soft)]/50'
-                      : 'hover:bg-[var(--surface-muted)]',
+                    selected === s.key ? 'bg-[var(--accent-soft)]/50' : 'hover:bg-[var(--surface-muted)]',
                   )}
                 >
                   <MessageSquare size={16} className="text-[var(--text-muted)] shrink-0 mt-0.5" />
@@ -106,11 +106,19 @@ export function SessionExplorer({ onOpenSession, refreshKey }: { onOpenSession: 
                     )}
                   </div>
                   <div
-                    onClick={(e) => { e.stopPropagation(); handleDelete(s.key) }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDelete(s.key)
+                    }}
                     className="text-[var(--text-faint)] hover:text-[var(--danger)] transition-colors shrink-0 cursor-pointer p-1 -mr-1 -mt-0.5 rounded hover:bg-[var(--surface-muted)]"
                     role="button"
                     tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); handleDelete(s.key) } }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.stopPropagation()
+                        handleDelete(s.key)
+                      }
+                    }}
                   >
                     <Trash2 size={14} />
                   </div>
@@ -158,10 +166,18 @@ export function SessionExplorer({ onOpenSession, refreshKey }: { onOpenSession: 
                       <span className="text-[var(--text-faint)]">tool: {String(msg.name ?? 'result')}</span>
                     ) : null}
                     <div className={cn(isTool && 'mt-1')}>
-                      {isUser || isTool
-                        ? <>{content.slice(0, 500)}{content.length > 500 && '...'}</>
-                        : <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-sm max-w-none text-[var(--text)]">{content.slice(0, 1000)}{content.length > 1000 ? '\n\n...' : ''}</ReactMarkdown>
-                      }
+                      {isUser || isTool ? (
+                        <>
+                          {content.slice(0, 500)}
+                          {content.length > 500 && '...'}
+                        </>
+                      ) : (
+                        <div className="prose prose-sm max-w-none text-[var(--text)]">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {content.slice(0, 1000) + (content.length > 1000 ? '\n\n...' : '')}
+                          </ReactMarkdown>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )
