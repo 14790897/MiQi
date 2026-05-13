@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Search, Wrench, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
 import type { SkillSummary, SkillDetail } from '../../../shared/ipc'
 
@@ -130,9 +132,9 @@ export function SkillsPage() {
 
             {/* Content */}
             <div className="flex-1 overflow-auto p-6">
-              <pre className="text-sm text-[var(--text)] leading-relaxed whitespace-pre-wrap font-mono bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg p-4">
-                {detail.content}
-              </pre>
+              <div className="text-sm text-[var(--text)] leading-relaxed bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg p-4 prose prose-sm max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{detail.content}</ReactMarkdown>
+              </div>
             </div>
 
             {/* Metadata footer */}

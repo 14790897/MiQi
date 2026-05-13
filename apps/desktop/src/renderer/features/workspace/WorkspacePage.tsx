@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import {
   FolderOpen,
   FileText,
@@ -21,6 +23,7 @@ export function WorkspacePage() {
   const [error, setError] = useState<string | null>(null)
   const [pendingPath, setPendingPath] = useState<string | null>(null)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [previewMode, setPreviewMode] = useState(false)
 
   const isUnsaved = content !== savedContent
 
@@ -146,9 +149,23 @@ export function WorkspacePage() {
                 <Save size={12} />
                 {saving ? '保存中…' : '保存'}
               </button>
+              {isMdFile && (
+                <div className="flex items-center gap-1 rounded-md border border-[var(--border-subtle)] overflow-hidden">
+                  <button
+                    onClick={() => setPreviewMode(false)}
+                    className={`px-2 py-0.5 text-xs ${!previewMode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'}`}
+                  >
+                    编辑
+                  </button>
+                  <button
+                    onClick={() => setPreviewMode(true)}
+                    className={`px-2 py-0.5 text-xs ${previewMode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'}`}
+                  >
+                    预览
+                  </button>
+                </div>
+              )}
             </div>
-
-            {/* Error banner */}
             {error && (
               <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-900/30 text-xs text-[var(--danger)]">
                 <AlertCircle size={12} />
@@ -161,6 +178,10 @@ export function WorkspacePage() {
               {fileLoading ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="text-sm text-[var(--text-muted)]">正在加载文件…</div>
+                </div>
+              ) : isMdFile && previewMode ? (
+                <div className="w-full h-full overflow-y-auto px-5 py-4 text-[15px] leading-[1.7] text-[var(--text)] prose prose-sm max-w-none bg-transparent">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
                 </div>
               ) : (
                 <textarea

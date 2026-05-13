@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import {
   BookOpen, FileText, RefreshCw, Save, Loader2,
   AlertTriangle, Lightbulb, Shield, X,
@@ -87,6 +89,7 @@ export function MemoryPage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [showSaveConfirm, setShowSaveConfirm] = useState(false)
+  const [previewMode, setPreviewMode] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -249,10 +252,31 @@ export function MemoryPage() {
                 {dirty && (
                   <span className="text-xs text-[var(--warning)] font-medium ml-auto">未保存</span>
                 )}
+                {!dirty && (
+                  <div className="ml-auto flex items-center gap-1 rounded-md border border-[var(--border-subtle)] overflow-hidden">
+                    <button
+                      onClick={() => setPreviewMode(false)}
+                      className={cn('px-2 py-0.5 text-xs', !previewMode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]')}
+                    >
+                      编辑
+                    </button>
+                    <button
+                      onClick={() => setPreviewMode(true)}
+                      className={cn('px-2 py-0.5 text-xs', previewMode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]')}
+                    >
+                      预览
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Editor */}
               <div className="flex-1 overflow-hidden">
+                {previewMode ? (
+                  <div className="w-full h-full px-5 py-4 overflow-y-auto text-sm bg-[var(--background)] text-[var(--text)] prose prose-sm max-w-none leading-relaxed">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{editorContent}</ReactMarkdown>
+                  </div>
+                ) : (
                 <textarea
                   value={editorContent}
                   onChange={(e) => {
@@ -263,6 +287,7 @@ export function MemoryPage() {
                   spellCheck={false}
                   placeholder="文件内容…"
                 />
+                )}
               </div>
 
               {/* Lessons section */}
