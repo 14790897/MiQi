@@ -16,7 +16,9 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    // Do NOT use externalizeDepsPlugin() for preload — sandbox mode cannot
+    // require() npm packages at runtime, so all dependencies must be bundled.
+    plugins: [],
     build: {
       outDir: 'out/preload',
       rollupOptions: {

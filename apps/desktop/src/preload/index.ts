@@ -210,6 +210,12 @@ const api = {
       ipcRenderer.invoke(IPC.PYTHON_CHECK),
   },
 
+  // -- Initial config write (no bridge needed) --------------------------------
+  setup: {
+    writeInitialConfig: (config: Record<string, unknown>): Promise<{ saved: boolean; path: string }> =>
+      ipcRenderer.invoke(IPC.CONFIG_WRITE_INITIAL, config),
+  },
+
   // -- Dialog -----------------------------------------------------------------
   dialog: {
     openFile: (): Promise<string | null> =>

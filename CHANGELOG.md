@@ -4,7 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Fixed Electron desktop Markdown not rendering in chat: replaced hand-rolled text parser with `react-markdown` + `remark-gfm`, supporting headers, lists, tables, blockquotes, links, inline code, and fenced code blocks with copy button (`apps/desktop/src/renderer/features/chat/ChatConsole.tsx`).
+- Fixed SiliconFlow provider using wrong API key env var (`OPENAI_API_KEY` → `SILICONFLOW_API_KEY`) and wrong model prefix (`"openai"` → `""`) that prepended `"openai/"` to every SiliconFlow model name (`miqi/providers/registry.py`).
+
 ### Added
+- Added **Agent 配置** step (step 4) to Setup Wizard: lets first-time users set Agent name, workspace directory (with Browse button), and optional Brave Search API key before finalising setup (`apps/desktop/src/renderer/features/setup/SetupWizard.tsx`).
+- Added finish screen summary card showing configured provider, agent name, workspace, and web-search state before saving (`apps/desktop/src/renderer/features/setup/SetupWizard.tsx`).
+- Expanded `CONFIG_WRITE_INITIAL` IPC handler to write `agents.defaults.name`, `agents.defaults.workspace`, and `tools.web.search.apiKey` in addition to provider key and model (`apps/desktop/src/main/ipc/index.ts`).
+- Expanded `window.miqi.setup.writeInitialConfig` preload API to accept `agentName`, `workspace`, and `braveApiKey` optional parameters (`apps/desktop/src/preload/index.ts`).
+- Replaced single-view Settings page with a tabbed layout: **通用** (agent name, workspace, model, temperature, max tokens), **Web 工具** (Brave Search API key), **外观** (light/dark/system theme toggle), and **运行日志** (existing logs viewer) (`apps/desktop/src/renderer/features/settings/SettingsPage.tsx`).
+
+### Fixed
+- Fixed Electron desktop session not persisting assistant replies: `_run_agent_loop` returns `final_content` separately from `messages`; `_save_turn` never saw it.  
+  Now explicitly appends the final assistant message to `session.messages` before `sessions.save()` (`miqi/agent/loop.py`).
+- Fixed Electron desktop chat messages lost when switching navigation tabs: `ChatConsole` was conditionally rendered and unmounted on every tab change.  
+  Component is now always mounted; hidden/shown via CSS `hidden` class so React state is preserved (`apps/desktop/src/renderer/App.tsx`).
+- Fixed Electron desktop chat showing no prior history on app restart or session change: `ChatConsole` now loads session history from `window.miqi.sessions.get()` on mount and on `sessionKey` prop changes, converting JSONL records to UI messages (`apps/desktop/src/renderer/features/chat/ChatConsole.tsx`).
+- Fixed Electron desktop assistant responses appearing instantaneously with no visual feedback: added requestAnimationFrame-based typewriter animation that reveals reply text ~4 characters per frame; an animated cursor block is shown while the response is assembling (`apps/desktop/src/renderer/features/chat/ChatConsole.tsx`).
+
+### Added
+- Added **New Session** button to Chat Console toolbar: sends `/new` to the agent bridge and clears the local message list (`apps/desktop/src/renderer/features/chat/ChatConsole.tsx`).
+- Added session key label to Chat Console toolbar so users can see which session is active (`apps/desktop/src/renderer/features/chat/ChatConsole.tsx`).
 - M1 Electron desktop shell (`apps/desktop/`):
   - Python bridge (`miqi/bridge/server.py`) with stdin/stdout JSON-line protocol for chat streaming, session management, config CRUD, and provider operations.
   - Electron main process with secure BrowserWindow (contextIsolation + sandbox), BridgeManager for MiQi subprocess lifecycle, and 12 typed IPC handlers with zod validation.

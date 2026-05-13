@@ -53,6 +53,9 @@ export const IPC = {
   // Python check
   PYTHON_CHECK: 'python:check',
 
+  // Write initial config (no bridge needed — used by Setup Wizard)
+  CONFIG_WRITE_INITIAL: 'config:write_initial',
+
   // Dialog
   DIALOG_OPEN_FILE: 'dialog:openFile',
 } as const

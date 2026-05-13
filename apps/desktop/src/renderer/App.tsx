@@ -20,6 +20,8 @@ import { WorkspacePage } from './features/workspace/WorkspacePage'
 
 type NavId = 'chat' | 'sessions' | 'providers' | 'channels' | 'approvals' | 'cron' | 'memory' | 'skills' | 'workspace' | 'settings'
 
+const PRELOAD_OK = typeof window !== 'undefined' && !!(window as any).miqi
+
 function AppShell() {
   const { status } = useRuntime()
   const [activeNav, setActiveNav] = useState<NavId>('chat')
@@ -30,18 +32,25 @@ function AppShell() {
     // Preload injection verification: window.miqi must be available.
     // Logs to devtools console so operator can confirm the preload bridge
     // is intact without expanding the API surface.
-    if (typeof window.miqi === 'object' && window.miqi !== null) {
+    if (PRELOAD_OK) {
       const apiKeys = Object.keys(window.miqi).join(', ')
       console.log(`[MiQi] preload OK — exposed namespaces: ${apiKeys}`)
     } else {
       console.error('[MiQi] preload MISSING — window.miqi is undefined. ' +
         'Check that contextBridge.exposeInMainWorld executed.')
+      setNeedsSetup(false) // not a setup issue — preload is broken
+      return
     }
 
     const check = async () => {
       try {
         const result = await window.miqi.python.check()
-        setNeedsSetup(!result.config_exists)
+        const skipSetup = result.config_exists
+        setNeedsSetup(!skipSetup)
+        if (skipSetup) {
+          // Config already exists — auto-start bridge
+          window.miqi.runtime.start().catch(() => {})
+        }
       } catch {
         setNeedsSetup(true)
       }
@@ -58,12 +67,35 @@ function AppShell() {
   // Loading state
   if (needsSetup === null) {
     return (
-      <div className="flex items-center justify-center h-screen bg-[var(--background)]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[var(--accent)] flex items-center justify-center text-white text-lg font-bold">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f7f3ea', fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#c96442', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '18px', fontWeight: 700 }}>
             M
           </div>
-          <div className="text-sm text-[var(--text-muted)]">Loading MiQi Desktop...</div>
+          <div style={{ fontSize: '13px', color: '#766b5f' }}>Loading MiQi Desktop...</div>
+        </div>
+      </div>
+    )
+  }
+
+  // Preload is entirely absent — show a visible error panel, not a white screen
+  if (!PRELOAD_OK) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-[var(--background)]">
+        <div className="flex flex-col items-center gap-4 max-w-sm text-center px-6">
+          <div className="w-12 h-12 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+            <span className="text-red-600 dark:text-red-400 text-xl font-bold">!</span>
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-[var(--text)] mb-1">Preload bridge not available</h2>
+            <p className="text-sm text-[var(--text-muted)]">
+              The application preload script failed to inject.<br />
+              Please restart the app. If the issue persists, verify the preload script path and reinstall.
+            </p>
+          </div>
+          <div className="text-xs text-[var(--text-faint)]">
+            Open DevTools (Ctrl+Shift+I) to inspect errors.
+          </div>
         </div>
       </div>
     )
@@ -88,10 +120,12 @@ function AppShell() {
               <Sidebar activeNav={activeNav} onNavChange={(id) => setActiveNav(id as NavId)} />
 
               <main className="flex-1 flex flex-col overflow-hidden bg-[var(--background)]">
-                {activeNav === 'chat' && <ChatConsole />}
+                {/* ChatConsole is always mounted to preserve message state across navigation */}
+                <div className={activeNav === 'chat' ? 'flex flex-col flex-1 overflow-hidden' : 'hidden'}>
+                  <ChatConsole />
+                </div>
                 {activeNav === 'sessions' && (
-                  <SessionExplorer onOpenSession={(key) => {
-                    // Navigate to chat with this session — for M1, just switch to chat
+                  <SessionExplorer onOpenSession={(_key) => {
                     setActiveNav('chat')
                   }} />
                 )}

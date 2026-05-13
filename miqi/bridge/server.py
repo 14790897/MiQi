@@ -27,6 +27,16 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+# Force UTF-8 on Windows (default is GBK/cp936 which cannot encode emoji)
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
+if hasattr(sys.stdin, 'reconfigure'):
+    sys.stdin.reconfigure(encoding='utf-8')
+
+# Get raw binary stdout for _send so we bypass any remaining text-layer encoding
+_stdout_buffer = sys.stdout.buffer if hasattr(sys.stdout, 'buffer') else None
 
 _stdout_lock = threading.Lock()
 
@@ -36,11 +46,15 @@ def _log(msg: str) -> None:
 
 
 def _send(data: dict[str, Any]) -> None:
-    """Write one atomic JSON line to stdout (thread-safe)."""
-    line = json.dumps(data, ensure_ascii=False) + "\n"
+    """Write one atomic JSON line to stdout as UTF-8 bytes (thread-safe)."""
+    line = (json.dumps(data, ensure_ascii=False) + "\n").encode('utf-8')
     with _stdout_lock:
-        sys.stdout.write(line)
-        sys.stdout.flush()
+        if _stdout_buffer is not None:
+            _stdout_buffer.write(line)
+            _stdout_buffer.flush()
+        else:
+            sys.stdout.write(line.decode('utf-8'))
+            sys.stdout.flush()
 
 
 def _result(req_id: str, result: Any = None) -> None:
@@ -1188,8 +1202,39 @@ def _dispatch(req_id: str, method: str, params: dict) -> None:
     handler(req_id, params)
 
 
+def _ensure_workspace_init() -> None:
+    """Create workspace directories and template files if they don't exist."""
+    try:
+        from importlib.resources import files as pkg_files
+
+        from miqi.utils.helpers import get_workspace_path
+
+        workspace = get_workspace_path()
+        workspace.mkdir(parents=True, exist_ok=True)
+        (workspace / "memory").mkdir(exist_ok=True)
+        (workspace / "skills").mkdir(exist_ok=True)
+
+        templates_dir = pkg_files("miqi") / "templates"
+        for item in templates_dir.iterdir():
+            if not item.name.endswith(".md"):
+                continue
+            dest = workspace / item.name
+            if not dest.exists():
+                dest.write_text(item.read_text(encoding="utf-8"), encoding="utf-8")
+
+        memory_template = templates_dir / "memory" / "MEMORY.md"
+        memory_file = workspace / "memory" / "MEMORY.md"
+        if not memory_file.exists():
+            memory_file.write_text(memory_template.read_text(encoding="utf-8"), encoding="utf-8")
+
+        _log("Workspace ready")
+    except Exception as exc:
+        _log(f"Workspace init warning (non-fatal): {exc}")
+
+
 def main() -> None:
     _log("Bridge server starting")
+    _ensure_workspace_init()
     for line in sys.stdin:
         line = line.strip()
         if not line:

@@ -1060,6 +1060,16 @@ class AgentLoop:
         self.memory.flush_if_needed()
 
         self._save_turn(session, all_msgs, 1 + len(history))
+        # Persist the final assistant response — it is returned as final_content
+        # but never appended to all_msgs by _run_agent_loop, so it would be
+        # absent from the saved session without this explicit append.
+        if final_content:
+            from datetime import datetime as _dt
+            session.messages.append({
+                "role": "assistant",
+                "content": final_content,
+                "timestamp": _dt.now().isoformat(),
+            })
         self.sessions.save(session)
 
         if message_tool := self.tools.get("message"):

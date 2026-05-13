@@ -128,9 +128,9 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ProviderSpec(
         name="siliconflow",
         keywords=("siliconflow",),
-        env_key="OPENAI_API_KEY",
+        env_key="SILICONFLOW_API_KEY",
         display_name="SiliconFlow",
-        model_prefix="openai",
+        model_prefix="",
         skip_prefixes=(),
         env_extras=(),
         is_gateway=True,

@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import type { RuntimeState, RuntimeStatus } from '../../shared/ipc'
 
+const hasApi = typeof window !== 'undefined' && !!(window as any).miqi?.runtime
+
 interface RuntimeContextValue {
   status: RuntimeStatus
   logs: string[]
@@ -13,10 +15,15 @@ interface RuntimeContextValue {
 const RuntimeContext = createContext<RuntimeContextValue | null>(null)
 
 export function RuntimeProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus] = useState<RuntimeStatus>({ state: 'stopped', configured: false })
+  const [status, setStatus] = useState<RuntimeStatus>(
+    hasApi
+      ? { state: 'stopped', configured: false }
+      : { state: 'error', configured: false, error: 'Preload API unavailable' },
+  )
   const [logs, setLogs] = useState<string[]>([])
 
   const refreshStatus = useCallback(async () => {
+    if (!hasApi) return
     try {
       const s = await window.miqi.runtime.status()
       setStatus(s)
@@ -26,6 +33,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refreshLogs = useCallback(async () => {
+    if (!hasApi) return
     try {
       const l = await window.miqi.runtime.logs()
       setLogs(l)
@@ -35,16 +43,19 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const start = useCallback(async () => {
+    if (!hasApi) return
     const s = await window.miqi.runtime.start()
     setStatus(s)
   }, [])
 
   const stop = useCallback(async () => {
+    if (!hasApi) return
     const s = await window.miqi.runtime.stop()
     setStatus(s)
   }, [])
 
   useEffect(() => {
+    if (!hasApi) return
     refreshStatus()
     const unsubState = window.miqi.runtime.onStateChange((s) => setStatus(s))
     const unsubLog = window.miqi.runtime.onLog((msg) => setLogs((prev) => [...prev.slice(-499), msg]))

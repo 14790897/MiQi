@@ -71,6 +71,10 @@ export class BridgeManager extends EventEmitter {
     }
   }
 
+  getProjectRoot(): string {
+    return this.projectRoot
+  }
+
   getLogs(): string[] {
     return [...this.logs]
   }
@@ -92,7 +96,7 @@ export class BridgeManager extends EventEmitter {
       this.process = spawn(command, spawnArgs, {
         cwd: this.projectRoot,
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, PYTHONUNBUFFERED: '1' },
+        env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' },
       })
 
       this.rl = createInterface({ input: this.process.stdout!, crlfDelay: Infinity })

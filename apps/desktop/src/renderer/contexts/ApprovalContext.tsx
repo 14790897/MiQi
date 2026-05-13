@@ -15,6 +15,7 @@ export function ApprovalProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<ApprovalRequest | null>(null)
 
   useEffect(() => {
+    if (!(window as any).miqi?.approvals) return
     const unsubReq = window.miqi.approvals.onRequest((data) => {
       setPending(data)
     })
