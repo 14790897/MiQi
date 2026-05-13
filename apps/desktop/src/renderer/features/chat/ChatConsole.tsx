@@ -49,9 +49,10 @@ function sessionMsgsToUi(rawMsgs: any[]): Message[] {
     }))
 }
 
-export function ChatConsole({ sessionKey = DEFAULT_SESSION, onNewSession }: {
+export function ChatConsole({ sessionKey = DEFAULT_SESSION, onNewSession, onChatFinished }: {
   sessionKey?: string
   onNewSession?: () => void
+  onChatFinished?: () => void
 }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -162,6 +163,7 @@ export function ChatConsole({ sessionKey = DEFAULT_SESSION, onNewSession }: {
       } else if (finalDone) {
         setStreaming(false)
         cleanupListeners()
+        if (onChatFinished) onChatFinished()
       }
     }
 
@@ -200,7 +202,7 @@ export function ChatConsole({ sessionKey = DEFAULT_SESSION, onNewSession }: {
       setStreaming(false)
       cleanupListeners()
     }
-  }, [input, attachments, streaming, cleanupListeners])
+  }, [input, attachments, streaming, cleanupListeners, onChatFinished])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }

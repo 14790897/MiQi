@@ -25,6 +25,7 @@ const PRELOAD_OK = typeof window !== 'undefined' && !!(window as any).miqi
 function AppShell() {
   const { status } = useRuntime()
   const [activeNav, setActiveNav] = useState<NavId>('chat')
+  const [sessionRefreshKey, setSessionRefreshKey] = useState(0)
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null) // null = checking
 
   // Check if setup is needed on mount
@@ -122,10 +123,10 @@ function AppShell() {
               <main className="flex-1 flex flex-col overflow-hidden bg-[var(--background)]">
                 {/* ChatConsole is always mounted to preserve message state across navigation */}
                 <div className={activeNav === 'chat' ? 'flex flex-col flex-1 overflow-hidden' : 'hidden'}>
-                  <ChatConsole />
+                  <ChatConsole onChatFinished={() => setSessionRefreshKey(k => k + 1)} />
                 </div>
                 {activeNav === 'sessions' && (
-                  <SessionExplorer onOpenSession={(_key) => {
+                  <SessionExplorer refreshKey={sessionRefreshKey} onOpenSession={(_key) => {
                     setActiveNav('chat')
                   }} />
                 )}
