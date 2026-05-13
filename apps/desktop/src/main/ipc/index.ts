@@ -9,6 +9,13 @@ import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, ConfigUpdateIn
 const { ipcMain, dialog } = electron
 
 export function registerIpcHandlers(bridge: BridgeManager): void {
+  // Helper: ensure bridge is running before sending a request
+  async function ensureBridge(): Promise<void> {
+    if (bridge.getStatus().state !== 'running') {
+      await bridge.start()
+    }
+  }
+
   // -----------------------------------------------------------------------
   // Runtime
   // -----------------------------------------------------------------------
@@ -35,6 +42,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.CHAT_SEND, async (_event, payload: unknown) => {
     const input = ChatSendInput.parse(payload)
+    await ensureBridge()
 
     const mainWindow = _event.sender
     const result = await bridge.send('chat.send', {
@@ -60,6 +68,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   })
 
   ipcMain.handle(IPC.CHAT_ABORT, async () => {
+    await ensureBridge()
     return bridge.send('chat.abort')
   })
 
@@ -67,15 +76,18 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   // Sessions
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.SESSIONS_LIST, async () => {
+    await ensureBridge()
     return bridge.send('sessions.list')
   })
 
   ipcMain.handle(IPC.SESSIONS_GET, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = SessionGetInput.parse(payload)
     return bridge.send('sessions.get', { session_key: input.session_key })
   })
 
   ipcMain.handle(IPC.SESSIONS_DELETE, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = SessionDeleteInput.parse(payload)
     return bridge.send('sessions.delete', { session_key: input.session_key })
   })
@@ -84,10 +96,12 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   // Config
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.CONFIG_GET, async () => {
+    await ensureBridge()
     return bridge.send('config.get')
   })
 
   ipcMain.handle(IPC.CONFIG_UPDATE, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = ConfigUpdateInput.parse(payload)
     return bridge.send('config.update', { config: input.config })
   })
@@ -96,15 +110,18 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   // Providers
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.PROVIDERS_LIST, async () => {
+    await ensureBridge()
     return bridge.send('providers.list')
   })
 
   ipcMain.handle(IPC.PROVIDERS_TEST, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = ProviderTestInput.parse(payload)
     return bridge.send('providers.test', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.PROVIDERS_UPDATE, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = ProviderUpdateInput.parse(payload)
     return bridge.send('providers.update', input as Record<string, unknown>)
   })
@@ -113,10 +130,12 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   // Channels
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.CHANNELS_LIST, async () => {
+    await ensureBridge()
     return bridge.send('channels.list')
   })
 
   ipcMain.handle(IPC.CHANNELS_UPDATE, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = ChannelsUpdateInput.parse(payload)
     return bridge.send('channels.update', input as Record<string, unknown>)
   })
@@ -219,15 +238,18 @@ for m in ("pydantic", "httpx", "loguru"):
   // Approvals
   // -----------------------------------------------------------------------
   ipcMain.handle('approvals:list', async () => {
+    await ensureBridge()
     return bridge.send('approvals.list')
   })
 
   ipcMain.handle('approvals:resolve', async (_event, payload: unknown) => {
+    await ensureBridge()
     const p = payload as { approval_id: string; decision: string }
     return bridge.send('approvals.resolve', p as Record<string, unknown>)
   })
 
   ipcMain.handle('approvals:clear_permanent', async (_event, payload: unknown) => {
+    await ensureBridge()
     const p = (payload ?? {}) as { pattern?: string }
     return bridge.send('approvals.clear_permanent', p as Record<string, unknown>)
   })
@@ -236,35 +258,42 @@ for m in ("pydantic", "httpx", "loguru"):
   // Cron
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.CRON_LIST, async () => {
+    await ensureBridge()
     return bridge.send('cron.list')
   })
 
   ipcMain.handle(IPC.CRON_CREATE, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = CronCreateInput.parse(payload)
     return bridge.send('cron.create', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.CRON_UPDATE, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = CronUpdateInput.parse(payload)
     return bridge.send('cron.update', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.CRON_DELETE, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = CronDeleteInput.parse(payload)
     return bridge.send('cron.delete', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.CRON_TOGGLE, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = CronToggleInput.parse(payload)
     return bridge.send('cron.toggle', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.CRON_RUN, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = CronRunInput.parse(payload)
     return bridge.send('cron.run', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.CRON_RUNS, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = CronRunsInput.parse(payload ?? {})
     return bridge.send('cron.runs', input as Record<string, unknown>)
   })
@@ -273,24 +302,29 @@ for m in ("pydantic", "httpx", "loguru"):
   // Memory
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.MEMORY_LIST, async () => {
+    await ensureBridge()
     return bridge.send('memory.list')
   })
 
   ipcMain.handle(IPC.MEMORY_GET, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = MemoryGetInput.parse(payload)
     return bridge.send('memory.get', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.MEMORY_UPDATE, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = MemoryUpdateInput.parse(payload)
     return bridge.send('memory.update', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.MEMORY_LESSONS, async () => {
+    await ensureBridge()
     return bridge.send('memory.lessons')
   })
 
   ipcMain.handle(IPC.MEMORY_DELETE, async (_event, payload: unknown) => {
+    await ensureBridge()
     const p = payload as { path: string }
     return bridge.send('memory.delete', p as Record<string, unknown>)
   })
@@ -299,15 +333,18 @@ for m in ("pydantic", "httpx", "loguru"):
   // Skills
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.SKILLS_LIST, async () => {
+    await ensureBridge()
     return bridge.send('skills.list')
   })
 
   ipcMain.handle(IPC.SKILLS_GET, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = SkillsGetInput.parse(payload)
     return bridge.send('skills.get', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.SKILLS_OPEN_FOLDER, async (_event, payload: unknown) => {
+    await ensureBridge()
     const p = payload as { name: string }
     return bridge.send('skills.open_folder', p as Record<string, unknown>)
   })
@@ -316,20 +353,24 @@ for m in ("pydantic", "httpx", "loguru"):
   // Files (Workspace Editor)
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.FILES_TREE, async () => {
+    await ensureBridge()
     return bridge.send('files.tree')
   })
 
   ipcMain.handle(IPC.FILES_READ, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = FilesReadInput.parse(payload)
     return bridge.send('files.read', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.FILES_WRITE, async (_event, payload: unknown) => {
+    await ensureBridge()
     const input = FilesWriteInput.parse(payload)
     return bridge.send('files.write', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.FILES_DELETE, async (_event, payload: unknown) => {
+    await ensureBridge()
     const p = payload as { path: string }
     return bridge.send('files.delete', p as Record<string, unknown>)
   })

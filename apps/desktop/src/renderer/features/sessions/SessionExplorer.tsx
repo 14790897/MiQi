@@ -105,12 +105,15 @@ export function SessionExplorer({ onOpenSession, refreshKey }: { onOpenSession: 
                       </div>
                     )}
                   </div>
-                  <button
+                  <div
                     onClick={(e) => { e.stopPropagation(); handleDelete(s.key) }}
-                    className="text-[var(--text-faint)] hover:text-[var(--danger)] transition-colors shrink-0"
+                    className="text-[var(--text-faint)] hover:text-[var(--danger)] transition-colors shrink-0 cursor-pointer p-1 -mr-1 -mt-0.5 rounded hover:bg-[var(--surface-muted)]"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); handleDelete(s.key) } }}
                   >
                     <Trash2 size={14} />
-                  </button>
+                  </div>
                 </button>
               ))}
             </div>
