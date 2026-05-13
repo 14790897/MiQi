@@ -26,3 +26,5 @@ featherflow/agent/memory.py.bak
 
 # 文档
 .workbuddy/memory/
+.claude/
+.vscode/
