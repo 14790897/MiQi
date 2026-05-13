@@ -51,7 +51,7 @@ function sessionMsgsToUi(rawMsgs: any[]): Message[] {
 
 export function ChatConsole({ sessionKey = DEFAULT_SESSION, onNewSession, onChatFinished }: {
   sessionKey?: string
-  onNewSession?: () => void
+  onNewSession?: (newKey: string) => void
   onChatFinished?: () => void
 }) {
   const [messages, setMessages] = useState<Message[]>([])
@@ -120,10 +120,11 @@ export function ChatConsole({ sessionKey = DEFAULT_SESSION, onNewSession, onChat
 
   const handleNewSession = useCallback(async () => {
     if (streaming) return
-    setMessages([])
+    const oldKey = currentSessionRef.current
+    const newKey = `desktop:${Date.now()}`
     cleanupListeners()
-    try { await window.miqi.chat.send('/new') } catch { /* ignore */ }
-    if (onNewSession) onNewSession()
+    try { await window.miqi.chat.send('/new', oldKey) } catch { /* ignore */ }
+    onNewSession?.(newKey)
   }, [streaming, cleanupListeners, onNewSession])
 
   const handleSend = useCallback(async () => {
@@ -195,7 +196,7 @@ export function ChatConsole({ sessionKey = DEFAULT_SESSION, onNewSession, onChat
     unsubsRef.current = [unsubProgress, unsubFinal, unsubError, unsubAborted]
 
     try {
-      await window.miqi.chat.send(content)
+      await window.miqi.chat.send(content, currentSessionRef.current)
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId)
       setMessages((prev) => [...prev, { role: 'error', content: e.message ?? String(e), timestamp: Date.now() }])
