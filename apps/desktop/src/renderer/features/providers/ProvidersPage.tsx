@@ -55,7 +55,7 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
       if (msg.includes('JSON')) {
-        setError('Extra headers must be valid JSON, e.g. {"APP-Code": "xxx"}')
+        setError('额外请求头必须是合法 JSON，例如 {"APP-Code": "xxx"}')
       } else {
         setError(msg)
       }
@@ -66,7 +66,7 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
 
   const handleTest = async () => {
     if (!apiKey && !provider.configured) {
-      setTestResult({ ok: false, message: 'Enter an API key first' })
+      setTestResult({ ok: false, message: '请先输入 API Key' })
       return
     }
     setTesting(true)
@@ -77,9 +77,9 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
         apiKey || undefined,
         apiBase || undefined,
       )
-      setTestResult({ ok: result.ok, message: result.ok ? 'Connection OK' : 'Connection failed' })
+      setTestResult({ ok: result.ok, message: result.ok ? '连接成功' : '连接失败' })
     } catch (err: unknown) {
-      setTestResult({ ok: false, message: err instanceof Error ? err.message : 'Test failed' })
+      setTestResult({ ok: false, message: err instanceof Error ? err.message : '测试失败' })
     } finally {
       setTesting(false)
     }
@@ -169,11 +169,11 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
             className="flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors disabled:opacity-50"
           >
             {testing ? <Loader2 size={14} className="animate-spin" /> : <TestTube2 size={14} />}
-            Test connection
+            测试连接
           </button>
           <div className="flex items-center gap-2">
             <button onClick={onClose} className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
-              Cancel
+              取消
             </button>
             <button
               onClick={handleSave}
@@ -181,7 +181,7 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
               className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-50"
             >
               {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-              Save
+              保存
             </button>
           </div>
         </div>
@@ -261,7 +261,7 @@ function ProviderRow({ provider, onEdit, onTest, testingName, testResults }: Pro
           ? 'bg-[color-mix(in_srgb,var(--warning)_15%,transparent)] text-[var(--warning)]'
           : 'bg-[var(--surface-muted)] text-[var(--text-muted)]',
       )}>
-        {provider.is_gateway ? 'Gateway' : provider.is_local ? 'Local' : provider.provider_type}
+        {provider.is_gateway ? '网关' : provider.is_local ? '本地' : provider.provider_type}
       </span>
       <span className={cn(
         'text-xs px-2 py-0.5 rounded-full shrink-0',
@@ -269,7 +269,7 @@ function ProviderRow({ provider, onEdit, onTest, testingName, testResults }: Pro
           ? 'bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]'
           : 'bg-[var(--surface-muted)] text-[var(--text-faint)]',
       )}>
-        {provider.configured ? 'Configured' : 'Not set'}
+        {provider.configured ? '已配置' : '未配置'}
       </span>
       {hasTestResult && (
         <span className={cn('text-xs shrink-0', testOk ? 'text-[var(--success)]' : 'text-[var(--danger)]')}>
@@ -280,14 +280,14 @@ function ProviderRow({ provider, onEdit, onTest, testingName, testResults }: Pro
         <button
           onClick={() => onTest(provider)}
           disabled={isTesting}
-          title="Test connection"
+          title="测试连接"
           className="p-1.5 rounded-md text-[var(--text-faint)] hover:text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors disabled:opacity-40"
         >
           {isTesting ? <Loader2 size={14} className="animate-spin" /> : <TestTube2 size={14} />}
         </button>
         <button
           onClick={() => onEdit(provider)}
-          title="Edit provider"
+          title="编辑 Provider"
           className="p-1.5 rounded-md text-[var(--text-faint)] hover:text-[var(--text)] hover:bg-[var(--surface-muted)] transition-colors"
         >
           <Edit2 size={14} />
@@ -315,7 +315,7 @@ function CategorySection({ title, icon, providers, onEdit, onTest, testingName, 
         {icon}
         {title}
         <span className="ml-auto font-normal normal-case tracking-normal">
-          {providers.filter(p => p.configured).length}/{providers.length} configured
+          {providers.filter(p => p.configured).length}/{providers.length} 已配置
         </span>
       </div>
       <div className="divide-y divide-[var(--border-subtle)]">
@@ -380,9 +380,9 @@ export function ProvidersPage() {
     <div className="flex flex-col h-full bg-[var(--background)]">
       <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] bg-[var(--surface)] shrink-0">
         <div>
-          <h1 className="text-base font-semibold text-[var(--text)]">Providers</h1>
+          <h1 className="text-base font-semibold text-[var(--text)]">Provider</h1>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
-            {loading ? 'Loading...' : `${configuredCount} of ${providers.length} providers configured`}
+            {loading ? '加载中…' : `${configuredCount} / ${providers.length} 已配置`}
           </p>
         </div>
         <button onClick={load} className="text-xs text-[var(--text-faint)] hover:text-[var(--text-muted)] transition-colors px-2 py-1 rounded">
@@ -393,19 +393,19 @@ export function ProvidersPage() {
       <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center h-40 text-sm text-[var(--text-faint)]">
-            <Loader2 size={16} className="animate-spin mr-2" /> Loading providers...
+            <Loader2 size={16} className="animate-spin mr-2" /> 正在加载…
           </div>
         ) : providers.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 gap-2 text-sm text-[var(--text-faint)]">
             <Server size={24} />
-            <span>Runtime not running — start MiQi first</span>
+            <span>MiQi 运行时未启动</span>
           </div>
         ) : (
           <div className="divide-y divide-[var(--border-subtle)]">
-            <CategorySection title="Gateways" icon={<Globe size={12} />} providers={gateways} onEdit={setEditProvider} onTest={handleTest} testingName={testingName} testResults={testResults} />
-            <CategorySection title="International" icon={<Zap size={12} />} providers={international} onEdit={setEditProvider} onTest={handleTest} testingName={testingName} testResults={testResults} />
-            <CategorySection title="国内 / Domestic" icon={<Server size={12} />} providers={domestic} onEdit={setEditProvider} onTest={handleTest} testingName={testingName} testResults={testResults} />
-            <CategorySection title="Local" icon={<HardDrive size={12} />} providers={local} onEdit={setEditProvider} onTest={handleTest} testingName={testingName} testResults={testResults} />
+            <CategorySection title="网关" icon={<Globe size={12} />} providers={gateways} onEdit={setEditProvider} onTest={handleTest} testingName={testingName} testResults={testResults} />
+            <CategorySection title="国际" icon={<Zap size={12} />} providers={international} onEdit={setEditProvider} onTest={handleTest} testingName={testingName} testResults={testResults} />
+            <CategorySection title="国内" icon={<Server size={12} />} providers={domestic} onEdit={setEditProvider} onTest={handleTest} testingName={testingName} testResults={testResults} />
+            <CategorySection title="本地" icon={<HardDrive size={12} />} providers={local} onEdit={setEditProvider} onTest={handleTest} testingName={testingName} testResults={testResults} />
           </div>
         )}
       </div>

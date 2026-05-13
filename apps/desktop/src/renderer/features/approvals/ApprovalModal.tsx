@@ -17,7 +17,7 @@ export function ApprovalModal() {
         <div className="flex items-center gap-2 px-5 py-3 bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] border-b border-[var(--danger)]">
           <Shield size={16} className="text-[var(--danger)] shrink-0" />
           <span id="approval-title" className="text-sm font-semibold text-[var(--danger)]">
-            Dangerous Command
+            危险命令审批
           </span>
           <span className="ml-2 text-xs text-[var(--text-muted)] font-normal">
             {pending.description}
@@ -25,7 +25,7 @@ export function ApprovalModal() {
           <button
             onClick={() => resolve('deny')}
             className="ml-auto text-[var(--text-faint)] hover:text-[var(--text)] transition-colors"
-            title="Deny"
+            title="拒绝"
           >
             <X size={14} />
           </button>
@@ -44,32 +44,32 @@ export function ApprovalModal() {
         {/* Actions */}
         <div className="flex items-center gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
           <span className="text-xs text-[var(--text-faint)] flex-1">
-            Choose how to handle this command:
+            选择如何处理此命令：
           </span>
           <button
             onClick={() => resolve('deny')}
             className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_25%,transparent)] transition-colors"
           >
-            Deny
+            拒绝
           </button>
           <button
             onClick={() => resolve('once')}
             className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[var(--surface-muted)] text-[var(--text)] hover:bg-[var(--border-subtle)] transition-colors"
           >
-            Allow once
+            允许一次
           </button>
           <button
             onClick={() => resolve('session')}
             className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[var(--surface-muted)] text-[var(--text)] hover:bg-[var(--border-subtle)] transition-colors"
           >
-            Allow session
+            本次会话允许
           </button>
           {pending.allow_permanent && (
             <button
               onClick={() => resolve('always')}
               className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition-colors"
             >
-              Always allow
+              永久允许
             </button>
           )}
         </div>

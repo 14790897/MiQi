@@ -30,7 +30,7 @@ function ToggleRow({
           'shrink-0 transition-colors',
           checked ? 'text-[var(--accent)]' : 'text-[var(--border)]',
         )}
-        title={checked ? 'Enabled' : 'Disabled'}
+        title={checked ? '已启用' : '已禁用'}
       >
         {checked ? <ToggleRight size={22} /> : <ToggleLeft size={22} />}
       </button>
@@ -77,7 +77,7 @@ function FieldRow({
             className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-faint)] hover:text-[var(--text-muted)]"
             tabIndex={-1}
           >
-            {show ? 'hide' : 'show'}
+            {show ? '隐藏' : '显示'}
           </button>
         )}
       </div>
@@ -113,7 +113,7 @@ function FeishuSection({ config, onChange }: FeishuSectionProps) {
               ? 'bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]'
               : 'bg-[var(--surface-muted)] text-[var(--text-faint)]',
           )}>
-            {config.enabled ? 'Enabled' : 'Disabled'}
+            {config.enabled ? '已启用' : '已禁用'}
           </span>
         </div>
         <button
@@ -133,19 +133,19 @@ function FeishuSection({ config, onChange }: FeishuSectionProps) {
           value={config.app_id}
           onChange={(v) => set('app_id', v)}
           placeholder="cli_xxxxxxxxxxxxxxxx"
-          description="Developer Console App ID"
+          description="开发者控制台 App ID"
         />
         <FieldRow
           label="App Secret"
           value={config.app_secret}
           onChange={(v) => set('app_secret', v)}
-          placeholder="Enter App Secret"
+          placeholder="请输入 App Secret"
           secret
-          description="Developer Console App Secret"
+          description="开发者控制台 App Secret"
         />
         <div className="py-2 flex flex-col gap-1.5">
           <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
-            Allow From <span className="font-normal text-[var(--text-faint)]">(open_ids, one per line, empty = anyone)</span>
+            允许来自 <span className="font-normal text-[var(--text-faint)]">（open_id，每行一个，留空表示允许所有人）</span>
           </label>
           <textarea
             value={config.allow_from.join('\n')}
@@ -160,7 +160,7 @@ function FeishuSection({ config, onChange }: FeishuSectionProps) {
         </div>
         <div className="py-2 flex flex-col gap-1.5">
           <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
-            Reply Delay (ms)
+            回复延迟（毫秒）
           </label>
           <input
             type="number"
@@ -170,13 +170,13 @@ function FeishuSection({ config, onChange }: FeishuSectionProps) {
             className="w-40 px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] focus:outline-none focus:border-[var(--accent)] tabular-nums"
           />
           <p className="text-xs text-[var(--text-faint)]">
-            Debounce window to coalesce rapid messages (0 = off)
+            消息合并窗口时间，0 表示关闭
           </p>
         </div>
         <div className="py-1">
           <ToggleRow
-            label="Require mention in groups"
-            description="Only respond when @mentioned in group chats"
+            label="群组中需要被@提及"
+            description="在群聊中仅响应@提及的消息"
             checked={config.require_mention_in_groups}
             onChange={(v) => set('require_mention_in_groups', v)}
           />
@@ -231,9 +231,9 @@ export function ChannelsPage() {
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] bg-[var(--surface)] shrink-0">
         <div>
-          <h1 className="text-base font-semibold text-[var(--text)]">Channels</h1>
+          <h1 className="text-base font-semibold text-[var(--text)]">渠道</h1>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
-            Configure chat platform integrations
+            配置聊天平台集成
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -241,7 +241,7 @@ export function ChannelsPage() {
             <span className="text-xs text-[var(--danger)]">{error}</span>
           )}
           {saved && (
-            <span className="text-xs text-[var(--success)]">Saved</span>
+            <span className="text-xs text-[var(--success)]">已保存</span>
           )}
           <button
             onClick={handleSave}
@@ -249,7 +249,7 @@ export function ChannelsPage() {
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-50"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            Save
+            保存
           </button>
         </div>
       </div>
@@ -258,35 +258,35 @@ export function ChannelsPage() {
       <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-6">
         {loading ? (
           <div className="flex items-center justify-center h-40 text-sm text-[var(--text-faint)]">
-            <Loader2 size={16} className="animate-spin mr-2" /> Loading channels...
+            <Loader2 size={16} className="animate-spin mr-2" /> 正在加载渠道…
           </div>
         ) : !config ? (
           <div className="flex flex-col items-center justify-center h-40 gap-2 text-sm text-[var(--text-faint)]">
             <Radio size={24} />
-            <span>Runtime not running — start MiQi first</span>
+            <span>MiQi 运行时未启动</span>
           </div>
         ) : (
           <>
             {/* Global switches */}
             <div className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl px-5 divide-y divide-[var(--border-subtle)]">
               <div className="py-2 text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">
-                Global Behavior
+                全局行为
               </div>
               <ToggleRow
-                label="Stream progress"
-                description="Send agent's text progress to the channel as it runs"
+                label="流式进度"
+                description="将 Agent 的文本进度实时发送到渠道"
                 checked={config.send_progress}
                 onChange={(v) => setConfig({ ...config, send_progress: v })}
               />
               <ToggleRow
-                label="Send tool hints"
-                description="Stream tool-call hints to the channel (e.g. read_file(...))"
+                label="发送工具提示"
+                description="将工具调用信息流式发送到渠道（如 read_file(...)）"
                 checked={config.send_tool_hints}
                 onChange={(v) => setConfig({ ...config, send_tool_hints: v })}
               />
               <ToggleRow
-                label="Queue notifications"
-                description="Notify users about their position in the task queue"
+                label="队列通知"
+                description="向用户通知其在任务队列中的位置"
                 checked={config.send_queue_notifications}
                 onChange={(v) => setConfig({ ...config, send_queue_notifications: v })}
               />
