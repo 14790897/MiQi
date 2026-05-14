@@ -975,6 +975,8 @@ def handle_memory_lessons(req_id: str, params: dict) -> None:
         min_lesson_confidence=config.agents.self_improvement.min_lesson_confidence,
         max_lessons_in_prompt=config.agents.self_improvement.max_lessons_in_prompt,
         lesson_confidence_decay_hours=config.agents.self_improvement.lesson_confidence_decay_hours,
+        lesson_stale_days=config.agents.self_improvement.lesson_stale_days,
+        lesson_archive_days=config.agents.self_improvement.lesson_archive_days,
         feedback_max_message_chars=config.agents.self_improvement.feedback_max_message_chars,
         feedback_require_prefix=config.agents.self_improvement.feedback_require_prefix,
         promotion_enabled=config.agents.self_improvement.promotion_enabled,
@@ -994,12 +996,43 @@ def handle_memory_lessons(req_id: str, params: dict) -> None:
             "confidence": lesson.get("confidence", 0),
             "effectiveConfidence": lesson.get("effective_confidence", 0),
             "hits": lesson.get("hits", 0),
+            "state": str(lesson.get("state", "active")),
             "enabled": lesson.get("enabled", True),
             "source": str(lesson.get("source", "")),
             "createdAt": str(lesson.get("created_at", "")),
             "updatedAt": str(lesson.get("updated_at", "")),
         })
     _result(req_id, {"lessons": result})
+
+
+def handle_memory_lesson_unlearn(req_id: str, params: dict) -> None:
+    from miqi.agent.memory import MemoryStore
+
+    lesson_id = str(params.get("lesson_id", ""))
+    if not lesson_id:
+        _error(req_id, "lesson_id is required")
+        return
+
+    config = _state.load_config()
+    memory = MemoryStore(
+        workspace=config.workspace_path,
+        self_improvement_enabled=config.agents.self_improvement.enabled,
+        max_lessons=config.agents.self_improvement.max_lessons,
+        min_lesson_confidence=config.agents.self_improvement.min_lesson_confidence,
+        max_lessons_in_prompt=config.agents.self_improvement.max_lessons_in_prompt,
+        lesson_confidence_decay_hours=config.agents.self_improvement.lesson_confidence_decay_hours,
+        lesson_stale_days=config.agents.self_improvement.lesson_stale_days,
+        lesson_archive_days=config.agents.self_improvement.lesson_archive_days,
+        feedback_max_message_chars=config.agents.self_improvement.feedback_max_message_chars,
+        feedback_require_prefix=config.agents.self_improvement.feedback_require_prefix,
+        promotion_enabled=config.agents.self_improvement.promotion_enabled,
+        promotion_min_users=config.agents.self_improvement.promotion_min_users,
+        promotion_triggers=config.agents.self_improvement.promotion_triggers,
+    )
+    success = memory._lesson_store.unlearn_by_id(lesson_id)
+    if success:
+        memory.flush()
+    _result(req_id, {"unlearned": [lesson_id] if success else []})
 
 
 # ---------------------------------------------------------------------------
@@ -1349,6 +1382,7 @@ _METHODS = {
     "memory.update": handle_memory_update,
     "memory.delete": handle_memory_delete,
     "memory.lessons": handle_memory_lessons,
+    "memory.lesson.unlearn": handle_memory_lesson_unlearn,
     "skills.list": handle_skills_list,
     "skills.get": handle_skills_get,
     "skills.open_folder": handle_skills_open_folder,
