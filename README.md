@@ -572,6 +572,70 @@ This calls `miqi config mcp add` for every server with recommended timeouts and 
 
 ---
 
+## Desktop App (Electron)
+
+MiQi Desktop is a native desktop application built with Electron, providing a modern GUI interface for managing the MiQi AI agent.
+
+### Features
+
+- **Chat Interface** — Interactive chat session with the AI agent
+- **Provider Management** — Configure LLM providers and API keys
+- **Memory Management** — View and manage long-term memory snapshots and lessons
+- **Session Explorer** — Browse and compact conversation history
+- **Cron Scheduler** — Manage scheduled jobs
+- **Skill Management** — Configure and enable/disable agent skills
+- **Workspace Management** — File system operations
+- **Real-time Logs** — Monitor agent activity
+
+### Development
+
+**Prerequisites:**
+- Node.js 20+
+- npm or yarn
+
+**Installation:**
+
+```bash
+cd apps/desktop
+npm install
+```
+
+**Development Mode:**
+
+```bash
+# Start the Electron app with hot-reload
+npm run dev
+```
+
+**Build:**
+
+```bash
+# Build for production
+npm run build
+```
+
+**Type Checking:**
+
+```bash
+npm run typecheck
+```
+
+**Testing:**
+
+```bash
+npm run test
+```
+
+### Runtime Bridge
+
+The desktop app communicates with the MiQi Python runtime via a subprocess bridge. The `BridgeManager` handles:
+- Starting/stopping the MiQi gateway
+- IPC communication between Electron and Python
+- State synchronization
+- Log forwarding
+
+---
+
 ## License
 
 [MIT](LICENSE)
