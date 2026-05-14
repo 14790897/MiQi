@@ -216,6 +216,24 @@ class AgentLoop:
             )
             self.memory.set_curator(curator)
 
+        # Wire up skill curator (lifecycle management for workspace skills)
+        if self.self_improvement_config.curator_enabled:
+            from miqi.agent.memory.skill_curator import SkillCurator
+
+            async def _skill_curator_chat(**kwargs: Any) -> Any:
+                return await self.provider.chat(**kwargs)
+
+            self._skill_curator = SkillCurator(
+                workspace=workspace,
+                llm_call=_skill_curator_chat,
+                enabled=self.self_improvement_config.curator_enabled,
+                interval_days=self.self_improvement_config.curator_interval_days,
+                review_threshold=self.self_improvement_config.curator_threshold,
+                model=self.model,
+            )
+        else:
+            self._skill_curator = None
+
         self.context = ContextBuilder(
             workspace,
             memory_store=self.memory,
@@ -1147,6 +1165,13 @@ class AgentLoop:
         if self._skill_nudge_counter >= self._skill_nudge_interval:
             self._skill_nudge_counter = 0
             self._skill_nudge_pending = True
+
+        # Trigger skill curator lifecycle check (same cadence as lesson curator)
+        if self._skill_curator is not None and self._skill_curator.enabled:
+            try:
+                await self._skill_curator.maybe_run()
+            except Exception:
+                pass
 
         self._save_turn(session, all_msgs, 1 + len(history))
         # Persist the final assistant response — it is returned as final_content
