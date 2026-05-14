@@ -105,6 +105,7 @@ export function main(): void {
       }
     }
     const onLog = (msg: string) => {
+      console.log(`[main] Sending log to renderer: ${msg}`)
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('runtime:log', msg)
       }

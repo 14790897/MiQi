@@ -24,7 +24,6 @@ export function StatusBar() {
     setRestartError(null)
     try {
       await stop()
-      // Brief pause for the process to exit cleanly
       await new Promise((r) => setTimeout(r, 800))
       const result = await start()
       if (result.state === 'running') {
@@ -40,31 +39,41 @@ export function StatusBar() {
   }
 
   return (
-    <div className="flex items-center gap-3 h-8 px-4 border-t border-[var(--border-subtle)] bg-[var(--surface)] text-xs text-[var(--text-muted)] shrink-0">
+    <div
+      className="flex items-center gap-3 h-7 px-4 shrink-0 text-xs"
+      style={{
+        background: 'var(--topbar-bg)',
+        borderTop: '1px solid var(--topbar-border)',
+        color: 'rgba(255,255,255,0.4)',
+      }}
+    >
       <span className="flex items-center gap-1.5">
         <span
           className={cn(
-            'inline-block w-2 h-2 rounded-full',
+            'inline-block w-1.5 h-1.5 rounded-full',
             restartRequired && 'animate-pulse',
           )}
           style={{
             backgroundColor: restartRequired ? 'var(--warning)' : s.color,
           }}
         />
-        {restartRequired ? '需要重启' : s.label}
+        <span style={{ color: 'rgba(255,255,255,0.5)' }}>
+          {restartRequired ? '需要重启' : s.label}
+        </span>
       </span>
+
       {status.configured && !restartRequired && (
-        <span className="text-[var(--text-faint)]">已配置</span>
+        <span style={{ color: 'rgba(255,255,255,0.3)' }}>已配置</span>
       )}
 
-      {/* Restart prompt */}
       {restartRequired && (
-        <span className="flex items-center gap-2 text-[var(--warning)]">
+        <span className="flex items-center gap-2" style={{ color: '#f0c060' }}>
           配置已变更
           <button
             onClick={handleRestart}
             disabled={restarting}
-            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-[var(--warning)] text-white hover:brightness-110 transition-all disabled:opacity-60"
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition-all disabled:opacity-60"
+            style={{ background: 'var(--warning)', color: 'white' }}
           >
             {restarting ? (
               <Loader2 size={10} className="animate-spin" />
@@ -77,14 +86,12 @@ export function StatusBar() {
       )}
 
       {restartError && (
-        <span className="text-[var(--danger)]">{restartError}</span>
+        <span style={{ color: 'var(--danger)' }}>{restartError}</span>
       )}
 
-      {restartError && (
-        <span className="text-[var(--danger)]">{restartError}</span>
-      )}
-
-      <span className="ml-auto text-[var(--text-faint)]">MiQi Desktop</span>
+      <span className="ml-auto" style={{ color: 'rgba(255,255,255,0.2)' }}>
+        MiQi Desktop v0.8
+      </span>
     </div>
   )
 }

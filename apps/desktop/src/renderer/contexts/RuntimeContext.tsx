@@ -65,9 +65,10 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     if (!hasApi) return
     refreshStatus()
     const unsubState = window.miqi.runtime.onStateChange((s) => setStatus(s))
-    const unsubLog = window.miqi.runtime.onLog((msg) =>
-      setLogs((prev) => [...prev.slice(-499), msg]),
-    )
+    const unsubLog = window.miqi.runtime.onLog((msg) => {
+      console.log(`[renderer] Received log: ${msg}`)
+      setLogs((prev) => [...prev.slice(-499), msg])
+    })
     return () => {
       unsubState()
       unsubLog()

@@ -149,6 +149,7 @@ export class BridgeManager extends EventEmitter {
       this.process.stderr!.on('data', (data: Buffer) => {
         const text = data.toString().trim()
         if (text) {
+          console.log(`[MIQI BRIDGE STDERR] ${text}`)
           this.addLog(text)
         }
       })

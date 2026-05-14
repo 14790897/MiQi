@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { RuntimeProvider, useRuntime } from './contexts/RuntimeContext'
 import { TooltipProvider } from './components/ui/Tooltip'
 import { Sidebar } from './components/Sidebar'
+import { TopBar } from './components/TopBar'
 import { StatusBar } from './components/StatusBar'
 import { SetupWizard } from './features/setup/SetupWizard'
 import { ChatConsole } from './features/chat/ChatConsole'
@@ -35,13 +36,9 @@ function AppShell() {
   const [activeNav, setActiveNav] = useState<NavId>('chat')
   const [sessionKey, setSessionKey] = useState('desktop:default')
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0)
-  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null) // null = checking
+  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
 
-  // Check if setup is needed on mount
   useEffect(() => {
-    // Preload injection verification: window.miqi must be available.
-    // Logs to devtools console so operator can confirm the preload bridge
-    // is intact without expanding the API surface.
     if (PRELOAD_OK) {
       const apiKeys = Object.keys(window.miqi).join(', ')
       console.log(`[MiQi] preload OK — exposed namespaces: ${apiKeys}`)
@@ -50,7 +47,7 @@ function AppShell() {
         '[MiQi] preload MISSING — window.miqi is undefined. ' +
           'Check that contextBridge.exposeInMainWorld executed.',
       )
-      setNeedsSetup(false) // not a setup issue — preload is broken
+      setNeedsSetup(false)
       return
     }
 
@@ -60,7 +57,6 @@ function AppShell() {
         const skipSetup = result.config_exists
         setNeedsSetup(!skipSetup)
         if (skipSetup) {
-          // Config already exists — auto-start bridge
           window.miqi.runtime.start().catch(() => {})
         }
       } catch {
@@ -70,10 +66,16 @@ function AppShell() {
     check()
   }, [])
 
-  // Handle setup completion
   const handleSetupComplete = () => {
     setNeedsSetup(false)
     setActiveNav('chat')
+  }
+
+  const handleNewSession = () => {
+    if (activeNav !== 'chat') setActiveNav('chat')
+    const newKey = `desktop:${Date.now()}`
+    setSessionKey(newKey)
+    setSessionRefreshKey((k) => k + 1)
   }
 
   // Loading state
@@ -85,7 +87,7 @@ function AppShell() {
           alignItems: 'center',
           justifyContent: 'center',
           height: '100vh',
-          background: '#f7f3ea',
+          background: '#1e1b18',
           fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
         }}
       >
@@ -99,49 +101,60 @@ function AppShell() {
         >
           <div
             style={{
-              width: '40px',
-              height: '40px',
+              width: '44px',
+              height: '44px',
               borderRadius: '10px',
-              background: '#c96442',
+              background: 'rgba(255,255,255,0.1)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: 'white',
-              fontSize: '18px',
+              fontSize: '20px',
               fontWeight: 700,
             }}
           >
             M
           </div>
-          <div style={{ fontSize: '13px', color: '#766b5f' }}>
-            正在加载 MiQi…
+          <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>
+            Loading MiQi…
           </div>
         </div>
       </div>
     )
   }
 
-  // Preload is entirely absent — show a visible error panel, not a white screen
+  // Preload missing
   if (!PRELOAD_OK) {
     return (
-      <div className="flex items-center justify-center h-screen bg-[var(--background)]">
+      <div
+        className="flex items-center justify-center h-screen"
+        style={{ background: 'var(--background)' }}
+      >
         <div className="flex flex-col items-center gap-4 max-w-sm text-center px-6">
-          <div className="w-12 h-12 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-            <span className="text-red-600 dark:text-red-400 text-xl font-bold">
+          <div
+            className="w-12 h-12 rounded-xl flex items-center justify-center"
+            style={{ background: 'var(--danger-bg)' }}
+          >
+            <span
+              className="text-xl font-bold"
+              style={{ color: 'var(--danger)' }}
+            >
               !
             </span>
           </div>
           <div>
-            <h2 className="text-base font-semibold text-[var(--text)] mb-1">
+            <h2
+              className="text-base font-semibold mb-1"
+              style={{ color: 'var(--text)' }}
+            >
               预加载桥接不可用
             </h2>
-            <p className="text-sm text-[var(--text-muted)]">
-              应用预加载脚本注入失败。
-              <br />
-              请重启应用。如问题持续，请检查预加载脚本路径或重新安装。
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              应用预加载脚本注入失败。 <br />
+              请重启应用。如问题持续，请检查预加载脚本路径或重新安装。{' '}
             </p>
           </div>
-          <div className="text-xs text-[var(--text-faint)]">
+          <div className="text-xs" style={{ color: 'var(--text-faint)' }}>
             按 Ctrl+Shift+I 打开 DevTools 查看错误。
           </div>
         </div>
@@ -163,7 +176,15 @@ function AppShell() {
     <TooltipProvider>
       <RestartRequiredProvider>
         <ApprovalProvider>
-          <div className="flex flex-col h-screen bg-[var(--background)]">
+          {/* Full-height flex column */}
+          <div
+            className="flex flex-col h-screen"
+            style={{ background: 'var(--background)' }}
+          >
+            {/* Dark top bar */}
+            <TopBar />
+
+            {/* Body row */}
             <div className="flex flex-1 overflow-hidden">
               <Sidebar
                 activeNav={activeNav}
@@ -174,10 +195,13 @@ function AppShell() {
                   setSessionRefreshKey((k) => k + 1)
                 }}
                 refreshKey={sessionRefreshKey}
+                onNewSession={handleNewSession}
               />
 
-              <main className="flex-1 flex flex-col overflow-hidden bg-[var(--background)]">
-                {/* ChatConsole is always mounted to preserve message state across navigation */}
+              <main
+                className="flex-1 flex flex-col overflow-hidden"
+                style={{ background: 'var(--background)' }}
+              >
                 <div
                   className={
                     activeNav === 'chat'
