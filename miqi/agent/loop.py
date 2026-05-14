@@ -10,7 +10,7 @@ from collections import deque
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from loguru import logger
 
@@ -21,6 +21,7 @@ from miqi.agent.memory import MemoryStore
 from miqi.agent.smart_routing import SmartModelRouter
 from miqi.agent.subagent import SubagentManager
 from miqi.agent.tools.cron import CronTool
+from miqi.agent.tools.memory import MemoryTool
 from miqi.agent.tools.filesystem import (
     EditFileTool,
     ListDirTool,
@@ -183,12 +184,36 @@ class AgentLoop:
             min_lesson_confidence=self.self_improvement_config.min_lesson_confidence,
             max_lessons=self.self_improvement_config.max_lessons,
             lesson_confidence_decay_hours=self.self_improvement_config.lesson_confidence_decay_hours,
+            lesson_stale_days=self.self_improvement_config.lesson_stale_days,
+            lesson_archive_days=self.self_improvement_config.lesson_archive_days,
             feedback_max_message_chars=self.self_improvement_config.feedback_max_message_chars,
             feedback_require_prefix=self.self_improvement_config.feedback_require_prefix,
             promotion_enabled=self.self_improvement_config.promotion_enabled,
             promotion_min_users=self.self_improvement_config.promotion_min_users,
             promotion_triggers=self.self_improvement_config.promotion_triggers,
+            curator_enabled=self.self_improvement_config.curator_enabled,
+            curator_interval_days=self.self_improvement_config.curator_interval_days,
+            curator_threshold=self.self_improvement_config.curator_threshold,
         )
+
+        # Wire up lesson curator (direct LLM call, bypasses context builder)
+        if self.self_improvement_config.curator_enabled:
+            from miqi.agent.memory.curator import LessonCurator
+
+            async def _curator_chat(**kwargs: Any) -> Any:
+                return await self.provider.chat(**kwargs)
+
+            curator = LessonCurator(
+                lesson_store=self.memory._lesson_store,
+                llm_call=_curator_chat,
+                workspace=workspace,
+                enabled=self.self_improvement_config.curator_enabled,
+                interval_days=self.self_improvement_config.curator_interval_days,
+                threshold=self.self_improvement_config.curator_threshold,
+                model=self.model,
+            )
+            self.memory.set_curator(curator)
+
         self.context = ContextBuilder(
             workspace,
             memory_store=self.memory,
@@ -312,6 +337,7 @@ class AgentLoop:
                 timeout_seconds=self.paper_config.timeout_seconds,
             )
         )
+        self.tools.register(MemoryTool(workspace=self.workspace))
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
@@ -983,7 +1009,21 @@ class AgentLoop:
                                   content="New session started.")
         if cmd == "/help":
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="Assistant commands:\n/new - Start a new conversation\n/help - Show available commands")
+                                  content="Assistant commands:\n/new - Start a new conversation\n/unlearn <keyword> - Archive lessons matching keyword\n/help - Show available commands")
+        if cmd.startswith("/unlearn "):
+            keyword = msg.content.strip()[len("/unlearn "):].strip()
+            if not keyword:
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                      content="Usage: /unlearn <keyword>")
+            archived = self.memory._lesson_store.unlearn_by_keyword(keyword)
+            if not archived:
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                      content=f"No active lessons matched '{keyword}'.")
+            self.memory._lesson_store.flush()
+            return OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id,
+                content=f"Archived {len(archived)} lesson(s) matching '{keyword}'.",
+            )
 
         unconsolidated = len(session.messages) - session.last_consolidated
         if (unconsolidated >= self.memory_window and session.key not in self._consolidating):
@@ -1047,6 +1087,8 @@ class AgentLoop:
                 initial_messages, on_progress=on_progress or _bus_progress,
                 session_key=key,
             )
+            if final_content:
+                final_content = MemoryStore.strip_memory_fence(final_content)
         finally:
             for _gw in self._mcp_gateways:
                 _gw.deactivate()
