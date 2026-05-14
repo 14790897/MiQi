@@ -4,15 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Sidebar redesign**: Added TopBar component and session status filters to sidebar; introduced tracked file parsing and preview panel in chat console; refactored styling to use inline CSS variables over Tailwind arbitrary values; added debug logging for bridge stderr and runtime log flow (`apps/desktop/src/renderer/components/Sidebar.tsx`, `apps/desktop/src/renderer/features/chat/ChatConsole.tsx`).
+- **Bundled bridge executable support**: Added support for packaging `miqi-bridge.exe` with Electron app, enabling standalone desktop deployment without requiring Python installation (`apps/desktop/src/main/bridge.ts`, `apps/desktop/electron-builder.yml`).
+- **Global right-click context menu**: Added to chat, sessions, workspace, and memory pages (`apps/desktop/src/renderer/components/ContextMenu.tsx`, `apps/desktop/src/main/index.ts`).
+
 ### Changed
-- Integrated session list into left sidebar: moved session browsing from separate "会话" page to the sidebar navigation area. Sidebar now shows session titles with timestamps below the main navigation menu, allowing users to scroll through all conversations and switch between sessions without leaving the chat view (`apps/desktop/src/renderer/components/Sidebar.tsx`).
-- Removed standalone "会话" navigation item: since sessions are now accessible directly in the sidebar, the dedicated session page entry has been removed from the navigation menu (`apps/desktop/src/renderer/components/Sidebar.tsx`, `apps/desktop/src/renderer/App.tsx`).
-- Sidebar width increased from 220px to 280px to accommodate the integrated session list.
-- Added `refreshKey` prop to Sidebar component for automatic session list refresh when new sessions are created or messages are sent (`apps/desktop/src/renderer/components/Sidebar.tsx`, `apps/desktop/src/renderer/App.tsx`).
+- Updated README: Rewrote for MiQi Desktop with English content and added Chinese translation (`README.md`, `README_zh.md`).
+- Adjusted code formatting: Set printWidth to 80 and reformatted code (`apps/desktop/.prettierrc`).
 
 ### Fixed
-- Fixed Electron desktop Markdown not rendering in chat: replaced hand-rolled text parser with `react-markdown` + `remark-gfm`, supporting headers, lists, tables, blockquotes, links, inline code, and fenced code blocks with copy button (`apps/desktop/src/renderer/features/chat/ChatConsole.tsx`).
-- Fixed SiliconFlow provider using wrong API key env var (`OPENAI_API_KEY` → `SILICONFLOW_API_KEY`) and wrong model prefix (`"openai"` → `""`) that prepended `"openai/"` to every SiliconFlow model name (`miqi/providers/registry.py`).
+- Fixed file operation tool hint truncation: Skip truncation for file operation tool hints to preserve full file paths (`miqi/agent/loop.py`).
+- Fixed chat input alignment: Adjusted chat input alignment and line height for better visual appearance (`apps/desktop/src/renderer/features/chat/ChatInput.tsx`).
+- Fixed IPC bridge startup: Ensured bridge is started before IPC calls and improved accessibility (`apps/desktop/src/renderer/contexts/RuntimeContext.tsx`).
+
+### Documentation
+- Added documentation for MiQi Desktop app features and development setup (`README.md`).
+
+
 
 ### Added
 - Added **Agent 配置** step (step 4) to Setup Wizard: lets first-time users set Agent name, workspace directory (with Browse button), and optional Brave Search API key before finalising setup (`apps/desktop/src/renderer/features/setup/SetupWizard.tsx`).
