@@ -20,16 +20,32 @@ interface BridgeResponse {
   data?: unknown
 }
 
-function findPython(projectRoot: string): { command: string; args: string[] } {
-  // If user set MIQI_PYTHON_PATH, use it directly
+function findBridgeExecutable(projectRoot: string): {
+  command: string
+  args: string[]
+} {
+  // If user set MIQI_PYTHON_PATH, use it directly with the script
   const envPath = process.env['MIQI_PYTHON_PATH']
-  if (envPath) return { command: envPath, args: [] }
+  if (envPath) {
+    const bridgeScript = join(projectRoot, 'miqi', 'bridge', 'server.py')
+    return { command: envPath, args: [bridgeScript] }
+  }
+
+  // Check for bundled miqi-bridge executable (packaged app)
+  const bundledBridge = join(__dirname, '..', 'miqi-bridge.exe')
+  if (existsSync(bundledBridge)) {
+    return { command: bundledBridge, args: [] }
+  }
 
   // If project has uv.lock, use uv run python
-  if (existsSync(join(projectRoot, 'uv.lock')) || existsSync(join(projectRoot, 'pyproject.toml'))) {
+  if (
+    existsSync(join(projectRoot, 'uv.lock')) ||
+    existsSync(join(projectRoot, 'pyproject.toml'))
+  ) {
     try {
       execSync('uv --version', { stdio: 'ignore' })
-      return { command: 'uv', args: ['run', 'python'] }
+      const bridgeScript = join(projectRoot, 'miqi', 'bridge', 'server.py')
+      return { command: 'uv', args: ['run', 'python', bridgeScript] }
     } catch {
       // uv not available, fall through
     }
@@ -37,20 +53,27 @@ function findPython(projectRoot: string): { command: string; args: string[] } {
 
   // Try .venv
   const venvPython = join(projectRoot, '.venv', 'Scripts', 'python.exe')
-  if (existsSync(venvPython)) return { command: venvPython, args: [] }
+  if (existsSync(venvPython)) {
+    const bridgeScript = join(projectRoot, 'miqi', 'bridge', 'server.py')
+    return { command: venvPython, args: [bridgeScript] }
+  }
 
   // Fallback
-  return { command: 'python3', args: [] }
+  const bridgeScript = join(projectRoot, 'miqi', 'bridge', 'server.py')
+  return { command: 'python3', args: [bridgeScript] }
 }
 
 export class BridgeManager extends EventEmitter {
   private process: ChildProcess | null = null
   private rl: Interface | null = null
-  private pending: Map<string, {
-    resolve: (value: unknown) => void
-    reject: (reason: Error) => void
-    onEvent?: (type: string, data: unknown) => void
-  }> = new Map()
+  private pending: Map<
+    string,
+    {
+      resolve: (value: unknown) => void
+      reject: (reason: Error) => void
+      onEvent?: (type: string, data: unknown) => void
+    }
+  > = new Map()
 
   private state: RuntimeState = 'stopped'
   private logs: string[] = []
@@ -67,7 +90,10 @@ export class BridgeManager extends EventEmitter {
     return {
       state: this.state,
       configured: this.state === 'running',
-      error: this.state === 'error' ? 'Bridge process exited unexpectedly' : undefined,
+      error:
+        this.state === 'error'
+          ? 'Bridge process exited unexpectedly'
+          : undefined,
     }
   }
 
@@ -85,21 +111,22 @@ export class BridgeManager extends EventEmitter {
     this.state = 'starting'
     this.emitState()
 
-    const bridgeScript = join(this.projectRoot, 'miqi', 'bridge', 'server.py')
-    const { command, args } = findPython(this.projectRoot)
+    const { command, args } = findBridgeExecutable(this.projectRoot)
 
-    this.addLog(`Starting MiQi bridge: ${command} ${args.join(' ')} "${bridgeScript}"`)
+    this.addLog(`Starting MiQi bridge: ${command} ${args.join(' ')}`)
     this.addLog(`Working directory: ${this.projectRoot}`)
 
     try {
-      const spawnArgs = [...args, bridgeScript]
-      this.process = spawn(command, spawnArgs, {
+      this.process = spawn(command, args, {
         cwd: this.projectRoot,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' },
       })
 
-      this.rl = createInterface({ input: this.process.stdout!, crlfDelay: Infinity })
+      this.rl = createInterface({
+        input: this.process.stdout!,
+        crlfDelay: Infinity,
+      })
 
       this.rl.on('line', (line: string) => {
         try {
@@ -149,8 +176,15 @@ export class BridgeManager extends EventEmitter {
       // Wait briefly and check if process is still alive
       await new Promise<void>((resolve, reject) => {
         setTimeout(() => {
-          if (this.process?.exitCode !== null && this.process?.exitCode !== undefined) {
-            reject(new Error(`Bridge process exited immediately with code ${this.process.exitCode}`))
+          if (
+            this.process?.exitCode !== null &&
+            this.process?.exitCode !== undefined
+          ) {
+            reject(
+              new Error(
+                `Bridge process exited immediately with code ${this.process.exitCode}`,
+              ),
+            )
           } else {
             this.state = 'running'
             this.emitState()
@@ -189,7 +223,11 @@ export class BridgeManager extends EventEmitter {
     return this.process !== null && this.state === 'running'
   }
 
-  async sendSafe(method: string, params?: Record<string, unknown>, onEvent?: (type: string, data: unknown) => void): Promise<unknown> {
+  async sendSafe(
+    method: string,
+    params?: Record<string, unknown>,
+    onEvent?: (type: string, data: unknown) => void,
+  ): Promise<unknown> {
     if (!this.isRunning()) return null
     try {
       return await this.send(method, params, onEvent)
@@ -198,7 +236,11 @@ export class BridgeManager extends EventEmitter {
     }
   }
 
-  async send(method: string, params?: Record<string, unknown>, onEvent?: (type: string, data: unknown) => void): Promise<unknown> {
+  async send(
+    method: string,
+    params?: Record<string, unknown>,
+    onEvent?: (type: string, data: unknown) => void,
+  ): Promise<unknown> {
     if (!this.isRunning()) {
       throw new Error('Bridge not running')
     }
@@ -209,10 +251,13 @@ export class BridgeManager extends EventEmitter {
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject, onEvent })
 
-      const timeout = setTimeout(() => {
-        this.pending.delete(id)
-        reject(new Error(`Request ${method} timed out`))
-      }, method === 'chat.send' ? 300_000 : 30_000) // 5 min for chat, 30s for others
+      const timeout = setTimeout(
+        () => {
+          this.pending.delete(id)
+          reject(new Error(`Request ${method} timed out`))
+        },
+        method === 'chat.send' ? 300_000 : 30_000,
+      ) // 5 min for chat, 30s for others
 
       const origResolve = resolve
       const origReject = reject

@@ -3,7 +3,7 @@ import { electron } from '../shared/electron'
 import { registerIpcHandlers } from './ipc'
 import { BridgeManager } from './bridge'
 
-const { app, BrowserWindow, shell } = electron
+const { app, BrowserWindow, shell, Menu } = electron
 
 let mainWindow: typeof BrowserWindow.prototype | null = null
 let bridgeManager: BridgeManager | null = null
@@ -52,22 +52,38 @@ function createWindow(): void {
     )
   })
 
-  mainWindow.webContents.on('console-message', (_event: unknown, ...args: unknown[]) => {
-    // Support both old API (level, message, ...) and new API (event params object)
-    const first = args[0]
-    let level = 0
-    let message = ''
-    if (typeof first === 'object' && first !== null && 'level' in first) {
-      const params = first as { level: number; message: string }
-      level = params.level
-      message = params.message
-    } else {
-      level = (first as number) ?? 0
-      message = (args[1] as string) ?? ''
-    }
-    if (level >= 3) {
-      console.error(`[renderer] ${message}`)
-    }
+  mainWindow.webContents.on(
+    'console-message',
+    (_event: unknown, ...args: unknown[]) => {
+      // Support both old API (level, message, ...) and new API (event params object)
+      const first = args[0]
+      let level = 0
+      let message = ''
+      if (typeof first === 'object' && first !== null && 'level' in first) {
+        const params = first as { level: number; message: string }
+        level = params.level
+        message = params.message
+      } else {
+        level = (first as number) ?? 0
+        message = (args[1] as string) ?? ''
+      }
+      if (level >= 3) {
+        console.error(`[renderer] ${message}`)
+      }
+    },
+  )
+
+  // 添加右键菜单，支持打开开发者工具
+  mainWindow.webContents.on('context-menu', (_event, props) => {
+    const { x, y } = props
+    Menu.buildFromTemplate([
+      {
+        label: '开发者工具',
+        click: () => {
+          mainWindow?.webContents.openDevTools()
+        },
+      },
+    ]).popup({ window: mainWindow, x, y })
   })
 
   if (process.env['ELECTRON_RENDERER_URL']) {

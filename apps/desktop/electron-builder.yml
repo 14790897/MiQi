@@ -1,0 +1,25 @@
+appId: com.miqi.desktop
+productName: MiQi Desktop
+directories:
+  output: ../../dist-new
+files:
+  - out/**/*
+  - node_modules/**/*
+  - package.json
+extraResources:
+  - from: ../../dist/miqi-bridge.exe
+    to: miqi-bridge.exe
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+    - target: nsis
+      arch:
+        - x64
+  icon: src/renderer/assets/icon.ico
+nsis:
+  perMachine: true
+  oneClick: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
