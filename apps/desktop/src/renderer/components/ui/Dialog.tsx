@@ -8,7 +8,9 @@ export const DialogTrigger = DialogPrimitive.Trigger
 
 export const DialogContent = forwardRef<
   HTMLDivElement,
-  ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { hideClose?: boolean }
+  ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+    hideClose?: boolean
+  }
 >(({ className, children, hideClose, ...props }, ref) => (
   <DialogPrimitive.Portal>
     <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
@@ -31,18 +33,27 @@ export const DialogContent = forwardRef<
 ))
 DialogContent.displayName = 'DialogContent'
 
-export const DialogHeader = ({ className, ...props }: ComponentPropsWithoutRef<'div'>) => (
+export const DialogHeader = ({
+  className,
+  ...props
+}: ComponentPropsWithoutRef<'div'>) => (
   <div className={cn('mb-4', className)} {...props} />
 )
 
-export const DialogTitle = ({ className, ...props }: ComponentPropsWithoutRef<'h2'>) => (
+export const DialogTitle = ({
+  className,
+  ...props
+}: ComponentPropsWithoutRef<'h2'>) => (
   <DialogPrimitive.Title
     className={cn('text-lg font-semibold text-[var(--text)]', className)}
     {...props}
   />
 )
 
-export const DialogDescription = ({ className, ...props }: ComponentPropsWithoutRef<'p'>) => (
+export const DialogDescription = ({
+  className,
+  ...props
+}: ComponentPropsWithoutRef<'p'>) => (
   <DialogPrimitive.Description
     className={cn('text-sm text-[var(--text-muted)]', className)}
     {...props}

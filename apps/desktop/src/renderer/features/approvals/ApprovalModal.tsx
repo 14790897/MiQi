@@ -16,7 +16,10 @@ export function ApprovalModal() {
         {/* Header */}
         <div className="flex items-center gap-2 px-5 py-3 bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] border-b border-[var(--danger)]">
           <Shield size={16} className="text-[var(--danger)] shrink-0" />
-          <span id="approval-title" className="text-sm font-semibold text-[var(--danger)]">
+          <span
+            id="approval-title"
+            className="text-sm font-semibold text-[var(--danger)]"
+          >
             危险命令审批
           </span>
           <span className="ml-2 text-xs text-[var(--text-muted)] font-normal">
@@ -34,7 +37,10 @@ export function ApprovalModal() {
         {/* Command */}
         <div className="px-5 py-3">
           <div className="flex items-start gap-2">
-            <Terminal size={13} className="text-[var(--text-faint)] mt-1 shrink-0" />
+            <Terminal
+              size={13}
+              className="text-[var(--text-faint)] mt-1 shrink-0"
+            />
             <pre className="text-xs font-mono text-[var(--text)] bg-[var(--surface-muted)] rounded-lg px-3 py-2 flex-1 overflow-x-auto whitespace-pre-wrap break-all">
               {pending.command}
             </pre>

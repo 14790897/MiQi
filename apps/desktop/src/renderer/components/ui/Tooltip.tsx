@@ -4,7 +4,11 @@ import { type ComponentPropsWithoutRef, forwardRef } from 'react'
 
 export const TooltipProvider = TooltipPrimitive.Provider
 
-export const Tooltip = ({ children, content, side = 'top' }: {
+export const Tooltip = ({
+  children,
+  content,
+  side = 'top',
+}: {
   children: React.ReactNode
   content: string
   side?: 'top' | 'bottom' | 'left' | 'right'

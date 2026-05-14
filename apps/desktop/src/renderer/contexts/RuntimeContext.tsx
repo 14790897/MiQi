@@ -1,4 +1,11 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  type ReactNode,
+} from 'react'
 import type { RuntimeState, RuntimeStatus } from '../../shared/ipc'
 
 const hasApi = typeof window !== 'undefined' && !!(window as any).miqi?.runtime
@@ -58,12 +65,19 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     if (!hasApi) return
     refreshStatus()
     const unsubState = window.miqi.runtime.onStateChange((s) => setStatus(s))
-    const unsubLog = window.miqi.runtime.onLog((msg) => setLogs((prev) => [...prev.slice(-499), msg]))
-    return () => { unsubState(); unsubLog() }
+    const unsubLog = window.miqi.runtime.onLog((msg) =>
+      setLogs((prev) => [...prev.slice(-499), msg]),
+    )
+    return () => {
+      unsubState()
+      unsubLog()
+    }
   }, [refreshStatus])
 
   return (
-    <RuntimeContext.Provider value={{ status, logs, start, stop, refreshStatus, refreshLogs }}>
+    <RuntimeContext.Provider
+      value={{ status, logs, start, stop, refreshStatus, refreshLogs }}
+    >
       {children}
     </RuntimeContext.Provider>
   )

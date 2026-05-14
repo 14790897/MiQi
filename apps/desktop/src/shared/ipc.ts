@@ -118,7 +118,12 @@ export const ProviderUpdateInput = z.object({
 // Runtime state
 // ---------------------------------------------------------------------------
 
-export type RuntimeState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error'
+export type RuntimeState =
+  | 'stopped'
+  | 'starting'
+  | 'running'
+  | 'stopping'
+  | 'error'
 
 export interface RuntimeStatus {
   state: RuntimeState

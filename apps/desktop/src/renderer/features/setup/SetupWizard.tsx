@@ -21,7 +21,14 @@ import type { PythonCheckResult } from '../../../shared/ipc'
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-type Step = 'welcome' | 'environment' | 'provider' | 'webtools' | 'papers' | 'agent' | 'finish'
+type Step =
+  | 'welcome'
+  | 'environment'
+  | 'provider'
+  | 'webtools'
+  | 'papers'
+  | 'agent'
+  | 'finish'
 type SearchMode = 'brave' | 'ollama' | 'hybrid'
 type FetchMode = 'builtin' | 'ollama' | 'hybrid'
 type PapersMode = 'hybrid' | 'semantic_scholar' | 'arxiv'
@@ -37,27 +44,140 @@ interface StaticProvider {
 }
 
 const STATIC_PROVIDERS: StaticProvider[] = [
-  { name: 'openrouter', displayName: 'OpenRouter（推荐网关）', defaultModel: 'anthropic/claude-opus-4-5', isLocal: false, isOllamaCloud: false, keyRequired: true },
-  { name: 'anthropic', displayName: 'Anthropic', defaultModel: 'claude-opus-4-5', isLocal: false, isOllamaCloud: false, keyRequired: true },
-  { name: 'openai', displayName: 'OpenAI', defaultModel: 'gpt-4.1', isLocal: false, isOllamaCloud: false, keyRequired: true },
-  { name: 'deepseek', displayName: 'DeepSeek', defaultModel: 'deepseek-chat', isLocal: false, isOllamaCloud: false, keyRequired: true },
-  { name: 'gemini', displayName: 'Google Gemini', defaultModel: 'gemini-2.5-pro', isLocal: false, isOllamaCloud: false, keyRequired: true },
-  { name: 'moonshot', displayName: 'Moonshot (Kimi)', defaultModel: 'kimi-k2.5', isLocal: false, isOllamaCloud: false, keyRequired: true },
-  { name: 'dashscope', displayName: 'DashScope (通义千问)', defaultModel: 'qwen-max', isLocal: false, isOllamaCloud: false, keyRequired: true },
-  { name: 'zhipu', displayName: 'Zhipu AI (智谱)', defaultModel: 'glm-4', isLocal: false, isOllamaCloud: false, keyRequired: true },
-  { name: 'minimax', displayName: 'MiniMax', defaultModel: 'MiniMax-M2.7', isLocal: false, isOllamaCloud: false, keyRequired: true },
-  { name: 'aihubmix', displayName: 'AiHubMix', defaultModel: 'claude-opus-4.1', isLocal: false, isOllamaCloud: false, keyRequired: true },
-  { name: 'siliconflow', displayName: 'SiliconFlow (硅基流动)', defaultModel: 'deepseek-ai/DeepSeek-V3', isLocal: false, isOllamaCloud: false, keyRequired: true },
-  { name: 'vllm', displayName: 'vLLM / 本地 OpenAI 兼容', defaultModel: 'meta-llama/Llama-3.1-8B-Instruct', isLocal: true, isOllamaCloud: false, defaultApiBase: 'http://localhost:8000/v1', keyRequired: false },
-  { name: 'ollama_local', displayName: 'Ollama（本地）', defaultModel: 'llama3.2', isLocal: true, isOllamaCloud: false, defaultApiBase: 'http://localhost:11434', keyRequired: false },
-  { name: 'ollama_cloud', displayName: 'Ollama Cloud', defaultModel: 'gpt-oss:20b-cloud', isLocal: false, isOllamaCloud: true, defaultApiBase: 'https://ollama.com', keyRequired: true },
+  {
+    name: 'openrouter',
+    displayName: 'OpenRouter（推荐网关）',
+    defaultModel: 'anthropic/claude-opus-4-5',
+    isLocal: false,
+    isOllamaCloud: false,
+    keyRequired: true,
+  },
+  {
+    name: 'anthropic',
+    displayName: 'Anthropic',
+    defaultModel: 'claude-opus-4-5',
+    isLocal: false,
+    isOllamaCloud: false,
+    keyRequired: true,
+  },
+  {
+    name: 'openai',
+    displayName: 'OpenAI',
+    defaultModel: 'gpt-4.1',
+    isLocal: false,
+    isOllamaCloud: false,
+    keyRequired: true,
+  },
+  {
+    name: 'deepseek',
+    displayName: 'DeepSeek',
+    defaultModel: 'deepseek-chat',
+    isLocal: false,
+    isOllamaCloud: false,
+    keyRequired: true,
+  },
+  {
+    name: 'gemini',
+    displayName: 'Google Gemini',
+    defaultModel: 'gemini-2.5-pro',
+    isLocal: false,
+    isOllamaCloud: false,
+    keyRequired: true,
+  },
+  {
+    name: 'moonshot',
+    displayName: 'Moonshot (Kimi)',
+    defaultModel: 'kimi-k2.5',
+    isLocal: false,
+    isOllamaCloud: false,
+    keyRequired: true,
+  },
+  {
+    name: 'dashscope',
+    displayName: 'DashScope (通义千问)',
+    defaultModel: 'qwen-max',
+    isLocal: false,
+    isOllamaCloud: false,
+    keyRequired: true,
+  },
+  {
+    name: 'zhipu',
+    displayName: 'Zhipu AI (智谱)',
+    defaultModel: 'glm-4',
+    isLocal: false,
+    isOllamaCloud: false,
+    keyRequired: true,
+  },
+  {
+    name: 'minimax',
+    displayName: 'MiniMax',
+    defaultModel: 'MiniMax-M2.7',
+    isLocal: false,
+    isOllamaCloud: false,
+    keyRequired: true,
+  },
+  {
+    name: 'aihubmix',
+    displayName: 'AiHubMix',
+    defaultModel: 'claude-opus-4.1',
+    isLocal: false,
+    isOllamaCloud: false,
+    keyRequired: true,
+  },
+  {
+    name: 'siliconflow',
+    displayName: 'SiliconFlow (硅基流动)',
+    defaultModel: 'deepseek-ai/DeepSeek-V3',
+    isLocal: false,
+    isOllamaCloud: false,
+    keyRequired: true,
+  },
+  {
+    name: 'vllm',
+    displayName: 'vLLM / 本地 OpenAI 兼容',
+    defaultModel: 'meta-llama/Llama-3.1-8B-Instruct',
+    isLocal: true,
+    isOllamaCloud: false,
+    defaultApiBase: 'http://localhost:8000/v1',
+    keyRequired: false,
+  },
+  {
+    name: 'ollama_local',
+    displayName: 'Ollama（本地）',
+    defaultModel: 'llama3.2',
+    isLocal: true,
+    isOllamaCloud: false,
+    defaultApiBase: 'http://localhost:11434',
+    keyRequired: false,
+  },
+  {
+    name: 'ollama_cloud',
+    displayName: 'Ollama Cloud',
+    defaultModel: 'gpt-oss:20b-cloud',
+    isLocal: false,
+    isOllamaCloud: true,
+    defaultApiBase: 'https://ollama.com',
+    keyRequired: true,
+  },
 ]
 
 const SOUL_PRESETS = [
   { key: 'balanced', label: 'Balanced（均衡）', desc: '友好、简洁、好奇' },
-  { key: 'concise', label: 'Concise Operator（精简）', desc: '直接、行动优先、低噪音' },
-  { key: 'mentor', label: 'Mentor Guide（导师）', desc: '耐心、结构化、解释权衡' },
-  { key: 'builder', label: 'Builder Partner（构建者）', desc: '务实、工程导向、快速交付' },
+  {
+    key: 'concise',
+    label: 'Concise Operator（精简）',
+    desc: '直接、行动优先、低噪音',
+  },
+  {
+    key: 'mentor',
+    label: 'Mentor Guide（导师）',
+    desc: '耐心、结构化、解释权衡',
+  },
+  {
+    key: 'builder',
+    label: 'Builder Partner（构建者）',
+    desc: '务实、工程导向、快速交付',
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -75,7 +195,9 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const [apiKey, setApiKey] = useState('')
   const [apiBase, setApiBase] = useState('')
   const [modelName, setModelName] = useState('')
-  const [testResult, setTestResult] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle')
+  const [testResult, setTestResult] = useState<
+    'idle' | 'testing' | 'ok' | 'error'
+  >('idle')
   const [testError, setTestError] = useState('')
 
   // ---- Web tools ----
@@ -104,7 +226,8 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const canContinueProvider = () => {
     if (!selectedProvider || !providerMeta) return false
     if (providerMeta.isLocal) return !!apiBase && testResult === 'ok'
-    if (providerMeta.isOllamaCloud) return !!apiBase && !!apiKey && testResult === 'ok'
+    if (providerMeta.isOllamaCloud)
+      return !!apiBase && !!apiKey && testResult === 'ok'
     return !!apiKey && testResult === 'ok'
   }
 
@@ -114,7 +237,12 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
       const result = await window.miqi.python.check()
       setPyCheck(result)
     } catch {
-      setPyCheck({ ok: false, python_version: 'unknown', issues: ['无法检测 Python 环境'], config_exists: false })
+      setPyCheck({
+        ok: false,
+        python_version: 'unknown',
+        issues: ['无法检测 Python 环境'],
+        config_exists: false,
+      })
     }
     setChecking(false)
   }
@@ -123,7 +251,11 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
     setTestResult('testing')
     setTestError('')
     try {
-      await window.miqi.providers.test(selectedProvider, apiKey, apiBase || undefined)
+      await window.miqi.providers.test(
+        selectedProvider,
+        apiKey,
+        apiBase || undefined,
+      )
       setTestResult('ok')
     } catch (e: any) {
       const msg: string = e?.message ?? String(e)
@@ -155,7 +287,11 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
       papers_provider: papersMode,
       semantic_scholar_api_key: s2ApiKey || null,
     })
-    try { await window.miqi.runtime.start() } catch { /* non-fatal */ }
+    try {
+      await window.miqi.runtime.start()
+    } catch {
+      /* non-fatal */
+    }
     onComplete()
   }
 
@@ -168,10 +304,12 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
       <div className="w-16 h-16 rounded-2xl bg-[var(--accent-soft)] flex items-center justify-center mb-2">
         <Zap size={32} className="text-[var(--accent)]" />
       </div>
-      <h1 className="text-2xl font-semibold text-[var(--text)]">欢迎使用 MiQi Desktop</h1>
+      <h1 className="text-2xl font-semibold text-[var(--text)]">
+        欢迎使用 MiQi Desktop
+      </h1>
       <p className="text-sm text-[var(--text-muted)] max-w-sm leading-relaxed">
-        MiQi Desktop 是本地 AI Agent 的桌面端伴侣。
-        让我们配置好 Provider 和工具，开始对话吧。
+        MiQi Desktop 是本地 AI Agent 的桌面端伴侣。 让我们配置好 Provider
+        和工具，开始对话吧。
       </p>
       <Button onClick={() => setStep('environment')} className="mt-4">
         开始配置 <ArrowRight size={16} />
@@ -182,18 +320,32 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const renderEnvironment = () => (
     <div className="flex flex-col gap-4">
       <h2 className="text-lg font-semibold text-[var(--text)]">环境检查</h2>
-      <p className="text-sm text-[var(--text-muted)]">检查 Python 和 MiQi 是否已安装。</p>
+      <p className="text-sm text-[var(--text-muted)]">
+        检查 Python 和 MiQi 是否已安装。
+      </p>
 
       {!pyCheck ? (
-        <Button onClick={runCheck} disabled={checking} variant="outline" className="self-start">
+        <Button
+          onClick={runCheck}
+          disabled={checking}
+          variant="outline"
+          className="self-start"
+        >
           {checking && <Loader2 size={14} className="animate-spin" />}
           运行检查
         </Button>
       ) : (
         <div className="flex flex-col gap-2 bg-[var(--surface-muted)] rounded-lg p-4 text-sm">
-          <CheckItem label="Python" ok={pyCheck.ok} detail={pyCheck.python_version} />
+          <CheckItem
+            label="Python"
+            ok={pyCheck.ok}
+            detail={pyCheck.python_version}
+          />
           {pyCheck.issues.map((issue, i) => (
-            <div key={i} className="flex items-center gap-2 text-[var(--danger)] text-xs">
+            <div
+              key={i}
+              className="flex items-center gap-2 text-[var(--danger)] text-xs"
+            >
               <X size={12} /> {issue}
             </div>
           ))}
@@ -206,7 +358,9 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
       )}
 
       <div className="flex gap-2 mt-4">
-        <Button variant="ghost" onClick={() => setStep('welcome')}><ArrowLeft size={16} /> 返回</Button>
+        <Button variant="ghost" onClick={() => setStep('welcome')}>
+          <ArrowLeft size={16} /> 返回
+        </Button>
         <Button onClick={() => setStep('provider')} disabled={!pyCheck?.ok}>
           继续 <ArrowRight size={16} />
         </Button>
@@ -221,12 +375,18 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
 
     return (
       <div className="flex flex-col gap-4">
-        <h2 className="text-lg font-semibold text-[var(--text)]">选择 LLM Provider</h2>
-        <p className="text-sm text-[var(--text-muted)]">选择 AI Provider 并输入凭据，之后可在设置中修改。</p>
+        <h2 className="text-lg font-semibold text-[var(--text)]">
+          选择 LLM Provider
+        </h2>
+        <p className="text-sm text-[var(--text-muted)]">
+          选择 AI Provider 并输入凭据，之后可在设置中修改。
+        </p>
 
         {/* Provider selector */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-[var(--text-muted)]">Provider</label>
+          <label className="text-xs font-medium text-[var(--text-muted)]">
+            Provider
+          </label>
           <select
             value={selectedProvider}
             onChange={(e) => {
@@ -242,14 +402,22 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
           >
             <option value="">请选择 Provider…</option>
             <optgroup label="云端 API">
-              {STATIC_PROVIDERS.filter((p) => !p.isLocal && !p.isOllamaCloud).map((p) => (
-                <option key={p.name} value={p.name}>{p.displayName}</option>
+              {STATIC_PROVIDERS.filter(
+                (p) => !p.isLocal && !p.isOllamaCloud,
+              ).map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.displayName}
+                </option>
               ))}
             </optgroup>
             <optgroup label="本地 / 自托管">
-              {STATIC_PROVIDERS.filter((p) => p.isLocal || p.isOllamaCloud).map((p) => (
-                <option key={p.name} value={p.name}>{p.displayName}</option>
-              ))}
+              {STATIC_PROVIDERS.filter((p) => p.isLocal || p.isOllamaCloud).map(
+                (p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.displayName}
+                  </option>
+                ),
+              )}
             </optgroup>
           </select>
         </div>
@@ -257,7 +425,9 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
         {/* API Base for local/cloud-ollama providers */}
         {needsApiBase && (
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[var(--text-muted)]">API Base URL</label>
+            <label className="text-xs font-medium text-[var(--text-muted)]">
+              API Base URL
+            </label>
             <Input
               value={apiBase}
               onChange={(e) => setApiBase(e.target.value)}
@@ -269,11 +439,16 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
         {/* API Key */}
         {!keyOptional && (
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[var(--text-muted)]">API Key</label>
+            <label className="text-xs font-medium text-[var(--text-muted)]">
+              API Key
+            </label>
             <Input
               type="password"
               value={apiKey}
-              onChange={(e) => { setApiKey(e.target.value); setTestResult('idle') }}
+              onChange={(e) => {
+                setApiKey(e.target.value)
+                setTestResult('idle')
+              }}
               placeholder="sk-..."
             />
           </div>
@@ -282,7 +457,9 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
         {/* Optional custom API base for non-local providers */}
         {!needsApiBase && (
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[var(--text-muted)]">API Base URL（可选，使用代理时填写）</label>
+            <label className="text-xs font-medium text-[var(--text-muted)]">
+              API Base URL（可选，使用代理时填写）
+            </label>
             <Input
               value={apiBase}
               onChange={(e) => setApiBase(e.target.value)}
@@ -293,7 +470,9 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
 
         {/* Model name */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-[var(--text-muted)]">默认模型</label>
+          <label className="text-xs font-medium text-[var(--text-muted)]">
+            默认模型
+          </label>
           <Input
             value={modelName}
             onChange={(e) => setModelName(e.target.value)}
@@ -304,8 +483,15 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
         {/* Test connection */}
         {selectedProvider && (keyOptional || apiKey) && (
           <div className="flex items-center gap-3">
-            <Button variant="outline" size="sm" onClick={testProvider} disabled={testResult === 'testing'}>
-              {testResult === 'testing' && <Loader2 size={14} className="animate-spin" />}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={testProvider}
+              disabled={testResult === 'testing'}
+            >
+              {testResult === 'testing' && (
+                <Loader2 size={14} className="animate-spin" />
+              )}
               测试连接
             </Button>
             {testResult === 'ok' && (
@@ -320,8 +506,13 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
         )}
 
         <div className="flex gap-2 mt-4">
-          <Button variant="ghost" onClick={() => setStep('environment')}><ArrowLeft size={16} /> 返回</Button>
-          <Button onClick={() => setStep('webtools')} disabled={!canContinueProvider()}>
+          <Button variant="ghost" onClick={() => setStep('environment')}>
+            <ArrowLeft size={16} /> 返回
+          </Button>
+          <Button
+            onClick={() => setStep('webtools')}
+            disabled={!canContinueProvider()}
+          >
             继续 <ArrowRight size={16} />
           </Button>
         </div>
@@ -331,7 +522,9 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
 
   const renderWebTools = () => (
     <div className="flex flex-col gap-5 overflow-y-auto max-h-[420px] pr-1">
-      <h2 className="text-lg font-semibold text-[var(--text)] shrink-0">Web 工具配置</h2>
+      <h2 className="text-lg font-semibold text-[var(--text)] shrink-0">
+        Web 工具配置
+      </h2>
 
       {/* ---- Web Search ---- */}
       <section className="flex flex-col gap-3">
@@ -342,13 +535,16 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
 
         <div className="flex gap-2">
           {(['brave', 'ollama', 'hybrid'] as SearchMode[]).map((v) => (
-            <button key={v} onClick={() => setSearchMode(v)}
+            <button
+              key={v}
+              onClick={() => setSearchMode(v)}
               className={cn(
                 'px-3 py-1.5 rounded-lg text-xs border capitalize transition-colors',
                 searchMode === v
                   ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
                   : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)] hover:border-[var(--accent)]',
-              )}>
+              )}
+            >
               {v === 'brave' ? 'Brave' : v === 'ollama' ? 'Ollama' : 'Hybrid'}
             </button>
           ))}
@@ -357,7 +553,8 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
         {(searchMode === 'brave' || searchMode === 'hybrid') && (
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-[var(--text-muted)]">
-              Brave Search API Key{searchMode === 'hybrid' ? '（优先使用 Brave）' : ''}
+              Brave Search API Key
+              {searchMode === 'hybrid' ? '（优先使用 Brave）' : ''}
             </label>
             <Input
               type="password"
@@ -369,7 +566,9 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
               免费申请：{' '}
               <button
                 className="text-[var(--accent)] underline"
-                onClick={() => window.open?.('https://brave.com/search/api/', '_blank')}
+                onClick={() =>
+                  window.open?.('https://brave.com/search/api/', '_blank')
+                }
               >
                 brave.com/search/api
               </button>
@@ -380,7 +579,9 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
         {(searchMode === 'ollama' || searchMode === 'hybrid') && (
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)]">Ollama web_search Base URL</label>
+              <label className="text-xs font-medium text-[var(--text-muted)]">
+                Ollama web_search Base URL
+              </label>
               <Input
                 value={searchOllamaBase}
                 onChange={(e) => setSearchOllamaBase(e.target.value)}
@@ -388,7 +589,9 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)]">Ollama web_search API Key</label>
+              <label className="text-xs font-medium text-[var(--text-muted)]">
+                Ollama web_search API Key
+              </label>
               <Input
                 type="password"
                 value={searchOllamaKey}
@@ -404,18 +607,23 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
       <section className="flex flex-col gap-3 pt-3 border-t border-[var(--border-subtle)]">
         <div className="flex items-center gap-2">
           <Globe size={14} className="text-[var(--accent)]" />
-          <h3 className="text-sm font-semibold text-[var(--text)]">Web Fetch</h3>
+          <h3 className="text-sm font-semibold text-[var(--text)]">
+            Web Fetch
+          </h3>
         </div>
 
         <div className="flex gap-2">
           {(['builtin', 'ollama', 'hybrid'] as FetchMode[]).map((v) => (
-            <button key={v} onClick={() => setFetchMode(v)}
+            <button
+              key={v}
+              onClick={() => setFetchMode(v)}
               className={cn(
                 'px-3 py-1.5 rounded-lg text-xs border transition-colors',
                 fetchMode === v
                   ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
                   : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)] hover:border-[var(--accent)]',
-              )}>
+              )}
+            >
               {v === 'builtin' ? '内置' : v === 'ollama' ? 'Ollama' : 'Hybrid'}
             </button>
           ))}
@@ -424,7 +632,9 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
         {(fetchMode === 'ollama' || fetchMode === 'hybrid') && (
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)]">Ollama web_fetch Base URL</label>
+              <label className="text-xs font-medium text-[var(--text-muted)]">
+                Ollama web_fetch Base URL
+              </label>
               <Input
                 value={fetchOllamaBase}
                 onChange={(e) => setFetchOllamaBase(e.target.value)}
@@ -432,7 +642,9 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)]">Ollama web_fetch API Key</label>
+              <label className="text-xs font-medium text-[var(--text-muted)]">
+                Ollama web_fetch API Key
+              </label>
               <Input
                 type="password"
                 value={fetchOllamaKey}
@@ -445,8 +657,12 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
       </section>
 
       <div className="flex gap-2 pt-2 shrink-0">
-        <Button variant="ghost" onClick={() => setStep('provider')}><ArrowLeft size={16} /> 返回</Button>
-        <Button onClick={() => setStep('papers')}>继续 <ArrowRight size={16} /></Button>
+        <Button variant="ghost" onClick={() => setStep('provider')}>
+          <ArrowLeft size={16} /> 返回
+        </Button>
+        <Button onClick={() => setStep('papers')}>
+          继续 <ArrowRight size={16} />
+        </Button>
       </div>
     </div>
   )
@@ -455,25 +671,36 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <BookOpen size={16} className="text-[var(--accent)]" />
-        <h2 className="text-lg font-semibold text-[var(--text)]">论文研究工具（可选）</h2>
+        <h2 className="text-lg font-semibold text-[var(--text)]">
+          论文研究工具（可选）
+        </h2>
       </div>
-      <p className="text-sm text-[var(--text-muted)]">用于 paper_search 工具，可跳过，稍后在设置中配置。</p>
+      <p className="text-sm text-[var(--text-muted)]">
+        用于 paper_search 工具，可跳过，稍后在设置中配置。
+      </p>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">数据源</label>
+        <label className="text-xs font-medium text-[var(--text-muted)]">
+          数据源
+        </label>
         <div className="flex gap-2">
-          {([
-            ['hybrid', 'Hybrid（推荐）'],
-            ['semantic_scholar', 'Semantic Scholar'],
-            ['arxiv', 'arXiv'],
-          ] as [PapersMode, string][]).map(([v, l]) => (
-            <button key={v} onClick={() => setPapersMode(v)}
+          {(
+            [
+              ['hybrid', 'Hybrid（推荐）'],
+              ['semantic_scholar', 'Semantic Scholar'],
+              ['arxiv', 'arXiv'],
+            ] as [PapersMode, string][]
+          ).map(([v, l]) => (
+            <button
+              key={v}
+              onClick={() => setPapersMode(v)}
               className={cn(
                 'px-3 py-1.5 rounded-lg text-xs border transition-colors',
                 papersMode === v
                   ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
                   : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)] hover:border-[var(--accent)]',
-              )}>
+              )}
+            >
               {l}
             </button>
           ))}
@@ -482,7 +709,9 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
 
       {(papersMode === 'hybrid' || papersMode === 'semantic_scholar') && (
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-[var(--text-muted)]">Semantic Scholar API Key（可选，建议填写）</label>
+          <label className="text-xs font-medium text-[var(--text-muted)]">
+            Semantic Scholar API Key（可选，建议填写）
+          </label>
           <Input
             type="password"
             value={s2ApiKey}
@@ -493,7 +722,12 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
             申请地址：{' '}
             <button
               className="text-[var(--accent)] underline"
-              onClick={() => window.open?.('https://www.semanticscholar.org/product/api', '_blank')}
+              onClick={() =>
+                window.open?.(
+                  'https://www.semanticscholar.org/product/api',
+                  '_blank',
+                )
+              }
             >
               semanticscholar.org/product/api
             </button>
@@ -502,8 +736,12 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
       )}
 
       <div className="flex gap-2 mt-4">
-        <Button variant="ghost" onClick={() => setStep('webtools')}><ArrowLeft size={16} /> 返回</Button>
-        <Button onClick={() => setStep('agent')}>继续 <ArrowRight size={16} /></Button>
+        <Button variant="ghost" onClick={() => setStep('webtools')}>
+          <ArrowLeft size={16} /> 返回
+        </Button>
+        <Button onClick={() => setStep('agent')}>
+          继续 <ArrowRight size={16} />
+        </Button>
       </div>
     </div>
   )
@@ -512,21 +750,29 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
     <div className="flex flex-col gap-4 overflow-y-auto max-h-[420px] pr-1">
       <div className="flex items-center gap-2">
         <Bot size={16} className="text-[var(--accent)]" />
-        <h2 className="text-lg font-semibold text-[var(--text)]">Agent 身份配置</h2>
+        <h2 className="text-lg font-semibold text-[var(--text)]">
+          Agent 身份配置
+        </h2>
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">Agent 名称</label>
+        <label className="text-xs font-medium text-[var(--text-muted)]">
+          Agent 名称
+        </label>
         <Input
           value={agentName}
           onChange={(e) => setAgentName(e.target.value)}
           placeholder="miqi"
         />
-        <p className="text-xs text-[var(--text-faint)]">Agent 的自称，会出现在 SOUL.md 和对话中。</p>
+        <p className="text-xs text-[var(--text-faint)]">
+          Agent 的自称，会出现在 SOUL.md 和对话中。
+        </p>
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">工作目录</label>
+        <label className="text-xs font-medium text-[var(--text-muted)]">
+          工作目录
+        </label>
         <div className="flex gap-2">
           <Input
             value={workspace}
@@ -534,17 +780,23 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
             placeholder="~/.miqi/workspace"
             className="flex-1"
           />
-          <Button variant="outline" size="sm" onClick={async () => {
-            const dir = await window.miqi.dialog.openFile()
-            if (dir) setWorkspace(dir)
-          }}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              const dir = await window.miqi.dialog.openFile()
+              if (dir) setWorkspace(dir)
+            }}
+          >
             <Folder size={14} /> 浏览
           </Button>
         </div>
       </div>
 
       <div className="flex flex-col gap-2">
-        <label className="text-xs font-medium text-[var(--text-muted)]">Soul 预设（Agent 个性）</label>
+        <label className="text-xs font-medium text-[var(--text-muted)]">
+          Soul 预设（Agent 个性）
+        </label>
         <div className="grid grid-cols-2 gap-2">
           {SOUL_PRESETS.map((p) => (
             <button
@@ -558,15 +810,21 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
               )}
             >
               <div className="text-xs font-medium">{p.label}</div>
-              <div className="text-[10px] text-[var(--text-faint)] mt-0.5">{p.desc}</div>
+              <div className="text-[10px] text-[var(--text-faint)] mt-0.5">
+                {p.desc}
+              </div>
             </button>
           ))}
         </div>
       </div>
 
       <div className="flex gap-2 mt-2 shrink-0">
-        <Button variant="ghost" onClick={() => setStep('papers')}><ArrowLeft size={16} /> 返回</Button>
-        <Button onClick={() => setStep('finish')}>继续 <ArrowRight size={16} /></Button>
+        <Button variant="ghost" onClick={() => setStep('papers')}>
+          <ArrowLeft size={16} /> 返回
+        </Button>
+        <Button onClick={() => setStep('finish')}>
+          继续 <ArrowRight size={16} />
+        </Button>
       </div>
     </div>
   )
@@ -595,20 +853,36 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
           <Check size={24} className="text-[var(--success)]" />
         </div>
         <h2 className="text-xl font-semibold text-[var(--text)]">配置完成！</h2>
-        <p className="text-sm text-[var(--text-muted)] max-w-sm">点击下方按钮保存配置并启动 MiQi。</p>
+        <p className="text-sm text-[var(--text-muted)] max-w-sm">
+          点击下方按钮保存配置并启动 MiQi。
+        </p>
 
         <div className="w-full max-w-xs bg-[var(--surface-muted)] rounded-lg px-4 py-3 text-left text-xs space-y-1.5 text-[var(--text-muted)]">
-          <SummaryRow label="Provider" value={pMeta?.displayName ?? selectedProvider} />
-          <SummaryRow label="模型" value={modelName || pMeta?.defaultModel || '—'} />
+          <SummaryRow
+            label="Provider"
+            value={pMeta?.displayName ?? selectedProvider}
+          />
+          <SummaryRow
+            label="模型"
+            value={modelName || pMeta?.defaultModel || '—'}
+          />
           <SummaryRow label="搜索" value={searchLabels[searchMode]} />
           <SummaryRow label="Fetch" value={fetchLabels[fetchMode]} />
           <SummaryRow label="论文" value={papersLabels[papersMode]} />
           <SummaryRow label="Agent 名称" value={agentName || 'miqi'} />
-          <SummaryRow label="Soul" value={SOUL_PRESETS.find((s) => s.key === soulPreset)?.label ?? soulPreset} />
+          <SummaryRow
+            label="Soul"
+            value={
+              SOUL_PRESETS.find((s) => s.key === soulPreset)?.label ??
+              soulPreset
+            }
+          />
         </div>
 
         <div className="flex gap-2">
-          <Button variant="ghost" onClick={() => setStep('agent')}><ArrowLeft size={16} /> 返回</Button>
+          <Button variant="ghost" onClick={() => setStep('agent')}>
+            <ArrowLeft size={16} /> 返回
+          </Button>
           <Button onClick={handleFinish}>
             <Key size={16} /> 保存并启动
           </Button>
@@ -620,7 +894,15 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
   // -----------------------------------------------------------------------
   // Shell
   // -----------------------------------------------------------------------
-  const ALL_STEPS: Step[] = ['welcome', 'environment', 'provider', 'webtools', 'papers', 'agent', 'finish']
+  const ALL_STEPS: Step[] = [
+    'welcome',
+    'environment',
+    'provider',
+    'webtools',
+    'papers',
+    'agent',
+    'finish',
+  ]
   const stepIdx = ALL_STEPS.indexOf(step)
 
   return (
@@ -664,15 +946,28 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
 // ---------------------------------------------------------------------------
 // Small helper components
 // ---------------------------------------------------------------------------
-function CheckItem({ label, ok, detail }: { label: string; ok: boolean; detail?: string }) {
+function CheckItem({
+  label,
+  ok,
+  detail,
+}: {
+  label: string
+  ok: boolean
+  detail?: string
+}) {
   return (
     <div className="flex items-center gap-2">
-      {ok
-        ? <Check size={14} className="text-[var(--success)] shrink-0" />
-        : <X size={14} className="text-[var(--danger)] shrink-0" />
-      }
-      <span className={ok ? 'text-[var(--text)]' : 'text-[var(--danger)]'}>{label}</span>
-      {detail && <span className="text-[var(--text-faint)] text-xs">{detail}</span>}
+      {ok ? (
+        <Check size={14} className="text-[var(--success)] shrink-0" />
+      ) : (
+        <X size={14} className="text-[var(--danger)] shrink-0" />
+      )}
+      <span className={ok ? 'text-[var(--text)]' : 'text-[var(--danger)]'}>
+        {label}
+      </span>
+      {detail && (
+        <span className="text-[var(--text-faint)] text-xs">{detail}</span>
+      )}
     </div>
   )
 }
@@ -681,7 +976,9 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between">
       <span>{label}</span>
-      <span className="text-[var(--text)] font-medium truncate max-w-[200px] text-right">{value}</span>
+      <span className="text-[var(--text)] font-medium truncate max-w-[200px] text-right">
+        {value}
+      </span>
     </div>
   )
 }

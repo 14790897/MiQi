@@ -4,16 +4,16 @@ import remarkGfm from 'remark-gfm'
 import { Button } from '../../components/ui/Button'
 import { ScrollArea } from '../../components/ui/ScrollArea'
 import { cn } from '../../lib/utils'
-import {
-  MessageSquare,
-  Trash2,
-  RefreshCw,
-  Loader2,
-  Clock,
-} from 'lucide-react'
+import { MessageSquare, Trash2, RefreshCw, Loader2, Clock } from 'lucide-react'
 import type { SessionInfo, SessionDetail } from '../../../shared/ipc'
 
-export function SessionExplorer({ onOpenSession, refreshKey }: { onOpenSession: (key: string) => void; refreshKey?: number }) {
+export function SessionExplorer({
+  onOpenSession,
+  refreshKey,
+}: {
+  onOpenSession: (key: string) => void
+  refreshKey?: number
+}) {
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<string | null>(null)
@@ -68,7 +68,12 @@ export function SessionExplorer({ onOpenSession, refreshKey }: { onOpenSession: 
       <div className="w-[320px] shrink-0 border-r border-[var(--border-subtle)] flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)]">
           <h2 className="text-sm font-semibold text-[var(--text)]">Sessions</h2>
-          <Button variant="ghost" size="icon" onClick={loadSessions} disabled={loading}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={loadSessions}
+            disabled={loading}
+          >
             <RefreshCw size={14} className={cn(loading && 'animate-spin')} />
           </Button>
         </div>
@@ -76,13 +81,20 @@ export function SessionExplorer({ onOpenSession, refreshKey }: { onOpenSession: 
         <ScrollArea className="flex-1">
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 size={16} className="animate-spin text-[var(--text-muted)]" />
+              <Loader2
+                size={16}
+                className="animate-spin text-[var(--text-muted)]"
+              />
             </div>
           ) : sessions.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-12 text-center px-4">
               <MessageSquare size={24} className="text-[var(--text-faint)]" />
-              <p className="text-xs text-[var(--text-muted)]">No sessions yet</p>
-              <p className="text-xs text-[var(--text-faint)]">Start a chat to create one</p>
+              <p className="text-xs text-[var(--text-muted)]">
+                No sessions yet
+              </p>
+              <p className="text-xs text-[var(--text-faint)]">
+                Start a chat to create one
+              </p>
             </div>
           ) : (
             <div className="flex flex-col">
@@ -92,12 +104,19 @@ export function SessionExplorer({ onOpenSession, refreshKey }: { onOpenSession: 
                   onClick={() => loadDetail(s.key)}
                   className={cn(
                     'flex items-start gap-3 px-4 py-3 text-left transition-colors border-b border-[var(--border-subtle)]',
-                    selected === s.key ? 'bg-[var(--accent-soft)]/50' : 'hover:bg-[var(--surface-muted)]',
+                    selected === s.key
+                      ? 'bg-[var(--accent-soft)]/50'
+                      : 'hover:bg-[var(--surface-muted)]',
                   )}
                 >
-                  <MessageSquare size={16} className="text-[var(--text-muted)] shrink-0 mt-0.5" />
+                  <MessageSquare
+                    size={16}
+                    className="text-[var(--text-muted)] shrink-0 mt-0.5"
+                  />
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm text-[var(--text)] truncate">{s.key}</div>
+                    <div className="text-sm text-[var(--text)] truncate">
+                      {s.key}
+                    </div>
                     {s.updated_at && (
                       <div className="flex items-center gap-1 text-xs text-[var(--text-faint)] mt-0.5">
                         <Clock size={10} />
@@ -137,7 +156,10 @@ export function SessionExplorer({ onOpenSession, refreshKey }: { onOpenSession: 
           </div>
         ) : detailLoading ? (
           <div className="flex items-center justify-center h-full">
-            <Loader2 size={16} className="animate-spin text-[var(--text-muted)]" />
+            <Loader2
+              size={16}
+              className="animate-spin text-[var(--text-muted)]"
+            />
           </div>
         ) : detail ? (
           <ScrollArea className="flex-1">
@@ -163,7 +185,9 @@ export function SessionExplorer({ onOpenSession, refreshKey }: { onOpenSession: 
                     )}
                   >
                     {isTool ? (
-                      <span className="text-[var(--text-faint)]">tool: {String(msg.name ?? 'result')}</span>
+                      <span className="text-[var(--text-faint)]">
+                        tool: {String(msg.name ?? 'result')}
+                      </span>
                     ) : null}
                     <div className={cn(isTool && 'mt-1')}>
                       {isUser || isTool ? (
@@ -174,7 +198,8 @@ export function SessionExplorer({ onOpenSession, refreshKey }: { onOpenSession: 
                       ) : (
                         <div className="prose prose-sm max-w-none text-[var(--text)]">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {content.slice(0, 1000) + (content.length > 1000 ? '\n\n...' : '')}
+                            {content.slice(0, 1000) +
+                              (content.length > 1000 ? '\n\n...' : '')}
                           </ReactMarkdown>
                         </div>
                       )}

@@ -17,7 +17,16 @@ import { MemoryPage } from './features/memory/MemoryPage'
 import { SkillsPage } from './features/skills/SkillsPage'
 import { WorkspacePage } from './features/workspace/WorkspacePage'
 
-type NavId = 'chat' | 'providers' | 'channels' | 'approvals' | 'cron' | 'memory' | 'skills' | 'workspace' | 'settings'
+type NavId =
+  | 'chat'
+  | 'providers'
+  | 'channels'
+  | 'approvals'
+  | 'cron'
+  | 'memory'
+  | 'skills'
+  | 'workspace'
+  | 'settings'
 
 const PRELOAD_OK = typeof window !== 'undefined' && !!(window as any).miqi
 
@@ -37,8 +46,10 @@ function AppShell() {
       const apiKeys = Object.keys(window.miqi).join(', ')
       console.log(`[MiQi] preload OK — exposed namespaces: ${apiKeys}`)
     } else {
-      console.error('[MiQi] preload MISSING — window.miqi is undefined. ' +
-        'Check that contextBridge.exposeInMainWorld executed.')
+      console.error(
+        '[MiQi] preload MISSING — window.miqi is undefined. ' +
+          'Check that contextBridge.exposeInMainWorld executed.',
+      )
       setNeedsSetup(false) // not a setup issue — preload is broken
       return
     }
@@ -68,12 +79,43 @@ function AppShell() {
   // Loading state
   if (needsSetup === null) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f7f3ea', fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#c96442', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '18px', fontWeight: 700 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100vh',
+          background: '#f7f3ea',
+          fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '12px',
+          }}
+        >
+          <div
+            style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              background: '#c96442',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              fontSize: '18px',
+              fontWeight: 700,
+            }}
+          >
             M
           </div>
-          <div style={{ fontSize: '13px', color: '#766b5f' }}>正在加载 MiQi…</div>
+          <div style={{ fontSize: '13px', color: '#766b5f' }}>
+            正在加载 MiQi…
+          </div>
         </div>
       </div>
     )
@@ -85,12 +127,17 @@ function AppShell() {
       <div className="flex items-center justify-center h-screen bg-[var(--background)]">
         <div className="flex flex-col items-center gap-4 max-w-sm text-center px-6">
           <div className="w-12 h-12 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-            <span className="text-red-600 dark:text-red-400 text-xl font-bold">!</span>
+            <span className="text-red-600 dark:text-red-400 text-xl font-bold">
+              !
+            </span>
           </div>
           <div>
-            <h2 className="text-base font-semibold text-[var(--text)] mb-1">预加载桥接不可用</h2>
+            <h2 className="text-base font-semibold text-[var(--text)] mb-1">
+              预加载桥接不可用
+            </h2>
             <p className="text-sm text-[var(--text-muted)]">
-              应用预加载脚本注入失败。<br />
+              应用预加载脚本注入失败。
+              <br />
               请重启应用。如问题持续，请检查预加载脚本路径或重新安装。
             </p>
           </div>
@@ -131,7 +178,13 @@ function AppShell() {
 
               <main className="flex-1 flex flex-col overflow-hidden bg-[var(--background)]">
                 {/* ChatConsole is always mounted to preserve message state across navigation */}
-                <div className={activeNav === 'chat' ? 'flex flex-col flex-1 overflow-hidden' : 'hidden'}>
+                <div
+                  className={
+                    activeNav === 'chat'
+                      ? 'flex flex-col flex-1 overflow-hidden'
+                      : 'hidden'
+                  }
+                >
                   <ChatConsole
                     sessionKey={sessionKey}
                     onNewSession={(newKey) => {

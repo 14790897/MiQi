@@ -28,15 +28,18 @@ function GeneralTab() {
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    window.miqi.config.get().then((cfg) => {
-      setAgentName(getNestedStr(cfg, 'agents', 'defaults', 'name'))
-      setWorkspace(getNestedStr(cfg, 'agents', 'defaults', 'workspace'))
-      setModel(getNestedStr(cfg, 'agents', 'defaults', 'model'))
-      const temp = getNestedStr(cfg, 'agents', 'defaults', 'temperature')
-      setTemperature(temp)
-      const mt = getNestedStr(cfg, 'agents', 'defaults', 'maxTokens')
-      setMaxTokens(mt)
-    }).catch(() => {})
+    window.miqi.config
+      .get()
+      .then((cfg) => {
+        setAgentName(getNestedStr(cfg, 'agents', 'defaults', 'name'))
+        setWorkspace(getNestedStr(cfg, 'agents', 'defaults', 'workspace'))
+        setModel(getNestedStr(cfg, 'agents', 'defaults', 'model'))
+        const temp = getNestedStr(cfg, 'agents', 'defaults', 'temperature')
+        setTemperature(temp)
+        const mt = getNestedStr(cfg, 'agents', 'defaults', 'maxTokens')
+        setMaxTokens(mt)
+      })
+      .catch(() => {})
   }, [])
 
   const handleSave = async () => {
@@ -51,7 +54,9 @@ function GeneralTab() {
       await window.miqi.config.update({ agents: { defaults } })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     setSaving(false)
   }
 
@@ -60,40 +65,75 @@ function GeneralTab() {
       <h3 className="text-sm font-semibold text-[var(--text)]">Agent 配置</h3>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">Agent 名称</label>
-        <Input value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="miqi" />
+        <label className="text-xs font-medium text-[var(--text-muted)]">
+          Agent 名称
+        </label>
+        <Input
+          value={agentName}
+          onChange={(e) => setAgentName(e.target.value)}
+          placeholder="miqi"
+        />
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">工作目录</label>
+        <label className="text-xs font-medium text-[var(--text-muted)]">
+          工作目录
+        </label>
         <div className="flex gap-2">
-          <Input value={workspace} onChange={(e) => setWorkspace(e.target.value)} placeholder="~/.miqi/workspace" className="flex-1" />
-          <Button variant="outline" size="sm" onClick={async () => {
-            const dir = await window.miqi.dialog.openFile()
-            if (dir) setWorkspace(dir)
-          }}>浏览</Button>
+          <Input
+            value={workspace}
+            onChange={(e) => setWorkspace(e.target.value)}
+            placeholder="~/.miqi/workspace"
+            className="flex-1"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              const dir = await window.miqi.dialog.openFile()
+              if (dir) setWorkspace(dir)
+            }}
+          >
+            浏览
+          </Button>
         </div>
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">默认模型</label>
-        <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder="provider/model-name" />
+        <label className="text-xs font-medium text-[var(--text-muted)]">
+          默认模型
+        </label>
+        <Input
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          placeholder="provider/model-name"
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-[var(--text-muted)]">Temperature</label>
+          <label className="text-xs font-medium text-[var(--text-muted)]">
+            Temperature
+          </label>
           <Input
-            type="number" min="0" max="2" step="0.05"
+            type="number"
+            min="0"
+            max="2"
+            step="0.05"
             value={temperature}
             onChange={(e) => setTemperature(e.target.value)}
             placeholder="0.1"
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-[var(--text-muted)]">Max Tokens</label>
+          <label className="text-xs font-medium text-[var(--text-muted)]">
+            Max Tokens
+          </label>
           <Input
-            type="number" min="256" max="200000" step="256"
+            type="number"
+            min="256"
+            max="200000"
+            step="256"
             value={maxTokens}
             onChange={(e) => setMaxTokens(e.target.value)}
             placeholder="8192"
@@ -101,7 +141,11 @@ function GeneralTab() {
         </div>
       </div>
 
-      <Button onClick={handleSave} disabled={saving} className="self-start mt-2">
+      <Button
+        onClick={handleSave}
+        disabled={saving}
+        className="self-start mt-2"
+      >
         {saved ? <Check size={14} /> : <Save size={14} />}
         {saved ? '已保存' : '保存'}
       </Button>
@@ -131,17 +175,36 @@ function WebToolsTab() {
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    window.miqi.config.get().then((cfg) => {
-      setSearchProvider(getNestedStr(cfg, 'tools', 'web', 'search', 'provider') || 'brave')
-      setBraveKey(getNestedStr(cfg, 'tools', 'web', 'search', 'apiKey'))
-      setSearchOllamaBase(getNestedStr(cfg, 'tools', 'web', 'search', 'ollamaApiBase'))
-      setSearchOllamaKey(getNestedStr(cfg, 'tools', 'web', 'search', 'ollamaApiKey'))
-      setFetchProvider(getNestedStr(cfg, 'tools', 'web', 'fetch', 'provider') || 'builtin')
-      setFetchOllamaBase(getNestedStr(cfg, 'tools', 'web', 'fetch', 'ollamaApiBase'))
-      setFetchOllamaKey(getNestedStr(cfg, 'tools', 'web', 'fetch', 'ollamaApiKey'))
-      setPapersProvider(getNestedStr(cfg, 'tools', 'papers', 'provider') || 'hybrid')
-      setS2ApiKey(getNestedStr(cfg, 'tools', 'papers', 'semanticScholarApiKey'))
-    }).catch(() => {})
+    window.miqi.config
+      .get()
+      .then((cfg) => {
+        setSearchProvider(
+          getNestedStr(cfg, 'tools', 'web', 'search', 'provider') || 'brave',
+        )
+        setBraveKey(getNestedStr(cfg, 'tools', 'web', 'search', 'apiKey'))
+        setSearchOllamaBase(
+          getNestedStr(cfg, 'tools', 'web', 'search', 'ollamaApiBase'),
+        )
+        setSearchOllamaKey(
+          getNestedStr(cfg, 'tools', 'web', 'search', 'ollamaApiKey'),
+        )
+        setFetchProvider(
+          getNestedStr(cfg, 'tools', 'web', 'fetch', 'provider') || 'builtin',
+        )
+        setFetchOllamaBase(
+          getNestedStr(cfg, 'tools', 'web', 'fetch', 'ollamaApiBase'),
+        )
+        setFetchOllamaKey(
+          getNestedStr(cfg, 'tools', 'web', 'fetch', 'ollamaApiKey'),
+        )
+        setPapersProvider(
+          getNestedStr(cfg, 'tools', 'papers', 'provider') || 'hybrid',
+        )
+        setS2ApiKey(
+          getNestedStr(cfg, 'tools', 'papers', 'semanticScholarApiKey'),
+        )
+      })
+      .catch(() => {})
   }, [])
 
   const handleSave = async () => {
@@ -170,11 +233,23 @@ function WebToolsTab() {
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     setSaving(false)
   }
 
-  const ModeBtn = ({ value, current, set, label }: { value: string; current: string; set: (v: string) => void; label: string }) => (
+  const ModeBtn = ({
+    value,
+    current,
+    set,
+    label,
+  }: {
+    value: string
+    current: string
+    set: (v: string) => void
+    label: string
+  }) => (
     <button
       onClick={() => set(value)}
       className={cn(
@@ -194,13 +269,30 @@ function WebToolsTab() {
       <section className="flex flex-col gap-3">
         <h3 className="text-sm font-semibold text-[var(--text)]">Web 搜索</h3>
         <div className="flex gap-2">
-          <ModeBtn value="brave" current={searchProvider} set={setSearchProvider} label="Brave" />
-          <ModeBtn value="ollama" current={searchProvider} set={setSearchProvider} label="Ollama" />
-          <ModeBtn value="hybrid" current={searchProvider} set={setSearchProvider} label="Hybrid" />
+          <ModeBtn
+            value="brave"
+            current={searchProvider}
+            set={setSearchProvider}
+            label="Brave"
+          />
+          <ModeBtn
+            value="ollama"
+            current={searchProvider}
+            set={setSearchProvider}
+            label="Ollama"
+          />
+          <ModeBtn
+            value="hybrid"
+            current={searchProvider}
+            set={setSearchProvider}
+            label="Hybrid"
+          />
         </div>
         {(searchProvider === 'brave' || searchProvider === 'hybrid') && (
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[var(--text-muted)]">Brave Search API Key</label>
+            <label className="text-xs font-medium text-[var(--text-muted)]">
+              Brave Search API Key
+            </label>
             <div className="flex gap-2">
               <Input
                 type={showKeys ? 'text' : 'password'}
@@ -209,7 +301,11 @@ function WebToolsTab() {
                 placeholder="BSA..."
                 className="flex-1 font-mono text-xs"
               />
-              <Button variant="ghost" size="icon" onClick={() => setShowKeys((v) => !v)}>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowKeys((v) => !v)}
+              >
                 {showKeys ? <EyeOff size={14} /> : <Eye size={14} />}
               </Button>
             </div>
@@ -218,12 +314,26 @@ function WebToolsTab() {
         {(searchProvider === 'ollama' || searchProvider === 'hybrid') && (
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)]">Ollama web_search Base URL</label>
-              <Input value={searchOllamaBase} onChange={(e) => setSearchOllamaBase(e.target.value)} placeholder="https://ollama.com" />
+              <label className="text-xs font-medium text-[var(--text-muted)]">
+                Ollama web_search Base URL
+              </label>
+              <Input
+                value={searchOllamaBase}
+                onChange={(e) => setSearchOllamaBase(e.target.value)}
+                placeholder="https://ollama.com"
+              />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)]">Ollama web_search API Key</label>
-              <Input type={showKeys ? 'text' : 'password'} value={searchOllamaKey} onChange={(e) => setSearchOllamaKey(e.target.value)} placeholder="ollama-key..." className="font-mono text-xs" />
+              <label className="text-xs font-medium text-[var(--text-muted)]">
+                Ollama web_search API Key
+              </label>
+              <Input
+                type={showKeys ? 'text' : 'password'}
+                value={searchOllamaKey}
+                onChange={(e) => setSearchOllamaKey(e.target.value)}
+                placeholder="ollama-key..."
+                className="font-mono text-xs"
+              />
             </div>
           </div>
         )}
@@ -233,19 +343,48 @@ function WebToolsTab() {
       <section className="flex flex-col gap-3 pt-4 border-t border-[var(--border-subtle)]">
         <h3 className="text-sm font-semibold text-[var(--text)]">Web Fetch</h3>
         <div className="flex gap-2">
-          <ModeBtn value="builtin" current={fetchProvider} set={setFetchProvider} label="内置" />
-          <ModeBtn value="ollama" current={fetchProvider} set={setFetchProvider} label="Ollama" />
-          <ModeBtn value="hybrid" current={fetchProvider} set={setFetchProvider} label="Hybrid" />
+          <ModeBtn
+            value="builtin"
+            current={fetchProvider}
+            set={setFetchProvider}
+            label="内置"
+          />
+          <ModeBtn
+            value="ollama"
+            current={fetchProvider}
+            set={setFetchProvider}
+            label="Ollama"
+          />
+          <ModeBtn
+            value="hybrid"
+            current={fetchProvider}
+            set={setFetchProvider}
+            label="Hybrid"
+          />
         </div>
         {(fetchProvider === 'ollama' || fetchProvider === 'hybrid') && (
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)]">Ollama web_fetch Base URL</label>
-              <Input value={fetchOllamaBase} onChange={(e) => setFetchOllamaBase(e.target.value)} placeholder="https://ollama.com" />
+              <label className="text-xs font-medium text-[var(--text-muted)]">
+                Ollama web_fetch Base URL
+              </label>
+              <Input
+                value={fetchOllamaBase}
+                onChange={(e) => setFetchOllamaBase(e.target.value)}
+                placeholder="https://ollama.com"
+              />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)]">Ollama web_fetch API Key</label>
-              <Input type={showKeys ? 'text' : 'password'} value={fetchOllamaKey} onChange={(e) => setFetchOllamaKey(e.target.value)} placeholder="留空则复用 web_search Key" className="font-mono text-xs" />
+              <label className="text-xs font-medium text-[var(--text-muted)]">
+                Ollama web_fetch API Key
+              </label>
+              <Input
+                type={showKeys ? 'text' : 'password'}
+                value={fetchOllamaKey}
+                onChange={(e) => setFetchOllamaKey(e.target.value)}
+                placeholder="留空则复用 web_search Key"
+                className="font-mono text-xs"
+              />
             </div>
           </div>
         )}
@@ -253,15 +392,35 @@ function WebToolsTab() {
 
       {/* ---- Papers ---- */}
       <section className="flex flex-col gap-3 pt-4 border-t border-[var(--border-subtle)]">
-        <h3 className="text-sm font-semibold text-[var(--text)]">论文研究工具</h3>
+        <h3 className="text-sm font-semibold text-[var(--text)]">
+          论文研究工具
+        </h3>
         <div className="flex gap-2">
-          <ModeBtn value="hybrid" current={papersProvider} set={setPapersProvider} label="Hybrid（推荐）" />
-          <ModeBtn value="semantic_scholar" current={papersProvider} set={setPapersProvider} label="S2" />
-          <ModeBtn value="arxiv" current={papersProvider} set={setPapersProvider} label="arXiv" />
+          <ModeBtn
+            value="hybrid"
+            current={papersProvider}
+            set={setPapersProvider}
+            label="Hybrid（推荐）"
+          />
+          <ModeBtn
+            value="semantic_scholar"
+            current={papersProvider}
+            set={setPapersProvider}
+            label="S2"
+          />
+          <ModeBtn
+            value="arxiv"
+            current={papersProvider}
+            set={setPapersProvider}
+            label="arXiv"
+          />
         </div>
-        {(papersProvider === 'hybrid' || papersProvider === 'semantic_scholar') && (
+        {(papersProvider === 'hybrid' ||
+          papersProvider === 'semantic_scholar') && (
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[var(--text-muted)]">Semantic Scholar API Key（可选）</label>
+            <label className="text-xs font-medium text-[var(--text-muted)]">
+              Semantic Scholar API Key（可选）
+            </label>
             <Input
               type={showKeys ? 'text' : 'password'}
               value={s2ApiKey}
@@ -299,7 +458,9 @@ function AppearanceTab() {
       root.classList.remove('dark')
     } else {
       // system
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+      const prefersDark = window.matchMedia(
+        '(prefers-color-scheme: dark)',
+      ).matches
       root.classList.toggle('dark', prefersDark)
     }
   }
@@ -308,7 +469,9 @@ function AppearanceTab() {
     <div className="p-6 max-w-lg flex flex-col gap-4">
       <h3 className="text-sm font-semibold text-[var(--text)]">外观</h3>
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">主题</label>
+        <label className="text-xs font-medium text-[var(--text-muted)]">
+          主题
+        </label>
         <div className="flex gap-2">
           {(['light', 'dark', 'system'] as ThemeMode[]).map((m) => (
             <button
@@ -358,7 +521,12 @@ function LogsTab() {
       <div className="flex items-center justify-between px-6 py-3 border-b border-[var(--border-subtle)]">
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer">
-            <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} className="rounded" />
+            <input
+              type="checkbox"
+              checked={autoScroll}
+              onChange={(e) => setAutoScroll(e.target.checked)}
+              className="rounded"
+            />
             自动滚动
           </label>
           <Button variant="ghost" size="icon" onClick={refreshLogs}>
@@ -370,7 +538,10 @@ function LogsTab() {
         </Button>
       </div>
       <ScrollArea className="flex-1">
-        <div ref={scrollRef} className="p-4 font-mono text-xs leading-relaxed text-[var(--text)] overflow-y-auto h-full">
+        <div
+          ref={scrollRef}
+          className="p-4 font-mono text-xs leading-relaxed text-[var(--text)] overflow-y-auto h-full"
+        >
           {logs.length === 0 ? (
             <div className="flex items-center justify-center h-full text-[var(--text-muted)] py-16">
               暂无日志。启动运行时后将在此显示输出。
@@ -404,10 +575,15 @@ export function SettingsPage() {
     <div className="flex flex-col h-full">
       <div className="px-6 py-4 border-b border-[var(--border-subtle)]">
         <h2 className="text-sm font-semibold text-[var(--text)]">设置</h2>
-        <p className="text-xs text-[var(--text-faint)] mt-0.5">配置 MiQi Agent 和外观</p>
+        <p className="text-xs text-[var(--text-faint)] mt-0.5">
+          配置 MiQi Agent 和外观
+        </p>
       </div>
 
-      <Tabs.Root defaultValue="general" className="flex flex-col flex-1 min-h-0">
+      <Tabs.Root
+        defaultValue="general"
+        className="flex flex-col flex-1 min-h-0"
+      >
         <Tabs.List className="flex gap-0 px-4 border-b border-[var(--border-subtle)] shrink-0">
           {[
             { value: 'general', label: '通用' },

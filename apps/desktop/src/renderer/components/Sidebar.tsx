@@ -42,7 +42,13 @@ interface SidebarProps {
   refreshKey?: number
 }
 
-export function Sidebar({ activeNav, onNavChange, currentSession, onSessionSelect, refreshKey }: SidebarProps) {
+export function Sidebar({
+  activeNav,
+  onNavChange,
+  currentSession,
+  onSessionSelect,
+  refreshKey,
+}: SidebarProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -64,7 +70,12 @@ export function Sidebar({ activeNav, onNavChange, currentSession, onSessionSelec
   const formatTime = (iso?: string) => {
     if (!iso) return ''
     const d = new Date(iso)
-    return d.toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    return d.toLocaleString('zh-CN', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
   }
 
   return (
@@ -103,20 +114,31 @@ export function Sidebar({ activeNav, onNavChange, currentSession, onSessionSelec
       {/* Session list */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-subtle)]">
-          <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">会话</h3>
+          <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+            会话
+          </h3>
           <button
             onClick={loadSessions}
             disabled={loading}
             className="p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
             title="刷新会话"
           >
-            <RefreshCw size={12} className={cn('text-[var(--text-faint)]', loading && 'animate-spin')} />
+            <RefreshCw
+              size={12}
+              className={cn(
+                'text-[var(--text-faint)]',
+                loading && 'animate-spin',
+              )}
+            />
           </button>
         </div>
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className="flex items-center justify-center py-4">
-              <Loader2 size={14} className="animate-spin text-[var(--text-muted)]" />
+              <Loader2
+                size={14}
+                className="animate-spin text-[var(--text-muted)]"
+              />
             </div>
           ) : sessions.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-6 text-center px-4">
@@ -134,14 +156,23 @@ export function Sidebar({ activeNav, onNavChange, currentSession, onSessionSelec
                   }}
                   className={cn(
                     'w-full flex items-start gap-2 px-3 py-2 rounded-lg text-left transition-colors',
-                    currentSession === s.key ? 'bg-[var(--accent-soft)]/50' : 'hover:bg-[var(--surface-muted)]',
+                    currentSession === s.key
+                      ? 'bg-[var(--accent-soft)]/50'
+                      : 'hover:bg-[var(--surface-muted)]',
                   )}
                 >
-                  <FolderOpen size={14} className="text-[var(--text-faint)] shrink-0 mt-0.5" />
+                  <FolderOpen
+                    size={14}
+                    className="text-[var(--text-faint)] shrink-0 mt-0.5"
+                  />
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs text-[var(--text)] truncate">{s.key}</div>
+                    <div className="text-xs text-[var(--text)] truncate">
+                      {s.key}
+                    </div>
                     {s.updated_at && (
-                      <div className="text-[10px] text-[var(--text-faint)] mt-0.5">{formatTime(s.updated_at)}</div>
+                      <div className="text-[10px] text-[var(--text-faint)] mt-0.5">
+                        {formatTime(s.updated_at)}
+                      </div>
                     )}
                   </div>
                 </button>

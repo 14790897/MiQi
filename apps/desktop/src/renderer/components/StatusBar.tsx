@@ -25,7 +25,7 @@ export function StatusBar() {
     try {
       await stop()
       // Brief pause for the process to exit cleanly
-      await new Promise(r => setTimeout(r, 800))
+      await new Promise((r) => setTimeout(r, 800))
       const result = await start()
       if (result.state === 'running') {
         clearRestartRequired()
@@ -43,8 +43,13 @@ export function StatusBar() {
     <div className="flex items-center gap-3 h-8 px-4 border-t border-[var(--border-subtle)] bg-[var(--surface)] text-xs text-[var(--text-muted)] shrink-0">
       <span className="flex items-center gap-1.5">
         <span
-          className={cn('inline-block w-2 h-2 rounded-full', restartRequired && 'animate-pulse')}
-          style={{ backgroundColor: restartRequired ? 'var(--warning)' : s.color }}
+          className={cn(
+            'inline-block w-2 h-2 rounded-full',
+            restartRequired && 'animate-pulse',
+          )}
+          style={{
+            backgroundColor: restartRequired ? 'var(--warning)' : s.color,
+          }}
         />
         {restartRequired ? '需要重启' : s.label}
       </span>

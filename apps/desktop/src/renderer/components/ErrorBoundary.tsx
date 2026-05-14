@@ -20,7 +20,11 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('[MiQi] React error caught by boundary:', error, info.componentStack)
+    console.error(
+      '[MiQi] React error caught by boundary:',
+      error,
+      info.componentStack,
+    )
   }
 
   reset = () => {
@@ -74,10 +78,19 @@ export class ErrorBoundary extends Component<Props, State> {
               !
             </div>
             <div>
-              <h2 style={{ margin: '0 0 8px', fontSize: '16px', fontWeight: 600 }}>
+              <h2
+                style={{ margin: '0 0 8px', fontSize: '16px', fontWeight: 600 }}
+              >
                 渲染错误 / Render Error
               </h2>
-              <p style={{ margin: 0, fontSize: '13px', color: '#766b5f', lineHeight: 1.5 }}>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: '13px',
+                  color: '#766b5f',
+                  lineHeight: 1.5,
+                }}
+              >
                 {error.message}
               </p>
             </div>

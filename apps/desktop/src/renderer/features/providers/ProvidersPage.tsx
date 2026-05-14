@@ -1,16 +1,37 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRestartRequired } from '../../contexts/RestartRequiredContext'
 import {
-  Zap, Server, Globe, HardDrive,
-  CheckCircle, Circle, Edit2, TestTube2,
-  Eye, EyeOff, Save, X, Loader2, ChevronDown, ChevronRight,
+  Zap,
+  Server,
+  Globe,
+  HardDrive,
+  CheckCircle,
+  Circle,
+  Edit2,
+  TestTube2,
+  Eye,
+  EyeOff,
+  Save,
+  X,
+  Loader2,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { ProviderInfo } from '../../../shared/ipc'
 
-const DOMESTIC_NAMES = new Set(['dashscope', 'zhipu', 'moonshot', 'minimax', 'siliconflow', 'volcengine'])
+const DOMESTIC_NAMES = new Set([
+  'dashscope',
+  'zhipu',
+  'moonshot',
+  'minimax',
+  'siliconflow',
+  'volcengine',
+])
 
-function getCategory(p: ProviderInfo): 'gateway' | 'domestic' | 'local' | 'international' {
+function getCategory(
+  p: ProviderInfo,
+): 'gateway' | 'domestic' | 'local' | 'international' {
   if (p.is_local) return 'local'
   if (p.is_gateway) return 'gateway'
   if (DOMESTIC_NAMES.has(p.name)) return 'domestic'
@@ -32,7 +53,10 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
   const [showKey, setShowKey] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [testResult, setTestResult] = useState<{
+    ok: boolean
+    message: string
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const placeholderBase = provider.default_api_base || ''
@@ -42,7 +66,7 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
     setError(null)
     try {
       const extraHeaders = extraHeadersText.trim()
-        ? JSON.parse(extraHeadersText) as Record<string, string>
+        ? (JSON.parse(extraHeadersText) as Record<string, string>)
         : null
       await window.miqi.providers.update(
         provider.name,
@@ -79,9 +103,15 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
         apiKey || undefined,
         apiBase || undefined,
       )
-      setTestResult({ ok: result.ok, message: result.ok ? '连接成功' : '连接失败' })
+      setTestResult({
+        ok: result.ok,
+        message: result.ok ? '连接成功' : '连接失败',
+      })
     } catch (err: unknown) {
-      setTestResult({ ok: false, message: err instanceof Error ? err.message : '测试失败' })
+      setTestResult({
+        ok: false,
+        message: err instanceof Error ? err.message : '测试失败',
+      })
     } finally {
       setTesting(false)
     }
@@ -92,17 +122,26 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
       <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[480px] max-h-[80vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-subtle)]">
           <div>
-            <h2 className="text-sm font-semibold text-[var(--text)]">{provider.display_name}</h2>
-            <p className="text-xs text-[var(--text-muted)] mt-0.5">{provider.name}</p>
+            <h2 className="text-sm font-semibold text-[var(--text)]">
+              {provider.display_name}
+            </h2>
+            <p className="text-xs text-[var(--text-muted)] mt-0.5">
+              {provider.name}
+            </p>
           </div>
-          <button onClick={onClose} className="text-[var(--text-faint)] hover:text-[var(--text)] transition-colors">
+          <button
+            onClick={onClose}
+            className="text-[var(--text-faint)] hover:text-[var(--text)] transition-colors"
+          >
             <X size={16} />
           </button>
         </div>
 
         <div className="px-5 py-4 flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">API Key</label>
+            <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
+              API Key
+            </label>
             <div className="relative">
               <input
                 type={showKey ? 'text' : 'password'}
@@ -112,8 +151,8 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                   provider.configured
                     ? '●●●●●●●●●●●● (leave blank to keep current)'
                     : provider.env_key
-                    ? `Set ${provider.env_key} or enter here`
-                    : 'Enter API key'
+                      ? `Set ${provider.env_key} or enter here`
+                      : 'Enter API key'
                 }
                 className="w-full px-3 py-2 pr-10 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
                 autoComplete="off"
@@ -132,7 +171,10 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
 
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
-              API Base URL <span className="font-normal text-[var(--text-faint)]">(optional)</span>
+              API Base URL{' '}
+              <span className="font-normal text-[var(--text-faint)]">
+                (optional)
+              </span>
             </label>
             <input
               type="url"
@@ -143,15 +185,23 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
               spellCheck={false}
             />
             {placeholderBase && (
-              <p className="text-xs text-[var(--text-faint)]">Default: {placeholderBase}</p>
+              <p className="text-xs text-[var(--text-faint)]">
+                Default: {placeholderBase}
+              </p>
             )}
           </div>
 
-          <ExtraHeadersField value={extraHeadersText} onChange={setExtraHeadersText} />
+          <ExtraHeadersField
+            value={extraHeadersText}
+            onChange={setExtraHeadersText}
+          />
 
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
-              默认模型 <span className="font-normal text-[var(--text-faint)]">(可选)</span>
+              默认模型{' '}
+              <span className="font-normal text-[var(--text-faint)]">
+                (可选)
+              </span>
             </label>
             <input
               type="text"
@@ -161,19 +211,25 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
               className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
               spellCheck={false}
             />
-            <p className="text-xs text-[var(--text-faint)]">修改此字段会更新全局默认模型</p>
+            <p className="text-xs text-[var(--text-faint)]">
+              修改此字段会更新全局默认模型
+            </p>
           </div>
 
           {error && (
-            <div className="rounded-lg px-3 py-2 bg-[var(--accent-soft)] text-xs text-[var(--danger)]">{error}</div>
+            <div className="rounded-lg px-3 py-2 bg-[var(--accent-soft)] text-xs text-[var(--danger)]">
+              {error}
+            </div>
           )}
           {testResult && (
-            <div className={cn(
-              'rounded-lg px-3 py-2 text-xs',
-              testResult.ok
-                ? 'bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]'
-                : 'bg-[var(--accent-soft)] text-[var(--danger)]',
-            )}>
+            <div
+              className={cn(
+                'rounded-lg px-3 py-2 text-xs',
+                testResult.ok
+                  ? 'bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]'
+                  : 'bg-[var(--accent-soft)] text-[var(--danger)]',
+              )}
+            >
               {testResult.message}
             </div>
           )}
@@ -185,11 +241,18 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
             disabled={testing}
             className="flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors disabled:opacity-50"
           >
-            {testing ? <Loader2 size={14} className="animate-spin" /> : <TestTube2 size={14} />}
+            {testing ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <TestTube2 size={14} />
+            )}
             测试连接
           </button>
           <div className="flex items-center gap-2">
-            <button onClick={onClose} className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
+            <button
+              onClick={onClose}
+              className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+            >
               取消
             </button>
             <button
@@ -197,7 +260,11 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
               disabled={saving}
               className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-50"
             >
-              {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              {saving ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Save size={14} />
+              )}
               保存
             </button>
           </div>
@@ -207,7 +274,13 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
   )
 }
 
-function ExtraHeadersField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function ExtraHeadersField({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (v: string) => void
+}) {
   const [open, setOpen] = useState(false)
   return (
     <div>
@@ -217,7 +290,8 @@ function ExtraHeadersField({ value, onChange }: { value: string; onChange: (v: s
         className="flex items-center gap-1.5 text-xs text-[var(--text-faint)] hover:text-[var(--text-muted)] transition-colors"
       >
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        Extra HTTP Headers <span className="text-[var(--text-faint)]">(JSON, optional)</span>
+        Extra HTTP Headers{' '}
+        <span className="text-[var(--text-faint)]">(JSON, optional)</span>
       </button>
       {open && (
         <textarea
@@ -251,7 +325,13 @@ interface ProviderRowProps {
   testResults: Record<string, boolean>
 }
 
-function ProviderRow({ provider, onEdit, onTest, testingName, testResults }: ProviderRowProps) {
+function ProviderRow({
+  provider,
+  onEdit,
+  onTest,
+  testingName,
+  testResults,
+}: ProviderRowProps) {
   const label = PROVIDER_DISPLAY_NAMES[provider.name] ?? provider.display_name
   const isTesting = testingName === provider.name
   const testOk = testResults[provider.name]
@@ -259,7 +339,14 @@ function ProviderRow({ provider, onEdit, onTest, testingName, testResults }: Pro
 
   return (
     <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--surface-muted)] transition-colors group">
-      <div className={cn('shrink-0', provider.configured ? 'text-[var(--success)]' : 'text-[var(--border)]')}>
+      <div
+        className={cn(
+          'shrink-0',
+          provider.configured
+            ? 'text-[var(--success)]'
+            : 'text-[var(--border)]',
+        )}
+      >
         {provider.configured ? <CheckCircle size={14} /> : <Circle size={14} />}
       </div>
       <div className="flex-1 min-w-0">
@@ -270,26 +357,39 @@ function ProviderRow({ provider, onEdit, onTest, testingName, testResults }: Pro
           </span>
         )}
       </div>
-      <span className={cn(
-        'text-xs px-2 py-0.5 rounded-full shrink-0',
-        provider.is_gateway
-          ? 'bg-[color-mix(in_srgb,var(--info)_15%,transparent)] text-[var(--info)]'
+      <span
+        className={cn(
+          'text-xs px-2 py-0.5 rounded-full shrink-0',
+          provider.is_gateway
+            ? 'bg-[color-mix(in_srgb,var(--info)_15%,transparent)] text-[var(--info)]'
+            : provider.is_local
+              ? 'bg-[color-mix(in_srgb,var(--warning)_15%,transparent)] text-[var(--warning)]'
+              : 'bg-[var(--surface-muted)] text-[var(--text-muted)]',
+        )}
+      >
+        {provider.is_gateway
+          ? '网关'
           : provider.is_local
-          ? 'bg-[color-mix(in_srgb,var(--warning)_15%,transparent)] text-[var(--warning)]'
-          : 'bg-[var(--surface-muted)] text-[var(--text-muted)]',
-      )}>
-        {provider.is_gateway ? '网关' : provider.is_local ? '本地' : provider.provider_type}
+            ? '本地'
+            : provider.provider_type}
       </span>
-      <span className={cn(
-        'text-xs px-2 py-0.5 rounded-full shrink-0',
-        provider.configured
-          ? 'bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]'
-          : 'bg-[var(--surface-muted)] text-[var(--text-faint)]',
-      )}>
+      <span
+        className={cn(
+          'text-xs px-2 py-0.5 rounded-full shrink-0',
+          provider.configured
+            ? 'bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]'
+            : 'bg-[var(--surface-muted)] text-[var(--text-faint)]',
+        )}
+      >
         {provider.configured ? '已配置' : '未配置'}
       </span>
       {hasTestResult && (
-        <span className={cn('text-xs shrink-0', testOk ? 'text-[var(--success)]' : 'text-[var(--danger)]')}>
+        <span
+          className={cn(
+            'text-xs shrink-0',
+            testOk ? 'text-[var(--success)]' : 'text-[var(--danger)]',
+          )}
+        >
           {testOk ? '✓ OK' : '✗ Failed'}
         </span>
       )}
@@ -300,7 +400,11 @@ function ProviderRow({ provider, onEdit, onTest, testingName, testResults }: Pro
           title="测试连接"
           className="p-1.5 rounded-md text-[var(--text-faint)] hover:text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors disabled:opacity-40"
         >
-          {isTesting ? <Loader2 size={14} className="animate-spin" /> : <TestTube2 size={14} />}
+          {isTesting ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            <TestTube2 size={14} />
+          )}
         </button>
         <button
           onClick={() => onEdit(provider)}
@@ -324,7 +428,15 @@ interface CategorySectionProps {
   testResults: Record<string, boolean>
 }
 
-function CategorySection({ title, icon, providers, onEdit, onTest, testingName, testResults }: CategorySectionProps) {
+function CategorySection({
+  title,
+  icon,
+  providers,
+  onEdit,
+  onTest,
+  testingName,
+  testResults,
+}: CategorySectionProps) {
   if (providers.length === 0) return null
   return (
     <div>
@@ -332,11 +444,12 @@ function CategorySection({ title, icon, providers, onEdit, onTest, testingName, 
         {icon}
         {title}
         <span className="ml-auto font-normal normal-case tracking-normal">
-          {providers.filter(p => p.configured).length}/{providers.length} 已配置
+          {providers.filter((p) => p.configured).length}/{providers.length}{' '}
+          已配置
         </span>
       </div>
       <div className="divide-y divide-[var(--border-subtle)]">
-        {providers.map(p => (
+        {providers.map((p) => (
           <ProviderRow
             key={p.name}
             provider={p}
@@ -369,40 +482,55 @@ export function ProvidersPage() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+  }, [load])
 
   const handleTest = async (p: ProviderInfo) => {
     if (!p.configured) {
-      setTestResults(prev => ({ ...prev, [p.name]: false }))
+      setTestResults((prev) => ({ ...prev, [p.name]: false }))
       return
     }
     setTestingName(p.name)
     try {
-      const result = await window.miqi.providers.test(p.name, undefined, p.api_base ?? undefined)
-      setTestResults(prev => ({ ...prev, [p.name]: result.ok }))
+      const result = await window.miqi.providers.test(
+        p.name,
+        undefined,
+        p.api_base ?? undefined,
+      )
+      setTestResults((prev) => ({ ...prev, [p.name]: result.ok }))
     } catch {
-      setTestResults(prev => ({ ...prev, [p.name]: false }))
+      setTestResults((prev) => ({ ...prev, [p.name]: false }))
     } finally {
       setTestingName(null)
     }
   }
 
-  const gateways = providers.filter(p => getCategory(p) === 'gateway')
-  const international = providers.filter(p => getCategory(p) === 'international')
-  const domestic = providers.filter(p => getCategory(p) === 'domestic')
-  const local = providers.filter(p => getCategory(p) === 'local')
-  const configuredCount = providers.filter(p => p.configured).length
+  const gateways = providers.filter((p) => getCategory(p) === 'gateway')
+  const international = providers.filter(
+    (p) => getCategory(p) === 'international',
+  )
+  const domestic = providers.filter((p) => getCategory(p) === 'domestic')
+  const local = providers.filter((p) => getCategory(p) === 'local')
+  const configuredCount = providers.filter((p) => p.configured).length
 
   return (
     <div className="flex flex-col h-full bg-[var(--background)]">
       <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] bg-[var(--surface)] shrink-0">
         <div>
-          <h1 className="text-base font-semibold text-[var(--text)]">Provider</h1>
+          <h1 className="text-base font-semibold text-[var(--text)]">
+            Provider
+          </h1>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
-            {loading ? '加载中…' : `${configuredCount} / ${providers.length} 已配置`}
+            {loading
+              ? '加载中…'
+              : `${configuredCount} / ${providers.length} 已配置`}
           </p>
         </div>
-        <button onClick={load} className="text-xs text-[var(--text-faint)] hover:text-[var(--text-muted)] transition-colors px-2 py-1 rounded">
+        <button
+          onClick={load}
+          className="text-xs text-[var(--text-faint)] hover:text-[var(--text-muted)] transition-colors px-2 py-1 rounded"
+        >
           Refresh
         </button>
       </div>
@@ -419,16 +547,52 @@ export function ProvidersPage() {
           </div>
         ) : (
           <div className="divide-y divide-[var(--border-subtle)]">
-            <CategorySection title="网关" icon={<Globe size={12} />} providers={gateways} onEdit={setEditProvider} onTest={handleTest} testingName={testingName} testResults={testResults} />
-            <CategorySection title="国际" icon={<Zap size={12} />} providers={international} onEdit={setEditProvider} onTest={handleTest} testingName={testingName} testResults={testResults} />
-            <CategorySection title="国内" icon={<Server size={12} />} providers={domestic} onEdit={setEditProvider} onTest={handleTest} testingName={testingName} testResults={testResults} />
-            <CategorySection title="本地" icon={<HardDrive size={12} />} providers={local} onEdit={setEditProvider} onTest={handleTest} testingName={testingName} testResults={testResults} />
+            <CategorySection
+              title="网关"
+              icon={<Globe size={12} />}
+              providers={gateways}
+              onEdit={setEditProvider}
+              onTest={handleTest}
+              testingName={testingName}
+              testResults={testResults}
+            />
+            <CategorySection
+              title="国际"
+              icon={<Zap size={12} />}
+              providers={international}
+              onEdit={setEditProvider}
+              onTest={handleTest}
+              testingName={testingName}
+              testResults={testResults}
+            />
+            <CategorySection
+              title="国内"
+              icon={<Server size={12} />}
+              providers={domestic}
+              onEdit={setEditProvider}
+              onTest={handleTest}
+              testingName={testingName}
+              testResults={testResults}
+            />
+            <CategorySection
+              title="本地"
+              icon={<HardDrive size={12} />}
+              providers={local}
+              onEdit={setEditProvider}
+              onTest={handleTest}
+              testingName={testingName}
+              testResults={testResults}
+            />
           </div>
         )}
       </div>
 
       {editProvider && (
-        <EditSheet provider={editProvider} onClose={() => setEditProvider(null)} onSaved={load} />
+        <EditSheet
+          provider={editProvider}
+          onClose={() => setEditProvider(null)}
+          onSaved={load}
+        />
       )}
     </div>
   )

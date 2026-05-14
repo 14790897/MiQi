@@ -1,4 +1,10 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  type ReactNode,
+} from 'react'
 
 interface RestartRequiredContextValue {
   restartRequired: boolean
@@ -19,7 +25,9 @@ export function RestartRequiredProvider({ children }: { children: ReactNode }) {
   const clearRestartRequired = useCallback(() => setRestartRequired(false), [])
 
   return (
-    <RestartRequiredContext.Provider value={{ restartRequired, markRestartRequired, clearRestartRequired }}>
+    <RestartRequiredContext.Provider
+      value={{ restartRequired, markRestartRequired, clearRestartRequired }}
+    >
       {children}
     </RestartRequiredContext.Provider>
   )

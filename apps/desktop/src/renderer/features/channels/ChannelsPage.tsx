@@ -21,7 +21,9 @@ function ToggleRow({
       <div className="flex-1 min-w-0">
         <div className="text-sm text-[var(--text)]">{label}</div>
         {description && (
-          <div className="text-xs text-[var(--text-faint)] mt-0.5">{description}</div>
+          <div className="text-xs text-[var(--text-faint)] mt-0.5">
+            {description}
+          </div>
         )}
       </div>
       <button
@@ -105,14 +107,23 @@ function FeishuSection({ config, onChange }: FeishuSectionProps) {
       {/* Channel header */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)]">
         <div className="flex items-center gap-2">
-          <Radio size={14} className={config.enabled ? 'text-[var(--success)]' : 'text-[var(--border)]'} />
-          <span className="text-sm font-medium text-[var(--text)]">Feishu / Lark</span>
-          <span className={cn(
-            'text-xs px-2 py-0.5 rounded-full',
-            config.enabled
-              ? 'bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]'
-              : 'bg-[var(--surface-muted)] text-[var(--text-faint)]',
-          )}>
+          <Radio
+            size={14}
+            className={
+              config.enabled ? 'text-[var(--success)]' : 'text-[var(--border)]'
+            }
+          />
+          <span className="text-sm font-medium text-[var(--text)]">
+            Feishu / Lark
+          </span>
+          <span
+            className={cn(
+              'text-xs px-2 py-0.5 rounded-full',
+              config.enabled
+                ? 'bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]'
+                : 'bg-[var(--surface-muted)] text-[var(--text-faint)]',
+            )}
+          >
             {config.enabled ? '已启用' : '已禁用'}
           </span>
         </div>
@@ -123,7 +134,11 @@ function FeishuSection({ config, onChange }: FeishuSectionProps) {
             config.enabled ? 'text-[var(--accent)]' : 'text-[var(--border)]',
           )}
         >
-          {config.enabled ? <ToggleRight size={22} /> : <ToggleLeft size={22} />}
+          {config.enabled ? (
+            <ToggleRight size={22} />
+          ) : (
+            <ToggleLeft size={22} />
+          )}
         </button>
       </div>
 
@@ -145,12 +160,21 @@ function FeishuSection({ config, onChange }: FeishuSectionProps) {
         />
         <div className="py-2 flex flex-col gap-1.5">
           <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
-            允许来自 <span className="font-normal text-[var(--text-faint)]">（open_id，每行一个，留空表示允许所有人）</span>
+            允许来自{' '}
+            <span className="font-normal text-[var(--text-faint)]">
+              （open_id，每行一个，留空表示允许所有人）
+            </span>
           </label>
           <textarea
             value={config.allow_from.join('\n')}
             onChange={(e) =>
-              set('allow_from', e.target.value.split('\n').map(s => s.trim()).filter(Boolean))
+              set(
+                'allow_from',
+                e.target.value
+                  .split('\n')
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              )
             }
             rows={3}
             placeholder="ou_xxxxxxxxxxxxxxxx"
@@ -207,7 +231,9 @@ export function ChannelsPage() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+  }, [load])
 
   const handleSave = async () => {
     if (!config) return
@@ -215,7 +241,9 @@ export function ChannelsPage() {
     setError(null)
     setSaved(false)
     try {
-      await window.miqi.channels.update(config as unknown as Record<string, unknown>)
+      await window.miqi.channels.update(
+        config as unknown as Record<string, unknown>,
+      )
       setSaved(true)
       markRestartRequired()
       setTimeout(() => setSaved(false), 2000)
@@ -248,7 +276,11 @@ export function ChannelsPage() {
             disabled={saving || !config}
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-50"
           >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            {saving ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Save size={14} />
+            )}
             保存
           </button>
         </div>
@@ -288,7 +320,9 @@ export function ChannelsPage() {
                 label="队列通知"
                 description="向用户通知其在任务队列中的位置"
                 checked={config.send_queue_notifications}
-                onChange={(v) => setConfig({ ...config, send_queue_notifications: v })}
+                onChange={(v) =>
+                  setConfig({ ...config, send_queue_notifications: v })
+                }
               />
             </div>
 

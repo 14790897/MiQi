@@ -19,7 +19,9 @@ export function ApprovalsPage() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+  }, [load])
 
   const clearOne = async (pattern: string) => {
     setClearing(pattern)
@@ -45,7 +47,9 @@ export function ApprovalsPage() {
     <div className="flex flex-col h-full bg-[var(--background)]">
       <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] bg-[var(--surface)] shrink-0">
         <div>
-          <h1 className="text-base font-semibold text-[var(--text)]">命令审批</h1>
+          <h1 className="text-base font-semibold text-[var(--text)]">
+            命令审批
+          </h1>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
             Agent 执行危险 shell 命令前需要授权。此页管理永久白名单。
           </p>
@@ -73,14 +77,29 @@ export function ApprovalsPage() {
             {/* Status */}
             <div className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl px-5 py-3 flex items-center gap-4 text-sm">
               <div className="flex items-center gap-2">
-                <Shield size={14} className={data.enabled ? 'text-[var(--success)]' : 'text-[var(--text-faint)]'} />
+                <Shield
+                  size={14}
+                  className={
+                    data.enabled
+                      ? 'text-[var(--success)]'
+                      : 'text-[var(--text-faint)]'
+                  }
+                />
                 <span className="text-[var(--text-muted)]">审批系统</span>
-                <span className={data.enabled ? 'text-[var(--success)]' : 'text-[var(--text-faint)]'}>
+                <span
+                  className={
+                    data.enabled
+                      ? 'text-[var(--success)]'
+                      : 'text-[var(--text-faint)]'
+                  }
+                >
                   {data.enabled ? '已启用' : '已禁用'}
                 </span>
               </div>
               <div className="text-[var(--text-faint)]">·</div>
-              <span className="text-[var(--text-muted)]">超时：{data.timeout}秒</span>
+              <span className="text-[var(--text-muted)]">
+                超时：{data.timeout}秒
+              </span>
               <div className="text-[var(--text-faint)]">·</div>
               <span className="text-[var(--text-muted)]">
                 {data.pending_ids.length} 个待审批
@@ -110,17 +129,24 @@ export function ApprovalsPage() {
               ) : (
                 <div className="divide-y divide-[var(--border-subtle)]">
                   {data.permanent_allowlist.map((pattern) => (
-                    <div key={pattern} className="flex items-center gap-3 px-5 py-2.5 hover:bg-[var(--surface-muted)] transition-colors">
-                      <code className="flex-1 text-xs font-mono text-[var(--text)]">{pattern}</code>
+                    <div
+                      key={pattern}
+                      className="flex items-center gap-3 px-5 py-2.5 hover:bg-[var(--surface-muted)] transition-colors"
+                    >
+                      <code className="flex-1 text-xs font-mono text-[var(--text)]">
+                        {pattern}
+                      </code>
                       <button
                         onClick={() => clearOne(pattern)}
                         disabled={clearing === pattern}
                         title="从白名单移除"
                         className="shrink-0 p-1 rounded text-[var(--text-faint)] hover:text-[var(--danger)] transition-colors disabled:opacity-50"
                       >
-                        {clearing === pattern
-                          ? <Loader2 size={13} className="animate-spin" />
-                          : <Trash2 size={13} />}
+                        {clearing === pattern ? (
+                          <Loader2 size={13} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={13} />
+                        )}
                       </button>
                     </div>
                   ))}

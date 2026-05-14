@@ -1,7 +1,16 @@
 import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Search, Wrench, CheckCircle2, XCircle, AlertTriangle, Copy, Check, FolderOpen } from 'lucide-react'
+import {
+  Search,
+  Wrench,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  Copy,
+  Check,
+  FolderOpen,
+} from 'lucide-react'
 import type { SkillSummary, SkillDetail } from '../../../shared/ipc'
 
 export function SkillsPage() {
@@ -15,10 +24,13 @@ export function SkillsPage() {
   const [openingFolder, setOpeningFolder] = useState(false)
 
   useEffect(() => {
-    window.miqi.skills.list().then((res) => {
-      setSkills(res.skills)
-      setLoading(false)
-    }).catch(() => setLoading(false))
+    window.miqi.skills
+      .list()
+      .then((res) => {
+        setSkills(res.skills)
+        setLoading(false)
+      })
+      .catch(() => setLoading(false))
   }, [])
 
   useEffect(() => {
@@ -27,16 +39,22 @@ export function SkillsPage() {
       return
     }
     setDetailLoading(true)
-    window.miqi.skills.get(selectedName).then((d) => {
-      setDetail(d)
-      setDetailLoading(false)
-    }).catch(() => setDetailLoading(false))
+    window.miqi.skills
+      .get(selectedName)
+      .then((d) => {
+        setDetail(d)
+        setDetailLoading(false)
+      })
+      .catch(() => setDetailLoading(false))
   }, [selectedName])
 
   const filtered = skills.filter((s) => {
     if (!query.trim()) return true
     const q = query.toLowerCase()
-    return s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)
+    return (
+      s.name.toLowerCase().includes(q) ||
+      s.description.toLowerCase().includes(q)
+    )
   })
 
   const builtin = filtered.filter((s) => s.source === 'builtin')
@@ -74,7 +92,10 @@ export function SkillsPage() {
       <div className="w-[280px] shrink-0 border-r border-[var(--border-subtle)] bg-[var(--surface)] flex flex-col">
         <div className="px-4 pt-4 pb-2">
           <div className="relative">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-faint)]" />
+            <Search
+              size={14}
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-faint)]"
+            />
             <input
               type="text"
               placeholder="搜索技能…"
@@ -115,7 +136,9 @@ export function SkillsPage() {
       <div className="flex-1 flex flex-col overflow-hidden bg-[var(--background)]">
         {detailLoading ? (
           <div className="flex items-center justify-center h-full">
-            <div className="text-sm text-[var(--text-muted)]">正在加载技能详情…</div>
+            <div className="text-sm text-[var(--text-muted)]">
+              正在加载技能详情…
+            </div>
           </div>
         ) : detail ? (
           <div className="flex flex-col h-full overflow-auto">
@@ -123,7 +146,9 @@ export function SkillsPage() {
             <div className="shrink-0 px-6 py-4 border-b border-[var(--border-subtle)]">
               <div className="flex items-center gap-2.5 mb-1">
                 <Wrench size={20} className="text-[var(--accent)]" />
-                <h2 className="text-lg font-semibold text-[var(--text)]">{detail.name}</h2>
+                <h2 className="text-lg font-semibold text-[var(--text)]">
+                  {detail.name}
+                </h2>
                 <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[var(--surface-muted)] text-[var(--text-muted)] uppercase">
                   {detail.source}
                 </span>
@@ -160,33 +185,43 @@ export function SkillsPage() {
                 </div>
               </div>
               {detail.description && (
-                <p className="text-sm text-[var(--text-muted)] mb-2">{detail.description}</p>
+                <p className="text-sm text-[var(--text-muted)] mb-2">
+                  {detail.description}
+                </p>
               )}
               {!detail.available && detail.missingRequirements && (
                 <div className="text-xs text-[var(--danger)] mt-1">
                   缺少：{detail.missingRequirements}
                 </div>
               )}
-              <div className="text-[11px] text-[var(--text-faint)] mt-1 font-mono">{detail.path}</div>
+              <div className="text-[11px] text-[var(--text-faint)] mt-1 font-mono">
+                {detail.path}
+              </div>
             </div>
 
             {/* Content */}
             <div className="flex-1 overflow-auto p-6">
               <div className="text-sm text-[var(--text)] leading-relaxed bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg p-4 prose prose-sm max-w-none">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{detail.content}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {detail.content}
+                </ReactMarkdown>
               </div>
             </div>
 
             {/* Metadata footer */}
             {detail.metadata && Object.keys(detail.metadata).length > 0 && (
               <div className="shrink-0 px-6 py-3 border-t border-[var(--border-subtle)]">
-                <h3 className="text-xs font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">元数据</h3>
+                <h3 className="text-xs font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+                  元数据
+                </h3>
                 <div className="grid grid-cols-2 gap-2">
                   {Object.entries(detail.metadata).map(([key, value]) => (
                     <div key={key} className="text-xs">
                       <span className="text-[var(--text-faint)]">{key}:</span>{' '}
                       <span className="text-[var(--text)] font-mono">
-                        {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                        {typeof value === 'object'
+                          ? JSON.stringify(value)
+                          : String(value)}
                       </span>
                     </div>
                   ))}
@@ -238,7 +273,9 @@ function SkillGroup({
             )}
           </div>
           {s.description && (
-            <div className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">{s.description}</div>
+            <div className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">
+              {s.description}
+            </div>
           )}
         </button>
       ))}

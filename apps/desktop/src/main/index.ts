@@ -37,12 +37,19 @@ function createWindow(): void {
   })
 
   // Diagnostics: surface preload / renderer failures to the terminal
-  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    console.error(`[main] did-fail-load: code=${errorCode} desc=${errorDescription} url=${validatedURL}`)
-  })
+  mainWindow.webContents.on(
+    'did-fail-load',
+    (_event, errorCode, errorDescription, validatedURL) => {
+      console.error(
+        `[main] did-fail-load: code=${errorCode} desc=${errorDescription} url=${validatedURL}`,
+      )
+    },
+  )
 
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
-    console.error(`[main] render-process-gone: reason=${details.reason} exitCode=${details.exitCode}`)
+    console.error(
+      `[main] render-process-gone: reason=${details.reason} exitCode=${details.exitCode}`,
+    )
   })
 
   mainWindow.webContents.on('console-message', (_event, level, message) => {

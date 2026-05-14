@@ -18,7 +18,8 @@ const electron = require('electron')
 // electron-vite may load this file during build analysis under plain Node.js,
 // where require('electron') returns the path string to the binary — not the
 // Electron module namespace.  Detect that case and bail silently.
-const isRealElectron = typeof electron === 'object' && electron !== null && electron.app
+const isRealElectron =
+  typeof electron === 'object' && electron !== null && electron.app
 
 if (!isRealElectron) {
   // Build-time scan or non-Electron runtime — exit without crashing so the

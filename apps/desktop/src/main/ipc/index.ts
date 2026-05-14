@@ -4,7 +4,27 @@ import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import type { BridgeManager } from '../bridge'
-import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, ConfigUpdateInput, ProviderTestInput, ProviderUpdateInput, ChannelsUpdateInput, CronCreateInput, CronUpdateInput, CronToggleInput, CronDeleteInput, CronRunInput, CronRunsInput, MemoryGetInput, MemoryUpdateInput, SkillsGetInput, FilesReadInput, FilesWriteInput } from '../../shared/ipc'
+import {
+  IPC,
+  ChatSendInput,
+  SessionGetInput,
+  SessionDeleteInput,
+  ConfigUpdateInput,
+  ProviderTestInput,
+  ProviderUpdateInput,
+  ChannelsUpdateInput,
+  CronCreateInput,
+  CronUpdateInput,
+  CronToggleInput,
+  CronDeleteInput,
+  CronRunInput,
+  CronRunsInput,
+  MemoryGetInput,
+  MemoryUpdateInput,
+  SkillsGetInput,
+  FilesReadInput,
+  FilesWriteInput,
+} from '../../shared/ipc'
 
 const { ipcMain, dialog } = electron
 
@@ -45,24 +65,28 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     await ensureBridge()
 
     const mainWindow = _event.sender
-    const result = await bridge.send('chat.send', {
-      content: input.content,
-      session_key: input.session_key ?? 'desktop:default',
-    }, (type: string, data: unknown) => {
-      if (type === 'progress') {
-        mainWindow.send('chat:progress', data)
-      } else if (type === 'final') {
-        mainWindow.send('chat:final', data)
-      } else if (type === 'error') {
-        mainWindow.send('chat:error', data)
-      } else if (type === 'aborted') {
-        mainWindow.send('chat:aborted', data)
-      } else if (type === 'approval_request') {
-        mainWindow.send('approval:request', data)
-      } else if (type === 'approval_cleared') {
-        mainWindow.send('approval:cleared', data)
-      }
-    })
+    const result = await bridge.send(
+      'chat.send',
+      {
+        content: input.content,
+        session_key: input.session_key ?? 'desktop:default',
+      },
+      (type: string, data: unknown) => {
+        if (type === 'progress') {
+          mainWindow.send('chat:progress', data)
+        } else if (type === 'final') {
+          mainWindow.send('chat:final', data)
+        } else if (type === 'error') {
+          mainWindow.send('chat:error', data)
+        } else if (type === 'aborted') {
+          mainWindow.send('chat:aborted', data)
+        } else if (type === 'approval_request') {
+          mainWindow.send('approval:request', data)
+        } else if (type === 'approval_cleared') {
+          mainWindow.send('approval:cleared', data)
+        }
+      },
+    )
 
     return result
   })
@@ -155,7 +179,9 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
       candidates.push([process.env['MIQI_PYTHON_PATH']!])
     }
     // uv
-    const hasUvLock = existsSync(join(projectRoot, 'uv.lock')) || existsSync(join(projectRoot, 'pyproject.toml'))
+    const hasUvLock =
+      existsSync(join(projectRoot, 'uv.lock')) ||
+      existsSync(join(projectRoot, 'pyproject.toml'))
     if (hasUvLock) {
       candidates.push(['uv', 'run', 'python'])
     }
@@ -171,10 +197,16 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     let pythonCmd: string[] | null = null
     for (const candidate of candidates) {
       try {
-        const r = spawnSync(candidate[0], [...candidate.slice(1), '--version'], { timeout: 5000, encoding: 'utf8' })
+        const r = spawnSync(
+          candidate[0],
+          [...candidate.slice(1), '--version'],
+          { timeout: 5000, encoding: 'utf8' },
+        )
         if (r.status === 0) {
           pythonCmd = candidate
-          const ver = (r.stdout || r.stderr || '').trim().replace(/^Python\s+/i, '')
+          const ver = (r.stdout || r.stderr || '')
+            .trim()
+            .replace(/^Python\s+/i, '')
           pythonVersion = ver
           // Validate version >= 3.11
           const parts = ver.split('.').map(Number)
@@ -189,7 +221,9 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     }
 
     if (!pythonCmd) {
-      issues.push('Python not found. Install Python >= 3.11 or set MIQI_PYTHON_PATH.')
+      issues.push(
+        'Python not found. Install Python >= 3.11 or set MIQI_PYTHON_PATH.',
+      )
       pythonVersion = 'not found'
     } else {
       // Check key MiQi dependencies
@@ -202,7 +236,11 @@ for m in ("pydantic", "httpx", "loguru"):
         print("MISSING:" + m)
 `
       try {
-        const r = spawnSync(pythonCmd[0], [...pythonCmd.slice(1), '-c', checkScript], { timeout: 8000, encoding: 'utf8' })
+        const r = spawnSync(
+          pythonCmd[0],
+          [...pythonCmd.slice(1), '-c', checkScript],
+          { timeout: 8000, encoding: 'utf8' },
+        )
         const out = (r.stdout || '').trim()
         for (const line of out.split('\n')) {
           if (line.startsWith('MISSING:')) {
@@ -231,7 +269,7 @@ for m in ("pydantic", "httpx", "loguru"):
     const result = await dialog.showOpenDialog({
       properties: ['openFile', 'openDirectory'],
     })
-    return result.canceled ? null : result.filePaths[0] ?? null
+    return result.canceled ? null : (result.filePaths[0] ?? null)
   })
 
   // -----------------------------------------------------------------------
@@ -248,11 +286,17 @@ for m in ("pydantic", "httpx", "loguru"):
     return bridge.send('approvals.resolve', p as Record<string, unknown>)
   })
 
-  ipcMain.handle('approvals:clear_permanent', async (_event, payload: unknown) => {
-    await ensureBridge()
-    const p = (payload ?? {}) as { pattern?: string }
-    return bridge.send('approvals.clear_permanent', p as Record<string, unknown>)
-  })
+  ipcMain.handle(
+    'approvals:clear_permanent',
+    async (_event, payload: unknown) => {
+      await ensureBridge()
+      const p = (payload ?? {}) as { pattern?: string }
+      return bridge.send(
+        'approvals.clear_permanent',
+        p as Record<string, unknown>,
+      )
+    },
+  )
 
   // -----------------------------------------------------------------------
   // Cron
@@ -430,17 +474,21 @@ for m in ("pydantic", "httpx", "loguru"):
     }
 
     // Deep-merge provider key
-    const providers = (existing['providers'] as Record<string, unknown> | undefined) ?? {}
+    const providers =
+      (existing['providers'] as Record<string, unknown> | undefined) ?? {}
     providers[provider_name] = {
-      ...(providers[provider_name] as Record<string, unknown> | undefined ?? {}),
+      ...((providers[provider_name] as Record<string, unknown> | undefined) ??
+        {}),
       ...(api_key ? { apiKey: api_key } : {}),
       ...(api_base ? { apiBase: api_base } : {}),
     }
     existing['providers'] = providers
 
     // Set agent defaults (model, name, workspace, soulPreset)
-    const agents = (existing['agents'] as Record<string, unknown> | undefined) ?? {}
-    const defaults = (agents['defaults'] as Record<string, unknown> | undefined) ?? {}
+    const agents =
+      (existing['agents'] as Record<string, unknown> | undefined) ?? {}
+    const defaults =
+      (agents['defaults'] as Record<string, unknown> | undefined) ?? {}
     if (model) defaults['model'] = model
     if (agent_name) defaults['name'] = agent_name
     if (workspace) defaults['workspace'] = workspace
@@ -449,7 +497,8 @@ for m in ("pydantic", "httpx", "loguru"):
     existing['agents'] = agents
 
     // Web tools
-    const tools = (existing['tools'] as Record<string, unknown> | undefined) ?? {}
+    const tools =
+      (existing['tools'] as Record<string, unknown> | undefined) ?? {}
     const web = (tools['web'] as Record<string, unknown> | undefined) ?? {}
 
     // Web Search
@@ -470,9 +519,11 @@ for m in ("pydantic", "httpx", "loguru"):
     tools['web'] = web
 
     // Papers
-    const papers = (tools['papers'] as Record<string, unknown> | undefined) ?? {}
+    const papers =
+      (tools['papers'] as Record<string, unknown> | undefined) ?? {}
     if (papers_provider) papers['provider'] = papers_provider
-    if (semantic_scholar_api_key) papers['semanticScholarApiKey'] = semantic_scholar_api_key
+    if (semantic_scholar_api_key)
+      papers['semanticScholarApiKey'] = semantic_scholar_api_key
     tools['papers'] = papers
 
     existing['tools'] = tools

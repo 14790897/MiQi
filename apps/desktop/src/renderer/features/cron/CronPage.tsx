@@ -1,8 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Clock, Plus, RefreshCw, Loader2, Trash2,
-  Play, Pause, Power, PowerOff,
-  ChevronDown, ChevronRight, X,
+  Clock,
+  Plus,
+  RefreshCw,
+  Loader2,
+  Trash2,
+  Play,
+  Pause,
+  Power,
+  PowerOff,
+  ChevronDown,
+  ChevronRight,
+  X,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { CronJob, CronRunEntry } from '../../../shared/ipc'
@@ -29,7 +38,8 @@ function durationMs(startMs: number): string {
 function scheduleLabel(job: CronJob): string {
   const s = job.schedule
   if (s.kind === 'at') return `At ${formatMs(s.atMs)}`
-  if (s.kind === 'every') return s.everyMs ? `Every ${(s.everyMs / 1000).toFixed(0)}s` : 'Every —'
+  if (s.kind === 'every')
+    return s.everyMs ? `Every ${(s.everyMs / 1000).toFixed(0)}s` : 'Every —'
   if (s.kind === 'cron') return s.expr ?? 'cron —'
   return s.kind
 }
@@ -49,7 +59,15 @@ interface JobFormData {
 }
 
 function emptyForm(): JobFormData {
-  return { name: '', scheduleKind: 'every', atMs: '', everyMs: '60000', expr: '', tz: '', message: '' }
+  return {
+    name: '',
+    scheduleKind: 'every',
+    atMs: '',
+    everyMs: '60000',
+    expr: '',
+    tz: '',
+    message: '',
+  }
 }
 
 function CreateEditModal({
@@ -79,7 +97,8 @@ function CreateEditModal({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const set = (k: keyof JobFormData, v: string) => setForm(prev => ({ ...prev, [k]: v }))
+  const set = (k: keyof JobFormData, v: string) =>
+    setForm((prev) => ({ ...prev, [k]: v }))
 
   const handleSubmit = async () => {
     if (!form.name.trim()) {
@@ -142,7 +161,10 @@ function CreateEditModal({
           <h2 className="text-sm font-semibold text-[var(--text)]">
             {isEdit ? '编辑任务' : '创建任务'}
           </h2>
-          <button onClick={onClose} className="text-[var(--text-faint)] hover:text-[var(--text)] transition-colors">
+          <button
+            onClick={onClose}
+            className="text-[var(--text-faint)] hover:text-[var(--text)] transition-colors"
+          >
             <X size={16} />
           </button>
         </div>
@@ -150,7 +172,9 @@ function CreateEditModal({
         <div className="px-5 py-4 flex flex-col gap-4">
           {/* Name */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">名称</label>
+            <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
+              名称
+            </label>
             <input
               type="text"
               value={form.name}
@@ -162,9 +186,11 @@ function CreateEditModal({
 
           {/* Schedule kind */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">调度类型</label>
+            <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
+              调度类型
+            </label>
             <div className="flex gap-1.5">
-              {(['at', 'every', 'cron'] as ScheduleKind[]).map(k => (
+              {(['at', 'every', 'cron'] as ScheduleKind[]).map((k) => (
                 <button
                   key={k}
                   onClick={() => set('scheduleKind', k)}
@@ -184,7 +210,9 @@ function CreateEditModal({
           {/* Schedule expression */}
           {form.scheduleKind === 'at' && (
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">指定时间（毫秒时间戳）</label>
+              <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
+                指定时间（毫秒时间戳）
+              </label>
               <input
                 type="number"
                 value={form.atMs}
@@ -196,7 +224,9 @@ function CreateEditModal({
           )}
           {form.scheduleKind === 'every' && (
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">间隔执行（毫秒）</label>
+              <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
+                间隔执行（毫秒）
+              </label>
               <input
                 type="number"
                 value={form.everyMs}
@@ -204,13 +234,19 @@ function CreateEditModal({
                 placeholder="60000"
                 className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
               />
-              <p className="text-xs text-[var(--text-faint)]">{form.everyMs ? `${(parseInt(form.everyMs) / 1000).toFixed(0)}s` : '—'}</p>
+              <p className="text-xs text-[var(--text-faint)]">
+                {form.everyMs
+                  ? `${(parseInt(form.everyMs) / 1000).toFixed(0)}s`
+                  : '—'}
+              </p>
             </div>
           )}
           {form.scheduleKind === 'cron' && (
             <>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Cron 表达式</label>
+                <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
+                  Cron 表达式
+                </label>
                 <input
                   type="text"
                   value={form.expr}
@@ -221,7 +257,10 @@ function CreateEditModal({
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
-                  时区 <span className="font-normal text-[var(--text-faint)]">（可选，例如 Asia/Shanghai）</span>
+                  时区{' '}
+                  <span className="font-normal text-[var(--text-faint)]">
+                    （可选，例如 Asia/Shanghai）
+                  </span>
                 </label>
                 <input
                   type="text"
@@ -249,7 +288,9 @@ function CreateEditModal({
           </div>
 
           {error && (
-            <div className="rounded-lg px-3 py-2 bg-[var(--accent-soft)] text-xs text-[var(--danger)]">{error}</div>
+            <div className="rounded-lg px-3 py-2 bg-[var(--accent-soft)] text-xs text-[var(--danger)]">
+              {error}
+            </div>
           )}
         </div>
 
@@ -258,7 +299,10 @@ function CreateEditModal({
             {isEdit ? '更新此定时任务' : '任务在 MiQi 运行时中执行'}
           </span>
           <div className="flex items-center gap-2">
-            <button onClick={onClose} className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
+            <button
+              onClick={onClose}
+              className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+            >
               取消
             </button>
             <button
@@ -266,7 +310,11 @@ function CreateEditModal({
               disabled={saving}
               className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-50"
             >
-              {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+              {saving ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Plus size={14} />
+              )}
               {isEdit ? '保存' : '创建'}
             </button>
           </div>
@@ -309,7 +357,9 @@ export function CronPage() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+  }, [load])
 
   const handleToggle = async (job: CronJob) => {
     setTogglingId(job.id)
@@ -356,17 +406,27 @@ export function CronPage() {
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] bg-[var(--surface)] shrink-0">
         <div>
-          <h1 className="text-base font-semibold text-[var(--text)]">定时任务</h1>
+          <h1 className="text-base font-semibold text-[var(--text)]">
+            定时任务
+          </h1>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
-            {loading ? '加载中…' : `${jobs.length} 个任务，${runs.length} 条执行记录`}
+            {loading
+              ? '加载中…'
+              : `${jobs.length} 个任务，${runs.length} 条执行记录`}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={load} className="text-xs text-[var(--text-faint)] hover:text-[var(--text-muted)] transition-colors px-2 py-1 rounded">
+          <button
+            onClick={load}
+            className="text-xs text-[var(--text-faint)] hover:text-[var(--text-muted)] transition-colors px-2 py-1 rounded"
+          >
             <RefreshCw size={14} />
           </button>
           <button
-            onClick={() => { setShowCreate(true); setEditJob(null) }}
+            onClick={() => {
+              setShowCreate(true)
+              setEditJob(null)
+            }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors"
           >
             <Plus size={14} />
@@ -379,7 +439,10 @@ export function CronPage() {
       {actionError && (
         <div className="mx-6 mt-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--accent-soft)] text-xs text-[var(--danger)]">
           <span className="flex-1">{actionError}</span>
-          <button onClick={() => setActionError(null)} className="text-[var(--text-faint)] hover:text-[var(--text)]">
+          <button
+            onClick={() => setActionError(null)}
+            className="text-[var(--text-faint)] hover:text-[var(--text)]"
+          >
             <X size={12} />
           </button>
         </div>
@@ -408,12 +471,14 @@ export function CronPage() {
                 <span className="w-[140px] shrink-0">操作</span>
               </div>
               <div className="divide-y divide-[var(--border-subtle)]">
-                {jobs.map(job => (
+                {jobs.map((job) => (
                   <JobRow
                     key={job.id}
                     job={job}
                     isExpanded={expandedJob === job.id}
-                    onToggleExpand={() => setExpandedJob(expandedJob === job.id ? null : job.id)}
+                    onToggleExpand={() =>
+                      setExpandedJob(expandedJob === job.id ? null : job.id)
+                    }
                     onToggle={() => handleToggle(job)}
                     onRun={() => handleRun(job)}
                     onDelete={() => handleDelete(job)}
@@ -431,23 +496,41 @@ export function CronPage() {
               <div className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
                 <div className="flex items-center px-5 py-2.5 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)] text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">
                   最近执行记录
-                  <span className="ml-auto font-normal normal-case tracking-normal">{runs.length}</span>
+                  <span className="ml-auto font-normal normal-case tracking-normal">
+                    {runs.length}
+                  </span>
                 </div>
                 <div className="divide-y divide-[var(--border-subtle)]">
                   {runs.slice(0, 20).map((r, i) => (
-                    <div key={`${r.jobId}-${r.startedAtMs}-${i}`} className="flex items-center gap-3 px-5 py-2.5 hover:bg-[var(--surface-muted)] transition-colors">
-                      <span className="flex-1 text-sm text-[var(--text)]">{r.jobName}</span>
-                      <span className="w-[160px] shrink-0 text-xs text-[var(--text-faint)] font-mono">{formatMs(r.startedAtMs)}</span>
-                      <span className={cn(
-                        'w-[70px] shrink-0 text-xs font-medium',
-                        r.status === 'ok' ? 'text-[var(--success)]' :
-                        r.status === 'error' ? 'text-[var(--danger)]' :
-                        'text-[var(--text-faint)]',
-                      )}>
+                    <div
+                      key={`${r.jobId}-${r.startedAtMs}-${i}`}
+                      className="flex items-center gap-3 px-5 py-2.5 hover:bg-[var(--surface-muted)] transition-colors"
+                    >
+                      <span className="flex-1 text-sm text-[var(--text)]">
+                        {r.jobName}
+                      </span>
+                      <span className="w-[160px] shrink-0 text-xs text-[var(--text-faint)] font-mono">
+                        {formatMs(r.startedAtMs)}
+                      </span>
+                      <span
+                        className={cn(
+                          'w-[70px] shrink-0 text-xs font-medium',
+                          r.status === 'ok'
+                            ? 'text-[var(--success)]'
+                            : r.status === 'error'
+                              ? 'text-[var(--danger)]'
+                              : 'text-[var(--text-faint)]',
+                        )}
+                      >
                         {r.status ?? '—'}
                       </span>
                       {r.error && (
-                        <span className="w-[200px] shrink-0 text-xs text-[var(--danger)] truncate" title={r.error}>{r.error}</span>
+                        <span
+                          className="w-[200px] shrink-0 text-xs text-[var(--danger)] truncate"
+                          title={r.error}
+                        >
+                          {r.error}
+                        </span>
                       )}
                     </div>
                   ))}
@@ -463,7 +546,11 @@ export function CronPage() {
         <CreateEditModal onClose={() => setShowCreate(false)} onSaved={load} />
       )}
       {editJob && (
-        <CreateEditModal job={editJob} onClose={() => setEditJob(null)} onSaved={load} />
+        <CreateEditModal
+          job={editJob}
+          onClose={() => setEditJob(null)}
+          onSaved={load}
+        />
       )}
     </div>
   )
@@ -486,31 +573,57 @@ interface JobRowProps {
   deleting: boolean
 }
 
-function JobRow({ job, isExpanded, onToggleExpand, onToggle, onRun, onDelete, onEdit, toggling, running, deleting }: JobRowProps) {
-  const statusColor = job.enabled ? 'text-[var(--success)]' : 'text-[var(--text-faint)]'
+function JobRow({
+  job,
+  isExpanded,
+  onToggleExpand,
+  onToggle,
+  onRun,
+  onDelete,
+  onEdit,
+  toggling,
+  running,
+  deleting,
+}: JobRowProps) {
+  const statusColor = job.enabled
+    ? 'text-[var(--success)]'
+    : 'text-[var(--text-faint)]'
 
   return (
     <>
       <div className="flex items-center gap-3 px-5 py-2.5 hover:bg-[var(--surface-muted)] transition-colors group">
-        <button onClick={onToggleExpand} className="shrink-0 text-[var(--text-faint)] hover:text-[var(--text)] transition-colors">
+        <button
+          onClick={onToggleExpand}
+          className="shrink-0 text-[var(--text-faint)] hover:text-[var(--text)] transition-colors"
+        >
           {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </button>
         <button onClick={onEdit} className="flex-1 text-left min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-[var(--text)]">{job.name}</span>
-            <span className={cn('text-xs', statusColor)}>{job.enabled ? '运行中' : '已禁用'}</span>
+            <span className="text-sm font-medium text-[var(--text)]">
+              {job.name}
+            </span>
+            <span className={cn('text-xs', statusColor)}>
+              {job.enabled ? '运行中' : '已禁用'}
+            </span>
           </div>
         </button>
-        <span className="w-[120px] shrink-0 text-xs text-[var(--text-faint)] font-mono">{scheduleLabel(job)}</span>
+        <span className="w-[120px] shrink-0 text-xs text-[var(--text-faint)] font-mono">
+          {scheduleLabel(job)}
+        </span>
         <span className="w-[140px] shrink-0 text-xs text-[var(--text-faint)] font-mono">
           {job.state.nextRunAtMs ? formatMs(job.state.nextRunAtMs) : '—'}
         </span>
-        <span className={cn(
-          'w-[100px] shrink-0 text-xs font-medium',
-          job.state.lastStatus === 'ok' ? 'text-[var(--success)]' :
-          job.state.lastStatus === 'error' ? 'text-[var(--danger)]' :
-          'text-[var(--text-faint)]',
-        )}>
+        <span
+          className={cn(
+            'w-[100px] shrink-0 text-xs font-medium',
+            job.state.lastStatus === 'ok'
+              ? 'text-[var(--success)]'
+              : job.state.lastStatus === 'error'
+                ? 'text-[var(--danger)]'
+                : 'text-[var(--text-faint)]',
+          )}
+        >
           {job.state.lastStatus ?? '—'}
         </span>
         <div className="w-[140px] shrink-0 flex items-center gap-1">
@@ -520,8 +633,13 @@ function JobRow({ job, isExpanded, onToggleExpand, onToggle, onRun, onDelete, on
             title={job.enabled ? '禁用' : '启用'}
             className="p-1.5 rounded-md text-[var(--text-faint)] hover:text-[var(--text)] hover:bg-[var(--surface-muted)] transition-colors disabled:opacity-40"
           >
-            {toggling ? <Loader2 size={14} className="animate-spin" /> :
-             job.enabled ? <Pause size={14} /> : <Play size={14} />}
+            {toggling ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : job.enabled ? (
+              <Pause size={14} />
+            ) : (
+              <Play size={14} />
+            )}
           </button>
           <button
             onClick={onRun}
@@ -529,7 +647,11 @@ function JobRow({ job, isExpanded, onToggleExpand, onToggle, onRun, onDelete, on
             title="立即执行"
             className="p-1.5 rounded-md text-[var(--text-faint)] hover:text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors disabled:opacity-40"
           >
-            {running ? <Loader2 size={14} className="animate-spin" /> : <Power size={14} />}
+            {running ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Power size={14} />
+            )}
           </button>
           <button
             onClick={onDelete}
@@ -537,18 +659,32 @@ function JobRow({ job, isExpanded, onToggleExpand, onToggle, onRun, onDelete, on
             title="删除"
             className="p-1.5 rounded-md text-[var(--text-faint)] hover:text-[var(--danger)] hover:bg-[var(--surface-muted)] transition-colors disabled:opacity-40"
           >
-            {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+            {deleting ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Trash2 size={14} />
+            )}
           </button>
         </div>
       </div>
       {/* Expanded detail */}
       {isExpanded && (
         <div className="px-10 py-3 bg-[var(--surface-muted)] text-xs text-[var(--text-muted)] flex flex-col gap-1 border-b border-[var(--border-subtle)]">
-          <div><span className="text-[var(--text-faint)]">ID:</span> {job.id}</div>
-          <div><span className="text-[var(--text-faint)]">创建于：</span> {formatMs(job.createdAtMs)}</div>
-          <div><span className="text-[var(--text-faint)]">消息：</span> {job.payload.message || '（空）'}</div>
+          <div>
+            <span className="text-[var(--text-faint)]">ID:</span> {job.id}
+          </div>
+          <div>
+            <span className="text-[var(--text-faint)]">创建于：</span>{' '}
+            {formatMs(job.createdAtMs)}
+          </div>
+          <div>
+            <span className="text-[var(--text-faint)]">消息：</span>{' '}
+            {job.payload.message || '（空）'}
+          </div>
           {job.state.lastError && (
-            <div className="text-[var(--danger)]">最后错误： {job.state.lastError}</div>
+            <div className="text-[var(--danger)]">
+              最后错误： {job.state.lastError}
+            </div>
           )}
         </div>
       )}
