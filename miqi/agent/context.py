@@ -10,6 +10,44 @@ from typing import Any
 from miqi.agent.memory import MemoryStore
 from miqi.agent.skills import SkillsLoader
 
+# ── Tool usage guidance injected into the system prompt ─────────────────
+
+MEMORY_GUIDANCE = """
+## Memory Tool Guidance
+Use the `memory` tool to save durable facts proactively — do not wait for the user to ask.
+
+Save to `memory` target:
+- Project conventions, build commands, architecture decisions
+- Environment facts (OS, key paths, tool versions)
+- Recurring patterns you observe
+
+Save to `user` target:
+- User's name, role, communication preferences
+- Things the user repeatedly corrects you on
+- User's preferred output format or verbosity
+
+Do NOT save: task progress, ephemeral file contents, one-time results.
+Write facts as declarative bullets: `- The project uses uv for dependency management`
+""".strip()
+
+SKILLS_GUIDANCE = """
+## Skill Management Guidance
+After completing any task that required 5+ tool calls, ask yourself: could this workflow
+be useful again? If yes, save it as a skill using `skill_manage(action='create')`.
+
+If you use a skill and find it outdated or incorrect, patch it immediately with
+`skill_manage(action='patch')` — do not wait for the user to report the problem.
+
+Skills should contain: goal, preconditions, step-by-step procedure, expected output.
+""".strip()
+
+SESSION_SEARCH_GUIDANCE = """
+## Session Search Guidance
+Before asking the user to repeat something, use `session_search` to check if it was
+discussed in a previous session. Use it proactively when the user references a past
+task, project, or decision you don't have in current context.
+""".strip()
+
 
 class ContextBuilder:
     """
@@ -56,6 +94,10 @@ class ContextBuilder:
         bootstrap = self._load_bootstrap_files()
         if bootstrap:
             parts.append(bootstrap)
+
+        # Tool usage guidance (injected before memory context)
+        guidance_parts = [MEMORY_GUIDANCE, SKILLS_GUIDANCE, SESSION_SEARCH_GUIDANCE]
+        parts.append("\n\n".join(guidance_parts))
 
         # Memory context
         memory = self.memory.get_memory_context(
