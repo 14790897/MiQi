@@ -28,6 +28,8 @@ _PARALLEL_SAFE_TOOLS: frozenset[str] = frozenset({
     "web_fetch",
     "paper_search",
     "paper_get",
+    "session_search",   # read-only FTS5 search
+    "skill_manage",     # list/view are read-only; create/patch/archive have side effects but are safe
 })
 
 # File tools with path arguments — safe in parallel when paths don't overlap
