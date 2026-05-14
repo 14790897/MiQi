@@ -35,6 +35,7 @@ _PATH_SCOPED_TOOLS: frozenset[str] = frozenset({
     "write_file",
     "edit_file",
     "read_file",
+    "memory",  # writes to workspace/memory/MEMORY.md or USER.md
 })
 
 # Tools that must NEVER run in parallel (ordering/state matters)
