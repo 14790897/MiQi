@@ -10,6 +10,8 @@ import type {
   ApprovalRequest,
   ApprovalCleared,
   ApprovalsListResult,
+  ApprovalsAddPermanentResult,
+  ApprovalsHistoryResult,
   CronJob,
   CronListResult,
   CronCreateResult,
@@ -146,6 +148,10 @@ const api = {
       ipcRenderer.invoke(IPC.APPROVALS_RESOLVE, { approval_id: approvalId, decision }),
     clearPermanent: (pattern?: string): Promise<{ cleared: boolean }> =>
       ipcRenderer.invoke(IPC.APPROVALS_CLEAR_PERMANENT, pattern ? { pattern } : {}),
+    addPermanent: (pattern: string): Promise<ApprovalsAddPermanentResult> =>
+      ipcRenderer.invoke(IPC.APPROVALS_ADD_PERMANENT, { pattern }),
+    history: (limit?: number): Promise<ApprovalsHistoryResult> =>
+      ipcRenderer.invoke(IPC.APPROVALS_HISTORY, limit ? { limit } : {}),
     onRequest: (callback: (data: ApprovalRequest) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: ApprovalRequest) => callback(data)
       ipcRenderer.on(IPC_EVENTS.APPROVAL_REQUEST, handler)

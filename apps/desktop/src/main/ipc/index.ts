@@ -232,6 +232,16 @@ for m in ("pydantic", "httpx", "loguru"):
     return bridge.send('approvals.clear_permanent', p as Record<string, unknown>)
   })
 
+  ipcMain.handle('approvals:add_permanent', async (_event, payload: unknown) => {
+    const p = payload as { pattern: string }
+    return bridge.send('approvals.add_permanent', p as Record<string, unknown>)
+  })
+
+  ipcMain.handle('approvals:history', async (_event, payload: unknown) => {
+    const p = (payload ?? {}) as { limit?: number }
+    return bridge.send('approvals.history', p as Record<string, unknown>)
+  })
+
   // -----------------------------------------------------------------------
   // Cron
   // -----------------------------------------------------------------------

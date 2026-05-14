@@ -98,6 +98,7 @@ class BridgeState:
         self._terminated: set[str] = set()
         self._pending_approvals: dict[str, threading.Event] = {}
         self._approval_decisions: dict[str, str] = {}
+        self._approval_meta: dict[str, dict] = {}
 
     def load_config(self):
         from miqi.config.loader import load_config
@@ -184,17 +185,21 @@ class BridgeState:
             self._terminated.add(req_id)
             return True
 
-    def register_approval(self, approval_id: str) -> threading.Event:
+    def register_approval(self, approval_id: str, meta: dict | None = None) -> threading.Event:
         """Create and store an event for a pending approval. Returns the event."""
         evt = threading.Event()
         with self._lock:
             self._pending_approvals[approval_id] = evt
+            if meta:
+                meta["created_at"] = time.time()
+                self._approval_meta[approval_id] = meta
         return evt
 
     def resolve_approval(self, approval_id: str, decision: str) -> bool:
         """Set the decision and unblock the waiting callback. Returns True if found."""
         with self._lock:
             evt = self._pending_approvals.pop(approval_id, None)
+            self._approval_meta.pop(approval_id, None)
             if evt is None:
                 return False
             self._approval_decisions[approval_id] = decision
@@ -209,6 +214,24 @@ class BridgeState:
     def list_pending_approval_ids(self) -> list[str]:
         with self._lock:
             return list(self._pending_approvals.keys())
+
+    def list_pending_approvals(self) -> list[dict]:
+        """Return pending approvals with metadata for display."""
+        import time as _time
+        now = _time.time()
+        result: list[dict] = []
+        with self._lock:
+            for aid in list(self._pending_approvals.keys()):
+                meta = self._approval_meta.get(aid, {})
+                result.append({
+                    "approval_id": aid,
+                    "command": meta.get("command", ""),
+                    "description": meta.get("description", ""),
+                    "allow_permanent": meta.get("allow_permanent", True),
+                    "created_at": meta.get("created_at", now),
+                    "age_seconds": now - meta.get("created_at", now),
+                })
+        return result
 
 
 _state = BridgeState()
@@ -242,7 +265,11 @@ def handle_chat_send(req_id: str, params: dict) -> None:
                 if not approval_enabled:
                     return "once"
                 approval_id = str(uuid.uuid4())
-                evt = _state.register_approval(approval_id)
+                evt = _state.register_approval(approval_id, {
+                    "command": command,
+                    "description": description,
+                    "allow_permanent": allow_permanent,
+                })
                 _event(req_id, "approval_request", {
                     "approval_id": approval_id,
                     "command": command,
@@ -506,12 +533,25 @@ def handle_channels_update(req_id: str, params: dict) -> None:
 
 
 def handle_approvals_list(req_id: str, params: dict) -> None:
-    from miqi.agent.command_approval import get_permanent_allowlist
+    from miqi.agent.command_approval import (
+        get_permanent_allowlist, get_permanent_allowlist_meta,
+    )
     config = _state.load_config()
-    pending_ids = _state.list_pending_approval_ids()
+    pending = _state.list_pending_approvals()
+    permanent_patterns = sorted(get_permanent_allowlist())
+    permanent_meta = get_permanent_allowlist_meta()
+    permanent_entries = [
+        {
+            "pattern": p,
+            "added_at": permanent_meta.get(p, 0),
+        }
+        for p in permanent_patterns
+    ]
     _result(req_id, {
-        "pending_ids": pending_ids,
-        "permanent_allowlist": sorted(get_permanent_allowlist()),
+        "pending": pending,
+        "pending_ids": [p["approval_id"] for p in pending],
+        "permanent_allowlist": permanent_patterns,
+        "permanent_entries": permanent_entries,
         "enabled": config.agents.command_approval.enabled,
         "timeout": config.agents.command_approval.timeout,
     })
@@ -528,14 +568,38 @@ def handle_approvals_resolve(req_id: str, params: dict) -> None:
 
 
 def handle_approvals_clear_permanent(req_id: str, params: dict) -> None:
-    from miqi.agent.command_approval import _lock, _permanent_approved
+    from miqi.agent.command_approval import (
+        _lock, _permanent_approved, _permanent_added_at,
+    )
     pattern = params.get("pattern")
     with _lock:
         if pattern:
             _permanent_approved.discard(pattern)
+            _permanent_added_at.pop(pattern, None)
         else:
             _permanent_approved.clear()
+            _permanent_added_at.clear()
     _result(req_id, {"cleared": True})
+
+
+def handle_approvals_add_permanent(req_id: str, params: dict) -> None:
+    from miqi.agent.command_approval import (
+        approve_permanent, _save_permanent_allowlist,
+    )
+    pattern = params.get("pattern", "").strip()
+    if not pattern:
+        _error(req_id, "pattern is required")
+        return
+    approve_permanent(pattern)
+    _save_permanent_allowlist()
+    _result(req_id, {"added": True, "pattern": pattern})
+
+
+def handle_approvals_history(req_id: str, params: dict) -> None:
+    from miqi.agent.command_approval import get_approval_history
+    limit = params.get("limit", 200)
+    history = get_approval_history(limit)
+    _result(req_id, {"history": history})
 
 
 # ---------------------------------------------------------------------------
@@ -1271,6 +1335,8 @@ _METHODS = {
     "approvals.list": handle_approvals_list,
     "approvals.resolve": handle_approvals_resolve,
     "approvals.clear_permanent": handle_approvals_clear_permanent,
+    "approvals.add_permanent": handle_approvals_add_permanent,
+    "approvals.history": handle_approvals_history,
     "cron.list": handle_cron_list,
     "cron.create": handle_cron_create,
     "cron.update": handle_cron_update,
