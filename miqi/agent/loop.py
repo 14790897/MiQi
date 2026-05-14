@@ -465,6 +465,9 @@ class AgentLoop:
 
         return work
 
+    # File-operation tool names whose first string argument should NOT be truncated.
+    _FILE_OPS = frozenset({"write_file", "edit_file", "delete_file", "read_file"})
+
     @staticmethod
     def _tool_hint(tool_calls: list) -> str:
         """Format tool calls as concise hint, e.g. 'web_search("query")'."""
@@ -472,6 +475,9 @@ class AgentLoop:
             val = next(iter(tc.arguments.values()), None) if tc.arguments else None
             if not isinstance(val, str):
                 return tc.name
+            # File operations → always show full path so the Task Assets panel works
+            if tc.name in AgentLoop._FILE_OPS:
+                return f'{tc.name}("{val}")'
             return f'{tc.name}("{val[:40]}…")' if len(val) > 40 else f'{tc.name}("{val}")'
         return ", ".join(_fmt(tc) for tc in tool_calls)
 
