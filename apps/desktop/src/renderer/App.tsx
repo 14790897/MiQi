@@ -182,7 +182,7 @@ function AppShell() {
             style={{ background: 'var(--background)' }}
           >
             {/* Dark top bar */}
-            <TopBar />
+            {/* <TopBar /> */}
 
             {/* Body row */}
             <div className="flex flex-1 overflow-hidden">

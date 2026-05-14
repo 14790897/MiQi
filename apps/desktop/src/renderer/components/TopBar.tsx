@@ -34,30 +34,6 @@ export function TopBar() {
 
       {/* Center: status pills */}
       <div className="flex items-center gap-2">
-        {/* Cloud node */}
-        <div
-          className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium"
-          style={{
-            background: 'rgba(255,255,255,0.08)',
-            color: 'rgba(255,255,255,0.6)',
-          }}
-        >
-          <Cloud size={11} />
-          <span>CLOUD NODE</span>
-        </div>
-
-        {/* Admin / runtime */}
-        <div
-          className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium"
-          style={{
-            background: 'rgba(255,255,255,0.08)',
-            color: 'rgba(255,255,255,0.6)',
-          }}
-        >
-          <ShieldCheck size={11} />
-          <span>ADMIN ACCESS</span>
-        </div>
-
         {/* Sync state */}
         <div
           className={cn(
@@ -67,13 +43,9 @@ export function TopBar() {
             background: isRunning
               ? 'rgba(45, 122, 74, 0.3)'
               : isStarting
-              ? 'rgba(180, 120, 20, 0.3)'
-              : 'rgba(180, 60, 60, 0.3)',
-            color: isRunning
-              ? '#6ee09a'
-              : isStarting
-              ? '#f0c060'
-              : '#f08080',
+                ? 'rgba(180, 120, 20, 0.3)'
+                : 'rgba(180, 60, 60, 0.3)',
+            color: isRunning ? '#6ee09a' : isStarting ? '#f0c060' : '#f08080',
           }}
         >
           {isStarting ? (
@@ -90,16 +62,25 @@ export function TopBar() {
       {/* Right: user avatar */}
       <div className="flex items-center gap-2">
         <div className="text-right hidden sm:block">
-          <div className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.75)' }}>
+          <div
+            className="text-xs font-medium"
+            style={{ color: 'rgba(255,255,255,0.75)' }}
+          >
             MiQi Agent
           </div>
-          <div className="text-[10px]" style={{ color: 'rgba(255,255,255,0.4)' }}>
+          <div
+            className="text-[10px]"
+            style={{ color: 'rgba(255,255,255,0.4)' }}
+          >
             Core Agent
           </div>
         </div>
         <div
           className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold"
-          style={{ background: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.8)' }}
+          style={{
+            background: 'rgba(255,255,255,0.15)',
+            color: 'rgba(255,255,255,0.8)',
+          }}
         >
           M
         </div>

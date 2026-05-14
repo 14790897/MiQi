@@ -127,8 +127,10 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
   const rank: Record<TrackedFile['op'], number> = { read: 0, edit: 1, write: 2, delete: 3 }
 
   for (const msg of rawMsgs) {
-    if (msg._tool_hint && msg.content) {
-      const parsed = parseToolHint(msg.content)
+    // Prefer _tool_hint_text (full path, from persisted session) over content (may be truncated)
+    const hintText = msg._tool_hint_text || msg.content
+    if (msg._tool_hint && hintText) {
+      const parsed = parseToolHint(hintText)
       if (parsed) {
         const key = parsed.path
         const existing = fileMap.get(key)

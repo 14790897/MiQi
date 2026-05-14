@@ -600,6 +600,13 @@ class AgentLoop:
                     messages, response.content, tool_call_dicts,
                     reasoning_content=response.reasoning_content,
                 )
+                # Inject formatted tool hint into the assistant message so it
+                # gets persisted to session history and the frontend can display
+                # full (non-truncated) file paths in the Task Assets panel.
+                if messages[-1].get("tool_calls"):
+                    hint_text = self._tool_hint(response.tool_calls)
+                    messages[-1]["_tool_hint"] = True
+                    messages[-1]["_tool_hint_text"] = hint_text
 
                 # Build flat dicts for the registry dispatch helpers
                 _tc_dicts = [
