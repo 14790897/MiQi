@@ -275,6 +275,14 @@ class AgentLoop:
             }
         )
 
+        # ── Nudge counters (periodic memory/skill save reminders) ─────────
+        self._memory_nudge_counter: int = 0
+        self._skill_nudge_counter: int = 0
+        self._memory_nudge_pending: bool = False
+        self._skill_nudge_pending: bool = False
+        self._memory_nudge_interval: int = self.self_improvement_config.memory_nudge_interval
+        self._skill_nudge_interval: int = self.self_improvement_config.skill_nudge_interval
+
         # Context compressor (5-phase LLM compression when context grows large)
         self._enable_compression = enable_context_compression
         self._compression_threshold_chars = compression_threshold_chars
@@ -1068,6 +1076,20 @@ class AgentLoop:
             channel=msg.channel, chat_id=msg.chat_id,
         )
 
+        # Inject pending nudges as system messages before the LLM call
+        if getattr(self, '_memory_nudge_pending', False):
+            initial_messages = initial_messages + [
+                {"role": "system", "content": "Reminder: if you learned anything durable this session "
+                 "(project conventions, user preferences, environment facts), save it now using the memory tool."}
+            ]
+            self._memory_nudge_pending = False
+        if getattr(self, '_skill_nudge_pending', False):
+            initial_messages = initial_messages + [
+                {"role": "system", "content": "Reminder: if you completed a complex workflow (5+ steps) "
+                 "this session, consider saving it as a reusable skill using skill_manage(action='create')."}
+            ]
+            self._skill_nudge_pending = False
+
         _chat_type = (msg.metadata or {}).get("chat_type", "")
         _mention_prefix = ""
         if _chat_type == "group" and msg.sender_id:
@@ -1115,6 +1137,16 @@ class AgentLoop:
             actor_key=msg.sender_id,
         )
         self.memory.flush_if_needed()
+
+        # Increment nudge counters at end of turn; set pending flag when threshold reached
+        self._memory_nudge_counter += 1
+        self._skill_nudge_counter += 1
+        if self._memory_nudge_counter >= self._memory_nudge_interval:
+            self._memory_nudge_counter = 0
+            self._memory_nudge_pending = True
+        if self._skill_nudge_counter >= self._skill_nudge_interval:
+            self._skill_nudge_counter = 0
+            self._skill_nudge_pending = True
 
         self._save_turn(session, all_msgs, 1 + len(history))
         # Persist the final assistant response — it is returned as final_content

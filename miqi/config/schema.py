@@ -244,6 +244,11 @@ class AgentSelfImprovementConfig(Base):
     min_lesson_confidence: int = 1
     max_lessons: int = 200
     lesson_confidence_decay_hours: int = 168
+    lesson_stale_days: int = 30
+    lesson_archive_days: int = 90
+    curator_enabled: bool = True
+    curator_interval_days: int = 7
+    curator_threshold: int = 150
     feedback_max_message_chars: int = 220
     feedback_require_prefix: bool = True
     promotion_enabled: bool = True
@@ -251,6 +256,8 @@ class AgentSelfImprovementConfig(Base):
     promotion_triggers: list[str] = Field(
         default_factory=lambda: ["response:length", "response:language"]
     )
+    memory_nudge_interval: int = 8   # inject memory nudge every N turns
+    skill_nudge_interval: int = 10   # inject skill nudge every N turns
 
 
 class AgentsConfig(Base):
