@@ -404,7 +404,7 @@ export function ChatConsole({
               ))}
             </div>
           )}
-          <div className="flex items-end gap-2 bg-[var(--surface)] border border-[var(--border)] rounded-xl px-4 py-3 focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent)]/20 transition-all">
+          <div className="flex items-center gap-2 bg-[var(--surface)] border border-[var(--border)] rounded-xl px-4 py-3 focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent)]/20 transition-all">
             <Button
               size="icon"
               variant="ghost"
@@ -420,7 +420,7 @@ export function ChatConsole({
               onKeyDown={handleKeyDown}
               placeholder="输入消息…"
               rows={1}
-              className="flex-1 border-0 bg-transparent p-0 focus:ring-0 focus:border-0 min-h-0 resize-none"
+              className="flex-1 border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 resize-none"
               disabled={streaming}
             />
             {streaming ? (
