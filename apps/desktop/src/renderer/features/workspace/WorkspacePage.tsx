@@ -9,7 +9,6 @@ import {
   ChevronDown,
   Save,
   AlertCircle,
-  Plus,
   FilePlus,
   FolderPlus,
   Trash2,
@@ -18,6 +17,7 @@ import {
   Check,
   RefreshCw,
 } from 'lucide-react'
+import { ContextMenu } from '../../components/ContextMenu'
 import type { FileNode } from '../../../shared/ipc'
 
 // ---------------------------------------------------------------------------
@@ -502,47 +502,59 @@ function FileTree({
     const children = node.children ?? []
     return (
       <div>
-        <div className="group flex items-center gap-0.5">
-          <button
-            onClick={() => setOpen(!open)}
-            className="flex items-center gap-1.5 flex-1 text-left px-1.5 py-1 rounded-md text-xs text-[var(--text-muted)] hover:bg-[var(--surface-muted)] transition-colors"
-          >
-            {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            <Folder size={12} />
-            <span className="truncate font-medium">{node.name}</span>
-          </button>
-          {/* Action buttons on hover */}
-          <div className="hidden group-hover:flex items-center gap-0.5 pr-1 shrink-0">
-            <button
-              onClick={(e) => { e.stopPropagation(); onNewFile(node.path) }}
-              className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--accent)] hover:bg-[var(--surface-muted)] transition-colors"
-              title="新建文件"
-            >
-              <FilePlus size={11} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onNewFolder(node.path) }}
-              className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--accent)] hover:bg-[var(--surface-muted)] transition-colors"
-              title="新建文件夹"
-            >
-              <FolderPlus size={11} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onRename(node.path, node.name) }}
-              className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--info)] hover:bg-[var(--surface-muted)] transition-colors"
-              title="重命名"
-            >
-              <Pencil size={11} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(node.path, true) }}
-              className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--danger)] hover:bg-[var(--surface-muted)] transition-colors"
-              title="删除"
-            >
-              <Trash2 size={11} />
-            </button>
-          </div>
-        </div>
+        <ContextMenu
+          items={[
+            { label: '新建文件', onSelect: () => onNewFile(node.path) },
+            { label: '新建文件夹', onSelect: () => onNewFolder(node.path) },
+            { label: '重命名', divider: true, onSelect: () => onRename(node.path, node.name) },
+            { label: '复制路径', onSelect: () => navigator.clipboard.writeText(node.path) },
+            { label: '删除', danger: true, divider: true, onSelect: () => onDelete(node.path, true) },
+          ]}
+        >
+          {({ onContextMenu }) => (
+            <div className="group flex items-center gap-0.5" onContextMenu={onContextMenu}>
+              <button
+                onClick={() => setOpen(!open)}
+                className="flex items-center gap-1.5 flex-1 text-left px-1.5 py-1 rounded-md text-xs text-[var(--text-muted)] hover:bg-[var(--surface-muted)] transition-colors"
+              >
+                {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                <Folder size={12} />
+                <span className="truncate font-medium">{node.name}</span>
+              </button>
+              {/* Action buttons on hover */}
+              <div className="hidden group-hover:flex items-center gap-0.5 pr-1 shrink-0">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onNewFile(node.path) }}
+                  className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--accent)] hover:bg-[var(--surface-muted)] transition-colors"
+                  title="新建文件"
+                >
+                  <FilePlus size={11} />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onNewFolder(node.path) }}
+                  className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--accent)] hover:bg-[var(--surface-muted)] transition-colors"
+                  title="新建文件夹"
+                >
+                  <FolderPlus size={11} />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRename(node.path, node.name) }}
+                  className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--info)] hover:bg-[var(--surface-muted)] transition-colors"
+                  title="重命名"
+                >
+                  <Pencil size={11} />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDelete(node.path, true) }}
+                  className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--danger)] hover:bg-[var(--surface-muted)] transition-colors"
+                  title="删除"
+                >
+                  <Trash2 size={11} />
+                </button>
+              </div>
+            </div>
+          )}
+        </ContextMenu>
         {open && children.length > 0 && (
           <div className="ml-3 border-l border-[var(--border-subtle)] pl-1.5">
             {children.map((child) => (
@@ -569,35 +581,46 @@ function FileTree({
 
   const isSelected = selectedPath === node.path
   return (
-    <div className="group flex items-center gap-0.5">
-      <button
-        onClick={() => onSelect(node.path)}
-        className={`flex items-center gap-1.5 flex-1 text-left px-1.5 py-1 rounded-md text-xs transition-colors ${
-          isSelected
-            ? 'bg-[var(--accent-soft)] text-[var(--accent)] font-medium'
-            : 'text-[var(--text)] hover:bg-[var(--surface-muted)]'
-        }`}
-      >
-        <FileText size={12} className="shrink-0" />
-        <span className="truncate">{node.name}</span>
-      </button>
-      {/* Action buttons on hover */}
-      <div className="hidden group-hover:flex items-center gap-0.5 pr-1 shrink-0">
-        <button
-          onClick={(e) => { e.stopPropagation(); onRename(node.path, node.name) }}
-          className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--info)] hover:bg-[var(--surface-muted)] transition-colors"
-          title="重命名"
-        >
-          <Pencil size={11} />
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(node.path, false) }}
-          className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--danger)] hover:bg-[var(--surface-muted)] transition-colors"
-          title="删除"
-        >
-          <Trash2 size={11} />
-        </button>
-      </div>
-    </div>
+    <ContextMenu
+      items={[
+        { label: '打开文件', onSelect: () => onSelect(node.path) },
+        { label: '重命名', divider: true, onSelect: () => onRename(node.path, node.name) },
+        { label: '复制路径', onSelect: () => navigator.clipboard.writeText(node.path) },
+        { label: '删除', danger: true, divider: true, onSelect: () => onDelete(node.path, false) },
+      ]}
+    >
+      {({ onContextMenu }) => (
+        <div className="group flex items-center gap-0.5" onContextMenu={onContextMenu}>
+          <button
+            onClick={() => onSelect(node.path)}
+            className={`flex items-center gap-1.5 flex-1 text-left px-1.5 py-1 rounded-md text-xs transition-colors ${
+              isSelected
+                ? 'bg-[var(--accent-soft)] text-[var(--accent)] font-medium'
+                : 'text-[var(--text)] hover:bg-[var(--surface-muted)]'
+            }`}
+          >
+            <FileText size={12} className="shrink-0" />
+            <span className="truncate">{node.name}</span>
+          </button>
+          {/* Action buttons on hover */}
+          <div className="hidden group-hover:flex items-center gap-0.5 pr-1 shrink-0">
+            <button
+              onClick={(e) => { e.stopPropagation(); onRename(node.path, node.name) }}
+              className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--info)] hover:bg-[var(--surface-muted)] transition-colors"
+              title="重命名"
+            >
+              <Pencil size={11} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(node.path, false) }}
+              className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--danger)] hover:bg-[var(--surface-muted)] transition-colors"
+              title="删除"
+            >
+              <Trash2 size={11} />
+            </button>
+          </div>
+        </div>
+      )}
+    </ContextMenu>
   )
 }

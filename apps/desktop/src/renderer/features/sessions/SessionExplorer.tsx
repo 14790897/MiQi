@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button } from '../../components/ui/Button'
 import { ScrollArea } from '../../components/ui/ScrollArea'
+import { ContextMenu } from '../../components/ContextMenu'
 import { cn } from '../../lib/utils'
 import {
   MessageSquare,
@@ -85,33 +86,44 @@ export function SessionExplorer({ onOpenSession, refreshKey }: { onOpenSession: 
           ) : (
             <div className="flex flex-col">
               {sessions.map((s) => (
-                <button
+                <ContextMenu
                   key={s.key}
-                  onClick={() => loadDetail(s.key)}
-                  className={cn(
-                    'flex items-start gap-3 px-4 py-3 text-left transition-colors border-b border-[var(--border-subtle)]',
-                    selected === s.key
-                      ? 'bg-[var(--accent-soft)]/50'
-                      : 'hover:bg-[var(--surface-muted)]',
-                  )}
+                  items={[
+                    { label: '打开会话', onSelect: () => { loadDetail(s.key); onOpenSession?.(s.key) } },
+                    { label: '复制 session key', onSelect: () => navigator.clipboard.writeText(s.key) },
+                    { label: '删除会话', danger: true, divider: true, onSelect: () => handleDelete(s.key) },
+                  ]}
                 >
-                  <MessageSquare size={16} className="text-[var(--text-muted)] shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-[var(--text)] truncate">{s.key}</div>
-                    {s.updated_at && (
-                      <div className="flex items-center gap-1 text-xs text-[var(--text-faint)] mt-0.5">
-                        <Clock size={10} />
-                        {formatTime(s.updated_at)}
+                  {({ onContextMenu }) => (
+                    <button
+                      onClick={() => loadDetail(s.key)}
+                      onContextMenu={onContextMenu}
+                      className={cn(
+                        'flex items-start gap-3 px-4 py-3 text-left transition-colors border-b border-[var(--border-subtle)] w-full',
+                        selected === s.key
+                          ? 'bg-[var(--accent-soft)]/50'
+                          : 'hover:bg-[var(--surface-muted)]',
+                      )}
+                    >
+                      <MessageSquare size={16} className="text-[var(--text-muted)] shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-[var(--text)] truncate">{s.key}</div>
+                        {s.updated_at && (
+                          <div className="flex items-center gap-1 text-xs text-[var(--text-faint)] mt-0.5">
+                            <Clock size={10} />
+                            {formatTime(s.updated_at)}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleDelete(s.key) }}
-                    className="text-[var(--text-faint)] hover:text-[var(--danger)] transition-colors shrink-0"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDelete(s.key) }}
+                        className="text-[var(--text-faint)] hover:text-[var(--danger)] transition-colors shrink-0"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </button>
+                  )}
+                </ContextMenu>
               ))}
             </div>
           )}
