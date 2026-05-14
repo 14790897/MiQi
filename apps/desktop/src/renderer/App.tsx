@@ -5,7 +5,6 @@ import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
 import { SetupWizard } from './features/setup/SetupWizard'
 import { ChatConsole } from './features/chat/ChatConsole'
-import { SessionExplorer } from './features/sessions/SessionExplorer'
 import { SettingsPage } from './features/settings/SettingsPage'
 import { ProvidersPage } from './features/providers/ProvidersPage'
 import { ChannelsPage } from './features/channels/ChannelsPage'
@@ -18,7 +17,7 @@ import { MemoryPage } from './features/memory/MemoryPage'
 import { SkillsPage } from './features/skills/SkillsPage'
 import { WorkspacePage } from './features/workspace/WorkspacePage'
 
-type NavId = 'chat' | 'sessions' | 'providers' | 'channels' | 'approvals' | 'cron' | 'memory' | 'skills' | 'workspace' | 'settings'
+type NavId = 'chat' | 'providers' | 'channels' | 'approvals' | 'cron' | 'memory' | 'skills' | 'workspace' | 'settings'
 
 const PRELOAD_OK = typeof window !== 'undefined' && !!(window as any).miqi
 
@@ -141,14 +140,6 @@ function AppShell() {
                     onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
                   />
                 </div>
-                {activeNav === 'sessions' && (
-                  <SessionExplorer
-                    refreshKey={sessionRefreshKey}
-                    onOpenSession={(_key) => {
-                      setActiveNav('chat')
-                    }}
-                  />
-                )}
                 {activeNav === 'providers' && <ProvidersPage />}
                 {activeNav === 'channels' && <ChannelsPage />}
                 {activeNav === 'approvals' && <ApprovalsPage />}

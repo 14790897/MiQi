@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Integrated session list into left sidebar: moved session browsing from separate "会话" page to the sidebar navigation area. Sidebar now shows session titles with timestamps below the main navigation menu, allowing users to scroll through all conversations and switch between sessions without leaving the chat view (`apps/desktop/src/renderer/components/Sidebar.tsx`).
+- Removed standalone "会话" navigation item: since sessions are now accessible directly in the sidebar, the dedicated session page entry has been removed from the navigation menu (`apps/desktop/src/renderer/components/Sidebar.tsx`, `apps/desktop/src/renderer/App.tsx`).
+- Sidebar width increased from 220px to 280px to accommodate the integrated session list.
+
 ### Fixed
 - Fixed Electron desktop Markdown not rendering in chat: replaced hand-rolled text parser with `react-markdown` + `remark-gfm`, supporting headers, lists, tables, blockquotes, links, inline code, and fenced code blocks with copy button (`apps/desktop/src/renderer/features/chat/ChatConsole.tsx`).
 - Fixed SiliconFlow provider using wrong API key env var (`OPENAI_API_KEY` → `SILICONFLOW_API_KEY`) and wrong model prefix (`"openai"` → `""`) that prepended `"openai/"` to every SiliconFlow model name (`miqi/providers/registry.py`).

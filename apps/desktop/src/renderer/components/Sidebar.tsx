@@ -24,7 +24,6 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'chat', label: '对话', icon: MessageSquare },
-  { id: 'sessions', label: '会话', icon: FolderOpen },
   { id: 'providers', label: 'Provider', icon: Cpu },
   { id: 'channels', label: '渠道', icon: Radio },
   { id: 'approvals', label: '命令审批', icon: ShieldAlert },
