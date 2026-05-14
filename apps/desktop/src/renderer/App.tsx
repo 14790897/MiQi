@@ -119,7 +119,15 @@ function AppShell() {
         <ApprovalProvider>
           <div className="flex flex-col h-screen bg-[var(--background)]">
             <div className="flex flex-1 overflow-hidden">
-              <Sidebar activeNav={activeNav} onNavChange={(id) => setActiveNav(id as NavId)} />
+              <Sidebar
+                activeNav={activeNav}
+                onNavChange={(id) => setActiveNav(id as NavId)}
+                currentSession={sessionKey}
+                onSessionSelect={(key) => {
+                  setSessionKey(key)
+                  setSessionRefreshKey((k) => k + 1)
+                }}
+              />
 
               <main className="flex-1 flex flex-col overflow-hidden bg-[var(--background)]">
                 {/* ChatConsole is always mounted to preserve message state across navigation */}
@@ -128,15 +136,18 @@ function AppShell() {
                     sessionKey={sessionKey}
                     onNewSession={(newKey) => {
                       setSessionKey(newKey)
-                      setSessionRefreshKey(k => k + 1)
+                      setSessionRefreshKey((k) => k + 1)
                     }}
-                    onChatFinished={() => setSessionRefreshKey(k => k + 1)}
+                    onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
                   />
                 </div>
                 {activeNav === 'sessions' && (
-                  <SessionExplorer refreshKey={sessionRefreshKey} onOpenSession={(_key) => {
-                    setActiveNav('chat')
-                  }} />
+                  <SessionExplorer
+                    refreshKey={sessionRefreshKey}
+                    onOpenSession={(_key) => {
+                      setActiveNav('chat')
+                    }}
+                  />
                 )}
                 {activeNav === 'providers' && <ProvidersPage />}
                 {activeNav === 'channels' && <ChannelsPage />}

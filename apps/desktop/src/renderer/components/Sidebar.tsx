@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback } from 'react'
 import { cn } from '../lib/utils'
 import {
   MessageSquare,
@@ -9,8 +10,11 @@ import {
   BookOpen,
   Wrench,
   Settings,
+  RefreshCw,
+  Loader2,
   type LucideIcon,
 } from 'lucide-react'
+import type { SessionInfo } from '../../shared/ipc'
 
 interface NavItem {
   id: string
@@ -34,11 +38,37 @@ const NAV_ITEMS: NavItem[] = [
 interface SidebarProps {
   activeNav: string
   onNavChange: (id: string) => void
+  currentSession?: string
+  onSessionSelect?: (key: string) => void
 }
 
-export function Sidebar({ activeNav, onNavChange }: SidebarProps) {
+export function Sidebar({ activeNav, onNavChange, currentSession, onSessionSelect }: SidebarProps) {
+  const [sessions, setSessions] = useState<SessionInfo[]>([])
+  const [loading, setLoading] = useState(false)
+
+  const loadSessions = useCallback(async () => {
+    setLoading(true)
+    try {
+      const r = await window.miqi.sessions.list()
+      setSessions(r.sessions ?? [])
+    } catch {
+      // Bridge not available
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    loadSessions()
+  }, [loadSessions])
+
+  const formatTime = (iso?: string) => {
+    if (!iso) return ''
+    const d = new Date(iso)
+    return d.toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
+
   return (
-    <div className="flex flex-col w-[220px] shrink-0 border-r border-[var(--border-subtle)] bg-[var(--surface)]">
+    <div className="flex flex-col w-[280px] shrink-0 border-r border-[var(--border-subtle)] bg-[var(--surface)]">
       {/* App title */}
       <div className="flex items-center gap-2 h-12 px-4 border-b border-[var(--border-subtle)]">
         <div className="w-6 h-6 rounded-md bg-[var(--accent)] flex items-center justify-center text-white text-xs font-bold">
@@ -48,7 +78,7 @@ export function Sidebar({ activeNav, onNavChange }: SidebarProps) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-2 flex flex-col gap-0.5">
+      <nav className="p-2 border-b border-[var(--border-subtle)] flex flex-col gap-0.5">
         {NAV_ITEMS.map((item) => {
           const isActive = activeNav === item.id
           const Icon = item.icon
@@ -69,6 +99,57 @@ export function Sidebar({ activeNav, onNavChange }: SidebarProps) {
           )
         })}
       </nav>
+
+      {/* Session list */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-subtle)]">
+          <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">会话</h3>
+          <button
+            onClick={loadSessions}
+            disabled={loading}
+            className="p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
+            title="刷新会话"
+          >
+            <RefreshCw size={12} className={cn('text-[var(--text-faint)]', loading && 'animate-spin')} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 size={14} className="animate-spin text-[var(--text-muted)]" />
+            </div>
+          ) : sessions.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-6 text-center px-4">
+              <MessageSquare size={18} className="text-[var(--text-faint)]" />
+              <p className="text-xs text-[var(--text-faint)]">暂无会话</p>
+            </div>
+          ) : (
+            <div className="p-2 space-y-1">
+              {sessions.map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => {
+                    onNavChange('chat')
+                    onSessionSelect?.(s.key)
+                  }}
+                  className={cn(
+                    'w-full flex items-start gap-2 px-3 py-2 rounded-lg text-left transition-colors',
+                    currentSession === s.key ? 'bg-[var(--accent-soft)]/50' : 'hover:bg-[var(--surface-muted)]',
+                  )}
+                >
+                  <FolderOpen size={14} className="text-[var(--text-faint)] shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-[var(--text)] truncate">{s.key}</div>
+                    {s.updated_at && (
+                      <div className="text-[10px] text-[var(--text-faint)] mt-0.5">{formatTime(s.updated_at)}</div>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
