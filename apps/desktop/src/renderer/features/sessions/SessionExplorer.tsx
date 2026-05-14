@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button } from '../../components/ui/Button'
 import { ScrollArea } from '../../components/ui/ScrollArea'
+import { ContextMenu } from '../../components/ContextMenu'
 import { cn } from '../../lib/utils'
 import { MessageSquare, Trash2, RefreshCw, Loader2, Clock } from 'lucide-react'
 import type { SessionInfo, SessionDetail } from '../../../shared/ipc'
@@ -99,49 +100,50 @@ export function SessionExplorer({
           ) : (
             <div className="flex flex-col">
               {sessions.map((s) => (
-                <button
+                <ContextMenu
                   key={s.key}
-                  onClick={() => loadDetail(s.key)}
-                  className={cn(
-                    'flex items-start gap-3 px-4 py-3 text-left transition-colors border-b border-[var(--border-subtle)]',
-                    selected === s.key
-                      ? 'bg-[var(--accent-soft)]/50'
-                      : 'hover:bg-[var(--surface-muted)]',
-                  )}
+                  items={[
+                    { label: '打开会话', onSelect: () => { loadDetail(s.key); onOpenSession?.(s.key) } },
+                    { label: '复制 session key', onSelect: () => navigator.clipboard.writeText(s.key) },
+                    { label: '删除会话', danger: true, divider: true, onSelect: () => handleDelete(s.key) },
+                  ]}
                 >
-                  <MessageSquare
-                    size={16}
-                    className="text-[var(--text-muted)] shrink-0 mt-0.5"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-[var(--text)] truncate">
-                      {s.key}
-                    </div>
-                    {s.updated_at && (
-                      <div className="flex items-center gap-1 text-xs text-[var(--text-faint)] mt-0.5">
-                        <Clock size={10} />
-                        {formatTime(s.updated_at)}
+                  {({ onContextMenu }) => (
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => loadDetail(s.key)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadDetail(s.key) }
+                      }}
+                      onContextMenu={onContextMenu}
+                      className={cn(
+                        'flex items-start gap-3 px-4 py-3 text-left transition-colors border-b border-[var(--border-subtle)] w-full cursor-pointer',
+                        selected === s.key
+                          ? 'bg-[var(--accent-soft)]/50'
+                          : 'hover:bg-[var(--surface-muted)]',
+                      )}
+                    >
+                      <MessageSquare size={16} className="text-[var(--text-muted)] shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-[var(--text)] truncate">{s.key}</div>
+                        {s.updated_at && (
+                          <div className="flex items-center gap-1 text-xs text-[var(--text-faint)] mt-0.5">
+                            <Clock size={10} />
+                            {formatTime(s.updated_at)}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <div
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleDelete(s.key)
-                    }}
-                    className="text-[var(--text-faint)] hover:text-[var(--danger)] transition-colors shrink-0 cursor-pointer p-1 -mr-1 -mt-0.5 rounded hover:bg-[var(--surface-muted)]"
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.stopPropagation()
-                        handleDelete(s.key)
-                      }
-                    }}
-                  >
-                    <Trash2 size={14} />
-                  </div>
-                </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDelete(s.key) }}
+                        className="text-[var(--text-faint)] hover:text-[var(--danger)] transition-colors shrink-0"
+                        tabIndex={-1}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  )}
+                </ContextMenu>
               ))}
             </div>
           )}

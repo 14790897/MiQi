@@ -33,6 +33,8 @@ export const IPC = {
   APPROVALS_LIST: 'approvals:list',
   APPROVALS_RESOLVE: 'approvals:resolve',
   APPROVALS_CLEAR_PERMANENT: 'approvals:clear_permanent',
+  APPROVALS_ADD_PERMANENT: 'approvals:add_permanent',
+  APPROVALS_HISTORY: 'approvals:history',
   CRON_LIST: 'cron:list',
   CRON_CREATE: 'cron:create',
   CRON_UPDATE: 'cron:update',
@@ -200,12 +202,51 @@ export interface ApprovalRequest {
   allow_permanent: boolean
 }
 
+export interface PendingApproval {
+  approval_id: string
+  command: string
+  description: string
+  allow_permanent: boolean
+  created_at: number
+  age_seconds: number
+}
+
+export interface PermanentEntry {
+  pattern: string
+  added_at: number
+}
+
+export interface ApprovalHistoryEntry {
+  id: string
+  pattern_key: string
+  description: string
+  command: string
+  decision: string
+  timestamp: number
+  session_key: string
+}
+
 export interface ApprovalsListResult {
+  pending: PendingApproval[]
   pending_ids: string[]
   permanent_allowlist: string[]
+  permanent_entries: PermanentEntry[]
   enabled: boolean
   timeout: number
 }
+
+export interface ApprovalsAddPermanentResult {
+  added: boolean
+  pattern: string
+}
+
+export interface ApprovalsHistoryResult {
+  history: ApprovalHistoryEntry[]
+}
+
+export const ApprovalsAddPermanentInput = z.object({
+  pattern: z.string().min(1),
+})
 
 export interface ApprovalCleared {
   reason: 'abort' | 'resolved' | 'timeout'

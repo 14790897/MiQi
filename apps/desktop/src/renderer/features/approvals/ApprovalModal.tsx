@@ -1,9 +1,12 @@
-import { Shield, Terminal, X } from 'lucide-react'
+import { Shield, Terminal, X, Clock } from 'lucide-react'
 import { useApproval } from '../../contexts/ApprovalContext'
 
 export function ApprovalModal() {
-  const { pending, resolve } = useApproval()
+  const { pending, resolve, timeout, remainingSeconds } = useApproval()
   if (!pending) return null
+
+  const pct = remainingSeconds != null ? (remainingSeconds / timeout) * 100 : 100
+  const isLow = remainingSeconds != null && remainingSeconds <= 5
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center pb-8 px-4 pointer-events-none">
@@ -33,6 +36,26 @@ export function ApprovalModal() {
             <X size={14} />
           </button>
         </div>
+
+        {/* Countdown bar */}
+        {remainingSeconds != null && (
+          <div className="px-5 pt-3">
+            <div className="flex items-center gap-2 mb-1.5">
+              <Clock size={11} className={isLow ? 'text-[var(--danger)]' : 'text-[var(--text-faint)]'} />
+              <span className={`text-xs font-mono tabular-nums ${isLow ? 'text-[var(--danger)] font-semibold' : 'text-[var(--text-muted)]'}`}>
+                {remainingSeconds > 0 ? `${remainingSeconds}秒` : '已超时'}
+              </span>
+            </div>
+            <div className="h-1.5 bg-[var(--surface-muted)] rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-200 ${
+                  isLow ? 'bg-[var(--danger)]' : 'bg-[var(--warning)]'
+                }`}
+                style={{ width: `${Math.max(0, Math.min(100, pct))}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Command */}
         <div className="px-5 py-3">

@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button } from '../../components/ui/Button'
 import { Textarea } from '../../components/ui/Textarea'
+import { ContextMenu, type ContextMenuAction } from '../../components/ContextMenu'
 import { cn } from '../../lib/utils'
 import {
   Send,
@@ -301,6 +302,18 @@ export function ChatConsole({
     setTimeout(() => setCopiedIdx(null), 2000)
   }
 
+  const handleRetry = useCallback(async (msg: Message) => {
+    if (streaming) return
+    cleanupListeners()
+    // Remove all messages after and including this one, then resend
+    const idx = messages.indexOf(msg)
+    if (idx >= 0) {
+      setMessages((prev) => prev.slice(0, idx))
+    }
+    setInput(msg.content)
+    setAttachments(msg.attachments ?? [])
+  }, [streaming, cleanupListeners, messages])
+
   return (
     <div
       className="flex flex-col h-full"
@@ -361,6 +374,7 @@ export function ChatConsole({
                 isLast={i === messages.length - 1}
                 onCopy={(text) => handleCopy(text, i)}
                 isCopied={copiedIdx === i}
+                onRetry={() => handleRetry(msg)}
               />
             ))
           )}
@@ -449,16 +463,12 @@ export function ChatConsole({
   )
 }
 
-function MessageBubble({
-  msg,
-  isLast,
-  onCopy,
-  isCopied,
-}: {
+function MessageBubble({ msg, isLast, onCopy, isCopied, onRetry }: {
   msg: Message
   isLast: boolean
   onCopy: (text: string) => void
   isCopied: boolean
+  onRetry?: () => void
 }) {
   if (msg.role === 'progress') {
     return (
@@ -490,74 +500,71 @@ function MessageBubble({
     )
   }
   const isUser = msg.role === 'user'
+  const hasCodeBlock = /```[\s\S]*?```/.test(msg.content)
+
+  const contextItems: ContextMenuAction[] = isUser
+    ? [
+        { label: '复制消息文本', onSelect: () => onCopy(msg.content) },
+        { label: '重试', onSelect: () => onRetry?.() },
+      ]
+    : [
+        { label: '复制消息文本', onSelect: () => onCopy(msg.content) },
+        ...(hasCodeBlock ? [{ label: '复制代码块', onSelect: () => {
+          const codeMatch = msg.content.match(/```[\s\S]*?```/g)
+          if (codeMatch) {
+            const code = codeMatch.map(b => b.replace(/```\w*\n?/g, '').replace(/```$/g, '')).join('\n\n')
+            navigator.clipboard.writeText(code).catch(() => {})
+          }
+        } }] : []),
+      ]
+
   return (
-    <div className={cn('flex items-start gap-3', isUser && 'justify-end')}>
-      {!isUser && (
-        <div className="w-7 h-7 rounded-full bg-[var(--accent-soft)] flex items-center justify-center shrink-0 mt-0.5">
-          <Bot size={14} className="text-[var(--accent)]" />
-        </div>
-      )}
-      <div
-        className={cn(
-          'group flex flex-col gap-1 max-w-[75%]',
-          isUser && 'items-end',
-        )}
-      >
-        {msg.attachments
-          ?.filter((a) => a.type === 'image')
-          .map((att, i) => (
-            <img
-              key={i}
-              src={att.dataUrl}
-              alt={att.name}
-              className="rounded-lg max-w-[300px] max-h-[200px] object-cover border border-[var(--border-subtle)]"
-            />
-          ))}
-        {msg.attachments
-          ?.filter((a) => a.type === 'text')
-          .map((att, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-1.5 bg-[var(--surface-muted)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-muted)]"
-            >
-              <FileText
-                size={12}
-                className="shrink-0 text-[var(--text-faint)]"
-              />
-              <span>{att.name}</span>
+    <ContextMenu items={contextItems}>
+      {({ onContextMenu }) => (
+        <div className={cn('flex items-start gap-3', isUser && 'justify-end')} onContextMenu={onContextMenu}>
+          {!isUser && (
+            <div className="w-7 h-7 rounded-full bg-[var(--accent-soft)] flex items-center justify-center shrink-0 mt-0.5">
+              <Bot size={14} className="text-[var(--accent)]" />
             </div>
-          ))}
-        <div
-          className={cn(
-            'text-sm leading-relaxed rounded-xl px-4 py-2.5',
-            isUser
-              ? 'bg-[var(--accent-soft)] text-[var(--text)]'
-              : 'bg-[var(--surface)] border border-[var(--border-subtle)] text-[var(--text)]',
           )}
-        >
-          {msg.role === 'assistant' && msg.content === '' ? (
-            <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
-          ) : msg.role === 'assistant' ? (
-            <MarkdownContent content={msg.content} />
-          ) : (
-            renderContent(msg.content)
+          <div className={cn('group flex flex-col gap-1 max-w-[75%]', isUser && 'items-end')}>
+            {msg.attachments?.filter(a => a.type === 'image').map((att, i) => (
+              <img key={i} src={att.dataUrl} alt={att.name}
+                className="rounded-lg max-w-[300px] max-h-[200px] object-cover border border-[var(--border-subtle)]" />
+            ))}
+            {msg.attachments?.filter(a => a.type === 'text').map((att, i) => (
+              <div key={i} className="flex items-center gap-1.5 bg-[var(--surface-muted)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-muted)]">
+                <FileText size={12} className="shrink-0 text-[var(--text-faint)]" />
+                <span>{att.name}</span>
+              </div>
+            ))}
+            <div className={cn(
+              'text-sm leading-relaxed rounded-xl px-4 py-2.5',
+              isUser ? 'bg-[var(--accent-soft)] text-[var(--text)]' : 'bg-[var(--surface)] border border-[var(--border-subtle)] text-[var(--text)]',
+            )}>
+              {msg.role === 'assistant' && msg.content === ''
+                ? <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
+                : msg.role === 'assistant'
+                  ? <MarkdownContent content={msg.content} />
+                  : renderContent(msg.content)}
+            </div>
+            {!isUser && msg.content !== '' && (
+              <button
+                onClick={() => onCopy(msg.content)}
+                className="self-start opacity-0 group-hover:opacity-100 transition-opacity text-[var(--text-faint)] hover:text-[var(--text-muted)] p-0.5"
+              >
+                {isCopied ? <Check size={12} /> : <Copy size={12} />}
+              </button>
+            )}
+          </div>
+          {isUser && (
+            <div className="w-7 h-7 rounded-full bg-[var(--surface-muted)] flex items-center justify-center shrink-0 mt-0.5">
+              <User size={14} className="text-[var(--text-muted)]" />
+            </div>
           )}
-        </div>
-        {!isUser && msg.content !== '' && (
-          <button
-            onClick={() => onCopy(msg.content)}
-            className="self-start opacity-0 group-hover:opacity-100 transition-opacity text-[var(--text-faint)] hover:text-[var(--text-muted)] p-0.5"
-          >
-            {isCopied ? <Check size={12} /> : <Copy size={12} />}
-          </button>
-        )}
-      </div>
-      {isUser && (
-        <div className="w-7 h-7 rounded-full bg-[var(--surface-muted)] flex items-center justify-center shrink-0 mt-0.5">
-          <User size={14} className="text-[var(--text-muted)]" />
         </div>
       )}
-    </div>
+    </ContextMenu>
   )
 }
 

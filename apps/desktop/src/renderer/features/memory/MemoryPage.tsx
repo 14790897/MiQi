@@ -18,6 +18,7 @@ import {
   ChevronRight,
   type LucideIcon,
 } from 'lucide-react'
+import { ContextMenu } from '../../components/ContextMenu'
 import { cn } from '../../lib/utils'
 import type { MemoryFileInfo, MemoryLessonEntry } from '../../../shared/ipc'
 
@@ -606,46 +607,50 @@ function FileGroup({
         {files.map((f) => {
           const isActive = activePath === f.path
           return (
-            <div
+            <ContextMenu
               key={f.path}
-              className={cn(
-                'flex items-center gap-1 group w-full',
-                isActive
-                  ? 'bg-[var(--accent-soft)]'
-                  : 'hover:bg-[var(--surface-muted)]',
-              )}
+              items={[
+                { label: '打开编辑', onSelect: () => onSelect(f) },
+                { label: '复制文件内容', onSelect: async () => {
+                  try {
+                    const r = await window.miqi.memory.get(f.path)
+                    navigator.clipboard.writeText(r.content)
+                  } catch { /* ignore */ }
+                }},
+                { label: '删除文件', danger: true, divider: true, onSelect: () => onDelete(f.path) },
+              ]}
             >
-              <button
-                onClick={() => onSelect(f)}
-                className={cn(
-                  'flex items-center gap-2 flex-1 px-3 py-1.5 text-left text-sm transition-colors min-w-0',
-                  isActive
-                    ? 'text-[var(--accent)] font-medium'
-                    : 'text-[var(--text-muted)] hover:text-[var(--text)]',
-                )}
-              >
-                <ChevronRight
-                  size={10}
+              {({ onContextMenu }) => (
+                <div
                   className={cn(
-                    'shrink-0',
-                    isActive
-                      ? 'text-[var(--accent)]'
-                      : 'text-[var(--text-faint)]',
+                    'flex items-center gap-1 group w-full',
+                    isActive ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--surface-muted)]',
                   )}
-                />
-                <span className="truncate flex-1">{f.path}</span>
-                <span className="text-xs text-[var(--text-faint)] shrink-0">
-                  {formatSize(f.size)}
-                </span>
-              </button>
-              <button
-                onClick={() => onDelete(f.path)}
-                className="shrink-0 pr-2 opacity-0 group-hover:opacity-100 text-[var(--text-faint)] hover:text-[var(--danger)] transition-all"
-                title="删除文件"
-              >
-                <Trash2 size={12} />
-              </button>
-            </div>
+                  onContextMenu={onContextMenu}
+                >
+                  <button
+                    onClick={() => onSelect(f)}
+                    className={cn(
+                      'flex items-center gap-2 flex-1 px-3 py-1.5 text-left text-sm transition-colors min-w-0',
+                      isActive
+                        ? 'text-[var(--accent)] font-medium'
+                        : 'text-[var(--text-muted)] hover:text-[var(--text)]',
+                    )}
+                  >
+                    <ChevronRight size={10} className={cn('shrink-0', isActive ? 'text-[var(--accent)]' : 'text-[var(--text-faint)]')} />
+                    <span className="truncate flex-1">{f.path}</span>
+                    <span className="text-xs text-[var(--text-faint)] shrink-0">{formatSize(f.size)}</span>
+                  </button>
+                  <button
+                    onClick={() => onDelete(f.path)}
+                    className="shrink-0 pr-2 opacity-0 group-hover:opacity-100 text-[var(--text-faint)] hover:text-[var(--danger)] transition-all"
+                    title="删除文件"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              )}
+            </ContextMenu>
           )
         })}
       </div>

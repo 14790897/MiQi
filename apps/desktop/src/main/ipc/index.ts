@@ -4,38 +4,11 @@ import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import type { BridgeManager } from '../bridge'
-import {
-  IPC,
-  ChatSendInput,
-  SessionGetInput,
-  SessionDeleteInput,
-  ConfigUpdateInput,
-  ProviderTestInput,
-  ProviderUpdateInput,
-  ChannelsUpdateInput,
-  CronCreateInput,
-  CronUpdateInput,
-  CronToggleInput,
-  CronDeleteInput,
-  CronRunInput,
-  CronRunsInput,
-  MemoryGetInput,
-  MemoryUpdateInput,
-  SkillsGetInput,
-  FilesReadInput,
-  FilesWriteInput,
-} from '../../shared/ipc'
+import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, ConfigUpdateInput, ProviderTestInput, ProviderUpdateInput, ChannelsUpdateInput, CronCreateInput, CronUpdateInput, CronToggleInput, CronDeleteInput, CronRunInput, CronRunsInput, MemoryGetInput, MemoryUpdateInput, SkillsGetInput, FilesReadInput, FilesWriteInput } from '../../shared/ipc'
 
 const { ipcMain, dialog } = electron
 
 export function registerIpcHandlers(bridge: BridgeManager): void {
-  // Helper: ensure bridge is running before sending a request
-  async function ensureBridge(): Promise<void> {
-    if (bridge.getStatus().state !== 'running') {
-      await bridge.start()
-    }
-  }
-
   // -----------------------------------------------------------------------
   // Runtime
   // -----------------------------------------------------------------------
@@ -62,37 +35,36 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.CHAT_SEND, async (_event, payload: unknown) => {
     const input = ChatSendInput.parse(payload)
-    await ensureBridge()
 
-    const mainWindow = _event.sender
-    const result = await bridge.send(
-      'chat.send',
-      {
-        content: input.content,
-        session_key: input.session_key ?? 'desktop:default',
-      },
-      (type: string, data: unknown) => {
-        if (type === 'progress') {
-          mainWindow.send('chat:progress', data)
-        } else if (type === 'final') {
-          mainWindow.send('chat:final', data)
-        } else if (type === 'error') {
-          mainWindow.send('chat:error', data)
-        } else if (type === 'aborted') {
-          mainWindow.send('chat:aborted', data)
-        } else if (type === 'approval_request') {
-          mainWindow.send('approval:request', data)
-        } else if (type === 'approval_cleared') {
-          mainWindow.send('approval:cleared', data)
-        }
-      },
-    )
+    const sender = _event.sender
+    const safeSend = (channel: string, data: unknown) => {
+      if (!sender.isDestroyed()) {
+        sender.send(channel, data)
+      }
+    }
+    const result = await bridge.send('chat.send', {
+      content: input.content,
+      session_key: input.session_key ?? 'desktop:default',
+    }, (type: string, data: unknown) => {
+      if (type === 'progress') {
+        safeSend('chat:progress', data)
+      } else if (type === 'final') {
+        safeSend('chat:final', data)
+      } else if (type === 'error') {
+        safeSend('chat:error', data)
+      } else if (type === 'aborted') {
+        safeSend('chat:aborted', data)
+      } else if (type === 'approval_request') {
+        safeSend('approval:request', data)
+      } else if (type === 'approval_cleared') {
+        safeSend('approval:cleared', data)
+      }
+    })
 
     return result
   })
 
   ipcMain.handle(IPC.CHAT_ABORT, async () => {
-    await ensureBridge()
     return bridge.send('chat.abort')
   })
 
@@ -100,18 +72,15 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   // Sessions
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.SESSIONS_LIST, async () => {
-    await ensureBridge()
-    return bridge.send('sessions.list')
+    return bridge.sendSafe('sessions.list')
   })
 
   ipcMain.handle(IPC.SESSIONS_GET, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = SessionGetInput.parse(payload)
-    return bridge.send('sessions.get', { session_key: input.session_key })
+    return bridge.sendSafe('sessions.get', { session_key: input.session_key })
   })
 
   ipcMain.handle(IPC.SESSIONS_DELETE, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = SessionDeleteInput.parse(payload)
     return bridge.send('sessions.delete', { session_key: input.session_key })
   })
@@ -120,12 +89,10 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   // Config
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.CONFIG_GET, async () => {
-    await ensureBridge()
-    return bridge.send('config.get')
+    return bridge.sendSafe('config.get')
   })
 
   ipcMain.handle(IPC.CONFIG_UPDATE, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = ConfigUpdateInput.parse(payload)
     return bridge.send('config.update', { config: input.config })
   })
@@ -134,18 +101,15 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   // Providers
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.PROVIDERS_LIST, async () => {
-    await ensureBridge()
-    return bridge.send('providers.list')
+    return bridge.sendSafe('providers.list')
   })
 
   ipcMain.handle(IPC.PROVIDERS_TEST, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = ProviderTestInput.parse(payload)
     return bridge.send('providers.test', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.PROVIDERS_UPDATE, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = ProviderUpdateInput.parse(payload)
     return bridge.send('providers.update', input as Record<string, unknown>)
   })
@@ -154,12 +118,10 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   // Channels
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.CHANNELS_LIST, async () => {
-    await ensureBridge()
-    return bridge.send('channels.list')
+    return bridge.sendSafe('channels.list')
   })
 
   ipcMain.handle(IPC.CHANNELS_UPDATE, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = ChannelsUpdateInput.parse(payload)
     return bridge.send('channels.update', input as Record<string, unknown>)
   })
@@ -179,9 +141,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
       candidates.push([process.env['MIQI_PYTHON_PATH']!])
     }
     // uv
-    const hasUvLock =
-      existsSync(join(projectRoot, 'uv.lock')) ||
-      existsSync(join(projectRoot, 'pyproject.toml'))
+    const hasUvLock = existsSync(join(projectRoot, 'uv.lock')) || existsSync(join(projectRoot, 'pyproject.toml'))
     if (hasUvLock) {
       candidates.push(['uv', 'run', 'python'])
     }
@@ -197,16 +157,10 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     let pythonCmd: string[] | null = null
     for (const candidate of candidates) {
       try {
-        const r = spawnSync(
-          candidate[0],
-          [...candidate.slice(1), '--version'],
-          { timeout: 5000, encoding: 'utf8' },
-        )
+        const r = spawnSync(candidate[0], [...candidate.slice(1), '--version'], { timeout: 5000, encoding: 'utf8' })
         if (r.status === 0) {
           pythonCmd = candidate
-          const ver = (r.stdout || r.stderr || '')
-            .trim()
-            .replace(/^Python\s+/i, '')
+          const ver = (r.stdout || r.stderr || '').trim().replace(/^Python\s+/i, '')
           pythonVersion = ver
           // Validate version >= 3.11
           const parts = ver.split('.').map(Number)
@@ -221,9 +175,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     }
 
     if (!pythonCmd) {
-      issues.push(
-        'Python not found. Install Python >= 3.11 or set MIQI_PYTHON_PATH.',
-      )
+      issues.push('Python not found. Install Python >= 3.11 or set MIQI_PYTHON_PATH.')
       pythonVersion = 'not found'
     } else {
       // Check key MiQi dependencies
@@ -236,11 +188,7 @@ for m in ("pydantic", "httpx", "loguru"):
         print("MISSING:" + m)
 `
       try {
-        const r = spawnSync(
-          pythonCmd[0],
-          [...pythonCmd.slice(1), '-c', checkScript],
-          { timeout: 8000, encoding: 'utf8' },
-        )
+        const r = spawnSync(pythonCmd[0], [...pythonCmd.slice(1), '-c', checkScript], { timeout: 8000, encoding: 'utf8' })
         const out = (r.stdout || '').trim()
         for (const line of out.split('\n')) {
           if (line.startsWith('MISSING:')) {
@@ -269,106 +217,95 @@ for m in ("pydantic", "httpx", "loguru"):
     const result = await dialog.showOpenDialog({
       properties: ['openFile', 'openDirectory'],
     })
-    return result.canceled ? null : (result.filePaths[0] ?? null)
+    return result.canceled ? null : result.filePaths[0] ?? null
   })
 
   // -----------------------------------------------------------------------
   // Approvals
   // -----------------------------------------------------------------------
   ipcMain.handle('approvals:list', async () => {
-    await ensureBridge()
-    return bridge.send('approvals.list')
+    return bridge.sendSafe('approvals.list')
   })
 
   ipcMain.handle('approvals:resolve', async (_event, payload: unknown) => {
-    await ensureBridge()
     const p = payload as { approval_id: string; decision: string }
     return bridge.send('approvals.resolve', p as Record<string, unknown>)
   })
 
-  ipcMain.handle(
-    'approvals:clear_permanent',
-    async (_event, payload: unknown) => {
-      await ensureBridge()
-      const p = (payload ?? {}) as { pattern?: string }
-      return bridge.send(
-        'approvals.clear_permanent',
-        p as Record<string, unknown>,
-      )
-    },
-  )
+  ipcMain.handle('approvals:clear_permanent', async (_event, payload: unknown) => {
+    const p = (payload ?? {}) as { pattern?: string }
+    return bridge.send('approvals.clear_permanent', p as Record<string, unknown>)
+  })
+
+  ipcMain.handle('approvals:add_permanent', async (_event, payload: unknown) => {
+    const p = payload as { pattern: string }
+    return bridge.send('approvals.add_permanent', p as Record<string, unknown>)
+  })
+
+  ipcMain.handle('approvals:history', async (_event, payload: unknown) => {
+    const p = (payload ?? {}) as { limit?: number }
+    return bridge.sendSafe('approvals.history', p as Record<string, unknown>)
+  })
 
   // -----------------------------------------------------------------------
   // Cron
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.CRON_LIST, async () => {
-    await ensureBridge()
-    return bridge.send('cron.list')
+    return bridge.sendSafe('cron.list')
   })
 
   ipcMain.handle(IPC.CRON_CREATE, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = CronCreateInput.parse(payload)
     return bridge.send('cron.create', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.CRON_UPDATE, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = CronUpdateInput.parse(payload)
     return bridge.send('cron.update', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.CRON_DELETE, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = CronDeleteInput.parse(payload)
     return bridge.send('cron.delete', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.CRON_TOGGLE, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = CronToggleInput.parse(payload)
     return bridge.send('cron.toggle', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.CRON_RUN, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = CronRunInput.parse(payload)
     return bridge.send('cron.run', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.CRON_RUNS, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = CronRunsInput.parse(payload ?? {})
-    return bridge.send('cron.runs', input as Record<string, unknown>)
+    return bridge.sendSafe('cron.runs', input as Record<string, unknown>)
   })
 
   // -----------------------------------------------------------------------
   // Memory
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.MEMORY_LIST, async () => {
-    await ensureBridge()
-    return bridge.send('memory.list')
+    return bridge.sendSafe('memory.list')
   })
 
   ipcMain.handle(IPC.MEMORY_GET, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = MemoryGetInput.parse(payload)
-    return bridge.send('memory.get', input as Record<string, unknown>)
+    return bridge.sendSafe('memory.get', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.MEMORY_UPDATE, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = MemoryUpdateInput.parse(payload)
     return bridge.send('memory.update', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.MEMORY_LESSONS, async () => {
-    await ensureBridge()
-    return bridge.send('memory.lessons')
+    return bridge.sendSafe('memory.lessons')
   })
 
   ipcMain.handle(IPC.MEMORY_DELETE, async (_event, payload: unknown) => {
-    await ensureBridge()
     const p = payload as { path: string }
     return bridge.send('memory.delete', p as Record<string, unknown>)
   })
@@ -377,18 +314,15 @@ for m in ("pydantic", "httpx", "loguru"):
   // Skills
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.SKILLS_LIST, async () => {
-    await ensureBridge()
-    return bridge.send('skills.list')
+    return bridge.sendSafe('skills.list')
   })
 
   ipcMain.handle(IPC.SKILLS_GET, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = SkillsGetInput.parse(payload)
-    return bridge.send('skills.get', input as Record<string, unknown>)
+    return bridge.sendSafe('skills.get', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.SKILLS_OPEN_FOLDER, async (_event, payload: unknown) => {
-    await ensureBridge()
     const p = payload as { name: string }
     return bridge.send('skills.open_folder', p as Record<string, unknown>)
   })
@@ -397,24 +331,20 @@ for m in ("pydantic", "httpx", "loguru"):
   // Files (Workspace Editor)
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.FILES_TREE, async () => {
-    await ensureBridge()
-    return bridge.send('files.tree')
+    return bridge.sendSafe('files.tree')
   })
 
   ipcMain.handle(IPC.FILES_READ, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = FilesReadInput.parse(payload)
-    return bridge.send('files.read', input as Record<string, unknown>)
+    return bridge.sendSafe('files.read', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.FILES_WRITE, async (_event, payload: unknown) => {
-    await ensureBridge()
     const input = FilesWriteInput.parse(payload)
     return bridge.send('files.write', input as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.FILES_DELETE, async (_event, payload: unknown) => {
-    await ensureBridge()
     const p = payload as { path: string }
     return bridge.send('files.delete', p as Record<string, unknown>)
   })
@@ -474,21 +404,17 @@ for m in ("pydantic", "httpx", "loguru"):
     }
 
     // Deep-merge provider key
-    const providers =
-      (existing['providers'] as Record<string, unknown> | undefined) ?? {}
+    const providers = (existing['providers'] as Record<string, unknown> | undefined) ?? {}
     providers[provider_name] = {
-      ...((providers[provider_name] as Record<string, unknown> | undefined) ??
-        {}),
+      ...(providers[provider_name] as Record<string, unknown> | undefined ?? {}),
       ...(api_key ? { apiKey: api_key } : {}),
       ...(api_base ? { apiBase: api_base } : {}),
     }
     existing['providers'] = providers
 
     // Set agent defaults (model, name, workspace, soulPreset)
-    const agents =
-      (existing['agents'] as Record<string, unknown> | undefined) ?? {}
-    const defaults =
-      (agents['defaults'] as Record<string, unknown> | undefined) ?? {}
+    const agents = (existing['agents'] as Record<string, unknown> | undefined) ?? {}
+    const defaults = (agents['defaults'] as Record<string, unknown> | undefined) ?? {}
     if (model) defaults['model'] = model
     if (agent_name) defaults['name'] = agent_name
     if (workspace) defaults['workspace'] = workspace
@@ -497,8 +423,7 @@ for m in ("pydantic", "httpx", "loguru"):
     existing['agents'] = agents
 
     // Web tools
-    const tools =
-      (existing['tools'] as Record<string, unknown> | undefined) ?? {}
+    const tools = (existing['tools'] as Record<string, unknown> | undefined) ?? {}
     const web = (tools['web'] as Record<string, unknown> | undefined) ?? {}
 
     // Web Search
@@ -519,11 +444,9 @@ for m in ("pydantic", "httpx", "loguru"):
     tools['web'] = web
 
     // Papers
-    const papers =
-      (tools['papers'] as Record<string, unknown> | undefined) ?? {}
+    const papers = (tools['papers'] as Record<string, unknown> | undefined) ?? {}
     if (papers_provider) papers['provider'] = papers_provider
-    if (semantic_scholar_api_key)
-      papers['semanticScholarApiKey'] = semantic_scholar_api_key
+    if (semantic_scholar_api_key) papers['semanticScholarApiKey'] = semantic_scholar_api_key
     tools['papers'] = papers
 
     existing['tools'] = tools
