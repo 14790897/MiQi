@@ -39,9 +39,10 @@ interface SidebarProps {
   onNavChange: (id: string) => void
   currentSession?: string
   onSessionSelect?: (key: string) => void
+  refreshKey?: number
 }
 
-export function Sidebar({ activeNav, onNavChange, currentSession, onSessionSelect }: SidebarProps) {
+export function Sidebar({ activeNav, onNavChange, currentSession, onSessionSelect, refreshKey }: SidebarProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -58,7 +59,7 @@ export function Sidebar({ activeNav, onNavChange, currentSession, onSessionSelec
 
   useEffect(() => {
     loadSessions()
-  }, [loadSessions])
+  }, [loadSessions, refreshKey])
 
   const formatTime = (iso?: string) => {
     if (!iso) return ''

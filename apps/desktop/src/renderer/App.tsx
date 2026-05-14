@@ -126,6 +126,7 @@ function AppShell() {
                   setSessionKey(key)
                   setSessionRefreshKey((k) => k + 1)
                 }}
+                refreshKey={sessionRefreshKey}
               />
 
               <main className="flex-1 flex flex-col overflow-hidden bg-[var(--background)]">
