@@ -209,9 +209,9 @@ export function ApprovalsPage() {
             >
               <Icon size={13} />
               {t.label}
-              {t.key === 'pending' && data && data.pending.length > 0 && (
+              {t.key === 'pending' && data?.pending?.length > 0 && (
                 <span className="ml-0.5 bg-[var(--danger)] text-white text-[10px] rounded-full px-1.5 py-0.5 leading-none">
-                  {data.pending.length}
+                  {data?.pending?.length}
                 </span>
               )}
             </button>
@@ -260,7 +260,7 @@ export function ApprovalsPage() {
               </span>
               <div className="text-[var(--text-faint)]">·</div>
               <span className="text-[var(--text-muted)]">
-                {data.pending.length} 个待审批
+                {data.pending?.length ?? 0} 个待审批
               </span>
             </div>
 
@@ -269,10 +269,10 @@ export function ApprovalsPage() {
               <div className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-2 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)]">
                   <span className="text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">
-                    永久白名单（{data.permanent_entries.length}）
+                    永久白名单（{data.permanent_entries?.length ?? 0}）
                   </span>
                   <div className="flex items-center gap-2">
-                    {data.permanent_entries.length > 0 && (
+                    {data.permanent_entries && data.permanent_entries.length > 0 && (
                       <button
                         onClick={clearAll}
                         disabled={clearing === 'all'}
@@ -289,7 +289,7 @@ export function ApprovalsPage() {
                     </button>
                   </div>
                 </div>
-                {data.permanent_entries.length === 0 ? (
+                {!data.permanent_entries || data.permanent_entries.length === 0 ? (
                   <div className="px-5 py-8 text-sm text-[var(--text-faint)] text-center">
                     暂无永久白名单记录
                   </div>
@@ -520,10 +520,10 @@ export function ApprovalsPage() {
               >
                 <div className="px-5 py-2 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)]">
                   <span className="text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">
-                    待审批（{data.pending.length}）
+                    待审批（{data.pending?.length ?? 0}）
                   </span>
                 </div>
-                {data.pending.length === 0 ? (
+                {!data.pending || data.pending.length === 0 ? (
                   <div className="px-5 py-8 text-sm text-[var(--text-faint)] text-center">
                     暂无待审批命令
                   </div>
