@@ -185,8 +185,21 @@ export class BridgeManager extends EventEmitter {
     this.addLog('Bridge stopping')
   }
 
+  isRunning(): boolean {
+    return this.process !== null && this.state === 'running'
+  }
+
+  async sendSafe(method: string, params?: Record<string, unknown>, onEvent?: (type: string, data: unknown) => void): Promise<unknown> {
+    if (!this.isRunning()) return null
+    try {
+      return await this.send(method, params, onEvent)
+    } catch {
+      return null
+    }
+  }
+
   async send(method: string, params?: Record<string, unknown>, onEvent?: (type: string, data: unknown) => void): Promise<unknown> {
-    if (!this.process || this.state !== 'running') {
+    if (!this.isRunning()) {
       throw new Error('Bridge not running')
     }
 

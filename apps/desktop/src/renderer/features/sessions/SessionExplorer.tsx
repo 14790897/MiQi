@@ -95,11 +95,16 @@ export function SessionExplorer({ onOpenSession, refreshKey }: { onOpenSession: 
                   ]}
                 >
                   {({ onContextMenu }) => (
-                    <button
+                    <div
+                      role="button"
+                      tabIndex={0}
                       onClick={() => loadDetail(s.key)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadDetail(s.key) }
+                      }}
                       onContextMenu={onContextMenu}
                       className={cn(
-                        'flex items-start gap-3 px-4 py-3 text-left transition-colors border-b border-[var(--border-subtle)] w-full',
+                        'flex items-start gap-3 px-4 py-3 text-left transition-colors border-b border-[var(--border-subtle)] w-full cursor-pointer',
                         selected === s.key
                           ? 'bg-[var(--accent-soft)]/50'
                           : 'hover:bg-[var(--surface-muted)]',
@@ -118,10 +123,11 @@ export function SessionExplorer({ onOpenSession, refreshKey }: { onOpenSession: 
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(s.key) }}
                         className="text-[var(--text-faint)] hover:text-[var(--danger)] transition-colors shrink-0"
+                        tabIndex={-1}
                       >
                         <Trash2 size={14} />
                       </button>
-                    </button>
+                    </div>
                   )}
                 </ContextMenu>
               ))}
