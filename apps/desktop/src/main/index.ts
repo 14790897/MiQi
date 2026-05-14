@@ -45,8 +45,19 @@ function createWindow(): void {
     console.error(`[main] render-process-gone: reason=${details.reason} exitCode=${details.exitCode}`)
   })
 
-  mainWindow.webContents.on('console-message', (_event, level, message) => {
-    // Level 3 = error; surface to terminal for post-mortem diagnosis
+  mainWindow.webContents.on('console-message', (_event: unknown, ...args: unknown[]) => {
+    // Support both old API (level, message, ...) and new API (event params object)
+    const first = args[0]
+    let level = 0
+    let message = ''
+    if (typeof first === 'object' && first !== null && 'level' in first) {
+      const params = first as { level: number; message: string }
+      level = params.level
+      message = params.message
+    } else {
+      level = (first as number) ?? 0
+      message = (args[1] as string) ?? ''
+    }
     if (level >= 3) {
       console.error(`[renderer] ${message}`)
     }
@@ -65,12 +76,18 @@ export function main(): void {
     registerIpcHandlers(bridgeManager)
 
     // Forward bridge events to renderer
-    bridgeManager.on('state', (status) => {
-      mainWindow?.webContents.send('runtime:state', status)
-    })
-    bridgeManager.on('log', (msg: string) => {
-      mainWindow?.webContents.send('runtime:log', msg)
-    })
+    const onState = (status: unknown) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('runtime:state', status)
+      }
+    }
+    const onLog = (msg: string) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('runtime:log', msg)
+      }
+    }
+    bridgeManager.on('state', onState)
+    bridgeManager.on('log', onLog)
 
     createWindow()
 
