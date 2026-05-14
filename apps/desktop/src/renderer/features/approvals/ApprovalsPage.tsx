@@ -33,7 +33,9 @@ export function ApprovalsPage() {
   const [history, setHistory] = useState<ApprovalHistoryEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [clearing, setClearing] = useState<string | null>(null)
-  const [tab, setTab] = useState<'whitelist' | 'history' | 'pending'>('whitelist')
+  const [tab, setTab] = useState<'whitelist' | 'history' | 'pending'>(
+    'whitelist',
+  )
 
   // Add dialog
   const [showAdd, setShowAdd] = useState(false)
@@ -70,17 +72,25 @@ export function ApprovalsPage() {
     try {
       const r = await window.miqi.approvals.history(200)
       setHistory(r.history ?? [])
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }, [])
 
-  useEffect(() => { load() }, [load])
-  useEffect(() => { if (tab === 'history') loadHistory() }, [tab, loadHistory])
+  useEffect(() => {
+    load()
+  }, [load])
+  useEffect(() => {
+    if (tab === 'history') loadHistory()
+  }, [tab, loadHistory])
 
   // Tick every second for countdown display
   useEffect(() => {
     if (tab !== 'pending') return
     timerRef.current = setInterval(() => setTick((t) => t + 1), 1000)
-    return () => { if (timerRef.current) clearInterval(timerRef.current) }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
   }, [tab])
 
   // Reload on tab switch
@@ -116,8 +126,11 @@ export function ApprovalsPage() {
       setNewPattern('')
       setShowAdd(false)
       await load()
-    } catch { /* ignore */ }
-    finally { setAdding(false) }
+    } catch {
+      /* ignore */
+    } finally {
+      setAdding(false)
+    }
   }
 
   const startEdit = (pattern: string) => {
@@ -135,14 +148,19 @@ export function ApprovalsPage() {
       await window.miqi.approvals.addPermanent(editValue.trim())
       await window.miqi.approvals.clearPermanent(editing)
       await load()
-    } catch { /* ignore */ }
-    finally {
+    } catch {
+      /* ignore */
+    } finally {
       setSaving(false)
       setEditing(null)
     }
   }
 
-  const toggleExpand = (set: Set<string>, key: string, setFn: (s: Set<string>) => void) => {
+  const toggleExpand = (
+    set: Set<string>,
+    key: string,
+    setFn: (s: Set<string>) => void,
+  ) => {
     const next = new Set(set)
     if (next.has(key)) next.delete(key)
     else next.add(key)
@@ -284,29 +302,58 @@ export function ApprovalsPage() {
                         <div key={entry.pattern}>
                           <div className="flex items-center gap-3 px-5 py-2.5 hover:bg-[var(--surface-muted)] transition-colors">
                             <button
-                              onClick={() => toggleExpand(expanded, entry.pattern, setExpanded)}
+                              onClick={() =>
+                                toggleExpand(
+                                  expanded,
+                                  entry.pattern,
+                                  setExpanded,
+                                )
+                              }
                               className="text-[var(--text-faint)] hover:text-[var(--text-muted)] shrink-0"
                             >
-                              {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                              {isExpanded ? (
+                                <ChevronDown size={12} />
+                              ) : (
+                                <ChevronRight size={12} />
+                              )}
                             </button>
                             {isEditing ? (
                               <div className="flex-1 flex items-center gap-2">
                                 <input
                                   value={editValue}
                                   onChange={(e) => setEditValue(e.target.value)}
-                                  onKeyDown={(e) => { if (e.key === 'Enter') handleEditSave(); if (e.key === 'Escape') setEditing(null) }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleEditSave()
+                                    if (e.key === 'Escape') setEditing(null)
+                                  }}
                                   className="flex-1 text-xs font-mono bg-[var(--surface-elevated)] border border-[var(--border)] rounded px-2 py-1 focus:outline-none focus:border-[var(--accent)]"
                                   autoFocus
                                 />
-                                <button onClick={handleEditSave} disabled={saving} className="p-1 rounded text-[var(--success)] hover:bg-green-50">
-                                  {saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                                <button
+                                  onClick={handleEditSave}
+                                  disabled={saving}
+                                  className="p-1 rounded text-[var(--success)] hover:bg-green-50"
+                                >
+                                  {saving ? (
+                                    <Loader2
+                                      size={12}
+                                      className="animate-spin"
+                                    />
+                                  ) : (
+                                    <Check size={12} />
+                                  )}
                                 </button>
-                                <button onClick={() => setEditing(null)} className="p-1 rounded text-[var(--text-faint)] hover:text-[var(--text)]">
+                                <button
+                                  onClick={() => setEditing(null)}
+                                  className="p-1 rounded text-[var(--text-faint)] hover:text-[var(--text)]"
+                                >
                                   <X size={12} />
                                 </button>
                               </div>
                             ) : (
-                              <code className="flex-1 text-xs font-mono text-[var(--text)] truncate">{entry.pattern}</code>
+                              <code className="flex-1 text-xs font-mono text-[var(--text)] truncate">
+                                {entry.pattern}
+                              </code>
                             )}
                             {!isEditing && (
                               <div className="flex items-center gap-1 shrink-0">
@@ -323,9 +370,14 @@ export function ApprovalsPage() {
                                   title="从白名单移除"
                                   className="p-1 rounded text-[var(--text-faint)] hover:text-[var(--danger)] transition-colors disabled:opacity-50"
                                 >
-                                  {clearing === entry.pattern
-                                    ? <Loader2 size={12} className="animate-spin" />
-                                    : <Trash2 size={12} />}
+                                  {clearing === entry.pattern ? (
+                                    <Loader2
+                                      size={12}
+                                      className="animate-spin"
+                                    />
+                                  ) : (
+                                    <Trash2 size={12} />
+                                  )}
                                 </button>
                               </div>
                             )}
@@ -333,12 +385,22 @@ export function ApprovalsPage() {
                           {isExpanded && !isEditing && (
                             <div className="px-10 py-2.5 bg-[var(--surface-muted)] text-xs text-[var(--text-muted)] space-y-1">
                               <div className="flex gap-2">
-                                <span className="text-[var(--text-faint)] shrink-0">命令模式：</span>
-                                <code className="font-mono text-[var(--text)] break-all">{entry.pattern}</code>
+                                <span className="text-[var(--text-faint)] shrink-0">
+                                  命令模式：
+                                </span>
+                                <code className="font-mono text-[var(--text)] break-all">
+                                  {entry.pattern}
+                                </code>
                               </div>
                               <div className="flex gap-2">
-                                <span className="text-[var(--text-faint)] shrink-0">添加时间：</span>
-                                <span>{entry.added_at ? formatTime(entry.added_at) : '未知'}</span>
+                                <span className="text-[var(--text-faint)] shrink-0">
+                                  添加时间：
+                                </span>
+                                <span>
+                                  {entry.added_at
+                                    ? formatTime(entry.added_at)
+                                    : '未知'}
+                                </span>
                               </div>
                             </div>
                           )}
@@ -371,33 +433,73 @@ export function ApprovalsPage() {
                         <div key={h.id}>
                           <div
                             className="flex items-center gap-3 px-5 py-2.5 hover:bg-[var(--surface-muted)] transition-colors cursor-pointer"
-                            onClick={() => toggleExpand(expandedHistory, h.id, setExpandedHistory)}
+                            onClick={() =>
+                              toggleExpand(
+                                expandedHistory,
+                                h.id,
+                                setExpandedHistory,
+                              )
+                            }
                           >
-                            {isExpanded ? <ChevronDown size={12} className="text-[var(--text-faint)]" /> : <ChevronRight size={12} className="text-[var(--text-faint)]" />}
-                            <span className={`text-xs font-medium shrink-0 ${d.color}`}>{d.text}</span>
-                            <code className="flex-1 text-xs font-mono text-[var(--text-muted)] truncate">{h.description}</code>
-                            <span className="text-[10px] text-[var(--text-faint)] shrink-0">{formatTime(h.timestamp)}</span>
+                            {isExpanded ? (
+                              <ChevronDown
+                                size={12}
+                                className="text-[var(--text-faint)]"
+                              />
+                            ) : (
+                              <ChevronRight
+                                size={12}
+                                className="text-[var(--text-faint)]"
+                              />
+                            )}
+                            <span
+                              className={`text-xs font-medium shrink-0 ${d.color}`}
+                            >
+                              {d.text}
+                            </span>
+                            <code className="flex-1 text-xs font-mono text-[var(--text-muted)] truncate">
+                              {h.description}
+                            </code>
+                            <span className="text-[10px] text-[var(--text-faint)] shrink-0">
+                              {formatTime(h.timestamp)}
+                            </span>
                           </div>
                           {isExpanded && (
                             <div className="px-10 py-2.5 bg-[var(--surface-muted)] text-xs text-[var(--text-muted)] space-y-1">
                               <div className="flex gap-2">
-                                <span className="text-[var(--text-faint)] shrink-0">决策：</span>
+                                <span className="text-[var(--text-faint)] shrink-0">
+                                  决策：
+                                </span>
                                 <span className={d.color}>{d.text}</span>
                               </div>
                               <div className="flex gap-2">
-                                <span className="text-[var(--text-faint)] shrink-0">规则模式：</span>
-                                <code className="font-mono text-[var(--text)] break-all">{h.pattern_key}</code>
+                                <span className="text-[var(--text-faint)] shrink-0">
+                                  规则模式：
+                                </span>
+                                <code className="font-mono text-[var(--text)] break-all">
+                                  {h.pattern_key}
+                                </code>
                               </div>
                               <div className="flex gap-2">
-                                <span className="text-[var(--text-faint)] shrink-0">命令：</span>
-                                <code className="font-mono text-[var(--text)] break-all">{h.command}</code>
+                                <span className="text-[var(--text-faint)] shrink-0">
+                                  命令：
+                                </span>
+                                <code className="font-mono text-[var(--text)] break-all">
+                                  {h.command}
+                                </code>
                               </div>
                               <div className="flex gap-2">
-                                <span className="text-[var(--text-faint)] shrink-0">会话：</span>
-                                <span className="font-mono">{h.session_key || '-'}</span>
+                                <span className="text-[var(--text-faint)] shrink-0">
+                                  会话：
+                                </span>
+                                <span className="font-mono">
+                                  {h.session_key || '-'}
+                                </span>
                               </div>
                               <div className="flex gap-2">
-                                <span className="text-[var(--text-faint)] shrink-0">时间：</span>
+                                <span className="text-[var(--text-faint)] shrink-0">
+                                  时间：
+                                </span>
                                 <span>{formatTime(h.timestamp)}</span>
                               </div>
                             </div>
@@ -412,7 +514,10 @@ export function ApprovalsPage() {
 
             {/* ── TAB: Pending ────────────────────────────────────────── */}
             {tab === 'pending' && (
-              <div data-tick={tick} className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
+              <div
+                data-tick={tick}
+                className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden"
+              >
                 <div className="px-5 py-2 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)]">
                   <span className="text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">
                     待审批（{data.pending.length}）
@@ -426,40 +531,61 @@ export function ApprovalsPage() {
                   <div className="divide-y divide-[var(--border-subtle)]">
                     {data.pending.map((p) => {
                       const isExpanded = expandedPending.has(p.approval_id)
-                      const remaining = Math.max(0, Math.ceil(data.timeout - ((Date.now() / 1000) - p.created_at)))
-                      const pct = (remaining / data.timeout) * 100
-                </div>
-                {data.pending.length === 0 ? (
-                  <div className="px-5 py-8 text-sm text-[var(--text-faint)] text-center">
-                    暂无待审批命令
-                  </div>
-                ) : (
-                  <div className="divide-y divide-[var(--border-subtle)]">
-                    {data.pending.map((p) => {
-                      const isExpanded = expandedPending.has(p.approval_id)
-                      const remaining = Math.max(0, Math.ceil(data.timeout - ((Date.now() / 1000) - p.created_at)))
+                      const remaining = Math.max(
+                        0,
+                        Math.ceil(
+                          data.timeout - (Date.now() / 1000 - p.created_at),
+                        ),
+                      )
                       const pct = (remaining / data.timeout) * 100
                       const isLow = remaining <= 5
                       return (
                         <div key={p.approval_id}>
                           <div
                             className="flex items-center gap-3 px-5 py-2.5 hover:bg-[var(--surface-muted)] transition-colors cursor-pointer"
-                            onClick={() => toggleExpand(expandedPending, p.approval_id, setExpandedPending)}
+                            onClick={() =>
+                              toggleExpand(
+                                expandedPending,
+                                p.approval_id,
+                                setExpandedPending,
+                              )
+                            }
                           >
-                            {isExpanded ? <ChevronDown size={12} className="text-[var(--text-faint)]" /> : <ChevronRight size={12} className="text-[var(--text-faint)]" />}
-                            <AlertTriangle size={12} className="text-[var(--warning)] shrink-0" />
-                            <code className="flex-1 text-xs font-mono text-[var(--text-muted)] truncate">{p.description}</code>
+                            {isExpanded ? (
+                              <ChevronDown
+                                size={12}
+                                className="text-[var(--text-faint)]"
+                              />
+                            ) : (
+                              <ChevronRight
+                                size={12}
+                                className="text-[var(--text-faint)]"
+                              />
+                            )}
+                            <AlertTriangle
+                              size={12}
+                              className="text-[var(--warning)] shrink-0"
+                            />
+                            <code className="flex-1 text-xs font-mono text-[var(--text-muted)] truncate">
+                              {p.description}
+                            </code>
                             {/* Countdown bar */}
                             <div className="flex items-center gap-2 shrink-0">
                               <div className="w-16 h-1.5 bg-[var(--surface-muted)] rounded-full overflow-hidden">
                                 <div
                                   className={`h-full rounded-full transition-all ${
-                                    isLow ? 'bg-[var(--danger)]' : 'bg-[var(--warning)]'
+                                    isLow
+                                      ? 'bg-[var(--danger)]'
+                                      : 'bg-[var(--warning)]'
                                   }`}
-                                  style={{ width: `${Math.max(0, Math.min(100, pct))}%` }}
+                                  style={{
+                                    width: `${Math.max(0, Math.min(100, pct))}%`,
+                                  }}
                                 />
                               </div>
-                              <span className={`text-[10px] font-mono tabular-nums w-8 text-right ${isLow ? 'text-[var(--danger)] font-semibold' : 'text-[var(--text-faint)]'}`}>
+                              <span
+                                className={`text-[10px] font-mono tabular-nums w-8 text-right ${isLow ? 'text-[var(--danger)] font-semibold' : 'text-[var(--text-faint)]'}`}
+                              >
                                 {remaining}s
                               </span>
                             </div>
@@ -467,23 +593,39 @@ export function ApprovalsPage() {
                           {isExpanded && (
                             <div className="px-10 py-2.5 bg-[var(--surface-muted)] text-xs text-[var(--text-muted)] space-y-1">
                               <div className="flex gap-2">
-                                <span className="text-[var(--text-faint)] shrink-0">审批ID：</span>
-                                <span className="font-mono">{p.approval_id}</span>
+                                <span className="text-[var(--text-faint)] shrink-0">
+                                  审批ID：
+                                </span>
+                                <span className="font-mono">
+                                  {p.approval_id}
+                                </span>
                               </div>
                               <div className="flex gap-2">
-                                <span className="text-[var(--text-faint)] shrink-0">描述：</span>
+                                <span className="text-[var(--text-faint)] shrink-0">
+                                  描述：
+                                </span>
                                 <span>{p.description}</span>
                               </div>
                               <div className="flex gap-2">
-                                <span className="text-[var(--text-faint)] shrink-0">命令：</span>
-                                <code className="font-mono text-[var(--text)] break-all">{p.command}</code>
+                                <span className="text-[var(--text-faint)] shrink-0">
+                                  命令：
+                                </span>
+                                <code className="font-mono text-[var(--text)] break-all">
+                                  {p.command}
+                                </code>
                               </div>
                               <div className="flex gap-2">
-                                <span className="text-[var(--text-faint)] shrink-0">超时倒计时：</span>
-                                <span className={`font-mono tabular-nums ${isLow ? 'text-[var(--danger)] font-semibold' : ''}`}>
+                                <span className="text-[var(--text-faint)] shrink-0">
+                                  超时倒计时：
+                                </span>
+                                <span
+                                  className={`font-mono tabular-nums ${isLow ? 'text-[var(--danger)] font-semibold' : ''}`}
+                                >
                                   {remaining > 0 ? `${remaining}秒` : '已超时'}
                                 </span>
-                                <span className="text-[var(--text-faint)]">/ {data.timeout}秒</span>
+                                <span className="text-[var(--text-faint)]">
+                                  / {data.timeout}秒
+                                </span>
                               </div>
                             </div>
                           )}
@@ -500,13 +642,18 @@ export function ApprovalsPage() {
 
       {/* ── Add Dialog ────────────────────────────────────────────────── */}
       {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={() => setShowAdd(false)}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/20"
+          onClick={() => setShowAdd(false)}
+        >
           <div
             className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-full max-w-[420px] mx-4 overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 py-3 border-b border-[var(--border-subtle)]">
-              <h3 className="text-sm font-semibold text-[var(--text)]">新增白名单</h3>
+              <h3 className="text-sm font-semibold text-[var(--text)]">
+                新增白名单
+              </h3>
               <p className="text-xs text-[var(--text-muted)] mt-0.5">
                 输入匹配危险命令的正则表达式模式
               </p>
@@ -516,7 +663,10 @@ export function ApprovalsPage() {
                 type="text"
                 value={newPattern}
                 onChange={(e) => setNewPattern(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); if (e.key === 'Escape') setShowAdd(false) }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAdd()
+                  if (e.key === 'Escape') setShowAdd(false)
+                }}
                 placeholder="例如：rm\s+-rf\s+/tmp/build"
                 className="w-full text-xs font-mono bg-[var(--surface)] border border-[var(--border)] rounded-lg px-3 py-2 focus:outline-none focus:border-[var(--accent)]"
                 autoFocus
