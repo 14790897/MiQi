@@ -33,6 +33,7 @@ from miqi.agent.tools.papers import PaperDownloadTool, PaperGetTool, PaperSearch
 from miqi.agent.tools.registry import ToolRegistry
 from miqi.agent.tools.session_search import SessionSearchTool
 from miqi.agent.tools.shell import ExecTool
+from miqi.agent.tools.skill_manage import SkillManageTool
 from miqi.agent.tools.spawn import SpawnTool
 from miqi.agent.tools.web import WebFetchTool, WebSearchTool
 from miqi.bus.events import InboundMessage, OutboundMessage
@@ -340,6 +341,7 @@ class AgentLoop:
         )
         self.tools.register(MemoryTool(workspace=self.workspace))
         self.tools.register(SessionSearchTool(memory=self.memory, session_manager=self.sessions))
+        self.tools.register(SkillManageTool(workspace=self.workspace))
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
