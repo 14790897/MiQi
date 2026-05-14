@@ -23,6 +23,7 @@ import type {
   MemoryGetResult,
   MemoryLessonEntry,
   MemoryLessonsResult,
+  MemoryLessonUnlearnResult,
   SkillSummary,
   SkillDetail,
   SkillsListResult,
@@ -194,6 +195,8 @@ const api = {
       ipcRenderer.invoke(IPC.MEMORY_DELETE, { path }),
     lessons: (): Promise<MemoryLessonsResult> =>
       ipcRenderer.invoke(IPC.MEMORY_LESSONS),
+    lessonUnlearn: (lesson_id: string): Promise<MemoryLessonUnlearnResult> =>
+      ipcRenderer.invoke(IPC.MEMORY_LESSON_UNLEARN, { lesson_id }),
   },
 
   // -- Skills ------------------------------------------------------------------

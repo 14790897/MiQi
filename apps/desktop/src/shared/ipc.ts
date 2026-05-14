@@ -47,6 +47,7 @@ export const IPC = {
   MEMORY_UPDATE: 'memory:update',
   MEMORY_DELETE: 'memory:delete',
   MEMORY_LESSONS: 'memory:lessons',
+  MEMORY_LESSON_UNLEARN: 'memory:lesson:unlearn',
   SKILLS_LIST: 'skills:list',
   SKILLS_GET: 'skills:get',
   SKILLS_OPEN_FOLDER: 'skills:open_folder',
@@ -399,6 +400,7 @@ export interface MemoryLessonEntry {
   confidence: number
   effectiveConfidence: number
   hits: number
+  state: string
   enabled: boolean
   source: string
   createdAt: string
@@ -407,6 +409,14 @@ export interface MemoryLessonEntry {
 
 export interface MemoryLessonsResult {
   lessons: MemoryLessonEntry[]
+}
+
+export const MemoryLessonUnlearnInput = z.object({
+  lesson_id: z.string().min(1),
+})
+
+export interface MemoryLessonUnlearnResult {
+  unlearned: string[]
 }
 
 // ---------------------------------------------------------------------------
