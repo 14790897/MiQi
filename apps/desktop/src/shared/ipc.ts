@@ -54,6 +54,8 @@ export const IPC = {
   FILES_READ: 'files:read',
   FILES_WRITE: 'files:write',
   FILES_DELETE: 'files:delete',
+  FILES_DIFF: 'files:diff',
+  FILES_REVERT: 'files:revert',
 
   // Python check
   PYTHON_CHECK: 'python:check',
@@ -474,6 +476,20 @@ export interface FilesReadResult {
 
 export interface FilesWriteResult {
   saved: boolean
+  path: string
+}
+
+export interface FilesDiffResult {
+  path: string
+  diff: string | null
+  has_diff: boolean
+  original_content: string | null
+  current_content: string | null
+  error?: string
+}
+
+export interface FilesRevertResult {
+  reverted: boolean
   path: string
 }
 

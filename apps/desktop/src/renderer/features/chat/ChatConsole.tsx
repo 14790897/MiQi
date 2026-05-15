@@ -25,6 +25,8 @@ import {
   ChevronRight,
   Pencil,
   BookOpen,
+  GitCompare,
+  Undo2,
 } from 'lucide-react'
 import type {
   ChatProgress,
@@ -170,6 +172,16 @@ export function ChatConsole({
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([])
   /** preview modal */
   const [previewFile, setPreviewFile] = useState<{ path: string; content: string } | null>(null)
+  /** diff modal */
+  const [diffFile, setDiffFile] = useState<{
+    path: string
+    diff: string | null
+    original_content: string | null
+    current_content: string | null
+    has_diff: boolean
+  } | null>(null)
+  const [diffLoading, setDiffLoading] = useState(false)
+  const [reverting, setReverting] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const unsubsRef = useRef<Array<() => void>>([])
@@ -387,6 +399,49 @@ export function ChatConsole({
   }, [])
 
   const closePreview = () => setPreviewFile(null)
+
+  const handleShowDiff = useCallback(async (path: string) => {
+    setDiffLoading(true)
+    try {
+      const result = await window.miqi.files.diff(path)
+      setDiffFile({
+        path,
+        diff: result.diff,
+        original_content: result.original_content,
+        current_content: result.current_content,
+        has_diff: result.has_diff,
+      })
+    } catch {
+      setDiffFile({ path, diff: null, original_content: null, current_content: null, has_diff: false })
+    } finally {
+      setDiffLoading(false)
+    }
+  }, [])
+
+  const closeDiff = () => setDiffFile(null)
+
+  const handleRevert = useCallback(async () => {
+    if (!diffFile || reverting) return
+    setReverting(true)
+    try {
+      const result = await window.miqi.files.revert(diffFile.path)
+      if (result.reverted) {
+        // Refresh the diff view
+        await handleShowDiff(diffFile.path)
+        // Update tracked files list (file is now back to HEAD)
+        setTrackedFiles((prev) => prev.filter((f) => f.path !== diffFile.path))
+        // Refresh preview if open
+        if (previewFile?.path === diffFile.path) {
+          const content = await window.miqi.files.read(diffFile.path)
+          setPreviewFile({ path: diffFile.path, content: content.content })
+        }
+      }
+    } catch {
+      // Silently fail - revert button is best-effort
+    } finally {
+      setReverting(false)
+    }
+  }, [diffFile, reverting, handleShowDiff, previewFile])
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
@@ -655,6 +710,7 @@ export function ChatConsole({
                             key={f.path}
                             file={f}
                             onPreview={() => handlePreview(f.path)}
+                            onDiff={() => handleShowDiff(f.path)}
                           />
                         ))}
                     </div>
@@ -740,6 +796,14 @@ export function ChatConsole({
                       >
                         {f.op.toUpperCase()}
                       </span>
+                      <button
+                        onClick={() => handleShowDiff(f.path)}
+                        className="p-1 rounded transition-colors shrink-0"
+                        style={{ color: 'var(--text-faint)' }}
+                        title="Compare diff"
+                      >
+                        <GitCompare size={11} />
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -806,11 +870,162 @@ export function ChatConsole({
           </div>
         </div>
       )}
+
+      {/* ── Diff Modal ── */}
+      {diffFile && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.6)' }}
+          onClick={closeDiff}
+        >
+          <div
+            className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
+            style={{
+              width: 900,
+              maxHeight: '85vh',
+              background: 'var(--surface-elevated)',
+              border: '1px solid var(--border)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div
+              className="flex items-center justify-between px-4 py-3 border-b shrink-0"
+              style={{ borderColor: 'var(--border-subtle)' }}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <GitCompare size={14} style={{ color: 'var(--warning)' }} className="shrink-0" />
+                <span className="text-sm font-medium truncate" style={{ color: 'var(--text)' }} title={diffFile.path}>
+                  {diffFile.path.split(/[/\\]/).pop()}
+                </span>
+                {!diffLoading && diffFile.has_diff && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0" style={{ background: 'rgba(234,179,8,0.15)', color: 'var(--warning)' }}>
+                    MODIFIED
+                  </span>
+                )}
+                {!diffLoading && !diffFile.has_diff && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0" style={{ background: 'var(--surface-muted)', color: 'var(--text-faint)' }}>
+                    NO CHANGES
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {!diffLoading && diffFile.has_diff && (
+                  <button
+                    onClick={handleRevert}
+                    disabled={reverting}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                    style={{
+                      background: reverting ? 'var(--surface-muted)' : 'rgba(239,68,68,0.15)',
+                      color: reverting ? 'var(--text-faint)' : 'var(--danger)',
+                      border: '1px solid var(--danger)',
+                    }}
+                    title="Revert to HEAD (undo changes)"
+                  >
+                    <Undo2 size={12} className={reverting ? 'animate-spin' : ''} />
+                    {reverting ? 'Reverting...' : 'Revert'}
+                  </button>
+                )}
+                <button
+                  onClick={closeDiff}
+                  className="p-1 rounded hover:bg-[var(--surface-muted)] transition-colors shrink-0"
+                >
+                  <X size={14} style={{ color: 'var(--text-faint)' }} />
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-auto">
+              {diffLoading ? (
+                <div className="flex items-center justify-center h-48">
+                  <Loader2 size={24} className="animate-spin" style={{ color: 'var(--text-faint)' }} />
+                  <span className="ml-2 text-sm" style={{ color: 'var(--text-faint)' }}>Loading diff...</span>
+                </div>
+              ) : diffFile.diff ? (
+                <DiffView diff={diffFile.diff} />
+              ) : diffFile.original_content !== null && diffFile.current_content !== null ? (
+                /* No snapshot diff but we have both versions — show side by side */
+                <div className="flex h-full" style={{ minHeight: 400 }}>
+                  <div className="flex-1 p-4 overflow-auto border-r" style={{ borderColor: 'var(--border-subtle)' }}>
+                    <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-faint)' }}>
+                      Original
+                    </div>
+                    <pre
+                      className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      {diffFile.original_content || '(empty)'}
+                    </pre>
+                  </div>
+                  <div className="flex-1 p-4 overflow-auto">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-faint)' }}>
+                      Current
+                    </div>
+                    <pre
+                      className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all"
+                      style={{ color: 'var(--text)' }}
+                    >
+                      {diffFile.current_content || '(empty)'}
+                    </pre>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-48">
+                  <span className="text-sm" style={{ color: 'var(--text-faint)' }}>
+                    {diffFile.original_content === null && diffFile.current_content === null
+                      ? 'No snapshot available — file was not modified in this session'
+                      : 'No changes detected'}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 /* ─── Sub-components ──────────────────────────────────────────────── */
+
+/** Renders a unified diff string with syntax-highlighted +/- lines. */
+function DiffView({ diff }: { diff: string }) {
+  const lines = diff.split('\n')
+  return (
+    <div className="overflow-x-auto text-xs font-mono leading-5" style={{ background: 'var(--surface)' }}>
+      {lines.map((line, i) => {
+        let bg = 'transparent'
+        let color = 'var(--text-muted)'
+        let prefix = ' '
+
+        if (line.startsWith('+++') || line.startsWith('---')) {
+          color = 'var(--text-faint)'
+        } else if (line.startsWith('@@')) {
+          bg = 'rgba(96,165,250,0.08)'
+          color = 'var(--info)'
+        } else if (line.startsWith('+')) {
+          bg = 'rgba(34,197,94,0.10)'
+          color = '#4ade80'
+          prefix = '+'
+        } else if (line.startsWith('-')) {
+          bg = 'rgba(239,68,68,0.10)'
+          color = '#f87171'
+          prefix = '-'
+        }
+
+        return (
+          <div
+            key={i}
+            style={{ background: bg, color, paddingLeft: 12, paddingRight: 12, whiteSpace: 'pre', minWidth: '100%', display: 'block' }}
+          >
+            {line || '\u00a0'}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 function SectionLabel({ label }: { label: string }) {
   return (
@@ -826,9 +1041,11 @@ function SectionLabel({ label }: { label: string }) {
 function TrackedFileCard({
   file,
   onPreview,
+  onDiff,
 }: {
   file: TrackedFile
   onPreview: () => void
+  onDiff?: () => void
 }) {
   const opColor: Record<TrackedFile['op'], string> = {
     read: 'var(--info)',
@@ -891,17 +1108,33 @@ function TrackedFileCard({
           <span className="text-[10px]">Path incomplete</span>
         </div>
       ) : (
-        <button
-          onClick={onPreview}
-          className="w-full flex items-center justify-center gap-1 py-1 rounded-md text-[11px] transition-colors"
-          style={{
-            border: '1px solid var(--border)',
-            color: 'var(--text-muted)',
-          }}
-        >
-          <Eye size={10} />
-          Preview
-        </button>
+        <div className="flex gap-1.5">
+          {onDiff && (file.op === 'write' || file.op === 'edit') && (
+            <button
+              onClick={onDiff}
+              className="flex-1 flex items-center justify-center gap-1 py-1 rounded-md text-[11px] transition-colors"
+              style={{
+                border: '1px solid var(--border)',
+                color: 'var(--warning)',
+              }}
+              title="Compare diff"
+            >
+              <GitCompare size={10} />
+              Diff
+            </button>
+          )}
+          <button
+            onClick={onPreview}
+            className="flex-1 flex items-center justify-center gap-1 py-1 rounded-md text-[11px] transition-colors"
+            style={{
+              border: '1px solid var(--border)',
+              color: 'var(--text-muted)',
+            }}
+          >
+            <Eye size={10} />
+            Preview
+          </button>
+        </div>
       )}
     </div>
   )
