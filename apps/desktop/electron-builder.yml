@@ -9,6 +9,7 @@ files:
 extraResources:
   - from: ../../dist/miqi-bridge.exe
     to: miqi-bridge.exe
+    optional: true
 win:
   target:
     - target: portable
@@ -23,3 +24,6 @@ nsis:
   oneClick: false
   createDesktopShortcut: true
   createStartMenuShortcut: true
+publish:
+  - provider: generic
+    url: ""

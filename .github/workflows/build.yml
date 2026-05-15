@@ -35,12 +35,6 @@ jobs:
         working-directory: apps/desktop
         run: npm run build
 
-      - name: Create dummy miqi-bridge.exe
-        run: |
-          New-Item -Path "dist" -ItemType Directory -Force | Out-Null
-          New-Item -Path "dist/miqi-bridge.exe" -ItemType File -Force | Out-Null
-        working-directory: ${{ github.workspace }}
-
       - name: Package Electron app
         working-directory: apps/desktop
         run: npx electron-builder --win --publish never
