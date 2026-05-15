@@ -9,7 +9,6 @@ files:
 extraResources:
   - from: ../../dist/miqi-bridge.exe
     to: miqi-bridge.exe
-    optional: true
 win:
   target:
     - target: portable
