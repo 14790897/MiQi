@@ -1069,6 +1069,7 @@ class AgentLoop:
                     outcome_notes="Session reset via /new without explicit task_end.",
                     tool_calls=[],
                 )
+            session.clear()
             self.sessions.save(session)
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
                                   content="New session started.")
