@@ -1,0 +1,68 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main]
+    tags: [v*]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Build app
+        working-directory: apps/desktop
+        run: npm run build
+
+      - name: Package Electron app
+        working-directory: apps/desktop
+        run: npx electron-builder --win
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: miqi-desktop-build
+          path: apps/desktop/dist/
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/*.zip
+          name: Release ${{ github.ref_name }}
+          body: |
+            ## MiQi Desktop ${{ github.ref_name }}
+
+            Automated release from GitHub Actions pipeline.
+
+            **Downloads:**
+            - Windows Installer: `miqi-desktop-Setup-*.exe`
+            - Windows Portable: `miqi-desktop-*.exe`
+            - Windows Zip: `miqi-desktop-*.zip`
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
