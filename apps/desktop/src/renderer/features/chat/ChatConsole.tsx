@@ -533,7 +533,7 @@ export function ChatConsole({
           <button className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors">
             <MoreHorizontal size={14} style={{ color: 'var(--text-faint)' }} />
           </button>
-          <button
+          {/* <button
             onClick={handleNewSession}
             disabled={streaming}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
@@ -544,7 +544,7 @@ export function ChatConsole({
           >
             <Share2 size={12} />
             Share Task
-          </button>
+          </button> */}
         </div>
       </div>
 
@@ -561,7 +561,11 @@ export function ChatConsole({
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-5">
               {!historyLoaded ? (
                 <div className="flex items-center justify-center min-h-[300px]">
-                  <Loader2 size={16} className="animate-spin" style={{ color: 'var(--text-faint)' }} />
+                  <Loader2
+                    size={16}
+                    className="animate-spin"
+                    style={{ color: 'var(--text-faint)' }}
+                  />
                 </div>
               ) : messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center gap-3">
@@ -590,7 +594,10 @@ export function ChatConsole({
               {streaming &&
                 messages.length > 0 &&
                 messages[messages.length - 1].role === 'progress' && (
-                  <div className="flex items-center gap-2 text-xs px-1" style={{ color: 'var(--text-muted)' }}>
+                  <div
+                    className="flex items-center gap-2 text-xs px-1"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
                     <Loader2 size={12} className="animate-spin" />
                     Thinking…
                   </div>
@@ -619,11 +626,24 @@ export function ChatConsole({
                         color: 'var(--text-muted)',
                       }}
                     >
-                      {att.type === 'image'
-                        ? <Image size={12} className="shrink-0" style={{ color: 'var(--info)' }} />
-                        : <FileText size={12} className="shrink-0" style={{ color: 'var(--text-faint)' }} />}
+                      {att.type === 'image' ? (
+                        <Image
+                          size={12}
+                          className="shrink-0"
+                          style={{ color: 'var(--info)' }}
+                        />
+                      ) : (
+                        <FileText
+                          size={12}
+                          className="shrink-0"
+                          style={{ color: 'var(--text-faint)' }}
+                        />
+                      )}
                       <span className="truncate">{att.name}</span>
-                      <button onClick={() => removeAttachment(i)} className="shrink-0 hover:text-[var(--danger)]">
+                      <button
+                        onClick={() => removeAttachment(i)}
+                        className="shrink-0 hover:text-[var(--danger)]"
+                      >
                         <X size={11} />
                       </button>
                     </div>
@@ -674,8 +694,11 @@ export function ChatConsole({
                   </button>
                 )}
               </div>
-              <p className="text-center text-[10px] mt-1.5" style={{ color: 'var(--text-faint)' }}>
-                SHIFT + ENTER FOR NEW LINE  •  CTRL + ENTER TO SEND
+              <p
+                className="text-center text-[10px] mt-1.5"
+                style={{ color: 'var(--text-faint)' }}
+              >
+                SHIFT + ENTER FOR NEW LINE • CTRL + ENTER TO SEND
               </p>
             </div>
           </div>
@@ -697,31 +720,46 @@ export function ChatConsole({
             >
               <div className="flex items-center gap-1.5">
                 <LayoutGrid size={13} style={{ color: 'var(--text-muted)' }} />
-                <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
+                <span
+                  className="text-xs font-semibold"
+                  style={{ color: 'var(--text)' }}
+                >
                   Task Assets
                 </span>
               </div>
-              <span className="text-xs font-medium" style={{ color: 'var(--text-faint)' }}>
+              <span
+                className="text-xs font-medium"
+                style={{ color: 'var(--text-faint)' }}
+              >
                 {trackedFiles.length}
               </span>
             </div>
 
             {trackedFiles.length === 0 ? (
               <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center gap-2">
-                <FileText size={24} style={{ color: 'var(--text-faint)', opacity: 0.4 }} />
-                <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
-                  No files yet.<br />Agent operations will appear here.
+                <FileText
+                  size={24}
+                  style={{ color: 'var(--text-faint)', opacity: 0.4 }}
+                />
+                <p
+                  className="text-[11px]"
+                  style={{ color: 'var(--text-faint)' }}
+                >
+                  No files yet.
+                  <br />
+                  Agent operations will appear here.
                 </p>
               </div>
             ) : (
               <>
                 {/* Written / Edited files → Active for Edit */}
-                {trackedFiles.filter(f => f.op === 'write' || f.op === 'edit').length > 0 && (
+                {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit')
+                  .length > 0 && (
                   <>
                     <SectionLabel label="ACTIVE FOR EDIT" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
-                        .filter(f => f.op === 'write' || f.op === 'edit')
+                        .filter((f) => f.op === 'write' || f.op === 'edit')
                         .map((f) => (
                           <TrackedFileCard
                             key={f.path}
@@ -735,12 +773,12 @@ export function ChatConsole({
                 )}
 
                 {/* Read files → Referenced Context */}
-                {trackedFiles.filter(f => f.op === 'read').length > 0 && (
+                {trackedFiles.filter((f) => f.op === 'read').length > 0 && (
                   <>
                     <SectionLabel label="REFERENCED CONTEXT" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
-                        .filter(f => f.op === 'read')
+                        .filter((f) => f.op === 'read')
                         .map((f) => (
                           <TrackedFileCard
                             key={f.path}
@@ -753,12 +791,12 @@ export function ChatConsole({
                 )}
 
                 {/* Deleted files */}
-                {trackedFiles.filter(f => f.op === 'delete').length > 0 && (
+                {trackedFiles.filter((f) => f.op === 'delete').length > 0 && (
                   <>
                     <SectionLabel label="DELETED" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
-                        .filter(f => f.op === 'delete')
+                        .filter((f) => f.op === 'delete')
                         .map((f) => (
                           <TrackedFileCard
                             key={f.path}
@@ -774,55 +812,87 @@ export function ChatConsole({
 
             {/* Proposed changes summary */}
             <div className="flex-1" />
-            {trackedFiles.filter(f => f.op === 'write' || f.op === 'edit').length > 0 && (
+            {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit')
+              .length > 0 && (
               <div
                 className="border-t mx-3 mt-2 pt-3 pb-3"
                 style={{ borderColor: 'var(--panel-border)' }}
               >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--warning)' }} />
-                    <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
+                    <span
+                      className="w-1.5 h-1.5 rounded-full"
+                      style={{ background: 'var(--warning)' }}
+                    />
+                    <span
+                      className="text-xs font-semibold"
+                      style={{ color: 'var(--text)' }}
+                    >
                       Proposed Changes
                     </span>
                   </div>
-                  <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
-                    {trackedFiles.filter(f => f.op === 'write' || f.op === 'edit').length} file(s)
+                  <span
+                    className="text-[10px]"
+                    style={{ color: 'var(--text-faint)' }}
+                  >
+                    {
+                      trackedFiles.filter(
+                        (f) => f.op === 'write' || f.op === 'edit',
+                      ).length
+                    }{' '}
+                    file(s)
                   </span>
                 </div>
                 <div className="flex flex-col gap-1.5 mb-3">
-                  {trackedFiles.filter(f => f.op === 'write' || f.op === 'edit').slice(0, 3).map((f) => (
-                    <div
-                      key={f.path}
-                      className="flex items-center gap-1.5 rounded-lg px-2.5 py-2"
-                      style={{
-                        background: 'var(--surface-muted)',
-                        border: '1px solid var(--border-subtle)',
-                      }}
-                    >
-                      <FileText size={11} style={{ color: 'var(--info)' }} className="shrink-0" />
-                      <span className="text-[11px] truncate flex-1" style={{ color: 'var(--text)' }} title={f.path}>
-                        {f.name}
-                      </span>
-                      <span
-                        className="text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                  {trackedFiles
+                    .filter((f) => f.op === 'write' || f.op === 'edit')
+                    .slice(0, 3)
+                    .map((f) => (
+                      <div
+                        key={f.path}
+                        className="flex items-center gap-1.5 rounded-lg px-2.5 py-2"
                         style={{
-                          background: f.op === 'write' ? 'var(--accent)' : 'rgba(234,179,8,0.15)',
-                          color: f.op === 'write' ? 'var(--accent-text)' : 'var(--warning)',
+                          background: 'var(--surface-muted)',
+                          border: '1px solid var(--border-subtle)',
                         }}
                       >
-                        {f.op.toUpperCase()}
-                      </span>
-                      <button
-                        onClick={() => handleShowDiff(f.path)}
-                        className="p-1 rounded transition-colors shrink-0"
-                        style={{ color: 'var(--text-faint)' }}
-                        title="Compare diff"
-                      >
-                        <GitCompare size={11} />
-                      </button>
-                    </div>
-                  ))}
+                        <FileText
+                          size={11}
+                          style={{ color: 'var(--info)' }}
+                          className="shrink-0"
+                        />
+                        <span
+                          className="text-[11px] truncate flex-1"
+                          style={{ color: 'var(--text)' }}
+                          title={f.path}
+                        >
+                          {f.name}
+                        </span>
+                        <span
+                          className="text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                          style={{
+                            background:
+                              f.op === 'write'
+                                ? 'var(--accent)'
+                                : 'rgba(234,179,8,0.15)',
+                            color:
+                              f.op === 'write'
+                                ? 'var(--accent-text)'
+                                : 'var(--warning)',
+                          }}
+                        >
+                          {f.op.toUpperCase()}
+                        </span>
+                        <button
+                          onClick={() => handleShowDiff(f.path)}
+                          className="p-1 rounded transition-colors shrink-0"
+                          style={{ color: 'var(--text-faint)' }}
+                          title="Compare diff"
+                        >
+                          <GitCompare size={11} />
+                        </button>
+                      </div>
+                    ))}
                 </div>
               </div>
             )}
@@ -834,14 +904,21 @@ export function ChatConsole({
                 disabled={merging || trackedFiles.length === 0}
                 className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
                 style={{
-                  background: merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'var(--accent)',
-                  color: merging || trackedFiles.length === 0 ? 'var(--text-faint)' : 'var(--accent-text)',
+                  background:
+                    merging || trackedFiles.length === 0
+                      ? 'var(--surface-muted)'
+                      : 'var(--accent)',
+                  color:
+                    merging || trackedFiles.length === 0
+                      ? 'var(--text-faint)'
+                      : 'var(--accent-text)',
                 }}
               >
-                {merging
-                  ? <Loader2 size={13} className="animate-spin" />
-                  : <GitMerge size={13} />
-                }
+                {merging ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <GitMerge size={13} />
+                )}
                 {merging ? 'MERGING...' : 'MERGE ALL CHANGES'}
               </button>
             </div>
@@ -871,8 +948,16 @@ export function ChatConsole({
               style={{ borderColor: 'var(--border-subtle)' }}
             >
               <div className="flex items-center gap-2 min-w-0">
-                <FileText size={14} style={{ color: 'var(--info)' }} className="shrink-0" />
-                <span className="text-sm font-medium truncate" style={{ color: 'var(--text)' }} title={previewFile.path}>
+                <FileText
+                  size={14}
+                  style={{ color: 'var(--info)' }}
+                  className="shrink-0"
+                />
+                <span
+                  className="text-sm font-medium truncate"
+                  style={{ color: 'var(--text)' }}
+                  title={previewFile.path}
+                >
                   {previewFile.path}
                 </span>
               </div>
@@ -918,17 +1003,37 @@ export function ChatConsole({
               style={{ borderColor: 'var(--border-subtle)' }}
             >
               <div className="flex items-center gap-2 min-w-0">
-                <GitCompare size={14} style={{ color: 'var(--warning)' }} className="shrink-0" />
-                <span className="text-sm font-medium truncate" style={{ color: 'var(--text)' }} title={diffFile.path}>
+                <GitCompare
+                  size={14}
+                  style={{ color: 'var(--warning)' }}
+                  className="shrink-0"
+                />
+                <span
+                  className="text-sm font-medium truncate"
+                  style={{ color: 'var(--text)' }}
+                  title={diffFile.path}
+                >
                   {diffFile.path.split(/[/\\]/).pop()}
                 </span>
                 {!diffLoading && diffFile.has_diff && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0" style={{ background: 'rgba(234,179,8,0.15)', color: 'var(--warning)' }}>
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                    style={{
+                      background: 'rgba(234,179,8,0.15)',
+                      color: 'var(--warning)',
+                    }}
+                  >
                     MODIFIED
                   </span>
                 )}
                 {!diffLoading && !diffFile.has_diff && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0" style={{ background: 'var(--surface-muted)', color: 'var(--text-faint)' }}>
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                    style={{
+                      background: 'var(--surface-muted)',
+                      color: 'var(--text-faint)',
+                    }}
+                  >
                     NO CHANGES
                   </span>
                 )}
@@ -940,13 +1045,18 @@ export function ChatConsole({
                     disabled={reverting}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
                     style={{
-                      background: reverting ? 'var(--surface-muted)' : 'rgba(239,68,68,0.15)',
+                      background: reverting
+                        ? 'var(--surface-muted)'
+                        : 'rgba(239,68,68,0.15)',
                       color: reverting ? 'var(--text-faint)' : 'var(--danger)',
                       border: '1px solid var(--danger)',
                     }}
                     title="Revert to HEAD (undo changes)"
                   >
-                    <Undo2 size={12} className={reverting ? 'animate-spin' : ''} />
+                    <Undo2
+                      size={12}
+                      className={reverting ? 'animate-spin' : ''}
+                    />
                     {reverting ? 'Reverting...' : 'Revert'}
                   </button>
                 )}
@@ -963,16 +1073,32 @@ export function ChatConsole({
             <div className="flex-1 overflow-auto">
               {diffLoading ? (
                 <div className="flex items-center justify-center h-48">
-                  <Loader2 size={24} className="animate-spin" style={{ color: 'var(--text-faint)' }} />
-                  <span className="ml-2 text-sm" style={{ color: 'var(--text-faint)' }}>Loading diff...</span>
+                  <Loader2
+                    size={24}
+                    className="animate-spin"
+                    style={{ color: 'var(--text-faint)' }}
+                  />
+                  <span
+                    className="ml-2 text-sm"
+                    style={{ color: 'var(--text-faint)' }}
+                  >
+                    Loading diff...
+                  </span>
                 </div>
               ) : diffFile.diff ? (
                 <DiffView diff={diffFile.diff} />
-              ) : diffFile.original_content !== null && diffFile.current_content !== null ? (
+              ) : diffFile.original_content !== null &&
+                diffFile.current_content !== null ? (
                 /* No snapshot diff but we have both versions — show side by side */
                 <div className="flex h-full" style={{ minHeight: 400 }}>
-                  <div className="flex-1 p-4 overflow-auto border-r" style={{ borderColor: 'var(--border-subtle)' }}>
-                    <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-faint)' }}>
+                  <div
+                    className="flex-1 p-4 overflow-auto border-r"
+                    style={{ borderColor: 'var(--border-subtle)' }}
+                  >
+                    <div
+                      className="text-[10px] font-semibold uppercase tracking-wider mb-2"
+                      style={{ color: 'var(--text-faint)' }}
+                    >
                       Original
                     </div>
                     <pre
@@ -983,7 +1109,10 @@ export function ChatConsole({
                     </pre>
                   </div>
                   <div className="flex-1 p-4 overflow-auto">
-                    <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-faint)' }}>
+                    <div
+                      className="text-[10px] font-semibold uppercase tracking-wider mb-2"
+                      style={{ color: 'var(--text-faint)' }}
+                    >
                       Current
                     </div>
                     <pre
@@ -996,8 +1125,12 @@ export function ChatConsole({
                 </div>
               ) : (
                 <div className="flex items-center justify-center h-48">
-                  <span className="text-sm" style={{ color: 'var(--text-faint)' }}>
-                    {diffFile.original_content === null && diffFile.current_content === null
+                  <span
+                    className="text-sm"
+                    style={{ color: 'var(--text-faint)' }}
+                  >
+                    {diffFile.original_content === null &&
+                    diffFile.current_content === null
                       ? 'No snapshot available — file was not modified in this session'
                       : 'No changes detected'}
                   </span>
