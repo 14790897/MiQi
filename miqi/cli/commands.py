@@ -793,6 +793,9 @@ register_management_commands(
 from miqi.cli.config_cmd import register_config_commands
 register_config_commands(app, console=console)
 
+from miqi.cli.trace_cmd import trace_app
+app.add_typer(trace_app, name="trace")
+
 
 if __name__ == "__main__":
     app()
