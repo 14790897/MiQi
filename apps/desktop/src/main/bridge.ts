@@ -1,8 +1,8 @@
 import { ChildProcess, spawn, execSync } from 'child_process'
 import { EventEmitter } from 'events'
 import { createInterface, Interface } from 'readline'
-import { existsSync } from 'fs'
-import { join } from 'path'
+import { existsSync, watch } from 'fs'
+import { join, extname } from 'path'
 import { randomUUID } from 'crypto'
 import type { RuntimeState, RuntimeStatus } from '../shared/ipc'
 
@@ -79,11 +79,19 @@ export class BridgeManager extends EventEmitter {
   private logs: string[] = []
   private maxLogs: number = 500
   private projectRoot: string
+  private fileWatcher: ReturnType<typeof watch> | null = null
+  private hotReloadEnabled: boolean = false
+  private lastReloadTime: number = 0
+  private reloadCooldown: number = 1000 // 1 second cooldown between reloads
 
   constructor(projectRoot?: string) {
     super()
     // In dev: __dirname = apps/desktop/out/main → projectRoot is 4 levels up
     this.projectRoot = projectRoot || join(__dirname, '..', '..', '..', '..')
+    // Enable hot reload in development mode
+    this.hotReloadEnabled =
+      process.env['NODE_ENV'] === 'development' ||
+      process.env['ELECTRON_RENDERER_URL'] !== undefined
   }
 
   getStatus(): RuntimeStatus {
@@ -115,6 +123,9 @@ export class BridgeManager extends EventEmitter {
 
     this.addLog(`Starting MiQi bridge: ${command} ${args.join(' ')}`)
     this.addLog(`Working directory: ${this.projectRoot}`)
+
+    // Start file watcher for hot reload
+    this.startFileWatcher()
 
     try {
       this.process = spawn(command, args, {
@@ -207,6 +218,9 @@ export class BridgeManager extends EventEmitter {
     this.state = 'stopping'
     this.emitState()
 
+    // Stop file watcher
+    this.stopFileWatcher()
+
     this.process.stdin?.end()
     this.process.kill('SIGTERM')
 
@@ -218,6 +232,88 @@ export class BridgeManager extends EventEmitter {
     }, 5000)
 
     this.addLog('Bridge stopping')
+  }
+
+  private startFileWatcher(): void {
+    if (!this.hotReloadEnabled || this.fileWatcher) return
+
+    const miqiDir = join(this.projectRoot, 'miqi')
+    if (!existsSync(miqiDir)) {
+      this.addLog(
+        `[Hot Reload] Skipping watcher - miqi directory not found: ${miqiDir}`,
+      )
+      return
+    }
+
+    this.addLog('[Hot Reload] File watcher enabled for Python backend')
+
+    this.fileWatcher = watch(
+      miqiDir,
+      { recursive: true },
+      (eventType, filename) => {
+        if (!filename) return
+
+        // Only watch Python files
+        const ext = extname(filename)
+        if (ext !== '.py') return
+
+        // Skip pycache and __pycache__ directories
+        if (filename.includes('__pycache__') || filename.endsWith('.pyc'))
+          return
+
+        this.handleFileChange(filename)
+      },
+    )
+  }
+
+  private stopFileWatcher(): void {
+    if (this.fileWatcher) {
+      this.fileWatcher.close()
+      this.fileWatcher = null
+      this.addLog('[Hot Reload] File watcher stopped')
+    }
+  }
+
+  private handleFileChange(filename: string): void {
+    const now = Date.now()
+    if (now - this.lastReloadTime < this.reloadCooldown) {
+      return
+    }
+
+    this.lastReloadTime = now
+    this.addLog(`[Hot Reload] Detected change in: ${filename}`)
+
+    // Schedule restart after a short delay to allow multiple files to change
+    setTimeout(async () => {
+      await this.restart()
+    }, 500)
+  }
+
+  private async restart(): Promise<void> {
+    if (this.state !== 'running') return
+
+    this.addLog('[Hot Reload] Restarting bridge due to code changes...')
+
+    // Store pending requests to retry after restart
+    const pendingRequests = [...this.pending.entries()]
+    this.pending.clear()
+
+    // Stop current process
+    if (this.process) {
+      this.process.stdin?.end()
+      this.process.kill('SIGTERM')
+    }
+
+    // Wait briefly for process to exit
+    await new Promise((resolve) => setTimeout(resolve, 500))
+
+    // Restart
+    try {
+      await this.start()
+      this.addLog('[Hot Reload] Bridge restarted successfully')
+    } catch (err) {
+      this.addLog(`[Hot Reload] Failed to restart bridge: ${err}`)
+    }
   }
 
   isRunning(): boolean {
