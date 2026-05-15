@@ -29,6 +29,7 @@ _PARALLEL_SAFE_TOOLS: frozenset[str] = frozenset({
     "paper_search",
     "paper_get",
     "session_search",   # read-only FTS5 search
+    "trace_search",     # read-only embedding/FTS5 search
     "skill_manage",     # list/view are read-only; create/patch/archive have side effects but are safe
 })
 
@@ -38,6 +39,8 @@ _PATH_SCOPED_TOOLS: frozenset[str] = frozenset({
     "edit_file",
     "read_file",
     "memory",  # writes to workspace/memory/MEMORY.md or USER.md
+    "task_begin",  # writes to workspace/traces/
+    "task_end",    # writes to workspace/traces/
 })
 
 # Tools that must NEVER run in parallel (ordering/state matters)
@@ -180,15 +183,19 @@ class ToolRegistry:
     async def execute_concurrent(
         self,
         tool_calls: list[dict[str, Any]],
+        default_kwargs: dict[str, Any] | None = None,
     ) -> list[tuple[str, str]]:
         """Execute multiple tool calls concurrently using asyncio.gather.
 
         Args:
             tool_calls: List of dicts with keys 'id', 'name', 'arguments'.
+            default_kwargs: Extra kwargs forwarded to every tool execution.
 
         Returns:
             List of (tool_call_id, result_str) preserving input order.
         """
+        extra = default_kwargs or {}
+
         async def _one(tc: dict[str, Any]) -> tuple[str, str]:
             tc_id = tc.get("id", "")
             name = tc.get("name", "")
@@ -198,7 +205,7 @@ class ToolRegistry:
                     args = json.loads(args)
                 except (json.JSONDecodeError, ValueError):
                     args = {}
-            result = await self.execute(name, args)
+            result = await self.execute(name, args, **extra)
             return tc_id, result
 
         results = await asyncio.gather(*[_one(tc) for tc in tool_calls])

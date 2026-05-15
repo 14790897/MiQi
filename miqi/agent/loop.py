@@ -35,7 +35,9 @@ from miqi.agent.tools.session_search import SessionSearchTool
 from miqi.agent.tools.shell import ExecTool
 from miqi.agent.tools.skill_manage import SkillManageTool
 from miqi.agent.tools.spawn import SpawnTool
+from miqi.agent.tools.task_trace import TaskBeginTool, TaskEndTool, TraceSearchTool
 from miqi.agent.tools.web import WebFetchTool, WebSearchTool
+from miqi.agent.trace.store import TraceStore
 from miqi.bus.events import InboundMessage, OutboundMessage
 from miqi.bus.queue import MessageBus
 from miqi.config.schema import (
@@ -234,6 +236,12 @@ class AgentLoop:
         else:
             self._skill_curator = None
 
+        self.trace_store = TraceStore(
+            workspace=self.workspace,
+            enabled=self.self_improvement_config.trace_enabled,
+            embedding_model=self.self_improvement_config.embedding_model,
+        )
+
         self.context = ContextBuilder(
             workspace,
             memory_store=self.memory,
@@ -366,6 +374,9 @@ class AgentLoop:
             )
         )
         self.tools.register(MemoryTool(workspace=self.workspace))
+        self.tools.register(TaskBeginTool(trace_store=self.trace_store))
+        self.tools.register(TaskEndTool(trace_store=self.trace_store))
+        self.tools.register(TraceSearchTool(trace_store=self.trace_store))
         self.tools.register(SessionSearchTool(memory=self.memory, session_manager=self.sessions))
         self.tools.register(SkillManageTool(workspace=self.workspace))
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
@@ -673,7 +684,9 @@ class AgentLoop:
                 # Dispatch tool calls: run parallelisable batches concurrently,
                 # fall back to sequential for tools that must run one at a time.
                 if self.tools.should_parallelize(_tc_dicts):
-                    parallel_results = await self.tools.execute_concurrent(_tc_dicts)
+                    parallel_results = await self.tools.execute_concurrent(
+                        _tc_dicts, default_kwargs={"session_id": session_key},
+                    )
                     # execute_concurrent returns list[tuple[tc_id, result_str]]
                     result_by_id = dict(parallel_results)
                     for tool_call in response.tool_calls:
@@ -741,6 +754,7 @@ class AgentLoop:
                             tool_call.name,
                             tool_call.arguments,
                             _on_progress=_mcp_on_progress,
+                            session_id=session_key,
                         )
                         # Record tool feedback for self-improvement lessons
                         if session_key and isinstance(result, str):
