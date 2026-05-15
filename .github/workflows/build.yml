@@ -27,11 +27,25 @@ jobs:
           cache: 'npm'
           cache-dependency-path: apps/desktop/package-lock.json
 
-      - name: Install dependencies
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install Python dependencies
+        run: uv sync --all-extras
+
+      - name: Build miqi-bridge.exe
+        run: uv run pyinstaller miqi.spec
+
+      - name: Install Electron dependencies
         working-directory: apps/desktop
         run: npm ci
 
-      - name: Build app
+      - name: Build Electron app
         working-directory: apps/desktop
         run: npm run build
 
