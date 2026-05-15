@@ -37,9 +37,9 @@ jobs:
 
       - name: Create dummy miqi-bridge.exe
         run: |
-          $null = New-Item -Path "dist" -ItemType Directory -Force
-          $null = New-Item -Path "dist/miqi-bridge.exe" -ItemType File -Force
-        working-directory: c:\git-program\test\MiQi-Desktop
+          New-Item -Path "dist" -ItemType Directory -Force | Out-Null
+          New-Item -Path "dist/miqi-bridge.exe" -ItemType File -Force | Out-Null
+        working-directory: ${{ github.workspace }}
 
       - name: Package Electron app
         working-directory: apps/desktop
