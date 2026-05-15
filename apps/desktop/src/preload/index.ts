@@ -30,6 +30,8 @@ import type {
   FilesTreeResult,
   FilesReadResult,
   FilesWriteResult,
+  FilesDiffResult,
+  FilesRevertResult,
   ChatProgress,
   ChatFinal,
   ChatError,
@@ -216,6 +218,10 @@ const api = {
       ipcRenderer.invoke(IPC.FILES_WRITE, { path, content }),
     delete: (path: string): Promise<{ deleted: boolean; path: string }> =>
       ipcRenderer.invoke(IPC.FILES_DELETE, { path }),
+    diff: (path: string): Promise<FilesDiffResult> =>
+      ipcRenderer.invoke(IPC.FILES_DIFF, { path }),
+    revert: (path: string): Promise<FilesRevertResult> =>
+      ipcRenderer.invoke(IPC.FILES_REVERT, { path }),
   },
 
   // -- Python check -----------------------------------------------------------

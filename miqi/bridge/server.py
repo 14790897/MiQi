@@ -236,6 +236,110 @@ class BridgeState:
 
 _state = BridgeState()
 
+# ---------------------------------------------------------------------------
+# File snapshot store — keeps original content before first write/edit
+# so we can diff and revert without git.
+# Snapshots are persisted to disk at ~/.miqi/snapshots/<hash>.json so that
+# they survive bridge restarts.
+# Key: absolute resolved path (str), Value: original text content (str)
+# ---------------------------------------------------------------------------
+
+import hashlib as _hashlib
+import json as _json
+
+_snapshots_lock = threading.Lock()
+
+
+def _snapshots_dir() -> "Path":
+    """Return (and create if needed) the snapshots directory."""
+    d = Path.home() / ".miqi" / "snapshots"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _snapshot_file(key: str) -> "Path":
+    """Return the path to the JSON file that stores snapshot for *key*."""
+    h = _hashlib.sha256(key.encode()).hexdigest()
+    return _snapshots_dir() / f"{h}.json"
+
+
+def _read_snapshot(key: str) -> "str | None":
+    """Read snapshot content from disk. Returns None if not found."""
+    p = _snapshot_file(key)
+    try:
+        if p.exists():
+            data = _json.loads(p.read_text(encoding="utf-8"))
+            return data.get("content")
+    except Exception:
+        pass
+    return None
+
+
+def _write_snapshot(key: str, content: str) -> None:
+    """Persist snapshot content to disk."""
+    p = _snapshot_file(key)
+    try:
+        p.write_text(
+            _json.dumps({"path": key, "content": content}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        _log(f"[snapshot] saved: {key}")
+    except Exception as exc:
+        _log(f"[snapshot] save failed: {key} — {exc}")
+
+
+def _delete_snapshot(key: str) -> None:
+    """Remove snapshot file from disk."""
+    p = _snapshot_file(key)
+    try:
+        if p.exists():
+            p.unlink()
+            _log(f"[snapshot] deleted: {key}")
+    except Exception as exc:
+        _log(f"[snapshot] delete failed: {key} — {exc}")
+
+
+def _maybe_snapshot(resolved: "Path") -> None:
+    """Save a snapshot of *resolved* if not already snapshotted (disk-backed)."""
+    key = str(resolved)
+    with _snapshots_lock:
+        # Check disk — skip if snapshot already exists
+        if _read_snapshot(key) is not None:
+            return
+        # File doesn't exist yet → snapshot is empty string (new file)
+        if resolved.exists():
+            try:
+                content = resolved.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                content = ""
+        else:
+            content = ""
+        _write_snapshot(key, content)
+        _log(f"[snapshot] created for: {key}")
+
+
+def _restore_snapshot(resolved: "Path") -> bool:
+    """Restore file from disk snapshot. Returns True if successful."""
+    key = str(resolved)
+    with _snapshots_lock:
+        original = _read_snapshot(key)
+    if original is None:
+        _log(f"[snapshot] restore skipped — no snapshot for: {key}")
+        return False
+    try:
+        if original == "":
+            # File was new — delete it to revert
+            if resolved.exists():
+                resolved.unlink()
+            _log(f"[snapshot] restored (new file deleted): {key}")
+        else:
+            resolved.write_text(original, encoding="utf-8")
+            _log(f"[snapshot] restored (content written): {key}")
+        return True
+    except Exception as exc:
+        _log(f"[snapshot] restore failed: {key} — {exc}")
+        return False
+
 
 # ---------------------------------------------------------------------------
 # Handlers
@@ -1169,6 +1273,7 @@ def handle_files_read(req_id: str, params: dict) -> None:
 def handle_files_write(req_id: str, params: dict) -> None:
     file_path = params.get("path", "").strip()
     content = params.get("content", "")
+    _log(f"[files:write] req={req_id} path={file_path} size={len(content)}")
     if not file_path:
         _error(req_id, "path is required")
         return
@@ -1176,6 +1281,7 @@ def handle_files_write(req_id: str, params: dict) -> None:
     try:
         resolved = _validate_file_path(file_path)
     except ValueError as exc:
+        _log(f"[files:write] path validation failed: {exc}")
         _error(req_id, str(exc))
         return
 
@@ -1186,11 +1292,20 @@ def handle_files_write(req_id: str, params: dict) -> None:
                ".env", ".gitignore", ".dockerignore", ".editorconfig",
                ".csv", ".log", ".lock", ".jsonl"}
     if resolved.suffix not in allowed and resolved.name not in {".gitignore", ".dockerignore", ".editorconfig", ".env"}:
+        _log(f"[files:write] unsupported file type: {resolved.suffix or resolved.name}")
         _error(req_id, f"File type not supported for write: {resolved.suffix or resolved.name}")
         return
 
+    # Snapshot original content before first write (enables non-git diff/revert)
+    _maybe_snapshot(resolved)
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    resolved.write_text(content, encoding="utf-8")
+    try:
+        resolved.write_text(content, encoding="utf-8")
+        _log(f"[files:write] ok path={file_path}")
+    except Exception as exc:
+        _log(f"[files:write] write failed: {exc}")
+        _error(req_id, str(exc))
+        return
     _result(req_id, {"saved": True, "path": file_path})
 
 
@@ -1225,6 +1340,109 @@ def handle_files_delete(req_id: str, params: dict) -> None:
         resolved.unlink()
 
     _result(req_id, {"deleted": True, "path": file_path})
+
+
+def handle_files_diff(req_id: str, params: dict) -> None:
+    """Diff a file against its pre-session snapshot using difflib (no git required)."""
+    import difflib
+
+    file_path = params.get("path", "").strip()
+    _log(f"[files:diff] req={req_id} path={file_path}")
+    if not file_path:
+        _error(req_id, "path is required")
+        return
+
+    try:
+        resolved = _validate_file_path(file_path)
+    except ValueError as exc:
+        _log(f"[files:diff] path validation failed: {exc}")
+        _error(req_id, str(exc))
+        return
+
+    snapshot_key = str(resolved)
+    with _snapshots_lock:
+        original_content: str | None = _read_snapshot(snapshot_key)
+
+    # Read current content
+    current_content: str | None = None
+    if resolved.exists():
+        try:
+            current_content = resolved.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            _log(f"[files:diff] read current failed: {exc}")
+
+    # If no snapshot exists, try to generate a partial diff (no original)
+    if original_content is None:
+        _log(f"[files:diff] no snapshot for {snapshot_key}")
+        _result(req_id, {
+            "path": file_path,
+            "diff": None,
+            "has_diff": False,
+            "original_content": None,
+            "current_content": current_content,
+            "error": "No snapshot found — file was not modified in this session",
+        })
+        return
+
+    # Generate unified diff
+    original_lines = original_content.splitlines(keepends=True)
+    current_lines = (current_content or "").splitlines(keepends=True)
+    diff_lines = list(difflib.unified_diff(
+        original_lines,
+        current_lines,
+        fromfile=f"a/{file_path}",
+        tofile=f"b/{file_path}",
+        lineterm="",
+    ))
+    diff_text = "\n".join(diff_lines) if diff_lines else None
+    has_diff = bool(diff_text)
+    _log(f"[files:diff] ok has_diff={has_diff} lines={len(diff_lines)} path={file_path}")
+
+    _result(req_id, {
+        "path": file_path,
+        "diff": diff_text,
+        "has_diff": has_diff,
+        "original_content": original_content,
+        "current_content": current_content,
+    })
+
+
+def handle_files_revert(req_id: str, params: dict) -> None:
+    """Revert a file to its pre-session snapshot (no git required)."""
+    file_path = params.get("path", "").strip()
+    _log(f"[files:revert] req={req_id} path={file_path}")
+    if not file_path:
+        _error(req_id, "path is required")
+        return
+
+    try:
+        resolved = _validate_file_path(file_path)
+    except ValueError as exc:
+        _log(f"[files:revert] path validation failed: {exc}")
+        _error(req_id, str(exc))
+        return
+
+    snapshot_key = str(resolved)
+    with _snapshots_lock:
+        has_snapshot = _read_snapshot(snapshot_key) is not None
+
+    if not has_snapshot:
+        _log(f"[files:revert] no snapshot for {snapshot_key}")
+        _error(req_id, "No snapshot found — cannot revert (file was not modified in this session)")
+        return
+
+    ok = _restore_snapshot(resolved)
+    if not ok:
+        _log(f"[files:revert] restore failed for {snapshot_key}")
+        _error(req_id, "Revert failed — could not write original content")
+        return
+
+    # Remove snapshot so the file is treated as clean again
+    with _snapshots_lock:
+        _delete_snapshot(snapshot_key)
+
+    _log(f"[files:revert] ok path={file_path}")
+    _result(req_id, {"reverted": True, "path": file_path})
 
 
 def handle_skills_open_folder(req_id: str, params: dict) -> None:
@@ -1356,6 +1574,8 @@ _METHODS = {
     "files.read": handle_files_read,
     "files.write": handle_files_write,
     "files.delete": handle_files_delete,
+    "files.diff": handle_files_diff,
+    "files.revert": handle_files_revert,
     "python.check": handle_python_check,
 }
 

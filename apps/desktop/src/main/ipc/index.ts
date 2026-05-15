@@ -349,6 +349,16 @@ for m in ("pydantic", "httpx", "loguru"):
     return bridge.send('files.delete', p as Record<string, unknown>)
   })
 
+  ipcMain.handle(IPC.FILES_DIFF, async (_event, payload: unknown) => {
+    const p = payload as { path: string }
+    return bridge.sendSafe('files.diff', p as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.FILES_REVERT, async (_event, payload: unknown) => {
+    const p = payload as { path: string }
+    return bridge.send('files.revert', p as Record<string, unknown>)
+  })
+
   // -----------------------------------------------------------------------
   // Write initial config (no bridge needed — used by Setup Wizard before
   // MiQi has ever been configured or started).
