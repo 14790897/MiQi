@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS task_traces (
 CREATE INDEX IF NOT EXISTS idx_traces_session ON task_traces(session_id);
 CREATE INDEX IF NOT EXISTS idx_traces_outcome ON task_traces(outcome);
 CREATE INDEX IF NOT EXISTS idx_traces_created ON task_traces(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_traces_parent ON task_traces(parent_hash);
 """
 
 FTS_SQL = """
@@ -179,6 +180,48 @@ class TraceStore:
 
     def get_current_task(self, session_id: str) -> dict | None:
         return self._open_tasks.get(session_id)
+
+    # --- Graph traversal ---
+
+    def get_children(self, trace_hash: str) -> list[TaskTrace]:
+        """Return all direct child traces (where parent_hash == trace_hash)."""
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT * FROM task_traces WHERE parent_hash = ? ORDER BY created_at ASC",
+                (trace_hash,),
+            )
+            rows = cursor.fetchall()
+        return [self._row_to_trace(row) for row in rows]
+
+    def get_lineage(
+        self, trace_hash: str, max_depth: int = 20
+    ) -> list[TaskTrace]:
+        """Return the ancestor chain for a trace, oldest-first.
+
+        Uses a recursive CTE to walk parent_hash pointers up the tree.
+        The trace identified by *trace_hash* itself is the last element.
+        Returns an empty list if the trace does not exist.
+        """
+        sql = """
+        WITH RECURSIVE ancestors(trace_hash, parent_hash, depth) AS (
+            SELECT trace_hash, parent_hash, 0
+            FROM task_traces
+            WHERE trace_hash = :start
+            UNION ALL
+            SELECT t.trace_hash, t.parent_hash, a.depth + 1
+            FROM task_traces t
+            JOIN ancestors a ON t.trace_hash = a.parent_hash
+            WHERE a.depth < :max_depth
+        )
+        SELECT tt.*
+        FROM task_traces tt
+        JOIN ancestors a ON tt.trace_hash = a.trace_hash
+        ORDER BY a.depth DESC
+        """
+        with self._lock:
+            cursor = self._conn.execute(sql, {"start": trace_hash, "max_depth": max_depth})
+            rows = cursor.fetchall()
+        return [self._row_to_trace(row) for row in rows]
 
     # --- Query ---
 

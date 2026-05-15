@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added (2026-05-15)
+- **Task Graph — git-like agent self-improvement system** (`miqi/agent/trace/`):
+  - `TraceStore`: SQLite WAL-backed storage at `{workspace}/traces/TRACES.sqlite` with FTS5 full-text index and optional BLAKE3 content-addressed hashing (`miqi/agent/trace/store.py`).
+  - `TaskTrace` / `TaskStep` data model with `trace_hash`, `goal`, `tool_calls`, `outcome`, `outcome_notes`, `embedding`, `parent_hash`, and `session_id` fields (`miqi/agent/trace/model.py`).
+  - `Embedder`: lazy-loaded local embeddings via `fastembed` (`intfloat/multilingual-e5-small`, 384-dim, ONNX); cosine-similarity semantic search; graceful FTS5 fallback when `fastembed` is unavailable (`miqi/agent/trace/embedder.py`).
+  - Three new agent tools: `task_begin` (open a trace), `task_end` (close with outcome + notes, returns similar historical traces), `trace_search` (semantic/FTS5 search of task history) (`miqi/agent/tools/task_trace.py`).
+  - Context injection: up to 3 similar historical traces are prepended to `build_system_prompt()` when cosine similarity ≥ 0.65 (`miqi/agent/context.py`).
+  - Nudge system: every `trace_nudge_interval` turns (default 8), a system message reminds the agent to call `task_end` if a task is open (`miqi/agent/loop.py`).
+  - Auto-close: open tasks are closed as `partial` on `AgentLoop.stop()` (process shutdown) and on `/new` session reset (`miqi/agent/loop.py`).
+  - Legacy lesson migration utility: converts `LESSONS.jsonl` entries to minimal `TaskTrace` records idempotently (`miqi/agent/trace/migrate.py`).
+  - CLI sub-command `miqi trace` with `log`, `show`, `search`, `export`, `import` commands (`miqi/cli/trace_cmd.py`, `miqi/cli/commands.py`).
+  - Six new config fields in `AgentSelfImprovementConfig`: `trace_enabled`, `embedding_model`, `trace_inject_top_k`, `trace_similarity_threshold`, `trace_nudge_interval`, `lessons_legacy_inject_enabled` (`miqi/config/schema.py`).
+  - Optional dependency group `[trace]`: `fastembed>=0.6.0`, `numpy>=1.24.0`, `blake3>=0.4.0` (`pyproject.toml`).
+- **`task_begin` / `task_end` / `trace_search` tool concurrency classification**: `trace_search` added to `_PARALLEL_SAFE_TOOLS`; `task_begin` and `task_end` added to `_PATH_SCOPED_TOOLS` (`miqi/agent/tools/registry.py`).
+- **`execute_concurrent` `default_kwargs` forwarding**: added `default_kwargs` parameter to `ToolRegistry.execute_concurrent()` so `session_id` is correctly propagated to trace tools in the parallel dispatch path (`miqi/agent/tools/registry.py`).
+
+### Fixed (2026-05-15)
+- **`/new` session reset**: `session.clear()` was missing after successful archival and open-task auto-close; stale messages persisted into the new session (`miqi/agent/loop.py`, fix commit `347e9b5`).
+- **Legacy lesson tests**: two tests in `test_tool_validation.py` assumed `record_tool_feedback()` / `record_user_feedback()` write lessons by default; they now explicitly opt in with `lessons_legacy_inject_enabled=True` to match the new Phase 5 kill-switch default (`tests/test_tool_validation.py`, fix commit `8b7e42a`).
+
+### Changed (2026-05-15)
+- **Legacy lesson injection disabled by default**: `MemoryStore` now defaults to `lessons_legacy_inject_enabled=False`; the `## Lessons` block is no longer included in `get_memory_context()` output unless explicitly opted in. Lesson write paths (`record_tool_feedback`, `record_user_feedback`) are gated by the same flag. Existing `LESSONS.jsonl` data is preserved on disk (`miqi/agent/memory/store.py`).
+
+---
+
+### Added (2026-05-14)
+- **Memory tool** (`miqi/agent/tools/memory.py`): agent can now explicitly read/write/append long-term memory via the `memory` tool.
+- **`session_search` tool** (`miqi/agent/tools/session_search.py`): FTS5-backed cross-session recall; lets the agent retrieve relevant past conversation snippets by natural language query.
+- **`skill_manage` tool** (`miqi/agent/tools/skill_manage.py`): agent can create, view, patch, and archive workspace skills.
+- **Nudge system**: periodic system-message reminders prompt the agent to persist memory and skills; interval configurable via `self_improvement.nudge_interval` (`miqi/agent/loop.py`).
+- **System-prompt guidance** for memory, skills, and `session_search` tools injected into every turn (`miqi/agent/context.py`).
+- **Skill curator** (`miqi/agent/memory/skill_curator.py`): LLM-driven lifecycle management — auto-archives stale skills after configurable threshold.
+- **Lesson lifecycle management** (`miqi/agent/memory/lessons.py`): lessons now track `state` (`active` / `stale` / `archived`); auto-transition based on `lesson_stale_days` / `lesson_archive_days` config fields.
+- **Lesson unlearn button and state badge** in MemoryPage desktop UI (`apps/desktop/src/renderer/features/memory/MemoryPage.tsx`).
+
 ### Added
 - **Sidebar redesign**: Added TopBar component and session status filters to sidebar; introduced tracked file parsing and preview panel in chat console; refactored styling to use inline CSS variables over Tailwind arbitrary values; added debug logging for bridge stderr and runtime log flow (`apps/desktop/src/renderer/components/Sidebar.tsx`, `apps/desktop/src/renderer/features/chat/ChatConsole.tsx`).
 - **Bundled bridge executable support**: Added support for packaging `miqi-bridge.exe` with Electron app, enabling standalone desktop deployment without requiring Python installation (`apps/desktop/src/main/bridge.ts`, `apps/desktop/electron-builder.yml`).
