@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- **Sidebar redesign**: Added TopBar component and session status filters to sidebar; introduced tracked file parsing and preview panel in chat console; refactored styling to use inline CSS variables over Tailwind arbitrary values; added debug logging for bridge stderr and runtime log flow (`apps/desktop/src/renderer/components/Sidebar.tsx`, `apps/desktop/src/renderer/features/chat/ChatConsole.tsx`).
+- **Sidebar redesign**: Added session status filters to sidebar; introduced tracked file parsing and preview panel in chat console; refactored styling to use inline CSS variables over Tailwind arbitrary values; added debug logging for bridge stderr and runtime log flow (`apps/desktop/src/renderer/components/Sidebar.tsx`, `apps/desktop/src/renderer/features/chat/ChatConsole.tsx`).
+- **Python backend hot reload**: Added automatic hot reload for Python backend code changes. When running in development mode, changes to `.py` files in the `miqi/` directory automatically trigger a bridge restart (`apps/desktop/src/main/bridge.ts`).
+- **File diff and revert functionality**: Added file snapshot system that saves original content before first write, enabling non-git diff comparison and revert operations (`miqi/bridge/server.py`).
+- **Merge all changes**: Implemented merge functionality for all file changes with file tracking (`miqi/bridge/server.py`).
 - **Bundled bridge executable support**: Added support for packaging `miqi-bridge.exe` with Electron app, enabling standalone desktop deployment without requiring Python installation (`apps/desktop/src/main/bridge.ts`, `apps/desktop/electron-builder.yml`).
 - **Global right-click context menu**: Added to chat, sessions, workspace, and memory pages (`apps/desktop/src/renderer/components/ContextMenu.tsx`, `apps/desktop/src/main/index.ts`).
 
