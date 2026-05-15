@@ -72,7 +72,9 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   // Sessions
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.SESSIONS_LIST, async () => {
-    return bridge.sendSafe('sessions.list')
+    const result = await bridge.sendSafe('sessions.list')
+    if (result == null) return { sessions: [] }
+    return result
   })
 
   ipcMain.handle(IPC.SESSIONS_GET, async (_event, payload: unknown) => {
