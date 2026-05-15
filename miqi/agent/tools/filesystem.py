@@ -1,10 +1,70 @@
 """File system tools: read, write, edit."""
 
 import difflib
+import hashlib as _hashlib
+import json as _json
+import threading
 from pathlib import Path
 from typing import Any
 
 from miqi.agent.tools.base import Tool
+
+# ---------------------------------------------------------------------------
+# File snapshot store — keeps original content before first write/edit
+# so we can diff and revert without git.
+# Snapshots are persisted to ~/.miqi/snapshots/<sha256>.json
+# ---------------------------------------------------------------------------
+
+_snapshot_lock = threading.Lock()
+
+
+def _snapshots_dir() -> Path:
+    d = Path.home() / ".miqi" / "snapshots"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _snapshot_file(key: str) -> Path:
+    h = _hashlib.sha256(key.encode()).hexdigest()
+    return _snapshots_dir() / f"{h}.json"
+
+
+def _read_snapshot(key: str) -> str | None:
+    p = _snapshot_file(key)
+    try:
+        if p.exists():
+            data = _json.loads(p.read_text(encoding="utf-8"))
+            return data.get("content")
+    except Exception:
+        pass
+    return None
+
+
+def _write_snapshot(key: str, content: str) -> None:
+    p = _snapshot_file(key)
+    try:
+        p.write_text(
+            _json.dumps({"path": key, "content": content}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+def _maybe_snapshot(resolved: Path) -> None:
+    """Save a snapshot of *resolved* if not already snapshotted (disk-backed)."""
+    key = str(resolved)
+    with _snapshot_lock:
+        if _read_snapshot(key) is not None:
+            return
+        if resolved.exists():
+            try:
+                content = resolved.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                content = ""
+        else:
+            content = ""
+        _write_snapshot(key, content)
 
 
 def _has_symlink_in_path(p: Path) -> bool:
@@ -123,6 +183,8 @@ class WriteFileTool(Tool):
     async def execute(self, path: str, content: str, **kwargs: Any) -> str:
         try:
             file_path = _resolve_path(path, self._workspace, self._allowed_dir)
+            # Snapshot original content before first write (enables non-git diff/revert)
+            _maybe_snapshot(file_path)
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
             return f"Successfully wrote {len(content)} bytes to {file_path}"
@@ -173,6 +235,9 @@ class EditFileTool(Tool):
             file_path = _resolve_path(path, self._workspace, self._allowed_dir)
             if not file_path.exists():
                 return f"Error: File not found: {path}"
+
+            # Snapshot original content before first edit (enables non-git diff/revert)
+            _maybe_snapshot(file_path)
 
             content = file_path.read_text(encoding="utf-8")
 
