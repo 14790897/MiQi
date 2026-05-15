@@ -258,6 +258,12 @@ class AgentSelfImprovementConfig(Base):
     )
     memory_nudge_interval: int = 8   # inject memory nudge every N turns
     skill_nudge_interval: int = 10   # inject skill nudge every N turns
+    trace_enabled: bool = True
+    embedding_model: str = "intfloat/multilingual-e5-small"
+    trace_inject_top_k: int = 3
+    trace_similarity_threshold: float = 0.65
+    trace_nudge_interval: int = 8
+    lessons_legacy_inject_enabled: bool = False
 
 
 class AgentsConfig(Base):
