@@ -34,6 +34,14 @@ class TaskBeginTool(Tool):
                     "description": "Short slug, e.g. 'fetch-arxiv-paper'.",
                 },
                 "goal": {"type": "string", "description": "Natural language objective."},
+                "parent_hash": {
+                    "type": "string",
+                    "description": (
+                        "Optional. Hash of a prior trace to inherit from as parent. "
+                        "Use to explicitly link cross-session lineage. "
+                        "If omitted, the previous trace in this session is used automatically."
+                    ),
+                },
             },
             "required": ["task_name", "goal"],
         }
@@ -43,10 +51,11 @@ class TaskBeginTool(Tool):
         *,
         task_name: str,
         goal: str,
+        parent_hash: str | None = None,
         session_id: str = "default",
         **_: Any,
     ) -> str:
-        task_id = self._store.begin_task(session_id, task_name, goal)
+        task_id = self._store.begin_task(session_id, task_name, goal, parent_hash=parent_hash or None)
         return json.dumps({"ok": True, "task_id": task_id})
 
 
