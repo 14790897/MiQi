@@ -32,7 +32,9 @@ function findBridgeExecutable(projectRoot: string): {
   }
 
   // Check for bundled miqi-bridge executable (packaged app)
-  const bundledBridge = join(__dirname, '..', 'miqi-bridge.exe')
+  // In asar, __dirname is inside the archive, so use process.resourcesPath
+  const bundledBridge =
+    join(process.resourcesPath, 'miqi-bridge.exe')
   if (existsSync(bundledBridge)) {
     return { command: bundledBridge, args: [] }
   }
