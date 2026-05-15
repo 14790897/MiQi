@@ -1,0 +1,81 @@
+stages:
+  - install
+  - build
+  - package
+  - release
+
+variables:
+  NODE_VERSION: 20
+  NPM_CACHE_DIR: "${CI_PROJECT_DIR}/.npm"
+
+cache:
+  paths:
+    - .npm/
+    - node_modules/
+    - apps/desktop/node_modules/
+
+install_dependencies:
+  stage: install
+  image: node:${NODE_VERSION}
+  before_script:
+    - cd apps/desktop
+  script:
+    - npm ci --cache ${NPM_CACHE_DIR} --prefer-offline
+  only:
+    - electronUI
+    - tags
+    - merge_requests
+
+build_app:
+  stage: build
+  image: node:${NODE_VERSION}
+  before_script:
+    - cd apps/desktop
+  script:
+    - npm run build
+  artifacts:
+    paths:
+      - apps/desktop/out/
+    expire_in: 1 week
+  only:
+    - electronUI
+    - tags
+    - merge_requests
+
+package_app:
+  stage: package
+  image: electronuserland/builder:wine
+  before_script:
+    - cd apps/desktop
+    - npm ci --cache ${NPM_CACHE_DIR} --prefer-offline
+  script:
+    - npm run build
+    - npx electron-builder
+  artifacts:
+    paths:
+      - apps/desktop/dist/
+    expire_in: 1 month
+  only:
+    - main
+    - tags
+
+release_package:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs:
+    - package_app
+  script:
+    - echo "Creating release for tag ${CI_COMMIT_TAG}"
+  release:
+    name: "Release ${CI_COMMIT_TAG}"
+    description: "Automated release from CI pipeline"
+    tag_name: "${CI_COMMIT_TAG}"
+    ref: "${CI_COMMIT_SHA}"
+    assets:
+      links:
+        - name: "Windows Installer"
+          url: "${CI_JOB_URL}/artifacts/file/apps/desktop/dist/miqi-desktop-Setup-*.exe"
+        - name: "Windows Portable"
+          url: "${CI_JOB_URL}/artifacts/file/apps/desktop/dist/miqi-desktop-*.exe"
+  only:
+    - tags
