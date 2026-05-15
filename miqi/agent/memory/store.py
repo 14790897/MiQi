@@ -73,6 +73,7 @@ class MemoryStore:
         promotion_enabled: bool = DEFAULT_PROMOTION_ENABLED,
         promotion_min_users: int = DEFAULT_PROMOTION_MIN_USERS,
         promotion_triggers: list[str] | tuple[str, ...] | None = None,
+        lessons_legacy_inject_enabled: bool = False,
     ):
         self.workspace = workspace
         self.memory_dir = ensure_dir(workspace / "memory")
@@ -83,6 +84,7 @@ class MemoryStore:
         self.short_term_turns = max(1, short_term_turns)
         self.pending_limit = max(1, pending_limit)
         self.self_improvement_enabled = self_improvement_enabled
+        self.lessons_legacy_inject_enabled = lessons_legacy_inject_enabled
 
         # Delegate stores
         self._snapshot_store = SnapshotStore(
@@ -327,6 +329,8 @@ class MemoryStore:
 
     def record_tool_feedback(self, session_key: str, tool_name: str, result: str) -> bool:
         """Learn lesson from a tool execution result."""
+        if not self.lessons_legacy_inject_enabled:
+            return False
         with self._state_lock:
             self._load_once()
             updated = self._lesson_store.record_tool_feedback(session_key, tool_name, result)
@@ -343,6 +347,8 @@ class MemoryStore:
         actor_key: str | None = None,
     ) -> bool:
         """Learn lesson from explicit user correction/feedback."""
+        if not self.lessons_legacy_inject_enabled:
+            return False
         with self._state_lock:
             self._load_once()
             result = self._lesson_store.record_user_feedback(
@@ -487,18 +493,19 @@ class MemoryStore:
                 except Exception:
                     pass
 
-            lessons = self.get_lessons_for_context(
-                session_key=session_key,
-                current_message=current_message,
-                limit=self.max_lessons_in_prompt,
-            )
-            if lessons:
-                lesson_lines = [
-                    f"- When {lesson['trigger']}: {lesson['better_action']} "
-                    f"(confidence={lesson.get('confidence', 1)})"
-                    for lesson in lessons
-                ]
-                parts.append("## Lessons\n" + "\n".join(lesson_lines))
+            if self.lessons_legacy_inject_enabled:
+                lessons = self.get_lessons_for_context(
+                    session_key=session_key,
+                    current_message=current_message,
+                    limit=self.max_lessons_in_prompt,
+                )
+                if lessons:
+                    lesson_lines = [
+                        f"- When {lesson['trigger']}: {lesson['better_action']} "
+                        f"(confidence={lesson.get('confidence', 1)})"
+                        for lesson in lessons
+                    ]
+                    parts.append("## Lessons\n" + "\n".join(lesson_lines))
 
             snapshot_items = self._snapshot_store.select_items(
                 session_key=session_key, limit=8, current_message=current_message,
@@ -637,6 +644,7 @@ class MemoryStore:
                 "lessons_audit_file": str(self.lessons_audit_file),
                 "self_improvement_enabled": self.self_improvement_enabled,
                 "lessons_count": len(self._lesson_store.lessons),
+                "lessons_legacy_inject_enabled": self.lessons_legacy_inject_enabled,
                 "max_lessons_in_prompt": self.max_lessons_in_prompt,
                 "min_lesson_confidence": self.min_lesson_confidence,
                 "max_lessons": self.max_lessons,

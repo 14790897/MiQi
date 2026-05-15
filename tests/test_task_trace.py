@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -7,6 +8,7 @@ import pytest
 
 from miqi.agent.context import ContextBuilder
 from miqi.agent.loop import AgentLoop
+from miqi.agent.trace.migrate import migrate_lessons_to_traces
 from miqi.agent.trace import store as trace_store_module
 from miqi.agent.trace.model import TaskStep
 from miqi.agent.trace.store import TraceStore
@@ -159,3 +161,29 @@ async def test_nudge_injection(tmp_path: Path):
         and "record it now via task_end(outcome, notes)" in str(msg.get("content", ""))
         for msg in calls[1]
     )
+
+
+def test_lesson_migration(store: TraceStore, tmp_path: Path):
+    lessons_file = tmp_path / "LESSONS.jsonl"
+    lesson = {
+        "id": "abc123",
+        "actor_key": "cli:user",
+        "trigger": "response:length",
+        "bad_action": "answered too long",
+        "better_action": "answer concisely",
+        "enabled": True,
+        "created_at": 123.0,
+        "updated_at": 456.0,
+    }
+    lessons_file.write_text(json.dumps(lesson, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    assert migrate_lessons_to_traces(lessons_file, store) == 1
+    assert migrate_lessons_to_traces(lessons_file, store) == 0
+
+    trace = store.get_trace("lesson:abc123")
+    assert trace is not None
+    assert trace.session_id == "cli:user"
+    assert trace.task_name == "lesson-response:length"
+    assert trace.outcome == "success"
+    assert trace.outcome_notes == "answer concisely"
+    assert trace.metadata["source"] == "legacy_lesson"

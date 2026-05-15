@@ -195,6 +195,9 @@ class AgentLoop:
             promotion_enabled=self.self_improvement_config.promotion_enabled,
             promotion_min_users=self.self_improvement_config.promotion_min_users,
             promotion_triggers=self.self_improvement_config.promotion_triggers,
+            lessons_legacy_inject_enabled=(
+                self.self_improvement_config.lessons_legacy_inject_enabled
+            ),
             curator_enabled=self.self_improvement_config.curator_enabled,
             curator_interval_days=self.self_improvement_config.curator_interval_days,
             curator_threshold=self.self_improvement_config.curator_threshold,
