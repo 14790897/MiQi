@@ -307,8 +307,11 @@ class AgentLoop:
         self._skill_nudge_counter: int = 0
         self._memory_nudge_pending: bool = False
         self._skill_nudge_pending: bool = False
+        self._trace_nudge_counter: int = 0
+        self._trace_nudge_pending: bool = False
         self._memory_nudge_interval: int = self.self_improvement_config.memory_nudge_interval
         self._skill_nudge_interval: int = self.self_improvement_config.skill_nudge_interval
+        self._trace_nudge_interval: int = self.self_improvement_config.trace_nudge_interval
 
         # Context compressor (5-phase LLM compression when context grows large)
         self._enable_compression = enable_context_compression
@@ -963,6 +966,13 @@ class AgentLoop:
         for task in list(self._consolidation_tasks):
             task.cancel()
         self._consolidation_tasks.clear()
+        for sess_key, _open in list(self.trace_store._open_tasks.items()):
+            self.trace_store.end_task(
+                session_id=sess_key,
+                outcome="partial",
+                outcome_notes="Agent stopped without explicit task_end.",
+                tool_calls=[],
+            )
         self._running = False
         logger.info("Agent loop stopping")
 
@@ -1049,6 +1059,13 @@ class AgentLoop:
                 self._consolidating.discard(session.key)
                 self._prune_consolidation_lock(session.key, lock)
 
+            if self.trace_store.get_current_task(session.key) is not None:
+                self.trace_store.end_task(
+                    session_id=session.key,
+                    outcome="partial",
+                    outcome_notes="Session reset via /new without explicit task_end.",
+                    tool_calls=[],
+                )
             self.sessions.save(session)
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
                                   content="New session started.")
@@ -1110,6 +1127,18 @@ class AgentLoop:
         )
 
         # Inject pending nudges as system messages before the LLM call
+        if getattr(self, "_trace_nudge_pending", False):
+            initial_messages = initial_messages + [
+                {
+                    "role": "system",
+                    "content": (
+                        "Reminder: if you completed a meaningful task during this session, "
+                        "record it now via task_end(outcome, notes) so future tasks can learn "
+                        "from your workflow."
+                    ),
+                }
+            ]
+            self._trace_nudge_pending = False
         if getattr(self, '_memory_nudge_pending', False):
             initial_messages = initial_messages + [
                 {"role": "system", "content": "Reminder: if you learned anything durable this session "
@@ -1174,12 +1203,16 @@ class AgentLoop:
         # Increment nudge counters at end of turn; set pending flag when threshold reached
         self._memory_nudge_counter += 1
         self._skill_nudge_counter += 1
+        self._trace_nudge_counter += 1
         if self._memory_nudge_counter >= self._memory_nudge_interval:
             self._memory_nudge_counter = 0
             self._memory_nudge_pending = True
         if self._skill_nudge_counter >= self._skill_nudge_interval:
             self._skill_nudge_counter = 0
             self._skill_nudge_pending = True
+        if self._trace_nudge_counter >= self._trace_nudge_interval:
+            self._trace_nudge_counter = 0
+            self._trace_nudge_pending = True
 
         # Trigger skill curator lifecycle check (same cadence as lesson curator)
         if self._skill_curator is not None and self._skill_curator.enabled:
