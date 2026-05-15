@@ -25,7 +25,7 @@ export function SessionExplorer({
     setLoading(true)
     try {
       const r = await window.miqi.sessions.list()
-      setSessions(r.sessions ?? [])
+      setSessions(r?.sessions ?? [])
     } catch {
       // Bridge not available
     }
@@ -35,6 +35,14 @@ export function SessionExplorer({
   useEffect(() => {
     loadSessions()
   }, [loadSessions, refreshKey])
+
+  // Re-load when bridge becomes running (app startup race condition)
+  useEffect(() => {
+    const unsub = window.miqi.runtime.onStateChange((status) => {
+      if (status.state === 'running') loadSessions()
+    })
+    return unsub
+  }, [loadSessions])
 
   const loadDetail = async (key: string) => {
     setSelected(key)
