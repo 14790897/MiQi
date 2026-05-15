@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from miqi.agent.context import ContextBuilder
 from miqi.agent.trace import store as trace_store_module
 from miqi.agent.trace.model import TaskStep
 from miqi.agent.trace.store import TraceStore
@@ -85,3 +86,24 @@ def test_auto_close_on_session_end(store: TraceStore):
     store.begin_task(sid, "long-task", "do work")
     store.end_task(sid, "partial", "session ended", [])
     assert store.get_current_task(sid) is None
+
+
+def test_context_injection(store: TraceStore, tmp_path: Path):
+    sid = "sess-6"
+    store.begin_task(sid, "paper-download", "download arxiv papers")
+    store.end_task(
+        sid,
+        "success",
+        "Use paper_search before downloading PDFs.",
+        [TaskStep("paper_search", "arxiv", "ok", time.time())],
+    )
+
+    builder = ContextBuilder(workspace=tmp_path, trace_store=store)
+    prompt = builder.build_system_prompt(
+        session_key=sid,
+        current_message="download papers from arxiv",
+    )
+
+    assert "## Similar Task History" in prompt
+    assert "paper-download" in prompt
+    assert "paper_search" in prompt

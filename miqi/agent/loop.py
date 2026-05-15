@@ -246,6 +246,7 @@ class AgentLoop:
             workspace,
             memory_store=self.memory,
             agent_name=self.agent_name,
+            trace_store=self.trace_store,
         )
         self.sessions = session_manager or SessionManager(
             workspace,

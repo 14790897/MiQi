@@ -341,6 +341,20 @@ class TraceStore:
         fts_query = self._sanitize_fts5_query(query)
         if not fts_query:
             return []
+        rows = self._fetch_fts_rows(fts_query, limit)
+        if not rows:
+            relaxed_query = self._relaxed_fts5_query(fts_query)
+            if relaxed_query != fts_query:
+                rows = self._fetch_fts_rows(relaxed_query, limit)
+
+        traces = [self._row_to_trace(row) for row in rows]
+        for idx, trace in enumerate(traces):
+            trace.similarity_score = 1.0 / (idx + 1)
+        if threshold > 0:
+            traces = [trace for trace in traces if trace.similarity_score >= threshold]
+        return traces
+
+    def _fetch_fts_rows(self, fts_query: str, limit: int) -> list[sqlite3.Row]:
         sql = """
             SELECT t.*
             FROM task_traces_fts
@@ -355,13 +369,7 @@ class TraceStore:
                 rows = cursor.fetchall()
             except sqlite3.OperationalError:
                 rows = []
-
-        traces = [self._row_to_trace(row) for row in rows]
-        for idx, trace in enumerate(traces):
-            trace.similarity_score = 1.0 / (idx + 1)
-        if threshold > 0:
-            traces = [trace for trace in traces if trace.similarity_score >= threshold]
-        return traces
+        return list(rows)
 
     @staticmethod
     def _sanitize_fts5_query(query: str) -> str:
@@ -371,6 +379,11 @@ class TraceStore:
         sanitized = re.sub(r"(?i)^(AND|OR|NOT)\b\s*", "", sanitized.strip())
         sanitized = re.sub(r"(?i)\s+(AND|OR|NOT)\s*$", "", sanitized.strip())
         return sanitized.strip()
+
+    @staticmethod
+    def _relaxed_fts5_query(query: str) -> str:
+        terms = [term for term in query.split() if term.upper() not in {"AND", "OR", "NOT"}]
+        return " OR ".join(terms) if len(terms) > 1 else query
 
     def _latest_trace_hash_for_session(self, session_id: str) -> str | None:
         with self._lock:

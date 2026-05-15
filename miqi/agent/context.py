@@ -5,10 +5,15 @@ import importlib.resources
 import mimetypes
 import platform
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+from loguru import logger
 
 from miqi.agent.memory import MemoryStore
 from miqi.agent.skills import SkillsLoader
+
+if TYPE_CHECKING:
+    from miqi.agent.trace.store import TraceStore
 
 # ── Tool usage guidance injected into the system prompt ─────────────────
 
@@ -49,6 +54,21 @@ task, project, or decision you don't have in current context.
 """.strip()
 
 
+def _format_traces_for_context(traces: list) -> str:
+    lines = ["## Similar Task History (reference, do not blindly copy)"]
+    for t in traces:
+        lines.append(
+            f"- **{t.task_name}** (outcome={t.outcome}, score={t.similarity_score:.2f})"
+        )
+        lines.append(f"  Goal: {t.goal}")
+        if t.tool_calls:
+            chain = ", ".join(s.tool_name for s in t.tool_calls[:8])
+            lines.append(f"  Tools used: {chain}")
+        if t.outcome_notes:
+            lines.append(f"  Notes: {t.outcome_notes}")
+    return "\n".join(lines)
+
+
 class ContextBuilder:
     """
     Builds the context (system prompt + messages) for the agent.
@@ -64,11 +84,13 @@ class ContextBuilder:
         workspace: Path,
         memory_store: MemoryStore | None = None,
         agent_name: str = "miqi",
+        trace_store: "TraceStore | None" = None,
     ):
         self.workspace = workspace
         self.memory = memory_store or MemoryStore(workspace)
         self.skills = SkillsLoader(workspace)
         self.agent_name = agent_name.strip() or "miqi"
+        self.trace_store = trace_store
 
     def build_system_prompt(
         self,
@@ -105,6 +127,19 @@ class ContextBuilder:
         )
         if memory:
             parts.append(f"# Memory\n\n{memory}")
+
+        if current_message and self.trace_store is not None and self.trace_store.enabled:
+            try:
+                traces = self.trace_store.search_traces(
+                    current_message,
+                    limit=3,
+                    threshold=0.65,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"trace_search failed: {e}")
+                traces = []
+            if traces:
+                parts.append(_format_traces_for_context(traces))
 
         # Skills - progressive loading
         # 1. Always-loaded skills: include full content
