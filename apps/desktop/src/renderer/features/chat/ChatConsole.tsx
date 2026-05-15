@@ -182,6 +182,7 @@ export function ChatConsole({
   } | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
   const [reverting, setReverting] = useState(false)
+  const [merging, setMerging] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const unsubsRef = useRef<Array<() => void>>([])
@@ -442,6 +443,22 @@ export function ChatConsole({
       setReverting(false)
     }
   }, [diffFile, reverting, handleShowDiff, previewFile])
+
+  /** Revert ALL tracked (modified) files at once. */
+  const handleMergeAll = useCallback(async () => {
+    if (merging) return
+    const toRevert = trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit' || f.op === 'delete')
+    if (toRevert.length === 0) return
+    setMerging(true)
+    try {
+      await Promise.allSettled(
+        toRevert.map((f) => window.miqi.files.revert(f.path)),
+      )
+      setTrackedFiles([])
+    } finally {
+      setMerging(false)
+    }
+  }, [merging, trackedFiles])
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
@@ -813,12 +830,19 @@ export function ChatConsole({
             {/* Merge all */}
             <div className="px-3 pb-4 shrink-0">
               <button
-                className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors text-white"
-                style={{ background: trackedFiles.length > 0 ? 'var(--accent)' : 'var(--surface-muted)', color: trackedFiles.length > 0 ? 'var(--accent-text)' : 'var(--text-faint)' }}
-                disabled={trackedFiles.length === 0}
+                onClick={handleMergeAll}
+                disabled={merging || trackedFiles.length === 0}
+                className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+                style={{
+                  background: merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'var(--accent)',
+                  color: merging || trackedFiles.length === 0 ? 'var(--text-faint)' : 'var(--accent-text)',
+                }}
               >
-                <GitMerge size={13} />
-                MERGE ALL CHANGES
+                {merging
+                  ? <Loader2 size={13} className="animate-spin" />
+                  : <GitMerge size={13} />
+                }
+                {merging ? 'MERGING...' : 'MERGE ALL CHANGES'}
               </button>
             </div>
           </div>

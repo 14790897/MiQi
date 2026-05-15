@@ -1226,6 +1226,7 @@ def handle_files_tree(req_id: str, params: dict) -> None:
 
 def handle_files_read(req_id: str, params: dict) -> None:
     file_path = params.get("path", "").strip()
+    _log(f"[files:read] req={req_id} path={file_path}")
     if not file_path:
         _error(req_id, "path is required")
         return
@@ -1233,14 +1234,17 @@ def handle_files_read(req_id: str, params: dict) -> None:
     try:
         resolved = _validate_file_path(file_path)
     except ValueError as exc:
+        _log(f"[files:read] path validation failed: {exc}")
         _error(req_id, str(exc))
         return
 
     if not resolved.exists():
+        _log(f"[files:read] not found: {file_path}")
         _error(req_id, f"File not found: {file_path}")
         return
 
     if resolved.is_dir():
+        _log(f"[files:read] is directory: {file_path}")
         _error(req_id, f"Path is a directory: {file_path}")
         return
 
@@ -1251,18 +1255,22 @@ def handle_files_read(req_id: str, params: dict) -> None:
                ".env", ".gitignore", ".dockerignore", ".editorconfig",
                ".csv", ".log", ".lock", ".jsonl"}
     if resolved.suffix not in allowed and resolved.name not in {".gitignore", ".dockerignore", ".editorconfig", ".env"}:
+        _log(f"[files:read] unsupported type: {resolved.suffix or resolved.name}")
         _error(req_id, f"File type not supported: {resolved.suffix or resolved.name}")
         return
 
     try:
         content = resolved.read_text(encoding="utf-8")
     except UnicodeDecodeError:
+        _log(f"[files:read] decode error: {file_path}")
         _error(req_id, "File is not valid UTF-8 text")
         return
     except Exception as exc:
+        _log(f"[files:read] read error: {exc}")
         _error(req_id, str(exc))
         return
 
+    _log(f"[files:read] ok path={file_path} size={len(content)}")
     _result(req_id, {
         "path": file_path,
         "content": content,
@@ -1312,6 +1320,7 @@ def handle_files_write(req_id: str, params: dict) -> None:
 def handle_files_delete(req_id: str, params: dict) -> None:
     """Delete a workspace file or empty directory."""
     file_path = params.get("path", "").strip()
+    _log(f"[files:delete] req={req_id} path={file_path}")
     if not file_path:
         _error(req_id, "path is required")
         return
@@ -1319,26 +1328,31 @@ def handle_files_delete(req_id: str, params: dict) -> None:
     try:
         resolved = _validate_file_path(file_path)
     except ValueError as exc:
+        _log(f"[files:delete] path validation failed: {exc}")
         _error(req_id, str(exc))
         return
 
     if not resolved.exists():
+        _log(f"[files:delete] not found: {file_path}")
         _error(req_id, f"Not found: {file_path}")
         return
 
     workspace = _get_workspace_path()
     if resolved == workspace:
+        _log(f"[files:delete] refused: workspace root")
         _error(req_id, "Cannot delete workspace root")
         return
 
     if resolved.is_dir():
         if any(resolved.iterdir()):
+            _log(f"[files:delete] not empty: {file_path}")
             _error(req_id, "Directory is not empty")
             return
         resolved.rmdir()
     else:
         resolved.unlink()
 
+    _log(f"[files:delete] ok path={file_path}")
     _result(req_id, {"deleted": True, "path": file_path})
 
 
