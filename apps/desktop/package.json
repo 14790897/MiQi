@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "description": "MiQi Desktop — native desktop companion for the MiQi AI agent",
   "main": "./out/main/electron-trampoline.js",
+  "author": "MiQi Team",
+  "repository": "http://git.miqroera.com/intership/miqi-desktop",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
