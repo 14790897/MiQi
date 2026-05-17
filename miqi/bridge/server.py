@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 import threading
 import time
@@ -1432,6 +1433,66 @@ def handle_skills_open_folder(req_id: str, params: dict) -> None:
         _error(req_id, f"Failed to open folder: {exc}")
 
 
+_SKILL_NAME_RE = re.compile(r'^[a-z][a-z0-9-]*$')
+
+
+def handle_skills_create(req_id: str, params: dict) -> None:
+    """Create a blank workspace skill."""
+    name = str(params.get("name", "")).strip()
+    description = str(params.get("description", "")).strip()
+    if not name or not _SKILL_NAME_RE.match(name):
+        _error(req_id, "Invalid name — use lowercase letters, digits, hyphens")
+        return
+    config = _state.load_config()
+    skill_dir = config.workspace_path / "skills" / name
+    if skill_dir.exists():
+        _error(req_id, f"Skill '{name}' already exists")
+        return
+    skill_dir.mkdir(parents=True)
+    template = (
+        f"name: {name}\n"
+        f"description: {description or 'A new skill'}\n"
+        f"version: \"1.0\"\ntriggers: []\nsteps: []\n"
+    )
+    (skill_dir / "skill.yml").write_text(template, encoding="utf-8")
+    _result(req_id, {"ok": True, "path": str(skill_dir)})
+
+
+def handle_skills_upload(req_id: str, params: dict) -> None:
+    """Save uploaded YAML content as a new workspace skill."""
+    name = str(params.get("name", "")).strip()
+    content = str(params.get("content", "")).strip()
+    if not name or not content:
+        _error(req_id, "name and content are required")
+        return
+    config = _state.load_config()
+    skill_dir = config.workspace_path / "skills" / name
+    if skill_dir.exists():
+        _error(req_id, f"Skill '{name}' already exists")
+        return
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "skill.yml").write_text(content, encoding="utf-8")
+    _result(req_id, {"ok": True})
+
+
+def handle_skills_delete(req_id: str, params: dict) -> None:
+    """Delete a workspace skill. Builtin skills cannot be deleted."""
+    name = str(params.get("name", "")).strip()
+    import shutil as _shutil
+
+    builtin_dir = Path(__file__).parent.parent / "skills"
+    if (builtin_dir / name).exists():
+        _error(req_id, "Builtin skills cannot be deleted")
+        return
+    config = _state.load_config()
+    skill_dir = config.workspace_path / "skills" / name
+    if not skill_dir.exists():
+        _error(req_id, f"Skill '{name}' not found in workspace")
+        return
+    _shutil.rmtree(skill_dir)
+    _result(req_id, {"ok": True})
+
+
 def handle_mcp_list(req_id: str, params: dict) -> None:
     """List all configured MCP servers."""
     config = _state.load_config()
@@ -1577,6 +1638,9 @@ _METHODS = {
     "skills.list": handle_skills_list,
     "skills.get": handle_skills_get,
     "skills.open_folder": handle_skills_open_folder,
+    "skills.create": handle_skills_create,
+    "skills.upload": handle_skills_upload,
+    "skills.delete": handle_skills_delete,
     "mcp.list": handle_mcp_list,
     "mcp.upsert": handle_mcp_upsert,
     "mcp.delete": handle_mcp_delete,

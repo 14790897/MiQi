@@ -209,6 +209,12 @@ const api = {
       ipcRenderer.invoke(IPC.SKILLS_GET, { name }),
     openFolder: (name: string): Promise<{ opened: boolean; path: string }> =>
       ipcRenderer.invoke(IPC.SKILLS_OPEN_FOLDER, { name }),
+    create: (name: string, description: string): Promise<{ ok: boolean; error?: string; path?: string }> =>
+      ipcRenderer.invoke(IPC.SKILLS_CREATE, { name, description }),
+    upload: (name: string, content: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.SKILLS_UPLOAD, { name, content }),
+    delete: (name: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.SKILLS_DELETE, { name }),
   },
 
   // -- MCP --------------------------------------------------------------------

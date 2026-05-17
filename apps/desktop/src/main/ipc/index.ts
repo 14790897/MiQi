@@ -332,6 +332,21 @@ for m in ("pydantic", "httpx", "loguru"):
     return bridge.send('skills.open_folder', p as Record<string, unknown>)
   })
 
+  ipcMain.handle(IPC.SKILLS_CREATE, async (_event, payload: unknown) => {
+    const p = payload as { name: string; description?: string }
+    return bridge.send('skills.create', p as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.SKILLS_UPLOAD, async (_event, payload: unknown) => {
+    const p = payload as { name: string; content: string }
+    return bridge.send('skills.upload', p as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.SKILLS_DELETE, async (_event, payload: unknown) => {
+    const p = payload as { name: string }
+    return bridge.send('skills.delete', p as Record<string, unknown>)
+  })
+
   // -----------------------------------------------------------------------
   // Files (Workspace Editor)
   // -----------------------------------------------------------------------
