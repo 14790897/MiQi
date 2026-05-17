@@ -149,6 +149,7 @@ export interface RuntimeStatus {
 
 export interface SessionInfo {
   key: string
+  title?: string
   created_at?: string
   updated_at?: string
   path?: string

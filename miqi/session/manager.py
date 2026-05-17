@@ -247,6 +247,7 @@ class SessionManager:
                 sessions.append(
                     {
                         "key": key,
+                        "title": self._extract_title(path) or key,
                         "created_at": data.get("created_at"),
                         "updated_at": data.get("updated_at"),
                         "path": str(path),
@@ -265,6 +266,7 @@ class SessionManager:
                 sessions.append(
                     {
                         "key": key,
+                        "title": self._extract_title(path) or key,
                         "created_at": data.get("created_at"),
                         "updated_at": data.get("updated_at"),
                         "path": str(path),
@@ -274,6 +276,18 @@ class SessionManager:
                 continue
 
         return sorted(sessions, key=lambda item: item.get("updated_at", ""), reverse=True)
+
+    @staticmethod
+    def _extract_title(path: Path) -> str:
+        """Extract the first user message text (≤ 60 chars) from a conversation file."""
+        try:
+            for raw in path.read_text(encoding="utf-8").splitlines():
+                obj = json.loads(raw)
+                if obj.get("role") == "user" and obj.get("content"):
+                    return str(obj["content"])[:60]
+        except Exception:
+            pass
+        return ""
 
     def _read_metadata(self, path: Path) -> dict | None:
         """Read the metadata line from a conversation.jsonl or flat .jsonl file."""
