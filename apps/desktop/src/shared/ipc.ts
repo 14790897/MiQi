@@ -51,6 +51,14 @@ export const IPC = {
   SKILLS_LIST: 'skills:list',
   SKILLS_GET: 'skills:get',
   SKILLS_OPEN_FOLDER: 'skills:open_folder',
+  SKILLS_CREATE: 'skills:create',
+  SKILLS_UPLOAD: 'skills:upload',
+  SKILLS_DELETE: 'skills:delete',
+
+  // MCP
+  MCP_LIST: 'mcp:list',
+  MCP_UPSERT: 'mcp:upsert',
+  MCP_DELETE: 'mcp:delete',
   FILES_TREE: 'files:tree',
   FILES_READ: 'files:read',
   FILES_WRITE: 'files:write',
@@ -450,6 +458,43 @@ export interface SkillDetail {
   content: string
   metadata: Record<string, unknown> | null
 }
+
+// ---------------------------------------------------------------------------
+// MCP schemas
+// ---------------------------------------------------------------------------
+
+export interface McpServerConfig {
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+  tool_timeout?: number
+  progress_interval_seconds?: number
+  description?: string
+  lazy?: boolean
+}
+
+export interface McpServerInfo extends McpServerConfig {
+  name: string
+}
+
+export const McpUpsertInput = z.object({
+  name: z.string().min(1),
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string()).optional(),
+  url: z.string().optional(),
+  headers: z.record(z.string()).optional(),
+  tool_timeout: z.number().optional(),
+  progress_interval_seconds: z.number().optional(),
+  description: z.string().optional(),
+  lazy: z.boolean().optional(),
+})
+
+export const McpDeleteInput = z.object({
+  name: z.string().min(1),
+})
 
 // ---------------------------------------------------------------------------
 // Files schemas

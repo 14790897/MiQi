@@ -1432,6 +1432,54 @@ def handle_skills_open_folder(req_id: str, params: dict) -> None:
         _error(req_id, f"Failed to open folder: {exc}")
 
 
+def handle_mcp_list(req_id: str, params: dict) -> None:
+    """List all configured MCP servers."""
+    config = _state.load_config()
+    servers = config.tools.mcp_servers or {}
+    _result(req_id, {
+        "servers": [
+            {"name": name, **srv.model_dump()}
+            for name, srv in servers.items()
+        ]
+    })
+
+
+def handle_mcp_upsert(req_id: str, params: dict) -> None:
+    """Create or update an MCP server entry by name."""
+    from miqi.config.schema import MCPServerConfig
+    from miqi.config.loader import save_config
+
+    name = str(params.pop("name", "")).strip()
+    if not name:
+        _error(req_id, "name is required")
+        return
+    try:
+        server_cfg = MCPServerConfig(**params)
+    except Exception as exc:
+        _error(req_id, str(exc))
+        return
+    config = _state.load_config()
+    if config.tools.mcp_servers is None:
+        config.tools.mcp_servers = {}
+    config.tools.mcp_servers[name] = server_cfg
+    save_config(config)
+    _state.config = config
+    _result(req_id, {"ok": True})
+
+
+def handle_mcp_delete(req_id: str, params: dict) -> None:
+    """Remove an MCP server entry by name."""
+    from miqi.config.loader import save_config
+
+    name = str(params.get("name", "")).strip()
+    config = _state.load_config()
+    if config.tools.mcp_servers and name in config.tools.mcp_servers:
+        del config.tools.mcp_servers[name]
+        save_config(config)
+        _state.config = config
+    _result(req_id, {"ok": True})
+
+
 def handle_python_check(req_id: str, params: dict) -> None:
     """Check if Python and MiQi are available."""
     import importlib
@@ -1529,6 +1577,9 @@ _METHODS = {
     "skills.list": handle_skills_list,
     "skills.get": handle_skills_get,
     "skills.open_folder": handle_skills_open_folder,
+    "mcp.list": handle_mcp_list,
+    "mcp.upsert": handle_mcp_upsert,
+    "mcp.delete": handle_mcp_delete,
     "files.tree": handle_files_tree,
     "files.read": handle_files_read,
     "files.write": handle_files_write,

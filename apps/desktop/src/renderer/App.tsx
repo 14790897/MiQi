@@ -6,6 +6,7 @@ import { StatusBar } from './components/StatusBar'
 import { SetupWizard } from './features/setup/SetupWizard'
 import { ChatConsole } from './features/chat/ChatConsole'
 import { SettingsPage } from './features/settings/SettingsPage'
+import { MCPsPage } from './features/mcps/MCPsPage'
 import { ApprovalProvider } from './contexts/ApprovalContext'
 import { RestartRequiredProvider } from './contexts/RestartRequiredContext'
 import { ApprovalModal } from './features/approvals/ApprovalModal'
@@ -207,7 +208,7 @@ function AppShell() {
                     onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
                   />
                 </div>
-                {activeNav === 'mcps' && <div className="flex-1 flex items-center justify-center text-zinc-500">MCPs coming soon</div>}
+                {activeNav === 'mcps' && <MCPsPage />}
                 {activeNav === 'memory' && <MemoryPage />}
                 {activeNav === 'skills' && <SkillsPage />}
                 {activeNav === 'workspace' && <WorkspacePage />}
