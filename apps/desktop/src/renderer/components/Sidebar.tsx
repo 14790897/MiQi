@@ -3,14 +3,11 @@ import { cn } from '../lib/utils'
 import {
   MessageSquare,
   FolderOpen,
-  Cpu,
-  Radio,
-  ShieldAlert,
-  Clock,
   BookOpen,
   Wrench,
   Settings,
   Plus,
+  Plug,
   type LucideIcon,
 } from 'lucide-react'
 import type { SessionInfo } from '../../shared/ipc'
@@ -22,29 +19,30 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'chat', label: '对话', icon: MessageSquare },
-  { id: 'providers', label: 'Provider', icon: Cpu },
-  { id: 'channels', label: '渠道', icon: Radio },
-  { id: 'approvals', label: '命令审批', icon: ShieldAlert },
-  { id: 'cron', label: '定时任务', icon: Clock },
-  { id: 'memory', label: '记忆', icon: BookOpen },
-  { id: 'skills', label: '技能', icon: Wrench },
+  { id: 'chat',      label: '对话',   icon: MessageSquare },
+  { id: 'mcps',      label: 'MCPs',   icon: Plug },
+  { id: 'memory',    label: '记忆',   icon: BookOpen },
+  { id: 'skills',    label: '技能',   icon: Wrench },
   { id: 'workspace', label: '工作区', icon: FolderOpen },
-  { id: 'settings', label: '设置', icon: Settings },
+  { id: 'settings',  label: '设置',   icon: Settings },
 ]
 
-/* session status label helpers */
-function sessionStatusTag(key: string): 'inprogress' | 'review' | 'completed' {
-  const h = key.charCodeAt(key.length - 1) % 3
-  if (h === 0) return 'review'
-  if (h === 1) return 'inprogress'
-  return 'completed'
+function formatTimestampKey(key: string): string {
+  const ts = parseInt(key, 10)
+  if (isNaN(ts)) return key
+  return new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(ts))
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  inprogress: 'IN PROGRESS',
-  review: 'REVIEW',
-  completed: 'COMPLETED',
+function relativeTime(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const now = new Date()
+  const diff = now.getTime() - d.getTime()
+  if (diff < 60_000) return 'Just now'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} mins ago`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} hours ago`
+  if (diff < 2 * 86_400_000) return 'Yesterday'
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 interface SidebarProps {
@@ -66,9 +64,6 @@ export function Sidebar({
 }: SidebarProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [loading, setLoading] = useState(false)
-  const [statusFilter, setStatusFilter] = useState<
-    'all' | 'inprogress' | 'review' | 'completed'
-  >('all')
 
   const loadSessions = useCallback(async () => {
     setLoading(true)
@@ -84,23 +79,6 @@ export function Sidebar({
   useEffect(() => {
     loadSessions()
   }, [loadSessions, refreshKey])
-
-  const formatTime = (iso?: string) => {
-    if (!iso) return ''
-    const d = new Date(iso)
-    const now = new Date()
-    const diff = now.getTime() - d.getTime()
-    if (diff < 60_000) return 'Just now'
-    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} mins ago`
-    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} hours ago`
-    if (diff < 2 * 86_400_000) return 'Yesterday'
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  }
-
-  const filteredSessions = sessions.filter((s) => {
-    if (statusFilter === 'all') return true
-    return sessionStatusTag(s.key) === statusFilter
-  })
 
   return (
     <div
@@ -175,41 +153,13 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* Status filter tabs */}
-      <div className="flex items-center gap-1 px-3 pb-2 shrink-0">
-        {(['all', 'inprogress', 'review', 'completed'] as const).map((f) => (
-          <button
-            key={f}
-            onClick={() => setStatusFilter(f)}
-            className={cn(
-              'px-2 py-0.5 rounded text-[10px] font-semibold transition-colors uppercase tracking-wide',
-              statusFilter === f
-                ? 'text-[var(--text)]'
-                : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]',
-            )}
-            style={{
-              background:
-                statusFilter === f ? 'var(--surface-muted)' : 'transparent',
-            }}
-          >
-            {f === 'all'
-              ? 'ALL'
-              : f === 'inprogress'
-                ? 'IN PROG'
-                : f === 'review'
-                  ? 'REVIEW'
-                  : 'COMPL'}
-          </button>
-        ))}
-      </div>
-
       {/* Session list */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
         {loading ? (
           <div className="flex items-center justify-center py-6">
             <div className="w-4 h-4 border-2 border-[var(--border)] border-t-[var(--accent)] rounded-full animate-spin" />
           </div>
-        ) : filteredSessions.length === 0 ? (
+        ) : sessions.length === 0 ? (
           <div
             className="text-xs text-center py-6"
             style={{ color: 'var(--text-faint)' }}
@@ -218,9 +168,9 @@ export function Sidebar({
           </div>
         ) : (
           <div className="space-y-1">
-            {filteredSessions.map((s) => {
-              const tag = sessionStatusTag(s.key)
+            {sessions.map((s) => {
               const isActive = currentSession === s.key
+              const displayName = s.title || formatTimestampKey(s.key)
               return (
                 <button
                   key={s.key}
@@ -228,48 +178,16 @@ export function Sidebar({
                     onNavChange('chat')
                     onSessionSelect?.(s.key)
                   }}
-                  className="w-full text-left px-3 py-2.5 rounded-lg transition-colors"
+                  className="w-full flex items-start gap-2 px-2 py-1.5 rounded hover:bg-zinc-800 text-left"
                   style={{
-                    background: isActive
-                      ? 'var(--surface-muted)'
-                      : 'transparent',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive)
-                      (e.currentTarget as HTMLElement).style.background =
-                        'var(--surface-muted)'
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive)
-                      (e.currentTarget as HTMLElement).style.background =
-                        'transparent'
+                    background: isActive ? 'var(--surface-muted)' : 'transparent',
                   }}
                 >
-                  <div className="flex items-start justify-between gap-1 mb-1">
-                    <span className={`tag-${tag} shrink-0`}>
-                      {STATUS_LABELS[tag]}
-                    </span>
-                    <span
-                      className="text-[10px] shrink-0"
-                      style={{ color: 'var(--text-faint)' }}
-                    >
-                      {formatTime(s.updated_at)}
-                    </span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 flex-shrink-0 mt-1.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-zinc-200 truncate">{displayName}</p>
+                    <p className="text-xs text-zinc-500">{relativeTime(s.updated_at)}</p>
                   </div>
-                  <div
-                    className="text-xs font-medium truncate"
-                    style={{ color: 'var(--text)' }}
-                  >
-                    {s.key.replace(/^desktop:/, '').replace(/_/g, ' ')}
-                  </div>
-                  {(s as any).preview && (
-                    <div
-                      className="text-[11px] mt-0.5 line-clamp-2"
-                      style={{ color: 'var(--text-muted)' }}
-                    >
-                      {(s as any).preview}
-                    </div>
-                  )}
                 </button>
               )
             })}
