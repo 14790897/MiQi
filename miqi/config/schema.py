@@ -209,6 +209,9 @@ class AgentSessionConfig(Base):
     session_tool_result_max_chars: int = 500
     # SQLite backend (new): when True use miqi/session/sqlite_store.py instead of JSONL
     use_sqlite: bool = False
+    # When True, agent file writes (relative paths) go to sessions/{key}/files/
+    # instead of workspace root. Set to False to restore legacy behavior.
+    session_workspace_enabled: bool = True
 
 
 class SmartRoutingCheapModel(Base):

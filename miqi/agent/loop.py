@@ -334,19 +334,25 @@ class AgentLoop:
         from miqi.utils.helpers import safe_filename
 
         _snap_dir: Path | None = None
+        _work_dir: Path | None = None
         if self._session_key:
             safe_key = safe_filename(self._session_key.replace(":", "_"))
             _snap_dir = self.workspace / "sessions" / safe_key / "snapshots"
             _snap_dir.mkdir(parents=True, exist_ok=True)
+            if self.session_config.session_workspace_enabled:
+                _work_dir = self.workspace / "sessions" / safe_key / "files"
+                _work_dir.mkdir(parents=True, exist_ok=True)
+
+        _write_workspace = _work_dir if _work_dir is not None else self.workspace
 
         for cls in (ReadFileTool, ListDirTool):
             self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tools.register(WriteFileTool(
-            workspace=self.workspace, allowed_dir=allowed_dir, snapshot_dir=_snap_dir))
+            workspace=_write_workspace, allowed_dir=allowed_dir, snapshot_dir=_snap_dir))
         self.tools.register(EditFileTool(
-            workspace=self.workspace, allowed_dir=allowed_dir, snapshot_dir=_snap_dir))
+            workspace=_write_workspace, allowed_dir=allowed_dir, snapshot_dir=_snap_dir))
         self.tools.register(ExecTool(
-            working_dir=str(self.workspace),
+            working_dir=str(_work_dir or self.workspace),
             timeout=self.exec_config.timeout,
             restrict_to_workspace=self.restrict_to_workspace,
             env_passthrough=list(self.exec_config.env_passthrough),
