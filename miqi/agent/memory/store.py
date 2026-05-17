@@ -132,6 +132,7 @@ class MemoryStore:
 
         self._state_lock = threading.RLock()
         self._providers: list[object] = []  # MemoryProvider instances
+        self._fence_buf: str = ""
 
     # ── Backward-compat properties ──
 
@@ -587,31 +588,25 @@ class MemoryStore:
         """Register an external MemoryProvider for context injection."""
         self._providers.append(provider)
 
-    @staticmethod
-    def strip_memory_fence(text: str) -> str:
-        """Strip <memory-context> fenced blocks that may leak into output.
+    def strip_memory_fence(self, text: str) -> str:
+        """Strip <memory-context> fenced blocks from streaming output.
 
-        Because streaming chunks may split the fence tags, this buffers lines
-        and only filters complete blocks. Chunks that end mid-tag are held over
-        and prepended to the next call.
+        Uses per-instance buffer (self._fence_buf) to handle tags split across
+        streaming chunks. Previously used a class-level attribute which caused
+        state leakage between multiple MemoryStore instances in the same process.
         """
-        if not hasattr(MemoryStore, "_fence_buf"):
-            MemoryStore._fence_buf = ""  # type: ignore[attr-defined]
+        text = self._fence_buf + text
+        self._fence_buf = ""
 
-        text = MemoryStore._fence_buf + text  # type: ignore[attr-defined]
-        MemoryStore._fence_buf = ""  # type: ignore[attr-defined]
-
-        # Keep partial trailing open/close tags for the next chunk.
         for partial in ("<memory-context", "</memory-context"):
             idx = text.rfind(partial)
             if idx != -1:
                 after = text[idx:]
                 if after not in ("<memory-context>", "</memory-context>"):
-                    MemoryStore._fence_buf = after  # type: ignore[attr-defined]
+                    self._fence_buf = after
                     text = text[:idx]
                     break
 
-        import re
         return re.sub(
             r"<memory-context>.*?</memory-context>\n?",
             "",
@@ -780,26 +775,25 @@ class MemoryStore:
 
     @staticmethod
     def _extract_explicit_memories(message: str) -> list[str]:
-        """Extract explicit long-term memory intents from user messages."""
+        """Extract explicit long-term memory intents from user messages.
+
+        Only matches explicit 'remember:' / '记住:' directive patterns.
+        Broad fallback tokens ("always", "default") were removed to prevent
+        false positives during code discussions (see fix Phase 5).
+        """
         text = message.strip()
         if not text:
             return []
 
         candidates: list[str] = []
-        lower = text.lower()
 
         cn_match = re.search(r"(?:请)?记住[:：\s]*(.+)$", text)
         if cn_match:
             candidates.append(cn_match.group(1))
 
-        en_match = re.search(r"(?:please\s+)?remember(?:\s+that)?[:\s]+(.+)$", lower)
+        en_match = re.search(r"(?:please\s+)?remember(?:\s+that)?[:\s]+(.+)$", text.lower())
         if en_match:
             candidates.append(text[en_match.start(1):])
-
-        if not candidates and any(token in text for token in ("以后都", "以后请", "长期", "默认")):
-            candidates.append(text)
-        if not candidates and any(token in lower for token in ("from now on", "always", "default")):
-            candidates.append(text)
 
         cleaned = [TextProcessor.clean_text(c, max_len=280) for c in candidates]
         return [c for c in cleaned if c]

@@ -203,7 +203,8 @@ class AgentLoop:
         )
 
         # Wire up lesson curator (direct LLM call, bypasses context builder)
-        if self.self_improvement_config.curator_enabled:
+        if (self.self_improvement_config.curator_enabled
+                and self.self_improvement_config.lessons_legacy_inject_enabled):
             from miqi.agent.memory.curator import LessonCurator
 
             async def _curator_chat(**kwargs: Any) -> Any:
@@ -1179,7 +1180,7 @@ class AgentLoop:
                 session_key=key,
             )
             if final_content:
-                final_content = MemoryStore.strip_memory_fence(final_content)
+                final_content = self.memory.strip_memory_fence(final_content)
         finally:
             for _gw in self._mcp_gateways:
                 _gw.deactivate()

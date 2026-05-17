@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -437,8 +437,12 @@ class LessonStore:
                 break
         return deduped
 
-    def compact_lessons(self, max_lessons: int | None = None) -> int:
-        """Compact lessons by deduplicating and capping size. Returns removed count."""
+    def compact_lessons(self, max_lessons: int | None = None, max_session_lesson_age_days: int = 90) -> int:
+        """Compact lessons by deduplicating, evicting old sessions, and capping size.
+
+        Disabled lessons survive compaction unless the total count forces eviction.
+        Session-scoped lessons older than max_session_lesson_age_days are evicted.
+        """
         if not self.enabled:
             return 0
 
@@ -446,6 +450,32 @@ class LessonStore:
         original_count = len(self._lessons)
         if original_count == 0:
             return 0
+
+        # Age-based eviction for session-scoped lessons
+        total_evicted = 0
+        cutoff = (datetime.now() - timedelta(days=max_session_lesson_age_days)).isoformat()
+        age_filtered: list[dict] = []
+        for lesson in self._lessons:
+            if lesson.get("scope") == "session":
+                anchor = str(lesson.get("updated_at") or lesson.get("created_at") or "")
+                if anchor and anchor < cutoff:
+                    self._audit_buffer.append({
+                        "type": "lesson_age_evict",
+                        "at": timestamp(),
+                        "id": lesson.get("id", ""),
+                        "session_key": lesson.get("session_key", ""),
+                    })
+                    total_evicted += 1
+                    continue
+            age_filtered.append(lesson)
+
+        if total_evicted > 0:
+            self._lessons = age_filtered
+            self._dirty = True
+
+        # Early exit: no further compaction needed when under cap
+        if len(self._lessons) <= max_keep:
+            return total_evicted
 
         dedup: dict[str, dict[str, Any]] = {}
         sorted_lessons = sorted(
@@ -457,6 +487,8 @@ class LessonStore:
             ),
             reverse=True,
         )
+
+        # Pass 1: fill dedup with enabled lessons (high priority)
         for lesson in sorted_lessons:
             if not lesson.get("enabled", True):
                 continue
@@ -466,9 +498,18 @@ class LessonStore:
             if key and key not in dedup:
                 dedup[key] = lesson
 
+        # Pass 2: add disabled lessons at the end (only if under cap)
+        for lesson in sorted_lessons:
+            if lesson.get("enabled", True):
+                continue
+            key = str(lesson.get("key", ""))
+            if key and key not in dedup:
+                if len(dedup) < max_keep:
+                    dedup[key] = lesson
+
         compacted = list(dedup.values())[:max_keep]
-        removed = original_count - len(compacted)
-        if removed <= 0:
+        removed = total_evicted + original_count - len(compacted)
+        if removed <= total_evicted:
             return 0
 
         self._lessons = compacted
@@ -659,7 +700,17 @@ class LessonStore:
     @staticmethod
     def _is_tool_error(result: str) -> bool:
         """Check whether tool result string indicates an error."""
-        return result.strip().lower().startswith("error:")
+        stripped = result.strip()
+        if stripped.lower().startswith("error:"):
+            return True
+        if stripped.startswith("{"):
+            try:
+                parsed = json.loads(stripped)
+                if isinstance(parsed, dict) and parsed.get("ok") is False:
+                    return True
+            except (ValueError, TypeError):
+                pass
+        return False
 
     def _has_feedback_prefix(self, user_message: str) -> bool:
         """Require correction cues to appear at the beginning of the message."""
