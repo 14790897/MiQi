@@ -312,11 +312,8 @@ class AgentLoop:
         self._skill_nudge_counter: int = 0
         self._memory_nudge_pending: bool = False
         self._skill_nudge_pending: bool = False
-        self._trace_nudge_counter: int = 0
-        self._trace_nudge_pending: bool = False
         self._memory_nudge_interval: int = self.self_improvement_config.memory_nudge_interval
         self._skill_nudge_interval: int = self.self_improvement_config.skill_nudge_interval
-        self._trace_nudge_interval: int = self.self_improvement_config.trace_nudge_interval
 
         # Context compressor (5-phase LLM compression when context grows large)
         self._enable_compression = enable_context_compression
@@ -731,6 +728,12 @@ class AgentLoop:
                             self.memory.record_tool_feedback(
                                 session_key, tool_call.name, result,
                             )
+                        if session_key and self.trace_store.enabled:
+                            _args_s = json.dumps(tool_call.arguments, ensure_ascii=False)[:300]
+                            _res_s = (result or "")[:300]
+                            self.trace_store.record_step(
+                                session_key, tool_call.name, _args_s, _res_s
+                            )
                         messages = self.context.add_tool_result(
                             messages, tool_call.id, tool_call.name, result
                         )
@@ -782,6 +785,12 @@ class AgentLoop:
                         if session_key and isinstance(result, str):
                             self.memory.record_tool_feedback(
                                 session_key, tool_call.name, result,
+                            )
+                        if session_key and self.trace_store.enabled:
+                            _args_s = json.dumps(tool_call.arguments, ensure_ascii=False)[:300]
+                            _res_s = (result or "")[:300]
+                            self.trace_store.record_step(
+                                session_key, tool_call.name, _args_s, _res_s
                             )
                         # Truncate large tool results to prevent context explosion.
                         # This applies to the live prompt; saved-session truncation is
@@ -1137,6 +1146,11 @@ class AgentLoop:
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()
 
+        # Auto-begin trace for this session on first user turn
+        if self.trace_store.enabled and self.trace_store.get_current_task(session.key) is None:
+            _auto_goal = (msg.content or "").strip()[:200] or "session"
+            self.trace_store.begin_task(session.key, "session", _auto_goal)
+
         history = session.get_history(max_messages=self.memory_window)
         initial_messages = self.context.build_messages(
             history=history,
@@ -1146,18 +1160,6 @@ class AgentLoop:
         )
 
         # Inject pending nudges as system messages before the LLM call
-        if getattr(self, "_trace_nudge_pending", False):
-            initial_messages = initial_messages + [
-                {
-                    "role": "system",
-                    "content": (
-                        "Reminder: if you completed a meaningful task during this session, "
-                        "record it now via task_end(outcome, notes) so future tasks can learn "
-                        "from your workflow."
-                    ),
-                }
-            ]
-            self._trace_nudge_pending = False
         if getattr(self, '_memory_nudge_pending', False):
             initial_messages = initial_messages + [
                 {"role": "system", "content": "Reminder: if you learned anything durable this session "
@@ -1222,16 +1224,12 @@ class AgentLoop:
         # Increment nudge counters at end of turn; set pending flag when threshold reached
         self._memory_nudge_counter += 1
         self._skill_nudge_counter += 1
-        self._trace_nudge_counter += 1
         if self._memory_nudge_counter >= self._memory_nudge_interval:
             self._memory_nudge_counter = 0
             self._memory_nudge_pending = True
         if self._skill_nudge_counter >= self._skill_nudge_interval:
             self._skill_nudge_counter = 0
             self._skill_nudge_pending = True
-        if self._trace_nudge_counter >= self._trace_nudge_interval:
-            self._trace_nudge_counter = 0
-            self._trace_nudge_pending = True
 
         # Trigger skill curator lifecycle check (same cadence as lesson curator)
         if self._skill_curator is not None and self._skill_curator.enabled:

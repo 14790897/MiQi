@@ -156,7 +156,8 @@ async def test_nudge_injection(tmp_path: Path):
         InboundMessage(channel="cli", sender_id="user", chat_id="trace", content="second")
     )
 
-    assert any(
+    # Trace nudge is removed — auto-instrumentation replaces it
+    assert not any(
         msg.get("role") == "system"
         and "record it now via task_end(outcome, notes)" in str(msg.get("content", ""))
         for msg in calls[1]
