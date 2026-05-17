@@ -19,7 +19,6 @@ class LessonStore:
     DEFAULT_MAX_LESSONS = 200
     DEFAULT_MAX_LESSONS_IN_PROMPT = 5
     DEFAULT_MIN_LESSON_CONFIDENCE = 1
-    DEFAULT_LESSON_CONFIDENCE_DECAY_HOURS = 168
     DEFAULT_LESSON_STALE_DAYS = 30
     DEFAULT_LESSON_ARCHIVE_DAYS = 90
     DEFAULT_FEEDBACK_MAX_MESSAGE_CHARS = 220
@@ -37,7 +36,6 @@ class LessonStore:
         max_lessons_in_prompt: int = DEFAULT_MAX_LESSONS_IN_PROMPT,
         min_lesson_confidence: int = DEFAULT_MIN_LESSON_CONFIDENCE,
         max_lessons: int = DEFAULT_MAX_LESSONS,
-        lesson_confidence_decay_hours: int = DEFAULT_LESSON_CONFIDENCE_DECAY_HOURS,
         lesson_stale_days: int = DEFAULT_LESSON_STALE_DAYS,
         lesson_archive_days: int = DEFAULT_LESSON_ARCHIVE_DAYS,
         feedback_max_message_chars: int = DEFAULT_FEEDBACK_MAX_MESSAGE_CHARS,
@@ -52,7 +50,6 @@ class LessonStore:
         self.max_lessons_in_prompt = max(1, max_lessons_in_prompt)
         self.min_lesson_confidence = min_lesson_confidence
         self.max_lessons = max(1, max_lessons)
-        self.lesson_confidence_decay_hours = max(1, lesson_confidence_decay_hours)
         self.lesson_stale_days = max(1, lesson_stale_days)
         self.lesson_archive_days = max(1, lesson_archive_days)
         self.feedback_max_message_chars = max(1, feedback_max_message_chars)

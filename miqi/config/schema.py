@@ -10,7 +10,7 @@ from pydantic_settings import BaseSettings
 class Base(BaseModel):
     """Base model that accepts both camelCase and snake_case keys."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="ignore")
 
 
 class TelegramConfig(Base):
@@ -243,7 +243,6 @@ class AgentSelfImprovementConfig(Base):
     max_lessons_in_prompt: int = 5
     min_lesson_confidence: int = 1
     max_lessons: int = 200
-    lesson_confidence_decay_hours: int = 168
     lesson_stale_days: int = 30
     lesson_archive_days: int = 90
     curator_enabled: bool = True

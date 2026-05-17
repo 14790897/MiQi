@@ -187,7 +187,6 @@ class AgentLoop:
             max_lessons_in_prompt=self.self_improvement_config.max_lessons_in_prompt,
             min_lesson_confidence=self.self_improvement_config.min_lesson_confidence,
             max_lessons=self.self_improvement_config.max_lessons,
-            lesson_confidence_decay_hours=self.self_improvement_config.lesson_confidence_decay_hours,
             lesson_stale_days=self.self_improvement_config.lesson_stale_days,
             lesson_archive_days=self.self_improvement_config.lesson_archive_days,
             feedback_max_message_chars=self.self_improvement_config.feedback_max_message_chars,

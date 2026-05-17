@@ -44,7 +44,6 @@ class MemoryStore:
     DEFAULT_MAX_LESSONS = 200
     DEFAULT_MAX_LESSONS_IN_PROMPT = 5
     DEFAULT_MIN_LESSON_CONFIDENCE = 1
-    DEFAULT_LESSON_CONFIDENCE_DECAY_HOURS = 168
     DEFAULT_FEEDBACK_MAX_MESSAGE_CHARS = 220
     DEFAULT_FEEDBACK_REQUIRE_PREFIX = True
     DEFAULT_PROMOTION_ENABLED = True
@@ -62,7 +61,6 @@ class MemoryStore:
         max_lessons_in_prompt: int = DEFAULT_MAX_LESSONS_IN_PROMPT,
         min_lesson_confidence: int = DEFAULT_MIN_LESSON_CONFIDENCE,
         max_lessons: int = DEFAULT_MAX_LESSONS,
-        lesson_confidence_decay_hours: int = DEFAULT_LESSON_CONFIDENCE_DECAY_HOURS,
         lesson_stale_days: int = LessonStore.DEFAULT_LESSON_STALE_DAYS,
         lesson_archive_days: int = LessonStore.DEFAULT_LESSON_ARCHIVE_DAYS,
         curator_enabled: bool = True,
@@ -98,7 +96,6 @@ class MemoryStore:
             max_lessons_in_prompt=max_lessons_in_prompt,
             min_lesson_confidence=min_lesson_confidence,
             max_lessons=max_lessons,
-            lesson_confidence_decay_hours=lesson_confidence_decay_hours,
             lesson_stale_days=lesson_stale_days,
             lesson_archive_days=lesson_archive_days,
             feedback_max_message_chars=feedback_max_message_chars,
@@ -116,7 +113,6 @@ class MemoryStore:
         self.max_lessons_in_prompt = self._lesson_store.max_lessons_in_prompt
         self.min_lesson_confidence = self._lesson_store.min_lesson_confidence
         self.max_lessons = self._lesson_store.max_lessons
-        self.lesson_confidence_decay_hours = self._lesson_store.lesson_confidence_decay_hours
         self.feedback_max_message_chars = self._lesson_store.feedback_max_message_chars
         self.feedback_require_prefix = self._lesson_store.feedback_require_prefix
         self.promotion_enabled = self._lesson_store.promotion_enabled
@@ -648,7 +644,6 @@ class MemoryStore:
                 "max_lessons_in_prompt": self.max_lessons_in_prompt,
                 "min_lesson_confidence": self.min_lesson_confidence,
                 "max_lessons": self.max_lessons,
-                "lesson_confidence_decay_hours": self.lesson_confidence_decay_hours,
                 "feedback_max_message_chars": self.feedback_max_message_chars,
                 "feedback_require_prefix": self.feedback_require_prefix,
                 "promotion_enabled": self.promotion_enabled,
