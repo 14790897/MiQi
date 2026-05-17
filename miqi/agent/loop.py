@@ -246,11 +246,18 @@ class AgentLoop:
             embedding_model=self.self_improvement_config.embedding_model,
         )
 
+        _ctx_work_dir: Path | None = None
+        if session_key and getattr(self.session_config, "session_workspace_enabled", True):
+            from miqi.utils.helpers import safe_filename as _sf
+            _ck = _sf(session_key.replace(":", "_"))
+            _ctx_work_dir = workspace / "sessions" / _ck / "files"
+
         self.context = ContextBuilder(
             workspace,
             memory_store=self.memory,
             agent_name=self.agent_name,
             trace_store=self.trace_store,
+            session_work_dir=_ctx_work_dir,
         )
         self.sessions = session_manager or SessionManager(
             workspace,

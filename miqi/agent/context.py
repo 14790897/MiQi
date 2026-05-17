@@ -85,12 +85,14 @@ class ContextBuilder:
         memory_store: MemoryStore | None = None,
         agent_name: str = "miqi",
         trace_store: "TraceStore | None" = None,
+        session_work_dir: Path | None = None,
     ):
         self.workspace = workspace
         self.memory = memory_store or MemoryStore(workspace)
         self.skills = SkillsLoader(workspace)
         self.agent_name = agent_name.strip() or "miqi"
         self.trace_store = trace_store
+        self.session_work_dir = session_work_dir
 
     def build_system_prompt(
         self,
@@ -173,6 +175,15 @@ Skills with available="false" need dependencies installed first - you can try in
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
         agent_name = self.agent_name
 
+        if self.session_work_dir:
+            work_dir_line = (
+                f"\n- Your working directory (for new files): {self.session_work_dir}"
+                "\n  → Use relative paths to write here; "
+                "use absolute paths to modify project files directly."
+            )
+        else:
+            work_dir_line = ""
+
         return f"""You are {agent_name}, a helpful AI assistant.
 
 ## Current Time
@@ -187,7 +198,7 @@ Your workspace is at: {workspace_path}
 - Runtime snapshot: {workspace_path}/memory/LTM_SNAPSHOT.json
 - Self-improvement lessons: {workspace_path}/memory/LESSONS.jsonl
 - Daily notes: {workspace_path}/memory/YYYY-MM-DD.md
-- Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md
+- Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md{work_dir_line}
 
 Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel.
 
