@@ -2,28 +2,20 @@ import { useState, useEffect } from 'react'
 import { RuntimeProvider, useRuntime } from './contexts/RuntimeContext'
 import { TooltipProvider } from './components/ui/Tooltip'
 import { Sidebar } from './components/Sidebar'
-import { TopBar } from './components/TopBar'
 import { StatusBar } from './components/StatusBar'
 import { SetupWizard } from './features/setup/SetupWizard'
 import { ChatConsole } from './features/chat/ChatConsole'
 import { SettingsPage } from './features/settings/SettingsPage'
-import { ProvidersPage } from './features/providers/ProvidersPage'
-import { ChannelsPage } from './features/channels/ChannelsPage'
 import { ApprovalProvider } from './contexts/ApprovalContext'
 import { RestartRequiredProvider } from './contexts/RestartRequiredContext'
 import { ApprovalModal } from './features/approvals/ApprovalModal'
-import { ApprovalsPage } from './features/approvals/ApprovalsPage'
-import { CronPage } from './features/cron/CronPage'
 import { MemoryPage } from './features/memory/MemoryPage'
 import { SkillsPage } from './features/skills/SkillsPage'
 import { WorkspacePage } from './features/workspace/WorkspacePage'
 
 type NavId =
   | 'chat'
-  | 'providers'
-  | 'channels'
-  | 'approvals'
-  | 'cron'
+  | 'mcps'
   | 'memory'
   | 'skills'
   | 'workspace'
@@ -181,9 +173,6 @@ function AppShell() {
             className="flex flex-col h-screen"
             style={{ background: 'var(--background)' }}
           >
-            {/* Dark top bar */}
-            {/* <TopBar /> */}
-
             {/* Body row */}
             <div className="flex flex-1 overflow-hidden">
               <Sidebar
@@ -218,10 +207,7 @@ function AppShell() {
                     onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
                   />
                 </div>
-                {activeNav === 'providers' && <ProvidersPage />}
-                {activeNav === 'channels' && <ChannelsPage />}
-                {activeNav === 'approvals' && <ApprovalsPage />}
-                {activeNav === 'cron' && <CronPage />}
+                {activeNav === 'mcps' && <div className="flex-1 flex items-center justify-center text-zinc-500">MCPs coming soon</div>}
                 {activeNav === 'memory' && <MemoryPage />}
                 {activeNav === 'skills' && <SkillsPage />}
                 {activeNav === 'workspace' && <WorkspacePage />}

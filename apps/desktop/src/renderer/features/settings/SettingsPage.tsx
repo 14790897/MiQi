@@ -6,6 +6,10 @@ import { cn } from '../../lib/utils'
 import { RefreshCw, Download, Save, Eye, EyeOff, Check } from 'lucide-react'
 import { useRuntime } from '../../contexts/RuntimeContext'
 import * as Tabs from '@radix-ui/react-tabs'
+import { ProvidersPage } from '../providers/ProvidersPage'
+import { ChannelsPage } from '../channels/ChannelsPage'
+import { ApprovalsPage } from '../approvals/ApprovalsPage'
+import { CronPage } from '../cron/CronPage'
 
 // ---- Helpers ----
 function getNestedStr(obj: Record<string, unknown>, ...keys: string[]): string {
@@ -587,6 +591,10 @@ export function SettingsPage() {
         <Tabs.List className="flex gap-0 px-4 border-b border-[var(--border-subtle)] shrink-0">
           {[
             { value: 'general', label: '通用' },
+            { value: 'providers', label: 'Providers' },
+            { value: 'channels', label: '渠道' },
+            { value: 'security', label: '安全' },
+            { value: 'scheduling', label: '定时任务' },
             { value: 'webtools', label: 'Web 工具' },
             { value: 'appearance', label: '外观' },
             { value: 'logs', label: '运行日志' },
@@ -608,6 +616,18 @@ export function SettingsPage() {
 
         <Tabs.Content value="general" className="flex-1 overflow-y-auto">
           <GeneralTab />
+        </Tabs.Content>
+        <Tabs.Content value="providers" className="flex-1 overflow-y-auto">
+          <ProvidersPage />
+        </Tabs.Content>
+        <Tabs.Content value="channels" className="flex-1 overflow-y-auto">
+          <ChannelsPage />
+        </Tabs.Content>
+        <Tabs.Content value="security" className="flex-1 overflow-y-auto">
+          <ApprovalsPage />
+        </Tabs.Content>
+        <Tabs.Content value="scheduling" className="flex-1 overflow-y-auto">
+          <CronPage />
         </Tabs.Content>
         <Tabs.Content value="webtools" className="flex-1 overflow-y-auto">
           <WebToolsTab />
