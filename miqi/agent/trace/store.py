@@ -177,9 +177,32 @@ class TraceStore:
             "goal": goal,
             "started_at": time.time(),
             "parent_hash": parent_hash,
+            "steps": [],
         }
         self._persist_open_tasks()
         return task_id
+
+    def record_step(
+        self,
+        session_id: str,
+        tool_name: str,
+        args_summary: str,
+        result_summary: str,
+    ) -> None:
+        """Append one tool-call step to the currently open task. No-op if no open task."""
+        if not self.enabled:
+            return
+        task = self._open_tasks.get(session_id)
+        if task is None:
+            return
+        task.setdefault("steps", []).append(
+            {
+                "tool_name": tool_name,
+                "args_summary": args_summary[:300],
+                "result_summary": result_summary[:300],
+                "timestamp": time.time(),
+            }
+        )
 
     def end_task(
         self,
@@ -198,6 +221,19 @@ class TraceStore:
         self._persist_open_tasks()
         if open_task is None:
             return None
+
+        if not tool_calls:
+            raw = open_task.get("steps") or []
+            tool_calls = [
+                TaskStep(
+                    tool_name=str(s.get("tool_name", "")),
+                    args_summary=str(s.get("args_summary", "")),
+                    result_summary=str(s.get("result_summary", "")),
+                    timestamp=float(s.get("timestamp", 0.0)),
+                )
+                for s in raw
+                if isinstance(s, dict)
+            ]
 
         tool_names = [step.tool_name for step in tool_calls]
         trace_hash = compute_trace_hash(str(open_task["goal"]), tool_names)
