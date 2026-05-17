@@ -23,7 +23,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import type { ExperienceEntry, MemoryFileInfo, MemoryGetResult } from '../../../shared/ipc'
-import ContextMenu from '../../components/ContextMenu'
+import { ContextMenu } from '../../components/ContextMenu'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -39,21 +39,6 @@ const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
 // ── Files helpers ───────────────────────────────────────────────────────────
 function fileScope(path: string): 'agent' | 'workspace' {
   return path.includes('agent-memory') ? 'agent' : 'workspace'
-}
-
-function ScopeLabel({ scope }: { scope: 'agent' | 'workspace' }) {
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center px-1.5 py-0 text-[11px] font-medium rounded',
-        scope === 'agent'
-          ? 'text-[var(--accent)] bg-[var(--accent)]/10'
-          : 'text-[var(--muted-foreground)] bg-[var(--muted)]/20'
-      )}
-    >
-      {scope === 'agent' ? 'Agent' : '日常'}
-    </span>
-  )
 }
 
 // ── Sub-components ──────────────────────────────────────────────────────────
@@ -253,15 +238,18 @@ function FactsTab() {
                   key={f.path}
                   items={[{ label: '删除', danger: true, onSelect: () => setShowDeleteConfirm(f.path) }]}
                 >
-                  <div
-                    onClick={() => selectFile(f.path)}
-                    className={cn(
-                      'px-3 py-1.5 text-sm cursor-pointer truncate hover:bg-[var(--muted)]/20 transition-colors',
-                      activeFile === f.path && 'bg-[var(--accent)]/10 text-[var(--accent)]'
-                    )}
-                  >
-                    {f.path.split('/').pop()?.replace('.md', '') || f.path}
-                  </div>
+                  {({ onContextMenu }) => (
+                    <div
+                      onClick={() => selectFile(f.path)}
+                      onContextMenu={onContextMenu}
+                      className={cn(
+                        'px-3 py-1.5 text-sm cursor-pointer truncate hover:bg-[var(--muted)]/20 transition-colors',
+                        activeFile === f.path && 'bg-[var(--accent)]/10 text-[var(--accent)]'
+                      )}
+                    >
+                      {f.path.split('/').pop()?.replace('.md', '') || f.path}
+                    </div>
+                  )}
                 </ContextMenu>
               ))}
             </div>
@@ -276,15 +264,18 @@ function FactsTab() {
                   key={f.path}
                   items={[{ label: '删除', danger: true, onSelect: () => setShowDeleteConfirm(f.path) }]}
                 >
-                  <div
-                    onClick={() => selectFile(f.path)}
-                    className={cn(
-                      'px-3 py-1.5 text-sm cursor-pointer truncate hover:bg-[var(--muted)]/20 transition-colors',
-                      activeFile === f.path && 'bg-[var(--accent)]/10 text-[var(--accent)]'
-                    )}
-                  >
-                    {f.path.split('/').pop()?.replace('.md', '') || f.path}
-                  </div>
+                  {({ onContextMenu }) => (
+                    <div
+                      onClick={() => selectFile(f.path)}
+                      onContextMenu={onContextMenu}
+                      className={cn(
+                        'px-3 py-1.5 text-sm cursor-pointer truncate hover:bg-[var(--muted)]/20 transition-colors',
+                        activeFile === f.path && 'bg-[var(--accent)]/10 text-[var(--accent)]'
+                      )}
+                    >
+                      {f.path.split('/').pop()?.replace('.md', '') || f.path}
+                    </div>
+                  )}
                 </ContextMenu>
               ))}
             </div>
