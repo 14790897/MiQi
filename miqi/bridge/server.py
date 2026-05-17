@@ -1043,6 +1043,78 @@ def handle_memory_lesson_unlearn(req_id: str, params: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Experience handlers
+# ---------------------------------------------------------------------------
+
+def _get_experience_store():
+    """Lazy-init ExperienceStore singleton from current config."""
+    from miqi.agent.memory.experience_store import ExperienceStore
+    from miqi.agent.memory import MemoryStore
+    from miqi.agent.trace.store import TraceStore
+
+    config = _state.load_config()
+    memory = MemoryStore(
+        workspace=config.workspace_path,
+        self_improvement_enabled=config.agents.self_improvement.enabled,
+        max_lessons=config.agents.self_improvement.max_lessons,
+        min_lesson_confidence=config.agents.self_improvement.min_lesson_confidence,
+        max_lessons_in_prompt=config.agents.self_improvement.max_lessons_in_prompt,
+        lesson_stale_days=config.agents.self_improvement.lesson_stale_days,
+        lesson_archive_days=config.agents.self_improvement.lesson_archive_days,
+        feedback_max_message_chars=config.agents.self_improvement.feedback_max_message_chars,
+        feedback_require_prefix=config.agents.self_improvement.feedback_require_prefix,
+        promotion_enabled=config.agents.self_improvement.promotion_enabled,
+        promotion_min_users=config.agents.self_improvement.promotion_min_users,
+        promotion_triggers=config.agents.self_improvement.promotion_triggers,
+        lessons_legacy_inject_enabled=config.agents.self_improvement.lessons_legacy_inject_enabled,
+    )
+    trace = TraceStore(
+        workspace=config.workspace_path,
+        enabled=config.agents.self_improvement.trace_enabled,
+        embedding_model=config.agents.self_improvement.embedding_model,
+    )
+    return ExperienceStore(memory_store=memory, trace_store=trace)
+
+
+def handle_experience_list(req_id: str, params: dict) -> None:
+    entry_type = params.get("type")       # "fact" | "rule" | "trace" | None
+    scope = params.get("scope")           # "session" | "global" | None
+    session_key = params.get("session_key")  # str | None
+    limit = int(params.get("limit", 100))
+
+    store = _get_experience_store()
+    entries = store.list_entries(type=entry_type, scope=scope,
+                                  session_key=session_key, limit=limit)
+    _result(req_id, {"entries": entries})
+
+
+def handle_experience_delete(req_id: str, params: dict) -> None:
+    entry_type = params["type"]
+    entry_id = params["id"]
+    store = _get_experience_store()
+    ok = store.delete_entry(entry_type, entry_id)
+    _result(req_id, {"ok": ok})
+
+
+def handle_experience_toggle(req_id: str, params: dict) -> None:
+    entry_type = params["type"]
+    entry_id = params["id"]
+    enabled = bool(params["enabled"])
+    store = _get_experience_store()
+    ok = store.toggle_entry(entry_type, entry_id, enabled)
+    _result(req_id, {"ok": ok})
+
+
+def handle_experience_search(req_id: str, params: dict) -> None:
+    query = str(params.get("query", ""))
+    entry_type = params.get("type")
+    limit = int(params.get("limit", 10))
+    store = _get_experience_store()
+    entries = store.search_entries(query, type=entry_type, limit=limit)
+    _result(req_id, {"entries": entries})
+
+
+# ---------------------------------------------------------------------------
 # Skills handlers
 # ---------------------------------------------------------------------------
 
@@ -1635,6 +1707,10 @@ _METHODS = {
     "memory.delete": handle_memory_delete,
     "memory.lessons": handle_memory_lessons,
     "memory.lesson.unlearn": handle_memory_lesson_unlearn,
+    "experience:list":   handle_experience_list,
+    "experience:delete": handle_experience_delete,
+    "experience:toggle": handle_experience_toggle,
+    "experience:search": handle_experience_search,
     "skills.list": handle_skills_list,
     "skills.get": handle_skills_get,
     "skills.open_folder": handle_skills_open_folder,

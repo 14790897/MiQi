@@ -48,6 +48,12 @@ export const IPC = {
   MEMORY_DELETE: 'memory:delete',
   MEMORY_LESSONS: 'memory:lessons',
   MEMORY_LESSON_UNLEARN: 'memory:lesson:unlearn',
+
+  // Experience store
+  EXPERIENCE_LIST:   'experience:list',
+  EXPERIENCE_DELETE: 'experience:delete',
+  EXPERIENCE_TOGGLE: 'experience:toggle',
+  EXPERIENCE_SEARCH: 'experience:search',
   SKILLS_LIST: 'skills:list',
   SKILLS_GET: 'skills:get',
   SKILLS_OPEN_FOLDER: 'skills:open_folder',
@@ -426,6 +432,21 @@ export const MemoryLessonUnlearnInput = z.object({
 
 export interface MemoryLessonUnlearnResult {
   unlearned: string[]
+}
+
+export interface ExperienceEntry {
+  id: string;
+  type: 'fact' | 'rule' | 'trace';
+  title: string;
+  content: string;
+  confidence: number;
+  enabled: boolean;
+  scope: string;
+  source: string;
+  session_key: string;
+  created_at: number;
+  updated_at: number;
+  metadata: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
