@@ -10,9 +10,8 @@ from miqi.agent.tools.base import Tool
 class MemoryTool(Tool):
     """Tool for saving and managing persistent memory facts."""
 
-    def __init__(self, workspace: Path):
-        self.workspace = workspace
-        self._memory_dir = workspace / "memory"
+    def __init__(self, memory_store):
+        self._store = memory_store
 
     @property
     def name(self) -> str:
@@ -74,26 +73,27 @@ class MemoryTool(Tool):
 
     def _get_path(self, target: str) -> Path:
         if target == "user":
-            return self._memory_dir / "USER.md"
-        return self._memory_dir / "MEMORY.md"
+            return self._store.memory_dir / "USER.md"
+        return self._store.memory_dir / "MEMORY.md"
 
-    def _ensure_file(self, file_path: Path) -> None:
-        if not file_path.exists():
-            file_path.parent.mkdir(parents=True, exist_ok=True)
+    def _do_add(self, file_path: Path, content: str) -> str:
+        if not content.strip():
+            return "Error: 'content' is required for add action"
+        existing = ""
+        if file_path.exists():
+            existing = file_path.read_text(encoding="utf-8")
+        else:
             header = ""
             if file_path.name == "MEMORY.md":
                 header = "# Memory\n\n"
             elif file_path.name == "USER.md":
                 header = "# User Profile\n\n"
-            file_path.write_text(header, encoding="utf-8")
-
-    def _do_add(self, file_path: Path, content: str) -> str:
-        if not content.strip():
-            return "Error: 'content' is required for add action"
-        self._ensure_file(file_path)
-        existing = file_path.read_text(encoding="utf-8")
+            existing = header
         new_content = existing.rstrip("\n") + "\n" + content.strip() + "\n"
-        file_path.write_text(new_content, encoding="utf-8")
+        if file_path.name == "MEMORY.md":
+            self._store.write_memory_md(new_content)
+        else:
+            self._store.write_user_md(new_content)
         return '{"ok": true, "action": "add", "target": "' + file_path.stem.lower() + '"}'
 
     def _do_replace(self, file_path: Path, old_text: str, content: str) -> str:
@@ -107,7 +107,10 @@ class MemoryTool(Tool):
         if old_text not in text:
             return f"Error: 'old_text' not found in {file_path.name}"
         new_text = text.replace(old_text, content, 1)
-        file_path.write_text(new_text, encoding="utf-8")
+        if file_path.name == "MEMORY.md":
+            self._store.write_memory_md(new_text)
+        else:
+            self._store.write_user_md(new_text)
         return '{"ok": true, "action": "replace", "target": "' + file_path.stem.lower() + '"}'
 
     def _do_remove(self, file_path: Path, old_text: str) -> str:
@@ -118,8 +121,11 @@ class MemoryTool(Tool):
         text = file_path.read_text(encoding="utf-8")
         if old_text not in text:
             return f"Error: 'old_text' not found in {file_path.name}"
-        # Remove the exact line containing old_text
         lines = text.split("\n")
         new_lines = [line for line in lines if old_text.strip() not in line]
-        file_path.write_text("\n".join(new_lines), encoding="utf-8")
+        new_content = "\n".join(new_lines)
+        if file_path.name == "MEMORY.md":
+            self._store.write_memory_md(new_content)
+        else:
+            self._store.write_user_md(new_content)
         return '{"ok": true, "action": "remove", "target": "' + file_path.stem.lower() + '"}'

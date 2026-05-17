@@ -715,6 +715,40 @@ class MemoryStore:
         """Inject a SessionDB for FTS5 cross-session search in get_memory_context()."""
         self._sqlite_store = sqlite_store
 
+    def write_memory_md(self, content: str) -> None:
+        """Write MEMORY.md content with dirty tracking and audit."""
+        with self._state_lock:
+            self._load_once()
+            self.memory_file.write_text(content, encoding="utf-8")
+            self._dirty_updates += 1
+            self._snapshot_store._audit_buffer.append({
+                "type": "memory_md_write",
+                "at": timestamp(),
+                "chars": len(content),
+            })
+            self.flush_if_needed()
+
+    def write_user_md(self, content: str) -> None:
+        """Write USER.md content with dirty tracking and audit."""
+        with self._state_lock:
+            self._load_once()
+            user_md = self.memory_dir / "USER.md"
+            user_md.write_text(content, encoding="utf-8")
+            self._dirty_updates += 1
+            self._snapshot_store._audit_buffer.append({
+                "type": "user_md_write",
+                "at": timestamp(),
+                "chars": len(content),
+            })
+            self.flush_if_needed()
+
+    def read_user_md(self) -> str:
+        """Read USER.md content."""
+        user_md = self.memory_dir / "USER.md"
+        if user_md.exists():
+            return user_md.read_text(encoding="utf-8")
+        return ""
+
     # ── Internal ──
 
     def _load_once(self) -> None:

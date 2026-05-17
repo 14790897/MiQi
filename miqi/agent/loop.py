@@ -379,7 +379,7 @@ class AgentLoop:
                 timeout_seconds=self.paper_config.timeout_seconds,
             )
         )
-        self.tools.register(MemoryTool(workspace=self.workspace))
+        self.tools.register(MemoryTool(memory_store=self.memory))
         self.tools.register(TaskBeginTool(trace_store=self.trace_store))
         self.tools.register(TaskEndTool(trace_store=self.trace_store))
         self.tools.register(TraceSearchTool(trace_store=self.trace_store))
