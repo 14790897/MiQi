@@ -261,7 +261,7 @@ class AgentSelfImprovementConfig(Base):
     embedding_model: str = "intfloat/multilingual-e5-small"
     trace_inject_top_k: int = 3
     trace_similarity_threshold: float = 0.65
-    trace_nudge_interval: int = 8
+    trace_nudge_interval: int = 8   # deprecated: trace is now auto-instrumented
     lessons_legacy_inject_enabled: bool = True
 
 
