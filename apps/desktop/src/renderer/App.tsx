@@ -10,14 +10,14 @@ import { MCPsPage } from './features/mcps/MCPsPage'
 import { ApprovalProvider } from './contexts/ApprovalContext'
 import { RestartRequiredProvider } from './contexts/RestartRequiredContext'
 import { ApprovalModal } from './features/approvals/ApprovalModal'
-import { MemoryPage } from './features/memory/MemoryPage'
+import { ExperiencePage } from './features/experience/ExperiencePage'
 import { SkillsPage } from './features/skills/SkillsPage'
 import { WorkspacePage } from './features/workspace/WorkspacePage'
 
 type NavId =
   | 'chat'
   | 'mcps'
-  | 'memory'
+  | 'experience'
   | 'skills'
   | 'workspace'
   | 'settings'
@@ -209,7 +209,7 @@ function AppShell() {
                   />
                 </div>
                 {activeNav === 'mcps' && <MCPsPage />}
-                {activeNav === 'memory' && <MemoryPage />}
+                {activeNav === 'experience' && <ExperiencePage />}
                 {activeNav === 'skills' && <SkillsPage />}
                 {activeNav === 'workspace' && <WorkspacePage />}
                 {activeNav === 'settings' && <SettingsPage />}

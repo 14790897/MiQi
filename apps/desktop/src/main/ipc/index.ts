@@ -316,6 +316,25 @@ for m in ("pydantic", "httpx", "loguru"):
   })
 
   // -----------------------------------------------------------------------
+  // Experience
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.EXPERIENCE_LIST, async (_event, payload: unknown) => {
+    return bridge.sendSafe('experience:list', payload as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.EXPERIENCE_DELETE, async (_event, payload: unknown) => {
+    return bridge.send('experience:delete', payload as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.EXPERIENCE_TOGGLE, async (_event, payload: unknown) => {
+    return bridge.send('experience:toggle', payload as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.EXPERIENCE_SEARCH, async (_event, payload: unknown) => {
+    return bridge.sendSafe('experience:search', payload as Record<string, unknown>)
+  })
+
+  // -----------------------------------------------------------------------
   // Skills
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.SKILLS_LIST, async () => {

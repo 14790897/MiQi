@@ -24,6 +24,7 @@ import type {
   MemoryLessonEntry,
   MemoryLessonsResult,
   MemoryLessonUnlearnResult,
+  ExperienceEntry,
   SkillSummary,
   SkillDetail,
   SkillsListResult,
@@ -199,6 +200,18 @@ const api = {
       ipcRenderer.invoke(IPC.MEMORY_LESSONS),
     lessonUnlearn: (lesson_id: string): Promise<MemoryLessonUnlearnResult> =>
       ipcRenderer.invoke(IPC.MEMORY_LESSON_UNLEARN, { lesson_id }),
+  },
+
+  // -- Experience ---------------------------------------------------------------
+  experience: {
+    list: (params?: { type?: string; scope?: string; session_key?: string; limit?: number }): Promise<{ entries: ExperienceEntry[] }> =>
+      ipcRenderer.invoke(IPC.EXPERIENCE_LIST, params ?? {}),
+    delete: (type: string, id: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.EXPERIENCE_DELETE, { type, id }),
+    toggle: (type: string, id: string, enabled: boolean): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.EXPERIENCE_TOGGLE, { type, id, enabled }),
+    search: (query: string, type?: string, limit?: number): Promise<{ entries: ExperienceEntry[] }> =>
+      ipcRenderer.invoke(IPC.EXPERIENCE_SEARCH, { query, type, limit }),
   },
 
   // -- Skills ------------------------------------------------------------------

@@ -21,7 +21,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'chat',      label: '对话',   icon: MessageSquare },
   { id: 'mcps',      label: 'MCPs',   icon: Plug },
-  { id: 'memory',    label: '记忆',   icon: BookOpen },
+  { id: 'experience', label: '经验', icon: BookOpen },
   { id: 'skills',    label: '技能',   icon: Wrench },
   { id: 'workspace', label: '工作区', icon: FolderOpen },
   { id: 'settings',  label: '设置',   icon: Settings },
