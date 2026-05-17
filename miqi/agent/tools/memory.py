@@ -10,6 +10,8 @@ from miqi.agent.tools.base import Tool
 class MemoryTool(Tool):
     """Tool for saving and managing persistent memory facts."""
 
+    VALID_TARGETS = {"memory", "user"}
+
     def __init__(self, memory_store):
         self._store = memory_store
 
@@ -60,6 +62,8 @@ class MemoryTool(Tool):
         content: str = "",
         old_text: str = "",
     ) -> str:
+        if target not in self.VALID_TARGETS:
+            return f"Error: invalid target '{target}'. Valid targets are: {', '.join(sorted(self.VALID_TARGETS))}"
         file_path = self._get_path(target)
 
         if action == "add":

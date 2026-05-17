@@ -106,6 +106,45 @@ class TraceStore:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._init_schema()
         self._open_tasks: dict[str, dict[str, Any]] = {}
+        self._open_tasks_file = self.db_path.parent / "OPEN_TASKS.json"
+        self._recover_open_tasks()
+
+    def _recover_open_tasks(self) -> None:
+        """Auto-close any tasks that were open when the process last crashed."""
+        if not self._open_tasks_file.exists():
+            return
+        try:
+            data = json.loads(self._open_tasks_file.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return
+        except (json.JSONDecodeError, OSError):
+            return
+        # Pre-populate ALL entries before processing any to ensure mid-recovery
+        # crash safety — _persist_open_tasks() only removes the sidecar when
+        # self._open_tasks is empty.
+        self._open_tasks.update(data)
+        for session_id in list(data):
+            self.end_task(
+                session_id=session_id,
+                outcome="partial",
+                outcome_notes="Auto-closed on restart: process crashed before task_end.",
+                tool_calls=[],
+            )
+
+    def _persist_open_tasks(self) -> None:
+        """Write current open tasks to sidecar for crash recovery."""
+        if not self._open_tasks:
+            try:
+                self._open_tasks_file.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
+        try:
+            self._open_tasks_file.write_text(
+                json.dumps(self._open_tasks, ensure_ascii=False), encoding="utf-8"
+            )
+        except OSError:
+            pass
 
     # --- Lifecycle ---
 
@@ -139,6 +178,7 @@ class TraceStore:
             "started_at": time.time(),
             "parent_hash": parent_hash,
         }
+        self._persist_open_tasks()
         return task_id
 
     def end_task(
@@ -155,6 +195,7 @@ class TraceStore:
             raise ValueError("outcome must be one of: success, partial, failure")
 
         open_task = self._open_tasks.pop(session_id, None)
+        self._persist_open_tasks()
         if open_task is None:
             return None
 
