@@ -195,23 +195,6 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Settings footer */}
-      <div
-        className="flex items-center gap-2 px-3 py-2.5 border-t shrink-0"
-        style={{ borderColor: 'var(--sidebar-border)' }}
-      >
-        <button
-          onClick={() => onNavChange('settings')}
-          className="flex items-center gap-2 w-full px-2 py-1.5 rounded-lg transition-colors hover:bg-[var(--surface-muted)]"
-          style={{
-            color:
-              activeNav === 'settings' ? 'var(--text)' : 'var(--text-muted)',
-          }}
-        >
-          <Settings size={14} />
-          <span className="text-xs">Settings</span>
-        </button>
-      </div>
     </div>
   )
 }

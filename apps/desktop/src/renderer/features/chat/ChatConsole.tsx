@@ -18,7 +18,7 @@ import {
   Image,
   LayoutGrid,
   MoreHorizontal,
-  Share2,
+  Plus,
   Eye,
   GitMerge,
   ChevronDown,
@@ -266,6 +266,14 @@ export function ChatConsole({
     onNewSession?.(newKey)
   }, [streaming, cleanupListeners, onNewSession])
 
+  const handleDeleteSession = useCallback(async () => {
+    const key = currentSessionRef.current
+    if (!key) return
+    if (!window.confirm('Delete this conversation? This cannot be undone.')) return
+    try { await window.miqi.sessions.delete(key) } catch { /* ignore */ }
+    handleNewSession()
+  }, [handleNewSession])
+
   const handleSend = useCallback(async () => {
     const text = input.trim()
     if ((!text && attachments.length === 0) || streaming) return
@@ -458,9 +466,22 @@ export function ChatConsole({
           >
             <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
           </button>
-          <button className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors">
-            <MoreHorizontal size={14} style={{ color: 'var(--text-faint)' }} />
-          </button>
+          <ContextMenu
+            items={[{
+              label: 'Delete conversation',
+              danger: true,
+              onSelect: handleDeleteSession,
+            }]}
+          >
+            {({ onContextMenu }) => (
+              <button
+                className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
+                onClick={onContextMenu}
+              >
+                <MoreHorizontal size={14} style={{ color: 'var(--text-faint)' }} />
+              </button>
+            )}
+          </ContextMenu>
           <button
             onClick={handleNewSession}
             disabled={streaming}
@@ -470,8 +491,8 @@ export function ChatConsole({
               color: '#fff',
             }}
           >
-            <Share2 size={12} />
-            Share Task
+            <Plus size={12} />
+            New Chat
           </button>
         </div>
       </div>
