@@ -350,6 +350,7 @@ def test_memory_store_lesson_confidence_decay_affects_ranking(tmp_path) -> None:
     store = MemoryStore(
         workspace=tmp_path,
         self_improvement_enabled=True,
+        min_lesson_confidence=1,
     )
     store.learn_lesson(
         trigger="response:old",

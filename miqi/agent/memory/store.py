@@ -43,7 +43,7 @@ class MemoryStore:
     DEFAULT_COMPACT_TRIGGER_RATIO = 1.1
     DEFAULT_MAX_LESSONS = 200
     DEFAULT_MAX_LESSONS_IN_PROMPT = 5
-    DEFAULT_MIN_LESSON_CONFIDENCE = 1
+    DEFAULT_MIN_LESSON_CONFIDENCE = 3
     DEFAULT_FEEDBACK_MAX_MESSAGE_CHARS = 220
     DEFAULT_FEEDBACK_REQUIRE_PREFIX = True
     DEFAULT_PROMOTION_ENABLED = True
@@ -71,7 +71,7 @@ class MemoryStore:
         promotion_enabled: bool = DEFAULT_PROMOTION_ENABLED,
         promotion_min_users: int = DEFAULT_PROMOTION_MIN_USERS,
         promotion_triggers: list[str] | tuple[str, ...] | None = None,
-        lessons_legacy_inject_enabled: bool = False,
+        lessons_legacy_inject_enabled: bool = True,
     ):
         self.workspace = workspace
         self.memory_dir = ensure_dir(workspace / "memory")

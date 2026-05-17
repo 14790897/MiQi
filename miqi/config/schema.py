@@ -241,7 +241,7 @@ class AgentSelfImprovementConfig(Base):
 
     enabled: bool = True
     max_lessons_in_prompt: int = 5
-    min_lesson_confidence: int = 1
+    min_lesson_confidence: int = 3
     max_lessons: int = 200
     lesson_stale_days: int = 30
     lesson_archive_days: int = 90
@@ -262,7 +262,7 @@ class AgentSelfImprovementConfig(Base):
     trace_inject_top_k: int = 3
     trace_similarity_threshold: float = 0.65
     trace_nudge_interval: int = 8
-    lessons_legacy_inject_enabled: bool = False
+    lessons_legacy_inject_enabled: bool = True
 
 
 class AgentsConfig(Base):
