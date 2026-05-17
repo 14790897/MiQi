@@ -27,6 +27,8 @@ import type {
   SkillSummary,
   SkillDetail,
   SkillsListResult,
+  McpServerConfig,
+  McpServerInfo,
   FileNode,
   FilesTreeResult,
   FilesReadResult,
@@ -207,6 +209,16 @@ const api = {
       ipcRenderer.invoke(IPC.SKILLS_GET, { name }),
     openFolder: (name: string): Promise<{ opened: boolean; path: string }> =>
       ipcRenderer.invoke(IPC.SKILLS_OPEN_FOLDER, { name }),
+  },
+
+  // -- MCP --------------------------------------------------------------------
+  mcps: {
+    list: (): Promise<{ servers: McpServerInfo[] }> =>
+      ipcRenderer.invoke(IPC.MCP_LIST),
+    upsert: (name: string, config: McpServerConfig): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.MCP_UPSERT, { name, ...config }),
+    delete: (name: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.MCP_DELETE, { name }),
   },
 
   // -- Files (Workspace Editor) ------------------------------------------------

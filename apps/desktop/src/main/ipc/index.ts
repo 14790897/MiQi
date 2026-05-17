@@ -4,7 +4,7 @@ import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import type { BridgeManager } from '../bridge'
-import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, ConfigUpdateInput, ProviderTestInput, ProviderUpdateInput, ChannelsUpdateInput, CronCreateInput, CronUpdateInput, CronToggleInput, CronDeleteInput, CronRunInput, CronRunsInput, MemoryGetInput, MemoryUpdateInput, MemoryLessonUnlearnInput, SkillsGetInput, FilesReadInput, FilesWriteInput } from '../../shared/ipc'
+import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, ConfigUpdateInput, ProviderTestInput, ProviderUpdateInput, ChannelsUpdateInput, CronCreateInput, CronUpdateInput, CronToggleInput, CronDeleteInput, CronRunInput, CronRunsInput, MemoryGetInput, MemoryUpdateInput, MemoryLessonUnlearnInput, SkillsGetInput, FilesReadInput, FilesWriteInput, McpUpsertInput, McpDeleteInput } from '../../shared/ipc'
 
 const { ipcMain, dialog } = electron
 
@@ -352,6 +352,23 @@ for m in ("pydantic", "httpx", "loguru"):
   ipcMain.handle(IPC.FILES_DELETE, async (_event, payload: unknown) => {
     const p = payload as { path: string }
     return bridge.send('files.delete', p as Record<string, unknown>)
+  })
+
+  // -----------------------------------------------------------------------
+  // MCP
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.MCP_LIST, async () => {
+    return bridge.sendSafe('mcp.list')
+  })
+
+  ipcMain.handle(IPC.MCP_UPSERT, async (_event, payload: unknown) => {
+    const input = McpUpsertInput.parse(payload)
+    return bridge.send('mcp.upsert', input as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.MCP_DELETE, async (_event, payload: unknown) => {
+    const input = McpDeleteInput.parse(payload)
+    return bridge.send('mcp.delete', input as Record<string, unknown>)
   })
 
   // -----------------------------------------------------------------------
