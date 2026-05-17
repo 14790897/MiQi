@@ -706,6 +706,9 @@ def _create_workspace_templates(
 
     (workspace / "skills").mkdir(exist_ok=True)
 
+    from miqi.utils.helpers import ensure_sessions_gitignored
+    ensure_sessions_gitignored(workspace)
+
 
 def _make_provider(config: Config):
     """Create the appropriate LLM provider from config."""

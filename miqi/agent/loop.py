@@ -349,6 +349,8 @@ class AgentLoop:
             if self.session_config.session_workspace_enabled:
                 _work_dir = self.workspace / "sessions" / safe_key / "files"
                 _work_dir.mkdir(parents=True, exist_ok=True)
+                from miqi.utils.helpers import ensure_sessions_gitignored
+                ensure_sessions_gitignored(self.workspace)
 
         _write_workspace = _work_dir if _work_dir is not None else self.workspace
 
