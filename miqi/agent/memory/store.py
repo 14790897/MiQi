@@ -688,7 +688,7 @@ class MemoryStore:
         flushed = self.flush_if_needed(force=force)
 
         # Trigger curator if active lesson count exceeds threshold
-        if self._curator is not None and self.curator_enabled:
+        if self._curator is not None and self.curator_enabled and self.lessons_legacy_inject_enabled:
             with self._state_lock:
                 self._load_once()
                 active_count = sum(
@@ -765,7 +765,8 @@ class MemoryStore:
         with self._state_lock:
             self._snapshot_store.flush()
             self._lesson_store.flush()
-            self._lesson_store.update_lifecycle_states()
+            if self.lessons_legacy_inject_enabled:
+                self._lesson_store.update_lifecycle_states()
             self._dirty_updates = 0
             self._last_flush_monotonic = time.monotonic()
 
