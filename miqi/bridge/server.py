@@ -1046,8 +1046,14 @@ def handle_memory_lesson_unlearn(req_id: str, params: dict) -> None:
 # Experience handlers
 # ---------------------------------------------------------------------------
 
+_experience_store = None
+
 def _get_experience_store():
     """Lazy-init ExperienceStore singleton from current config."""
+    global _experience_store
+    if _experience_store is not None:
+        return _experience_store
+
     from miqi.agent.memory.experience_store import ExperienceStore
     from miqi.agent.memory import MemoryStore
     from miqi.agent.trace.store import TraceStore
@@ -1072,8 +1078,10 @@ def _get_experience_store():
         workspace=config.workspace_path,
         enabled=config.agents.self_improvement.trace_enabled,
         embedding_model=config.agents.self_improvement.embedding_model,
+        recover=False,
     )
-    return ExperienceStore(memory_store=memory, trace_store=trace)
+    _experience_store = ExperienceStore(memory_store=memory, trace_store=trace)
+    return _experience_store
 
 
 def handle_experience_list(req_id: str, params: dict) -> None:

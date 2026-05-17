@@ -88,6 +88,7 @@ class TraceStore:
         *,
         enabled: bool = True,
         embedding_model: str = "intfloat/multilingual-e5-small",
+        recover: bool = True,
     ):
         self.workspace = workspace
         self.enabled = enabled
@@ -107,7 +108,8 @@ class TraceStore:
         self._init_schema()
         self._open_tasks: dict[str, dict[str, Any]] = {}
         self._open_tasks_file = self.db_path.parent / "OPEN_TASKS.json"
-        self._recover_open_tasks()
+        if recover:
+            self._recover_open_tasks()
 
     def _recover_open_tasks(self) -> None:
         """Auto-close any tasks that were open when the process last crashed."""
