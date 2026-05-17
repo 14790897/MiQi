@@ -153,6 +153,7 @@ class AgentLoop:
         enable_context_compression: bool = False,
         compression_threshold_chars: int = 400_000,
         approval_callback=None,
+        session_key: str = "",
     ):
         self.bus = bus
         self.channels_config = channels_config
@@ -275,6 +276,7 @@ class AgentLoop:
         self._running = False
         self._abort_event = asyncio.Event()
         self._approval_callback = approval_callback
+        self._session_key = session_key
         self._mcp_servers = mcp_servers or {}
         self._mcp_stack: AsyncExitStack | None = None
         self._mcp_connected = False
@@ -331,8 +333,21 @@ class AgentLoop:
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
         allowed_dir = self.workspace if self.restrict_to_workspace else None
-        for cls in (ReadFileTool, WriteFileTool, EditFileTool, ListDirTool):
+
+        from miqi.utils.helpers import safe_filename
+
+        _snap_dir: Path | None = None
+        if self._session_key:
+            safe_key = safe_filename(self._session_key.replace(":", "_"))
+            _snap_dir = self.workspace / "sessions" / safe_key / "snapshots"
+            _snap_dir.mkdir(parents=True, exist_ok=True)
+
+        for cls in (ReadFileTool, ListDirTool):
             self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
+        self.tools.register(WriteFileTool(
+            workspace=self.workspace, allowed_dir=allowed_dir, snapshot_dir=_snap_dir))
+        self.tools.register(EditFileTool(
+            workspace=self.workspace, allowed_dir=allowed_dir, snapshot_dir=_snap_dir))
         self.tools.register(ExecTool(
             working_dir=str(self.workspace),
             timeout=self.exec_config.timeout,

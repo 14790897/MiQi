@@ -146,6 +146,7 @@ class BridgeState:
             channels_config=config.channels,
             smart_routing_config=config.agents.smart_routing,
             approval_callback=approval_callback,
+            session_key=session_key,
         )
         return agent
 
@@ -236,6 +237,13 @@ class BridgeState:
 
 _state = BridgeState()
 
+from miqi.agent.tools.filesystem import (
+    _delete_snapshot,
+    _snapshots_lock,
+    _maybe_snapshot,
+    _restore_snapshot,
+    _read_snapshot,
+)
 
 # ---------------------------------------------------------------------------
 # Handlers
@@ -1129,11 +1137,20 @@ def _build_tree(path: Path, relative_to: Path, depth: int = 0, max_depth: int = 
     }
     if path.is_dir() and depth < max_depth:
         children = []
+        _TREE_SKIP_SUFFIXES = {
+            ".sqlite", ".sqlite-shm", ".sqlite-wal", ".sqlite-journal",
+            ".db", ".db-shm", ".db-wal",
+            ".pyc", ".pyo", ".pyd",
+            ".so", ".dll", ".dylib", ".exe",
+            ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp",
+            ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
+            ".bin", ".dat", ".pkl", ".npz", ".npy", ".h5", ".hdf5",
+        }
         try:
             for child in sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
                 if child.name.startswith(".") or child.name == "__pycache__":
                     continue
-                if child.name.endswith(".pyc") or child.name.endswith(".pyo"):
+                if child.suffix.lower() in _TREE_SKIP_SUFFIXES:
                     continue
                 children.append(_build_tree(child, relative_to, depth + 1, max_depth))
         except PermissionError:
@@ -1153,6 +1170,7 @@ def handle_files_tree(req_id: str, params: dict) -> None:
 
 def handle_files_read(req_id: str, params: dict) -> None:
     file_path = params.get("path", "").strip()
+    _log(f"[files:read] req={req_id} path={file_path}")
     if not file_path:
         _error(req_id, "path is required")
         return
@@ -1160,14 +1178,17 @@ def handle_files_read(req_id: str, params: dict) -> None:
     try:
         resolved = _validate_file_path(file_path)
     except ValueError as exc:
+        _log(f"[files:read] path validation failed: {exc}")
         _error(req_id, str(exc))
         return
 
     if not resolved.exists():
+        _log(f"[files:read] not found: {file_path}")
         _error(req_id, f"File not found: {file_path}")
         return
 
     if resolved.is_dir():
+        _log(f"[files:read] is directory: {file_path}")
         _error(req_id, f"Path is a directory: {file_path}")
         return
 
@@ -1178,18 +1199,22 @@ def handle_files_read(req_id: str, params: dict) -> None:
                ".env", ".gitignore", ".dockerignore", ".editorconfig",
                ".csv", ".log", ".lock", ".jsonl"}
     if resolved.suffix not in allowed and resolved.name not in {".gitignore", ".dockerignore", ".editorconfig", ".env"}:
+        _log(f"[files:read] unsupported type: {resolved.suffix or resolved.name}")
         _error(req_id, f"File type not supported: {resolved.suffix or resolved.name}")
         return
 
     try:
         content = resolved.read_text(encoding="utf-8")
     except UnicodeDecodeError:
+        _log(f"[files:read] decode error: {file_path}")
         _error(req_id, "File is not valid UTF-8 text")
         return
     except Exception as exc:
+        _log(f"[files:read] read error: {exc}")
         _error(req_id, str(exc))
         return
 
+    _log(f"[files:read] ok path={file_path} size={len(content)}")
     _result(req_id, {
         "path": file_path,
         "content": content,
@@ -1200,6 +1225,7 @@ def handle_files_read(req_id: str, params: dict) -> None:
 def handle_files_write(req_id: str, params: dict) -> None:
     file_path = params.get("path", "").strip()
     content = params.get("content", "")
+    _log(f"[files:write] req={req_id} path={file_path} size={len(content)}")
     if not file_path:
         _error(req_id, "path is required")
         return
@@ -1207,6 +1233,7 @@ def handle_files_write(req_id: str, params: dict) -> None:
     try:
         resolved = _validate_file_path(file_path)
     except ValueError as exc:
+        _log(f"[files:write] path validation failed: {exc}")
         _error(req_id, str(exc))
         return
 
@@ -1217,17 +1244,27 @@ def handle_files_write(req_id: str, params: dict) -> None:
                ".env", ".gitignore", ".dockerignore", ".editorconfig",
                ".csv", ".log", ".lock", ".jsonl"}
     if resolved.suffix not in allowed and resolved.name not in {".gitignore", ".dockerignore", ".editorconfig", ".env"}:
+        _log(f"[files:write] unsupported file type: {resolved.suffix or resolved.name}")
         _error(req_id, f"File type not supported for write: {resolved.suffix or resolved.name}")
         return
 
+    # Snapshot original content before first write (enables non-git diff/revert)
+    _maybe_snapshot(resolved)
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    resolved.write_text(content, encoding="utf-8")
+    try:
+        resolved.write_text(content, encoding="utf-8")
+        _log(f"[files:write] ok path={file_path}")
+    except Exception as exc:
+        _log(f"[files:write] write failed: {exc}")
+        _error(req_id, str(exc))
+        return
     _result(req_id, {"saved": True, "path": file_path})
 
 
 def handle_files_delete(req_id: str, params: dict) -> None:
     """Delete a workspace file or empty directory."""
     file_path = params.get("path", "").strip()
+    _log(f"[files:delete] req={req_id} path={file_path}")
     if not file_path:
         _error(req_id, "path is required")
         return
@@ -1235,27 +1272,135 @@ def handle_files_delete(req_id: str, params: dict) -> None:
     try:
         resolved = _validate_file_path(file_path)
     except ValueError as exc:
+        _log(f"[files:delete] path validation failed: {exc}")
         _error(req_id, str(exc))
         return
 
     if not resolved.exists():
+        _log(f"[files:delete] not found: {file_path}")
         _error(req_id, f"Not found: {file_path}")
         return
 
     workspace = _get_workspace_path()
     if resolved == workspace:
+        _log(f"[files:delete] refused: workspace root")
         _error(req_id, "Cannot delete workspace root")
         return
 
     if resolved.is_dir():
         if any(resolved.iterdir()):
+            _log(f"[files:delete] not empty: {file_path}")
             _error(req_id, "Directory is not empty")
             return
         resolved.rmdir()
     else:
         resolved.unlink()
 
+    _log(f"[files:delete] ok path={file_path}")
     _result(req_id, {"deleted": True, "path": file_path})
+
+
+def handle_files_diff(req_id: str, params: dict) -> None:
+    """Diff a file against its pre-session snapshot using difflib (no git required)."""
+    import difflib
+
+    file_path = params.get("path", "").strip()
+    _log(f"[files:diff] req={req_id} path={file_path}")
+    if not file_path:
+        _error(req_id, "path is required")
+        return
+
+    try:
+        resolved = _validate_file_path(file_path)
+    except ValueError as exc:
+        _log(f"[files:diff] path validation failed: {exc}")
+        _error(req_id, str(exc))
+        return
+
+    snapshot_key = str(resolved)
+    with _snapshots_lock:
+        original_content: str | None = _read_snapshot(snapshot_key)
+
+    # Read current content
+    current_content: str | None = None
+    if resolved.exists():
+        try:
+            current_content = resolved.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            _log(f"[files:diff] read current failed: {exc}")
+
+    # If no snapshot exists, try to generate a partial diff (no original)
+    if original_content is None:
+        _log(f"[files:diff] no snapshot for {snapshot_key}")
+        _result(req_id, {
+            "path": file_path,
+            "diff": None,
+            "has_diff": False,
+            "original_content": None,
+            "current_content": current_content,
+            "error": "No snapshot found — file was not modified in this session",
+        })
+        return
+
+    # Generate unified diff
+    original_lines = original_content.splitlines(keepends=True)
+    current_lines = (current_content or "").splitlines(keepends=True)
+    diff_lines = list(difflib.unified_diff(
+        original_lines,
+        current_lines,
+        fromfile=f"a/{file_path}",
+        tofile=f"b/{file_path}",
+        lineterm="",
+    ))
+    diff_text = "\n".join(diff_lines) if diff_lines else None
+    has_diff = bool(diff_text)
+    _log(f"[files:diff] ok has_diff={has_diff} lines={len(diff_lines)} path={file_path}")
+
+    _result(req_id, {
+        "path": file_path,
+        "diff": diff_text,
+        "has_diff": has_diff,
+        "original_content": original_content,
+        "current_content": current_content,
+    })
+
+
+def handle_files_revert(req_id: str, params: dict) -> None:
+    """Revert a file to its pre-session snapshot (no git required)."""
+    file_path = params.get("path", "").strip()
+    _log(f"[files:revert] req={req_id} path={file_path}")
+    if not file_path:
+        _error(req_id, "path is required")
+        return
+
+    try:
+        resolved = _validate_file_path(file_path)
+    except ValueError as exc:
+        _log(f"[files:revert] path validation failed: {exc}")
+        _error(req_id, str(exc))
+        return
+
+    snapshot_key = str(resolved)
+    with _snapshots_lock:
+        has_snapshot = _read_snapshot(snapshot_key) is not None
+
+    if not has_snapshot:
+        _log(f"[files:revert] no snapshot for {snapshot_key}")
+        _error(req_id, "No snapshot found — cannot revert (file was not modified in this session)")
+        return
+
+    ok = _restore_snapshot(resolved)
+    if not ok:
+        _log(f"[files:revert] restore failed for {snapshot_key}")
+        _error(req_id, "Revert failed — could not write original content")
+        return
+
+    # Remove snapshot so the file is treated as clean again
+    with _snapshots_lock:
+        _delete_snapshot(snapshot_key)
+
+    _log(f"[files:revert] ok path={file_path}")
+    _result(req_id, {"reverted": True, "path": file_path})
 
 
 def handle_skills_open_folder(req_id: str, params: dict) -> None:
@@ -1388,6 +1533,8 @@ _METHODS = {
     "files.read": handle_files_read,
     "files.write": handle_files_write,
     "files.delete": handle_files_delete,
+    "files.diff": handle_files_diff,
+    "files.revert": handle_files_revert,
     "python.check": handle_python_check,
 }
 
@@ -1433,6 +1580,13 @@ def _ensure_workspace_init() -> None:
 def main() -> None:
     _log("Bridge server starting")
     _ensure_workspace_init()
+    # Persist approval history so records survive bridge restarts
+    try:
+        from miqi.agent.command_approval import init_history_file
+        from miqi.config.loader import get_data_dir
+        init_history_file(get_data_dir() / "approval_history.jsonl")
+    except Exception as exc:
+        _log(f"Approval history init warning (non-fatal): {exc}")
     for line in sys.stdin:
         line = line.strip()
         if not line:

@@ -84,10 +84,22 @@ class SessionManager:
         self.compact_keep_messages = max(1, compact_keep_messages)
         self._cache: dict[str, Session] = {}
 
+    def get_session_dir(self, key: str) -> Path:
+        safe_key = safe_filename(key.replace(":", "_"))
+        return self.sessions_dir / safe_key
+
     def _get_session_path(self, key: str) -> Path:
         """Get the file path for a session key."""
+        return self.get_session_dir(key) / "conversation.jsonl"
+
+    def _migrate_flat_to_dir(self, key: str) -> None:
+        """If old flat .jsonl exists and new dir does not, migrate."""
         safe_key = safe_filename(key.replace(":", "_"))
-        return self.sessions_dir / f"{safe_key}.jsonl"
+        old_flat = self.sessions_dir / f"{safe_key}.jsonl"
+        new_dir  = self.sessions_dir / safe_key
+        if old_flat.exists() and not new_dir.exists():
+            new_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(old_flat), str(new_dir / "conversation.jsonl"))
 
     def _get_legacy_session_path(self, key: str) -> Path:
         """Legacy global session path for migration only."""
@@ -108,6 +120,7 @@ class SessionManager:
 
     def _load(self, key: str) -> Session | None:
         """Load a session from disk."""
+        self._migrate_flat_to_dir(key)
         path = self._get_session_path(key)
         if not path.exists():
             legacy_path = self._get_legacy_session_path(key)
@@ -167,6 +180,7 @@ class SessionManager:
 
     def save(self, session: Session) -> None:
         """Persist session changes with append-only writes when possible."""
+        self._migrate_flat_to_dir(session.key)
         path = self._get_session_path(session.key)
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -206,9 +220,16 @@ class SessionManager:
     def delete(self, key: str) -> bool:
         """Delete a session from cache and disk."""
         self._cache.pop(key, None)
-        path = self._get_session_path(key)
-        if path.exists():
-            path.unlink()
+        self._migrate_flat_to_dir(key)
+        session_dir = self.get_session_dir(key)
+        if session_dir.exists():
+            shutil.rmtree(session_dir)
+            return True
+        # Fallback: old flat file that was never migrated
+        safe_key = safe_filename(key.replace(":", "_"))
+        old_flat = self.sessions_dir / f"{safe_key}.jsonl"
+        if old_flat.exists():
+            old_flat.unlink()
             return True
         return False
 
@@ -216,16 +237,30 @@ class SessionManager:
         """List all sessions sorted by updated time descending."""
         sessions: list[dict[str, Any]] = []
 
+        # Primary: directory-based sessions
+        for path in self.sessions_dir.glob("*/conversation.jsonl"):
+            try:
+                data = self._read_metadata(path)
+                if data is None:
+                    continue
+                key = data.get("key") or path.parent.name.replace("_", ":", 1)
+                sessions.append(
+                    {
+                        "key": key,
+                        "created_at": data.get("created_at"),
+                        "updated_at": data.get("updated_at"),
+                        "path": str(path),
+                    }
+                )
+            except Exception:
+                continue
+
+        # Fallback: old flat .jsonl files not yet migrated
         for path in self.sessions_dir.glob("*.jsonl"):
             try:
-                with open(path, encoding="utf-8") as f:
-                    first_line = f.readline().strip()
-                    if not first_line:
-                        continue
-                    data = json.loads(first_line)
-                    if data.get("_type") != "metadata":
-                        continue
-
+                data = self._read_metadata(path)
+                if data is None:
+                    continue
                 key = data.get("key") or path.stem.replace("_", ":", 1)
                 sessions.append(
                     {
@@ -239,6 +274,20 @@ class SessionManager:
                 continue
 
         return sorted(sessions, key=lambda item: item.get("updated_at", ""), reverse=True)
+
+    def _read_metadata(self, path: Path) -> dict | None:
+        """Read the metadata line from a conversation.jsonl or flat .jsonl file."""
+        try:
+            with open(path, encoding="utf-8") as f:
+                first_line = f.readline().strip()
+                if not first_line:
+                    return None
+                data = json.loads(first_line)
+                if data.get("_type") != "metadata":
+                    return None
+                return data
+        except Exception:
+            return None
 
     def compact_if_needed(self, key: str) -> bool:
         """Compact a session file if thresholds are exceeded."""
