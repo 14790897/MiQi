@@ -20,8 +20,10 @@ class TaskBeginTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Start a new task within this session. Provide a meaningful goal description. "
-            "If a task is already open, it is auto-closed as 'partial'."
+            "Override the auto-generated trace name for this turn. Use when starting a "
+            "complex multi-step task to give it a meaningful name and goal description. "
+            "The system already auto-begins a trace for each user turn; calling this tool "
+            "replaces the auto-generated task_name and goal."
         )
 
     @property

@@ -599,6 +599,23 @@ class AgentLoop:
             return f'<at user_id="{sender_id}">{display}</at>'
         return display
 
+    @staticmethod
+    def _make_trace_slug(text: str) -> str:
+        """Derive a short trace name from the user's message for use as task_name."""
+        text = text.strip()
+        if not text:
+            return "session"
+        sample = text[:30]
+        printable = sum(1 for c in sample if c.isprintable() and not c.isspace())
+        ascii_p = sum(1 for c in sample if c.isascii() and c.isprintable() and not c.isspace())
+        if printable == 0 or ascii_p / printable < 0.6:
+            # CJK-heavy: use raw prefix as task name (already human-readable)
+            return text[:20].strip() or "session"
+        # ASCII-heavy: produce a hyphenated slug from first 5 words
+        words = [w for w in re.split(r'\W+', text.lower()) if w][:5]
+        slug = "-".join(words)[:40]
+        return slug or "session"
+
     async def _run_agent_loop(
         self,
         initial_messages: list[dict],
@@ -1161,10 +1178,11 @@ class AgentLoop:
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()
 
-        # Auto-begin trace for this session on first user turn
-        if self.trace_store.enabled and self.trace_store.get_current_task(session.key) is None:
+        # Auto-begin trace for each user turn (begin_task auto-closes any stale open task)
+        if self.trace_store.enabled:
             _auto_goal = (msg.content or "").strip()[:200] or "session"
-            self.trace_store.begin_task(session.key, "session", _auto_goal)
+            _auto_task_name = AgentLoop._make_trace_slug(msg.content or "")
+            self.trace_store.begin_task(session.key, _auto_task_name, _auto_goal)
 
         history = session.get_history(max_messages=self.memory_window)
         initial_messages = self.context.build_messages(
@@ -1206,16 +1224,35 @@ class AgentLoop:
                 channel=msg.channel, chat_id=msg.chat_id, content=prefixed, metadata=meta,
             ))
 
+        _turn_tools: list[str] = []
+        _turn_exc = False
         try:
-            final_content, _, all_msgs = await self._run_agent_loop(
+            final_content, _turn_tools, all_msgs = await self._run_agent_loop(
                 initial_messages, on_progress=on_progress or _bus_progress,
                 session_key=key,
             )
             if final_content:
                 final_content = self.memory.strip_memory_fence(final_content)
+        except Exception:
+            _turn_exc = True
+            raise
         finally:
             for _gw in self._mcp_gateways:
                 _gw.deactivate()
+            if self.trace_store.enabled:
+                if _turn_exc:
+                    _t_outcome, _t_notes = "failure", "exception during agent loop"
+                elif _turn_tools:
+                    _t_outcome = "success"
+                    _t_notes = f"tools: {', '.join(dict.fromkeys(_turn_tools))}"
+                else:
+                    _t_outcome, _t_notes = "partial", "no tools used; text-only response"
+                self.trace_store.end_task(
+                    session_id=session.key,
+                    outcome=_t_outcome,
+                    outcome_notes=_t_notes,
+                    tool_calls=[],  # auto-populated from recorded steps in store.py
+                )
 
         if final_content is None:
             final_content = "I've completed processing but have no response to give."
