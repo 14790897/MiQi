@@ -5,35 +5,35 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added (2026-05-18)
-- **Experience 经验面板** (`apps/desktop/src/renderer/features/experience/`):
-  - `ExperiencePage` 组件：Facts / Rules / History 三个标签页
-  - `ExperienceStore` 统一读取接口，整合 facts/rules/traces 数据
-  - experience IPC bridge handlers：experience:list / delete / toggle / search
-- **MCPs 管理页面** (`apps/desktop/src/renderer/features/mcps/`):
-  - `MCPsPage` 组件：MCP 服务列表、添加/编辑/删除功能
-  - MCP list/upsert/delete IPC 和 bridge handlers
-- **Skills CRUD**：
-  - 桌面端 Skills 页面：create / upload / delete 操作
-  - `skill_manage` tool：agent 可创建、查看、修改、归档 workspace skills
-  - `skill_curator`：LLM 驱动的 skill 生命周期管理，自动归档 stale skills
-- **Session 会话管理改进**：
-  - Session 目录结构重构：每个 session 独立目录存储
-  - Session-scoped working directory：文件写入隔离到当前 session 目录
-  - 自动添加 `sessions/` 到 `.gitignore`
-  - Session title 支持：侧边栏显示自定义标题
-- **Trace 任务追踪系统**：
-  - Task Graph git-like 自改进系统（`miqi/agent/trace/`）
-  - 完整 trace 生命周期：trace_begin → record_step → trace_end
-  - CLI `miqi trace` 命令：log / show / search / export / import
-  - Semantic search：基于 fastembed 的向量相似度搜索
-  - Context injection：自动注入相似历史任务到 system prompt
-  - Nudge system：周期性提醒 agent 关闭 open tasks
-- **UI 改进**：
-  - Settings 页面整合：providers / channels / approvals / cron 合并为标签页
-  - Sidebar 改进：session status filters，tracked file preview
-  - 浅色主题配色（WorkBench 风格）
-  - Chat Console：session title、new chat 按钮、上下文菜单
-  - 右键上下文菜单：chat / sessions / workspace / memory 页面
+- **Experience panel** (`apps/desktop/src/renderer/features/experience/`):
+  - `ExperiencePage` component: Facts / Rules / History three tabs
+  - `ExperienceStore` unified read interface, consolidating facts/rules/traces data
+  - Experience IPC bridge handlers: `experience:list` / `delete` / `toggle` / `search`
+- **MCPs management page** (`apps/desktop/src/renderer/features/mcps/`):
+  - `MCPsPage` component: MCP service list with add/edit/delete actions
+  - MCP list/upsert/delete IPC and bridge handlers
+- **Skills CRUD**:
+  - Desktop Skills page: create / upload / delete operations
+  - `skill_manage` tool: agents can create, view, modify, and archive workspace skills
+  - `skill_curator`: LLM-driven skill lifecycle management, automatically archives stale skills
+- **Session management improvements**:
+  - Session directory restructuring: each session stored in its own directory
+  - Session-scoped working directory: file writes isolated to the current session directory
+  - Automatically add `sessions/` to `.gitignore`
+  - Session title support: sidebar shows custom titles
+- **Trace task tracking system**:
+  - Task Graph git-like self-improvement system (`miqi/agent/trace/`)
+  - Full trace lifecycle: `trace_begin` → `record_step` → `trace_end`
+  - CLI `miqi trace` command: `log` / `show` / `search` / `export` / `import`
+  - Semantic search: vector similarity search based on `fastembed`
+  - Context injection: automatically inject similar historical tasks into the system prompt
+  - Nudge system: periodic reminders to agents to close open tasks
+- **UI improvements**:
+  - Settings page consolidation: providers / channels / approvals / cron merged into tabs
+  - Sidebar improvements: session status filters, tracked file preview
+  - Light theme color palette (WorkBench style)
+  - Chat Console: session title, new chat button, context menu
+  - Right-click context menus for chat / sessions / workspace / memory pages
 
 ### Added (2026-05-15)
 - **Task Graph — git-like agent self-improvement system** (`miqi/agent/trace/`):
