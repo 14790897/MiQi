@@ -182,6 +182,7 @@ export interface ProviderInfo {
   is_local: boolean
   default_api_base: string
   configured: boolean
+  api_key_hint?: string | null
   api_base: string | null
   configured_model?: string
 }

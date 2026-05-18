@@ -389,9 +389,17 @@ def handle_providers_list(req_id: str, params: dict) -> None:
     from miqi.providers.registry import PROVIDERS
 
     config = _state.load_config()
+    _model = config.agents.defaults.model
+    _model_provider = config.get_provider_name(_model)
     providers_out = []
     for spec in PROVIDERS:
         pc = getattr(config.providers, spec.name, None)
+        _api_key = pc.api_key if pc else None
+        _hint = None
+        if _api_key and len(_api_key) >= 8:
+            _hint = _api_key[:4] + "…" + _api_key[-4:]
+        elif _api_key:
+            _hint = "***"
         providers_out.append({
             "name": spec.name,
             "display_name": spec.display_name or spec.name.title(),
@@ -401,8 +409,9 @@ def handle_providers_list(req_id: str, params: dict) -> None:
             "is_local": spec.is_local,
             "default_api_base": spec.default_api_base,
             "configured": bool(pc and (pc.api_key or pc.api_base)),
+            "api_key_hint": _hint,
             "api_base": pc.api_base if pc else None,
-            "configured_model": config.agents.defaults.model,
+            "configured_model": _model if _model_provider == spec.name else None,
         })
     _result(req_id, {"providers": providers_out})
 
