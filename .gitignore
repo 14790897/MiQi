@@ -26,3 +26,4 @@ featherflow/agent/memory.py.bak
 CLAUDE.md
 .workbuddy/memory
 dist-new/
+node_modules/       
