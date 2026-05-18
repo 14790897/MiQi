@@ -4,7 +4,8 @@ import App from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import './styles/globals.css'
 
-document.documentElement.classList.add('dark')
+// 浅色主题默认，如需深色可取消注释
+// document.documentElement.classList.add('dark')
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
