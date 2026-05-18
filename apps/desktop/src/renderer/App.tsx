@@ -192,7 +192,7 @@ function AppShell() {
                   setSessionKey(key)
                   setSessionRefreshKey((k) => k + 1)
                 }}
-                refreshKey={sessionRefreshKey}
+                refreshKey={sessionRefreshKey + runtimeReadyKey * 100000}
                 onNewSession={handleNewSession}
               />
 
