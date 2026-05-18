@@ -6,6 +6,12 @@ import { cn } from '../../lib/utils'
 import { RefreshCw, Download, Save, Eye, EyeOff, Check } from 'lucide-react'
 import { useRuntime } from '../../contexts/RuntimeContext'
 import * as Tabs from '@radix-ui/react-tabs'
+import { ProvidersPage } from '../providers/ProvidersPage'
+import { ChannelsPage } from '../channels/ChannelsPage'
+import { ApprovalsPage } from '../approvals/ApprovalsPage'
+import { WorkspacePage } from '../workspace/WorkspacePage'
+
+type SettingsTab = 'general' | 'providers' | 'channels' | 'approvals' | 'workspace' | 'webtools' | 'appearance' | 'logs'
 
 // ---- Helpers ----
 function getNestedStr(obj: Record<string, unknown>, ...keys: string[]): string {
@@ -571,6 +577,8 @@ function LogsTab() {
 
 // ---- Main ----
 export function SettingsPage() {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('general')
+
   return (
     <div className="flex flex-col h-full">
       <div className="px-6 py-4 border-b border-[var(--border-subtle)]">
@@ -581,12 +589,17 @@ export function SettingsPage() {
       </div>
 
       <Tabs.Root
-        defaultValue="general"
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as SettingsTab)}
         className="flex flex-col flex-1 min-h-0"
       >
-        <Tabs.List className="flex gap-0 px-4 border-b border-[var(--border-subtle)] shrink-0">
+        <Tabs.List className="flex gap-0 px-4 border-b border-[var(--border-subtle)] shrink-0 overflow-x-auto">
           {[
             { value: 'general', label: '通用' },
+            { value: 'providers', label: '模型' },
+            { value: 'channels', label: '渠道' },
+            { value: 'approvals', label: '命令审批' },
+            { value: 'workspace', label: '工作区' },
             { value: 'webtools', label: 'Web 工具' },
             { value: 'appearance', label: '外观' },
             { value: 'logs', label: '运行日志' },
@@ -595,7 +608,7 @@ export function SettingsPage() {
               key={tab.value}
               value={tab.value}
               className={cn(
-                'px-4 py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors',
+                'px-4 py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap',
                 'text-[var(--text-muted)] border-transparent',
                 'hover:text-[var(--text)]',
                 'data-[state=active]:text-[var(--accent)] data-[state=active]:border-[var(--accent)]',
@@ -608,6 +621,18 @@ export function SettingsPage() {
 
         <Tabs.Content value="general" className="flex-1 overflow-y-auto">
           <GeneralTab />
+        </Tabs.Content>
+        <Tabs.Content value="providers" className="flex-1 overflow-y-auto">
+          <ProvidersPage />
+        </Tabs.Content>
+        <Tabs.Content value="channels" className="flex-1 overflow-y-auto">
+          <ChannelsPage />
+        </Tabs.Content>
+        <Tabs.Content value="approvals" className="flex-1 overflow-y-auto">
+          <ApprovalsPage />
+        </Tabs.Content>
+        <Tabs.Content value="workspace" className="flex-1 overflow-y-auto">
+          <WorkspacePage />
         </Tabs.Content>
         <Tabs.Content value="webtools" className="flex-1 overflow-y-auto">
           <WebToolsTab />
