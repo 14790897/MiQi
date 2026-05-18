@@ -152,10 +152,13 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
 /* ─── Main component ─────────────────────────────────────────────── */
 export function ChatConsole({
   sessionKey = DEFAULT_SESSION,
+  loadTrigger,
   onNewSession,
   onChatFinished,
 }: {
   sessionKey?: string
+  /** Increment to force a session history reload (e.g. after bridge becomes ready) */
+  loadTrigger?: number
   onNewSession?: (newKey: string) => void
   onChatFinished?: () => void
 }) {
@@ -207,7 +210,9 @@ export function ChatConsole({
       setHistoryLoaded(true)
     }
     load()
-  }, [sessionKey])
+  // loadTrigger lets the parent force a reload (e.g. after bridge becomes ready)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionKey, loadTrigger])
 
   useEffect(() => {
     if (scrollRef.current)
@@ -259,10 +264,8 @@ export function ChatConsole({
 
   const handleNewSession = useCallback(async () => {
     if (streaming) return
-    const oldKey = currentSessionRef.current
     const newKey = `desktop:${Date.now()}`
     cleanupListeners()
-    try { await window.miqi.chat.send('/new', oldKey) } catch { /* ignore */ }
     onNewSession?.(newKey)
   }, [streaming, cleanupListeners, onNewSession])
 

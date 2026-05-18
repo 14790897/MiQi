@@ -29,7 +29,15 @@ function AppShell() {
   const [activeNav, setActiveNav] = useState<NavId>('chat')
   const [sessionKey, setSessionKey] = useState('desktop:default')
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0)
+  const [runtimeReadyKey, setRuntimeReadyKey] = useState(0)
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
+
+  // When the bridge becomes ready, trigger a session history reload in ChatConsole
+  useEffect(() => {
+    if (status.state === 'running') {
+      setRuntimeReadyKey((k) => k + 1)
+    }
+  }, [status.state])
 
   useEffect(() => {
     if (PRELOAD_OK) {
@@ -201,6 +209,7 @@ function AppShell() {
                 >
                   <ChatConsole
                     sessionKey={sessionKey}
+                    loadTrigger={runtimeReadyKey}
                     onNewSession={(newKey) => {
                       setSessionKey(newKey)
                       setSessionRefreshKey((k) => k + 1)
