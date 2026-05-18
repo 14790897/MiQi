@@ -188,15 +188,15 @@ export function Sidebar({
                     onNavChange('chat')
                     onSessionSelect?.(s.key)
                   }}
-                  className="w-full flex items-start gap-2 px-2 py-1.5 rounded hover:bg-zinc-800 text-left"
+                  className="w-full flex items-start gap-2 px-2 py-1.5 rounded text-left transition-colors hover:bg-[var(--surface-elevated)]"
                   style={{
                     background: isActive ? 'var(--surface-muted)' : 'transparent',
                   }}
                 >
-                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 flex-shrink-0 mt-1.5" />
+                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1.5" style={{ background: 'var(--text-faint)' }} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-zinc-200 truncate">{displayName}</p>
-                    <p className="text-xs text-zinc-500">{relativeTime(s.updated_at)}</p>
+                    <p className="text-sm truncate" style={{ color: 'var(--text)' }}>{displayName}</p>
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{relativeTime(s.updated_at)}</p>
                   </div>
                 </button>
               )
