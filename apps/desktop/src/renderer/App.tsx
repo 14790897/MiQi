@@ -7,27 +7,14 @@ import { StatusBar } from './components/StatusBar'
 import { SetupWizard } from './features/setup/SetupWizard'
 import { ChatConsole } from './features/chat/ChatConsole'
 import { SettingsPage } from './features/settings/SettingsPage'
-import { ProvidersPage } from './features/providers/ProvidersPage'
-import { ChannelsPage } from './features/channels/ChannelsPage'
 import { ApprovalProvider } from './contexts/ApprovalContext'
 import { RestartRequiredProvider } from './contexts/RestartRequiredContext'
 import { ApprovalModal } from './features/approvals/ApprovalModal'
-import { ApprovalsPage } from './features/approvals/ApprovalsPage'
 import { CronPage } from './features/cron/CronPage'
 import { MemoryPage } from './features/memory/MemoryPage'
 import { SkillsPage } from './features/skills/SkillsPage'
-import { WorkspacePage } from './features/workspace/WorkspacePage'
 
-type NavId =
-  | 'chat'
-  | 'providers'
-  | 'channels'
-  | 'approvals'
-  | 'cron'
-  | 'memory'
-  | 'skills'
-  | 'workspace'
-  | 'settings'
+type NavId = 'chat' | 'cron' | 'memory' | 'skills' | 'settings'
 
 const PRELOAD_OK = typeof window !== 'undefined' && !!(window as any).miqi
 
@@ -218,13 +205,9 @@ function AppShell() {
                     onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
                   />
                 </div>
-                {activeNav === 'providers' && <ProvidersPage />}
-                {activeNav === 'channels' && <ChannelsPage />}
-                {activeNav === 'approvals' && <ApprovalsPage />}
                 {activeNav === 'cron' && <CronPage />}
                 {activeNav === 'memory' && <MemoryPage />}
                 {activeNav === 'skills' && <SkillsPage />}
-                {activeNav === 'workspace' && <WorkspacePage />}
                 {activeNav === 'settings' && <SettingsPage />}
               </main>
             </div>
