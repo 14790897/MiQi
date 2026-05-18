@@ -109,6 +109,14 @@ The packaged gateway path currently wires Feishu, cron, memory/session persisten
 miqi status
 ```
 
+### 5. Inspect Task History
+
+```bash
+miqi trace log          # recent task execution history
+miqi trace show <id>    # details of a specific task trace
+miqi trace search <q>   # full-text search across task traces
+```
+
 ---
 
 ## MCP Server Setup (Optional)

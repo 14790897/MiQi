@@ -4,7 +4,7 @@ import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import type { BridgeManager } from '../bridge'
-import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, ConfigUpdateInput, ProviderTestInput, ProviderUpdateInput, ChannelsUpdateInput, CronCreateInput, CronUpdateInput, CronToggleInput, CronDeleteInput, CronRunInput, CronRunsInput, MemoryGetInput, MemoryUpdateInput, SkillsGetInput, FilesReadInput, FilesWriteInput } from '../../shared/ipc'
+import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, ConfigUpdateInput, ProviderTestInput, ProviderUpdateInput, ChannelsUpdateInput, CronCreateInput, CronUpdateInput, CronToggleInput, CronDeleteInput, CronRunInput, CronRunsInput, MemoryGetInput, MemoryUpdateInput, MemoryLessonUnlearnInput, SkillsGetInput, FilesReadInput, FilesWriteInput, McpUpsertInput, McpDeleteInput } from '../../shared/ipc'
 
 const { ipcMain, dialog } = electron
 
@@ -307,9 +307,33 @@ for m in ("pydantic", "httpx", "loguru"):
     return bridge.sendSafe('memory.lessons')
   })
 
+  ipcMain.handle(IPC.MEMORY_LESSON_UNLEARN, async (_event, payload: unknown) => {
+    const input = MemoryLessonUnlearnInput.parse(payload)
+    return bridge.send('memory.lesson.unlearn', input as Record<string, unknown>)
+  })
+
   ipcMain.handle(IPC.MEMORY_DELETE, async (_event, payload: unknown) => {
     const p = payload as { path: string }
     return bridge.send('memory.delete', p as Record<string, unknown>)
+  })
+
+  // -----------------------------------------------------------------------
+  // Experience
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.EXPERIENCE_LIST, async (_event, payload: unknown) => {
+    return bridge.sendSafe('experience:list', payload as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.EXPERIENCE_DELETE, async (_event, payload: unknown) => {
+    return bridge.send('experience:delete', payload as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.EXPERIENCE_TOGGLE, async (_event, payload: unknown) => {
+    return bridge.send('experience:toggle', payload as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.EXPERIENCE_SEARCH, async (_event, payload: unknown) => {
+    return bridge.sendSafe('experience:search', payload as Record<string, unknown>)
   })
 
   // -----------------------------------------------------------------------
@@ -327,6 +351,21 @@ for m in ("pydantic", "httpx", "loguru"):
   ipcMain.handle(IPC.SKILLS_OPEN_FOLDER, async (_event, payload: unknown) => {
     const p = payload as { name: string }
     return bridge.send('skills.open_folder', p as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.SKILLS_CREATE, async (_event, payload: unknown) => {
+    const p = payload as { name: string; description?: string }
+    return bridge.send('skills.create', p as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.SKILLS_UPLOAD, async (_event, payload: unknown) => {
+    const p = payload as { name: string; content: string }
+    return bridge.send('skills.upload', p as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.SKILLS_DELETE, async (_event, payload: unknown) => {
+    const p = payload as { name: string }
+    return bridge.send('skills.delete', p as Record<string, unknown>)
   })
 
   // -----------------------------------------------------------------------
@@ -359,6 +398,23 @@ for m in ("pydantic", "httpx", "loguru"):
   ipcMain.handle(IPC.FILES_REVERT, async (_event, payload: unknown) => {
     const p = payload as { path: string }
     return bridge.send('files.revert', p as Record<string, unknown>)
+  })
+
+  // -----------------------------------------------------------------------
+  // MCP
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.MCP_LIST, async () => {
+    return bridge.sendSafe('mcp.list')
+  })
+
+  ipcMain.handle(IPC.MCP_UPSERT, async (_event, payload: unknown) => {
+    const input = McpUpsertInput.parse(payload)
+    return bridge.send('mcp.upsert', input as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.MCP_DELETE, async (_event, payload: unknown) => {
+    const input = McpDeleteInput.parse(payload)
+    return bridge.send('mcp.delete', input as Record<string, unknown>)
   })
 
   // -----------------------------------------------------------------------

@@ -181,3 +181,33 @@ mcp_zeopp_pore_diameter(structure_text=content, filename="structure.cif")
 
 > **mofchecker** also runs as a stdio process on the host and accepts
 > host-side file paths normally.
+
+## Task Trace — 让经验面板记录有意义的任务历史
+
+每条用户消息都会自动开启一个 trace（名称从消息前几个词生成），
+记录本轮所有工具调用，在本轮结束时自动关闭并写入 SQLite。
+
+### 何时主动调用 trace 工具
+
+仅在以下场景才需要主动干预：
+
+1. **`task_begin`** — 执行包含 5+ 步骤的复杂工作流时，在**第一步之前**调用：
+   ```
+   task_begin(task_name="analyze-mof-structure", goal="分析 HKUST-1 孔径分布并生成报告")
+   ```
+   `task_name` 使用简短英文 slug，便于历史搜索。
+
+2. **`task_end`** — 完成重要任务后主动提供经验总结：
+   ```
+   task_end(outcome="success", notes="使用 mcp_zeopp 分析了 3 个 MOF；孔径数据写入 results.csv")
+   ```
+   `notes` 会被向量化，用于未来相似任务的语义召回。
+
+3. **`trace_search`** — 执行陌生复杂工作流前，先搜索历史经验：
+   ```
+   trace_search(query="analyze MOF pore size distribution")
+   ```
+
+### 普通对话不需要手动干预
+
+对于简单问答（无工具调用），系统自动记录为 `outcome=partial`，无需补充。

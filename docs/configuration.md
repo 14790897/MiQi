@@ -95,7 +95,7 @@ Default settings applied to all agent instances.
 | `reflectAfterToolCalls` | bool | `true` | Insert the internal reflection prompt after tool batches |
 | `maxToolResultChars` | int | `16000` | Per-tool truncation cap for the live prompt |
 | `contextLimitChars` | int | `600000` | Hard character ceiling before fallback trimming |
-| `fallbackChain` | list | `[]` | Fallback model chain metadata. The helper module is shipped, but the packaged CLI/gateway path does not yet invoke it automatically. |
+| `fallbackChain` | list | `[]` | List of `{"model": "<full model id>"}` entries. The helper module is shipped, but the packaged CLI/gateway path does not yet invoke it automatically. |
 
 #### `agents.memory`
 
@@ -118,6 +118,7 @@ Controls session compaction.
 | `compactThresholdBytes` | int | `2000000` | Trigger compaction above this file size |
 | `compactKeepMessages` | int | `300` | Number of recent messages to retain after compaction |
 | `sessionToolResultMaxChars` | int | `500` | Tool-result truncation cap written into persisted session history |
+| `sessionWorkspaceEnabled` | bool | `true` | When `true`, agent file writes (relative paths) go to `sessions/{key}/files/` instead of workspace root |
 | `useSqlite` | bool | `false` | Reserved flag for the shipped SQLite+FTS5 session backend module. The current CLI/gateway path still instantiates the JSONL `SessionManager`. |
 
 #### `agents.smartRouting`
@@ -151,14 +152,25 @@ Controls the lesson-extraction and self-improvement system. See [Self-Improvemen
 |---|---|---|---|
 | `enabled` | bool | `true` | Enable lesson extraction |
 | `maxLessonsInPrompt` | int | `5` | Maximum lessons injected per prompt |
-| `minLessonConfidence` | int | `1` | Minimum confidence score for a lesson to be included |
+| `minLessonConfidence` | int | `3` | Minimum confidence score for a lesson to be included |
 | `maxLessons` | int | `200` | Maximum lessons retained in store |
-| `lessonConfidenceDecayHours` | int | `168` | Hours before lesson confidence starts decaying |
+| `lessonStaleDays` | int | `30` | Days before a lesson is considered stale |
+| `lessonArchiveDays` | int | `90` | Days before a stale lesson is archived |
+| `curatorEnabled` | bool | `true` | Enable the LLM-based lesson curator |
+| `curatorIntervalDays` | int | `7` | Days between curator review cycles |
+| `curatorThreshold` | int | `150` | Minimum lesson count to trigger curator review |
 | `feedbackMaxMessageChars` | int | `220` | Maximum message length to treat as user feedback |
 | `feedbackRequirePrefix` | bool | `true` | Require correction cue as a message prefix |
 | `promotionEnabled` | bool | `true` | Allow session lessons to promote to global scope |
 | `promotionMinUsers` | int | `3` | Minimum distinct user count to trigger promotion |
 | `promotionTriggers` | list | `["response:length", "response:language"]` | Trigger pattern list for promotion candidates |
+| `memoryNudgeInterval` | int | `8` | Inject a memory-save reminder every N turns |
+| `skillNudgeInterval` | int | `10` | Inject a skill-save reminder every N turns |
+| `traceEnabled` | bool | `true` | Enable task trace recording |
+| `embeddingModel` | string | `"intfloat/multilingual-e5-small"` | Model used for trace embedding similarity |
+| `traceInjectTopK` | int | `3` | Number of top-k similar traces to inject in context |
+| `traceSimilarityThreshold` | float | `0.65` | Minimum similarity score for trace injection |
+| `lessonsLegacyInjectEnabled` | bool | `true` | Whether legacy lesson injection runs alongside curator |
 
 ---
 

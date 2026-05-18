@@ -2,19 +2,27 @@ import { useState, useEffect } from 'react'
 import { RuntimeProvider, useRuntime } from './contexts/RuntimeContext'
 import { TooltipProvider } from './components/ui/Tooltip'
 import { Sidebar } from './components/Sidebar'
-import { TopBar } from './components/TopBar'
 import { StatusBar } from './components/StatusBar'
 import { SetupWizard } from './features/setup/SetupWizard'
 import { ChatConsole } from './features/chat/ChatConsole'
 import { SettingsPage } from './features/settings/SettingsPage'
+import { MCPsPage } from './features/mcps/MCPsPage'
 import { ApprovalProvider } from './contexts/ApprovalContext'
 import { RestartRequiredProvider } from './contexts/RestartRequiredContext'
 import { ApprovalModal } from './features/approvals/ApprovalModal'
 import { CronPage } from './features/cron/CronPage'
 import { MemoryPage } from './features/memory/MemoryPage'
+import { ExperiencePage } from './features/experience/ExperiencePage'
 import { SkillsPage } from './features/skills/SkillsPage'
 
-type NavId = 'chat' | 'cron' | 'memory' | 'skills' | 'settings'
+type NavId =
+  | 'chat'
+  | 'mcps'
+  | 'cron'
+  | 'memory'
+  | 'experience'
+  | 'skills'
+  | 'settings'
 
 const PRELOAD_OK = typeof window !== 'undefined' && !!(window as any).miqi
 
@@ -23,7 +31,15 @@ function AppShell() {
   const [activeNav, setActiveNav] = useState<NavId>('chat')
   const [sessionKey, setSessionKey] = useState('desktop:default')
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0)
+  const [runtimeReadyKey, setRuntimeReadyKey] = useState(0)
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
+
+  // When the bridge becomes ready, trigger a session history reload in ChatConsole
+  useEffect(() => {
+    if (status.state === 'running') {
+      setRuntimeReadyKey((k) => k + 1)
+    }
+  }, [status.state])
 
   useEffect(() => {
     if (PRELOAD_OK) {
@@ -168,9 +184,6 @@ function AppShell() {
             className="flex flex-col h-screen"
             style={{ background: 'var(--background)' }}
           >
-            {/* Dark top bar */}
-            {/* <TopBar /> */}
-
             {/* Body row */}
             <div className="flex flex-1 overflow-hidden">
               <Sidebar
@@ -181,7 +194,7 @@ function AppShell() {
                   setSessionKey(key)
                   setSessionRefreshKey((k) => k + 1)
                 }}
-                refreshKey={sessionRefreshKey}
+                refreshKey={sessionRefreshKey + runtimeReadyKey * 100000}
                 onNewSession={handleNewSession}
               />
 
@@ -198,6 +211,7 @@ function AppShell() {
                 >
                   <ChatConsole
                     sessionKey={sessionKey}
+                    loadTrigger={runtimeReadyKey}
                     onNewSession={(newKey) => {
                       setSessionKey(newKey)
                       setSessionRefreshKey((k) => k + 1)
@@ -205,8 +219,10 @@ function AppShell() {
                     onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
                   />
                 </div>
+                {activeNav === 'mcps' && <MCPsPage />}
                 {activeNav === 'cron' && <CronPage />}
                 {activeNav === 'memory' && <MemoryPage />}
+                {activeNav === 'experience' && <ExperiencePage />}
                 {activeNav === 'skills' && <SkillsPage />}
                 {activeNav === 'settings' && <SettingsPage />}
               </main>

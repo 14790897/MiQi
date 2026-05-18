@@ -23,9 +23,13 @@ import type {
   MemoryGetResult,
   MemoryLessonEntry,
   MemoryLessonsResult,
+  MemoryLessonUnlearnResult,
+  ExperienceEntry,
   SkillSummary,
   SkillDetail,
   SkillsListResult,
+  McpServerConfig,
+  McpServerInfo,
   FileNode,
   FilesTreeResult,
   FilesReadResult,
@@ -196,6 +200,20 @@ const api = {
       ipcRenderer.invoke(IPC.MEMORY_DELETE, { path }),
     lessons: (): Promise<MemoryLessonsResult> =>
       ipcRenderer.invoke(IPC.MEMORY_LESSONS),
+    lessonUnlearn: (lesson_id: string): Promise<MemoryLessonUnlearnResult> =>
+      ipcRenderer.invoke(IPC.MEMORY_LESSON_UNLEARN, { lesson_id }),
+  },
+
+  // -- Experience ---------------------------------------------------------------
+  experience: {
+    list: (params?: { type?: string; scope?: string; session_key?: string; limit?: number }): Promise<{ entries: ExperienceEntry[] }> =>
+      ipcRenderer.invoke(IPC.EXPERIENCE_LIST, params ?? {}),
+    delete: (type: string, id: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.EXPERIENCE_DELETE, { type, id }),
+    toggle: (type: string, id: string, enabled: boolean): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.EXPERIENCE_TOGGLE, { type, id, enabled }),
+    search: (query: string, type?: string, limit?: number): Promise<{ entries: ExperienceEntry[] }> =>
+      ipcRenderer.invoke(IPC.EXPERIENCE_SEARCH, { query, type, limit }),
   },
 
   // -- Skills ------------------------------------------------------------------
@@ -206,6 +224,22 @@ const api = {
       ipcRenderer.invoke(IPC.SKILLS_GET, { name }),
     openFolder: (name: string): Promise<{ opened: boolean; path: string }> =>
       ipcRenderer.invoke(IPC.SKILLS_OPEN_FOLDER, { name }),
+    create: (name: string, description: string): Promise<{ ok: boolean; error?: string; path?: string }> =>
+      ipcRenderer.invoke(IPC.SKILLS_CREATE, { name, description }),
+    upload: (name: string, content: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.SKILLS_UPLOAD, { name, content }),
+    delete: (name: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.SKILLS_DELETE, { name }),
+  },
+
+  // -- MCP --------------------------------------------------------------------
+  mcps: {
+    list: (): Promise<{ servers: McpServerInfo[] }> =>
+      ipcRenderer.invoke(IPC.MCP_LIST),
+    upsert: (name: string, config: McpServerConfig): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.MCP_UPSERT, { name, ...config }),
+    delete: (name: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.MCP_DELETE, { name }),
   },
 
   // -- Files (Workspace Editor) ------------------------------------------------

@@ -55,8 +55,20 @@ All commands support `--help` for usage details.
 
 | Command | Description |
 |---|---|
-| `miqi session compact --session <id>` | Compact a single conversation session |
+| `miqi session compact --session <id>` | Compact a single conversation session by ID |
 | `miqi session compact --all` | Compact all stored sessions |
+
+---
+
+## Trace
+
+| Command | Description |
+|---|---|
+| `miqi trace log` | Show recent task execution history |
+| `miqi trace show <id>` | Show details of a specific task trace |
+| `miqi trace search <query>` | Full-text search across task traces |
+| `miqi trace export` | Export task traces as a JSONL file |
+| `miqi trace import <file>` | Import task traces from a JSONL file |
 
 ---
 
@@ -67,8 +79,7 @@ All commands support `--help` for usage details.
 | `miqi cron list` | List all scheduled jobs |
 | `miqi cron add` | Add a new scheduled job interactively |
 | `miqi cron run <id>` | Trigger a job manually |
-| `miqi cron enable <id>` | Enable a disabled job |
-| `miqi cron disable <id>` | Disable a job without removing it |
+| `miqi cron enable <id>` | Enable a job (use `--disable` flag to disable) |
 | `miqi cron remove <id>` | Remove a job permanently |
 
 ---
@@ -84,6 +95,7 @@ All commands support `--help` for usage details.
 | `miqi config mcp list` | List all configured MCP servers |
 | `miqi config mcp add <name>` | Add or update an MCP server (stdio or HTTP, supports `--lazy` and `--description`) |
 | `miqi config mcp remove <name>` | Remove an MCP server |
+| `miqi config sync-llm` | Sync LLM provider credentials to MCP servers (pdf2zh, etc.) |
 
 ---
 
@@ -153,6 +165,32 @@ Web tools have SSRF protection: requests to private/loopback/link-local IP range
 | Tool | Description |
 |---|---|
 | `spawn` | Spawn a child agent for a sub-task |
+
+### Memory Tool
+
+| Tool | Description |
+|---|---|
+| `memory` | Save, recall, list, or delete items in the agent's long-term snapshot memory |
+
+### Skill Management Tool
+
+| Tool | Description |
+|---|---|
+| `skill_manage` | List, view, create, patch, or archive reusable skill files in the workspace `skills/` directory |
+
+### Session Search Tool
+
+| Tool | Description |
+|---|---|
+| `session_search` | Full-text search across persisted session history using SQLite FTS5 |
+
+### Task Trace Tools
+
+| Tool | Description |
+|---|---|
+| `task_begin` | Mark the start of a tracked task with a goal description |
+| `task_end` | Mark the end of a tracked task with outcome and summary |
+| `trace_search` | Search across recorded task traces by keyword or embedding similarity |
 
 ### Cron Tool
 

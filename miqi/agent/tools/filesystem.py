@@ -15,7 +15,7 @@ from miqi.agent.tools.base import Tool
 # Snapshots are persisted to ~/.miqi/snapshots/<sha256>.json
 # ---------------------------------------------------------------------------
 
-_snapshot_lock = threading.Lock()
+_snapshots_lock = threading.Lock()
 
 
 def _snapshots_dir() -> Path:
@@ -24,12 +24,25 @@ def _snapshots_dir() -> Path:
     return d
 
 
-def _snapshot_file(key: str) -> Path:
+def _snapshot_file_for_dir(snapshot_dir: Path, key: str) -> Path:
     h = _hashlib.sha256(key.encode()).hexdigest()
-    return _snapshots_dir() / f"{h}.json"
+    return snapshot_dir / f"{h}.json"
 
 
-def _read_snapshot(key: str) -> str | None:
+def _snapshot_file(key: str) -> Path:
+    return _snapshot_file_for_dir(_snapshots_dir(), key)
+
+
+def _read_snapshot(key: str, snapshot_dir: Path | None = None) -> str | None:
+    if snapshot_dir:
+        p = _snapshot_file_for_dir(snapshot_dir, key)
+        if p.exists():
+            try:
+                data = _json.loads(p.read_text(encoding="utf-8"))
+                return data.get("content")
+            except Exception:
+                pass
+    # Fall back to global dir
     p = _snapshot_file(key)
     try:
         if p.exists():
@@ -40,9 +53,10 @@ def _read_snapshot(key: str) -> str | None:
     return None
 
 
-def _write_snapshot(key: str, content: str) -> None:
-    p = _snapshot_file(key)
+def _write_snapshot_to(snapshot_dir: Path, key: str, content: str) -> None:
+    p = _snapshot_file_for_dir(snapshot_dir, key)
     try:
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
         p.write_text(
             _json.dumps({"path": key, "content": content}, ensure_ascii=False),
             encoding="utf-8",
@@ -51,11 +65,16 @@ def _write_snapshot(key: str, content: str) -> None:
         pass
 
 
-def _maybe_snapshot(resolved: Path) -> None:
+def _write_snapshot(key: str, content: str) -> None:
+    _write_snapshot_to(_snapshots_dir(), key, content)
+
+
+def _maybe_snapshot(resolved: Path, snapshot_dir: Path | None = None) -> None:
     """Save a snapshot of *resolved* if not already snapshotted (disk-backed)."""
     key = str(resolved)
-    with _snapshot_lock:
-        if _read_snapshot(key) is not None:
+    effective_dir = snapshot_dir or _snapshots_dir()
+    with _snapshots_lock:
+        if _read_snapshot(key, snapshot_dir=snapshot_dir) is not None:
             return
         if resolved.exists():
             try:
@@ -64,7 +83,36 @@ def _maybe_snapshot(resolved: Path) -> None:
                 content = ""
         else:
             content = ""
-        _write_snapshot(key, content)
+        _write_snapshot_to(effective_dir, key, content)
+
+
+def _restore_snapshot(resolved: Path, snapshot_dir: Path | None = None) -> bool:
+    """Restore file from disk snapshot. Returns True if successful."""
+    key = str(resolved)
+    with _snapshots_lock:
+        original = _read_snapshot(key, snapshot_dir=snapshot_dir)
+    if original is None:
+        return False
+    try:
+        if original == "":
+            if resolved.exists():
+                resolved.unlink()
+        else:
+            resolved.write_text(original, encoding="utf-8")
+        return True
+    except Exception:
+        return False
+
+
+def _delete_snapshot(key: str, snapshot_dir: Path | None = None) -> None:
+    """Remove snapshot file from disk."""
+    effective_dir = snapshot_dir or _snapshots_dir()
+    p = _snapshot_file_for_dir(effective_dir, key)
+    try:
+        if p.exists():
+            p.unlink()
+    except Exception:
+        pass
 
 
 def _has_symlink_in_path(p: Path) -> bool:
@@ -151,9 +199,10 @@ class ReadFileTool(Tool):
 class WriteFileTool(Tool):
     """Tool to write content to a file."""
 
-    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
+    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None, snapshot_dir: Path | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
+        self._snapshot_dir = snapshot_dir
 
     @property
     def name(self) -> str:
@@ -184,7 +233,7 @@ class WriteFileTool(Tool):
         try:
             file_path = _resolve_path(path, self._workspace, self._allowed_dir)
             # Snapshot original content before first write (enables non-git diff/revert)
-            _maybe_snapshot(file_path)
+            _maybe_snapshot(file_path, snapshot_dir=self._snapshot_dir)
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
             return f"Successfully wrote {len(content)} bytes to {file_path}"
@@ -197,9 +246,10 @@ class WriteFileTool(Tool):
 class EditFileTool(Tool):
     """Tool to edit a file by replacing text."""
 
-    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
+    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None, snapshot_dir: Path | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
+        self._snapshot_dir = snapshot_dir
 
     @property
     def name(self) -> str:
@@ -237,7 +287,7 @@ class EditFileTool(Tool):
                 return f"Error: File not found: {path}"
 
             # Snapshot original content before first edit (enables non-git diff/revert)
-            _maybe_snapshot(file_path)
+            _maybe_snapshot(file_path, snapshot_dir=self._snapshot_dir)
 
             content = file_path.read_text(encoding="utf-8")
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 import threading
 import time
@@ -146,6 +147,7 @@ class BridgeState:
             channels_config=config.channels,
             smart_routing_config=config.agents.smart_routing,
             approval_callback=approval_callback,
+            session_key=session_key,
         )
         return agent
 
@@ -236,110 +238,13 @@ class BridgeState:
 
 _state = BridgeState()
 
-# ---------------------------------------------------------------------------
-# File snapshot store — keeps original content before first write/edit
-# so we can diff and revert without git.
-# Snapshots are persisted to disk at ~/.miqi/snapshots/<hash>.json so that
-# they survive bridge restarts.
-# Key: absolute resolved path (str), Value: original text content (str)
-# ---------------------------------------------------------------------------
-
-import hashlib as _hashlib
-import json as _json
-
-_snapshots_lock = threading.Lock()
-
-
-def _snapshots_dir() -> "Path":
-    """Return (and create if needed) the snapshots directory."""
-    d = Path.home() / ".miqi" / "snapshots"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def _snapshot_file(key: str) -> "Path":
-    """Return the path to the JSON file that stores snapshot for *key*."""
-    h = _hashlib.sha256(key.encode()).hexdigest()
-    return _snapshots_dir() / f"{h}.json"
-
-
-def _read_snapshot(key: str) -> "str | None":
-    """Read snapshot content from disk. Returns None if not found."""
-    p = _snapshot_file(key)
-    try:
-        if p.exists():
-            data = _json.loads(p.read_text(encoding="utf-8"))
-            return data.get("content")
-    except Exception:
-        pass
-    return None
-
-
-def _write_snapshot(key: str, content: str) -> None:
-    """Persist snapshot content to disk."""
-    p = _snapshot_file(key)
-    try:
-        p.write_text(
-            _json.dumps({"path": key, "content": content}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        _log(f"[snapshot] saved: {key}")
-    except Exception as exc:
-        _log(f"[snapshot] save failed: {key} — {exc}")
-
-
-def _delete_snapshot(key: str) -> None:
-    """Remove snapshot file from disk."""
-    p = _snapshot_file(key)
-    try:
-        if p.exists():
-            p.unlink()
-            _log(f"[snapshot] deleted: {key}")
-    except Exception as exc:
-        _log(f"[snapshot] delete failed: {key} — {exc}")
-
-
-def _maybe_snapshot(resolved: "Path") -> None:
-    """Save a snapshot of *resolved* if not already snapshotted (disk-backed)."""
-    key = str(resolved)
-    with _snapshots_lock:
-        # Check disk — skip if snapshot already exists
-        if _read_snapshot(key) is not None:
-            return
-        # File doesn't exist yet → snapshot is empty string (new file)
-        if resolved.exists():
-            try:
-                content = resolved.read_text(encoding="utf-8", errors="replace")
-            except Exception:
-                content = ""
-        else:
-            content = ""
-        _write_snapshot(key, content)
-        _log(f"[snapshot] created for: {key}")
-
-
-def _restore_snapshot(resolved: "Path") -> bool:
-    """Restore file from disk snapshot. Returns True if successful."""
-    key = str(resolved)
-    with _snapshots_lock:
-        original = _read_snapshot(key)
-    if original is None:
-        _log(f"[snapshot] restore skipped — no snapshot for: {key}")
-        return False
-    try:
-        if original == "":
-            # File was new — delete it to revert
-            if resolved.exists():
-                resolved.unlink()
-            _log(f"[snapshot] restored (new file deleted): {key}")
-        else:
-            resolved.write_text(original, encoding="utf-8")
-            _log(f"[snapshot] restored (content written): {key}")
-        return True
-    except Exception as exc:
-        _log(f"[snapshot] restore failed: {key} — {exc}")
-        return False
-
+from miqi.agent.tools.filesystem import (
+    _delete_snapshot,
+    _snapshots_lock,
+    _maybe_snapshot,
+    _restore_snapshot,
+    _read_snapshot,
+)
 
 # ---------------------------------------------------------------------------
 # Handlers
@@ -484,9 +389,17 @@ def handle_providers_list(req_id: str, params: dict) -> None:
     from miqi.providers.registry import PROVIDERS
 
     config = _state.load_config()
+    _model = config.agents.defaults.model
+    _model_provider = config.get_provider_name(_model)
     providers_out = []
     for spec in PROVIDERS:
         pc = getattr(config.providers, spec.name, None)
+        _api_key = pc.api_key if pc else None
+        _hint = None
+        if _api_key and len(_api_key) >= 8:
+            _hint = _api_key[:4] + "…" + _api_key[-4:]
+        elif _api_key:
+            _hint = "***"
         providers_out.append({
             "name": spec.name,
             "display_name": spec.display_name or spec.name.title(),
@@ -496,8 +409,9 @@ def handle_providers_list(req_id: str, params: dict) -> None:
             "is_local": spec.is_local,
             "default_api_base": spec.default_api_base,
             "configured": bool(pc and (pc.api_key or pc.api_base)),
+            "api_key_hint": _hint,
             "api_base": pc.api_base if pc else None,
-            "configured_model": config.agents.defaults.model,
+            "configured_model": _model if _model_provider == spec.name else None,
         })
     _result(req_id, {"providers": providers_out})
 
@@ -1078,7 +992,8 @@ def handle_memory_lessons(req_id: str, params: dict) -> None:
         max_lessons=config.agents.self_improvement.max_lessons,
         min_lesson_confidence=config.agents.self_improvement.min_lesson_confidence,
         max_lessons_in_prompt=config.agents.self_improvement.max_lessons_in_prompt,
-        lesson_confidence_decay_hours=config.agents.self_improvement.lesson_confidence_decay_hours,
+        lesson_stale_days=config.agents.self_improvement.lesson_stale_days,
+        lesson_archive_days=config.agents.self_improvement.lesson_archive_days,
         feedback_max_message_chars=config.agents.self_improvement.feedback_max_message_chars,
         feedback_require_prefix=config.agents.self_improvement.feedback_require_prefix,
         promotion_enabled=config.agents.self_improvement.promotion_enabled,
@@ -1098,12 +1013,122 @@ def handle_memory_lessons(req_id: str, params: dict) -> None:
             "confidence": lesson.get("confidence", 0),
             "effectiveConfidence": lesson.get("effective_confidence", 0),
             "hits": lesson.get("hits", 0),
+            "state": str(lesson.get("state", "active")),
             "enabled": lesson.get("enabled", True),
             "source": str(lesson.get("source", "")),
             "createdAt": str(lesson.get("created_at", "")),
             "updatedAt": str(lesson.get("updated_at", "")),
         })
     _result(req_id, {"lessons": result})
+
+
+def handle_memory_lesson_unlearn(req_id: str, params: dict) -> None:
+    from miqi.agent.memory import MemoryStore
+
+    lesson_id = str(params.get("lesson_id", ""))
+    if not lesson_id:
+        _error(req_id, "lesson_id is required")
+        return
+
+    config = _state.load_config()
+    memory = MemoryStore(
+        workspace=config.workspace_path,
+        self_improvement_enabled=config.agents.self_improvement.enabled,
+        max_lessons=config.agents.self_improvement.max_lessons,
+        min_lesson_confidence=config.agents.self_improvement.min_lesson_confidence,
+        max_lessons_in_prompt=config.agents.self_improvement.max_lessons_in_prompt,
+        lesson_stale_days=config.agents.self_improvement.lesson_stale_days,
+        lesson_archive_days=config.agents.self_improvement.lesson_archive_days,
+        feedback_max_message_chars=config.agents.self_improvement.feedback_max_message_chars,
+        feedback_require_prefix=config.agents.self_improvement.feedback_require_prefix,
+        promotion_enabled=config.agents.self_improvement.promotion_enabled,
+        promotion_min_users=config.agents.self_improvement.promotion_min_users,
+        promotion_triggers=config.agents.self_improvement.promotion_triggers,
+    )
+    success = memory._lesson_store.unlearn_by_id(lesson_id)
+    if success:
+        memory.flush()
+    _result(req_id, {"unlearned": [lesson_id] if success else []})
+
+
+# ---------------------------------------------------------------------------
+# Experience handlers
+# ---------------------------------------------------------------------------
+
+_experience_store = None
+
+def _get_experience_store():
+    """Lazy-init ExperienceStore singleton from current config."""
+    global _experience_store
+    if _experience_store is not None:
+        return _experience_store
+
+    from miqi.agent.memory.experience_store import ExperienceStore
+    from miqi.agent.memory import MemoryStore
+    from miqi.agent.trace.store import TraceStore
+
+    config = _state.load_config()
+    memory = MemoryStore(
+        workspace=config.workspace_path,
+        self_improvement_enabled=config.agents.self_improvement.enabled,
+        max_lessons=config.agents.self_improvement.max_lessons,
+        min_lesson_confidence=config.agents.self_improvement.min_lesson_confidence,
+        max_lessons_in_prompt=config.agents.self_improvement.max_lessons_in_prompt,
+        lesson_stale_days=config.agents.self_improvement.lesson_stale_days,
+        lesson_archive_days=config.agents.self_improvement.lesson_archive_days,
+        feedback_max_message_chars=config.agents.self_improvement.feedback_max_message_chars,
+        feedback_require_prefix=config.agents.self_improvement.feedback_require_prefix,
+        promotion_enabled=config.agents.self_improvement.promotion_enabled,
+        promotion_min_users=config.agents.self_improvement.promotion_min_users,
+        promotion_triggers=config.agents.self_improvement.promotion_triggers,
+        lessons_legacy_inject_enabled=config.agents.self_improvement.lessons_legacy_inject_enabled,
+    )
+    trace = TraceStore(
+        workspace=config.workspace_path,
+        enabled=config.agents.self_improvement.trace_enabled,
+        embedding_model=config.agents.self_improvement.embedding_model,
+        recover=False,
+    )
+    _experience_store = ExperienceStore(memory_store=memory, trace_store=trace)
+    return _experience_store
+
+
+def handle_experience_list(req_id: str, params: dict) -> None:
+    entry_type = params.get("type")       # "fact" | "rule" | "trace" | None
+    scope = params.get("scope")           # "session" | "global" | None
+    session_key = params.get("session_key")  # str | None
+    limit = int(params.get("limit", 100))
+
+    store = _get_experience_store()
+    entries = store.list_entries(type=entry_type, scope=scope,
+                                  session_key=session_key, limit=limit)
+    _result(req_id, {"entries": entries})
+
+
+def handle_experience_delete(req_id: str, params: dict) -> None:
+    entry_type = params["type"]
+    entry_id = params["id"]
+    store = _get_experience_store()
+    ok = store.delete_entry(entry_type, entry_id)
+    _result(req_id, {"ok": ok})
+
+
+def handle_experience_toggle(req_id: str, params: dict) -> None:
+    entry_type = params["type"]
+    entry_id = params["id"]
+    enabled = bool(params["enabled"])
+    store = _get_experience_store()
+    ok = store.toggle_entry(entry_type, entry_id, enabled)
+    _result(req_id, {"ok": ok})
+
+
+def handle_experience_search(req_id: str, params: dict) -> None:
+    query = str(params.get("query", ""))
+    entry_type = params.get("type")
+    limit = int(params.get("limit", 10))
+    store = _get_experience_store()
+    entries = store.search_entries(query, type=entry_type, limit=limit)
+    _result(req_id, {"entries": entries})
 
 
 # ---------------------------------------------------------------------------
@@ -1202,11 +1227,20 @@ def _build_tree(path: Path, relative_to: Path, depth: int = 0, max_depth: int = 
     }
     if path.is_dir() and depth < max_depth:
         children = []
+        _TREE_SKIP_SUFFIXES = {
+            ".sqlite", ".sqlite-shm", ".sqlite-wal", ".sqlite-journal",
+            ".db", ".db-shm", ".db-wal",
+            ".pyc", ".pyo", ".pyd",
+            ".so", ".dll", ".dylib", ".exe",
+            ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp",
+            ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
+            ".bin", ".dat", ".pkl", ".npz", ".npy", ".h5", ".hdf5",
+        }
         try:
             for child in sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
                 if child.name.startswith(".") or child.name == "__pycache__":
                     continue
-                if child.name.endswith(".pyc") or child.name.endswith(".pyo"):
+                if child.suffix.lower() in _TREE_SKIP_SUFFIXES:
                     continue
                 children.append(_build_tree(child, relative_to, depth + 1, max_depth))
         except PermissionError:
@@ -1488,6 +1522,114 @@ def handle_skills_open_folder(req_id: str, params: dict) -> None:
         _error(req_id, f"Failed to open folder: {exc}")
 
 
+_SKILL_NAME_RE = re.compile(r'^[a-z][a-z0-9-]*$')
+
+
+def handle_skills_create(req_id: str, params: dict) -> None:
+    """Create a blank workspace skill."""
+    name = str(params.get("name", "")).strip()
+    description = str(params.get("description", "")).strip()
+    if not name or not _SKILL_NAME_RE.match(name):
+        _error(req_id, "Invalid name — use lowercase letters, digits, hyphens")
+        return
+    config = _state.load_config()
+    skill_dir = config.workspace_path / "skills" / name
+    if skill_dir.exists():
+        _error(req_id, f"Skill '{name}' already exists")
+        return
+    skill_dir.mkdir(parents=True)
+    template = (
+        f"name: {name}\n"
+        f"description: {description or 'A new skill'}\n"
+        f"version: \"1.0\"\ntriggers: []\nsteps: []\n"
+    )
+    (skill_dir / "skill.yml").write_text(template, encoding="utf-8")
+    _result(req_id, {"ok": True, "path": str(skill_dir)})
+
+
+def handle_skills_upload(req_id: str, params: dict) -> None:
+    """Save uploaded YAML content as a new workspace skill."""
+    name = str(params.get("name", "")).strip()
+    content = str(params.get("content", "")).strip()
+    if not name or not content:
+        _error(req_id, "name and content are required")
+        return
+    config = _state.load_config()
+    skill_dir = config.workspace_path / "skills" / name
+    if skill_dir.exists():
+        _error(req_id, f"Skill '{name}' already exists")
+        return
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "skill.yml").write_text(content, encoding="utf-8")
+    _result(req_id, {"ok": True})
+
+
+def handle_skills_delete(req_id: str, params: dict) -> None:
+    """Delete a workspace skill. Builtin skills cannot be deleted."""
+    name = str(params.get("name", "")).strip()
+    import shutil as _shutil
+
+    builtin_dir = Path(__file__).parent.parent / "skills"
+    if (builtin_dir / name).exists():
+        _error(req_id, "Builtin skills cannot be deleted")
+        return
+    config = _state.load_config()
+    skill_dir = config.workspace_path / "skills" / name
+    if not skill_dir.exists():
+        _error(req_id, f"Skill '{name}' not found in workspace")
+        return
+    _shutil.rmtree(skill_dir)
+    _result(req_id, {"ok": True})
+
+
+def handle_mcp_list(req_id: str, params: dict) -> None:
+    """List all configured MCP servers."""
+    config = _state.load_config()
+    servers = config.tools.mcp_servers or {}
+    _result(req_id, {
+        "servers": [
+            {"name": name, **srv.model_dump()}
+            for name, srv in servers.items()
+        ]
+    })
+
+
+def handle_mcp_upsert(req_id: str, params: dict) -> None:
+    """Create or update an MCP server entry by name."""
+    from miqi.config.schema import MCPServerConfig
+    from miqi.config.loader import save_config
+
+    name = str(params.pop("name", "")).strip()
+    if not name:
+        _error(req_id, "name is required")
+        return
+    try:
+        server_cfg = MCPServerConfig(**params)
+    except Exception as exc:
+        _error(req_id, str(exc))
+        return
+    config = _state.load_config()
+    if config.tools.mcp_servers is None:
+        config.tools.mcp_servers = {}
+    config.tools.mcp_servers[name] = server_cfg
+    save_config(config)
+    _state.config = config
+    _result(req_id, {"ok": True})
+
+
+def handle_mcp_delete(req_id: str, params: dict) -> None:
+    """Remove an MCP server entry by name."""
+    from miqi.config.loader import save_config
+
+    name = str(params.get("name", "")).strip()
+    config = _state.load_config()
+    if config.tools.mcp_servers and name in config.tools.mcp_servers:
+        del config.tools.mcp_servers[name]
+        save_config(config)
+        _state.config = config
+    _result(req_id, {"ok": True})
+
+
 def handle_python_check(req_id: str, params: dict) -> None:
     """Check if Python and MiQi are available."""
     import importlib
@@ -1581,9 +1723,20 @@ _METHODS = {
     "memory.update": handle_memory_update,
     "memory.delete": handle_memory_delete,
     "memory.lessons": handle_memory_lessons,
+    "memory.lesson.unlearn": handle_memory_lesson_unlearn,
+    "experience:list":   handle_experience_list,
+    "experience:delete": handle_experience_delete,
+    "experience:toggle": handle_experience_toggle,
+    "experience:search": handle_experience_search,
     "skills.list": handle_skills_list,
     "skills.get": handle_skills_get,
     "skills.open_folder": handle_skills_open_folder,
+    "skills.create": handle_skills_create,
+    "skills.upload": handle_skills_upload,
+    "skills.delete": handle_skills_delete,
+    "mcp.list": handle_mcp_list,
+    "mcp.upsert": handle_mcp_upsert,
+    "mcp.delete": handle_mcp_delete,
     "files.tree": handle_files_tree,
     "files.read": handle_files_read,
     "files.write": handle_files_write,
@@ -1635,6 +1788,13 @@ def _ensure_workspace_init() -> None:
 def main() -> None:
     _log("Bridge server starting")
     _ensure_workspace_init()
+    # Persist approval history so records survive bridge restarts
+    try:
+        from miqi.agent.command_approval import init_history_file
+        from miqi.config.loader import get_data_dir
+        init_history_file(get_data_dir() / "approval_history.jsonl")
+    except Exception as exc:
+        _log(f"Approval history init warning (non-fatal): {exc}")
     for line in sys.stdin:
         line = line.strip()
         if not line:

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -10,8 +10,134 @@ import {
   Copy,
   Check,
   FolderOpen,
+  Plus,
+  Upload,
+  Trash2,
+  Lock,
+  X,
 } from 'lucide-react'
 import type { SkillSummary, SkillDetail } from '../../../shared/ipc'
+
+function CreateSkillModal({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean
+  onClose: () => void
+  onCreated: (name: string) => void
+}) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  if (!open) return null
+
+  const handleCreate = async () => {
+    setError('')
+    if (!/^[a-z][a-z0-9-]*$/.test(name)) {
+      setError('名称必须以字母开头，仅可使用小写字母、数字和连字符')
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await window.miqi.skills.create(name, description)
+      if (res.ok) {
+        onCreated(name)
+        onClose()
+      } else {
+        setError(res.error ?? '创建失败')
+      }
+    } catch (e: any) {
+      setError(e?.message ?? '创建失败')
+    }
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div
+        className="rounded-xl shadow-2xl w-full max-w-md mx-4"
+        style={{ background: 'var(--surface)' }}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b"
+          style={{ borderColor: 'var(--border)' }}
+        >
+          <h2 className="text-base font-semibold" style={{ color: 'var(--text)' }}>
+            新建技能
+          </h2>
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-[var(--surface-muted)]"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+              技能名称
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="my-skill"
+              className="w-full px-3 py-2 rounded-lg text-sm border"
+              style={{
+                background: 'var(--surface-muted)',
+                color: 'var(--text)',
+                borderColor: 'var(--border)',
+              }}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+              描述 (可选)
+            </label>
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="简要描述此技能"
+              className="w-full px-3 py-2 rounded-lg text-sm border"
+              style={{
+                background: 'var(--surface-muted)',
+                color: 'var(--text)',
+                borderColor: 'var(--border)',
+              }}
+            />
+          </div>
+          {error && (
+            <div className="text-xs px-3 py-2 rounded" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>
+              {error}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-4 border-t" style={{ borderColor: 'var(--border)' }}>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--surface-muted)]"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            取消
+          </button>
+          <button
+            onClick={handleCreate}
+            disabled={saving}
+            className="px-4 py-2 rounded-lg text-xs font-medium text-white transition-colors"
+            style={{ background: 'var(--accent)' }}
+          >
+            {saving ? '创建中...' : '创建'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export function SkillsPage() {
   const [skills, setSkills] = useState<SkillSummary[]>([])
@@ -22,15 +148,20 @@ export function SkillsPage() {
   const [query, setQuery] = useState('')
   const [copied, setCopied] = useState(false)
   const [openingFolder, setOpeningFolder] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
+  const loadSkills = () => {
     window.miqi.skills
       .list()
-      .then((res) => {
-        setSkills(res.skills)
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
+      .then((res) => setSkills(res.skills))
+      .catch(() => {})
+  }
+
+  useEffect(() => {
+    loadSkills()
+    setLoading(false)
   }, [])
 
   useEffect(() => {
@@ -78,6 +209,44 @@ export function SkillsPage() {
     setOpeningFolder(false)
   }
 
+  const handleCreated = (name: string) => {
+    loadSkills()
+    setSelectedName(name)
+  }
+
+  const handleDelete = async (name: string) => {
+    if (!window.confirm(`确认删除技能 "${name}"？`)) return
+    try {
+      await window.miqi.skills.delete(name)
+      if (selectedName === name) {
+        setSelectedName(null)
+        setDetail(null)
+      }
+      loadSkills()
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const content = await file.text()
+      const name = file.name.replace(/\.(yml|yaml|md)$/i, '')
+      const res = await window.miqi.skills.upload(name, content)
+      if (res.ok) {
+        loadSkills()
+        setSelectedName(name)
+      }
+    } catch {
+      // ignore
+    }
+    setUploading(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -90,7 +259,7 @@ export function SkillsPage() {
     <div className="flex h-full">
       {/* Left sidebar — skill list */}
       <div className="w-[280px] shrink-0 border-r border-[var(--border-subtle)] bg-[var(--surface)] flex flex-col">
-        <div className="px-4 pt-4 pb-2">
+        <div className="px-4 pt-4 pb-2 space-y-2">
           <div className="relative">
             <Search
               size={14}
@@ -102,6 +271,35 @@ export function SkillsPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)]"
+            />
+          </div>
+          <div className="flex gap-1.5">
+            <button
+              onClick={() => setModalOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors text-white"
+              style={{ background: 'var(--accent)' }}
+            >
+              <Plus size={11} />
+              新建技能
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors"
+              style={{
+                background: 'var(--surface-muted)',
+                color: 'var(--text-muted)',
+              }}
+            >
+              <Upload size={11} />
+              {uploading ? '上传中...' : '上传 .yml'}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".yml,.yaml,.md"
+              className="hidden"
+              onChange={handleFileUpload}
             />
           </div>
         </div>
@@ -165,6 +363,24 @@ export function SkillsPage() {
                 )}
                 {/* Action buttons */}
                 <div className="ml-auto flex items-center gap-1">
+                  {detail.source === 'builtin' ? (
+                    <span
+                      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                      style={{ background: 'var(--surface-muted)', color: 'var(--text-muted)' }}
+                    >
+                      <Lock size={10} />
+                      内置
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => handleDelete(detail.name)}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--danger)] hover:bg-[var(--danger-bg)] transition-colors"
+                      title="删除技能"
+                    >
+                      <Trash2 size={12} />
+                      <span>删除</span>
+                    </button>
+                  )}
                   <button
                     onClick={handleCopyContent}
                     className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
@@ -236,6 +452,12 @@ export function SkillsPage() {
           </div>
         )}
       </div>
+
+      <CreateSkillModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onCreated={handleCreated}
+      />
     </div>
   )
 }

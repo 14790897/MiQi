@@ -47,7 +47,7 @@ interface EditSheetProps {
 function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
   const { markRestartRequired } = useRestartRequired()
   const [apiKey, setApiKey] = useState('')
-  const [apiBase, setApiBase] = useState(provider.api_base ?? '')
+  const [apiBase, setApiBase] = useState(provider.api_base ?? provider.default_api_base ?? '')
   const [model, setModel] = useState(provider.configured_model ?? '')
   const [extraHeadersText, setExtraHeadersText] = useState('')
   const [showKey, setShowKey] = useState(false)
@@ -123,7 +123,7 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-subtle)]">
           <div>
             <h2 className="text-sm font-semibold text-[var(--text)]">
-              {provider.display_name}
+              {PROVIDER_DISPLAY_NAMES[provider.name] ?? provider.display_name}
             </h2>
             <p className="text-xs text-[var(--text-muted)] mt-0.5">
               {provider.name}
@@ -199,18 +199,34 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
               默认模型{' '}
-              <span className="font-normal text-[var(--text-faint)]">
-                (可选)
-              </span>
+              <span className="font-normal text-[var(--text-faint)]">(可选)</span>
             </label>
             <input
               type="text"
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              placeholder="例： siliconflow/Qwen/Qwen3-235B-A22B"
+              placeholder={
+                (PROVIDER_SUGGESTED_MODELS[provider.name] ?? [])[0]
+                  ? `例：${(PROVIDER_SUGGESTED_MODELS[provider.name] ?? [])[0]}`
+                  : '输入模型名称'
+              }
               className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
               spellCheck={false}
             />
+            {(PROVIDER_SUGGESTED_MODELS[provider.name] ?? []).length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-0.5">
+                {(PROVIDER_SUGGESTED_MODELS[provider.name] ?? []).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setModel(m)}
+                    className="px-2 py-0.5 rounded text-xs bg-[var(--surface-muted)] text-[var(--text-faint)] hover:text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors font-mono"
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            )}
             <p className="text-xs text-[var(--text-faint)]">
               修改此字段会更新全局默认模型
             </p>
@@ -308,13 +324,47 @@ function ExtraHeadersField({
 }
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  dashscope: 'DashScope · 通义千问',
-  zhipu: 'Zhipu AI · 智谱',
-  moonshot: 'Moonshot · 月之暗面',
+  // 网关
+  openrouter: 'OpenRouter',
+  aihubmix: 'AiHubMix',
   siliconflow: 'SiliconFlow · 硅基流动',
   volcengine: 'VolcEngine · 火山引擎',
-  ollama_local: 'Ollama Local',
+  custom: '自定义端点',
+  // 国际
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  deepseek: 'DeepSeek',
+  gemini: 'Google Gemini',
+  groq: 'Groq',
+  // 国内
+  zhipu: 'Zhipu AI · 智谱',
+  dashscope: 'DashScope · 通义千问',
+  moonshot: 'Moonshot · 月之暗面',
+  minimax: 'MiniMax',
+  // 本地
   ollama_cloud: 'Ollama Cloud',
+  ollama_local: 'Ollama Local',
+  vllm: 'vLLM / 本地部署',
+}
+
+const PROVIDER_SUGGESTED_MODELS: Record<string, string[]> = {
+  openrouter:   ['anthropic/claude-opus-4-5', 'google/gemini-2.5-pro', 'deepseek/deepseek-r1'],
+  aihubmix:     ['claude-opus-4-5', 'gpt-4o', 'gemini-2.5-pro'],
+  siliconflow:  ['Qwen/Qwen3-235B-A22B', 'deepseek-ai/DeepSeek-V3', 'deepseek-ai/DeepSeek-R1'],
+  volcengine:   ['doubao-pro-32k', 'doubao-lite-32k', 'doubao-1-5-pro-32k'],
+  anthropic:    ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'],
+  openai:       ['gpt-4o', 'gpt-4o-mini', 'o3', 'o4-mini'],
+  deepseek:     ['deepseek-chat', 'deepseek-reasoner'],
+  gemini:       ['gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.5-flash'],
+  groq:         ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'moonshard-whisper-large-v3'],
+  zhipu:        ['glm-4-plus', 'glm-z1-flash', 'glm-4-long'],
+  dashscope:    ['qwen-max', 'qwen-plus', 'qwen-turbo', 'qwen3-235b-a22b'],
+  moonshot:     ['kimi-k2.5', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+  minimax:      ['MiniMax-Text-01', 'abab6.5s-chat'],
+  ollama_local: ['llama3.2', 'qwen2.5:7b', 'deepseek-r1:7b'],
+  ollama_cloud: ['llama3.2', 'qwen2.5'],
+  vllm:         [],
+  custom:       [],
 }
 
 interface ProviderRowProps {
@@ -351,10 +401,19 @@ function ProviderRow({
       </div>
       <div className="flex-1 min-w-0">
         <span className="text-sm text-[var(--text)]">{label}</span>
-        {provider.default_api_base && (
-          <span className="ml-2 text-xs text-[var(--text-faint)] truncate hidden group-hover:inline">
-            {provider.default_api_base}
-          </span>
+        {provider.configured && (
+          <div className="flex items-center gap-2 mt-0.5">
+            {provider.api_key_hint && (
+              <span className="text-xs text-[var(--text-faint)] font-mono">
+                {provider.api_key_hint}
+              </span>
+            )}
+            {provider.configured_model && (
+              <span className="text-xs text-[var(--text-faint)] truncate max-w-[160px]">
+                {provider.configured_model}
+              </span>
+            )}
+          </div>
         )}
       </div>
       <span
@@ -519,7 +578,7 @@ export function ProvidersPage() {
       <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] bg-[var(--surface)] shrink-0">
         <div>
           <h1 className="text-base font-semibold text-[var(--text)]">
-            Provider
+            模型提供商
           </h1>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
             {loading
