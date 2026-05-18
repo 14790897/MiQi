@@ -10,6 +10,9 @@ import { ProvidersPage } from '../providers/ProvidersPage'
 import { ChannelsPage } from '../channels/ChannelsPage'
 import { ApprovalsPage } from '../approvals/ApprovalsPage'
 import { WorkspacePage } from '../workspace/WorkspacePage'
+import { CronPage } from '../cron/CronPage'
+import { MCPsPage } from '../mcps/MCPsPage'
+import { ExperiencePage } from '../experience/ExperiencePage'
 
 type SettingsTab = 'general' | 'providers' | 'channels' | 'approvals' | 'workspace' | 'webtools' | 'appearance' | 'logs'
 

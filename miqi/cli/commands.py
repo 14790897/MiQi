@@ -706,6 +706,9 @@ def _create_workspace_templates(
 
     (workspace / "skills").mkdir(exist_ok=True)
 
+    from miqi.utils.helpers import ensure_sessions_gitignored
+    ensure_sessions_gitignored(workspace)
+
 
 def _make_provider(config: Config):
     """Create the appropriate LLM provider from config."""
@@ -792,6 +795,9 @@ register_management_commands(
 
 from miqi.cli.config_cmd import register_config_commands
 register_config_commands(app, console=console)
+
+from miqi.cli.trace_cmd import trace_app
+app.add_typer(trace_app, name="trace")
 
 
 if __name__ == "__main__":

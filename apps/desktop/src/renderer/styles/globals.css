@@ -6,64 +6,64 @@
 /* ------------------------------------------------------------------ */
 
 :root {
-  /* Backgrounds — sage green / cream */
-  --background: #f0f2e8;
-  --surface: #f5f7ef;
-  --surface-muted: #e8ebe0;
-  --surface-elevated: #ffffff;
+  /* Dark mode as default (no flash on startup) */
+  --background: #191714;
+  --surface: #211e1a;
+  --surface-muted: #2a261f;
+  --surface-elevated: #302b24;
 
-  /* Top nav / Status bar — slate blue */
-  --topbar-bg: #2d3a4f;
-  --topbar-text: #d6e0e8;
-  --topbar-border: #3d4a5f;
+  /* Top nav */
+  --topbar-bg: #0e0d0b;
+  --topbar-text: #b8aa99;
+  --topbar-border: #1e1a16;
 
   /* Sidebar */
-  --sidebar-bg: #ffffff;
-  --sidebar-border: #e0e4d8;
+  --sidebar-bg: #211e1a;
+  --sidebar-border: #332d27;
 
   /* Right panel */
-  --panel-bg: #ffffff;
-  --panel-border: #e0e4d8;
+  --panel-bg: #211e1a;
+  --panel-border: #332d27;
 
   /* Borders */
-  --border: #d0d4c8;
-  --border-subtle: #e0e4d8;
+  --border: #443b32;
+  --border-subtle: #332d27;
 
-  /* Text — dark forest grey */
-  --text: #1a1f1a;
-  --text-muted: #5a6358;
-  --text-faint: #8a9280;
+  /* Text */
+  --text: #f3eadf;
+  --text-muted: #b8aa99;
+  --text-faint: #8f8173;
 
-  /* Accent — warm gold */
-  --accent: #d4b830;
-  --accent-hover: #c4a820;
-  --accent-soft: #f5f0d0;
-  --accent-text: #6a5a00;
+  /* Accent — warm amber/orange */
+  --accent: #e8a020;
+  --accent-hover: #d4901a;
+  --accent-soft: #4a3010;
+  --accent-text: #ffd080;
 
   /* Status colors */
-  --success: #2d7a4a;
-  --success-bg: #d4f0e0;
-  --warning: #b07010;
-  --warning-bg: #fef3cc;
-  --danger: #c04040;
-  --danger-bg: #fde8e8;
-  --info: #3060a0;
-  --info-bg: #dceeff;
+  --success: #3cb878;
+  --success-bg: #173a28;
+  --warning: #d4901a;
+  --warning-bg: #3d2c10;
+  --danger: #e05050;
+  --danger-bg: #3d1818;
+  --info: #5090d0;
+  --info-bg: #182840;
 
   /* Chat bubbles */
-  --bubble-user-bg: #2d3a4f;
-  --bubble-user-text: #f0f0e8;
-  --bubble-ai-bg: #ffffff;
-  --bubble-ai-text: #1a1f1a;
-  --bubble-ai-border: #e0e4d8;
+  --bubble-user-bg: #0e0d0b;
+  --bubble-user-text: #f0ece4;
+  --bubble-ai-bg: #2a261f;
+  --bubble-ai-text: #f3eadf;
+  --bubble-ai-border: #443b32;
 
   /* Task status tags */
-  --tag-review-bg: #fef3d0;
-  --tag-review-text: #a06000;
-  --tag-completed-bg: #d4f0e0;
-  --tag-completed-text: #1a6030;
-  --tag-inprogress-bg: #dceeff;
-  --tag-inprogress-text: #1848a0;
+  --tag-review-bg: #3d2c10;
+  --tag-review-text: #f0b060;
+  --tag-completed-bg: #173a28;
+  --tag-completed-text: #50d080;
+  --tag-inprogress-bg: #182840;
+  --tag-inprogress-text: #6098e0;
 
   --radius: 8px;
 }

@@ -77,6 +77,23 @@ def safe_filename(name: str) -> str:
     return name.strip()
 
 
+def ensure_sessions_gitignored(workspace: Path) -> None:
+    """Append 'sessions/' to workspace/.gitignore if workspace is a git repo
+    and the entry is not already present. Operation is idempotent."""
+    if not (workspace / ".git").exists():
+        return
+    gitignore = workspace / ".gitignore"
+    entry = "sessions/"
+    if gitignore.exists():
+        lines = gitignore.read_text(encoding="utf-8").splitlines()
+        if entry in lines:
+            return
+        text = gitignore.read_text(encoding="utf-8")
+        gitignore.write_text(text.rstrip("\n") + f"\n{entry}\n", encoding="utf-8")
+    else:
+        gitignore.write_text(f"{entry}\n", encoding="utf-8")
+
+
 def parse_session_key(key: str) -> tuple[str, str]:
     """
     Parse a session key into channel and chat_id.

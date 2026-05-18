@@ -47,9 +47,24 @@ export const IPC = {
   MEMORY_UPDATE: 'memory:update',
   MEMORY_DELETE: 'memory:delete',
   MEMORY_LESSONS: 'memory:lessons',
+  MEMORY_LESSON_UNLEARN: 'memory:lesson:unlearn',
+
+  // Experience store
+  EXPERIENCE_LIST:   'experience:list',
+  EXPERIENCE_DELETE: 'experience:delete',
+  EXPERIENCE_TOGGLE: 'experience:toggle',
+  EXPERIENCE_SEARCH: 'experience:search',
   SKILLS_LIST: 'skills:list',
   SKILLS_GET: 'skills:get',
   SKILLS_OPEN_FOLDER: 'skills:open_folder',
+  SKILLS_CREATE: 'skills:create',
+  SKILLS_UPLOAD: 'skills:upload',
+  SKILLS_DELETE: 'skills:delete',
+
+  // MCP
+  MCP_LIST: 'mcp:list',
+  MCP_UPSERT: 'mcp:upsert',
+  MCP_DELETE: 'mcp:delete',
   FILES_TREE: 'files:tree',
   FILES_READ: 'files:read',
   FILES_WRITE: 'files:write',
@@ -142,6 +157,7 @@ export interface RuntimeStatus {
 
 export interface SessionInfo {
   key: string
+  title?: string
   created_at?: string
   updated_at?: string
   path?: string
@@ -168,6 +184,7 @@ export interface ProviderInfo {
   is_local: boolean
   default_api_base: string
   configured: boolean
+  api_key_hint?: string | null
   api_base: string | null
   configured_model?: string
 }
@@ -401,6 +418,7 @@ export interface MemoryLessonEntry {
   confidence: number
   effectiveConfidence: number
   hits: number
+  state: string
   enabled: boolean
   source: string
   createdAt: string
@@ -409,6 +427,29 @@ export interface MemoryLessonEntry {
 
 export interface MemoryLessonsResult {
   lessons: MemoryLessonEntry[]
+}
+
+export const MemoryLessonUnlearnInput = z.object({
+  lesson_id: z.string().min(1),
+})
+
+export interface MemoryLessonUnlearnResult {
+  unlearned: string[]
+}
+
+export interface ExperienceEntry {
+  id: string;
+  type: 'fact' | 'rule' | 'trace';
+  title: string;
+  content: string;
+  confidence: number;
+  enabled: boolean;
+  scope: string;
+  source: string;
+  session_key: string;
+  created_at: number;
+  updated_at: number;
+  metadata: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -442,6 +483,43 @@ export interface SkillDetail {
   content: string
   metadata: Record<string, unknown> | null
 }
+
+// ---------------------------------------------------------------------------
+// MCP schemas
+// ---------------------------------------------------------------------------
+
+export interface McpServerConfig {
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+  tool_timeout?: number
+  progress_interval_seconds?: number
+  description?: string
+  lazy?: boolean
+}
+
+export interface McpServerInfo extends McpServerConfig {
+  name: string
+}
+
+export const McpUpsertInput = z.object({
+  name: z.string().min(1),
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string()).optional(),
+  url: z.string().optional(),
+  headers: z.record(z.string()).optional(),
+  tool_timeout: z.number().optional(),
+  progress_interval_seconds: z.number().optional(),
+  description: z.string().optional(),
+  lazy: z.boolean().optional(),
+})
+
+export const McpDeleteInput = z.object({
+  name: z.string().min(1),
+})
 
 // ---------------------------------------------------------------------------
 // Files schemas

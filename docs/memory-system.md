@@ -37,7 +37,16 @@ Memory is split into three layers:
 - In-memory lessons are derived from tool failures and user corrections
 - Persisted to `<workspace>/memory/LESSONS.jsonl` at checkpoint events
 - Optional audit log at `<workspace>/memory/LESSONS_AUDIT.jsonl`
+- `LessonCurator` periodically reviews and consolidates lessons via LLM
 - See [Self-Improvement](self-improvement.md) for full details
+
+### 2.6. Task Traces (append-only)
+
+- Each tool call is recorded with args and results into `<workspace>/traces/*.jsonl`
+- FTS5 search and optional embedding similarity for cross-session recall
+- Top-k similar traces are injected into the agent context on new turns
+- Managed via `miqi trace` CLI commands
+- Each workspace skill is periodically reviewed by `SkillCurator` (LLM-based lifecycle management)
 
 ### 3. Session Log Storage (append-only)
 
@@ -152,6 +161,16 @@ miqi memory compact [--max-items N]
 
 miqi session compact --session <id>
 miqi session compact --all
+```
+
+For trace management:
+
+```bash
+miqi trace log
+miqi trace show <id>
+miqi trace search <query>
+miqi trace export
+miqi trace import <file>
 ```
 
 For lesson management, see [Self-Improvement](self-improvement.md#management-commands).

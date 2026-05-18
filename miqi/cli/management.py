@@ -47,7 +47,6 @@ def register_management_commands(
             max_lessons_in_prompt=config.agents.self_improvement.max_lessons_in_prompt,
             min_lesson_confidence=config.agents.self_improvement.min_lesson_confidence,
             max_lessons=config.agents.self_improvement.max_lessons,
-            lesson_confidence_decay_hours=config.agents.self_improvement.lesson_confidence_decay_hours,
             feedback_max_message_chars=config.agents.self_improvement.feedback_max_message_chars,
             feedback_require_prefix=config.agents.self_improvement.feedback_require_prefix,
             promotion_enabled=config.agents.self_improvement.promotion_enabled,
@@ -85,7 +84,6 @@ def register_management_commands(
             ("Max Lessons In Prompt", str(status["max_lessons_in_prompt"])),
             ("Min Lesson Confidence", str(status["min_lesson_confidence"])),
             ("Max Lessons", str(status["max_lessons"])),
-            ("Lesson Decay Hours", str(status["lesson_confidence_decay_hours"])),
             ("Feedback Max Chars", str(status["feedback_max_message_chars"])),
             ("Feedback Require Prefix", "yes" if status["feedback_require_prefix"] else "no"),
             ("Promotion Enabled", "yes" if status["promotion_enabled"] else "no"),
@@ -201,7 +199,6 @@ def register_management_commands(
         table.add_row("Max Lessons In Prompt", str(status["max_lessons_in_prompt"]))
         table.add_row("Min Lesson Confidence", str(status["min_lesson_confidence"]))
         table.add_row("Max Lessons", str(status["max_lessons"]))
-        table.add_row("Lesson Decay Hours", str(status["lesson_confidence_decay_hours"]))
         table.add_row("Feedback Max Chars", str(status["feedback_max_message_chars"]))
         table.add_row("Feedback Require Prefix", "yes" if status["feedback_require_prefix"] else "no")
         table.add_row("Promotion Enabled", "yes" if status["promotion_enabled"] else "no")

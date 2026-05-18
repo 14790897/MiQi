@@ -33,18 +33,22 @@ MiQi follows a **message bus + agent loop + tool system + channel adapters** arc
 | Module | File | Responsibility |
 |---|---|---|
 | Agent loop | `agent/loop.py` | Main loop, tool-call orchestration, MCP lifecycle |
-| Context builder | `agent/context.py` | Context assembly: session, memory, skills |
+| Context builder | `agent/context.py` | Context assembly: session, memory, skills, trace |
 | Runtime controls | `agent/context_compressor.py`, `agent/iteration_budget.py`, `agent/smart_routing.py` | Optional compression/routing hooks plus iteration-pressure safeguards |
 | Command approval helper | `agent/command_approval.py` | Interactive dangerous-command approval helper for embedded runtimes |
 | Memory store | `agent/memory/store.py` | `MemoryStore` facade over all memory sub-systems |
 | Snapshot memory | `agent/memory/snapshot.py` | Long-term RAM-first snapshot with disk checkpoints |
 | Lessons | `agent/memory/lessons.py` | Self-improvement lesson extraction and storage |
+| Lesson curator | `agent/memory/curator.py` | LLM-based lesson lifecycle review and consolidation |
+| Skill curator | `agent/memory/skill_curator.py` | LLM-based skill lifecycle review and archival |
+| Experience store | `agent/memory/experience_store.py` | Persistent store for last-session recovery |
 | NLP helpers | `agent/memory/nlp.py` | Text normalization and relevance scoring |
+| Task trace | `agent/trace/store.py` | Git-like task history with FTS5 search and embedding similarity |
 | LLM providers | `providers/` | Multi-provider adapters unified under a single interface |
 | Provider fallback helper | `providers/fallback.py` | Retry/fallback chain helper for advanced embeddings |
 | Channel adapters | `channels/` | IM and messaging platform adapters |
 | Tool registry | `agent/tools/registry.py` | Tool registration, discovery, and dispatch |
-| Built-in tools | `agent/tools/` | `filesystem`, `shell`, `web`, `papers`, `cron`, `spawn`, `message` |
+| Built-in tools | `agent/tools/` | `filesystem`, `shell`, `web`, `papers`, `cron`, `spawn`, `message`, `memory`, `skill_manage`, `session_search`, `task_trace` |
 | Cron service | `cron/service.py` | Scheduled task execution engine |
 | Session manager | `session/manager.py` | Default JSONL session persistence and compaction |
 | SQLite session backend | `session/sqlite_store.py` | Optional SQLite+FTS5 backend module shipped in the repository |
@@ -62,6 +66,7 @@ Process: AgentLoop.process_*
           ↓
 Output:  OutboundMessage → Channel adapter delivers to user
           ↓
+Trace:   TraceStore.record_step captures each tool invocation (args + result) for later search and context injection
 Memory:  MemoryStore.record_turn updates short-term ring buffer and long-term snapshot
 ```
 
@@ -74,6 +79,9 @@ Memory:  MemoryStore.record_turn updates short-term ring buffer and long-term sn
 - **Provider abstraction**: all LLM providers implement a unified `BaseProvider` interface; the agent loop calls `provider.chat(messages, tools)` without knowing which backend is in use.
 - **Iteration pressure control**: `IterationBudget` injects hints as the loop nears `maxToolIterations`, reducing runaway tool cycles.
 - **Session storage**: `SessionManager` rewrites JSONL session files periodically to keep context size bounded while preserving readable history. The repository also ships an optional SQLite+FTS5 backend module, but the packaged CLI/gateway path still instantiates JSONL sessions.
+- **Session-scoped working directory**: when `sessionWorkspaceEnabled` is `true` (default), agent file writes via relative paths target `sessions/{safe_key}/files/` instead of the workspace root. Absolute paths are unaffected. In git-tracked workspaces, `sessions/` is automatically added to `.gitignore`.
+- **Task trace system**: every tool call is recorded with args/results into a task trace (FTS5 + optional embedding similarity). Traces are queryable via `miqi trace` CLI commands and injectable into agent context for cross-session recall.
+- **Skill curator**: the `SkillCurator` periodically reviews workspace skills through the LLM, flagging stale or low-usage skills for archival — analogous to the `LessonCurator` for self-improvement lessons.
 - **Embedded advanced helpers**: smart model routing, provider fallback, command approval, and context compression are present as runtime modules; only the always-safe pieces are active in the packaged CLI/gateway defaults today.
 
 ## Group Chat Message Filtering
@@ -110,3 +118,4 @@ Long-running MCP tool calls support two kinds of progress feedback:
 | `cli/gateway_cmd.py` | `miqi gateway` command |
 | `cli/management.py` | channels / memory / session / cron / status / provider commands |
 | `cli/config_cmd.py` | `miqi config` subcommands |
+| `cli/trace_cmd.py` | `miqi trace` subcommands (log, show, search, export, import) |

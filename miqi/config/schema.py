@@ -10,7 +10,7 @@ from pydantic_settings import BaseSettings
 class Base(BaseModel):
     """Base model that accepts both camelCase and snake_case keys."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="ignore")
 
 
 class TelegramConfig(Base):
@@ -209,6 +209,9 @@ class AgentSessionConfig(Base):
     session_tool_result_max_chars: int = 500
     # SQLite backend (new): when True use miqi/session/sqlite_store.py instead of JSONL
     use_sqlite: bool = False
+    # When True, agent file writes (relative paths) go to sessions/{key}/files/
+    # instead of workspace root. Set to False to restore legacy behavior.
+    session_workspace_enabled: bool = True
 
 
 class SmartRoutingCheapModel(Base):
@@ -241,9 +244,13 @@ class AgentSelfImprovementConfig(Base):
 
     enabled: bool = True
     max_lessons_in_prompt: int = 5
-    min_lesson_confidence: int = 1
+    min_lesson_confidence: int = 3
     max_lessons: int = 200
-    lesson_confidence_decay_hours: int = 168
+    lesson_stale_days: int = 30
+    lesson_archive_days: int = 90
+    curator_enabled: bool = True
+    curator_interval_days: int = 7
+    curator_threshold: int = 150
     feedback_max_message_chars: int = 220
     feedback_require_prefix: bool = True
     promotion_enabled: bool = True
@@ -251,6 +258,14 @@ class AgentSelfImprovementConfig(Base):
     promotion_triggers: list[str] = Field(
         default_factory=lambda: ["response:length", "response:language"]
     )
+    memory_nudge_interval: int = 8   # inject memory nudge every N turns
+    skill_nudge_interval: int = 10   # inject skill nudge every N turns
+    trace_enabled: bool = True
+    embedding_model: str = "intfloat/multilingual-e5-small"
+    trace_inject_top_k: int = 3
+    trace_similarity_threshold: float = 0.65
+    trace_nudge_interval: int = 8   # deprecated: trace is now auto-instrumented
+    lessons_legacy_inject_enabled: bool = True
 
 
 class AgentsConfig(Base):

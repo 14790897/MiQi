@@ -14,6 +14,7 @@ Key differences from Hermes:
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -81,6 +82,29 @@ _permanent_added_at: dict[str, float] = {}     # pattern → added_at timestamp
 
 # Approval history (decisions that were prompted and resolved)
 _approval_history: list[dict] = []  # each entry: {id, pattern_key, description, command, decision, timestamp, session_key}
+_history_file: str | None = None
+
+
+def init_history_file(path: str) -> None:
+    """Initialize file-backed persistence for approval history.
+
+    Loads existing entries from *path* into memory and configures
+    ``add_approval_history`` to append each new entry to the file.
+    """
+    global _history_file
+    _history_file = path
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    _approval_history.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    except FileNotFoundError:
+        pass
 
 
 def _normalize_command(command: str) -> str:
@@ -149,16 +173,23 @@ def add_approval_history(
     session_key: str = "",
 ) -> None:
     """Record an approval decision in history."""
+    entry = {
+        "id": str(uuid.uuid4()),
+        "pattern_key": pattern_key,
+        "description": description,
+        "command": command,
+        "decision": decision,
+        "timestamp": time.time(),
+        "session_key": session_key,
+    }
     with _lock:
-        _approval_history.append({
-            "id": str(uuid.uuid4()),
-            "pattern_key": pattern_key,
-            "description": description,
-            "command": command,
-            "decision": decision,
-            "timestamp": time.time(),
-            "session_key": session_key,
-        })
+        _approval_history.append(entry)
+        if _history_file:
+            try:
+                with open(_history_file, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            except OSError:
+                pass
 
 
 def get_approval_history(limit: int = 200) -> list[dict]:

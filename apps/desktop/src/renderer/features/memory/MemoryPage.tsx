@@ -187,6 +187,15 @@ export function MemoryPage() {
     }
   }, [])
 
+  const unlearnLesson = useCallback(async (lessonId: string) => {
+    try {
+      await window.miqi.memory.lessonUnlearn(lessonId)
+      await load()
+    } catch {
+      // runtime not running
+    }
+  }, [load])
+
   useEffect(() => {
     load()
   }, [load])
@@ -495,7 +504,7 @@ export function MemoryPage() {
                   ) : (
                     <div className="divide-y divide-[var(--border-subtle)]">
                       {lessons.map((lesson) => (
-                        <LessonRow key={lesson.id} lesson={lesson} />
+                        <LessonRow key={lesson.id} lesson={lesson} onUnlearn={unlearnLesson} />
                       ))}
                     </div>
                   )}
@@ -662,8 +671,27 @@ function FileGroup({
 // Lesson row
 // ---------------------------------------------------------------------------
 
-function LessonRow({ lesson }: { lesson: MemoryLessonEntry }) {
+const STATE_COLORS: Record<string, string> = {
+  active: 'bg-[var(--success)]',
+  stale: 'bg-[var(--warning)]',
+  archived: 'bg-[var(--text-faint)]',
+}
+
+const STATE_LABELS: Record<string, string> = {
+  active: 'active',
+  stale: 'stale',
+  archived: 'archived',
+}
+
+function LessonRow({
+  lesson,
+  onUnlearn,
+}: {
+  lesson: MemoryLessonEntry
+  onUnlearn: (id: string) => void
+}) {
   const [expanded, setExpanded] = useState(false)
+  const stateColor = STATE_COLORS[lesson.state] ?? STATE_COLORS.active
 
   return (
     <div className="hover:bg-[var(--surface-muted)] transition-colors">
@@ -681,6 +709,9 @@ function LessonRow({ lesson }: { lesson: MemoryLessonEntry }) {
         />
         <span className="flex-1 text-[var(--text)] truncate">
           {lesson.trigger}
+        </span>
+        <span className={cn('text-xs shrink-0 px-1 rounded', stateColor)}>
+          {STATE_LABELS[lesson.state] ?? lesson.state}
         </span>
         <span
           className={cn(
@@ -724,6 +755,17 @@ function LessonRow({ lesson }: { lesson: MemoryLessonEntry }) {
               Confidence: {lesson.confidence}
             </span>
           </div>
+          {lesson.state !== 'archived' && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onUnlearn(lesson.id)
+              }}
+              className="mt-1 px-2 py-0.5 text-xs rounded border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-muted)] self-start"
+            >
+              Unlearn
+            </button>
+          )}
         </div>
       )}
     </div>

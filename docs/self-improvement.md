@@ -77,7 +77,7 @@ At context build time, MiQi selects the top lessons by:
 
 1. **Scope match** — `session` lessons apply to the current session; `global` lessons apply everywhere
 2. **Confidence threshold** — lessons below `minLessonConfidence` are excluded
-3. **Time decay** — confidence decays after `lessonConfidenceDecayHours` since last use
+3. **Time decay** — confidence decays after `lessonStaleDays` since last use; lessons are archived after `lessonArchiveDays`
 4. **Lexical relevance** — normalized keyword overlap with the current message
 5. **Recency/hits tie-break** — more frequently reinforced lessons rank higher
 
@@ -105,14 +105,25 @@ All settings are under `agents.selfImprovement` in `~/.miqi/config.json`:
 |---|---|---|
 | `enabled` | `true` | Enable/disable the self-improvement system |
 | `maxLessonsInPrompt` | `5` | Maximum lessons injected per prompt |
-| `minLessonConfidence` | `1` | Minimum confidence to include a lesson |
+| `minLessonConfidence` | `3` | Minimum confidence to include a lesson |
 | `maxLessons` | `200` | Maximum lessons retained in the store |
-| `lessonConfidenceDecayHours` | `168` | Hours before confidence decay begins |
+| `lessonStaleDays` | `30` | Days before lesson confidence starts decaying |
+| `lessonArchiveDays` | `90` | Days before a stale lesson is archived |
+| `curatorEnabled` | `true` | Enable the LLM-based lesson curator |
+| `curatorIntervalDays` | `7` | Days between curator review cycles |
+| `curatorThreshold` | `150` | Minimum lesson count to trigger curator review |
 | `feedbackMaxMessageChars` | `220` | Max message length to treat as user feedback |
 | `feedbackRequirePrefix` | `true` | Require correction cue as a message prefix |
 | `promotionEnabled` | `true` | Allow session-to-global promotion |
 | `promotionMinUsers` | `3` | Min distinct users to trigger promotion |
 | `promotionTriggers` | `["response:length", "response:language"]` | Trigger pattern list for promotion candidates |
+| `memoryNudgeInterval` | `8` | Inject memory-save reminder every N turns |
+| `skillNudgeInterval` | `10` | Inject skill-save reminder every N turns |
+| `traceEnabled` | `true` | Enable task trace recording |
+| `embeddingModel` | `"intfloat/multilingual-e5-small"` | Model used for trace embedding similarity |
+| `traceInjectTopK` | `3` | Number of similar traces to inject in context |
+| `traceSimilarityThreshold` | `0.65` | Minimum similarity for trace injection |
+| `lessonsLegacyInjectEnabled` | `true` | Run legacy lesson injection alongside curator |
 
 ---
 
