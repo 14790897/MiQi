@@ -1391,7 +1391,11 @@ def handle_files_delete(req_id: str, params: dict) -> None:
 
 
 def handle_files_diff(req_id: str, params: dict) -> None:
-    """Diff a file against its pre-session snapshot using difflib (no git required)."""
+    """Diff a file against its pre-session snapshot using difflib (no git required).
+    
+    For new files (no snapshot exists but file currently exists), generates a diff
+    showing all content as additions (like 'git diff' for untracked files).
+    """
     import difflib
 
     file_path = params.get("path", "").strip()
@@ -1413,14 +1417,38 @@ def handle_files_diff(req_id: str, params: dict) -> None:
 
     # Read current content
     current_content: str | None = None
-    if resolved.exists():
+    file_exists = resolved.exists()
+    if file_exists:
         try:
             current_content = resolved.read_text(encoding="utf-8", errors="replace")
         except Exception as exc:
             _log(f"[files:diff] read current failed: {exc}")
 
-    # If no snapshot exists, try to generate a partial diff (no original)
+    # If no snapshot exists, generate a diff showing all content as additions (new file)
     if original_content is None:
+        if file_exists and current_content is not None and current_content != "":
+            _log(f"[files:diff] new file detected for {snapshot_key}, generating full diff")
+            # Generate diff showing all lines as additions (simulating git diff for untracked file)
+            current_lines = current_content.splitlines(keepends=True)
+            # Build unified diff header for new file
+            diff_lines = [
+                f"--- /dev/null",
+                f"+++ b/{file_path}",
+            ]
+            # Add hunk header and all content as additions
+            line_count = len(current_lines)
+            diff_lines.append(f"@@ -0,0 +1,{line_count} @@")
+            diff_lines.extend("+" + line for line in current_lines)
+            diff_text = "\n".join(diff_lines)
+            _result(req_id, {
+                "path": file_path,
+                "diff": diff_text,
+                "has_diff": True,
+                "original_content": None,
+                "current_content": current_content,
+                "is_new_file": True,
+            })
+            return
         _log(f"[files:diff] no snapshot for {snapshot_key}")
         _result(req_id, {
             "path": file_path,
@@ -1432,7 +1460,7 @@ def handle_files_diff(req_id: str, params: dict) -> None:
         })
         return
 
-    # Generate unified diff
+    # Generate unified diff for modified files
     original_lines = original_content.splitlines(keepends=True)
     current_lines = (current_content or "").splitlines(keepends=True)
     diff_lines = list(difflib.unified_diff(
