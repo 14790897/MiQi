@@ -188,6 +188,7 @@ export function ChatConsole({
   const [merging, setMerging] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const unsubsRef = useRef<Array<() => void>>([])
   const currentSessionRef = useRef(sessionKey)
 
@@ -310,6 +311,12 @@ export function ChatConsole({
     }
     setMessages((prev) => [...prev, userMsg])
     setInput('')
+    // Reset textarea height after sending
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto'
+      }
+    }, 0)
     setAttachments([])
     setStreaming(true)
     cleanupListeners()
@@ -393,6 +400,14 @@ export function ChatConsole({
       cleanupListeners()
     }
   }, [input, attachments, streaming, cleanupListeners, onChatFinished])
+
+  /** Auto-resize textarea to fit content */
+  const adjustTextareaHeight = useCallback(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -691,12 +706,14 @@ export function ChatConsole({
                   <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
                 </button>
                 <Textarea
+                  ref={textareaRef}
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => { setInput(e.target.value); adjustTextareaHeight() }}
                   onKeyDown={handleKeyDown}
                   placeholder="Ask Agent to analyze or edit files..."
                   rows={1}
-                  className="flex-1 border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 resize-none text-sm"
+                  allowResize={true}
+                  className="flex-1 border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 text-sm"
                   disabled={streaming}
                   style={{ color: 'var(--text)' }}
                 />
