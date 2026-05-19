@@ -182,6 +182,7 @@ export function ChatConsole({
     original_content: string | null
     current_content: string | null
     has_diff: boolean
+    is_new_file?: boolean
   } | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
   const [reverting, setReverting] = useState(false)
@@ -437,6 +438,7 @@ export function ChatConsole({
         original_content: result.original_content,
         current_content: result.current_content,
         has_diff: result.has_diff,
+        is_new_file: (result as any).is_new_file,
       })
     } catch {
       setDiffFile({ path, diff: null, original_content: null, current_content: null, has_diff: false })
@@ -1067,6 +1069,17 @@ export function ChatConsole({
                     MODIFIED
                   </span>
                 )}
+                {!diffLoading && diffFile.has_diff && (diffFile as any).is_new_file && (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                    style={{
+                      background: 'rgba(34,197,94,0.15)',
+                      color: '#4ade80',
+                    }}
+                  >
+                    NEW FILE
+                  </span>
+                )}
                 {!diffLoading && !diffFile.has_diff && (
                   <span
                     className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0"
@@ -1190,6 +1203,8 @@ export function ChatConsole({
 /** Renders a unified diff string with syntax-highlighted +/- lines. */
 function DiffView({ diff }: { diff: string }) {
   const lines = diff.split('\n')
+  // Detect if this is a new file diff (starts with --- /dev/null)
+  const isNewFile = lines.some(l => l.startsWith('--- /dev/null'))
   return (
     <div className="overflow-x-auto text-xs font-mono leading-5" style={{ background: 'var(--surface)' }}>
       {lines.map((line, i) => {
@@ -1197,11 +1212,18 @@ function DiffView({ diff }: { diff: string }) {
         let color = 'var(--text-muted)'
         let prefix = ' '
 
-        if (line.startsWith('+++') || line.startsWith('---')) {
+        if (line.startsWith('+++ b/')) {
+          // New file: show +++ as green
+          bg = 'rgba(34,197,94,0.08)'
+          color = '#4ade80'
+        } else if (line.startsWith('--- /dev/null')) {
+          // New file: show --- /dev/null as gray (context for empty original)
+          color = 'var(--text-faint)'
+        } else if (line.startsWith('---')) {
           color = 'var(--text-faint)'
         } else if (line.startsWith('@@')) {
-          bg = 'rgba(96,165,250,0.08)'
-          color = 'var(--info)'
+          bg = isNewFile ? 'rgba(34,197,94,0.08)' : 'rgba(96,165,250,0.08)'
+          color = isNewFile ? '#4ade80' : 'var(--info)'
         } else if (line.startsWith('+')) {
           bg = 'rgba(34,197,94,0.10)'
           color = '#4ade80'

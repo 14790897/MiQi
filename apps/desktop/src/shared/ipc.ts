@@ -564,6 +564,7 @@ export interface FilesDiffResult {
   original_content: string | null
   current_content: string | null
   error?: string
+  is_new_file?: boolean
 }
 
 export interface FilesRevertResult {
