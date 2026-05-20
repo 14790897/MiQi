@@ -41,6 +41,7 @@ import type {
   ChatError,
   ChatAborted,
   PythonCheckResult,
+  WslCheckResult,
 } from '../shared/ipc'
 
 // ---------------------------------------------------------------------------
@@ -262,6 +263,14 @@ const api = {
   python: {
     check: (): Promise<PythonCheckResult> =>
       ipcRenderer.invoke(IPC.PYTHON_CHECK),
+  },
+
+  // -- WSL2 check & install (Windows only) ------------------------------------
+  wsl: {
+    check: (): Promise<WslCheckResult> =>
+      ipcRenderer.invoke(IPC.WSL_CHECK),
+    install: (): Promise<{ launched: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.WSL_INSTALL),
   },
 
   // -- Initial config write (no bridge needed) --------------------------------

@@ -5,6 +5,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import type { BridgeManager } from '../bridge'
 import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, ConfigUpdateInput, ProviderTestInput, ProviderUpdateInput, ChannelsUpdateInput, CronCreateInput, CronUpdateInput, CronToggleInput, CronDeleteInput, CronRunInput, CronRunsInput, MemoryGetInput, MemoryUpdateInput, MemoryLessonUnlearnInput, SkillsGetInput, FilesReadInput, FilesWriteInput, McpUpsertInput, McpDeleteInput } from '../../shared/ipc'
+import type { WslCheckResult } from '../../shared/ipc'
 
 const { ipcMain, dialog } = electron
 
@@ -209,6 +210,145 @@ for m in ("pydantic", "httpx", "loguru"):
       python_version: pythonVersion,
       issues,
       config_exists: configExists,
+    }
+  })
+
+  // -----------------------------------------------------------------------
+  // WSL2 check & install — Windows only, runs in main process.
+  // Must work BEFORE the bridge starts (during Setup Wizard).
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.WSL_CHECK, () => {
+    const isWindows = process.platform === 'win32'
+
+    if (!isWindows) {
+      return {
+        isWindows: false,
+        installed: true,    // not relevant on non-Windows
+        version: null,
+        distros: [],
+        defaultDistro: null,
+        running: false,
+      } satisfies WslCheckResult
+    }
+
+    let installed = false
+    let version: string | null = null
+    let distros: string[] = []
+    let defaultDistro: string | null = null
+    let running = false
+
+    // Check if WSL is installed at all
+    try {
+      const statusResult = spawnSync('wsl', ['--status'], { timeout: 8000, encoding: 'buffer' })
+      if (statusResult.status === 0) {
+        installed = true
+        // WSL --status outputs UTF-16LE on Windows; decode accordingly
+        let output = ''
+        const buf = statusResult.stdout as Buffer | null
+        if (buf && buf.length > 1) {
+          // Detect BOM or try UTF-16LE if there are many null bytes
+          const hasBOM = buf[0] === 0xff && buf[1] === 0xfe
+          const nullRatio = buf.reduce((acc, b, i) => i % 2 === 1 && b === 0 ? acc + 1 : acc, 0) / Math.floor(buf.length / 2)
+          if (hasBOM || nullRatio > 0.3) {
+            output = buf.toString('utf16le')
+          } else {
+            output = buf.toString('utf8')
+          }
+          // Strip BOM and trailing nulls
+          output = output.replace(/^\uFEFF/, '').replace(/\0/g, '')
+        }
+        // Parse default distro line, e.g. "默认分发版: Ubuntu-22.04" or "Default Distribution: Ubuntu"
+        const defaultMatch = output.match(/(?:默认分发|Default Distr?ibution)\s*[:：]\s*(.+)/i)
+        if (defaultMatch) defaultDistro = defaultMatch[1].trim()
+        // Parse default version, e.g. "默认版本: 2" or "Default Version: 2"
+        const verMatch = output.match(/(?:默认版本|Default Version)\s*[:：]\s*(\d+)/i)
+        if (verMatch) version = verMatch[1]
+      }
+    } catch {
+      // WSL not installed
+    }
+
+    // List installed distros
+    if (installed) {
+      try {
+        const listResult = spawnSync('wsl', ['--list', '--quiet'], { timeout: 8000, encoding: 'buffer' })
+        if (listResult.status === 0) {
+          const buf = listResult.stdout as Buffer | null
+          let raw = ''
+          if (buf && buf.length > 1) {
+            const hasBOM = buf[0] === 0xff && buf[1] === 0xfe
+            const nullRatio = buf.reduce((acc, b, i) => i % 2 === 1 && b === 0 ? acc + 1 : acc, 0) / Math.floor(buf.length / 2)
+            raw = (hasBOM || nullRatio > 0.3)
+              ? buf.toString('utf16le').replace(/^\uFEFF/, '').replace(/\0/g, '')
+              : buf.toString('utf8').replace(/\0/g, '')
+          }
+          const lines = raw
+            .split(/\r?\n/)
+            .map((l) => l.trim())
+            .filter(Boolean)
+          distros = lines
+          // If no default found from --status, use first listed distro
+          if (!defaultDistro && distros.length > 0) {
+            defaultDistro = distros[0]
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      // Check if WSL is currently running (any WSL process active)
+      try {
+        const psResult = spawnSync('wsl', ['--list', '--running'], { timeout: 8000, encoding: 'buffer' })
+        if (psResult.status === 0) {
+          const buf = psResult.stdout as Buffer | null
+          let raw = ''
+          if (buf && buf.length > 1) {
+            const hasBOM = buf[0] === 0xff && buf[1] === 0xfe
+            const nullRatio = buf.reduce((acc, b, i) => i % 2 === 1 && b === 0 ? acc + 1 : acc, 0) / Math.floor(buf.length / 2)
+            raw = (hasBOM || nullRatio > 0.3)
+              ? buf.toString('utf16le').replace(/^\uFEFF/, '').replace(/\0/g, '')
+              : buf.toString('utf8').replace(/\0/g, '')
+          }
+          const runningLines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+          // Header line + at least one distro means something is running
+          running = runningLines.length > 1
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return {
+      isWindows: true,
+      installed,
+      version,
+      distros,
+      defaultDistro,
+      running,
+    } satisfies WslCheckResult
+  })
+
+  ipcMain.handle(IPC.WSL_INSTALL, () => {
+    if (process.platform !== 'win32') {
+      return { launched: false, error: 'Not on Windows' }
+    }
+    try {
+      // wsl --install requires admin; spawning with shell: true so it can
+      // request elevation via UAC.  We detach since the installer may reboot.
+      const child = spawnSync(
+        'powershell.exe',
+        [
+          '-Command',
+          'Start-Process wsl -ArgumentList "--install" -Verb RunAs',
+        ],
+        { timeout: 15000, encoding: 'utf8', shell: false },
+      )
+      if (child.error) {
+        return { launched: false, error: child.error.message }
+      }
+      return { launched: true }
+    } catch (e: any) {
+      return { launched: false, error: e?.message ?? String(e) }
     }
   })
 

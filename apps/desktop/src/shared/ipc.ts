@@ -75,6 +75,10 @@ export const IPC = {
   // Python check
   PYTHON_CHECK: 'python:check',
 
+  // WSL2 check & install (Windows only, no bridge needed)
+  WSL_CHECK: 'wsl:check',
+  WSL_INSTALL: 'wsl:install',
+
   // Write initial config (no bridge needed — used by Setup Wizard)
   CONFIG_WRITE_INITIAL: 'config:write_initial',
 
@@ -603,4 +607,17 @@ export interface PythonCheckResult {
   python_version: string
   issues: string[]
   config_exists: boolean
+}
+
+// ---------------------------------------------------------------------------
+// WSL2 check result
+// ---------------------------------------------------------------------------
+
+export interface WslCheckResult {
+  isWindows: boolean
+  installed: boolean
+  version: string | null   // e.g. "2" or "1"
+  distros: string[]        // e.g. ["Ubuntu"]
+  defaultDistro: string | null
+  running: boolean         // whether WSL is currently active
 }

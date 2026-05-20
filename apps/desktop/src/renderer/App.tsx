@@ -224,7 +224,7 @@ function AppShell() {
                 {activeNav === 'memory' && <MemoryPage />}
                 {activeNav === 'experience' && <ExperiencePage />}
                 {activeNav === 'skills' && <SkillsPage />}
-                {activeNav === 'settings' && <SettingsPage />}
+                {activeNav === 'settings' && <SettingsPage onReopenSetup={() => setNeedsSetup(true)} />}
               </main>
             </div>
 
