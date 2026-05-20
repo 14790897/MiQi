@@ -3,7 +3,7 @@ import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { ScrollArea } from '../../components/ui/ScrollArea'
 import { cn } from '../../lib/utils'
-import { RefreshCw, Download, Save, Eye, EyeOff, Check } from 'lucide-react'
+import { RefreshCw, Download, Save, Eye, EyeOff, Check, RotateCcw } from 'lucide-react'
 import { useRuntime } from '../../contexts/RuntimeContext'
 import * as Tabs from '@radix-ui/react-tabs'
 import { ProvidersPage } from '../providers/ProvidersPage'
@@ -27,7 +27,7 @@ function getNestedStr(obj: Record<string, unknown>, ...keys: string[]): string {
 }
 
 // ---- General Config Tab ----
-function GeneralTab() {
+function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
   const [agentName, setAgentName] = useState('')
   const [workspace, setWorkspace] = useState('')
   const [model, setModel] = useState('')
@@ -158,6 +158,23 @@ function GeneralTab() {
         {saved ? <Check size={14} /> : <Save size={14} />}
         {saved ? '已保存' : '保存'}
       </Button>
+
+      {/* ---- Danger Zone ---- */}
+      <div className="mt-6 pt-4 border-t border-[var(--border-subtle)]">
+        <h3 className="text-sm font-semibold text-[var(--text)] mb-1">重新配置</h3>
+        <p className="text-xs text-[var(--text-faint)] mb-3">
+          重新运行配置向导，可修改 Python 路径、WSL2 环境和模型 Provider 等初始设置。
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onReopenSetup}
+          className="text-[var(--warning)] border-[var(--warning)] hover:bg-[var(--warning)] hover:bg-opacity-10"
+        >
+          <RotateCcw size={14} />
+          重新运行配置向导
+        </Button>
+      </div>
     </div>
   )
 }
@@ -579,7 +596,7 @@ function LogsTab() {
 }
 
 // ---- Main ----
-export function SettingsPage() {
+export function SettingsPage({ onReopenSetup }: { onReopenSetup?: () => void }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
 
   return (
@@ -623,7 +640,7 @@ export function SettingsPage() {
         </Tabs.List>
 
         <Tabs.Content value="general" className="flex-1 overflow-y-auto">
-          <GeneralTab />
+          <GeneralTab onReopenSetup={onReopenSetup} />
         </Tabs.Content>
         <Tabs.Content value="providers" className="flex-1 overflow-y-auto">
           <ProvidersPage />

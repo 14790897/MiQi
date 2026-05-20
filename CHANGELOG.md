@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+### Added (2026-05-20)
+- **SetupWizard WSL2 Installation Guide Steps**:
+  - Added `wsl2` step to wizard flow (environment → wsl2 → provider) to guide Windows users through WSL2 installation
+  - Automatically detects WSL2 installation status: installed/version/distribution/running
+  - One-click installation when not installed (UAC elevation) + manual installation instructions
+  - Guides `wsl --install -d Ubuntu` when WSL is installed but no distribution exists
+  - Prompts upgrade command for WSL1; automatically skips on non-Windows
+  - Added IPC channels `wsl:check` / `wsl:install` and `WslCheckResult` type
+- **Settings Page "Rerun Configuration Wizard" Button**:
+  - Added "Reconfigure" section at the bottom of Settings → General tab, click to reopen SetupWizard
+  - Controls AppShell `needsSetup` state via React props callback chain, no additional IPC channel required
 
 ### Added (2026-05-18)
 - **Experience panel** (`apps/desktop/src/renderer/features/experience/`):

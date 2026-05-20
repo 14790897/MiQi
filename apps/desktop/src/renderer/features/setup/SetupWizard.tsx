@@ -15,8 +15,10 @@ import {
   Globe,
   BookOpen,
   Bot,
+  Monitor,
 } from 'lucide-react'
 import type { PythonCheckResult } from '../../../shared/ipc'
+import type { WslCheckResult } from '../../../shared/ipc'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,6 +26,7 @@ import type { PythonCheckResult } from '../../../shared/ipc'
 type Step =
   | 'welcome'
   | 'environment'
+  | 'wsl2'
   | 'provider'
   | 'webtools'
   | 'papers'
@@ -190,6 +193,12 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const [pyCheck, setPyCheck] = useState<PythonCheckResult | null>(null)
   const [checking, setChecking] = useState(false)
 
+  // ---- WSL2 ----
+  const [wslCheck, setWslCheck] = useState<WslCheckResult | null>(null)
+  const [wslChecking, setWslChecking] = useState(false)
+  const [wslInstalling, setWslInstalling] = useState(false)
+  const [wslInstallError, setWslInstallError] = useState('')
+
   // ---- Provider ----
   const [selectedProvider, setSelectedProvider] = useState('')
   const [apiKey, setApiKey] = useState('')
@@ -245,6 +254,38 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
       })
     }
     setChecking(false)
+  }
+
+  const runWslCheck = async () => {
+    setWslChecking(true)
+    try {
+      const result = await window.miqi.wsl.check()
+      setWslCheck(result)
+    } catch {
+      setWslCheck({
+        isWindows: true,
+        installed: false,
+        version: null,
+        distros: [],
+        defaultDistro: null,
+        running: false,
+      })
+    }
+    setWslChecking(false)
+  }
+
+  const installWsl = async () => {
+    setWslInstalling(true)
+    setWslInstallError('')
+    try {
+      const result = await window.miqi.wsl.install()
+      if (!result.launched) {
+        setWslInstallError(result.error || '启动安装失败')
+      }
+    } catch (e: any) {
+      setWslInstallError(e?.message ?? String(e))
+    }
+    setWslInstalling(false)
   }
 
   const testProvider = async () => {
@@ -361,12 +402,211 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
         <Button variant="ghost" onClick={() => setStep('welcome')}>
           <ArrowLeft size={16} /> 返回
         </Button>
-        <Button onClick={() => setStep('provider')} disabled={!pyCheck?.ok}>
+        <Button onClick={() => setStep('wsl2')} disabled={!pyCheck?.ok}>
           继续 <ArrowRight size={16} />
         </Button>
       </div>
     </div>
   )
+
+  const renderWsl2 = () => {
+    const isWindows = wslCheck?.isWindows ?? true
+    // Non-Windows: auto-skip, but still render a "not needed" message
+    if (!isWindows) {
+      return (
+        <div className="flex flex-col gap-4">
+          <h2 className="text-lg font-semibold text-[var(--text)]">
+            WSL2 环境
+          </h2>
+          <div className="flex items-center gap-2 text-sm text-[var(--success)]">
+            <Check size={16} />
+            <span>当前非 Windows 系统，无需配置 WSL2</span>
+          </div>
+          <div className="flex gap-2 mt-4">
+            <Button variant="ghost" onClick={() => setStep('environment')}>
+              <ArrowLeft size={16} /> 返回
+            </Button>
+            <Button onClick={() => setStep('provider')}>
+              继续 <ArrowRight size={16} />
+            </Button>
+          </div>
+        </div>
+      )
+    }
+
+    const isInstalled = wslCheck?.installed ?? false
+    const isWsl2 = wslCheck?.version === '2'
+    const hasDistro = (wslCheck?.distros?.length ?? 0) > 0
+
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-2">
+          <Monitor size={18} className="text-[var(--accent)]" />
+          <h2 className="text-lg font-semibold text-[var(--text)]">
+            WSL2 环境
+          </h2>
+        </div>
+        <p className="text-sm text-[var(--text-muted)]">
+          MiQi Desktop 的 Python 后端在 WSL2 上运行最佳。请确认 WSL2
+          已安装并配置了 Linux 分发版。
+        </p>
+
+        {!wslCheck ? (
+          <Button
+            onClick={runWslCheck}
+            disabled={wslChecking}
+            variant="outline"
+            className="self-start"
+          >
+            {wslChecking && <Loader2 size={14} className="animate-spin" />}
+            检测 WSL2
+          </Button>
+        ) : (
+          <div className="flex flex-col gap-2 bg-[var(--surface-muted)] rounded-lg p-4 text-sm">
+            <CheckItem
+              label="WSL 已安装"
+              ok={isInstalled}
+              detail={
+                isInstalled
+                  ? `默认版本: WSL${wslCheck.version ?? '?'}`
+                  : '未安装'
+              }
+            />
+            <CheckItem
+              label="WSL2 版本"
+              ok={isWsl2}
+              detail={
+                isWsl2
+                  ? '已设为默认'
+                  : wslCheck.version
+                    ? `当前为 WSL${wslCheck.version}，建议升级到 WSL2`
+                    : '未设置'
+              }
+            />
+            <CheckItem
+              label="Linux 分发版"
+              ok={hasDistro}
+              detail={hasDistro ? wslCheck!.distros.join(', ') : '未安装分发版'}
+            />
+            {/* <CheckItem
+              label="WSL 运行状态"
+              ok={wslCheck!.running}
+              detail={wslCheck!.running ? '运行中' : '未运行'}
+            /> */}
+          </div>
+        )}
+
+        {/* Install / guidance section */}
+        {wslCheck && !isInstalled && (
+          <div className="flex flex-col gap-3 bg-[var(--surface-muted)] rounded-lg p-4">
+            <h3 className="text-sm font-medium text-[var(--text)]">
+              安装 WSL2
+            </h3>
+            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+              点击下方按钮将以管理员权限运行{' '}
+              <code className="bg-[var(--surface)] px-1 rounded text-[var(--accent)]">
+                wsl --install
+              </code>
+              。 安装完成后需要<strong>重启电脑</strong>
+              ，然后回到此向导继续配置。
+            </p>
+            <Button
+              onClick={installWsl}
+              disabled={wslInstalling}
+              size="sm"
+              className="self-start"
+            >
+              {wslInstalling && <Loader2 size={14} className="animate-spin" />}
+              安装 WSL2
+            </Button>
+            {wslInstallError && (
+              <p className="text-xs text-[var(--danger)]">{wslInstallError}</p>
+            )}
+            <div className="text-xs text-[var(--text-faint)] mt-1 space-y-1">
+              <p>也可手动安装：</p>
+              <ol className="list-decimal ml-4 space-y-0.5">
+                <li>以管理员身份打开 PowerShell</li>
+                <li>
+                  运行{' '}
+                  <code className="bg-[var(--surface)] px-1 rounded text-[var(--accent)]">
+                    wsl --install
+                  </code>
+                </li>
+                <li>重启电脑完成安装</li>
+                <li>设置 Linux 用户名和密码</li>
+              </ol>
+            </div>
+          </div>
+        )}
+
+        {/* Installed but no distro */}
+        {wslCheck && isInstalled && !hasDistro && (
+          <div className="flex flex-col gap-2 bg-[var(--surface-muted)] rounded-lg p-4">
+            <h3 className="text-sm font-medium text-[var(--text)]">
+              安装 Linux 分发版
+            </h3>
+            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+              WSL 已安装但未检测到 Linux 分发版。请在 PowerShell 中运行：
+            </p>
+            <code className="bg-[var(--surface)] px-3 py-1.5 rounded text-xs text-[var(--accent)]">
+              wsl --install -d Ubuntu
+            </code>
+            <p className="text-xs text-[var(--text-faint)]">
+              安装完成后点击"重新检测"刷新状态。
+            </p>
+          </div>
+        )}
+
+        {/* WSL1 → WSL2 upgrade hint */}
+        {wslCheck && isInstalled && wslCheck.version === '1' && (
+          <div className="flex flex-col gap-2 bg-[var(--surface-muted)] rounded-lg p-4">
+            <h3 className="text-sm font-medium text-[var(--text)]">
+              升级到 WSL2
+            </h3>
+            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+              当前默认为 WSL1，建议升级到 WSL2 以获得更好的性能和兼容性：
+            </p>
+            <code className="bg-[var(--surface)] px-3 py-1.5 rounded text-xs text-[var(--accent)]">
+              wsl --set-default-version 2
+            </code>
+            {wslCheck.defaultDistro && (
+              <>
+                <p className="text-xs text-[var(--text-muted)]">
+                  转换已有分发版：
+                </p>
+                <code className="bg-[var(--surface)] px-3 py-1.5 rounded text-xs text-[var(--accent)]">
+                  wsl --set-version {wslCheck.defaultDistro} 2
+                </code>
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-2 mt-4">
+          <Button variant="ghost" onClick={() => setStep('environment')}>
+            <ArrowLeft size={16} /> 返回
+          </Button>
+          {wslCheck && !isInstalled && (
+            <Button
+              variant="outline"
+              onClick={runWslCheck}
+              disabled={wslChecking}
+            >
+              {wslChecking ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Check size={14} />
+              )}
+              重新检测
+            </Button>
+          )}
+          <Button onClick={() => setStep('provider')}>
+            继续 <ArrowRight size={16} />
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   const renderProvider = () => {
     const meta = providerMeta
@@ -506,7 +746,7 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
         )}
 
         <div className="flex gap-2 mt-4">
-          <Button variant="ghost" onClick={() => setStep('environment')}>
+          <Button variant="ghost" onClick={() => setStep('wsl2')}>
             <ArrowLeft size={16} /> 返回
           </Button>
           <Button
@@ -897,6 +1137,7 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const ALL_STEPS: Step[] = [
     'welcome',
     'environment',
+    'wsl2',
     'provider',
     'webtools',
     'papers',
@@ -933,6 +1174,7 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
 
         {step === 'welcome' && renderWelcome()}
         {step === 'environment' && renderEnvironment()}
+        {step === 'wsl2' && renderWsl2()}
         {step === 'provider' && renderProvider()}
         {step === 'webtools' && renderWebTools()}
         {step === 'papers' && renderPapers()}
