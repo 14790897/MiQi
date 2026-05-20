@@ -33,6 +33,7 @@ function AppShell() {
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0)
   const [runtimeReadyKey, setRuntimeReadyKey] = useState(0)
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
+  const [canSkipSetup, setCanSkipSetup] = useState(false)  // true when re-running wizard from settings
 
   // When the bridge becomes ready, trigger a session history reload in ChatConsole
   useEffect(() => {
@@ -71,6 +72,7 @@ function AppShell() {
 
   const handleSetupComplete = () => {
     setNeedsSetup(false)
+    setCanSkipSetup(false)
     setActiveNav('chat')
   }
 
@@ -169,7 +171,10 @@ function AppShell() {
   if (needsSetup) {
     return (
       <TooltipProvider>
-        <SetupWizard onComplete={handleSetupComplete} />
+        <SetupWizard
+          onComplete={handleSetupComplete}
+          onExit={canSkipSetup ? () => { setNeedsSetup(false); setCanSkipSetup(false) } : undefined}
+        />
       </TooltipProvider>
     )
   }
@@ -224,7 +229,7 @@ function AppShell() {
                 {activeNav === 'memory' && <MemoryPage />}
                 {activeNav === 'experience' && <ExperiencePage />}
                 {activeNav === 'skills' && <SkillsPage />}
-                {activeNav === 'settings' && <SettingsPage onReopenSetup={() => setNeedsSetup(true)} />}
+                {activeNav === 'settings' && <SettingsPage onReopenSetup={() => { setCanSkipSetup(true); setNeedsSetup(true) }} />}
               </main>
             </div>
 

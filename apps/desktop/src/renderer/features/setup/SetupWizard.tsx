@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { cn } from '../../lib/utils'
@@ -186,7 +186,7 @@ const SOUL_PRESETS = [
 // ---------------------------------------------------------------------------
 // Main wizard
 // ---------------------------------------------------------------------------
-export function SetupWizard({ onComplete }: { onComplete: () => void }) {
+export function SetupWizard({ onComplete, onExit }: { onComplete: () => void; onExit?: () => void }) {
   const [step, setStep] = useState<Step>('welcome')
 
   // ---- Environment ----
@@ -226,6 +226,58 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const [agentName, setAgentName] = useState('miqi')
   const [workspace, setWorkspace] = useState('~/.miqi/workspace')
   const [soulPreset, setSoulPreset] = useState('balanced')
+
+  // -----------------------------------------------------------------------
+  // Load existing config on mount (so re-running wizard pre-fills fields)
+  // -----------------------------------------------------------------------
+  useEffect(() => {
+    window.miqi.config.get().then((cfg) => {
+      const agents = (cfg as Record<string, unknown>)['agents'] as Record<string, unknown> | undefined
+      const defaults = agents?.['defaults'] as Record<string, unknown> | undefined
+      if (defaults) {
+        if (defaults['name']) setAgentName(String(defaults['name']))
+        if (defaults['workspace']) setWorkspace(String(defaults['workspace']))
+        if (defaults['model']) setModelName(String(defaults['model']))
+        if (defaults['soulPreset']) setSoulPreset(String(defaults['soulPreset']))
+      }
+      // Detect provider from providers map
+      const providers = (cfg as Record<string, unknown>)['providers'] as Record<string, unknown> | undefined
+      if (providers) {
+        for (const p of STATIC_PROVIDERS) {
+          const entry = providers[p.name] as Record<string, unknown> | undefined
+          if (entry) {
+            setSelectedProvider(p.name)
+            if (entry['apiKey']) setApiKey(String(entry['apiKey']))
+            if (entry['apiBase']) setApiBase(String(entry['apiBase']))
+            break
+          }
+        }
+      }
+      // Web tools
+      const tools = (cfg as Record<string, unknown>)['tools'] as Record<string, unknown> | undefined
+      const web = tools?.['web'] as Record<string, unknown> | undefined
+      if (web) {
+        const search = web['search'] as Record<string, unknown> | undefined
+        if (search) {
+          if (search['provider']) setSearchMode(String(search['provider']) as SearchMode)
+          if (search['apiKey']) setBraveApiKey(String(search['apiKey']))
+          if (search['ollamaApiBase']) setSearchOllamaBase(String(search['ollamaApiBase']))
+          if (search['ollamaApiKey']) setSearchOllamaKey(String(search['ollamaApiKey']))
+        }
+        const fetch = web['fetch'] as Record<string, unknown> | undefined
+        if (fetch) {
+          if (fetch['provider']) setFetchMode(String(fetch['provider']) as FetchMode)
+          if (fetch['ollamaApiBase']) setFetchOllamaBase(String(fetch['ollamaApiBase']))
+          if (fetch['ollamaApiKey']) setFetchOllamaKey(String(fetch['ollamaApiKey']))
+        }
+      }
+      const papers = tools?.['papers'] as Record<string, unknown> | undefined
+      if (papers) {
+        if (papers['provider']) setPapersMode(String(papers['provider']) as PapersMode)
+        if (papers['semanticScholarApiKey']) setS2ApiKey(String(papers['semanticScholarApiKey']))
+      }
+    }).catch(() => { /* no config yet, that's fine */ })
+  }, [])
 
   // -----------------------------------------------------------------------
   // Helpers
@@ -1148,7 +1200,17 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
 
   return (
     <div className="flex items-center justify-center min-h-full bg-[var(--background)] py-8">
-      <div className="w-full max-w-lg bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-sm p-8">
+      <div className="w-full max-w-lg bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-sm p-8 relative">
+        {/* Exit button — only show when onExit is provided (re-running from settings) */}
+        {onExit && step !== 'finish' && (
+          <button
+            onClick={onExit}
+            className="absolute top-4 right-4 p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-muted)] transition-colors"
+            title="退出配置向导"
+          >
+            <X size={16} />
+          </button>
+        )}
         {/* Step indicators */}
         <div className="flex items-center justify-center gap-1.5 mb-8">
           {ALL_STEPS.map((s, i) => (
