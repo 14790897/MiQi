@@ -249,14 +249,16 @@ const api = {
       ipcRenderer.invoke(IPC.FILES_TREE),
     read: (path: string): Promise<FilesReadResult> =>
       ipcRenderer.invoke(IPC.FILES_READ, { path }),
-    write: (path: string, content: string): Promise<FilesWriteResult> =>
-      ipcRenderer.invoke(IPC.FILES_WRITE, { path, content }),
+    write: (path: string, content: string, sessionKey?: string): Promise<FilesWriteResult> =>
+      ipcRenderer.invoke(IPC.FILES_WRITE, { path, content, session_key: sessionKey }),
     delete: (path: string): Promise<{ deleted: boolean; path: string }> =>
       ipcRenderer.invoke(IPC.FILES_DELETE, { path }),
-    diff: (path: string): Promise<FilesDiffResult> =>
-      ipcRenderer.invoke(IPC.FILES_DIFF, { path }),
-    revert: (path: string): Promise<FilesRevertResult> =>
-      ipcRenderer.invoke(IPC.FILES_REVERT, { path }),
+    diff: (path: string, sessionKey?: string): Promise<FilesDiffResult> =>
+      ipcRenderer.invoke(IPC.FILES_DIFF, { path, session_key: sessionKey }),
+    revert: (path: string, sessionKey?: string): Promise<FilesRevertResult> =>
+      ipcRenderer.invoke(IPC.FILES_REVERT, { path, session_key: sessionKey }),
+    accept: (path: string, sessionKey?: string): Promise<{ accepted: boolean; path: string }> =>
+      ipcRenderer.invoke(IPC.FILES_ACCEPT, { path, session_key: sessionKey }),
   },
 
   // -- Python check -----------------------------------------------------------

@@ -531,13 +531,18 @@ for m in ("pydantic", "httpx", "loguru"):
   })
 
   ipcMain.handle(IPC.FILES_DIFF, async (_event, payload: unknown) => {
-    const p = payload as { path: string }
+    const p = payload as { path: string; session_key?: string }
     return bridge.sendSafe('files.diff', p as Record<string, unknown>)
   })
 
   ipcMain.handle(IPC.FILES_REVERT, async (_event, payload: unknown) => {
-    const p = payload as { path: string }
+    const p = payload as { path: string; session_key?: string }
     return bridge.send('files.revert', p as Record<string, unknown>)
+  })
+
+  ipcMain.handle(IPC.FILES_ACCEPT, async (_event, payload: unknown) => {
+    const p = payload as { path: string; session_key?: string }
+    return bridge.send('files.accept', p as Record<string, unknown>)
   })
 
   // -----------------------------------------------------------------------

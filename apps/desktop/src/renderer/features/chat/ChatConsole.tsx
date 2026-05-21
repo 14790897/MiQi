@@ -431,7 +431,7 @@ export function ChatConsole({
   const handleShowDiff = useCallback(async (path: string) => {
     setDiffLoading(true)
     try {
-      const result = await window.miqi.files.diff(path)
+      const result = await window.miqi.files.diff(path, currentSessionRef.current)
       setDiffFile({
         path,
         diff: result.diff,
@@ -453,7 +453,7 @@ export function ChatConsole({
     if (!diffFile || reverting) return
     setReverting(true)
     try {
-      const result = await window.miqi.files.revert(diffFile.path)
+      const result = await window.miqi.files.revert(diffFile.path, currentSessionRef.current)
       if (result.reverted) {
         // Refresh the diff view
         await handleShowDiff(diffFile.path)
@@ -472,15 +472,15 @@ export function ChatConsole({
     }
   }, [diffFile, reverting, handleShowDiff, previewFile])
 
-  /** Revert ALL tracked (modified) files at once. */
+  /** Accept ALL tracked file changes at once — keep files, discard snapshots. */
   const handleMergeAll = useCallback(async () => {
     if (merging) return
-    const toRevert = trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit' || f.op === 'delete')
-    if (toRevert.length === 0) return
+    const toAccept = trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit' || f.op === 'delete')
+    if (toAccept.length === 0) return
     setMerging(true)
     try {
       await Promise.allSettled(
-        toRevert.map((f) => window.miqi.files.revert(f.path)),
+        toAccept.map((f) => window.miqi.files.accept(f.path, currentSessionRef.current)),
       )
       setTrackedFiles([])
     } finally {
