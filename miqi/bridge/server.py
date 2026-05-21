@@ -365,6 +365,39 @@ def handle_sessions_delete(req_id: str, params: dict) -> None:
     _result(req_id, {"deleted": deleted})
 
 
+def handle_sessions_get_tracked_files(req_id: str, params: dict) -> None:
+    """Return tracked files for a session from tracked_files.json."""
+    session_key = params.get("session_key", "")
+    if not session_key:
+        _error(req_id, "session_key is required")
+        return
+    try:
+        sm = _get_session_manager()
+        files = sm.load_tracked_files(session_key)
+        # Convert to array for frontend
+        result = [
+            {"path": path, **info}
+            for path, info in files.items()
+        ]
+        _result(req_id, {"tracked_files": result})
+    except Exception as exc:
+        _error(req_id, str(exc))
+
+
+def handle_sessions_clear_tracked_files(req_id: str, params: dict) -> None:
+    """Remove all tracked file entries for a session."""
+    session_key = params.get("session_key", "")
+    if not session_key:
+        _error(req_id, "session_key is required")
+        return
+    try:
+        sm = _get_session_manager()
+        sm.clear_tracked_files(session_key)
+        _result(req_id, {"cleared": True})
+    except Exception as exc:
+        _error(req_id, str(exc))
+
+
 def handle_config_get(req_id: str, params: dict) -> None:
     config = _state.load_config()
     data = config.model_dump(by_alias=True)
@@ -1584,27 +1617,27 @@ def handle_files_revert(req_id: str, params: dict) -> None:
         _delete_snapshot(snapshot_key, snapshot_dir=snapshot_dir)
 
     _log(f"[files:revert] ok path={file_path}")
-    # After successful revert, clean up _tool_hint markers from session messages
-    # so the file won't reappear in trackedFiles on session reload.
+    # Remove tracked file entry from tracked_files.json
     if session_key:
-        try:
-            from miqi.session.manager import SessionManager
-            config = _state.load_config()
-            sm = SessionManager(config.workspace_path)
-            session = sm.get_or_create(session_key)
-            changed = False
-            for msg in session.messages:
-                if msg.get("_tool_hint"):
-                    hint_text = msg.get("_tool_hint_text", "") or msg.get("content", "")
-                    if file_path.replace("\\", "/") in hint_text.replace("\\", "/"):
-                        msg["_tool_hint"] = False
-                        changed = True
-            if changed:
-                sm.save(session)
-        except Exception as exc:
-            _log(f"[files:revert] cleanup session markers failed: {exc}")
+        _remove_tracked_file(session_key, file_path)
 
     _result(req_id, {"reverted": True, "path": file_path})
+
+
+def _get_session_manager():
+    """Get a SessionManager for the current workspace."""
+    from miqi.session.manager import SessionManager
+    config = _state.load_config()
+    return SessionManager(config.workspace_path)
+
+
+def _remove_tracked_file(session_key: str, file_path: str) -> None:
+    """Remove a tracked file entry from tracked_files.json."""
+    try:
+        sm = _get_session_manager()
+        sm.remove_tracked_file(session_key, file_path)
+    except Exception as exc:
+        _log(f"[files] remove_tracked_file failed: {exc}")
 
 
 def handle_files_accept(req_id: str, params: dict) -> None:
@@ -1617,11 +1650,15 @@ def handle_files_accept(req_id: str, params: dict) -> None:
 
     _log(f"[files:accept] req={req_id} path={file_path} session_key={session_key}")
 
+    # Remove tracked file entry first (non-critical, do even if validation fails)
+    if session_key:
+        _remove_tracked_file(session_key, file_path)
+
     try:
         resolved = _validate_file_path(file_path, session_key)
     except ValueError as exc:
         _log(f"[files:accept] path validation failed: {exc}")
-        _error(req_id, str(exc))
+        _result(req_id, {"accepted": True, "path": file_path})
         return
 
     snapshot_key = str(resolved)
@@ -1636,27 +1673,6 @@ def handle_files_accept(req_id: str, params: dict) -> None:
         _delete_snapshot(snapshot_key)
 
     _log(f"[files:accept] ok path={file_path}")
-
-    # Clean up _tool_hint markers from session messages so the file
-    # won't reappear in trackedFiles on session reload.
-    if session_key:
-        try:
-            from miqi.session.manager import SessionManager
-            config = _state.load_config()
-            sm = SessionManager(config.workspace_path)
-            session = sm.get_or_create(session_key)
-            changed = False
-            for msg in session.messages:
-                if msg.get("_tool_hint"):
-                    hint_text = msg.get("_tool_hint_text", "") or msg.get("content", "")
-                    if file_path.replace("\\", "/") in hint_text.replace("\\", "/"):
-                        msg["_tool_hint"] = False
-                        changed = True
-            if changed:
-                sm.save(session)
-        except Exception as exc:
-            _log(f"[files:accept] cleanup session markers failed: {exc}")
-
     _result(req_id, {"accepted": True, "path": file_path})
 
 
@@ -1866,6 +1882,8 @@ _METHODS = {
     "sessions.list": handle_sessions_list,
     "sessions.get": handle_sessions_get,
     "sessions.delete": handle_sessions_delete,
+    "sessions.get_tracked_files": handle_sessions_get_tracked_files,
+    "sessions.clear_tracked_files": handle_sessions_clear_tracked_files,
     "config.get": handle_config_get,
     "config.update": handle_config_update,
     "providers.list": handle_providers_list,

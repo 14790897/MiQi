@@ -725,6 +725,21 @@ class AgentLoop:
                     hint_text = self._tool_hint(response.tool_calls)
                     messages[-1]["_tool_hint"] = True
                     messages[-1]["_tool_hint_text"] = hint_text
+                    # Persist tracked files to dedicated tracked_files.json
+                    # so accept/revert can clear them without rewriting conversation.jsonl
+                    if self._session_key:
+                        try:
+                            for tc in response.tool_calls:
+                                if tc.name in self._FILE_OPS:
+                                    arg = next(iter(tc.arguments.values()), "")
+                                    if isinstance(arg, str) and arg:
+                                        op = {"write_file": "write", "edit_file": "edit",
+                                              "delete_file": "delete", "read_file": "read"
+                                              }.get(tc.name, "read")
+                                        self.sessions.save_tracked_file(
+                                            self._session_key, arg, op=op)
+                        except Exception:
+                            pass  # Non-critical: sidebar is a nice-to-have
 
                 # Build flat dicts for the registry dispatch helpers
                 _tc_dicts = [

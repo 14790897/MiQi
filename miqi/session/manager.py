@@ -213,6 +213,78 @@ class SessionManager:
         self._cache[session.key] = session
         self.compact_if_needed(session.key)
 
+    # ── Tracked files (sidebar) ───────────────────────────────────────
+
+    def _get_tracked_files_path(self, key: str) -> Path:
+        """Path to the per-session tracked_files.json."""
+        self._migrate_flat_to_dir(key)
+        return self.get_session_dir(key) / "tracked_files.json"
+
+    def load_tracked_files(self, key: str) -> dict[str, dict]:
+        """Load tracked files map {normalized_path: {op, name, lastSeen}}.
+
+        Returns an empty dict if the file doesn't exist or is corrupt.
+        """
+        path = self._get_tracked_files_path(key)
+        if not path.exists():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data.get("files", {}) if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def save_tracked_file(self, key: str, file_path: str, op: str = "read",
+                          name: str = "") -> None:
+        """Upsert a single tracked file entry.
+
+        ``file_path`` is normalised to forward-slash internally.
+        ``op`` is one of: read, write, edit, delete.
+        """
+        files = self.load_tracked_files(key)
+        norm = file_path.replace("\\", "/")
+        existing = files.get(norm, {})
+        # Upgrade: read < edit < write < delete
+        rank = {"read": 0, "edit": 1, "write": 2, "delete": 3}
+        cur_rank = rank.get(existing.get("op", "read"), 0)
+        new_rank = rank.get(op, 0)
+        if new_rank >= cur_rank:
+            from pathlib import PurePosixPath
+            files[norm] = {
+                "op": op,
+                "name": name or PurePosixPath(norm).name,
+                "lastSeen": int(datetime.now().timestamp() * 1000),
+            }
+        path = self._get_tracked_files_path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps({"version": 1, "files": files}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+
+    def remove_tracked_file(self, key: str, file_path: str) -> None:
+        """Remove a single tracked file entry."""
+        files = self.load_tracked_files(key)
+        norm = file_path.replace("\\", "/")
+        files.pop(norm, None)
+        path = self._get_tracked_files_path(key)
+        if not files:
+            path.unlink(missing_ok=True)
+            return
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps({"version": 1, "files": files}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+
+    def clear_tracked_files(self, key: str) -> None:
+        """Remove the entire tracked_files.json for a session."""
+        path = self._get_tracked_files_path(key)
+        path.unlink(missing_ok=True)
+
     def invalidate(self, key: str) -> None:
         """Remove a session from in-memory cache."""
         self._cache.pop(key, None)
