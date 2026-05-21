@@ -71,6 +71,7 @@ export const IPC = {
   FILES_DELETE: 'files:delete',
   FILES_DIFF: 'files:diff',
   FILES_REVERT: 'files:revert',
+  FILES_ACCEPT: 'files:accept',
 
   // Python check
   PYTHON_CHECK: 'python:check',
@@ -536,6 +537,7 @@ export const FilesReadInput = z.object({
 export const FilesWriteInput = z.object({
   path: z.string().min(1),
   content: z.string(),
+  session_key: z.string().optional(),
 })
 
 export interface FileNode {

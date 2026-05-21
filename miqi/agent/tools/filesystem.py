@@ -3,11 +3,14 @@
 import difflib
 import hashlib as _hashlib
 import json as _json
+import logging
 import threading
 from pathlib import Path
 from typing import Any
 
 from miqi.agent.tools.base import Tool
+
+_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # File snapshot store — keeps original content before first write/edit
@@ -53,7 +56,8 @@ def _read_snapshot(key: str, snapshot_dir: Path | None = None) -> str | None:
     return None
 
 
-def _write_snapshot_to(snapshot_dir: Path, key: str, content: str) -> None:
+def _write_snapshot_to(snapshot_dir: Path, key: str, content: str) -> bool:
+    """Write a snapshot file. Returns True on success, False on failure."""
     p = _snapshot_file_for_dir(snapshot_dir, key)
     try:
         snapshot_dir.mkdir(parents=True, exist_ok=True)
@@ -61,21 +65,27 @@ def _write_snapshot_to(snapshot_dir: Path, key: str, content: str) -> None:
             _json.dumps({"path": key, "content": content}, ensure_ascii=False),
             encoding="utf-8",
         )
+        return True
     except Exception:
-        pass
+        _log.warning("Failed to write snapshot for %s to %s", key, p, exc_info=True)
+        return False
 
 
 def _write_snapshot(key: str, content: str) -> None:
     _write_snapshot_to(_snapshots_dir(), key, content)
 
 
-def _maybe_snapshot(resolved: Path, snapshot_dir: Path | None = None) -> None:
-    """Save a snapshot of *resolved* if not already snapshotted (disk-backed)."""
+def _maybe_snapshot(resolved: Path, snapshot_dir: Path | None = None) -> bool:
+    """Save a snapshot of *resolved* if not already snapshotted (disk-backed).
+
+    Returns True if a snapshot was successfully written or already existed,
+    False if the write failed.
+    """
     key = str(resolved)
     effective_dir = snapshot_dir or _snapshots_dir()
     with _snapshots_lock:
         if _read_snapshot(key, snapshot_dir=snapshot_dir) is not None:
-            return
+            return True
         if resolved.exists():
             try:
                 content = resolved.read_text(encoding="utf-8", errors="replace")
@@ -83,7 +93,7 @@ def _maybe_snapshot(resolved: Path, snapshot_dir: Path | None = None) -> None:
                 content = ""
         else:
             content = ""
-        _write_snapshot_to(effective_dir, key, content)
+        return _write_snapshot_to(effective_dir, key, content)
 
 
 def _restore_snapshot(resolved: Path, snapshot_dir: Path | None = None) -> bool:
@@ -233,10 +243,13 @@ class WriteFileTool(Tool):
         try:
             file_path = _resolve_path(path, self._workspace, self._allowed_dir)
             # Snapshot original content before first write (enables non-git diff/revert)
-            _maybe_snapshot(file_path, snapshot_dir=self._snapshot_dir)
+            snap_ok = _maybe_snapshot(file_path, snapshot_dir=self._snapshot_dir)
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
-            return f"Successfully wrote {len(content)} bytes to {file_path}"
+            result = f"Successfully wrote {len(content)} bytes to {file_path}"
+            if not snap_ok:
+                _log.warning("Snapshot failed for %s — revert will not be available", file_path)
+            return result
         except PermissionError as e:
             return f"Error: {e}"
         except Exception as e:
@@ -287,7 +300,7 @@ class EditFileTool(Tool):
                 return f"Error: File not found: {path}"
 
             # Snapshot original content before first edit (enables non-git diff/revert)
-            _maybe_snapshot(file_path, snapshot_dir=self._snapshot_dir)
+            snap_ok = _maybe_snapshot(file_path, snapshot_dir=self._snapshot_dir)
 
             content = file_path.read_text(encoding="utf-8")
 

@@ -1207,11 +1207,41 @@ def _get_workspace_path() -> Path:
     return config.workspace_path.resolve()
 
 
-def _validate_file_path(file_path: str) -> Path:
-    """Resolve a relative path against workspace and block traversal."""
+def _get_session_files_path(session_key: str | None) -> Path | None:
+    """Get the session-level files directory, if session_key is provided.
+
+    Matches the logic in AgentLoop._setup_tools() so that files.revert/files.diff/files.write
+    resolve relative paths to the same directory as the Agent's WriteFileTool/EditFileTool.
+    """
+    if not session_key:
+        return None
+    from miqi.utils.helpers import safe_filename  # noqa: PLC0415
+    config = _state.load_config()
+    safe_key = safe_filename(session_key.replace(":", "_"))
+    files_dir = config.workspace_path / "sessions" / safe_key / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+    return files_dir
+
+
+def _validate_file_path(file_path: str, session_key: str | None = None) -> Path:
+    """Resolve a relative path against workspace and block traversal.
+
+    If session_key is provided and the session's workspace is enabled,
+    resolves relative paths against the session-level files directory
+    instead of the workspace root, matching AgentLoop._setup_tools().
+    """
     workspace = _get_workspace_path()
     if not file_path or file_path.startswith("/") or file_path.startswith("\\"):
         raise ValueError("Only relative paths are allowed")
+
+    # If we have a session_key, try session-level files dir first
+    session_files = _get_session_files_path(session_key)
+    if session_files:
+        resolved = (session_files / file_path).resolve()
+        if str(resolved).startswith(str(workspace) + str(Path("/"))) or resolved == workspace:
+            return resolved
+
+    # Fall back to workspace root
     resolved = (workspace / file_path).resolve()
     if not str(resolved).startswith(str(workspace) + str(Path("/"))) and resolved != workspace:
         raise ValueError(f"Path escapes workspace: {file_path}")
@@ -1260,13 +1290,14 @@ def handle_files_tree(req_id: str, params: dict) -> None:
 
 def handle_files_read(req_id: str, params: dict) -> None:
     file_path = params.get("path", "").strip()
-    _log(f"[files:read] req={req_id} path={file_path}")
+    session_key = params.get("session_key")
+    _log(f"[files:read] req={req_id} path={file_path} session_key={session_key}")
     if not file_path:
         _error(req_id, "path is required")
         return
 
     try:
-        resolved = _validate_file_path(file_path)
+        resolved = _validate_file_path(file_path, session_key)
     except ValueError as exc:
         _log(f"[files:read] path validation failed: {exc}")
         _error(req_id, str(exc))
@@ -1321,7 +1352,7 @@ def handle_files_write(req_id: str, params: dict) -> None:
         return
 
     try:
-        resolved = _validate_file_path(file_path)
+        resolved = _validate_file_path(file_path, session_key)
     except ValueError as exc:
         _log(f"[files:write] path validation failed: {exc}")
         _error(req_id, str(exc))
@@ -1339,7 +1370,9 @@ def handle_files_write(req_id: str, params: dict) -> None:
         return
 
     # Snapshot original content before first write (enables non-git diff/revert)
-    _maybe_snapshot(resolved)
+    session_key = params.get("session_key")
+    snapshot_dir = _get_snapshot_dir_for_session(session_key)
+    _maybe_snapshot(resolved, snapshot_dir=snapshot_dir)
     resolved.parent.mkdir(parents=True, exist_ok=True)
     try:
         resolved.write_text(content, encoding="utf-8")
@@ -1354,13 +1387,14 @@ def handle_files_write(req_id: str, params: dict) -> None:
 def handle_files_delete(req_id: str, params: dict) -> None:
     """Delete a workspace file or empty directory."""
     file_path = params.get("path", "").strip()
-    _log(f"[files:delete] req={req_id} path={file_path}")
+    session_key = params.get("session_key")
+    _log(f"[files:delete] req={req_id} path={file_path} session_key={session_key}")
     if not file_path:
         _error(req_id, "path is required")
         return
 
     try:
-        resolved = _validate_file_path(file_path)
+        resolved = _validate_file_path(file_path, session_key)
     except ValueError as exc:
         _log(f"[files:delete] path validation failed: {exc}")
         _error(req_id, str(exc))
@@ -1390,30 +1424,52 @@ def handle_files_delete(req_id: str, params: dict) -> None:
     _result(req_id, {"deleted": True, "path": file_path})
 
 
+def _get_snapshot_dir_for_session(session_key: str | None) -> Path | None:
+    """Get the session-level snapshot directory, if session_key is provided.
+
+    Matches the logic in AgentLoop._setup_tools() so that files.revert/files.diff
+    use the same snapshot directory as the Agent's WriteFileTool/EditFileTool.
+    """
+    if not session_key:
+        return None
+    from miqi.utils.helpers import safe_filename  # noqa: PLC0415
+    config = _state.load_config()
+    safe_key = safe_filename(session_key.replace(":", "_"))
+    snap_dir = config.workspace_path / "sessions" / safe_key / "snapshots"
+    snap_dir.mkdir(parents=True, exist_ok=True)
+    return snap_dir
+
+
 def handle_files_diff(req_id: str, params: dict) -> None:
     """Diff a file against its pre-session snapshot using difflib (no git required).
-    
+
     For new files (no snapshot exists but file currently exists), generates a diff
     showing all content as additions (like 'git diff' for untracked files).
     """
     import difflib
 
     file_path = params.get("path", "").strip()
-    _log(f"[files:diff] req={req_id} path={file_path}")
+    session_key = params.get("session_key")
+    _log(f"[files:diff] req={req_id} path={file_path} session_key={session_key}")
     if not file_path:
         _error(req_id, "path is required")
         return
 
     try:
-        resolved = _validate_file_path(file_path)
+        resolved = _validate_file_path(file_path, session_key)
     except ValueError as exc:
         _log(f"[files:diff] path validation failed: {exc}")
         _error(req_id, str(exc))
         return
 
     snapshot_key = str(resolved)
+    snapshot_dir = _get_snapshot_dir_for_session(session_key)
     with _snapshots_lock:
-        original_content: str | None = _read_snapshot(snapshot_key)
+        original_content: str | None = _read_snapshot(snapshot_key, snapshot_dir=snapshot_dir)
+
+    # Fall back to global snapshots dir
+    if original_content is None:
+        original_content = _read_snapshot(snapshot_key)
 
     # Read current content
     current_content: str | None = None
@@ -1486,28 +1542,38 @@ def handle_files_diff(req_id: str, params: dict) -> None:
 def handle_files_revert(req_id: str, params: dict) -> None:
     """Revert a file to its pre-session snapshot (no git required)."""
     file_path = params.get("path", "").strip()
-    _log(f"[files:revert] req={req_id} path={file_path}")
+    session_key = params.get("session_key")
+    _log(f"[files:revert] req={req_id} path={file_path} session_key={session_key}")
     if not file_path:
         _error(req_id, "path is required")
         return
 
     try:
-        resolved = _validate_file_path(file_path)
+        resolved = _validate_file_path(file_path, session_key)
     except ValueError as exc:
         _log(f"[files:revert] path validation failed: {exc}")
         _error(req_id, str(exc))
         return
 
     snapshot_key = str(resolved)
+    snapshot_dir = _get_snapshot_dir_for_session(session_key)
     with _snapshots_lock:
+        has_snapshot = _read_snapshot(snapshot_key, snapshot_dir=snapshot_dir) is not None
+
+    if not has_snapshot:
+        # Also check global snapshots dir (snapshot may have been written there
+        # if snapshot_dir was None during _maybe_snapshot)
         has_snapshot = _read_snapshot(snapshot_key) is not None
+        if has_snapshot:
+            snapshot_dir = None  # use global dir for restore/delete
+            _log(f"[files:revert] found snapshot in global dir for {snapshot_key}")
 
     if not has_snapshot:
         _log(f"[files:revert] no snapshot for {snapshot_key}")
         _error(req_id, "No snapshot found — cannot revert (file was not modified in this session)")
         return
 
-    ok = _restore_snapshot(resolved)
+    ok = _restore_snapshot(resolved, snapshot_dir=snapshot_dir)
     if not ok:
         _log(f"[files:revert] restore failed for {snapshot_key}")
         _error(req_id, "Revert failed — could not write original content")
@@ -1515,10 +1581,83 @@ def handle_files_revert(req_id: str, params: dict) -> None:
 
     # Remove snapshot so the file is treated as clean again
     with _snapshots_lock:
-        _delete_snapshot(snapshot_key)
+        _delete_snapshot(snapshot_key, snapshot_dir=snapshot_dir)
 
     _log(f"[files:revert] ok path={file_path}")
+    # After successful revert, clean up _tool_hint markers from session messages
+    # so the file won't reappear in trackedFiles on session reload.
+    if session_key:
+        try:
+            from miqi.session.manager import SessionManager
+            config = _state.load_config()
+            sm = SessionManager(config.workspace_path)
+            session = sm.get_or_create(session_key)
+            changed = False
+            for msg in session.messages:
+                if msg.get("_tool_hint"):
+                    hint_text = msg.get("_tool_hint_text", "") or msg.get("content", "")
+                    if file_path.replace("\\", "/") in hint_text.replace("\\", "/"):
+                        msg["_tool_hint"] = False
+                        changed = True
+            if changed:
+                sm.save(session)
+        except Exception as exc:
+            _log(f"[files:revert] cleanup session markers failed: {exc}")
+
     _result(req_id, {"reverted": True, "path": file_path})
+
+
+def handle_files_accept(req_id: str, params: dict) -> None:
+    """Accept all changes for a file — keep current content, delete its snapshot."""
+    file_path = params.get("path", "").strip()
+    session_key = params.get("session_key")
+    if not file_path:
+        _error(req_id, "path is required")
+        return
+
+    _log(f"[files:accept] req={req_id} path={file_path} session_key={session_key}")
+
+    try:
+        resolved = _validate_file_path(file_path, session_key)
+    except ValueError as exc:
+        _log(f"[files:accept] path validation failed: {exc}")
+        _error(req_id, str(exc))
+        return
+
+    snapshot_key = str(resolved)
+    snapshot_dir = _get_snapshot_dir_for_session(session_key)
+
+    # Delete snapshot from session dir
+    with _snapshots_lock:
+        _delete_snapshot(snapshot_key, snapshot_dir=snapshot_dir)
+
+    # Also clean global dir if snapshot landed there
+    with _snapshots_lock:
+        _delete_snapshot(snapshot_key)
+
+    _log(f"[files:accept] ok path={file_path}")
+
+    # Clean up _tool_hint markers from session messages so the file
+    # won't reappear in trackedFiles on session reload.
+    if session_key:
+        try:
+            from miqi.session.manager import SessionManager
+            config = _state.load_config()
+            sm = SessionManager(config.workspace_path)
+            session = sm.get_or_create(session_key)
+            changed = False
+            for msg in session.messages:
+                if msg.get("_tool_hint"):
+                    hint_text = msg.get("_tool_hint_text", "") or msg.get("content", "")
+                    if file_path.replace("\\", "/") in hint_text.replace("\\", "/"):
+                        msg["_tool_hint"] = False
+                        changed = True
+            if changed:
+                sm.save(session)
+        except Exception as exc:
+            _log(f"[files:accept] cleanup session markers failed: {exc}")
+
+    _result(req_id, {"accepted": True, "path": file_path})
 
 
 def handle_skills_open_folder(req_id: str, params: dict) -> None:
@@ -1771,6 +1910,7 @@ _METHODS = {
     "files.delete": handle_files_delete,
     "files.diff": handle_files_diff,
     "files.revert": handle_files_revert,
+    "files.accept": handle_files_accept,
     "python.check": handle_python_check,
 }
 
