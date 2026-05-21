@@ -219,8 +219,16 @@ export function ChatConsole({
         const rawMsgs: any[] = (detail as any)?.messages ?? []
         const uiMsgs = sessionMsgsToUi(rawMsgs)
         setMessages(uiMsgs)
-        // Restore tracked files from session history
-        setTrackedFiles(extractTrackedFilesFromMessages(rawMsgs))
+        // Restore tracked files from dedicated tracked_files.json
+        const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey)
+        if (currentSessionRef.current !== sessionKey) return
+        const tfList = (tfResult as any)?.tracked_files ?? []
+        setTrackedFiles(tfList.map((f: any) => ({
+          path: f.path,
+          name: f.name,
+          op: f.op,
+          lastSeen: f.lastSeen,
+        })))
       } catch { /* session doesn't exist yet */ }
       setHistoryLoaded(true)
     }

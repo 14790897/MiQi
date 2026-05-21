@@ -88,6 +88,16 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     return bridge.send('sessions.delete', { session_key: input.session_key })
   })
 
+  ipcMain.handle(IPC.SESSIONS_GET_TRACKED_FILES, async (_event, payload: unknown) => {
+    const input = SessionGetInput.parse(payload)
+    return bridge.sendSafe('sessions.get_tracked_files', { session_key: input.session_key })
+  })
+
+  ipcMain.handle(IPC.SESSIONS_CLEAR_TRACKED_FILES, async (_event, payload: unknown) => {
+    const input = SessionGetInput.parse(payload)
+    return bridge.send('sessions.clear_tracked_files', { session_key: input.session_key })
+  })
+
   // -----------------------------------------------------------------------
   // Config
   // -----------------------------------------------------------------------

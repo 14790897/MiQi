@@ -36,6 +36,7 @@ import type {
   FilesWriteResult,
   FilesDiffResult,
   FilesRevertResult,
+  TrackedFileInfo,
   ChatProgress,
   ChatFinal,
   ChatError,
@@ -107,6 +108,10 @@ const api = {
       ipcRenderer.invoke(IPC.SESSIONS_GET, { session_key: sessionKey }),
     delete: (sessionKey: string): Promise<{ deleted: boolean }> =>
       ipcRenderer.invoke(IPC.SESSIONS_DELETE, { session_key: sessionKey }),
+    getTrackedFiles: (sessionKey: string): Promise<{ tracked_files: TrackedFileInfo[] }> =>
+      ipcRenderer.invoke(IPC.SESSIONS_GET_TRACKED_FILES, { session_key: sessionKey }),
+    clearTrackedFiles: (sessionKey: string): Promise<{ cleared: boolean }> =>
+      ipcRenderer.invoke(IPC.SESSIONS_CLEAR_TRACKED_FILES, { session_key: sessionKey }),
   },
 
   // -- Config -----------------------------------------------------------------

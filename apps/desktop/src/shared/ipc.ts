@@ -19,6 +19,8 @@ export const IPC = {
   SESSIONS_LIST: 'sessions:list',
   SESSIONS_GET: 'sessions:get',
   SESSIONS_DELETE: 'sessions:delete',
+  SESSIONS_GET_TRACKED_FILES: 'sessions:get_tracked_files',
+  SESSIONS_CLEAR_TRACKED_FILES: 'sessions:clear_tracked_files',
 
   // Config
   CONFIG_GET: 'config:get',
@@ -576,6 +578,13 @@ export interface FilesDiffResult {
 export interface FilesRevertResult {
   reverted: boolean
   path: string
+}
+
+export interface TrackedFileInfo {
+  path: string
+  op: 'read' | 'write' | 'edit' | 'delete'
+  name: string
+  lastSeen: number
 }
 
 // ---------------------------------------------------------------------------
