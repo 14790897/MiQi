@@ -19,6 +19,9 @@ export const IPC = {
   SESSIONS_LIST: 'sessions:list',
   SESSIONS_GET: 'sessions:get',
   SESSIONS_DELETE: 'sessions:delete',
+  SESSIONS_ARCHIVE: 'sessions:archive',
+  SESSIONS_UNARCHIVE: 'sessions:unarchive',
+  SESSIONS_LIST_ARCHIVED: 'sessions:list_archived',
   SESSIONS_GET_TRACKED_FILES: 'sessions:get_tracked_files',
   SESSIONS_CLEAR_TRACKED_FILES: 'sessions:clear_tracked_files',
 

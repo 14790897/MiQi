@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { ScrollArea } from '../../components/ui/ScrollArea'
 import { cn } from '../../lib/utils'
-import { RefreshCw, Download, Save, Eye, EyeOff, Check, RotateCcw } from 'lucide-react'
+import { RefreshCw, Download, Save, Eye, EyeOff, Check, RotateCcw, Archive, RotateCcw as Unarchive } from 'lucide-react'
 import { useRuntime } from '../../contexts/RuntimeContext'
 import * as Tabs from '@radix-ui/react-tabs'
 import { ProvidersPage } from '../providers/ProvidersPage'
@@ -14,7 +14,7 @@ import { CronPage } from '../cron/CronPage'
 import { MCPsPage } from '../mcps/MCPsPage'
 import { ExperiencePage } from '../experience/ExperiencePage'
 
-type SettingsTab = 'general' | 'providers' | 'channels' | 'approvals' | 'workspace' | 'webtools' | 'appearance' | 'logs'
+type SettingsTab = 'general' | 'providers' | 'channels' | 'approvals' | 'workspace' | 'webtools' | 'appearance' | 'logs' | 'archived'
 
 // ---- Helpers ----
 function getNestedStr(obj: Record<string, unknown>, ...keys: string[]): string {
@@ -595,6 +595,88 @@ function LogsTab() {
   )
 }
 
+// ---- Archived Sessions Tab ----
+function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
+  const [sessions, setSessions] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const r = await window.miqi.sessions.listArchived()
+      setSessions(r?.sessions ?? [])
+    } catch { /* ignore */ }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const handleRestore = async (key: string, title: string) => {
+    await window.miqi.sessions.unarchive(key)
+    await load()
+    onRestore?.(key)
+  }
+
+  const handleDelete = async (key: string, title: string) => {
+    if (!window.confirm(`永久删除对话「${title}」？此操作不可撤销。`)) return
+    await window.miqi.sessions.delete(key)
+    await load()
+  }
+
+  function formatTime(iso?: string): string {
+    if (!iso) return ''
+    const d = new Date(iso)
+    return d.toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
+
+  return (
+    <div className="p-6 max-w-2xl flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-[var(--text)]">已归档对话</h3>
+        <Button variant="ghost" size="icon" onClick={load} disabled={loading}>
+          <RefreshCw size={14} className={cn(loading && 'animate-spin')} />
+        </Button>
+      </div>
+
+      {sessions.length === 0 ? (
+        <div className="text-xs text-[var(--text-faint)] text-center py-12">
+          暂无已归档的对话
+        </div>
+      ) : (
+        <div className="flex flex-col border border-[var(--border-subtle)] rounded-lg overflow-hidden">
+          {sessions.map((s) => (
+            <div
+              key={s.key}
+              className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border-subtle)] last:border-b-0"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-sm truncate text-[var(--text)]">{s.title || s.key}</p>
+                <p className="text-xs text-[var(--text-faint)]">{formatTime(s.updated_at)}</p>
+              </div>
+              <button
+                onClick={() => handleRestore(s.key, s.title || s.key)}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-muted)] transition-colors"
+                title="恢复对话"
+              >
+                <Unarchive size={12} />
+                恢复
+              </button>
+              <button
+                onClick={() => handleDelete(s.key, s.title || s.key)}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-faint)] hover:text-[var(--danger)] hover:bg-[var(--surface-muted)] transition-colors"
+                title="永久删除"
+              >
+                <Archive size={12} />
+                删除
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ---- Main ----
 export function SettingsPage({ onReopenSetup }: { onReopenSetup?: () => void }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
@@ -623,6 +705,7 @@ export function SettingsPage({ onReopenSetup }: { onReopenSetup?: () => void }) 
             { value: 'webtools', label: 'Web 工具' },
             { value: 'appearance', label: '外观' },
             { value: 'logs', label: '运行日志' },
+            { value: 'archived', label: '已归档' },
           ].map((tab) => (
             <Tabs.Trigger
               key={tab.value}
@@ -662,6 +745,9 @@ export function SettingsPage({ onReopenSetup }: { onReopenSetup?: () => void }) 
         </Tabs.Content>
         <Tabs.Content value="logs" className="flex-1 min-h-0 flex flex-col">
           <LogsTab />
+        </Tabs.Content>
+        <Tabs.Content value="archived" className="flex-1 overflow-y-auto">
+          <ArchivedTab />
         </Tabs.Content>
       </Tabs.Root>
     </div>

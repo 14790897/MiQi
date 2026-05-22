@@ -285,28 +285,36 @@ class SessionManager:
         path = self._get_tracked_files_path(key)
         path.unlink(missing_ok=True)
 
+    # ── Archive ───────────────────────────────────────────────────────
+
+    def _get_archived_marker(self, key: str) -> Path:
+        """Path to the archive marker file."""
+        self._migrate_flat_to_dir(key)
+        return self.get_session_dir(key) / ".archived"
+
     def invalidate(self, key: str) -> None:
         """Remove a session from in-memory cache."""
         self._cache.pop(key, None)
 
-    def delete(self, key: str) -> bool:
-        """Delete a session from cache and disk."""
-        self._cache.pop(key, None)
-        self._migrate_flat_to_dir(key)
-        session_dir = self.get_session_dir(key)
-        if session_dir.exists():
-            shutil.rmtree(session_dir)
-            return True
-        # Fallback: old flat file that was never migrated
-        safe_key = safe_filename(key.replace(":", "_"))
-        old_flat = self.sessions_dir / f"{safe_key}.jsonl"
-        if old_flat.exists():
-            old_flat.unlink()
-            return True
-        return False
+    def archive(self, key: str) -> None:
+        """Mark a session as archived."""
+        path = self._get_archived_marker(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+        self.invalidate(key)
 
-    def list_sessions(self) -> list[dict[str, Any]]:
-        """List all sessions sorted by updated time descending."""
+    def unarchive(self, key: str) -> None:
+        """Remove archived marker from a session."""
+        path = self._get_archived_marker(key)
+        path.unlink(missing_ok=True)
+        self.invalidate(key)
+
+    def list_sessions(self, include_archived: bool = False) -> list[dict[str, Any]]:
+        """List sessions sorted by updated time descending.
+
+        Args:
+            include_archived: If False (default), exclude archived sessions.
+        """
         sessions: list[dict[str, Any]] = []
 
         # Primary: directory-based sessions
@@ -314,6 +322,8 @@ class SessionManager:
             try:
                 data = self._read_metadata(path)
                 if data is None:
+                    continue
+                if not include_archived and (path.parent / ".archived").exists():
                     continue
                 key = data.get("key") or path.parent.name.replace("_", ":", 1)
                 sessions.append(
@@ -348,6 +358,24 @@ class SessionManager:
                 continue
 
         return sorted(sessions, key=lambda item: item.get("updated_at", ""), reverse=True)
+        """Remove a session from in-memory cache."""
+        self._cache.pop(key, None)
+
+    def delete(self, key: str) -> bool:
+        """Delete a session from cache and disk."""
+        self._cache.pop(key, None)
+        self._migrate_flat_to_dir(key)
+        session_dir = self.get_session_dir(key)
+        if session_dir.exists():
+            shutil.rmtree(session_dir)
+            return True
+        # Fallback: old flat file that was never migrated
+        safe_key = safe_filename(key.replace(":", "_"))
+        old_flat = self.sessions_dir / f"{safe_key}.jsonl"
+        if old_flat.exists():
+            old_flat.unlink()
+            return True
+        return False
 
     @staticmethod
     def _extract_title(path: Path) -> str:
