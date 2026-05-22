@@ -9,8 +9,17 @@ All notable changes to this project will be documented in this file.
   - Fixed merge incorrectly deleting newly created files (unlinking files that were created when the snapshot was empty)
   - Fixed files reappearing after switching sessions (`SessionManager.save` append-only mode prevented `_tool_hint` changes from being persisted)
   - Refactored sidebar file tracking: moved `_tool_hint` out of `conversation.jsonl` into a separate `tracked_files.json`; accept/revert now only remove JSON entries without rewriting conversation history
+- **SkillHub CSP and file extension fixes**:
+  - Fixed CSP in `index.html` blocking fetch requests to `https://skills.sixiangjia.de` — added to `connect-src`
+  - Fixed `skills_create` and `skills_upload` in `bridge/server.py` writing `skill.yml` instead of `SKILL.md`, causing installed skills to be invisible to the `SkillsLoader`
 
 ### Added (2026-05-22)
+- **SkillHub registry integration** (`apps/desktop/src/renderer/features/skills/SkillHubPage.tsx`):
+  - New "SkillHub" tab in the Skills page, alongside the existing "本地技能" (Local Skills) tab
+  - Browsing: loads the full skill index from `https://skills.sixiangjia.de/index.json` and displays skills in a card grid
+  - Search: debounced (300ms) keyword search via `/api/search?q=<keyword>`
+  - One-click install: fetches `SKILL.md` from the registry and writes it to the workspace skills directory via the existing `skills.upload` IPC channel
+  - Installed status: already-installed skills show an "已安装" (Installed) badge; loading and error states have inline feedback
 - **Conversation archiving**:
   - Added an archive button on the right side of each conversation in the sidebar (visible on hover); archived conversations are hidden from the list
   - Added an "Archived" tab in Settings to view, restore, and permanently delete archived conversations
