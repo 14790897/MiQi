@@ -1768,11 +1768,14 @@ def handle_skills_create(req_id: str, params: dict) -> None:
         return
     skill_dir.mkdir(parents=True)
     template = (
+        f"---\n"
         f"name: {name}\n"
         f"description: {description or 'A new skill'}\n"
-        f"version: \"1.0\"\ntriggers: []\nsteps: []\n"
+        f"version: \"1.0\"\n"
+        f"---\n\n"
+        f"# {name}\n\n{description or 'A new skill'}\n"
     )
-    (skill_dir / "skill.yml").write_text(template, encoding="utf-8")
+    (skill_dir / "SKILL.md").write_text(template, encoding="utf-8")
     _result(req_id, {"ok": True, "path": str(skill_dir)})
 
 
@@ -1789,7 +1792,7 @@ def handle_skills_upload(req_id: str, params: dict) -> None:
         _error(req_id, f"Skill '{name}' already exists")
         return
     skill_dir.mkdir(parents=True)
-    (skill_dir / "skill.yml").write_text(content, encoding="utf-8")
+    (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
     _result(req_id, {"ok": True})
 
 
