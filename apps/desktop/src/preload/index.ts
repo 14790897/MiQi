@@ -108,6 +108,12 @@ const api = {
       ipcRenderer.invoke(IPC.SESSIONS_GET, { session_key: sessionKey }),
     delete: (sessionKey: string): Promise<{ deleted: boolean }> =>
       ipcRenderer.invoke(IPC.SESSIONS_DELETE, { session_key: sessionKey }),
+    archive: (sessionKey: string): Promise<{ archived: boolean }> =>
+      ipcRenderer.invoke(IPC.SESSIONS_ARCHIVE, { session_key: sessionKey }),
+    unarchive: (sessionKey: string): Promise<{ unarchived: boolean }> =>
+      ipcRenderer.invoke(IPC.SESSIONS_UNARCHIVE, { session_key: sessionKey }),
+    listArchived: (): Promise<{ sessions: SessionInfo[] }> =>
+      ipcRenderer.invoke(IPC.SESSIONS_LIST_ARCHIVED),
     getTrackedFiles: (sessionKey: string): Promise<{ tracked_files: TrackedFileInfo[] }> =>
       ipcRenderer.invoke(IPC.SESSIONS_GET_TRACKED_FILES, { session_key: sessionKey }),
     clearTrackedFiles: (sessionKey: string): Promise<{ cleared: boolean }> =>

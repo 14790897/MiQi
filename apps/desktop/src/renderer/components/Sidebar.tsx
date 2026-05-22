@@ -9,6 +9,7 @@ import {
   Settings,
   Plus,
   Plug,
+  Archive,
   type LucideIcon,
 } from 'lucide-react'
 import type { SessionInfo } from '../../shared/ipc'
@@ -182,23 +183,42 @@ export function Sidebar({
               const isActive = currentSession === s.key
               const displayName = s.title || formatTimestampKey(s.key)
               return (
-                <button
+                <div
                   key={s.key}
-                  onClick={() => {
-                    onNavChange('chat')
-                    onSessionSelect?.(s.key)
-                  }}
-                  className="w-full flex items-start gap-2 px-2 py-1.5 rounded text-left transition-colors hover:bg-[var(--surface-elevated)]"
-                  style={{
-                    background: isActive ? 'var(--surface-muted)' : 'transparent',
-                  }}
+                  className={cn(
+                    "w-full flex items-start gap-2 px-2 py-1.5 rounded text-left transition-colors group",
+                    isActive ? "bg-[var(--surface-muted)]" : "hover:bg-[var(--surface-elevated)]",
+                  )}
                 >
-                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1.5" style={{ background: 'var(--text-faint)' }} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm truncate" style={{ color: 'var(--text)' }}>{displayName}</p>
-                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{relativeTime(s.updated_at)}</p>
-                  </div>
-                </button>
+                  <button
+                    className="flex-1 flex items-start gap-2 min-w-0"
+                    onClick={() => {
+                      onNavChange('chat')
+                      onSessionSelect?.(s.key)
+                    }}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1.5" style={{ background: 'var(--text-faint)' }} />
+                    <div className="flex-1 min-w-0 text-left">
+                      <p className="text-sm truncate text-left" style={{ color: 'var(--text)' }}>{displayName}</p>
+                      <p className="text-xs text-left" style={{ color: 'var(--text-muted)' }}>{relativeTime(s.updated_at)}</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (!window.confirm(`归档对话「${displayName}」？归档后可在设置中找回。`)) return
+                      window.miqi.sessions.archive(s.key).then(() => {
+                        loadSessions()
+                        if (currentSession === s.key) onNewSession?.()
+                      })
+                    }}
+                    className="shrink-0 w-5 h-5 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[var(--surface-muted)]"
+                    style={{ color: 'var(--text-faint)' }}
+                    title="归档对话"
+                  >
+                    <Archive size={12} />
+                  </button>
+                </div>
               )
             })}
           </div>

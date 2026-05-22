@@ -365,6 +365,52 @@ def handle_sessions_delete(req_id: str, params: dict) -> None:
     _result(req_id, {"deleted": deleted})
 
 
+def handle_sessions_archive(req_id: str, params: dict) -> None:
+    """Archive a session — hide it from the default session list."""
+    session_key = params.get("session_key", "")
+    if not session_key:
+        _error(req_id, "session_key is required")
+        return
+    try:
+        sm = _get_session_manager()
+        sm.archive(session_key)
+        _result(req_id, {"archived": True})
+    except Exception as exc:
+        _error(req_id, str(exc))
+
+
+def handle_sessions_unarchive(req_id: str, params: dict) -> None:
+    """Unarchive a session — restore it to the default session list."""
+    session_key = params.get("session_key", "")
+    if not session_key:
+        _error(req_id, "session_key is required")
+        return
+    try:
+        sm = _get_session_manager()
+        sm.unarchive(session_key)
+        _result(req_id, {"unarchived": True})
+    except Exception as exc:
+        _error(req_id, str(exc))
+
+
+def handle_sessions_list_archived(req_id: str, params: dict) -> None:
+    """List only archived sessions."""
+    try:
+        sm = _get_session_manager()
+        sessions = sm.list_sessions(include_archived=True)
+        # Filter to only archived ones (non-archived won't have .archived marker)
+        archived = []
+        for s in sessions:
+            from miqi.session.manager import safe_filename
+            safe_key = safe_filename(s["key"].replace(":", "_"))
+            marker = sm.sessions_dir / safe_key / ".archived"
+            if marker.exists():
+                archived.append(s)
+        _result(req_id, {"sessions": archived})
+    except Exception as exc:
+        _error(req_id, str(exc))
+
+
 def handle_sessions_get_tracked_files(req_id: str, params: dict) -> None:
     """Return tracked files for a session from tracked_files.json."""
     session_key = params.get("session_key", "")
@@ -1882,6 +1928,9 @@ _METHODS = {
     "sessions.list": handle_sessions_list,
     "sessions.get": handle_sessions_get,
     "sessions.delete": handle_sessions_delete,
+    "sessions.archive": handle_sessions_archive,
+    "sessions.unarchive": handle_sessions_unarchive,
+    "sessions.list_archived": handle_sessions_list_archived,
     "sessions.get_tracked_files": handle_sessions_get_tracked_files,
     "sessions.clear_tracked_files": handle_sessions_clear_tracked_files,
     "config.get": handle_config_get,
