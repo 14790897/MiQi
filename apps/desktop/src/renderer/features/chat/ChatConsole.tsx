@@ -1520,8 +1520,18 @@ function UserAvatar() {
   )
 }
 
+/** Strip <think>...</think> reasoning blocks before rendering.
+ *  Handles both complete blocks and cross-message orphans
+ *  (tags split across streaming chunks). */
+function stripThinkBlocks(text: string): string {
+  // let result = text.replace(/<think>[\s\S]*?<\/think>/gi, '')  // complete blocks
+  let result = text.replace(/<\/?think>/gi, '')                    // orphan tags
+  return result.trim()
+}
+
 function MarkdownContent({ content }: { content: string }) {
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
+  const displayContent = stripThinkBlocks(content)
 
   const handleCopyCode = (code: string) => {
     navigator.clipboard.writeText(code)
@@ -1606,7 +1616,7 @@ function MarkdownContent({ content }: { content: string }) {
 
   return (
     <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-      {content}
+      {displayContent}
     </ReactMarkdown>
   )
 }
