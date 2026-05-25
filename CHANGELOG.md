@@ -3,6 +3,10 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+### Fixed (2026-05-25)
+- **Strip `<think>` reasoning blocks from assistant messages** (`ChatConsole.tsx`):
+  - Added `stripThinkBlocks()` helper that removes `</think>` blocks (case-insensitive, multi-line) before passing content to `MarkdownContent`/`ReactMarkdown`
+
 ### Fixed (2026-05-22)
 - **Fixes and refactor for the "Merge Changes" button**:
   - Fixed silent snapshot failures (exceptions in `_write_snapshot_to` were swallowed)
