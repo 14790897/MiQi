@@ -1,180 +1,142 @@
-# Developer Guide
+# 开发指南
 
-## Requirements
+## 开发环境搭建
 
-- Python 3.11 or 3.12
-- A virtual environment is strongly recommended
+### 必备工具
 
-## Local Installation
+- Python 3.11+ 和 uv
+- Node.js 20+ 和 npm
+- Git (含子模块支持)
+- WSL2 (Windows 用户推荐)
 
-```bash
-# Using uv (recommended)
-curl -LsSf https://astral.sh/uv/install.sh | sh   # skip if uv already installed
-uv --version
-
-git clone https://github.com/lichman0405/MiQi.git
-cd MiQi
-uv sync --extra dev     # creates .venv, installs all deps + dev tools
-source .venv/bin/activate
-```
+### 克隆并初始化
 
 ```bash
-# Using pip (alternative)
-git clone https://github.com/lichman0405/MiQi.git
-cd MiQi
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
+git clone --recurse-submodules <repo-url>
+cd miqi-desktop
+uv sync
+cd apps/desktop && npm install
 ```
 
----
+### 启动开发模式
 
-## Project Structure
+```bash
+cd apps/desktop
+npm run dev
+```
+
+## 开发工作流
+
+### Python 后端开发
 
 ```
 miqi/
-  agent/          # Agent loop, context builder, memory system, tool wiring
-  cli/            # CLI entry point and subcommand modules
-  channels/       # IM and messaging channel adapters
-  providers/      # LLM provider integrations
-  cron/           # Scheduled task service
-  session/        # Session management
-  bus/            # Message bus (inbound/outbound queues)
-  config/         # Config loader and schema (Pydantic)
-  heartbeat/      # Heartbeat service
-  skills/         # Built-in skill files (SKILL.md per skill)
-  templates/      # Agent system prompt templates
-tests/            # Test cases
-docs/             # Project documentation (this site)
-mcps/             # Bundled MCP server submodules
-scripts/          # Setup and configuration helpers
+├── agent/      修改 Agent 逻辑 → 写测试 → uv run pytest
+├── bridge/     添加 IPC handler → 更新 shared/ipc.ts → 前端适配
+├── providers/  新增 LLM 适配 → 更新 ProviderRegistry
+└── tools/      新增工具 → 注册到 ToolRegistry
 ```
 
-### Runtime Modules Worth Knowing
+### 前端开发
 
-| File | Role |
-|---|---|
-| `agent/context_compressor.py` | Optional 5-phase context compression helper |
-| `agent/iteration_budget.py` | Iteration-pressure tracking used inside `AgentLoop` |
-| `agent/smart_routing.py` | Cheap-model routing helper for embedded runtimes |
-| `agent/command_approval.py` | Dangerous-command approval helper module |
-| `providers/fallback.py` | Provider fallback-chain helper |
-| `session/sqlite_store.py` | Optional SQLite+FTS5 session backend module |
+```
+apps/desktop/src/
+├── main/       修改主进程逻辑 → 重启应用
+├── preload/    修改暴露 API → 重启应用
+├── renderer/   修改 UI → HMR 热更新
+└── shared/     修改类型定义 → 前后端同步更新
+```
 
-### CLI Module Structure
+### 添加新的 IPC 通道
 
-| File | Purpose |
-|---|---|
-| `cli/commands.py` | Entry point; compatibility exports for tests |
-| `cli/onboard.py` | `miqi onboard` command |
-| `cli/agent_cmd.py` | `miqi agent` command |
-| `cli/gateway_cmd.py` | `miqi gateway` command |
-| `cli/management.py` | channels / memory / session / cron / status / provider |
-| `cli/config_cmd.py` | `miqi config` subcommands |
+1. **shared/ipc.ts**：定义 IPC 常量 + Zod Schema
+2. **main/ipc/**：实现 Main 进程 handler
+3. **bridge/server.py**：实现 Bridge handler
+4. **preload/index.ts**：暴露 preload API
+5. **renderer**：调用 `window.miqi.*` API
 
----
+## 代码规范
 
-## Running Tests
+### Python
 
 ```bash
-# Core CLI and cron tests (run these first)
-PYTHONPATH=. python -m pytest tests/test_commands.py tests/test_cron_commands.py -q
+# 代码检查
+uv run ruff check .
 
-# Cron service and provider tests
-PYTHONPATH=. python -m pytest tests/test_cron_service.py tests/test_provider_retry.py tests/test_provider_routing.py -q
+# 代码格式化
+uv run ruff format .
 
-# Tool validation and fallback behavior
-PYTHONPATH=. python -m pytest tests/test_tool_validation.py tests/test_tool_call_fallback.py -q
-
-# Run the full test suite
-PYTHONPATH=. python -m pytest -q
+# 行长度限制: 100
 ```
 
-Install dev extras first with `pip install -e '.[dev]'`. Provider-related tests import optional SDKs such as `anthropic` during collection.
-
-**Available test files:**
-
-| File | Coverage |
-|---|---|
-| `test_commands.py` | CLI command registration and dispatch |
-| `test_cron_commands.py` | Cron CLI commands |
-| `test_cron_service.py` | Cron service scheduling logic |
-| `test_provider_retry.py` | LLM provider retry behavior |
-| `test_provider_routing.py` | Multi-provider routing |
-| `test_tool_validation.py` | Tool schema validation |
-| `test_tool_call_fallback.py` | Tool call error fallback |
-| `test_cli_input.py` | CLI input handling |
-| `test_heartbeat_service.py` | Heartbeat service |
-| `test_email_channel.py` | Email channel adapter |
-| `test_consolidate_offset.py` | Session compaction offset logic |
-
----
-
-## Linting
+### TypeScript
 
 ```bash
-.venv/bin/ruff check .
+# ESLint 检查
+cd apps/desktop && npm run lint
 ```
 
-Line length is set to 100. Target version is Python 3.11.
+### 提交规范
 
----
+遵循 Conventional Commits：
 
-## Coding Style
+```
+feat: 添加 SkillHub 页面
+fix: 修复快照回滚时的文件创建问题
+refactor: 重构 SessionManager 存储层
+docs: 更新 README 安装说明
+test: 添加 TaskTrace 数据模型测试
+```
 
-- Use `loguru.logger` for all runtime logging; never use `print()` in business logic
-- Prefer minimal, testable changes
-- Keep each module focused on its domain
-- Do not add docstrings or comments to code you didn't change
+## 测试
 
----
-
-## Adding a New Tool
-
-1. Create the tool in `miqi/agent/tools/<name>.py`
-2. Register it in `miqi/agent/tools/registry.py`
-3. Update `miqi/templates/TOOLS.md` with usage guidance
-4. Update `docs/cli-reference.md` with the tool reference
-5. Add tests in `tests/`
-
----
-
-## Adding a New Channel Adapter
-
-1. Create the adapter in `miqi/channels/<name>.py` extending `BaseChannel`
-2. Register it in `miqi/channels/manager.py`
-3. Add the channel config schema in `miqi/config/schema.py`
-
----
-
-## Commit Guidance
-
-- Keep each commit focused on one theme (e.g. "cron: fix UTC fallback", "CLI: split commands")
-- Commit messages should include: motivation, scope, and test commands used
-- When adding or updating tools, keep these in sync:
-  - `miqi/templates/TOOLS.md`
-  - `docs/cli-reference.md`
-  - `CHANGELOG.md`
-
----
-
-## Documentation
-
-This docs site is built with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/).
+### Python 测试
 
 ```bash
-pip install mkdocs-material
-mkdocs serve          # local preview at http://127.0.0.1:8000
-mkdocs build          # build static site to site/
+# 运行所有测试
+uv run pytest
+
+# 运行特定模块
+uv run pytest tests/test_trace.py
+
+# 带覆盖率
+uv run pytest --cov=miqi --cov-report=html
 ```
 
-When changing behavior or interfaces, update the relevant doc in `docs/` and add an entry to `CHANGELOG.md`.
+### 前端测试
 
-When changing config schema, runtime data layout, MCP behavior, or shell safety semantics, the minimum review set is:
+```bash
+cd apps/desktop
 
-- `README.md`
-- `docs/configuration.md`
-- `docs/architecture.md`
-- `docs/mcp-integration.md`
-- `docs/security.md`
-- `CHANGELOG.md`
+# 运行测试
+npm run test
+
+# 监视模式
+npm run test:watch
+```
+
+## 调试
+
+### Python 调试
+
+开发模式下，Bridge Server 的日志输出到 Electron DevTools Console：
+
+```python
+from loguru import logger
+logger.info("Debug message")  # → DevTools Console
+```
+
+### 前端调试
+
+- 打开 Electron DevTools：`Ctrl+Shift+I`
+- React DevTools 可用
+- Network 面板可查看 IPC 通信
+
+## 目录约定
+
+| 目录 | 约定 |
+|------|------|
+| `miqi/` | 纯 Python，不包含 Node.js 依赖 |
+| `apps/desktop/` | 纯 Node.js/TypeScript，通过 Bridge 通信 |
+| `tests/` | 镜像 `miqi/` 结构，`test_module.py` 对应 `module.py` |
+| `docs/` | MkDocs Material 格式，每个页面一个 `.md` 文件 |

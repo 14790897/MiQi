@@ -1,121 +1,77 @@
-# Architecture
+# 系统架构
 
-## System Overview
+## 分层架构
 
-MiQi follows a **message bus + agent loop + tool system + channel adapters** architecture:
-
-1. **Channels** receive external messages and publish them to `MessageBus.inbound` (Feishu is wired in the packaged gateway today; other adapter modules are extension points in the repository)
-2. **AgentLoop** consumes messages, builds context (session + memory + skills), and calls the LLM
-3. External capabilities are executed through **ToolRegistry**, either sequentially or concurrently for safe batches
-4. Responses are published to `MessageBus.outbound` and delivered back by channels
+MiQi Desktop 采用 **三层分离架构**：
 
 ```
- ┌─────────────────────────────────────────────────────────┐
- │  Channel Adapters (Feishu / Telegram / Discord / ...)   │
- └─────────────────┬───────────────────────────────────────┘
-                   │ InboundMessage
-                   ▼
- ┌─────────────────────────────────────────────────────────┐
- │  MessageBus (inbound queue / outbound queue)            │
- └─────────────────┬───────────────────────────────────────┘
-                   │
-                   ▼
- ┌─────────────────────────────────────────────────────────┐
- │  AgentLoop                                              │
- │    ├── ContextBuilder (session + memory + skills)       │
- │    ├── LLM Provider (OpenAI / Anthropic / ...)         │
- │    └── ToolRegistry (filesystem / shell / web / MCP)   │
- └─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  Electron Frontend (apps/desktop/)                          │
+│  ┌──────────────────┐  ┌────────────────────────────────┐   │
+│  │ Main Process     │  │ Renderer Process (React + TS)  │   │
+│  │ · BridgeManager  │  │ · ChatConsole                  │   │
+│  │ · IPC Handlers   │  │ · SessionExplorer              │   │
+│  │ · Window Mgmt    │  │ · ProvidersPage · MemoryPage   │   │
+│  └────────┬─────────┘  │ · SkillsPage · SettingsPage    │   │
+│           │             └──────────────┬─────────────────┘   │
+│           │  contextBridge            │                     │
+│           └──────────────┬────────────┘                     │
+├──────────────────────────┼──────────────────────────────────┤
+│  Bridge IPC Protocol     │  stdin/stdout JSON-line          │
+│                          │  {id, method, params}            │
+├──────────────────────────┼──────────────────────────────────┤
+│  Python Backend (miqi/)                                     │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ Bridge Server — 57 handlers (Chat/Session/Memory/…) │    │
+│  │  ┌──────────┐ ┌───────────┐ ┌──────────┐           │    │
+│  │  │AgentLoop │ │ToolSystem │ │ Memory   │           │    │
+│  │  │· Context │ │· 15 tools │ │· Store   │           │    │
+│  │  │· LLM Call│ │· Registry │ │· Lessons │           │    │
+│  │  │· Subagent│ │· MCP      │ │· Skills  │           │    │
+│  │  └──────────┘ └───────────┘ └──────────┘           │    │
+│  │  ┌──────────┐ ┌───────────┐ ┌──────────┐           │    │
+│  │  │ Session  │ │ Trace     │ │ Config   │           │    │
+│  │  │· Manager │ │· Store    │ │· Loader  │           │    │
+│  │  └──────────┘ └───────────┘ └──────────┘           │    │
+│  └─────────────────────────────────────────────────────┘    │
+├──────────────────────────────────────────────────────────────┤
+│  MCP Tools (mcps/ git submodules)                           │
+│  raspa-mcp · zeopp-backend · pdftranslate-mcp · ...         │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-## Core Modules
+## 核心设计原则
 
-| Module | File | Responsibility |
-|---|---|---|
-| Agent loop | `agent/loop.py` | Main loop, tool-call orchestration, MCP lifecycle |
-| Context builder | `agent/context.py` | Context assembly: session, memory, skills, trace |
-| Runtime controls | `agent/context_compressor.py`, `agent/iteration_budget.py`, `agent/smart_routing.py` | Optional compression/routing hooks plus iteration-pressure safeguards |
-| Command approval helper | `agent/command_approval.py` | Interactive dangerous-command approval helper for embedded runtimes |
-| Memory store | `agent/memory/store.py` | `MemoryStore` facade over all memory sub-systems |
-| Snapshot memory | `agent/memory/snapshot.py` | Long-term RAM-first snapshot with disk checkpoints |
-| Lessons | `agent/memory/lessons.py` | Self-improvement lesson extraction and storage |
-| Lesson curator | `agent/memory/curator.py` | LLM-based lesson lifecycle review and consolidation |
-| Skill curator | `agent/memory/skill_curator.py` | LLM-based skill lifecycle review and archival |
-| Experience store | `agent/memory/experience_store.py` | Persistent store for last-session recovery |
-| NLP helpers | `agent/memory/nlp.py` | Text normalization and relevance scoring |
-| Task trace | `agent/trace/store.py` | Git-like task history with FTS5 search and embedding similarity |
-| LLM providers | `providers/` | Multi-provider adapters unified under a single interface |
-| Provider fallback helper | `providers/fallback.py` | Retry/fallback chain helper for advanced embeddings |
-| Channel adapters | `channels/` | IM and messaging platform adapters |
-| Tool registry | `agent/tools/registry.py` | Tool registration, discovery, and dispatch |
-| Built-in tools | `agent/tools/` | `filesystem`, `shell`, `web`, `papers`, `cron`, `spawn`, `message`, `memory`, `skill_manage`, `session_search`, `task_trace` |
-| Cron service | `cron/service.py` | Scheduled task execution engine |
-| Session manager | `session/manager.py` | Default JSONL session persistence and compaction |
-| SQLite session backend | `session/sqlite_store.py` | Optional SQLite+FTS5 backend module shipped in the repository |
-| CLI | `cli/` | Entry point and subcommand modules |
+### 1. 前后端分离
 
-## Data Flow
+前端 (Electron + React) 和后端 (Python Agent) 通过 **JSON-line stdin/stdout** 协议通信，而非 HTTP。这样设计的原因：
 
-```
-Input:   Channel adapter → InboundMessage (with sender identity, channel metadata)
-          ↓
-Process: AgentLoop.process_*
-          ├── ContextBuilder assembles: session history + memory items + lessons + skill files
-          ├── LLM Provider generates response (streaming or blocking)
-          └── If tool calls: ToolRegistry dispatches (sequentially or concurrently) → tool executes → result fed back
-          ↓
-Output:  OutboundMessage → Channel adapter delivers to user
-          ↓
-Trace:   TraceStore.record_step captures each tool invocation (args + result) for later search and context injection
-Memory:  MemoryStore.record_turn updates short-term ring buffer and long-term snapshot
-```
+- **零网络依赖**：不需要端口管理，避免端口冲突
+- **进程隔离**：Python 进程崩溃不影响 UI
+- **安全通信**：不暴露网络接口
+- **子进程管理**：Electron 可控制 Python 进程的生命周期
 
-## Key Design Principles
+### 2. 工具可插拔
 
-- **Workspace-local runtime data**: memory and session files live under `agents.defaults.workspace` by default (`~/.miqi/workspace/`), not the config root itself.
-- **RAM-first memory**: runtime operates entirely from in-memory structures; disk writes happen only at checkpoint events. See [Memory System](memory-system.md).
-- **Tool registry**: decouples tool definitions (schema), validation, and execution; MCP tools and built-in tools share the same dispatch interface.
-- **Safe concurrency**: `ToolRegistry` parallelizes read-only or path-disjoint batches to reduce round-trip latency without reordering stateful tools.
-- **Provider abstraction**: all LLM providers implement a unified `BaseProvider` interface; the agent loop calls `provider.chat(messages, tools)` without knowing which backend is in use.
-- **Iteration pressure control**: `IterationBudget` injects hints as the loop nears `maxToolIterations`, reducing runaway tool cycles.
-- **Session storage**: `SessionManager` rewrites JSONL session files periodically to keep context size bounded while preserving readable history. The repository also ships an optional SQLite+FTS5 backend module, but the packaged CLI/gateway path still instantiates JSONL sessions.
-- **Session-scoped working directory**: when `sessionWorkspaceEnabled` is `true` (default), agent file writes via relative paths target `sessions/{safe_key}/files/` instead of the workspace root. Absolute paths are unaffected. In git-tracked workspaces, `sessions/` is automatically added to `.gitignore`.
-- **Task trace system**: every tool call is recorded with args/results into a task trace (FTS5 + optional embedding similarity). Traces are queryable via `miqi trace` CLI commands and injectable into agent context for cross-session recall.
-- **Skill curator**: the `SkillCurator` periodically reviews workspace skills through the LLM, flagging stale or low-usage skills for archival — analogous to the `LessonCurator` for self-improvement lessons.
-- **Embedded advanced helpers**: smart model routing, provider fallback, command approval, and context compression are present as runtime modules; only the always-safe pieces are active in the packaged CLI/gateway defaults today.
+所有工具通过 `ToolRegistry` 统一注册，支持：
 
-## Group Chat Message Filtering
+- 内置工具（文件、网络、Shell 等）
+- MCP 外部工具（RASPA2、Zeo++ 等）
+- Agent 自定义技能
 
-Feishu (and other group-capable channels) supports @mention filtering:
+### 3. 记忆持久化
 
-- When `channels.feishu.requireMentionInGroups` is `true` (default), group chat messages are only forwarded to the agent if the bot is explicitly @mentioned.
-- Private (p2p) chats always pass through.
-- The @mention placeholder is stripped from the message text before it reaches the agent.
+采用三层记忆架构：Cloud Memory → User Memory → Workspace Memory，确保 Agent 在跨会话、跨项目中保持上下文。
 
-## Task Queue and User Notifications
+### 4. 非破坏性编辑
 
-`AgentLoop` processes messages serially. When busy, new messages enter a pending queue managed by `TaskTracker`:
+文件写入前自动创建快照，支持 diff / revert / accept，提供 Git 之外的轻量级版本控制。
 
-- Senders receive a queue position notification (e.g. "You are #2 in queue").
-- When a task starts, the sender is notified.
-- CLI and system messages bypass the queue.
-- Controlled by `channels.sendQueueNotifications` config (default `true`).
+## 运行时组件
 
-## MCP Tool Progress Reporting
-
-Long-running MCP tool calls support two kinds of progress feedback:
-
-1. **SDK progress** — if the MCP server sends progress events, they are forwarded to the user as percentage updates.
-2. **Heartbeat** — `MCPToolWrapper` starts a background timer that sends elapsed-time messages every `progressIntervalSeconds` (default 15s), independent of the MCP server. The heartbeat is cancelled when the tool returns.
-
-## CLI Architecture
-
-| File | Role |
-|---|---|
-| `cli/commands.py` | Entry point and compatibility exports |
-| `cli/onboard.py` | Onboarding command |
-| `cli/agent_cmd.py` | `miqi agent` command |
-| `cli/gateway_cmd.py` | `miqi gateway` command |
-| `cli/management.py` | channels / memory / session / cron / status / provider commands |
-| `cli/config_cmd.py` | `miqi config` subcommands |
-| `cli/trace_cmd.py` | `miqi trace` subcommands (log, show, search, export, import) |
+| 组件 | 进程 | 职责 |
+|------|------|------|
+| Electron Main | Node.js 主进程 | 窗口管理、IPC 路由、Bridge 生命周期 |
+| Electron Renderer | Chromium 渲染进程 | React UI 渲染、用户交互 |
+| Bridge Server | Python 子进程 | 协议解析、请求分发、Agent 执行 |
+| MCP Servers | 独立子进程 | 外部工具服务，通过 MCP 协议通信 |
