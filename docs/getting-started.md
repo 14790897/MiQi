@@ -1,225 +1,95 @@
-# Getting Started
+# 快速开始
 
-## Requirements
+## 前置依赖
 
-- Python 3.11 or 3.12
-- Linux or macOS (recommended for production; Windows supported for development)
-- `git` (required for submodule-based MCP servers)
+| 依赖 | 版本要求 | 用途 |
+|------|----------|------|
+| Python | 3.11 或 3.12 | 运行 MiQi 后端 Agent 引擎 |
+| Node.js | 20+ | 运行 Electron 前端 |
+| uv | 最新 | Python 包管理与虚拟环境 |
+| Git | 2.x | 版本控制与 MCP 子模块管理 |
 
----
+## 安装
 
-## Installation
-
-### Using [uv](https://docs.astral.sh/uv/) (Recommended)
-
-[uv](https://github.com/astral-sh/uv) is a fast Python package manager. MiQi ships a `uv.lock` lockfile for reproducible installs.
-
-```bash
-# Install uv (skip if already installed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv --version   # e.g. uv 0.11.x
-
-git clone https://github.com/lichman0405/MiQi.git
-cd MiQi
-uv sync            # creates .venv, installs locked dependencies + miqi
-source .venv/bin/activate
-miqi --version
-```
-
-### Using pip
+### 1. 克隆仓库（含子模块）
 
 ```bash
-git clone https://github.com/lichman0405/MiQi.git
-cd MiQi
-
-python3 -m venv .venv
-source .venv/bin/activate       # Windows: .venv\Scripts\activate
-
-pip install --upgrade pip
-pip install -e .
-
-miqi --version
+git clone --recurse-submodules <repo-url>
+cd miqi-desktop
 ```
 
-### With Dev Dependencies
+### 2. 安装 Python 依赖
 
 ```bash
-# uv
-uv sync --extra dev
-
-# pip
-pip install -e '.[dev]'
+uv sync
 ```
 
-### Docker (Recommended for Production)
+### 3. 安装前端依赖
 
 ```bash
-# Start the gateway
-docker compose up --build miqi-gateway
-
-# Run a one-off CLI command in the container
-docker compose --profile cli run --rm miqi-cli status
+cd apps/desktop
+npm install
 ```
 
-The container runs as unprivileged user `miqi` (UID 1000). The gateway port is bound to `127.0.0.1:18790` by default.
-
-| Location | Path |
-|---|---|
-| Host runtime data | `~/.miqi` |
-| Container runtime data | `/home/miqi/.miqi` |
-
----
-
-## First Run
-
-### 1. Run the Onboarding Wizard
+## 开发模式
 
 ```bash
-miqi onboard
+# 启动 Electron 开发服务器（支持热重载）
+cd apps/desktop
+npm run dev
 ```
 
-This interactive wizard creates `~/.miqi/config.json` and configures:
+应用启动后会自动检测 Python 环境并拉起 Bridge 子进程。首次运行会进入 **设置向导**，引导你：
 
-- LLM provider and API key
-- Default model, temperature, and agent identity
-- Optional paper research tool (`tools.papers` provider, API key, limits)
+1. 检测运行环境
+2. 配置 WSL2（Windows 用户）
+3. 配置 LLM 提供商和 API Key
 
-### 2. Chat with the Agent
+## 生产构建
+
+### 前端构建
 
 ```bash
-# Send a one-shot message and exit
-miqi agent -m "hello"
-
-# Start an interactive chat session
-miqi agent
+cd apps/desktop
+npm run build
 ```
 
-### 3. Start the Gateway
+### 打包桌面安装包
 
 ```bash
-# Run channels + scheduled tasks as a long-running service
-miqi gateway
+cd apps/desktop
+npx electron-builder
+# 输出目录: ../../dist-new/
 ```
 
-The packaged gateway path currently wires Feishu, cron, memory/session persistence, and configured MCP servers. Additional channel adapter modules live in the repository but are not yet surfaced through the public config schema.
-
-### 4. Check Status
+### Python 后端打包
 
 ```bash
-miqi status
+# 使用 PyInstaller 打包 bridge server
+pyinstaller miqi.spec
+# 输出: dist/miqi-bridge.exe
 ```
 
-### 5. Inspect Task History
+### Docker 部署
 
 ```bash
-miqi trace log          # recent task execution history
-miqi trace show <id>    # details of a specific task trace
-miqi trace search <q>   # full-text search across task traces
+# 构建镜像
+docker build -t miqi .
+
+# 启动网关服务
+docker-compose up miqi-gateway -d
+
+# CLI 模式
+docker-compose run miqi-cli
 ```
 
----
+## 配置文件位置
 
-## MCP Server Setup (Optional)
+首次运行后，配置文件自动生成在 `~/.miqi/config.json`。详见 [配置参考](configuration.md)。
 
-MiQi ships with seven bundled domain-specific MCP servers as git submodules. See [MCP Integration](mcp-integration.md) for full details.
+## 环境变量
 
-```bash
-# Clone with submodules (if not done already)
-git clone --recurse-submodules https://github.com/lichman0405/MiQi.git
-
-# Or update submodules in an existing clone
-git submodule update --init --recursive
-
-# Install isolated Python venvs for each MCP server
-bash scripts/setup_mcps.sh
-
-# Register all bundled MCPs into ~/.miqi/config.json
-bash scripts/configure_mcps.sh
-```
-
-Add credentials for servers that need them (pdf2zh, feishu) directly in `~/.miqi/config.json`. See [MCP Integration](mcp-integration.md#credentials).
-
----
-
-## Bare-Metal Gateway Deployment
-
-For running the gateway as a long-running service without Docker on Linux:
-
-**1. Create the service file** at `/etc/systemd/system/miqi.service`:
-
-```ini
-[Unit]
-Description=MiQi AI Agent Gateway
-After=network.target
-
-[Service]
-Type=simple
-User=miqi
-WorkingDirectory=/home/miqi
-ExecStart=/home/miqi/.local/bin/miqi gateway
-Restart=on-failure
-RestartSec=10
-Environment=HOME=/home/miqi
-
-[Install]
-WantedBy=multi-user.target
-```
-
-**2. Enable and start:**
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now miqi
-sudo journalctl -u miqi -f   # tail logs
-```
-
-On macOS, use `launchd` or `supervisord` instead.
-
-**3. Optional: Reverse proxy for external access**
-
-The gateway listens on `127.0.0.1:18790`. To expose it externally:
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name miqi.example.com;
-
-    location / {
-        proxy_pass http://127.0.0.1:18790;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
-
----
-
-## Upgrading
-
-```bash
-cd MiQi
-git pull --recurse-submodules
-
-# Reinstall core
-uv sync                              # or: pip install -e .
-
-bash scripts/setup_mcps.sh          # update MCP venvs
-bash scripts/configure_mcps.sh      # re-register MCPs (idempotent)
-# then restart the gateway:
-sudo systemctl restart miqi
-# or for Docker:
-docker compose up --build miqi-gateway
-```
-
----
-
-## Migration from `nanobot`
-
-| Item | Old | New |
-|---|---|---|
-| Python package | `nanobot.*` | `miqi.*` |
-| CLI command | `assistant` | `miqi` |
-| Runtime directory | `~/.assistant` | `~/.miqi` |
-| Workspace directory | `~/.assistant/workspace` | `~/.miqi/workspace` |
-
-Backward-compatible fallbacks for old config and data paths are retained where possible.
+| 变量名 | 说明 |
+|--------|------|
+| `MIQI_PYTHON_PATH` | 自定义 Python 解释器路径 |
+| `MIQI_AGENTS__DEFAULTS__MODEL` | 覆盖默认模型 |
