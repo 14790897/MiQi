@@ -1,5 +1,53 @@
 # 项目结构
 
+## 模块依赖关系
+
+```mermaid
+graph LR
+    subgraph APPS["apps/desktop/"]
+        MAIN["Main Process<br/>Window · IPC · Bridge"]
+        RENDERER["Renderer<br/>React · 15 功能页"]
+        PRELOAD["Preload<br/>contextBridge API"]
+    end
+
+    subgraph MIQI["miqi/"]
+        AGENT["agent/<br/>AgentLoop · Context · Subagent"]
+        TOOLS["agent/tools/<br/>15 内置工具"]
+        BRIDGE["bridge/<br/>Bridge Server"]
+        MEMORY["agent/memory/<br/>Store · Lessons · Curator"]
+        TRACE["agent/trace/<br/>TraceStore · Embedder"]
+        PROVIDERS["providers/<br/>OpenAI · Anthropic · Gemini"]
+        SESSION["session/<br/>Manager · SQLite"]
+        CONFIG["config/<br/>Schema · Loader"]
+        CHANNELS["channels/<br/>飞书 · Telegram · Slack"]
+        CRON["cron/<br/>定时任务服务"]
+    end
+
+    subgraph MCPS["mcps/"]
+        RASPA["raspa-mcp"]
+        ZEO["zeopp-backend"]
+        MOFSTRUCT["mofstructure-mcp"]
+        PDFTL["pdftranslate-mcp"]
+        FEISHU["feishu-mcp"]
+        MIQRO["miqrophi-mcp"]
+    end
+
+    RENDERER --> PRELOAD --> MAIN
+    MAIN --> BRIDGE
+    BRIDGE --> AGENT
+    AGENT --> TOOLS
+    AGENT --> MEMORY
+    AGENT --> TRACE
+    AGENT --> PROVIDERS
+    BRIDGE --> SESSION
+    BRIDGE --> CONFIG
+    TOOLS --> MCPS
+    AGENT --> CHANNELS
+    AGENT --> CRON
+```
+
+## 目录结构
+
 ```
 miqi-desktop/
 ├── miqi/                        Python 后端

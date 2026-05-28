@@ -4,40 +4,57 @@
 
 MiQi Desktop 采用 **三层分离架构**：
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  Electron Frontend (apps/desktop/)                          │
-│  ┌──────────────────┐  ┌────────────────────────────────┐   │
-│  │ Main Process     │  │ Renderer Process (React + TS)  │   │
-│  │ · BridgeManager  │  │ · ChatConsole                  │   │
-│  │ · IPC Handlers   │  │ · SessionExplorer              │   │
-│  │ · Window Mgmt    │  │ · ProvidersPage · MemoryPage   │   │
-│  └────────┬─────────┘  │ · SkillsPage · SettingsPage    │   │
-│           │             └──────────────┬─────────────────┘   │
-│           │  contextBridge            │                     │
-│           └──────────────┬────────────┘                     │
-├──────────────────────────┼──────────────────────────────────┤
-│  Bridge IPC Protocol     │  stdin/stdout JSON-line          │
-│                          │  {id, method, params}            │
-├──────────────────────────┼──────────────────────────────────┤
-│  Python Backend (miqi/)                                     │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │ Bridge Server — 57 handlers (Chat/Session/Memory/…) │    │
-│  │  ┌──────────┐ ┌───────────┐ ┌──────────┐           │    │
-│  │  │AgentLoop │ │ToolSystem │ │ Memory   │           │    │
-│  │  │· Context │ │· 15 tools │ │· Store   │           │    │
-│  │  │· LLM Call│ │· Registry │ │· Lessons │           │    │
-│  │  │· Subagent│ │· MCP      │ │· Skills  │           │    │
-│  │  └──────────┘ └───────────┘ └──────────┘           │    │
-│  │  ┌──────────┐ ┌───────────┐ ┌──────────┐           │    │
-│  │  │ Session  │ │ Trace     │ │ Config   │           │    │
-│  │  │· Manager │ │· Store    │ │· Loader  │           │    │
-│  │  └──────────┘ └───────────┘ └──────────┘           │    │
-│  └─────────────────────────────────────────────────────┘    │
-├──────────────────────────────────────────────────────────────┤
-│  MCP Tools (mcps/ git submodules)                           │
-│  raspa-mcp · zeopp-backend · pdftranslate-mcp · ...         │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph FRONTEND["Electron Frontend (apps/desktop/)"]
+        direction LR
+        subgraph MAIN["Main Process"]
+            BM["BridgeManager"]
+            IPC["IPC Handlers"]
+            WM["Window Mgmt"]
+        end
+        subgraph RENDERER["Renderer Process (React + TS)"]
+            CC["ChatConsole"]
+            SE["SessionExplorer"]
+            PP["ProvidersPage"]
+            MP["MemoryPage"]
+            SP["SkillsPage"]
+            STP["SettingsPage"]
+        end
+        MAIN <-->|"contextBridge"| RENDERER
+    end
+
+    subgraph BRIDGE["Bridge IPC Protocol"]
+        PROTO["stdin/stdout JSON-line<br/>{id, method, params}"]
+    end
+
+    subgraph BACKEND["Python Backend (miqi/)"]
+        BS["Bridge Server — 57 handlers"]
+
+        subgraph CORE["核心模块"]
+            AL["AgentLoop<br/>Context · LLM · Subagent"]
+            TS["ToolSystem<br/>15 tools · Registry · MCP"]
+            MM["Memory<br/>Store · Lessons · Skills"]
+        end
+
+        subgraph INFRA["基础设施"]
+            SM["Session<br/>Manager"]
+            TR["Trace<br/>Store"]
+            CF["Config<br/>Loader"]
+        end
+
+        BS --- CORE
+        BS --- INFRA
+    end
+
+    subgraph MCP["MCP Tools (mcps/)"]
+        RSP["raspa-mcp"]
+        ZEO["zeopp-backend"]
+        PDF["pdftranslate-mcp"]
+        MORE["..."]
+    end
+
+    FRONTEND --> BRIDGE --> BACKEND --> MCP
 ```
 
 ## 核心设计原则
