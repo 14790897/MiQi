@@ -34,11 +34,8 @@ theme:
   icon:
     repo: fontawesome/brands/github
 
-extra_css:
-  - stylesheets/extra.css
-
 extra_javascript:
-  - javascripts/mermaid-zoom.js
+  - https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js
 
 plugins:
   - search
