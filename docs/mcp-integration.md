@@ -16,19 +16,29 @@ MiQi 通过 MCP (Model Context Protocol) 集成外部工具服务，由 7 个 gi
 
 ## 架构
 
-```
-MiQi Agent
-  │
-  ▼
-MCP Client (mcp Python SDK)
-  │  ┌──────────────────────────────────────┐
-  ├──│ raspa-mcp (subprocess, streamable-http)│
-  ├──│ zeopp-backend (subprocess)            │
-  ├──│ pdftranslate-mcp (subprocess)         │
-  ├──│ ...                                   │
-  │  └──────────────────────────────────────┘
-  ▼
-Tool Registry → Agent 可调用 MCP 工具
+```mermaid
+graph TB
+    AGENT[MiQi Agent]
+
+    AGENT --> CLIENT[MCP Client - mcp Python SDK]
+
+    CLIENT --> RM[raspa-mcp<br/>subprocess / streamable-http]
+    CLIENT --> ZO[zeopp-backend<br/>subprocess]
+    CLIENT --> PT[pdftranslate-mcp<br/>subprocess]
+    CLIENT --> MS[mofstructure-mcp]
+    CLIENT --> MC[mofchecker-mcp]
+    CLIENT --> MQ[miqrophi-mcp]
+    CLIENT --> FS[feishu-mcp]
+
+    RM --> REGISTRY[Tool Registry]
+    ZO --> REGISTRY
+    PT --> REGISTRY
+    MS --> REGISTRY
+    MC --> REGISTRY
+    MQ --> REGISTRY
+    FS --> REGISTRY
+
+    REGISTRY --> CALLABLE[Agent 可调用 MCP 工具]
 ```
 
 ## MCP 配置

@@ -8,28 +8,26 @@ MiQi Desktop 采用 **三层分离架构**：
 
 ```mermaid
 graph TB
-    UI[Electron Window - Chromium]
-
-    subgraph MainProcess [Main Process - Node.js]
-        BM[BridgeManager - 管理Python子进程]
-        WM[WindowManager - 窗口/托盘]
-        IPC[IPC Router - 10+ handlers]
+    subgraph MP [Main Process - Node.js]
+        BW[BrowserWindow 管理]
+        BM[BridgeManager Python子进程]
+        IPC[IPC Handler 注册路由]
+        API[系统原生 API]
     end
 
-    subgraph Renderer [Renderer Process - React TS]
-        CC[ChatConsole - 流式对话]
-        SE[SessionExplorer - 历史会话]
-        PP[ProvidersPage - LLM配置]
-        MP[MemoryPage - 记忆管理]
-        SP[SkillsPage - 技能管理]
-        STP[SettingsPage - 全局配置]
+    subgraph PS [Preload Script]
+        CB[contextBridge 安全API暴露]
+        NS[window.miqi 命名空间]
     end
 
-    MainProcess <-->|contextBridge| Renderer
+    subgraph RP [Renderer Process - Chromium]
+        RC[React 19 应用]
+        PGS[15个功能页面]
+        TW[Tailwind CSS 4 样式]
+    end
 
-    Proto[Bridge IPC: stdin/stdout JSON-line]
-
-    MainProcess --> Proto
+    MP --> PS
+    PS --> RP
 ```
 
 ### Python 后端 + 工具层

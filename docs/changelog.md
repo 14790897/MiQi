@@ -1,6 +1,6 @@
 # 更新日志
 
-完整版本更新日志请参见项目根目录的 [CHANGELOG.md](https://github.com/lichman0405/MiQi-Desktop/blob/main/CHANGELOG.md)。
+完整版本更新日志请参见项目根目录的 [CHANGELOG.md](https://github.com/14790897/MiQi/blob/electronUI/CHANGELOG.md)。
 
 ## 最新更新 (2026-05)
 

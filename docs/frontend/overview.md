@@ -20,23 +20,27 @@ MiQi Desktop 前端基于 Electron + React + TypeScript 构建，提供原生桌
 
 ## 进程架构
 
-```
-┌─────────────────────────────────────────────────────┐
-│  Main Process (Node.js)                             │
-│  · BrowserWindow 管理                               │
-│  · BridgeManager (Python 子进程管理)                 │
-│  · IPC Handler 注册与路由                           │
-│  · 系统原生 API (文件对话框、通知、菜单)              │
-├─────────────────────────────────────────────────────┤
-│  Preload Script                                     │
-│  · contextBridge 安全 API 暴露                      │
-│  · window.miqi.* 命名空间                           │
-├─────────────────────────────────────────────────────┤
-│  Renderer Process (Chromium)                        │
-│  · React 19 应用                                    │
-│  · 15 个功能页面                                    │
-│  · Tailwind CSS 4 样式                              │
-└─────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph MP [Main Process - Node.js]
+        BW[BrowserWindow 管理]
+        BM[BridgeManager Python子进程]
+        IPCH[IPC Handler 注册路由]
+        API[系统原生 API]
+    end
+
+    subgraph PS [Preload Script]
+        CB[contextBridge 安全API暴露]
+        NS[window.miqi 命名空间]
+    end
+
+    subgraph RP [Renderer Process - Chromium]
+        RC[React 19 应用]
+        PGS[15个功能页面]
+        TW[Tailwind CSS 4 样式]
+    end
+
+    MP --> PS --> RP
 ```
 
 ## 安全设计
