@@ -2,42 +2,52 @@
 
 ## 用户消息 → AI 响应的完整链路
 
-```
-User Input (ChatConsole)
-  │
-  ▼
-ipcRenderer.invoke("chat:send", { message, sessionId })
-  │  [Zod 验证请求参数]
-  ▼
-Main Process → IPC Handler (bridge:chat-send)
-  │
-  ▼
-BridgeManager.send(message)
-  │  [JSON-line 写入 Bridge 子进程 stdin]
-  ▼
-Bridge Server (miqi/bridge/server.py)
-  │  handle_chat_send() → AgentLoop.process_direct()
-  ▼
-ContextBuilder.build_system_prompt()
-  │  [注入 SOUL.md / IDENTITY.md / Memory / Trace 上下文]
-  ▼
-LLM Provider (OpenAI / Anthropic / Gemini / ...)
-  │  [流式响应 + Function Calling]
-  ▼
-Tool Execution
-  │  ToolRegistry.execute_concurrent()
-  │  ├── 内置工具 (read_file, write_file, web_search, exec, ...)
-  │  └── MCP 工具 (raspa-mcp, zeopp-backend, ...)
-  ▼
-Streaming Events → stdout JSON-line
-  │  progress / final / error events
-  ▼
-BridgeManager.parseLine() → ipcMain.emit()
-  │
-  ▼
-React Renderer
-  │  ChatConsole 实时渲染 Markdown + 代码高亮
-  │  工具调用进度实时更新
+```mermaid
+sequenceDiagram
+    actor User as 👤 用户
+    participant ChatConsole as ChatConsole<br/>(React Renderer)
+    participant IPC as IPC Handler<br/>(Main Process)
+    participant Bridge as BridgeManager<br/>(Python 子进程)
+    participant Agent as AgentLoop<br/>(Agent 引擎)
+    participant Context as ContextBuilder
+    participant LLM as LLM Provider
+    participant Tools as ToolRegistry
+
+    User->>ChatConsole: 输入消息
+    ChatConsole->>IPC: ipcRenderer.invoke("chat:send")
+    Note over IPC: Zod 参数验证
+    IPC->>Bridge: bridge:chat-send
+    Note over Bridge: JSON-line 写入 stdin
+
+    Bridge->>Agent: handle_chat_send()
+    Agent->>Context: build_system_prompt()
+    Note over Context: 注入 SOUL.md / Memory / Trace
+    Context-->>Agent: system prompt
+
+    loop Agent Loop
+        Agent->>LLM: Chat Completion (stream)
+        LLM-->>Bridge: 流式文本增量
+        Bridge-->>IPC: progress event
+        IPC-->>ChatConsole: 实时渲染 Markdown
+
+        alt 需要工具调用
+            LLM-->>Agent: function_call
+            Agent->>Tools: execute_concurrent()
+
+            par 内置工具
+                Tools->>Tools: read_file / write_file / web_search
+            and MCP 工具
+                Tools->>Tools: raspa-mcp / zeopp-backend
+            end
+
+            Tools-->>Agent: 工具结果
+            Note over Bridge: tool_progress 心跳
+        end
+    end
+
+    Agent-->>Bridge: final event
+    Bridge-->>ChatConsole: 完整响应
+    ChatConsole-->>User: 渲染结果
 ```
 
 ## 事件类型
