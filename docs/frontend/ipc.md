@@ -4,15 +4,26 @@ IPC（进程间通信）是 Electron 前端与 Python 后端的通信桥梁。
 
 ## 三层通信架构
 
-```
-Renderer (React)                Main Process              Python Backend
-┌──────────────────┐    ┌──────────────────────┐    ┌──────────────────┐
-│ ipcRenderer      │───▶│ ipcMain.handle()     │───▶│ Bridge Server     │
-│ .invoke(CHANNEL) │◀───│ Zod 验证 + Bridge.send│◀───│ handle_*()        │
-└──────────────────┘    └──────────────────────┘    └──────────────────┘
-        │                        │                         │
-   contextBridge          BridgeManager              JSON-line
-   window.miqi.*          子进程生命周期             stdin/stdout
+```mermaid
+graph LR
+    subgraph Renderer [Renderer - React]
+        IPCR[ipcRenderer.invoke]
+        CB[contextBridge<br/>window.miqi]
+    end
+
+    subgraph Main [Main Process - Node.js]
+        IPCM[ipcMain.handle]
+        ZOD[Zod 验证]
+        BMS[BridgeManager<br/>子进程生命周期]
+    end
+
+    subgraph Python [Python Backend]
+        BS[Bridge Server]
+        HANDLE[handle_* handlers]
+    end
+
+    Renderer -->|invoke CHANNEL| Main -->|bridge.send| Python
+    Python -->|response| Main -->|result| Renderer
 ```
 
 ## IPC 通道定义

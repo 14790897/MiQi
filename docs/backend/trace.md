@@ -39,20 +39,19 @@ class TaskTrace:
 
 ## 追踪流程
 
-```
-任务开始
-  │ task_begin(name, goal)
-  ▼
-工具调用链
-  │ tool_A → tool_B → tool_C → ...
-  ▼
-任务结束
-  │ task_end(outcome, notes)
-  ▼
-自动处理
-  │ 1. 生成 embedding (fastembed)
-  │ 2. 写入 TraceStore (SQLite)
-  │ 3. FTS5 索引更新
+```mermaid
+graph TB
+    START[任务开始]
+
+    START -->|task_begin name, goal| CHAIN[工具调用链]
+
+    CHAIN -->|tool_A - tool_B - tool_C| END[任务结束]
+
+    END -->|task_end outcome, notes| AUTO[自动处理]
+
+    AUTO --> E1[1. 生成 embedding - fastembed]
+    AUTO --> E2[2. 写入 TraceStore - SQLite]
+    AUTO --> E3[3. FTS5 索引更新]
 ```
 
 ## 相似任务检索

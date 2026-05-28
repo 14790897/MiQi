@@ -4,14 +4,28 @@ SkillHub 是 MiQi 的公开技能注册中心，提供可搜索、可安装的 A
 
 ## 架构
 
-```
-Frontend (SkillHubPage.tsx)    Registry API           Skills Storage
-┌──────────────────────┐    ┌──────────────┐    ┌──────────────────┐
-│ · 浏览技能列表        │───▶│ index.json   │    │ ~/.workbuddy/    │
-│ · 关键词搜索          │───▶│ /api/search  │    │   skills/        │
-│ · 一键安装            │───▶│ SKILL.md     │───▶│   *.md / *.dat   │
-│ · 已安装状态          │    └──────────────┘    └──────────────────┘
-└──────────────────────┘
+```mermaid
+graph LR
+    subgraph Frontend [SkillHubPage.tsx]
+        BROWSE[浏览技能列表]
+        SEARCH[关键词搜索]
+        INSTALL[一键安装]
+        STATUS[已安装状态]
+    end
+
+    subgraph API [Registry API]
+        INDEX[index.json]
+        API_SEARCH[/api/search]
+        SKILLMD[SKILL.md]
+    end
+
+    subgraph Storage [Skills Storage]
+        SKILLS_DIR["~/.workbuddy/skills/"]
+        FILES["*.md / *.dat"]
+    end
+
+    Frontend -->|查询/安装| API
+    API -->|下载技能| Storage
 ```
 
 ## 核心功能
