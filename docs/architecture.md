@@ -4,57 +4,77 @@
 
 MiQi Desktop 采用 **三层分离架构**：
 
+### 前端层 + 通信协议
+
 ```mermaid
 graph TB
-    subgraph FRONTEND["Electron Frontend (apps/desktop/)"]
-        direction LR
-        subgraph MAIN["Main Process"]
-            BM["BridgeManager"]
-            IPC["IPC Handlers"]
-            WM["Window Mgmt"]
-        end
-        subgraph RENDERER["Renderer Process (React + TS)"]
-            CC["ChatConsole"]
-            SE["SessionExplorer"]
-            PP["ProvidersPage"]
-            MP["MemoryPage"]
-            SP["SkillsPage"]
-            STP["SettingsPage"]
-        end
-        MAIN <-->|"contextBridge"| RENDERER
+    UI["🖥️ Electron 窗口 (Chromium)"]
+
+    subgraph MAIN["Main Process (Node.js)"]
+        BM["BridgeManager<br/>管理 Python 子进程生命周期"]
+        WM["WindowManager<br/>窗口创建、尺寸、托盘"]
+        IPC["IPC Router<br/>10+ ipcMain.handle() 注册"]
     end
 
-    subgraph BRIDGE["Bridge IPC Protocol"]
-        PROTO["stdin/stdout JSON-line<br/>{id, method, params}"]
+    subgraph RENDERER["Renderer Process (React + TypeScript)"]
+        CC["💬 ChatConsole<br/>流式对话、Markdown 渲染"]
+        SE["📂 SessionExplorer<br/>历史会话浏览、切换"]
+        PP["🔌 ProvidersPage<br/>LLM 提供商配置"]
+        MP["🧠 MemoryPage<br/>三层记忆管理"]
+        SP["⚡ SkillsPage<br/>技能安装、管理"]
+        STP["⚙️ SettingsPage<br/>全局配置"]
     end
 
-    subgraph BACKEND["Python Backend (miqi/)"]
-        BS["Bridge Server — 57 handlers"]
+    MAIN <==>"contextBridge<br/>ipcRenderer.invoke / on"==> RENDERER
 
-        subgraph CORE["核心模块"]
-            AL["AgentLoop<br/>Context · LLM · Subagent"]
-            TS["ToolSystem<br/>15 tools · Registry · MCP"]
-            MM["Memory<br/>Store · Lessons · Skills"]
-        end
+    BRIDGE_PROTO["📡 Bridge IPC Protocol<br/>stdin → JSON-line → stdout<br/>{id, method, params}"]
 
-        subgraph INFRA["基础设施"]
-            SM["Session<br/>Manager"]
-            TR["Trace<br/>Store"]
-            CF["Config<br/>Loader"]
-        end
+    MAIN --> BRIDGE_PROTO
+```
 
-        BS --- CORE
-        BS --- INFRA
+### Python 后端 + 工具层
+
+```mermaid
+graph TB
+    BS["🔀 Bridge Server<br/>57 个 handler, 异步消息分发"]
+    BS --> ROUTER{"请求路由"}
+
+    ROUTER --> AGENT
+    ROUTER --> CHAT
+    ROUTER --> MEM
+    ROUTER --> SESS
+    ROUTER --> CNF
+
+    subgraph AGENT["Agent 引擎"]
+        AL["AgentLoop<br/>上下文构建 → LLM 调用 → 工具执行 → 循环"]
+        CTX["ContextBuilder<br/>注入 SOUL/IDENTITY/MEMORY/TRACE"]
+        SUB["Subagent<br/>多 Agent 协作"]
     end
 
-    subgraph MCP["MCP Tools (mcps/)"]
-        RSP["raspa-mcp"]
-        ZEO["zeopp-backend"]
-        PDF["pdftranslate-mcp"]
-        MORE["..."]
+    subgraph TOOLS["工具系统 (15+ 内置工具)"]
+        FS["文件操作<br/>read / write / edit / glob"]
+        NET["网络工具<br/>web_search / web_fetch"]
+        EXEC["执行工具<br/>bash / powershell / python"]
+        MCP_CLIENT["MCP Client<br/>连接外部工具服务器"]
     end
 
-    FRONTEND --> BRIDGE --> BACKEND --> MCP
+    subgraph MEM["记忆系统"]
+        CLOUD["☁️ Cloud Memory"]
+        USER["👤 User Memory"]
+        WS["📁 Workspace Memory"]
+    end
+
+    subgraph INFRA["基础设施"]
+        SESS["Session Manager"]
+        TRACE["Trace Store"]
+        CONFIG["Config Loader"]
+    end
+
+    AL --> CTX
+    AL --> TOOLS
+    MCP_CLIENT --> MCP_SERVERS
+
+    MCP_SERVERS["🔗 MCP 工具服务器<br/>raspa-mcp · zeopp-backend · pdftranslate-mcp · mofstructure-mcp · feishu-mcp"]
 ```
 
 ## 核心设计原则

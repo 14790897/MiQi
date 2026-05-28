@@ -3,14 +3,16 @@
 ## 模块依赖关系
 
 ```mermaid
-graph LR
-    subgraph APPS["apps/desktop/"]
+graph TB
+    subgraph APPS["📦 apps/desktop/ — Electron 前端"]
+        direction LR
         MAIN["Main Process<br/>Window · IPC · Bridge"]
-        RENDERER["Renderer<br/>React · 15 功能页"]
+        RENDERER["Renderer<br/>React · 15 功能页面"]
         PRELOAD["Preload<br/>contextBridge API"]
     end
 
-    subgraph MIQI["miqi/"]
+    subgraph MIQI["🐍 miqi/ — Python 后端"]
+        direction LR
         AGENT["agent/<br/>AgentLoop · Context · Subagent"]
         TOOLS["agent/tools/<br/>15 内置工具"]
         BRIDGE["bridge/<br/>Bridge Server"]
@@ -23,7 +25,8 @@ graph LR
         CRON["cron/<br/>定时任务服务"]
     end
 
-    subgraph MCPS["mcps/"]
+    subgraph MCPS["🔗 mcps/ — MCP 工具服务器"]
+        direction LR
         RASPA["raspa-mcp"]
         ZEO["zeopp-backend"]
         MOFSTRUCT["mofstructure-mcp"]
