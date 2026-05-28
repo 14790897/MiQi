@@ -53,6 +53,8 @@
       
     
     
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -1579,14 +1581,16 @@
 
 <h1 id="_1">项目结构<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h1>
 <h2 id="_2">模块依赖关系<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
-<pre class="mermaid"><code>graph LR
-    subgraph APPS["apps/desktop/"]
+<pre class="mermaid"><code>graph TB
+    subgraph APPS["📦 apps/desktop/ — Electron 前端"]
+        direction LR
         MAIN["Main Process&lt;br/&gt;Window · IPC · Bridge"]
-        RENDERER["Renderer&lt;br/&gt;React · 15 功能页"]
+        RENDERER["Renderer&lt;br/&gt;React · 15 功能页面"]
         PRELOAD["Preload&lt;br/&gt;contextBridge API"]
     end
 
-    subgraph MIQI["miqi/"]
+    subgraph MIQI["🐍 miqi/ — Python 后端"]
+        direction LR
         AGENT["agent/&lt;br/&gt;AgentLoop · Context · Subagent"]
         TOOLS["agent/tools/&lt;br/&gt;15 内置工具"]
         BRIDGE["bridge/&lt;br/&gt;Bridge Server"]
@@ -1599,7 +1603,8 @@
         CRON["cron/&lt;br/&gt;定时任务服务"]
     end
 
-    subgraph MCPS["mcps/"]
+    subgraph MCPS["🔗 mcps/ — MCP 工具服务器"]
+        direction LR
         RASPA["raspa-mcp"]
         ZEO["zeopp-backend"]
         MOFSTRUCT["mofstructure-mcp"]
@@ -1786,6 +1791,8 @@
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/mermaid-zoom.js"></script>
       
     
   </body>

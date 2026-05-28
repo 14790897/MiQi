@@ -53,6 +53,8 @@
       
     
     
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -646,10 +648,38 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="分层架构">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        前端层 + 通信协议
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#python" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python 后端 + 工具层
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
-  <a href="#_3" class="md-nav__link">
+  <a href="#_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         核心设计原则
@@ -710,7 +740,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#_4" class="md-nav__link">
+  <a href="#_5" class="md-nav__link">
     <span class="md-ellipsis">
       
         运行时组件
@@ -1605,10 +1635,38 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="分层架构">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        前端层 + 通信协议
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#python" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python 后端 + 工具层
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
-  <a href="#_3" class="md-nav__link">
+  <a href="#_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         核心设计原则
@@ -1669,7 +1727,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#_4" class="md-nav__link">
+  <a href="#_5" class="md-nav__link">
     <span class="md-ellipsis">
       
         运行时组件
@@ -1702,57 +1760,72 @@
 <h1 id="_1">系统架构<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h1>
 <h2 id="_2">分层架构<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
 <p>MiQi Desktop 采用 <strong>三层分离架构</strong>：</p>
+<h3 id="_3">前端层 + 通信协议<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h3>
 <pre class="mermaid"><code>graph TB
-    subgraph FRONTEND["Electron Frontend (apps/desktop/)"]
-        direction LR
-        subgraph MAIN["Main Process"]
-            BM["BridgeManager"]
-            IPC["IPC Handlers"]
-            WM["Window Mgmt"]
-        end
-        subgraph RENDERER["Renderer Process (React + TS)"]
-            CC["ChatConsole"]
-            SE["SessionExplorer"]
-            PP["ProvidersPage"]
-            MP["MemoryPage"]
-            SP["SkillsPage"]
-            STP["SettingsPage"]
-        end
-        MAIN &lt;--&gt;|"contextBridge"| RENDERER
+    UI["🖥️ Electron 窗口 (Chromium)"]
+
+    subgraph MAIN["Main Process (Node.js)"]
+        BM["BridgeManager&lt;br/&gt;管理 Python 子进程生命周期"]
+        WM["WindowManager&lt;br/&gt;窗口创建、尺寸、托盘"]
+        IPC["IPC Router&lt;br/&gt;10+ ipcMain.handle() 注册"]
     end
 
-    subgraph BRIDGE["Bridge IPC Protocol"]
-        PROTO["stdin/stdout JSON-line&lt;br/&gt;{id, method, params}"]
+    subgraph RENDERER["Renderer Process (React + TypeScript)"]
+        CC["💬 ChatConsole&lt;br/&gt;流式对话、Markdown 渲染"]
+        SE["📂 SessionExplorer&lt;br/&gt;历史会话浏览、切换"]
+        PP["🔌 ProvidersPage&lt;br/&gt;LLM 提供商配置"]
+        MP["🧠 MemoryPage&lt;br/&gt;三层记忆管理"]
+        SP["⚡ SkillsPage&lt;br/&gt;技能安装、管理"]
+        STP["⚙️ SettingsPage&lt;br/&gt;全局配置"]
     end
 
-    subgraph BACKEND["Python Backend (miqi/)"]
-        BS["Bridge Server — 57 handlers"]
+    MAIN &lt;==&gt;"contextBridge&lt;br/&gt;ipcRenderer.invoke / on"==&gt; RENDERER
 
-        subgraph CORE["核心模块"]
-            AL["AgentLoop&lt;br/&gt;Context · LLM · Subagent"]
-            TS["ToolSystem&lt;br/&gt;15 tools · Registry · MCP"]
-            MM["Memory&lt;br/&gt;Store · Lessons · Skills"]
-        end
+    BRIDGE_PROTO["📡 Bridge IPC Protocol&lt;br/&gt;stdin → JSON-line → stdout&lt;br/&gt;{id, method, params}"]
 
-        subgraph INFRA["基础设施"]
-            SM["Session&lt;br/&gt;Manager"]
-            TR["Trace&lt;br/&gt;Store"]
-            CF["Config&lt;br/&gt;Loader"]
-        end
+    MAIN --&gt; BRIDGE_PROTO</code></pre>
+<h3 id="python">Python 后端 + 工具层<a class="headerlink" href="#python" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>graph TB
+    BS["🔀 Bridge Server&lt;br/&gt;57 个 handler, 异步消息分发"]
+    BS --&gt; ROUTER{"请求路由"}
 
-        BS --- CORE
-        BS --- INFRA
+    ROUTER --&gt; AGENT
+    ROUTER --&gt; CHAT
+    ROUTER --&gt; MEM
+    ROUTER --&gt; SESS
+    ROUTER --&gt; CNF
+
+    subgraph AGENT["Agent 引擎"]
+        AL["AgentLoop&lt;br/&gt;上下文构建 → LLM 调用 → 工具执行 → 循环"]
+        CTX["ContextBuilder&lt;br/&gt;注入 SOUL/IDENTITY/MEMORY/TRACE"]
+        SUB["Subagent&lt;br/&gt;多 Agent 协作"]
     end
 
-    subgraph MCP["MCP Tools (mcps/)"]
-        RSP["raspa-mcp"]
-        ZEO["zeopp-backend"]
-        PDF["pdftranslate-mcp"]
-        MORE["..."]
+    subgraph TOOLS["工具系统 (15+ 内置工具)"]
+        FS["文件操作&lt;br/&gt;read / write / edit / glob"]
+        NET["网络工具&lt;br/&gt;web_search / web_fetch"]
+        EXEC["执行工具&lt;br/&gt;bash / powershell / python"]
+        MCP_CLIENT["MCP Client&lt;br/&gt;连接外部工具服务器"]
     end
 
-    FRONTEND --&gt; BRIDGE --&gt; BACKEND --&gt; MCP</code></pre>
-<h2 id="_3">核心设计原则<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
+    subgraph MEM["记忆系统"]
+        CLOUD["☁️ Cloud Memory"]
+        USER["👤 User Memory"]
+        WS["📁 Workspace Memory"]
+    end
+
+    subgraph INFRA["基础设施"]
+        SESS["Session Manager"]
+        TRACE["Trace Store"]
+        CONFIG["Config Loader"]
+    end
+
+    AL --&gt; CTX
+    AL --&gt; TOOLS
+    MCP_CLIENT --&gt; MCP_SERVERS
+
+    MCP_SERVERS["🔗 MCP 工具服务器&lt;br/&gt;raspa-mcp · zeopp-backend · pdftranslate-mcp · mofstructure-mcp · feishu-mcp"]</code></pre>
+<h2 id="_4">核心设计原则<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
 <h3 id="1">1. 前后端分离<a class="headerlink" href="#1" title="Permanent link">&para;</a></h3>
 <p>前端 (Electron + React) 和后端 (Python Agent) 通过 <strong>JSON-line stdin/stdout</strong> 协议通信，而非 HTTP。这样设计的原因：</p>
 <ul>
@@ -1772,7 +1845,7 @@
 <p>采用三层记忆架构：Cloud Memory → User Memory → Workspace Memory，确保 Agent 在跨会话、跨项目中保持上下文。</p>
 <h3 id="4">4. 非破坏性编辑<a class="headerlink" href="#4" title="Permanent link">&para;</a></h3>
 <p>文件写入前自动创建快照，支持 diff / revert / accept，提供 Git 之外的轻量级版本控制。</p>
-<h2 id="_4">运行时组件<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
+<h2 id="_5">运行时组件<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
@@ -1863,6 +1936,8 @@
     
     
       <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../javascripts/mermaid-zoom.js"></script>
       
     
   </body>
