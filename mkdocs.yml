@@ -1,6 +1,6 @@
 site_name: MiQi Desktop
 site_description: 基于 Electron 的轻量级个人 AI 助手桌面应用 — 完整技术文档
-site_url: https://14790897.github.io/miqi/
+# site_url: https://14790897.github.io/miqi/
 repo_url: https://github.com/14790897/miqi
 repo_name: 14790897/miqi
 edit_uri: edit/main/docs/
@@ -35,7 +35,7 @@ theme:
     repo: fontawesome/brands/github
 
 extra_javascript:
-  - https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js
+  - https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js
 
 plugins:
   - search
@@ -47,7 +47,7 @@ markdown_extensions:
       custom_fences:
         - name: mermaid
           class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
+          format: !!python/name:pymdownx.superfences.fence_div_format
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span

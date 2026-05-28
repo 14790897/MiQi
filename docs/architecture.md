@@ -8,73 +8,71 @@ MiQi Desktop 采用 **三层分离架构**：
 
 ```mermaid
 graph TB
-    UI["🖥️ Electron 窗口 (Chromium)"]
+    UI[Electron Window - Chromium]
 
-    subgraph MAIN["Main Process (Node.js)"]
-        BM["BridgeManager<br/>管理 Python 子进程生命周期"]
-        WM["WindowManager<br/>窗口创建、尺寸、托盘"]
-        IPC["IPC Router<br/>10+ ipcMain.handle() 注册"]
+    subgraph MainProcess [Main Process - Node.js]
+        BM[BridgeManager - 管理Python子进程]
+        WM[WindowManager - 窗口/托盘]
+        IPC[IPC Router - 10+ handlers]
     end
 
-    subgraph RENDERER["Renderer Process (React + TypeScript)"]
-        CC["💬 ChatConsole<br/>流式对话、Markdown 渲染"]
-        SE["📂 SessionExplorer<br/>历史会话浏览、切换"]
-        PP["🔌 ProvidersPage<br/>LLM 提供商配置"]
-        MP["🧠 MemoryPage<br/>三层记忆管理"]
-        SP["⚡ SkillsPage<br/>技能安装、管理"]
-        STP["⚙️ SettingsPage<br/>全局配置"]
+    subgraph Renderer [Renderer Process - React TS]
+        CC[ChatConsole - 流式对话]
+        SE[SessionExplorer - 历史会话]
+        PP[ProvidersPage - LLM配置]
+        MP[MemoryPage - 记忆管理]
+        SP[SkillsPage - 技能管理]
+        STP[SettingsPage - 全局配置]
     end
 
-    MAIN <==>"contextBridge<br/>ipcRenderer.invoke / on"==> RENDERER
+    MainProcess <-->|contextBridge| Renderer
 
-    BRIDGE_PROTO["📡 Bridge IPC Protocol<br/>stdin → JSON-line → stdout<br/>{id, method, params}"]
+    Proto[Bridge IPC: stdin/stdout JSON-line]
 
-    MAIN --> BRIDGE_PROTO
+    MainProcess --> Proto
 ```
 
 ### Python 后端 + 工具层
 
 ```mermaid
 graph TB
-    BS["🔀 Bridge Server<br/>57 个 handler, 异步消息分发"]
-    BS --> ROUTER{"请求路由"}
+    BS[Bridge Server - 57个handler]
+    R{请求路由}
 
-    ROUTER --> AGENT
-    ROUTER --> CHAT
-    ROUTER --> MEM
-    ROUTER --> SESS
-    ROUTER --> CNF
+    BS --> R
 
-    subgraph AGENT["Agent 引擎"]
-        AL["AgentLoop<br/>上下文构建 → LLM 调用 → 工具执行 → 循环"]
-        CTX["ContextBuilder<br/>注入 SOUL/IDENTITY/MEMORY/TRACE"]
-        SUB["Subagent<br/>多 Agent 协作"]
+    subgraph AgentEngine [Agent 引擎]
+        AL[AgentLoop - LLM调用循环]
+        CTX[ContextBuilder - 注入上下文]
     end
 
-    subgraph TOOLS["工具系统 (15+ 内置工具)"]
-        FS["文件操作<br/>read / write / edit / glob"]
-        NET["网络工具<br/>web_search / web_fetch"]
-        EXEC["执行工具<br/>bash / powershell / python"]
-        MCP_CLIENT["MCP Client<br/>连接外部工具服务器"]
+    subgraph ToolSystem [工具系统]
+        FS[文件操作]
+        NET[网络工具]
+        EXEC[Shell执行]
+        MCP_C[MCP Client]
     end
 
-    subgraph MEM["记忆系统"]
-        CLOUD["☁️ Cloud Memory"]
-        USER["👤 User Memory"]
-        WS["📁 Workspace Memory"]
+    subgraph MemorySys [记忆系统]
+        CLOUD[Cloud Memory]
+        USR[User Memory]
+        WSP[Workspace Memory]
     end
 
-    subgraph INFRA["基础设施"]
-        SESS["Session Manager"]
-        TRACE["Trace Store"]
-        CONFIG["Config Loader"]
+    subgraph Infra [基础设施]
+        SM[Session Manager]
+        TS[Trace Store]
+        CFG[Config Loader]
     end
+
+    R --> AgentEngine
+    R --> ToolSystem
+    R --> MemorySys
+    R --> Infra
 
     AL --> CTX
-    AL --> TOOLS
-    MCP_CLIENT --> MCP_SERVERS
-
-    MCP_SERVERS["🔗 MCP 工具服务器<br/>raspa-mcp · zeopp-backend · pdftranslate-mcp · mofstructure-mcp · feishu-mcp"]
+    AL --> ToolSystem
+    MCP_C --> MCPS[MCP 工具服务器集群]
 ```
 
 ## 核心设计原则
