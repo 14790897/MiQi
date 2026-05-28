@@ -1758,27 +1758,26 @@
 <p>MiQi Desktop 采用 <strong>三层分离架构</strong>：</p>
 <h3 id="_3">前端层 + 通信协议<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h3>
 <div class="mermaid">graph TB
-    UI[Electron Window - Chromium]
-
-    subgraph MainProcess [Main Process - Node.js]
-        BM[BridgeManager - 管理Python子进程]
-        WM[WindowManager - 窗口/托盘]
-        IPC[IPC Router - 10+ handlers]
+    subgraph MP [Main Process - Node.js]
+        BW[BrowserWindow 管理]
+        BM[BridgeManager Python子进程]
+        IPC[IPC Handler 注册路由]
+        API[系统原生 API]
     end
 
-    subgraph Renderer [Renderer Process - React TS]
-        CC[ChatConsole - 流式对话]
-        SE[SessionExplorer - 历史会话]
-        PP[ProvidersPage - LLM配置]
-        MP[MemoryPage - 记忆管理]
-        SP[SkillsPage - 技能管理]
-        STP[SettingsPage - 全局配置]
+    subgraph PS [Preload Script]
+        CB[contextBridge 安全API暴露]
+        NS[window.miqi 命名空间]
     end
 
-    MainProcess --&gt;|contextBridge| Renderer
-    Renderer --&gt;|ipcRenderer| MainProcess
+    subgraph RP [Renderer Process - Chromium]
+        RC[React 19 应用]
+        PGS[15个功能页面]
+        TW[Tailwind CSS 4 样式]
+    end
 
-    MainProcess --&gt; Proto[Bridge IPC stdin stdout]</div>
+    MP --&gt; PS
+    PS --&gt; RP</div>
 <h3 id="python">Python 后端 + 工具层<a class="headerlink" href="#python" title="Permanent link">&para;</a></h3>
 <div class="mermaid">graph TB
     BS[Bridge Server - 57个handler]

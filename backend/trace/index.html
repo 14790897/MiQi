@@ -1743,29 +1743,27 @@
 </span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="n">metadata</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="c1"># 扩展元数据</span>
 </span></code></pre></div>
 <h2 id="_3">追踪流程<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>任务开始
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  │ task_begin(name, goal)
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  ▼
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>工具调用链
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  │ tool_A → tool_B → tool_C → ...
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  ▼
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>任务结束
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>  │ task_end(outcome, notes)
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>  ▼
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>自动处理
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>  │ 1. 生成 embedding (fastembed)
-</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>  │ 2. 写入 TraceStore (SQLite)
-</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>  │ 3. FTS5 索引更新
-</span></code></pre></div>
+<div class="mermaid">graph TB
+    START[任务开始]
+
+    START --&gt;|task_begin name, goal| CHAIN[工具调用链]
+
+    CHAIN --&gt;|tool_A - tool_B - tool_C| END[任务结束]
+
+    END --&gt;|task_end outcome, notes| AUTO[自动处理]
+
+    AUTO --&gt; E1[1. 生成 embedding - fastembed]
+    AUTO --&gt; E2[2. 写入 TraceStore - SQLite]
+    AUTO --&gt; E3[3. FTS5 索引更新]</div>
 <h2 id="_4">相似任务检索<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
 <p>通过语义嵌入实现相似任务搜索：</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Agent 开始新任务时自动注入相似历史任务</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">similar</span> <span class="o">=</span> <span class="n">store</span><span class="o">.</span><span class="n">search_similar</span><span class="p">(</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">goal</span><span class="o">=</span><span class="s2">&quot;download papers about MOF simulation&quot;</span><span class="p">,</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">top_k</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">threshold</span><span class="o">=</span><span class="mf">0.65</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="p">)</span>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1"># → 注入到系统提示词，帮助 Agent 参考历史经验</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Agent 开始新任务时自动注入相似历史任务</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">similar</span> <span class="o">=</span> <span class="n">store</span><span class="o">.</span><span class="n">search_similar</span><span class="p">(</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">goal</span><span class="o">=</span><span class="s2">&quot;download papers about MOF simulation&quot;</span><span class="p">,</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">top_k</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">threshold</span><span class="o">=</span><span class="mf">0.65</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="p">)</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># → 注入到系统提示词，帮助 Agent 参考历史经验</span>
 </span></code></pre></div>
 <h2 id="_5">嵌入模型<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
 <p>默认使用 <code>intfloat/multilingual-e5-small</code>：</p>
@@ -1776,12 +1774,12 @@
 <li>首次使用时自动下载</li>
 </ul>
 <h2 id="cli">CLI 命令<a class="headerlink" href="#cli" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>miqi<span class="w"> </span>trace<span class="w"> </span>log<span class="w">              </span><span class="c1"># 查看追踪列表</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>miqi<span class="w"> </span>trace<span class="w"> </span>show<span class="w"> </span>&lt;hash&gt;<span class="w">      </span><span class="c1"># 查看追踪详情</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>miqi<span class="w"> </span>trace<span class="w"> </span>search<span class="w"> </span>&lt;query&gt;<span class="w">   </span><span class="c1"># 语义搜索</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>miqi<span class="w"> </span>trace<span class="w"> </span><span class="nb">export</span><span class="w">           </span><span class="c1"># 导出 JSON</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>miqi<span class="w"> </span>trace<span class="w"> </span>import<span class="w"> </span>&lt;file&gt;<span class="w">    </span><span class="c1"># 导入数据</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>miqi<span class="w"> </span>trace<span class="w"> </span>migrate<span class="w">          </span><span class="c1"># 从 LESSONS 迁移</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>miqi<span class="w"> </span>trace<span class="w"> </span>log<span class="w">              </span><span class="c1"># 查看追踪列表</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>miqi<span class="w"> </span>trace<span class="w"> </span>show<span class="w"> </span>&lt;hash&gt;<span class="w">      </span><span class="c1"># 查看追踪详情</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>miqi<span class="w"> </span>trace<span class="w"> </span>search<span class="w"> </span>&lt;query&gt;<span class="w">   </span><span class="c1"># 语义搜索</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>miqi<span class="w"> </span>trace<span class="w"> </span><span class="nb">export</span><span class="w">           </span><span class="c1"># 导出 JSON</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>miqi<span class="w"> </span>trace<span class="w"> </span>import<span class="w"> </span>&lt;file&gt;<span class="w">    </span><span class="c1"># 导入数据</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>miqi<span class="w"> </span>trace<span class="w"> </span>migrate<span class="w">          </span><span class="c1"># 从 LESSONS 迁移</span>
 </span></code></pre></div>
 <h2 id="lessons">与旧 Lessons 的对比<a class="headerlink" href="#lessons" title="Permanent link">&para;</a></h2>
 <table>
