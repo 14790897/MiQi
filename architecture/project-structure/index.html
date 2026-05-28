@@ -10,8 +10,6 @@
       
       
       
-        <link rel="canonical" href="https://14790897.github.io/miqi/architecture/project-structure/">
-      
       
         <link rel="prev" href="../data-flow/">
       
@@ -1579,7 +1577,7 @@
 
 <h1 id="_1">项目结构<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h1>
 <h2 id="_2">模块依赖关系<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
-<pre class="mermaid"><code>graph TB
+<div class="mermaid">graph TB
     subgraph APPS["📦 apps/desktop/ — Electron 前端"]
         direction LR
         MAIN["Main Process&lt;br/&gt;Window · IPC · Bridge"]
@@ -1622,7 +1620,7 @@
     BRIDGE --&gt; CONFIG
     TOOLS --&gt; MCPS
     AGENT --&gt; CHANNELS
-    AGENT --&gt; CRON</code></pre>
+    AGENT --&gt; CRON</div>
 <h2 id="_3">目录结构<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>miqi-desktop/
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── miqi/                        Python 后端
@@ -1790,7 +1788,7 @@
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
-        <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
       
     
   </body>
