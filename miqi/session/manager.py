@@ -264,6 +264,28 @@ class SessionManager:
         )
         tmp.replace(path)
 
+    def reset_tracked_file_op(self, key: str, file_path: str, op: str = "read") -> None:
+        """Force-reset the op of a tracked file entry (ignoring rank).
+
+        Unlike ``save_tracked_file`` this bypasses the rank guard so a
+        ``write`` entry can be downgraded back to ``read`` after accept.
+        """
+        files = self.load_tracked_files(key)
+        norm = file_path.replace("\\", "/")
+        if norm not in files:
+            return
+        from pathlib import PurePosixPath
+        files[norm]["op"] = op
+        files[norm]["lastSeen"] = int(datetime.now().timestamp() * 1000)
+        path = self._get_tracked_files_path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps({"version": 1, "files": files}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+
     def remove_tracked_file(self, key: str, file_path: str) -> None:
         """Remove a single tracked file entry."""
         files = self.load_tracked_files(key)
