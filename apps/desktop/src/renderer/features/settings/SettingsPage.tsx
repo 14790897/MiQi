@@ -3,7 +3,7 @@ import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { ScrollArea } from '../../components/ui/ScrollArea'
 import { cn } from '../../lib/utils'
-import { RefreshCw, Download, Save, Eye, EyeOff, Check, RotateCcw, Archive, RotateCcw as Unarchive } from 'lucide-react'
+import { RefreshCw, Download, Save, Eye, EyeOff, Check, RotateCcw, Archive, RotateCcw as Unarchive, ExternalLink } from 'lucide-react'
 import { useRuntime } from '../../contexts/RuntimeContext'
 import * as Tabs from '@radix-ui/react-tabs'
 import { ProvidersPage } from '../providers/ProvidersPage'
@@ -14,7 +14,7 @@ import { CronPage } from '../cron/CronPage'
 import { MCPsPage } from '../mcps/MCPsPage'
 import { ExperiencePage } from '../experience/ExperiencePage'
 
-type SettingsTab = 'general' | 'providers' | 'channels' | 'approvals' | 'workspace' | 'webtools' | 'appearance' | 'logs' | 'archived'
+type SettingsTab = 'general' | 'providers' | 'channels' | 'approvals' | 'workspace' | 'webtools' | 'appearance' | 'logs' | 'archived' | 'docs'
 
 // ---- Helpers ----
 function getNestedStr(obj: Record<string, unknown>, ...keys: string[]): string {
@@ -677,6 +677,131 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
   )
 }
 
+// ---- Docs Tab ----
+const DOCS_BASE = 'https://mygithub.sixiangjia.de/MiQi/'
+
+interface DocLink {
+  label: string
+  href: string
+  children?: DocLink[]
+}
+
+const DOCS_TREE: DocLink[] = [
+  { label: '🚀 快速开始', href: 'getting-started/' },
+  {
+    label: '🏗️ 系统架构', href: 'architecture/',
+    children: [
+      { label: '整体架构', href: 'architecture/' },
+      { label: '数据流', href: 'architecture/data-flow/' },
+      { label: '项目结构', href: 'architecture/project-structure/' },
+    ],
+  },
+  {
+    label: '🐍 Python 后端', href: 'backend/agent/',
+    children: [
+      { label: 'Agent 引擎', href: 'backend/agent/' },
+      { label: '工具系统', href: 'backend/tools/' },
+      { label: 'Provider 系统', href: 'backend/providers/' },
+      { label: '记忆系统', href: 'backend/memory/' },
+      { label: '会话管理', href: 'backend/session/' },
+      { label: '任务追踪', href: 'backend/trace/' },
+      { label: 'Bridge 通信', href: 'backend/bridge/' },
+    ],
+  },
+  {
+    label: '💻 Electron 前端', href: 'frontend/overview/',
+    children: [
+      { label: '前端概览', href: 'frontend/overview/' },
+      { label: 'IPC 通信', href: 'frontend/ipc/' },
+      { label: '功能页面', href: 'frontend/features/' },
+      { label: 'SkillHub', href: 'frontend/skillhub/' },
+    ],
+  },
+  { label: '🔌 MCP 集成', href: 'mcp-integration/' },
+  {
+    label: '⚙️ 配置与部署', href: 'configuration/',
+    children: [
+      { label: '配置参考', href: 'configuration/' },
+      { label: 'Docker 部署', href: 'deployment/docker/' },
+      { label: '桌面打包', href: 'deployment/packaging/' },
+    ],
+  },
+  {
+    label: '🛠️ 开发指南', href: 'developer-guide/',
+    children: [
+      { label: '开发环境搭建', href: 'developer-guide/' },
+      { label: '贡献指南', href: 'contributing/' },
+    ],
+  },
+  { label: '📝 更新日志', href: 'changelog/' },
+]
+
+function DocsTab() {
+  return (
+    <div className="flex flex-col h-full overflow-y-auto">
+      <div className="px-6 pt-5 pb-3 shrink-0">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-[var(--text)]">MiQi Desktop 文档</h3>
+          <a
+            href={DOCS_BASE}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors"
+          >
+            <ExternalLink size={12} />
+            完整文档站点
+          </a>
+        </div>
+        <p className="text-xs text-[var(--text-faint)] mt-1">
+          点击章节在浏览器中打开对应文档页面
+        </p>
+      </div>
+
+      <div className="px-6 pb-6 flex flex-col gap-3">
+        {DOCS_TREE.map((section) => (
+          <div key={section.href} className="border border-[var(--border-subtle)] rounded-lg overflow-hidden">
+            <a
+              href={DOCS_BASE + section.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block px-4 py-2.5 text-xs font-semibold text-[var(--text)] bg-[var(--surface-muted)] hover:bg-[var(--accent)]/10 transition-colors"
+            >
+              {section.label}
+            </a>
+            {section.children && (
+              <div className="flex flex-col">
+                {section.children.map((child) => (
+                  <a
+                    key={child.href}
+                    href={DOCS_BASE + child.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block px-4 py-2 text-xs text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--surface-muted)] transition-colors border-t border-[var(--border-subtle)]"
+                  >
+                    {child.label}
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+
+        <div className="mt-2 pt-4 border-t border-[var(--border-subtle)]">
+          <a
+            href="https://github.com/14790897/miqi"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 text-xs text-[var(--text-faint)] hover:text-[var(--accent)] transition-colors"
+          >
+            <ExternalLink size={12} />
+            GitHub 仓库：14790897/miqi
+          </a>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ---- Main ----
 export function SettingsPage({ onReopenSetup }: { onReopenSetup?: () => void }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
@@ -706,6 +831,7 @@ export function SettingsPage({ onReopenSetup }: { onReopenSetup?: () => void }) 
             { value: 'appearance', label: '外观' },
             { value: 'logs', label: '运行日志' },
             { value: 'archived', label: '已归档' },
+            { value: 'docs', label: '文档' },
           ].map((tab) => (
             <Tabs.Trigger
               key={tab.value}
@@ -748,6 +874,9 @@ export function SettingsPage({ onReopenSetup }: { onReopenSetup?: () => void }) 
         </Tabs.Content>
         <Tabs.Content value="archived" className="flex-1 overflow-y-auto">
           <ArchivedTab />
+        </Tabs.Content>
+        <Tabs.Content value="docs" className="flex-1 min-h-0 flex flex-col">
+          <DocsTab />
         </Tabs.Content>
       </Tabs.Root>
     </div>
