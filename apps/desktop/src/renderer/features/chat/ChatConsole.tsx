@@ -490,7 +490,13 @@ export function ChatConsole({
       await Promise.allSettled(
         toAccept.map((f) => window.miqi.files.accept(f.path, currentSessionRef.current)),
       )
-      setTrackedFiles([])
+      // Reset accepted files to 'read' so they stay visible in Referenced Context
+      const acceptedPaths = new Set(toAccept.map((f) => f.path))
+      setTrackedFiles((prev) =>
+        prev.map((f) =>
+          acceptedPaths.has(f.path) ? { ...f, op: "read" as const } : f,
+        ),
+      )
     } finally {
       setMerging(false)
     }

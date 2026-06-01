@@ -1677,13 +1677,13 @@ def _get_session_manager():
     return SessionManager(config.workspace_path)
 
 
-def _remove_tracked_file(session_key: str, file_path: str) -> None:
-    """Remove a tracked file entry from tracked_files.json."""
+def _reset_tracked_file_op(session_key: str, file_path: str) -> None:
+    """Reset a tracked file entry's op to 'read' instead of removing it."""
     try:
         sm = _get_session_manager()
-        sm.remove_tracked_file(session_key, file_path)
+        sm.reset_tracked_file_op(session_key, file_path, op="read")
     except Exception as exc:
-        _log(f"[files] remove_tracked_file failed: {exc}")
+        _log(f"[files] reset_tracked_file_op failed: {exc}")
 
 
 def handle_files_accept(req_id: str, params: dict) -> None:
@@ -1696,9 +1696,9 @@ def handle_files_accept(req_id: str, params: dict) -> None:
 
     _log(f"[files:accept] req={req_id} path={file_path} session_key={session_key}")
 
-    # Remove tracked file entry first (non-critical, do even if validation fails)
+    # Reset tracked file entry to 'read' (keep it in the list, just clear mod status)
     if session_key:
-        _remove_tracked_file(session_key, file_path)
+        _reset_tracked_file_op(session_key, file_path)
 
     try:
         resolved = _validate_file_path(file_path, session_key)
