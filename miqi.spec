@@ -8,6 +8,7 @@ a = Analysis(
         ('miqi/skills', 'miqi/skills'),
     ],
     hiddenimports=[
+        # MiQi internal modules
         'miqi.agent',
         'miqi.agent.tools',
         'miqi.agent.memory',
@@ -18,6 +19,14 @@ a = Analysis(
         'miqi.cron',
         'miqi.bus',
         'miqi.utils',
+        # Third-party deps checked dynamically via importlib.import_module()
+        # (PyInstaller can't detect these — server.py handle_python_check, line 1957)
+        'pydantic',
+        'pydantic.deprecated.decorator',
+        'pydantic._internal._config',
+        'httpx',
+        'httpcore',
+        'loguru',
     ],
     hookspath=[],
     hooksconfig={},
