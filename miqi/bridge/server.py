@@ -18,8 +18,11 @@ All JSON is written to stdout one line per message. Logs go to stderr.
 from __future__ import annotations
 
 import asyncio
+import atexit
 import json
+import os
 import re
+import signal
 import sys
 import threading
 import time
@@ -42,8 +45,34 @@ _stdout_buffer = sys.stdout.buffer if hasattr(sys.stdout, 'buffer') else None
 _stdout_lock = threading.Lock()
 
 
-def _log(msg: str) -> None:
+def _log(msg: str, level: str = "INFO") -> None:
+    """Unified log function — writes to stderr with [miqi-bridge] prefix.
+
+    Also routes through loguru so that all loguru-based modules (sandbox,
+    agent loop, etc.) appear in the same stream.
+    """
     print(f"[miqi-bridge] {msg}", file=sys.stderr, flush=True)
+
+
+def _init_logging() -> None:
+    """Configure loguru to output alongside the bridge's _log() format.
+
+    Replaces loguru's default handler with one that uses the [miqi-bridge]
+    prefix and writes to stderr, so all module-level logger.info/error calls
+    are visible in the same terminal stream.
+    """
+    from loguru import logger
+
+    # Remove the default handler (sink #0) which uses loguru's verbose format
+    logger.remove()
+
+    # Add a clean handler that matches _log()'s style
+    logger.add(
+        sys.stderr,
+        format="<level>[miqi-bridge] {name}:{function}:{line} | {message}</level>",
+        level="INFO",
+        colorize=True,
+    )
 
 
 def _send(data: dict[str, Any]) -> None:
@@ -89,7 +118,7 @@ def _terminal_event(req_id: str, event_type: str, data: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 class BridgeState:
-    """Holds cached config, active agent, and abort state."""
+    """Holds cached config, active agent, abort state, and shared sandbox manager."""
 
     def __init__(self) -> None:
         self.config = None  # lazy-loaded
@@ -100,12 +129,33 @@ class BridgeState:
         self._pending_approvals: dict[str, threading.Event] = {}
         self._approval_decisions: dict[str, str] = {}
         self._approval_meta: dict[str, dict] = {}
+        self._sandbox_manager: Any = None  # shared SandboxManager across agents
 
     def load_config(self):
         from miqi.config.loader import load_config
 
         self.config = load_config()
         return self.config
+
+    def _ensure_sandbox_manager(self):
+        """Lazy-init the shared SandboxManager from config."""
+        if self._sandbox_manager is not None:
+            return
+        config = self.load_config()
+        sb_cfg = getattr(config.tools, "sandbox", None)
+        if sb_cfg is None or not getattr(sb_cfg, "enabled", True):
+            self._sandbox_manager = "disabled"
+            return
+        from miqi.sandbox.manager import SandboxManager
+        self._sandbox_manager = SandboxManager(
+            workspace=config.workspace_path,
+            share_net=getattr(sb_cfg, "share_net", False),
+            enabled=getattr(sb_cfg, "enabled", True),
+            max_sandboxes=getattr(sb_cfg, "max_sandboxes", 10),
+            auto_cleanup=getattr(sb_cfg, "auto_cleanup", True),
+            wsl_distro=getattr(sb_cfg, "wsl_distro", ""),
+            wsl_base_dir=getattr(sb_cfg, "wsl_base_dir", "/tmp/miqi-sandboxes"),
+        )
 
     def build_agent(self, session_key: str, approval_callback=None):
         """Create an AgentLoop for the given session."""
@@ -122,6 +172,10 @@ class BridgeState:
 
         defaults = config.agents.defaults
         bus = MessageBus()
+
+        self._ensure_sandbox_manager()
+        # Pass the shared manager so all agents reuse the same sandbox pool
+        sandbox_mgr = None if self._sandbox_manager == "disabled" else self._sandbox_manager
 
         agent = AgentLoop(
             bus=bus,
@@ -148,6 +202,7 @@ class BridgeState:
             smart_routing_config=config.agents.smart_routing,
             approval_callback=approval_callback,
             session_key=session_key,
+            sandbox_manager=sandbox_mgr,
         )
         return agent
 
@@ -155,6 +210,22 @@ class BridgeState:
         with self._lock:
             self._active_agent = agent
             self._active_req_id = req_id
+
+    def destroy_sandbox(self, session_key: str) -> bool:
+        """Destroy the sandbox for a session (called on delete/archive)."""
+        if self._sandbox_manager is None or self._sandbox_manager == "disabled":
+            return False
+        try:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            try:
+                result = loop.run_until_complete(self._sandbox_manager.destroy(session_key))
+            finally:
+                loop.close()
+            return result
+        except Exception as exc:
+            _log(f"destroy_sandbox error: {exc}")
+            return False
 
     def abort_active(self) -> dict:
         with self._lock:
@@ -311,6 +382,11 @@ def handle_chat_send(req_id: str, params: dict) -> None:
                 _terminal_event(req_id, "error", {"message": str(exc)})
             finally:
                 _state.set_active(None, "")
+                # Stop the agent to clean up sandbox resources
+                try:
+                    agent.stop()
+                except Exception as exc:
+                    _log(f"agent.stop error: {exc}")
 
         asyncio.run(_run())
 
@@ -362,6 +438,8 @@ def handle_sessions_delete(req_id: str, params: dict) -> None:
 
     sm = SessionManager(config.workspace_path)
     deleted = sm.delete(session_key)
+    # Also destroy the sandbox for this session
+    _state.destroy_sandbox(session_key)
     _result(req_id, {"deleted": deleted})
 
 
@@ -374,6 +452,8 @@ def handle_sessions_archive(req_id: str, params: dict) -> None:
     try:
         sm = _get_session_manager()
         sm.archive(session_key)
+        # Destroy sandbox when archiving (auto_cleanup logic)
+        _state.destroy_sandbox(session_key)
         _result(req_id, {"archived": True})
     except Exception as exc:
         _error(req_id, str(exc))
@@ -2023,7 +2103,51 @@ def _ensure_workspace_init() -> None:
         _log(f"Workspace init warning (non-fatal): {exc}")
 
 
+# Global bridge state — accessible from atexit/signal handlers
+_bridge_state: BridgeState | None = None
+
+
+def _graceful_shutdown() -> None:
+    """Attempt to destroy all sandboxes on shutdown.
+
+    Called via atexit or signal handler. Uses a sync wrapper around
+    the async destroy_all() since we can't await in these contexts.
+    """
+    global _bridge_state
+    if _bridge_state is None:
+        return
+
+    sandbox_mgr = getattr(_bridge_state, "_sandbox_manager", None)
+    if sandbox_mgr is None or sandbox_mgr == "disabled":
+        return
+
+    # Try async destroy — run in a new event loop if needed
+    try:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # We're inside a running loop — schedule the cleanup
+            asyncio.ensure_future(sandbox_mgr.destroy_all())
+        else:
+            # No running loop — create one
+            asyncio.run(sandbox_mgr.destroy_all())
+    except Exception as exc:
+        _log(f"Sandbox cleanup on shutdown failed (non-fatal): {exc}")
+    finally:
+        # Always clear the state file to prevent stale entries
+        try:
+            sandbox_mgr._clear_state_file()
+        except Exception:
+            pass
+        _bridge_state = None
+
+
 def main() -> None:
+    global _bridge_state
+    _init_logging()
     _log("Bridge server starting")
     _ensure_workspace_init()
     # Persist approval history so records survive bridge restarts
@@ -2033,6 +2157,20 @@ def main() -> None:
         init_history_file(get_data_dir() / "approval_history.jsonl")
     except Exception as exc:
         _log(f"Approval history init warning (non-fatal): {exc}")
+
+    # Initialize bridge state — reuse the global _state instance
+    _bridge_state = _state
+
+    # Register graceful shutdown: destroy sandboxes & clear state file
+    atexit.register(_graceful_shutdown)
+
+    # Also handle SIGTERM (e.g. from Electron's process.kill() or Hot Reload)
+    try:
+        signal.signal(signal.SIGTERM, lambda *_: _graceful_shutdown())
+    except (OSError, ValueError):
+        # signal.signal can fail if not in main thread or not supported
+        pass
+
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -2048,6 +2186,9 @@ def main() -> None:
                 _error(req.get("id", "?"), "Internal bridge error")
             except Exception:
                 pass
+
+    # stdin closed — graceful exit
+    _graceful_shutdown()
     _log("Bridge server stopped")
 
 

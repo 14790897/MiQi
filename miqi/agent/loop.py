@@ -47,6 +47,7 @@ from miqi.config.schema import (
     ChannelsConfig,
     ExecToolConfig,
     PapersToolConfig,
+    SandboxConfig,
     SmartRoutingConfig,
     WebToolsConfig,
 )
@@ -154,6 +155,8 @@ class AgentLoop:
         compression_threshold_chars: int = 400_000,
         approval_callback=None,
         session_key: str = "",
+        sandbox_config: SandboxConfig | None = None,
+        sandbox_manager: Any = None,
     ):
         self.bus = bus
         self.channels_config = channels_config
@@ -177,6 +180,24 @@ class AgentLoop:
         self.session_config = session_config or AgentSessionConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self.sandbox_config = sandbox_config or SandboxConfig()
+
+        # Initialize sandbox manager (per-session bwrap isolation)
+        self._sandbox_manager: Any = None
+        if sandbox_manager is not None:
+            # Use externally-provided manager (e.g. from BridgeState)
+            self._sandbox_manager = sandbox_manager
+        elif self.sandbox_config.enabled:
+            from miqi.sandbox.manager import SandboxManager
+            self._sandbox_manager = SandboxManager(
+                workspace=workspace,
+                share_net=self.sandbox_config.share_net,
+                enabled=self.sandbox_config.enabled,
+                max_sandboxes=self.sandbox_config.max_sandboxes,
+                auto_cleanup=self.sandbox_config.auto_cleanup,
+                wsl_distro=self.sandbox_config.wsl_distro,
+                wsl_base_dir=self.sandbox_config.wsl_base_dir,
+            )
 
         self.memory = MemoryStore(
             workspace=workspace,
@@ -354,18 +375,22 @@ class AgentLoop:
 
         _write_workspace = _work_dir if _work_dir is not None else self.workspace
 
+        # Pass sandbox_manager to tools for per-session filesystem isolation
+        _sbm = self._sandbox_manager
+
         for cls in (ReadFileTool, ListDirTool):
-            self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
+            self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir, sandbox_manager=_sbm))
         self.tools.register(WriteFileTool(
-            workspace=_write_workspace, allowed_dir=allowed_dir, snapshot_dir=_snap_dir))
+            workspace=_write_workspace, allowed_dir=allowed_dir, snapshot_dir=_snap_dir, sandbox_manager=_sbm))
         self.tools.register(EditFileTool(
-            workspace=_write_workspace, allowed_dir=allowed_dir, snapshot_dir=_snap_dir))
+            workspace=_write_workspace, allowed_dir=allowed_dir, snapshot_dir=_snap_dir, sandbox_manager=_sbm))
         self.tools.register(ExecTool(
             working_dir=str(_work_dir or self.workspace),
             timeout=self.exec_config.timeout,
             restrict_to_workspace=self.restrict_to_workspace,
             env_passthrough=list(self.exec_config.env_passthrough),
             approval_callback=self._approval_callback,
+            sandbox_manager=_sbm,
         ))
         self.tools.register(
             WebSearchTool(
@@ -696,6 +721,17 @@ class AgentLoop:
                 max_tokens=self.max_tokens,
             )
 
+            # ── Diagnostic logging for every LLM response ──
+            logger.info(
+                "LLM response: finish_reason={}, tool_calls={}, "
+                "content={}chars, reasoning={}chars, usage={}",
+                response.finish_reason,
+                len(response.tool_calls) if response.tool_calls else 0,
+                len(response.content or ""),
+                len(response.reasoning_content or ""),
+                response.usage,
+            )
+
             if response.has_tool_calls:
                 if on_progress:
                     await on_progress(
@@ -758,9 +794,16 @@ class AgentLoop:
                     for tool_call in response.tool_calls:
                         result = result_by_id.get(tool_call.id, "")
                         tools_used.append(tool_call.name)
+                        # Log tool call + result (truncated)
+                        args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
+                        _res_preview = (result or "")[:200]
+                        if isinstance(result, str) and len(result) > 200:
+                            _res_preview += f"…({len(result)}chars)"
                         logger.info(
-                            "Tool call (parallel): {}",
+                            "Tool (parallel): {}({}) → {}",
                             tool_call.name,
+                            args_str[:100],
+                            _res_preview,
                         )
                         if (
                             self.max_tool_result_chars > 0
@@ -828,6 +871,16 @@ class AgentLoop:
                             _on_progress=_mcp_on_progress,
                             session_id=session_key,
                         )
+                        # Log tool execution result for debugging (truncated)
+                        _res_preview = (result or "")[:500]
+                        if isinstance(result, str) and len(result) > 500:
+                            _res_preview += f"…({len(result)}chars total)"
+                        logger.info(
+                            "Tool: {}({}) → {}",
+                            tool_call.name,
+                            args_str[:100],
+                            _res_preview,
+                        )
                         # Record tool feedback for self-improvement lessons
                         if session_key and isinstance(result, str):
                             self.memory.record_tool_feedback(
@@ -881,18 +934,36 @@ class AgentLoop:
                 else:
                     final_content = self._strip_think(response.content)
                     if final_content is None:
-                        # Model returned only <think>…</think> with no visible answer.
-                        # This usually means max_tokens was exhausted during reasoning
-                        # (e.g. DeepSeek-R1 via OpenRouter). Log and surface a hint.
+                        # Model returned only <think>…</think> with no visible answer,
+                        # or content was empty/None.  Log enough detail to diagnose.
+                        _raw_content = response.content
+                        _raw_reasoning = response.reasoning_content
                         logger.warning(
-                            "Model response empty after stripping think tags "
-                            "(finish_reason={}, has reasoning={}) — likely max_tokens too low",
+                            "Model response empty after stripping think tags — "
+                            "finish_reason={}, has_reasoning={}, "
+                            "raw_content={!r}{}{}, "
+                            "raw_reasoning={!r}{}{}, "
+                            "usage={}, max_tokens={}, msg_count={}",
                             response.finish_reason,
-                            response.reasoning_content is not None,
+                            _raw_reasoning is not None,
+                            (_raw_content or "")[:200],
+                            f"…({len(_raw_content)}chars)" if _raw_content and len(_raw_content) > 200 else "",
+                            f" (None)" if _raw_content is None else "",
+                            (_raw_reasoning or "")[:200],
+                            f"…({len(_raw_reasoning)}chars)" if _raw_reasoning and len(_raw_reasoning) > 200 else "",
+                            f" (None)" if _raw_reasoning is None else "",
+                            response.usage,
+                            self.max_tokens,
+                            len(messages),
                         )
                         final_content = (
-                            "\u26a0\ufe0f \u6a21\u578b\u5b8c\u6210\u4e86\u63a8\u7406\u4f46\u672a\u8f93\u51fa\u6700\u7ec8\u56de\u590d"
-                            "\uff08\u53ef\u80fd\u662f max_tokens \u8bbe\u7f6e\u8fc7\u4f4e\uff09\uff0c\u8bf7\u5c1d\u8bd5\u5bf9\u8be5\u4efb\u52a1\u589e\u5927 max_tokens \u540e\u91cd\u8bd5\u3002"
+                            "⚠️ 模型完成了推理但未输出最终回复。\n"
+                            f"诊断：finish_reason={response.finish_reason}, "
+                            f"reasoning={'有' if _raw_reasoning else '无'}, "
+                            f"content={'空' if not _raw_content else f'{len(_raw_content)}字符'}, "
+                            f"usage={response.usage}, "
+                            f"max_tokens={self.max_tokens}。\n"
+                            "可能原因：模型推理消耗了输出配额、API 参数不兼容、或模型内部错误。"
                         )
                 break
 
@@ -943,6 +1014,19 @@ class AgentLoop:
         """
         self._running = True
         await self._connect_mcp()
+
+        # Initialize sandbox manager (check bwrap availability)
+        if self._sandbox_manager is not None:
+            try:
+                sandbox_ok = await self._sandbox_manager.initialize()
+                if sandbox_ok:
+                    logger.info("Per-session bwrap sandboxing is ACTIVE")
+                else:
+                    logger.info("Per-session sandboxing is NOT available (bwrap missing or disabled)")
+            except Exception as exc:
+                logger.warning("Sandbox manager initialization failed: {}", exc)
+                self._sandbox_manager = None
+
         logger.info("Agent loop started")
 
         while self._running:
@@ -1047,6 +1131,20 @@ class AgentLoop:
                 outcome_notes="Agent stopped without explicit task_end.",
                 tool_calls=[],
             )
+        # Destroy all sandboxes
+        if self._sandbox_manager is not None:
+            try:
+                # Best-effort synchronous cleanup; async destroy_all
+                # is called in the async stop path below.
+                import asyncio
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(self._sandbox_manager.destroy_all())
+                except RuntimeError:
+                    pass
+            except Exception as exc:
+                logger.warning("Failed to destroy sandboxes on stop: {}", exc)
         self._running = False
         logger.info("Agent loop stopping")
 
@@ -1076,6 +1174,14 @@ class AgentLoop:
             logger.info("Processing system message from {}", msg.sender_id)
             key = f"{channel}:{chat_id}"
             session = self.sessions.get_or_create(key)
+
+            # Activate sandbox for this session
+            if self._sandbox_manager is not None:
+                try:
+                    await self._sandbox_manager.activate(key)
+                except Exception as exc:
+                    logger.warning("Failed to activate sandbox for {}: {}", key, exc)
+
             self._set_tool_context(
                 channel,
                 chat_id,
@@ -1088,6 +1194,15 @@ class AgentLoop:
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
             )
+            # Inject sandbox context hint for system messages too
+            if self._sandbox_manager is not None:
+                _active_sb = self._sandbox_manager.active_sandbox
+                if _active_sb is not None and _active_sb.is_running:
+                    messages.append({"role": "system", "content":
+                        "## Sandbox Environment\n"
+                        "You are running inside an isolated Linux sandbox (bwrap). "
+                        "Use Linux-style paths (/home/miqi/workspace/) and Linux commands only."
+                    })
             try:
                 final_content, _, all_msgs = await self._run_agent_loop(
                     messages, session_key=key,
@@ -1105,6 +1220,14 @@ class AgentLoop:
 
         key = session_key or msg.session_key
         session = self.sessions.get_or_create(key)
+
+        # Activate sandbox for this session (creates new sandbox on first use)
+        if self._sandbox_manager is not None:
+            try:
+                await self._sandbox_manager.activate(key)
+            except Exception as exc:
+                logger.warning("Failed to activate sandbox for {}: {}", key, exc)
+
         previous_assistant = self._get_last_assistant_message(session)
 
         # Slash commands
@@ -1142,6 +1265,14 @@ class AgentLoop:
                 )
             session.clear()
             self.sessions.save(session)
+
+            # Destroy sandbox for this session so it starts fresh
+            if self._sandbox_manager is not None:
+                try:
+                    await self._sandbox_manager.destroy(session.key)
+                except Exception as exc:
+                    logger.warning("Failed to destroy sandbox on /new: {}", exc)
+
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
                                   content="New session started.")
         if cmd == "/help":
@@ -1220,6 +1351,24 @@ class AgentLoop:
                  "this session, consider saving it as a reusable skill using skill_manage(action='create')."}
             ]
             self._skill_nudge_pending = False
+
+        # Inject sandbox context so the model knows it's inside a Linux sandbox
+        if self._sandbox_manager is not None:
+            _active_sb = self._sandbox_manager.active_sandbox
+            if _active_sb is not None and _active_sb.is_running:
+                _sb_hint = (
+                    "## Sandbox Environment\n"
+                    "You are running inside an isolated Linux sandbox (bwrap). Key constraints:\n"
+                    "- Use **Linux-style paths** only: /home/miqi/workspace/ is your workspace root.\n"
+                    "- Windows paths (C:\\...) are NOT valid here. Use /home/miqi/workspace/ for workspace files.\n"
+                    "- The host filesystem is accessible via /mnt/c/, /mnt/d/ etc. if needed.\n"
+                    "- Your home directory is /home/miqi/ (isolated per session).\n"
+                    "- Commands run in a Linux environment (bash, python3, ls, grep, etc.).\n"
+                    "- No Windows commands (dir, type, where, echo %OS%) will work.\n"
+                )
+                initial_messages = initial_messages + [
+                    {"role": "system", "content": _sb_hint}
+                ]
 
         _chat_type = (msg.metadata or {}).get("chat_type", "")
         _mention_prefix = ""
@@ -1409,6 +1558,19 @@ class AgentLoop:
     ) -> str:
         """Process a message directly (for CLI or cron usage)."""
         await self._connect_mcp()
+
+        # Initialize sandbox manager (check bwrap availability)
+        if self._sandbox_manager is not None and hasattr(self._sandbox_manager, "initialize"):
+            try:
+                sandbox_ok = await self._sandbox_manager.initialize()
+                if sandbox_ok:
+                    logger.info("Per-session bwrap sandboxing is ACTIVE")
+                else:
+                    logger.info("Per-session sandboxing is NOT available (bwrap missing or disabled)")
+            except Exception as exc:
+                logger.warning("Sandbox manager initialization failed: {}", exc)
+                self._sandbox_manager = None
+
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
         response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
         return response.content if response else ""

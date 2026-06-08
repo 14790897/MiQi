@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import sys
 from contextlib import nullcontext
 
 import typer
@@ -33,7 +34,7 @@ def register_agent_command(
             True, "--markdown/--no-markdown", help="Render assistant output as Markdown"
         ),
         logs: bool = typer.Option(
-            False, "--logs/--no-logs", help="Show runtime logs during chat"
+            True, "--logs/--no-logs", help="Show runtime logs during chat"
         ),
     ):
         """Interact with the agent directly."""
@@ -44,6 +45,19 @@ def register_agent_command(
         from miqi.config.loader import get_data_dir, load_config
         from miqi.cron.service import CronService
 
+        # Configure loguru: enable miqi namespace and set level
+        logger.enable("miqi")
+        if not logs:
+            # When --no-logs, suppress loguru output but don't fully disable
+            # (errors and warnings should still be visible)
+            logger.remove()
+            logger.add(
+                sys.stderr,
+                format="<level>[miqi] {name}:{function}:{line} | {message}</level>",
+                level="WARNING",
+                colorize=True,
+            )
+
         config = load_config()
 
         bus = MessageBus()
@@ -51,11 +65,6 @@ def register_agent_command(
 
         cron_store_path = get_data_dir() / "cron" / "jobs.json"
         cron = CronService(cron_store_path, job_timeout=config.cron.job_timeout_seconds)
-
-        if logs:
-            logger.enable("miqi")
-        else:
-            logger.disable("miqi")
 
         agent_loop = AgentLoop(
             bus=bus,

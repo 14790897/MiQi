@@ -22,6 +22,8 @@ def register_gateway_command(
         verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     ):
         """Start the MiQi gateway."""
+        from loguru import logger
+
         from miqi.agent.loop import AgentLoop
         from miqi.bus.queue import MessageBus
         from miqi.channels.manager import ChannelManager
@@ -31,10 +33,24 @@ def register_gateway_command(
         from miqi.heartbeat.service import HeartbeatService
         from miqi.session.manager import SessionManager
 
+        # Configure loguru for gateway mode
+        logger.enable("miqi")
+        logger.remove()
+        import sys
         if verbose:
-            import logging
-
-            logging.basicConfig(level=logging.DEBUG)
+            logger.add(
+                sys.stderr,
+                format="<level>[miqi-gateway] {name}:{function}:{line} | {message}</level>",
+                level="DEBUG",
+                colorize=True,
+            )
+        else:
+            logger.add(
+                sys.stderr,
+                format="<level>[miqi-gateway] {name}:{function}:{line} | {message}</level>",
+                level="INFO",
+                colorize=True,
+            )
 
         console.print(f"{logo} Starting MiQi gateway on port {port}...")
 

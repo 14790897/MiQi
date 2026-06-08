@@ -530,7 +530,15 @@ def register_management_commands(
         from miqi.cron.service import CronService
         from miqi.cron.types import CronJob
 
-        logger.disable("miqi")
+        logger.enable("miqi")
+        logger.remove()
+        import sys as _sys
+        logger.add(
+            _sys.stderr,
+            format="<level>[miqi] {name}:{function}:{line} | {message}</level>",
+            level="INFO",
+            colorize=True,
+        )
 
         config = load_config()
         store_path = get_data_dir() / "cron" / "jobs.json"

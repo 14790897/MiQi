@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import traceback
 from typing import Any
+
+from loguru import logger
 
 from miqi.agent.tools.base import Tool
 
@@ -139,7 +142,12 @@ class ToolRegistry:
         except asyncio.TimeoutError:
             return f"Error: Tool '{name}' timed out after {timeout}s" + hint
         except Exception as e:
-            return f"Error executing {name}: {str(e)}" + hint
+            tb = traceback.format_exc()
+            logger.error(
+                "Tool '{}' raised {}: {}\n{}",
+                name, type(e).__name__, e, tb,
+            )
+            return f"Error executing {name}: {type(e).__name__}: {e}" + hint
 
     # ── Concurrent execution ───────────────────────────────────────────────
 
