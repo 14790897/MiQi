@@ -48,6 +48,10 @@ interface Message {
   content: string
   attachments?: Attachment[]
   toolHint?: boolean
+  /** When true the message is collapsed by default (user can click to expand) */
+  collapsed?: boolean
+  /** Short label shown when collapsed (e.g. "exec" or "write_file → /path/to/file") */
+  summary?: string
   timestamp: number
 }
 
@@ -113,14 +117,91 @@ function basename(path: string): string {
 const DEFAULT_SESSION = 'desktop:default'
 
 function sessionMsgsToUi(rawMsgs: any[]): Message[] {
-  return rawMsgs
-    .filter((m) => m.role === 'user' || m.role === 'assistant')
-    .map((m) => ({
-      role: m.role as 'user' | 'assistant',
-      content:
-        typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-      timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
-    }))
+  const result: Message[] = []
+  for (const m of rawMsgs) {
+    const ts = m.timestamp ? new Date(m.timestamp).getTime() : Date.now()
+
+    if (m.role === 'user' || m.role === 'assistant') {
+      // For assistant messages with tool_calls, emit a progress indicator first
+      if (m.role === 'assistant' && m.tool_calls?.length) {
+        const hintText = m._tool_hint_text
+          || m.tool_calls.map((tc: any) => {
+              const fn = tc.function?.name || tc.name || '?'
+              const args = tc.function?.arguments || tc.arguments || ''
+              const argStr = typeof args === 'string' ? args : JSON.stringify(args)
+              return `${fn}(${argStr.slice(0, 80)})`
+            }).join(', ')
+        // Short summary: just tool names, or parse file path from _tool_hint_text
+        const summaryParts = m.tool_calls.map((tc: any) => {
+          const fn = tc.function?.name || tc.name || '?'
+          return fn
+        })
+        const summary = summaryParts.join(', ')
+        result.push({
+          role: 'progress',
+          content: hintText,
+          summary,
+          toolHint: true,
+          collapsed: true,
+          timestamp: ts,
+        })
+      }
+
+      // Skip assistant messages that have no text content (only tool_calls)
+      const hasContent = m.content && String(m.content).trim().length > 0
+      if (m.role === 'user' || hasContent) {
+        result.push({
+          role: m.role as 'user' | 'assistant',
+          content:
+            typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+          timestamp: ts,
+        })
+      }
+    } else if (m.role === 'tool') {
+      // Tool result messages → show as collapsed progress with toolHint
+      const toolName = m.name || 'tool'
+      const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+      const preview = content.length > 120 ? content.slice(0, 120) + '…' : content
+      result.push({
+        role: 'progress',
+        content: `${toolName}: ${preview}`,
+        summary: toolName,
+        toolHint: true,
+        collapsed: true,
+        timestamp: ts,
+      })
+    }
+    // Ignore other roles (system, etc.)
+  }
+
+  // Merge consecutive collapsed progress messages into a single group
+  const merged: Message[] = []
+  for (const msg of result) {
+    if (msg.collapsed && merged.length > 0 && merged[merged.length - 1].collapsed) {
+      const prev = merged[merged.length - 1]
+      // Append content and summary
+      prev.content += '\n' + msg.content
+      prev.summary = prev.summary!.includes(',')
+        ? prev.summary // already a group, keep it
+        : `${prev.summary}, ${msg.summary}` // merge two single items
+      // Use the later timestamp
+      prev.timestamp = msg.timestamp
+    } else {
+      merged.push({ ...msg })
+    }
+  }
+
+  // When a group has multiple items, rewrite summary to show count
+  for (const msg of merged) {
+    if (msg.collapsed && msg.summary && msg.summary.includes(',')) {
+      const names = msg.summary.split(', ').filter(Boolean)
+      // Deduplicate tool names
+      const unique = [...new Set(names)]
+      msg.summary = `${unique.length} tool calls: ${unique.join(', ')}`
+    }
+  }
+
+  return merged
 }
 
 /** Parse tracked files from raw session messages (includes progress entries with _tool_hint). */
@@ -1381,14 +1462,27 @@ function MessageBubble({ msg, isLast, onCopy, isCopied, onRetry }: {
   isCopied: boolean
   onRetry?: () => void
 }) {
+  const [expanded, setExpanded] = useState(false)
+
   if (msg.role === 'progress') {
+    const isCollapsed = msg.collapsed && !expanded
     return (
       <div
-        className={cn('flex items-center gap-2 text-xs py-1 px-1')}
+        className={cn('flex items-center gap-2 text-xs py-1 px-1', msg.collapsed && 'cursor-pointer select-none')}
         style={{ color: msg.toolHint ? 'var(--info)' : 'var(--text-muted)' }}
+        onClick={msg.collapsed ? () => setExpanded((v) => !v) : undefined}
       >
         {msg.toolHint ? <Wrench size={12} /> : <Loader2 size={12} className="animate-spin" />}
-        <span>{msg.content}</span>
+        {msg.collapsed && (
+          isCollapsed
+            ? <ChevronRight size={10} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
+            : <ChevronDown size={10} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
+        )}
+        {isCollapsed ? (
+          <span>{msg.summary || msg.content}</span>
+        ) : (
+          <span className="whitespace-pre-wrap break-all">{msg.content}</span>
+        )}
       </div>
     )
   }
