@@ -7,10 +7,9 @@ from pathlib import Path
 import pytest
 
 from miqi.kun_runtime.auth import BearerTokenAuth
-from miqi.kun_runtime.runtime import KunRuntime, RuntimeOptions
 from miqi.kun_runtime.model_client import FakeModelClient
+from miqi.kun_runtime.runtime import KunRuntime, RuntimeOptions
 from miqi.kun_runtime.tool_host import FakeToolHost
-
 
 FIXED_TIME = "2026-06-08T12:00:00Z"
 

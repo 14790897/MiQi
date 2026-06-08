@@ -13,9 +13,9 @@ from miqi.kun_runtime.contracts import (
     ApprovalPolicy,
     AssistantReasoningItem,
     AssistantTextItem,
+    CompactionItem,
     CompactRequest,
     CompactResponse,
-    CompactionItem,
     CreateThreadRequest,
     ErrorItem,
     InterruptTurnRequest,
@@ -24,7 +24,6 @@ from miqi.kun_runtime.contracts import (
     ModelToolSpec,
     PipelineStageEvent,
     ReviewItem,
-    ReviewOutput,
     ReviewTarget,
     SandboxMode,
     SetThreadGoalRequest,
@@ -37,7 +36,6 @@ from miqi.kun_runtime.contracts import (
     ThreadStatus,
     ThreadTodoItem,
     ThreadTodoList,
-    ThreadTodoSource,
     ThreadTodoStatus,
     ToolCallItem,
     ToolKind,
@@ -53,7 +51,6 @@ from miqi.kun_runtime.contracts import (
     UserInputResolveRequest,
     UserMessageItem,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TurnItem round-trip tests

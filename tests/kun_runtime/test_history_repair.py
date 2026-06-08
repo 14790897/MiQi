@@ -1,14 +1,15 @@
 """Phase 8 supplementary tests — History repair, history hygiene, token economy, tool storm breaker, tool call repair, compactor."""
 
 import pytest
-from miqi.kun_runtime.history_repair import heal_loaded_history_items, repair_model_history_items
-from miqi.kun_runtime.history_hygiene import apply_request_history_hygiene
-from miqi.kun_runtime.token_economy import normalize_token_economy_config, TOKEN_ECONOMY_INSTRUCTION
-from miqi.kun_runtime.tool_storm_breaker import ToolStormBreaker
-from miqi.kun_runtime.tool_call_repair import repair_dispatch_tool_arguments
-from miqi.kun_runtime.compactor import ContextCompactor
-from miqi.kun_runtime.context_estimator import estimate_tokens, estimate_items_tokens
+
 from miqi.kun_runtime.auto_model_router import resolve_auto_model_route
+from miqi.kun_runtime.compactor import ContextCompactor
+from miqi.kun_runtime.context_estimator import estimate_items_tokens, estimate_tokens
+from miqi.kun_runtime.history_hygiene import apply_request_history_hygiene
+from miqi.kun_runtime.history_repair import heal_loaded_history_items, repair_model_history_items
+from miqi.kun_runtime.token_economy import TOKEN_ECONOMY_INSTRUCTION, normalize_token_economy_config
+from miqi.kun_runtime.tool_call_repair import repair_dispatch_tool_arguments
+from miqi.kun_runtime.tool_storm_breaker import ToolStormBreaker
 
 
 class TestHistoryRepair:

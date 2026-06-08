@@ -1,3 +1,4 @@
+# ruff: noqa: N815  # camelCase field names match KUN wire format
 """Model client adapter for KUN runtime.
 
 Wraps MiQi ``LLMProvider.chat()`` to produce KUN ``ModelStreamChunk``
@@ -13,8 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
-from miqi.providers.base import LLMProvider, LLMResponse
-
+from miqi.providers.base import LLMProvider
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Model stream chunk types
@@ -272,7 +272,7 @@ def _build_messages(request: ModelRequest) -> list[dict[str, Any]]:
 def _item_to_message(item: dict[str, Any]) -> dict[str, Any] | None:
     """Convert a KUN TurnItem dict to a provider message dict."""
     kind = item.get("kind", "")
-    role = item.get("role", "")
+    item.get("role", "")
 
     if kind == "user_message":
         return {"role": "user", "content": item.get("text", "")}

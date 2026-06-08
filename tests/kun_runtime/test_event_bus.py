@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 
 import pytest
 
 from miqi.kun_runtime.event_bus import EventBus
 from miqi.kun_runtime.event_recorder import RuntimeEventRecorder
 from miqi.kun_runtime.sse import encode_sse, encode_sse_comment, encode_stream_final
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # EventBus tests
@@ -243,7 +241,7 @@ class TestSSEEncode:
         event = {"seq": 1, "kind": "usage", "threadId": "th1", "usage": {"promptTokens": 100}}
         sse = encode_sse(event)
         # Extract data line
-        data_line = [l for l in sse.split("\n") if l.startswith("data: ")][0]
+        data_line = [line for line in sse.split("\n") if line.startswith("data: ")][0]
         payload = data_line[len("data: "):]
         parsed = json.loads(payload)
         assert parsed["kind"] == "usage"
@@ -260,7 +258,7 @@ class TestSSEEncode:
             "readyCount": 2,
         }
         sse = encode_sse(event)
-        data_line = [l for l in sse.split("\n") if l.startswith("data: ")][0]
+        data_line = [line for line in sse.split("\n") if line.startswith("data: ")][0]
         parsed = json.loads(data_line[len("data: "):])
         assert parsed["toolName"] == "read"
         assert parsed["readyCount"] == 2
@@ -270,14 +268,14 @@ class TestSSEEncode:
         from datetime import datetime
         event = {"seq": 1, "kind": "heartbeat", "threadId": "th1", "ts": datetime(2026, 1, 1)}
         sse = encode_sse(event)
-        data_line = [l for l in sse.split("\n") if l.startswith("data: ")][0]
+        data_line = [line for line in sse.split("\n") if line.startswith("data: ")][0]
         parsed = json.loads(data_line[len("data: "):])
         assert "2026" in str(parsed["ts"])
 
     def test_special_characters(self) -> None:
         event = {"seq": 1, "kind": "error", "threadId": "th1", "message": "line1\nline2"}
         sse = encode_sse(event)
-        data_line = [l for l in sse.split("\n") if l.startswith("data: ")][0]
+        data_line = [line for line in sse.split("\n") if line.startswith("data: ")][0]
         parsed = json.loads(data_line[len("data: "):])
         assert parsed["message"] == "line1\nline2"
 

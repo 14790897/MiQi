@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 
 import pytest
 
 from miqi.kun_runtime.stores import FileSessionStore, FileThreadStore
 from miqi.kun_runtime.usage import UsageService
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Fixtures
