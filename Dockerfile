@@ -1,8 +1,8 @@
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
-# Install runtime dependencies
+# Install runtime dependencies (including bubblewrap for per-session sandbox isolation)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl git && \
+    apt-get install -y --no-install-recommends ca-certificates curl git bubblewrap && \
     rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user to run the application (SEC-04)

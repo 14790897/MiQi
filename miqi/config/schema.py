@@ -354,6 +354,17 @@ class WebToolsConfig(Base):
     fetch: WebFetchConfig = Field(default_factory=WebFetchConfig)
 
 
+class SandboxConfig(Base):
+    """Sandbox isolation configuration for per-session environments."""
+
+    enabled: bool = True
+    share_net: bool = False  # Allow network access inside sandbox
+    max_sandboxes: int = 10  # Maximum concurrent sandboxes
+    auto_cleanup: bool = True  # Clean up sandbox on session archive/delete
+    wsl_distro: str = ""  # WSL distribution name (e.g. "AIShadowSandbox"). Auto-detected if empty on Windows.
+    wsl_base_dir: str = "/tmp/miqi-sandboxes"  # Sandbox directory inside WSL filesystem
+
+
 class ExecToolConfig(Base):
     """Shell exec tool configuration."""
 
@@ -403,6 +414,7 @@ class ToolsConfig(Base):
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
     papers: PapersToolConfig = Field(default_factory=PapersToolConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
+    sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
 
