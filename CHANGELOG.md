@@ -175,6 +175,12 @@ All notable changes to this project will be documented in this file.
   - Document covers: architectural comparison (message-bus vs desktop workbench), 33-module KUN→Python mapping table, 15 capability adapter mappings, Pydantic data model definitions, 9-risk register, and an 11-phase migration plan with 11 recommended PR splits.
   - No code changes — read-only analysis phase.
 
+- **KUN runtime migration — Phase 7 (ApprovalGate & UserInputGate)**:
+  - Added `miqi/kun_runtime/approval_gate.py` — `ApprovalGate` with async request/resolve/cancel_all, per-turn filtering, timeout→deny safety, idempotent resolve.
+  - Added `miqi/kun_runtime/user_input_gate.py` — `UserInputGate` with async request/resolve/cancel_all, answers dict, timeout→cancelled fallback.
+  - Added `tests/kun_runtime/test_agent_loop_gates.py` with 21 tests covering: ApprovalRequest lifecycle (resolve allow/deny, cancel, wait+timeout), ApprovalGate (parallel request+resolve, deny, cancel_all per-turn isolation), UserInputRequest lifecycle, UserInputGate (request+resolve with answers, cancel_all, nonexistent rejection).
+  - All tests pass: 324 total (103 original + 221 new).
+
 - **KUN runtime migration — Phase 6 (ToolHost adapter)**:
   - Added `miqi/kun_runtime/tool_host.py` — KUN ToolHost wrapping MiQi ToolRegistry:
     - `MiQiToolHost`: delegates `listTools(context)` and `execute(call, context)` to the registry with KUN-compatible ToolHostResult items.
