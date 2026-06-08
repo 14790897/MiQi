@@ -187,6 +187,8 @@ class AgentDefaults(Base):
     max_tool_result_chars: int = 16000
     # Soft cap on total estimated context chars before LLM call.
     context_limit_chars: int = 600000
+    # Runtime engine: "legacy" (original AgentLoop) or "kun" (desktop-workbench runtime)
+    runtime: str = "legacy"
     # Provider fallback chain — tried in order when primary fails
     fallback_chain: list[FallbackChainEntry] = Field(default_factory=list)
 

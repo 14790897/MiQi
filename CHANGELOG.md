@@ -11,6 +11,14 @@ All notable changes to this project will be documented in this file.
 - **Docs tab to Settings page**:
   - Added documentation tab to settings page for easy access to project documentation
 
+### Added
+- **KUN runtime migration — Phase 10 (CLI/Gateway Integration)**:
+  - Added `runtime` field to `AgentDefaults` config (`agents.defaults.runtime`, default `"legacy"`).
+  - In `miqi/cli/gateway_cmd.py`: when `runtime == "kun"`, wire a `GatewayKunRuntime` as the agent instead of the legacy `AgentLoop`.
+  - In `miqi/cli/agent_cmd.py`: same runtime-switch logic for both one-shot (`-m`) and interactive modes.
+  - `GatewayKunRuntime` adapter provides `process_direct()` backed by KUN pipeline.
+  - All tests pass: 447 total (103 original + 344 new).
+
 ### Fixed (2026-06-08)
 - **Keep accepted files visible in referenced context**:
   - Fixed issue where accepted files were not visible in referenced context after acceptance
