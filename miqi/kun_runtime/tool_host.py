@@ -125,6 +125,23 @@ class MiQiToolHost:
         """
         tool_name = call.tool_name
 
+        # Enforce allowed-tool-names restriction
+        if context.allowed_tool_names is not None and tool_name not in context.allowed_tool_names:
+            return ToolHostResult(item={
+                "kind": "tool_result",
+                "id": f"item_{context.turn_id}_{call.call_id}",
+                "turnId": context.turn_id,
+                "threadId": context.thread_id,
+                "role": "tool",
+                "status": "failed",
+                "createdAt": _now_iso(),
+                "toolName": tool_name,
+                "callId": call.call_id,
+                "toolKind": _classify_tool_kind(tool_name),
+                "output": f"Tool '{tool_name}' is not allowed in this context",
+                "isError": True,
+            })
+
         # Check if tool exists
         if not self._registry.has(tool_name):
             return ToolHostResult(item={

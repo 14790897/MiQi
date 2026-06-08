@@ -175,6 +175,25 @@ All notable changes to this project will be documented in this file.
   - Document covers: architectural comparison (message-bus vs desktop workbench), 33-module KUN→Python mapping table, 15 capability adapter mappings, Pydantic data model definitions, 9-risk register, and an 11-phase migration plan with 11 recommended PR splits.
   - No code changes — read-only analysis phase.
 
+- **KUN runtime migration — Phase 8 (AgentLoop Core)**:
+  - Added `miqi/kun_runtime/loop.py` — KUN AgentLoop port: full `runTurn()` pipeline (drain steering → model_step → tool dispatch → compaction → loop), parallel-safe tool batching (max 3 concurrent reads), tool storm breaker integration, pipeline stage events, usage recording, interrupt/abort support.
+  - Added `miqi/kun_runtime/compactor.py` — ContextCompactor with soft/hard/force thresholds, planCompaction + compact with summary generation.
+  - Added `miqi/kun_runtime/context_estimator.py` — Token estimation (4 chars ≈ 1 token) for items and model requests.
+  - Added `miqi/kun_runtime/history_repair.py` — healLoadedHistoryItems (normalization + repair) and repairModelHistoryItems (orphan tool result removal, stub injection).
+  - Added `miqi/kun_runtime/history_hygiene.py` — applyRequestHistoryHygiene with line/byte/token budget trimming, signal-line preservation, single-line truncation.
+  - Added `miqi/kun_runtime/token_economy.py` — normalizeTokenEconomyConfig, TOKEN_ECONOMY_INSTRUCTION constant.
+  - Added `miqi/kun_runtime/tool_call_repair.py` — repairDispatchToolArguments with wrapper flattening, JSON string scavenging, oversized string truncation.
+  - Added `miqi/kun_runtime/tool_storm_breaker.py` — ToolStormBreaker with windowed identical-call detection, exempt tools, reset.
+  - Added `miqi/kun_runtime/auto_model_router.py` — resolveAutoModelRoute with candidate selection and fallback.
+
+- **KUN runtime migration — Phase 9 (HTTP Runtime Composition)**:
+  - Added `miqi/kun_runtime/auth.py` — BearerTokenAuth with insecure mode and token extraction.
+  - Added `miqi/kun_runtime/runtime.py` — KunRuntime composition root (factory) wiring all Phase 1-8 components: EventBus, stores, services, compactor, gates, AgentLoop with lazy initialization.
+  - Added `tests/kun_runtime/test_agent_loop_basic.py` with 12 tests: text completion, pipeline events, text deltas, item persistence, tool dispatch, multiple tool calls, error handling, interrupt/abort, model errors, compaction, tool storm suppression, usage accumulation.
+  - Added `tests/kun_runtime/test_history_repair.py` with 26 tests: history healing (orphan removal, stub injection), history hygiene (oversized + single-line trimming), token economy, tool storm breaker (suppression, exempt, reset), tool call repair (wrapper flatten, JSON parsing, truncation), compactor (plan/compact/noop), context estimator, auto model router.
+  - Added `tests/kun_runtime/test_http_runtime.py` with 11 tests: BearerTokenAuth, composition errors, full end-to-end turn lifecycle, multi-turn threads, thread listing, events sinceSeq replay.
+  - All tests pass: 373 total (103 original + 270 new).
+
 - **KUN runtime migration — Phase 7 (ApprovalGate & UserInputGate)**:
   - Added `miqi/kun_runtime/approval_gate.py` — `ApprovalGate` with async request/resolve/cancel_all, per-turn filtering, timeout→deny safety, idempotent resolve.
   - Added `miqi/kun_runtime/user_input_gate.py` — `UserInputGate` with async request/resolve/cancel_all, answers dict, timeout→cancelled fallback.
