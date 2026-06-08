@@ -12,6 +12,18 @@ All notable changes to this project will be documented in this file.
   - Added documentation tab to settings page for easy access to project documentation
 
 ### Added
+- **KUN runtime migration — Bridge server integration**:
+  - Modified `miqi/bridge/server.py` `BridgeState` to support KUN runtime:
+    - Added `runtime_mode` field (initialized from `config.agents.defaults.runtime`, values `"legacy"` or `"kun"`).
+    - `build_agent()` now reads runtime mode: when `"kun"`, creates a `GatewayKunRuntime` instead of legacy `AgentLoop`.
+    - Extracted `_build_tool_registry(config)` helper function for shared ToolRegistry construction (filesystem/shell/web/papers).
+    - `load_config()` auto-updates `runtime_mode` from config.
+    - Bridge startup logs `Runtime mode: legacy` or `Runtime mode: kun`.
+  - Modified `miqi/kun_runtime/migration_adapter.py` `GatewayKunRuntime`:
+    - Added `_abort_event` (threading.Event) for compatibility with bridge's `abort_active()` / `handle_chat_send` abort logic.
+  - No changes to bridge protocol, stdin/stdout JSON-line format, or frontend code.
+  - All tests pass: 447 total (103 original + 344 new).
+
 - **KUN runtime migration — Phase 10 (CLI/Gateway Integration)**:
   - Added `runtime` field to `AgentDefaults` config (`agents.defaults.runtime`, default `"legacy"`).
   - In `miqi/cli/gateway_cmd.py`: when `runtime == "kun"`, wire a `GatewayKunRuntime` as the agent instead of the legacy `AgentLoop`.
