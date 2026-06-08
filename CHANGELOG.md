@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+### Added (2026-06-08)
+- **Per-session bwrap sandbox isolation** (`miqi/sandbox/`):
+  - Added `manager.py` with FIFO-based sandbox eviction policy (max 10 sandboxes) for per-session bwrap isolation
+- **Docs tab to Settings page**:
+  - Added documentation tab to settings page for easy access to project documentation
+
+### Fixed (2026-06-08)
+- **Keep accepted files visible in referenced context**:
+  - Fixed issue where accepted files were not visible in referenced context after acceptance
+
 ### Fixed (2026-05-25)
 - **Strip `<think>` reasoning blocks from assistant messages** (`ChatConsole.tsx`):
   - Added `stripThinkBlocks()` helper that removes `</think>` blocks (case-insensitive, multi-line) before passing content to `MarkdownContent`/`ReactMarkdown`

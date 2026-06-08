@@ -367,10 +367,10 @@ class SandboxManager:
     # ── Internal ───────────────────────────────────────────────────────
 
     async def _evict_oldest(self) -> None:
-        """Evict the oldest (least recently used) sandbox."""
+        """Evict the oldest (FIFO - first in, first out) sandbox."""
         if not self._sandboxes:
             return
-        # Simple FIFO: evict the first key that isn't active
+        # FIFO: evict the first key that isn't active
         for key in list(self._sandboxes.keys()):
             if key != self._active_key:
                 sandbox = self._sandboxes.pop(key)
