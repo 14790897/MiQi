@@ -57,9 +57,10 @@ class FileThreadStore:
         path = self._path(thread_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         raw = json.dumps(record, ensure_ascii=False, indent=2)
-        # Atomic write: write to temp, then rename
+        # Atomic write: write to temp, chmod, then rename
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(raw, encoding="utf-8")
+        os.chmod(tmp, 0o600)  # restrict to owner only
         os.replace(tmp, path)
 
     async def delete(self, thread_id: str) -> bool:
@@ -140,6 +141,7 @@ class FileSessionStore:
         line = json.dumps(item, ensure_ascii=False) + "\n"
         with open(path, "a", encoding="utf-8") as f:
             f.write(line)
+        os.chmod(path, 0o600)  # restrict to owner only
 
     async def update_item(
         self, thread_id: str, item_id: str, patch: dict[str, Any]
@@ -172,6 +174,7 @@ class FileSessionStore:
         with open(tmp, "w", encoding="utf-8") as f:
             for item in items:
                 f.write(json.dumps(item, ensure_ascii=False) + "\n")
+        os.chmod(tmp, 0o600)  # restrict to owner only
         os.replace(tmp, path)
 
     # ── events ───────────────────────────────────────────────────────────
@@ -183,6 +186,7 @@ class FileSessionStore:
         line = json.dumps(event, ensure_ascii=False) + "\n"
         with open(path, "a", encoding="utf-8") as f:
             f.write(line)
+        os.chmod(path, 0o600)  # restrict to owner only
 
     async def load_events_since(self, thread_id: str, since_seq: int = 0) -> list[dict[str, Any]]:
         """Load events with seq > *since_seq*."""

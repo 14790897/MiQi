@@ -175,6 +175,17 @@ All notable changes to this project will be documented in this file.
   - Document covers: architectural comparison (message-bus vs desktop workbench), 33-module KUN→Python mapping table, 15 capability adapter mappings, Pydantic data model definitions, 9-risk register, and an 11-phase migration plan with 11 recommended PR splits.
   - No code changes — read-only analysis phase.
 
+- **KUN runtime migration — Phase 5 (ModelClient adapter)**:
+  - Added `miqi/kun_runtime/model_client.py` — KUN-compatible model client:
+    - `MiQiModelClient` wraps `LLMProvider.chat()` with pseudo-streaming (Phase 5a): converts `ModelRequest` to provider messages, yields `assistant_reasoning_delta`, `assistant_text_delta`, `tool_call_complete`, `usage`, and `completed` chunks.
+    - `FakeModelClient` test double with configurable text/reasoning/tool/usage/error responses and request recording.
+    - `ModelRequest`, `ModelToolSpec`, `ModelStreamChunk` dataclasses matching KUN wire format.
+    - TurnItem → OpenAI message conversion for all 10 item kinds.
+    - Tool spec → OpenAI function definition conversion.
+  - Added `tests/kun_runtime/test_model_client.py` with 27 tests covering: FakeModelClient text/tools/reasoning/usage/error/recording, 6 item→message conversions, 4 build_messages scenarios, tool spec conversion, and 7 MiQiModelClient integration tests (text, reasoning, tools, usage, provider error, API error, tool passing).
+
+- **Security fix — Phase 3 stores**: Added `os.chmod(0o600)` to all file writes in `FileThreadStore.upsert()`, `FileSessionStore.append_item()`, `FileSessionStore.append_event()`, and `FileSessionStore._rewrite_items_file()` to restrict session/thread files to owner-only (matching MiQi's existing security practice in `config/loader.py` and `session/manager.py`).
+
 - **KUN runtime migration — Phase 4 (TurnService, ThreadService, Cancellation, MigrationAdapter)**:
   - Added `miqi/kun_runtime/cancellation.py` — `CancellationToken` (asyncio.Event-based cooperative cancellation) and `InflightTracker` (running operation accounting per thread/turn).
   - Added `miqi/kun_runtime/thread_service.py` — `ThreadService` with create/get/list/update/delete/fork, event recording for thread_created/thread_updated.
