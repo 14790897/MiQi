@@ -175,6 +175,14 @@ All notable changes to this project will be documented in this file.
   - Document covers: architectural comparison (message-bus vs desktop workbench), 33-module KUN→Python mapping table, 15 capability adapter mappings, Pydantic data model definitions, 9-risk register, and an 11-phase migration plan with 11 recommended PR splits.
   - No code changes — read-only analysis phase.
 
+- **KUN runtime migration — Phase 4 (TurnService, ThreadService, Cancellation, MigrationAdapter)**:
+  - Added `miqi/kun_runtime/cancellation.py` — `CancellationToken` (asyncio.Event-based cooperative cancellation) and `InflightTracker` (running operation accounting per thread/turn).
+  - Added `miqi/kun_runtime/thread_service.py` — `ThreadService` with create/get/list/update/delete/fork, event recording for thread_created/thread_updated.
+  - Added `miqi/kun_runtime/turn_service.py` — `TurnService` with full lifecycle: start_turn (creates turn + user item, abort token, inflight tracking), finish_turn (completed/failed/aborted with item finalization), interrupt_turn (abort token + optional discard), steer_turn (drain steering), apply_item, update_item, get_turn.
+  - Added `miqi/kun_runtime/migration_adapter.py` — deterministic `session_key → threadId` bidirectional mapping with register/clear support.
+  - Added `tests/kun_runtime/test_turn_service.py` with 38 tests covering: CancellationToken lifecycle, InflightTracker accounting, session→thread mapping determinism, ThreadService CRUD/fork/events, TurnService start/finish/interrupt/steer/items/cancellation lifecycle.
+  - All tests pass: 252 total (103 original + 149 new).
+
 - **KUN runtime migration — Phase 3 (ThreadStore, SessionStore, UsageService)**:
   - Added `miqi/kun_runtime/stores.py` — file-based persistent stores:
     - `FileThreadStore`: one JSON file per thread (upsert/get/delete/list), atomic write via os.replace.
