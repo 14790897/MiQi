@@ -12,6 +12,14 @@ from typing import Any, Callable
 from miqi.kun_runtime.event_recorder import RuntimeEventRecorder
 from miqi.kun_runtime.stores import FileSessionStore, FileThreadStore
 
+# Fields that are safe to update via the public update() method.
+# id, workspace, model, createdAt, turns, and relation are immutable
+# unless explicitly changed through dedicated methods.
+_ALLOWED_UPDATE_FIELDS = frozenset({
+    "title", "status", "mode", "approvalPolicy", "sandboxMode",
+    "costBudgetUsd", "costBudgetWarningSent", "goal", "todos",
+})
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -76,12 +84,13 @@ class ThreadService:
         return await self._thread_store.list()
 
     async def update(self, thread_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
-        """Update thread fields. Returns updated record or None if not found."""
+        """Update thread fields. Only allowlisted fields are accepted."""
         record = await self._thread_store.get(thread_id)
         if record is None:
             return None
         now = self._now_iso()
-        merged = {**record, **patch, "updatedAt": now}
+        clean_patch = {k: v for k, v in patch.items() if k in _ALLOWED_UPDATE_FIELDS}
+        merged = {**record, **clean_patch, "updatedAt": now}
         await self._thread_store.upsert(merged)
         await self._events.record({
             "kind": "thread_updated",
