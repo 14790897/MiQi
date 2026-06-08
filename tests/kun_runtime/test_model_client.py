@@ -2,22 +2,18 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
 from miqi.kun_runtime.model_client import (
     FakeModelClient,
     MiQiModelClient,
     ModelRequest,
-    ModelStreamChunk,
     ModelToolSpec,
     _build_messages,
     _build_tools,
     _item_to_message,
 )
 from miqi.providers.base import LLMProvider, LLMResponse, ToolCallRequest
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # FakeModelClient tests

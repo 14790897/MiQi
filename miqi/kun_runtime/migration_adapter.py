@@ -6,7 +6,6 @@ coexist with old MiQi sessions without data migration.
 
 from __future__ import annotations
 
-
 # Simple in-memory bidirectional mapping.
 # In production this could be backed by a JSON file or SQLite metadata table.
 _SESSION_TO_THREAD: dict[str, str] = {}

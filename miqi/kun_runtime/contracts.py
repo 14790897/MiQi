@@ -8,13 +8,14 @@ Python code accesses them via attribute (``item.turnId``) with
 ``model_config.populate_by_name`` disabled — strict camelCase only.
 """
 
+# ruff: noqa: N815  # camelCase field names match KUN HTTP/SSE wire format
+
 from __future__ import annotations
 
 from enum import Enum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
+from pydantic import BaseModel, Field, field_validator
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Shared primitives

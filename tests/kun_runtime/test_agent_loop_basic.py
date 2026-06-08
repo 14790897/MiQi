@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from miqi.kun_runtime.cancellation import CancellationToken, InflightTracker
+from miqi.kun_runtime.cancellation import InflightTracker
 from miqi.kun_runtime.compactor import ContextCompactor
 from miqi.kun_runtime.event_bus import EventBus
 from miqi.kun_runtime.event_recorder import RuntimeEventRecorder
 from miqi.kun_runtime.loop import AgentLoop, AgentLoopOptions
-from miqi.kun_runtime.model_client import FakeModelClient, ModelRequest
+from miqi.kun_runtime.model_client import FakeModelClient
 from miqi.kun_runtime.stores import FileSessionStore, FileThreadStore
-from miqi.kun_runtime.tool_host import FakeToolHost, ToolCallLike, ToolHostContext
+from miqi.kun_runtime.tool_host import FakeToolHost
 from miqi.kun_runtime.turn_service import TurnService
 from miqi.kun_runtime.usage import UsageService
 

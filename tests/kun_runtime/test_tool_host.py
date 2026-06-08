@@ -6,20 +6,16 @@ from pathlib import Path
 
 import pytest
 
-from miqi.agent.tools.registry import ToolRegistry
 from miqi.agent.tools.base import Tool
+from miqi.agent.tools.registry import ToolRegistry
 from miqi.kun_runtime.tool_host import (
+    _MAX_PARALLEL_TOOL_CALLS,
     FakeToolHost,
     MiQiToolHost,
     ToolCallLike,
     ToolHostContext,
-    ToolHostResult,
-    _PARALLEL_SAFE_NAMES,
-    _NEVER_PARALLEL_NAMES,
     _classify_tool_kind,
-    _MAX_PARALLEL_TOOL_CALLS,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Fixtures — real MiQi tools for integration tests

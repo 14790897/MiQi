@@ -19,7 +19,6 @@ from miqi.kun_runtime.stores import FileSessionStore, FileThreadStore
 from miqi.kun_runtime.thread_service import ThreadService
 from miqi.kun_runtime.turn_service import TurnService
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Fixtures
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -282,7 +281,7 @@ class TestTurnService:
         self, thread_svc: ThreadService, turn_svc: TurnService, bus: EventBus
     ) -> None:
         th = await thread_svc.create(workspace="/tmp/ws", model="deepseek-chat")
-        result = await turn_svc.start_turn(th["id"], "hello")
+        await turn_svc.start_turn(th["id"], "hello")
         events_list = bus.history(th["id"])
         kinds = [e["kind"] for e in events_list]
         assert "turn_started" in kinds

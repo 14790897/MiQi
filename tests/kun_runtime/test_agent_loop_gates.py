@@ -9,7 +9,6 @@ import pytest
 from miqi.kun_runtime.approval_gate import ApprovalGate, ApprovalRequest
 from miqi.kun_runtime.user_input_gate import UserInputGate, UserInputRequest
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # ApprovalGate tests
 # ═══════════════════════════════════════════════════════════════════════════════
