@@ -175,6 +175,12 @@ All notable changes to this project will be documented in this file.
   - Document covers: architectural comparison (message-bus vs desktop workbench), 33-module KUN→Python mapping table, 15 capability adapter mappings, Pydantic data model definitions, 9-risk register, and an 11-phase migration plan with 11 recommended PR splits.
   - No code changes — read-only analysis phase.
 
+- **KUN runtime migration — Phase 2 (EventBus, SSE, RuntimeEventRecorder)**:
+  - Added `miqi/kun_runtime/event_bus.py` — in-memory per-thread event bus with monotonically increasing seq, append, history replay, sinceSeq filtering, and async subscribe (AsyncIterator).
+  - Added `miqi/kun_runtime/event_recorder.py` — RuntimeEventRecorder that auto-assigns seq + timestamp and records to the event bus.
+  - Added `miqi/kun_runtime/sse.py` — SSE encoder producing KUN-compatible format (`id: <seq>\nevent: <kind>\ndata: <json>\n\n`), plus comment and [DONE] markers.
+  - Added `tests/kun_runtime/test_event_bus.py` with 27 tests covering: seq monotonicity, per-thread isolation, append ordering, history/sinceSeq filtering, async subscribe with replay + live events, recorder seq/timestamp auto-assignment, SSE field format, JSON round-trip, and special characters.
+
 - **KUN runtime migration — Phase 1 (Contracts & Event Model)**:
   - Added `miqi/kun_runtime/` package with `contracts.py` — Pydantic v2 models for the complete KUN data model:
     - 10 `TurnItem` variants (user_message, assistant_text, assistant_reasoning, tool_call, tool_result, approval, user_input, compaction, review, error) as discriminated union.
