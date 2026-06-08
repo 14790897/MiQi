@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 ### Added (2026-06-08)
+- **Collapse tool call messages in chat**:
+  - Added ability to collapse tool call messages in chat interface for cleaner conversation view
 - **Per-session bwrap sandbox isolation** (`miqi/sandbox/`):
   - Added `manager.py` with FIFO-based sandbox eviction policy (max 10 sandboxes) for per-session bwrap isolation
 - **Docs tab to Settings page**:
