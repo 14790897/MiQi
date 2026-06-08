@@ -130,11 +130,14 @@ class BridgeState:
         self._approval_decisions: dict[str, str] = {}
         self._approval_meta: dict[str, dict] = {}
         self._sandbox_manager: Any = None  # shared SandboxManager across agents
+        self.runtime_mode = "legacy"  # "legacy" or "kun"
 
     def load_config(self):
         from miqi.config.loader import load_config
 
         self.config = load_config()
+        runtime = self.config.agents.defaults.runtime
+        self.runtime_mode = runtime if runtime in ("legacy", "kun") else "legacy"
         return self.config
 
     def _ensure_sandbox_manager(self):
@@ -158,17 +161,32 @@ class BridgeState:
         )
 
     def build_agent(self, session_key: str, approval_callback=None):
-        """Create an AgentLoop for the given session."""
-        from miqi.agent.loop import AgentLoop
-        from miqi.bus.queue import MessageBus
-
+        """Create an AgentLoop (or GatewayKunRuntime) for the given session."""
         config = self.load_config()
+
         provider = config.build_provider(config.agents.defaults.model)
         if provider is None:
             raise RuntimeError(
                 f"No provider configured for model '{config.agents.defaults.model}'. "
                 "Run setup first."
             )
+
+        if self.runtime_mode == "kun":
+            from miqi.config.loader import get_data_dir
+            from miqi.kun_runtime.migration_adapter import GatewayKunRuntime
+
+            tool_registry = _build_tool_registry(config)
+            return GatewayKunRuntime(
+                data_dir=get_data_dir() / "kun_runtime",
+                workspace=config.workspace_path,
+                provider=provider,
+                tool_registry=tool_registry,
+                model=config.agents.defaults.model,
+                agent_name=config.agents.defaults.name,
+            )
+
+        from miqi.agent.loop import AgentLoop
+        from miqi.bus.queue import MessageBus
 
         defaults = config.agents.defaults
         bus = MessageBus()
@@ -309,12 +327,69 @@ class BridgeState:
 
 _state = BridgeState()
 
+
+def _build_tool_registry(config):
+    """Build a ToolRegistry with all default tools (mirrors gateway_cmd.py).
+
+    Extracted so build_agent() and any future callers can reuse it.
+    """
+    from miqi.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
+    from miqi.agent.tools.papers import PaperDownloadTool, PaperGetTool, PaperSearchTool
+    from miqi.agent.tools.registry import ToolRegistry
+    from miqi.agent.tools.shell import ExecTool
+    from miqi.agent.tools.web import WebFetchTool, WebSearchTool
+
+    registry = ToolRegistry()
+    ws = config.workspace_path
+    allowed_dir = ws if config.tools.restrict_to_workspace else None
+
+    for cls in (ReadFileTool, WriteFileTool, EditFileTool, ListDirTool):
+        registry.register(cls(workspace=ws, allowed_dir=allowed_dir))
+    registry.register(ExecTool(
+        working_dir=str(ws),
+        timeout=config.tools.exec.timeout,
+        restrict_to_workspace=config.tools.restrict_to_workspace,
+        env_passthrough=list(config.tools.exec.env_passthrough),
+    ))
+    registry.register(WebSearchTool(
+        provider=config.tools.web.search.provider,
+        api_key=config.tools.web.search.api_key or None,
+        max_results=config.tools.web.search.max_results,
+        ollama_api_key=config.tools.web.search.ollama_api_key or None,
+        ollama_api_base=config.tools.web.search.ollama_api_base,
+    ))
+    registry.register(WebFetchTool(
+        provider=config.tools.web.fetch.provider,
+        ollama_api_key=config.tools.web.fetch.ollama_api_key or None,
+        ollama_api_base=config.tools.web.fetch.ollama_api_base,
+    ))
+    registry.register(PaperSearchTool(
+        provider=config.tools.papers.provider,
+        semantic_scholar_api_key=config.tools.papers.semantic_scholar_api_key or None,
+        timeout_seconds=config.tools.papers.timeout_seconds,
+        default_limit=config.tools.papers.default_limit,
+        max_limit=config.tools.papers.max_limit,
+    ))
+    registry.register(PaperGetTool(
+        provider=config.tools.papers.provider,
+        semantic_scholar_api_key=config.tools.papers.semantic_scholar_api_key or None,
+        timeout_seconds=config.tools.papers.timeout_seconds,
+    ))
+    registry.register(PaperDownloadTool(
+        workspace=ws,
+        provider=config.tools.papers.provider,
+        semantic_scholar_api_key=config.tools.papers.semantic_scholar_api_key or None,
+        timeout_seconds=config.tools.papers.timeout_seconds,
+    ))
+    return registry
+
+
 from miqi.agent.tools.filesystem import (
     _delete_snapshot,
-    _snapshots_lock,
     _maybe_snapshot,
-    _restore_snapshot,
     _read_snapshot,
+    _restore_snapshot,
+    _snapshots_lock,
 )
 
 # ---------------------------------------------------------------------------
@@ -711,7 +786,8 @@ def handle_channels_update(req_id: str, params: dict) -> None:
 
 def handle_approvals_list(req_id: str, params: dict) -> None:
     from miqi.agent.command_approval import (
-        get_permanent_allowlist, get_permanent_allowlist_meta,
+        get_permanent_allowlist,
+        get_permanent_allowlist_meta,
     )
     config = _state.load_config()
     pending = _state.list_pending_approvals()
@@ -746,7 +822,9 @@ def handle_approvals_resolve(req_id: str, params: dict) -> None:
 
 def handle_approvals_clear_permanent(req_id: str, params: dict) -> None:
     from miqi.agent.command_approval import (
-        _lock, _permanent_approved, _permanent_added_at,
+        _lock,
+        _permanent_added_at,
+        _permanent_approved,
     )
     pattern = params.get("pattern")
     with _lock:
@@ -761,7 +839,8 @@ def handle_approvals_clear_permanent(req_id: str, params: dict) -> None:
 
 def handle_approvals_add_permanent(req_id: str, params: dict) -> None:
     from miqi.agent.command_approval import (
-        approve_permanent, _save_permanent_allowlist,
+        _save_permanent_allowlist,
+        approve_permanent,
     )
     pattern = params.get("pattern", "").strip()
     if not pattern:
@@ -1222,8 +1301,8 @@ def _get_experience_store():
     if _experience_store is not None:
         return _experience_store
 
-    from miqi.agent.memory.experience_store import ExperienceStore
     from miqi.agent.memory import MemoryStore
+    from miqi.agent.memory.experience_store import ExperienceStore
     from miqi.agent.trace.store import TraceStore
 
     config = _state.load_config()
@@ -1566,7 +1645,7 @@ def handle_files_delete(req_id: str, params: dict) -> None:
 
     workspace = _get_workspace_path()
     if resolved == workspace:
-        _log(f"[files:delete] refused: workspace root")
+        _log("[files:delete] refused: workspace root")
         _error(req_id, "Cannot delete workspace root")
         return
 
@@ -1647,7 +1726,7 @@ def handle_files_diff(req_id: str, params: dict) -> None:
             current_lines = current_content.splitlines(keepends=True)
             # Build unified diff header for new file
             diff_lines = [
-                f"--- /dev/null",
+                "--- /dev/null",
                 f"+++ b/{file_path}",
             ]
             # Add hunk header and all content as additions
@@ -1908,8 +1987,8 @@ def handle_mcp_list(req_id: str, params: dict) -> None:
 
 def handle_mcp_upsert(req_id: str, params: dict) -> None:
     """Create or update an MCP server entry by name."""
-    from miqi.config.schema import MCPServerConfig
     from miqi.config.loader import save_config
+    from miqi.config.schema import MCPServerConfig
 
     name = str(params.pop("name", "")).strip()
     if not name:
@@ -2150,6 +2229,9 @@ def main() -> None:
     _init_logging()
     _log("Bridge server starting")
     _ensure_workspace_init()
+    # Report current runtime mode
+    _state.load_config()
+    _log(f"Runtime mode: {_state.runtime_mode}")
     # Persist approval history so records survive bridge restarts
     try:
         from miqi.agent.command_approval import init_history_file

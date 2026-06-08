@@ -11,6 +11,26 @@ All notable changes to this project will be documented in this file.
 - **Docs tab to Settings page**:
   - Added documentation tab to settings page for easy access to project documentation
 
+### Added
+- **KUN runtime migration — Bridge server integration**:
+  - Modified `miqi/bridge/server.py` `BridgeState` to support KUN runtime:
+    - Added `runtime_mode` field (initialized from `config.agents.defaults.runtime`, values `"legacy"` or `"kun"`).
+    - `build_agent()` now reads runtime mode: when `"kun"`, creates a `GatewayKunRuntime` instead of legacy `AgentLoop`.
+    - Extracted `_build_tool_registry(config)` helper function for shared ToolRegistry construction (filesystem/shell/web/papers).
+    - `load_config()` auto-updates `runtime_mode` from config.
+    - Bridge startup logs `Runtime mode: legacy` or `Runtime mode: kun`.
+  - Modified `miqi/kun_runtime/migration_adapter.py` `GatewayKunRuntime`:
+    - Added `_abort_event` (threading.Event) for compatibility with bridge's `abort_active()` / `handle_chat_send` abort logic.
+  - No changes to bridge protocol, stdin/stdout JSON-line format, or frontend code.
+  - All tests pass: 447 total (103 original + 344 new).
+
+- **KUN runtime migration — Phase 10 (CLI/Gateway Integration)**:
+  - Added `runtime` field to `AgentDefaults` config (`agents.defaults.runtime`, default `"legacy"`).
+  - In `miqi/cli/gateway_cmd.py`: when `runtime == "kun"`, wire a `GatewayKunRuntime` as the agent instead of the legacy `AgentLoop`.
+  - In `miqi/cli/agent_cmd.py`: same runtime-switch logic for both one-shot (`-m`) and interactive modes.
+  - `GatewayKunRuntime` adapter provides `process_direct()` backed by KUN pipeline.
+  - All tests pass: 447 total (103 original + 344 new).
+
 ### Fixed (2026-06-08)
 - **Keep accepted files visible in referenced context**:
   - Fixed issue where accepted files were not visible in referenced context after acceptance
@@ -168,6 +188,91 @@ All notable changes to this project will be documented in this file.
   - Session explorer: split-pane list and detail view with delete.
   - Settings: runtime logs viewer with auto-scroll, error highlighting, and export.
   - MiQi design system: warm neutral palette, Inter font bundled locally, Tailwind v4 + Radix primitives.
+
+### Added
+- **KUN runtime migration — Phase 0 (Analysis & Design)**:
+  - Added comprehensive migration design document `docs/kun-runtime-migration.md`.
+  - Document covers: architectural comparison (message-bus vs desktop workbench), 33-module KUN→Python mapping table, 15 capability adapter mappings, Pydantic data model definitions, 9-risk register, and an 11-phase migration plan with 11 recommended PR splits.
+  - No code changes — read-only analysis phase.
+
+- **KUN runtime migration — Phase 8 (AgentLoop Core)**:
+  - Added `miqi/kun_runtime/loop.py` — KUN AgentLoop port: full `runTurn()` pipeline (drain steering → model_step → tool dispatch → compaction → loop), parallel-safe tool batching (max 3 concurrent reads), tool storm breaker integration, pipeline stage events, usage recording, interrupt/abort support.
+  - Added `miqi/kun_runtime/compactor.py` — ContextCompactor with soft/hard/force thresholds, planCompaction + compact with summary generation.
+  - Added `miqi/kun_runtime/context_estimator.py` — Token estimation (4 chars ≈ 1 token) for items and model requests.
+  - Added `miqi/kun_runtime/history_repair.py` — healLoadedHistoryItems (normalization + repair) and repairModelHistoryItems (orphan tool result removal, stub injection).
+  - Added `miqi/kun_runtime/history_hygiene.py` — applyRequestHistoryHygiene with line/byte/token budget trimming, signal-line preservation, single-line truncation.
+  - Added `miqi/kun_runtime/token_economy.py` — normalizeTokenEconomyConfig, TOKEN_ECONOMY_INSTRUCTION constant.
+  - Added `miqi/kun_runtime/tool_call_repair.py` — repairDispatchToolArguments with wrapper flattening, JSON string scavenging, oversized string truncation.
+  - Added `miqi/kun_runtime/tool_storm_breaker.py` — ToolStormBreaker with windowed identical-call detection, exempt tools, reset.
+  - Added `miqi/kun_runtime/auto_model_router.py` — resolveAutoModelRoute with candidate selection and fallback.
+
+- **KUN runtime migration — Phase 9 (HTTP Runtime Composition)**:
+  - Added `miqi/kun_runtime/auth.py` — BearerTokenAuth with insecure mode and token extraction.
+  - Added `miqi/kun_runtime/runtime.py` — KunRuntime composition root (factory) wiring all Phase 1-8 components: EventBus, stores, services, compactor, gates, AgentLoop with lazy initialization.
+  - Added `tests/kun_runtime/test_agent_loop_basic.py` with 12 tests: text completion, pipeline events, text deltas, item persistence, tool dispatch, multiple tool calls, error handling, interrupt/abort, model errors, compaction, tool storm suppression, usage accumulation.
+  - Added `tests/kun_runtime/test_history_repair.py` with 26 tests: history healing (orphan removal, stub injection), history hygiene (oversized + single-line trimming), token economy, tool storm breaker (suppression, exempt, reset), tool call repair (wrapper flatten, JSON parsing, truncation), compactor (plan/compact/noop), context estimator, auto model router.
+  - Added `tests/kun_runtime/test_http_runtime.py` with 11 tests: BearerTokenAuth, composition errors, full end-to-end turn lifecycle, multi-turn threads, thread listing, events sinceSeq replay.
+  - All tests pass: 373 total (103 original + 270 new).
+
+- **KUN runtime migration — Phase 7 (ApprovalGate & UserInputGate)**:
+  - Added `miqi/kun_runtime/approval_gate.py` — `ApprovalGate` with async request/resolve/cancel_all, per-turn filtering, timeout→deny safety, idempotent resolve.
+  - Added `miqi/kun_runtime/user_input_gate.py` — `UserInputGate` with async request/resolve/cancel_all, answers dict, timeout→cancelled fallback.
+  - Added `tests/kun_runtime/test_agent_loop_gates.py` with 21 tests covering: ApprovalRequest lifecycle (resolve allow/deny, cancel, wait+timeout), ApprovalGate (parallel request+resolve, deny, cancel_all per-turn isolation), UserInputRequest lifecycle, UserInputGate (request+resolve with answers, cancel_all, nonexistent rejection).
+  - All tests pass: 324 total (103 original + 221 new).
+
+- **KUN runtime migration — Phase 6 (ToolHost adapter)**:
+  - Added `miqi/kun_runtime/tool_host.py` — KUN ToolHost wrapping MiQi ToolRegistry:
+    - `MiQiToolHost`: delegates `listTools(context)` and `execute(call, context)` to the registry with KUN-compatible ToolHostResult items.
+    - Tool kind classification: `bash/exec` → command_execution, `write/edit/delete` → file_change, others → tool_call.
+    - Concurrency: delegates to `ToolRegistry.should_parallelize()` with path-scoped parallel-safe rules; untrusted/never approval policies force sequential.
+    - `FakeToolHost`: test double with configurable tool list, results, error tools, and call recording.
+    - `ToolHostContext` dataclass with thread/turn/workspace/model info, approval/user-input callbacks, abort signal, and skill/memory/delegation policies.
+  - Added `tests/kun_runtime/test_tool_host.py` with 24 tests covering: tool kind classification, list_tools (full listing + allowed-name filtering), execute (normal, read_file, error handling, unknown tool, result shape), concurrency (parallel-safe, same-path serialization, different-path parallelization, mixed, untrusted policy), and FakeToolHost (configured tools/results/errors, call recording, parallel classification).
+  - All tests pass: 303 total (103 original + 200 new).
+
+- **KUN runtime migration — Phase 5 (ModelClient adapter)**:
+  - Added `miqi/kun_runtime/model_client.py` — KUN-compatible model client:
+    - `MiQiModelClient` wraps `LLMProvider.chat()` with pseudo-streaming (Phase 5a): converts `ModelRequest` to provider messages, yields `assistant_reasoning_delta`, `assistant_text_delta`, `tool_call_complete`, `usage`, and `completed` chunks.
+    - `FakeModelClient` test double with configurable text/reasoning/tool/usage/error responses and request recording.
+    - `ModelRequest`, `ModelToolSpec`, `ModelStreamChunk` dataclasses matching KUN wire format.
+    - TurnItem → OpenAI message conversion for all 10 item kinds.
+    - Tool spec → OpenAI function definition conversion.
+  - Added `tests/kun_runtime/test_model_client.py` with 27 tests covering: FakeModelClient text/tools/reasoning/usage/error/recording, 6 item→message conversions, 4 build_messages scenarios, tool spec conversion, and 7 MiQiModelClient integration tests (text, reasoning, tools, usage, provider error, API error, tool passing).
+
+- **Security fix — Phase 3 stores**: Added `os.chmod(0o600)` to all file writes in `FileThreadStore.upsert()`, `FileSessionStore.append_item()`, `FileSessionStore.append_event()`, and `FileSessionStore._rewrite_items_file()` to restrict session/thread files to owner-only (matching MiQi's existing security practice in `config/loader.py` and `session/manager.py`).
+
+- **KUN runtime migration — Phase 4 (TurnService, ThreadService, Cancellation, MigrationAdapter)**:
+  - Added `miqi/kun_runtime/cancellation.py` — `CancellationToken` (asyncio.Event-based cooperative cancellation) and `InflightTracker` (running operation accounting per thread/turn).
+  - Added `miqi/kun_runtime/thread_service.py` — `ThreadService` with create/get/list/update/delete/fork, event recording for thread_created/thread_updated.
+  - Added `miqi/kun_runtime/turn_service.py` — `TurnService` with full lifecycle: start_turn (creates turn + user item, abort token, inflight tracking), finish_turn (completed/failed/aborted with item finalization), interrupt_turn (abort token + optional discard), steer_turn (drain steering), apply_item, update_item, get_turn.
+  - Added `miqi/kun_runtime/migration_adapter.py` — deterministic `session_key → threadId` bidirectional mapping with register/clear support.
+  - Added `tests/kun_runtime/test_turn_service.py` with 38 tests covering: CancellationToken lifecycle, InflightTracker accounting, session→thread mapping determinism, ThreadService CRUD/fork/events, TurnService start/finish/interrupt/steer/items/cancellation lifecycle.
+  - All tests pass: 252 total (103 original + 149 new).
+
+- **KUN runtime migration — Phase 3 (ThreadStore, SessionStore, UsageService)**:
+  - Added `miqi/kun_runtime/stores.py` — file-based persistent stores:
+    - `FileThreadStore`: one JSON file per thread (upsert/get/delete/list), atomic write via os.replace.
+    - `FileSessionStore`: append-only JSONL for TurnItems and runtime events (load_items, append_item, update_item, rewrite_items, append_event, load_events_since).
+    - All paths relative to configurable `data_dir` — tests use `tmp_path` for isolation.
+  - Added `miqi/kun_runtime/usage.py` — `UsageService` for per-thread token/cost accumulation with token economy savings tracking, seed/reset, and thread isolation.
+  - Added `tests/kun_runtime/test_stores.py` with 26 tests covering: thread CRUD, persistence across instances, session item append/load/update/rewrite ordering, event sinceSeq filtering, corrupt line handling, thread isolation, and usage accumulation/savings/seed/reset.
+  - All tests pass: 214 total (103 original + 111 new).
+
+- **KUN runtime migration — Phase 2 (EventBus, SSE, RuntimeEventRecorder)**:
+  - Added `miqi/kun_runtime/event_bus.py` — in-memory per-thread event bus with monotonically increasing seq, append, history replay, sinceSeq filtering, and async subscribe (AsyncIterator).
+  - Added `miqi/kun_runtime/event_recorder.py` — RuntimeEventRecorder that auto-assigns seq + timestamp and records to the event bus.
+  - Added `miqi/kun_runtime/sse.py` — SSE encoder producing KUN-compatible format (`id: <seq>\nevent: <kind>\ndata: <json>\n\n`), plus comment and [DONE] markers.
+  - Added `tests/kun_runtime/test_event_bus.py` with 27 tests covering: seq monotonicity, per-thread isolation, append ordering, history/sinceSeq filtering, async subscribe with replay + live events, recorder seq/timestamp auto-assignment, SSE field format, JSON round-trip, and special characters.
+
+- **KUN runtime migration — Phase 1 (Contracts & Event Model)**:
+  - Added `miqi/kun_runtime/` package with `contracts.py` — Pydantic v2 models for the complete KUN data model:
+    - 10 `TurnItem` variants (user_message, assistant_text, assistant_reasoning, tool_call, tool_result, approval, user_input, compaction, review, error) as discriminated union.
+    - 32 `RuntimeEvent` variants (thread/turn lifecycle, item lifecycle, streaming deltas, tool events, approval/user-input gates, compaction, goal/todo, pipeline stage, usage, error, heartbeat) as discriminated union.
+    - Thread/Turn models: `ThreadRecord`, `ThreadSummary`, `Turn`, `ThreadGoal`, `ThreadTodoList`.
+    - Request/Response models: `StartTurnRequest/Response`, `SteerTurnRequest`, `InterruptTurnRequest/Response`, `CompactRequest/Response`, `CreateThreadRequest`, `ForkThreadRequest`, `UpdateThreadRequest`, `SetThreadGoalRequest`, `ApprovalDecisionRequest`, `UserInputResolveRequest`.
+    - Supporting types: `UsageSnapshot`, `ModelToolSpec`, `ModelCapabilityMetadata`, 11 enums, `PipelineStage` literal with labels.
+    - All models use camelCase field names matching KUN HTTP/SSE payloads for wire compatibility.
+  - Added `tests/kun_runtime/test_contracts.py` with 58 tests covering: serialization round-trips, enum validation, discriminator dispatch, default values, field constraints (min_length, ge), empty/id rejection, and `ThreadTodoList` at-most-one-in-progress invariant.
 
 ### Documentation
 - Added uv installation instructions to README, getting-started, developer-guide, and contributing docs; uv is the recommended install method, pip retained as fallback.
