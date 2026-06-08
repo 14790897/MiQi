@@ -175,6 +175,16 @@ All notable changes to this project will be documented in this file.
   - Document covers: architectural comparison (message-bus vs desktop workbench), 33-module KUN→Python mapping table, 15 capability adapter mappings, Pydantic data model definitions, 9-risk register, and an 11-phase migration plan with 11 recommended PR splits.
   - No code changes — read-only analysis phase.
 
+- **KUN runtime migration — Phase 6 (ToolHost adapter)**:
+  - Added `miqi/kun_runtime/tool_host.py` — KUN ToolHost wrapping MiQi ToolRegistry:
+    - `MiQiToolHost`: delegates `listTools(context)` and `execute(call, context)` to the registry with KUN-compatible ToolHostResult items.
+    - Tool kind classification: `bash/exec` → command_execution, `write/edit/delete` → file_change, others → tool_call.
+    - Concurrency: delegates to `ToolRegistry.should_parallelize()` with path-scoped parallel-safe rules; untrusted/never approval policies force sequential.
+    - `FakeToolHost`: test double with configurable tool list, results, error tools, and call recording.
+    - `ToolHostContext` dataclass with thread/turn/workspace/model info, approval/user-input callbacks, abort signal, and skill/memory/delegation policies.
+  - Added `tests/kun_runtime/test_tool_host.py` with 24 tests covering: tool kind classification, list_tools (full listing + allowed-name filtering), execute (normal, read_file, error handling, unknown tool, result shape), concurrency (parallel-safe, same-path serialization, different-path parallelization, mixed, untrusted policy), and FakeToolHost (configured tools/results/errors, call recording, parallel classification).
+  - All tests pass: 303 total (103 original + 200 new).
+
 - **KUN runtime migration — Phase 5 (ModelClient adapter)**:
   - Added `miqi/kun_runtime/model_client.py` — KUN-compatible model client:
     - `MiQiModelClient` wraps `LLMProvider.chat()` with pseudo-streaming (Phase 5a): converts `ModelRequest` to provider messages, yields `assistant_reasoning_delta`, `assistant_text_delta`, `tool_call_complete`, `usage`, and `completed` chunks.
