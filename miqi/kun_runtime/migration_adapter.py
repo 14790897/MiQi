@@ -62,7 +62,7 @@ def _make_thread_id(session_key: str) -> str:
 
 
 class GatewayKunRuntime:
-    """Wraps KunRuntime for use by gateway_cmd and agent_cmd.
+    """Wraps KunRuntime for use by gateway_cmd, agent_cmd, and bridge.
 
     Translates between the legacy ``process_direct()`` interface and
     KUN's thread/turn/event pipeline.
@@ -78,6 +78,8 @@ class GatewayKunRuntime:
         agent_name: str = "miqi",
         mcp_servers: dict[str, Any] | None = None,
     ):
+        import threading
+
         from miqi.kun_runtime.runtime import KunRuntime, RuntimeOptions
 
         self._workspace = workspace
@@ -95,6 +97,8 @@ class GatewayKunRuntime:
         self._running = False
         self._cron: Any = None
         self._mcp_connected = False
+        # Compatibility with legacy AgentLoop's abort mechanism (used by bridge)
+        self._abort_event = threading.Event()
 
     @property
     def bus(self) -> Any:
