@@ -169,6 +169,22 @@ All notable changes to this project will be documented in this file.
   - Settings: runtime logs viewer with auto-scroll, error highlighting, and export.
   - MiQi design system: warm neutral palette, Inter font bundled locally, Tailwind v4 + Radix primitives.
 
+### Added
+- **KUN runtime migration — Phase 0 (Analysis & Design)**:
+  - Added comprehensive migration design document `docs/kun-runtime-migration.md`.
+  - Document covers: architectural comparison (message-bus vs desktop workbench), 33-module KUN→Python mapping table, 15 capability adapter mappings, Pydantic data model definitions, 9-risk register, and an 11-phase migration plan with 11 recommended PR splits.
+  - No code changes — read-only analysis phase.
+
+- **KUN runtime migration — Phase 1 (Contracts & Event Model)**:
+  - Added `miqi/kun_runtime/` package with `contracts.py` — Pydantic v2 models for the complete KUN data model:
+    - 10 `TurnItem` variants (user_message, assistant_text, assistant_reasoning, tool_call, tool_result, approval, user_input, compaction, review, error) as discriminated union.
+    - 32 `RuntimeEvent` variants (thread/turn lifecycle, item lifecycle, streaming deltas, tool events, approval/user-input gates, compaction, goal/todo, pipeline stage, usage, error, heartbeat) as discriminated union.
+    - Thread/Turn models: `ThreadRecord`, `ThreadSummary`, `Turn`, `ThreadGoal`, `ThreadTodoList`.
+    - Request/Response models: `StartTurnRequest/Response`, `SteerTurnRequest`, `InterruptTurnRequest/Response`, `CompactRequest/Response`, `CreateThreadRequest`, `ForkThreadRequest`, `UpdateThreadRequest`, `SetThreadGoalRequest`, `ApprovalDecisionRequest`, `UserInputResolveRequest`.
+    - Supporting types: `UsageSnapshot`, `ModelToolSpec`, `ModelCapabilityMetadata`, 11 enums, `PipelineStage` literal with labels.
+    - All models use camelCase field names matching KUN HTTP/SSE payloads for wire compatibility.
+  - Added `tests/kun_runtime/test_contracts.py` with 58 tests covering: serialization round-trips, enum validation, discriminator dispatch, default values, field constraints (min_length, ge), empty/id rejection, and `ThreadTodoList` at-most-one-in-progress invariant.
+
 ### Documentation
 - Added uv installation instructions to README, getting-started, developer-guide, and contributing docs; uv is the recommended install method, pip retained as fallback.
 - Updated `maxTokens` default from `16000` to `8192` in `docs/configuration.md` to match code.
