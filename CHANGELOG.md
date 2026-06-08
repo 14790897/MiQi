@@ -175,6 +175,15 @@ All notable changes to this project will be documented in this file.
   - Document covers: architectural comparison (message-bus vs desktop workbench), 33-module KUN→Python mapping table, 15 capability adapter mappings, Pydantic data model definitions, 9-risk register, and an 11-phase migration plan with 11 recommended PR splits.
   - No code changes — read-only analysis phase.
 
+- **KUN runtime migration — Phase 3 (ThreadStore, SessionStore, UsageService)**:
+  - Added `miqi/kun_runtime/stores.py` — file-based persistent stores:
+    - `FileThreadStore`: one JSON file per thread (upsert/get/delete/list), atomic write via os.replace.
+    - `FileSessionStore`: append-only JSONL for TurnItems and runtime events (load_items, append_item, update_item, rewrite_items, append_event, load_events_since).
+    - All paths relative to configurable `data_dir` — tests use `tmp_path` for isolation.
+  - Added `miqi/kun_runtime/usage.py` — `UsageService` for per-thread token/cost accumulation with token economy savings tracking, seed/reset, and thread isolation.
+  - Added `tests/kun_runtime/test_stores.py` with 26 tests covering: thread CRUD, persistence across instances, session item append/load/update/rewrite ordering, event sinceSeq filtering, corrupt line handling, thread isolation, and usage accumulation/savings/seed/reset.
+  - All tests pass: 214 total (103 original + 111 new).
+
 - **KUN runtime migration — Phase 2 (EventBus, SSE, RuntimeEventRecorder)**:
   - Added `miqi/kun_runtime/event_bus.py` — in-memory per-thread event bus with monotonically increasing seq, append, history replay, sinceSeq filtering, and async subscribe (AsyncIterator).
   - Added `miqi/kun_runtime/event_recorder.py` — RuntimeEventRecorder that auto-assigns seq + timestamp and records to the event bus.
