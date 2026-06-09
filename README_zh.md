@@ -23,10 +23,12 @@ MiQi Desktop 是一款基于 Electron 构建的桌面应用，为 MiQi AI 代理
 |---|---|
 | **智能聊天** | 与 AI 代理进行自然语言对话 |
 | **多提供商支持** | 支持 OpenAI、Anthropic、Gemini、OpenRouter 等多种 LLM 提供商 |
+| **多通道接入** | 支持飞书、微信、钉钉等消息通道 |
 | **记忆系统** | 管理长期记忆快照和自改进课程 |
 | **会话管理** | 浏览、搜索和压缩对话历史 |
 | **任务调度** | 创建和管理定时任务（Cron） |
 | **技能系统** | 配置和启用各类代理技能 |
+| **沙箱隔离** | 基于 WSL2 + bwrap 的 per-session 沙箱，安全执行代码 |
 | **文件管理** | 工作区文件系统操作 |
 | **实时日志** | 监控代理活动和调试信息 |
 
@@ -65,13 +67,33 @@ npm run dev
 
 ### 生产构建
 
+**一键打包**（推荐）：
+
 ```bash
-# 构建前端代码
 cd apps/desktop
+npm run build:all    # Python 后端 → 前端编译 → Electron 打包
+```
+
+**分步构建**：
+
+```bash
+cd apps/desktop
+
+# 1. 构建 Python 后端（生成 dist/miqi-bridge.exe）
+npm run build:bridge
+
+# 2. 编译前端
 npm run build
 
-# 打包为桌面应用
-npx electron-builder
+# 3. 打包为桌面应用
+npx electron-builder --win --publish never
+```
+
+打包后的 `miqi-bridge.exe` 是自包含的二进制文件（PyInstaller onefile），内嵌 Python 和全部依赖——目标机器无需安装 Python。支持 `--check` 自检模式：
+
+```bash
+miqi-bridge.exe --check
+# 输出: {"ok": true, "python_version": "3.12.10", "issues": []}
 ```
 
 ---
@@ -80,10 +102,11 @@ npx electron-builder
 
 ### 首次运行
 
-1. 启动应用后，进入设置向导
-2. 配置 LLM 提供商（如 OpenAI、OpenRouter 等）
-3. 输入 API 密钥
-4. 开始与 AI 代理聊天
+1. 启动应用后，进入设置向导：
+   - **环境检测** — 验证 Python 和依赖（打包环境自动检测 bundled exe；开发环境检查系统 Python）
+   - **WSL2 配置** — （仅 Windows）自动检测并安装 WSL2，用于沙箱功能
+   - **LLM 提供商** — 配置 API 密钥和默认模型
+2. 开始与 AI 代理聊天
 
 ### 核心功能
 
@@ -147,21 +170,27 @@ npx electron-builder
 ┌─────────────────────────────────────────────────────────────┐
 │                    MiQi Desktop App                         │
 ├─────────────────────────────────────────────────────────────┤
-│  Electron Frontend                                          │
+│  Electron 前端                                              │
 │  ├── React + TypeScript                                    │
 │  ├── Tailwind CSS                                          │
-│  └── shadcn/ui Components                                  │
+│  └── Radix UI 组件库                                       │
 ├─────────────────────────────────────────────────────────────┤
-│  Bridge (IPC Communication)                                 │
-│  ├── stdout/stderr JSON protocol                           │
-│  ├── State synchronization                                 │
-│  └── Log forwarding                                        │
+│  Bridge 通信层 (IPC)                                        │
+│  ├── stdout/stderr JSON 协议                                │
+│  ├── 状态同步                                              │
+│  └── 日志转发                                              │
 ├─────────────────────────────────────────────────────────────┤
-│  MiQi Python Runtime                                       │
+│  MiQi Python 运行时                                        │
 │  ├── AgentLoop (核心代理引擎)                               │
 │  ├── Memory System (记忆系统)                               │
 │  ├── Tool Registry (工具注册)                               │
-│  └── Provider Interface (提供商接口)                         │
+│  ├── Provider Interface (提供商接口)                         │
+│  └── Channel Bus (飞书 / 微信 / 钉钉)                       │
+├─────────────────────────────────────────────────────────────┤
+│  沙箱层 (WSL2 + bwrap)                                     │
+│  ├── Per-session 隔离                                      │
+│  ├── 文件系统沙箱                                          │
+│  └── 安全代码执行                                          │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -174,16 +203,18 @@ npx electron-builder
 ```
 miqi-desktop/
 ├── miqi/                    # Python 后端代码
-│   ├── agent/               # 代理核心逻辑
+│   ├── agent/               # 代理核心逻辑 & 工具注册
 │   ├── bridge/              # 与 Electron 通信的桥接服务
 │   ├── providers/           # LLM 提供商实现
+│   ├── channels/            # 消息通道适配器（飞书/微信/钉钉）
+│   ├── sandbox/             # bwrap 沙箱管理器 (WSL2)
 │   └── ...
 ├── apps/
 │   └── desktop/             # Electron 前端应用
 │       ├── src/
-│       │   ├── main/        # 主进程代码
-│       │   ├── renderer/    # 渲染进程代码
-│       │   └── preload/     # 预加载脚本
+│       │   ├── main/        # 主进程（IPC handlers, BridgeManager）
+│       │   ├── renderer/    # 渲染进程（React UI）
+│       │   └── preload/     # 预加载脚本（contextBridge）
 │       └── electron-builder.yml
 └── ...
 ```

@@ -204,16 +204,18 @@ The application configuration file is located at `~/.miqi/config.json` and conta
 ```
 miqi-desktop/
 ├── miqi/                    # Python backend code
-│   ├── agent/               # Core agent logic
+│   ├── agent/               # Core agent logic & tool registry
 │   ├── bridge/              # Bridge service for Electron communication
 │   ├── providers/           # LLM provider implementations
+│   ├── channels/            # Message channel adapters (Feishu/WeChat/DingTalk)
+│   ├── sandbox/             # bwrap sandbox manager (WSL2)
 │   └── ...
 ├── apps/
 │   └── desktop/             # Electron frontend application
 │       ├── src/
-│       │   ├── main/        # Main process code
-│       │   ├── renderer/    # Renderer process code
-│       │   └── preload/     # Preload scripts
+│       │   ├── main/        # Main process (IPC handlers, BridgeManager)
+│       │   ├── renderer/    # Renderer process (React UI)
+│       │   └── preload/     # Preload scripts (contextBridge)
 │       └── electron-builder.yml
 └── ...
 ```
