@@ -162,51 +162,84 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     const issues: string[] = []
     let pythonVersion = 'unknown'
 
-    // Candidate python commands in priority order
-    const candidates: string[][] = []
-    if (process.env['MIQI_PYTHON_PATH']) {
-      candidates.push([process.env['MIQI_PYTHON_PATH']!])
-    }
-    // uv
-    const hasUvLock = existsSync(join(projectRoot, 'uv.lock')) || existsSync(join(projectRoot, 'pyproject.toml'))
-    if (hasUvLock) {
-      candidates.push(['uv', 'run', 'python'])
-    }
-    // .venv on Windows
-    const venvWin = join(projectRoot, '.venv', 'Scripts', 'python.exe')
-    if (existsSync(venvWin)) candidates.push([venvWin])
-    // .venv on Unix
-    const venvUnix = join(projectRoot, '.venv', 'bin', 'python')
-    if (existsSync(venvUnix)) candidates.push([venvUnix])
-    // system fallbacks
-    candidates.push(['python3'], ['python'])
-
-    let pythonCmd: string[] | null = null
-    for (const candidate of candidates) {
+    // Check for bundled miqi-bridge.exe first (packaged / production environment).
+    // The bundled exe is a self-contained PyInstaller build that includes
+    // Python 3.11+ and all dependencies (pydantic, httpx, loguru, …).
+    // No system Python needed — if the exe exists, the environment is ready.
+    const bundledBridge = join(process.resourcesPath, 'miqi-bridge.exe')
+    if (existsSync(bundledBridge)) {
+      // The bundled exe supports --check for optional validation.
+      // PyInstaller onefile exe has a decompression delay on first run,
+      // so we keep this lightweight and don't block the UI on it.
+      // Primary signal: file exists → environment is considered OK.
+      pythonVersion = 'bundled'
+      // Try a quick --check to get the actual Python version (best-effort, non-blocking)
       try {
-        const r = spawnSync(candidate[0], [...candidate.slice(1), '--version'], { timeout: 5000, encoding: 'utf8' })
-        if (r.status === 0) {
-          pythonCmd = candidate
-          const ver = (r.stdout || r.stderr || '').trim().replace(/^Python\s+/i, '')
-          pythonVersion = ver
-          // Validate version >= 3.11
-          const parts = ver.split('.').map(Number)
-          if (parts[0] < 3 || (parts[0] === 3 && (parts[1] ?? 0) < 11)) {
-            issues.push(`Python ${ver} is too old (need >= 3.11)`)
+        const checkResult = spawnSync(bundledBridge, ['--check'], {
+          timeout: 15000,
+          encoding: 'utf8',
+        })
+        if (checkResult.status === 0 && checkResult.stdout) {
+          try {
+            const info = JSON.parse((checkResult.stdout as string).trim())
+            if (info.python_version) pythonVersion = info.python_version
+            if (Array.isArray(info.issues) && info.issues.length > 0) {
+              issues.push(...info.issues)
+            }
+          } catch {
+            // JSON parse failed — not critical, bundled exe exists
           }
-          break
         }
+        // If --check failed or not supported (old exe), still OK — file exists
       } catch {
-        // try next
+        // --check timeout or error — not critical, bundled exe exists
       }
-    }
-
-    if (!pythonCmd) {
-      issues.push('Python not found. Install Python >= 3.11 or set MIQI_PYTHON_PATH.')
-      pythonVersion = 'not found'
     } else {
-      // Check key MiQi dependencies
-      const checkScript = `
+      // Development environment: check system Python
+      const candidates: string[][] = []
+      if (process.env['MIQI_PYTHON_PATH']) {
+        candidates.push([process.env['MIQI_PYTHON_PATH']!])
+      }
+      // uv
+      const hasUvLock = existsSync(join(projectRoot, 'uv.lock')) || existsSync(join(projectRoot, 'pyproject.toml'))
+      if (hasUvLock) {
+        candidates.push(['uv', 'run', 'python'])
+      }
+      // .venv on Windows
+      const venvWin = join(projectRoot, '.venv', 'Scripts', 'python.exe')
+      if (existsSync(venvWin)) candidates.push([venvWin])
+      // .venv on Unix
+      const venvUnix = join(projectRoot, '.venv', 'bin', 'python')
+      if (existsSync(venvUnix)) candidates.push([venvUnix])
+      // system fallbacks
+      candidates.push(['python3'], ['python'])
+
+      let pythonCmd: string[] | null = null
+      for (const candidate of candidates) {
+        try {
+          const r = spawnSync(candidate[0], [...candidate.slice(1), '--version'], { timeout: 5000, encoding: 'utf8' })
+          if (r.status === 0) {
+            pythonCmd = candidate
+            const ver = (r.stdout || r.stderr || '').trim().replace(/^Python\s+/i, '')
+            pythonVersion = ver
+            // Validate version >= 3.11
+            const parts = ver.split('.').map(Number)
+            if (parts[0] < 3 || (parts[0] === 3 && (parts[1] ?? 0) < 11)) {
+              issues.push(`Python ${ver} is too old (need >= 3.11)`)
+            }
+            break
+          }
+        } catch {
+          // try next
+        }
+      }
+
+      if (!pythonCmd) {
+        issues.push('Python not found. Install Python >= 3.11 or set MIQI_PYTHON_PATH.')
+        pythonVersion = 'not found'
+      } else {
+        // Check key MiQi dependencies
+        const checkScript = `
 import importlib, sys
 for m in ("pydantic", "httpx", "loguru"):
     try:
@@ -214,16 +247,17 @@ for m in ("pydantic", "httpx", "loguru"):
     except ImportError:
         print("MISSING:" + m)
 `
-      try {
-        const r = spawnSync(pythonCmd[0], [...pythonCmd.slice(1), '-c', checkScript], { timeout: 8000, encoding: 'utf8' })
-        const out = (r.stdout || '').trim()
-        for (const line of out.split('\n')) {
-          if (line.startsWith('MISSING:')) {
-            issues.push(`Missing dependency: ${line.slice(8)}`)
+        try {
+          const r = spawnSync(pythonCmd[0], [...pythonCmd.slice(1), '-c', checkScript], { timeout: 8000, encoding: 'utf8' })
+          const out = (r.stdout || '').trim()
+          for (const line of out.split('\n')) {
+            if (line.startsWith('MISSING:')) {
+              issues.push(`Missing dependency: ${line.slice(8)}`)
+            }
           }
+        } catch {
+          issues.push('Could not check MiQi dependencies')
         }
-      } catch {
-        issues.push('Could not check MiQi dependencies')
       }
     }
 

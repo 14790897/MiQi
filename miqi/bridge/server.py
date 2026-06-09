@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 import json
+import importlib
 import os
 import re
 import signal
@@ -30,6 +31,25 @@ import traceback
 import uuid
 from pathlib import Path
 from typing import Any
+
+# ---------------------------------------------------------------------------
+# Early-exit: --check mode (used by Electron IPC PYTHON_CHECK)
+# This MUST run before any heavy project imports so it works even when
+# the miqi package is not on sys.path (dev env) or deps are broken.
+# ---------------------------------------------------------------------------
+if "--check" in sys.argv:
+    _issues: list[str] = []
+    _py_ver = sys.version_info
+    _python_version = f"{_py_ver.major}.{_py_ver.minor}.{_py_ver.micro}"
+    if _py_ver < (3, 11):
+        _issues.append(f" Python {_python_version} is too old (need >= 3.11)")
+    for _mod in ("pydantic", "httpx", "loguru"):
+        try:
+            importlib.import_module(_mod)
+        except ImportError:
+            _issues.append(f"Missing dependency: {_mod}")
+    print(json.dumps({"ok": len(_issues) == 0, "python_version": _python_version, "issues": _issues}), flush=True)
+    sys.exit(0 if len(_issues) == 0 else 1)
 
 # Force UTF-8 on Windows (default is GBK/cp936 which cannot encode emoji)
 if hasattr(sys.stdout, 'reconfigure'):
@@ -2272,6 +2292,39 @@ def main() -> None:
     # stdin closed — graceful exit
     _graceful_shutdown()
     _log("Bridge server stopped")
+
+
+def _run_self_check() -> None:
+    """Self-check mode: verify Python version and key dependencies, then exit.
+
+    Used by the Electron setup wizard to validate the bundled exe
+    without starting the full bridge server.  Outputs a single JSON
+    line to stdout so the caller can parse it easily.
+
+    NOTE: The actual --check handling is at the top of this file (before
+    heavy imports) so it works even when project modules are unavailable.
+    This function is kept as a reference / fallback.
+    """
+    issues: list[str] = []
+    py_ver = sys.version_info
+    python_version = f"{py_ver.major}.{py_ver.minor}.{py_ver.micro}"
+
+    if py_ver < (3, 11):
+        issues.append(f"Python {python_version} is too old (need >= 3.11)")
+
+    for mod in ("pydantic", "httpx", "loguru"):
+        try:
+            importlib.import_module(mod)
+        except ImportError:
+            issues.append(f"Missing dependency: {mod}")
+
+    result = {
+        "ok": len(issues) == 0,
+        "python_version": python_version,
+        "issues": issues,
+    }
+    print(json.dumps(result), flush=True)
+    sys.exit(0 if result["ok"] else 1)
 
 
 if __name__ == "__main__":

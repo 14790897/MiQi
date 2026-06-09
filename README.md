@@ -23,10 +23,12 @@ MiQi Desktop is an Electron-based desktop application that provides a modern gra
 |---|---|
 | **Smart Chat** | Natural language conversation with AI agent |
 | **Multi-provider Support** | Supports OpenAI, Anthropic, Gemini, OpenRouter, and more LLM providers |
+| **Multi-channel** | Connect via Feishu, WeChat, DingTalk and more message channels |
 | **Memory System** | Manage long-term memory snapshots and self-improvement lessons |
 | **Session Management** | Browse, search, and compact conversation history |
 | **Task Scheduler** | Create and manage scheduled tasks (Cron support) |
 | **Skill System** | Configure and enable various agent skills |
+| **Sandbox Isolation** | Per-session bwrap sandbox on WSL2 for safe code execution |
 | **File Management** | Workspace file system operations |
 | **Real-time Logs** | Monitor agent activity and debug information |
 
@@ -65,13 +67,33 @@ npm run dev
 
 ### Production Build
 
+**One-step build** (recommended):
+
 ```bash
-# Build frontend code
 cd apps/desktop
+npm run build:all    # Python backend → Frontend compile → Electron package
+```
+
+**Step-by-step build**:
+
+```bash
+cd apps/desktop
+
+# 1. Build Python backend (generates dist/miqi-bridge.exe)
+npm run build:bridge
+
+# 2. Compile frontend
 npm run build
 
-# Package as desktop application
-npx electron-builder
+# 3. Package as desktop application
+npx electron-builder --win --publish never
+```
+
+The packaged `miqi-bridge.exe` is a self-contained binary (PyInstaller onefile) that includes Python and all dependencies — no system Python installation required on the target machine. It also supports a `--check` flag for environment validation:
+
+```bash
+miqi-bridge.exe --check
+# Output: {"ok": true, "python_version": "3.12.10", "issues": []}
 ```
 
 ---
@@ -81,10 +103,11 @@ npx electron-builder
 ### First Run
 
 1. Launch the application
-2. Go through the setup wizard
-3. Configure LLM providers (e.g., OpenAI, OpenRouter)
-4. Enter your API keys
-5. Start chatting with the AI agent
+2. Go through the setup wizard:
+   - **Environment Check** — validates Python and dependencies (bundled exe auto-detects; dev mode checks system Python)
+   - **WSL2 Setup** — (Windows only) auto-detects and installs WSL2 for sandbox support
+   - **LLM Provider** — configure API keys and default model
+3. Start chatting with the AI agent
 
 ### Core Features
 
@@ -151,7 +174,7 @@ The application configuration file is located at `~/.miqi/config.json` and conta
 │  Electron Frontend                                          │
 │  ├── React + TypeScript                                    │
 │  ├── Tailwind CSS                                          │
-│  └── shadcn/ui Components                                  │
+│  └── Radix UI Components                                   │
 ├─────────────────────────────────────────────────────────────┤
 │  Bridge (IPC Communication)                                 │
 │  ├── stdout/stderr JSON protocol                           │
@@ -162,7 +185,13 @@ The application configuration file is located at `~/.miqi/config.json` and conta
 │  ├── AgentLoop (Core agent engine)                         │
 │  ├── Memory System                                         │
 │  ├── Tool Registry                                         │
-│  └── Provider Interface                                    │
+│  ├── Provider Interface                                    │
+│  └── Channel Bus (Feishu / WeChat / DingTalk)              │
+├─────────────────────────────────────────────────────────────┤
+│  Sandbox Layer (WSL2 + bwrap)                              │
+│  ├── Per-session isolation                                 │
+│  ├── Filesystem sandboxing                                 │
+│  └── Safe code execution                                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
