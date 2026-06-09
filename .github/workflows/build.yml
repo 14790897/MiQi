@@ -76,6 +76,7 @@ jobs:
         with:
           files: |
             dist-new/*.exe
+            dist-new/*.msi
             dist-new/*.zip
           name: Release ${{ github.ref_name }}
           body: |
