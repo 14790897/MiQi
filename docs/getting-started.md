@@ -47,27 +47,27 @@ npm run dev
 
 ## 生产构建
 
-### 前端构建
+### 一键打包
 
 ```bash
 cd apps/desktop
+npm run build:all
+```
+
+该命令依次执行：Python 后端打包 → 前端编译 → Electron 安装包打包。
+
+### 分步构建
+
+```bash
+# 1. Python 后端打包（生成 dist/miqi-bridge.exe）
+cd apps/desktop
+npm run build:bridge
+
+# 2. 前端编译
 npm run build
-```
 
-### 打包桌面安装包
-
-```bash
-cd apps/desktop
-npx electron-builder
-# 输出目录: ../../dist-new/
-```
-
-### Python 后端打包
-
-```bash
-# 使用 PyInstaller 打包 bridge server
-pyinstaller miqi.spec
-# 输出: dist/miqi-bridge.exe
+# 3. 打包安装包（输出到 ../../dist-new/）
+npx electron-builder --win --publish never
 ```
 
 ### Docker 部署

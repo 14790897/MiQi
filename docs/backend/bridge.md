@@ -1,6 +1,6 @@
 # Bridge 通信
 
-`miqi/bridge/server.py`（约 2000 行，57 个 handler）是连接 Electron 前端和 Python 后端的核心通信层。
+`miqi/bridge/server.py`（约 2300 行，57 个 handler）是连接 Electron 前端和 Python 后端的核心通信层。
 
 ## 通信协议
 
@@ -149,3 +149,16 @@ a = Analysis(
 pyz = PYZ(a.pure)
 exe = EXE(pyz, console=False, ...)  # GUI 模式 (无控制台窗口)
 ```
+
+### --check 自检模式
+
+`miqi-bridge.exe` 支持 `--check` 参数，用于环境验证。该逻辑在 `server.py` 文件顶部处理（标准库 import 之后、项目 import 之前），确保即使项目模块加载失败也能正确报告环境状态。
+
+```bash
+miqi-bridge.exe --check
+# 输出: {"ok": true, "python_version": "3.12.10", "issues": []}
+```
+
+**为什么不支持 `-c` 参数**：PyInstaller 打包的 exe 不是 Python 解释器，传给 exe 的参数会变成 `sys.argv`，而非 Python 解释器选项。因此 `miqi-bridge.exe -c "code"` 不会执行代码。
+
+**`console=False` 行为**：虽然不弹出控制台窗口，但 `spawnSync` 仍可通过 stdout 管道捕获输出，`--check` 的 JSON 输出能被 Electron 正常读取。

@@ -40,7 +40,7 @@ MiQi Desktop 前端包含 15 个功能页面，通过左侧 Sidebar 导航切换
 环境检测 → WSL2 配置 → LLM 提供商 → 完成
 ```
 
-- **环境检测**：检查 Python / Node.js 版本
+- **环境检测**：检查 Python 版本和依赖包（打包环境下自动检测 bundled `miqi-bridge.exe`，无需系统安装 Python）
 - **WSL2 配置**（Windows 专属）：自动检测安装状态，一键安装
 - **LLM 提供商**：配置 API Key 和默认模型
 - **非 Windows 自动跳过** WSL2 步骤

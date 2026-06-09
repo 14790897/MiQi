@@ -129,6 +129,27 @@ ipcMain.handle(IPC.CONFIG_GET, async () => {
 });
 ```
 
+### PYTHON_CHECK 环境检查
+
+`PYTHON_CHECK` handler 按优先级检测运行环境：
+
+```
+1. 打包环境：process.resourcesPath/miqi-bridge.exe 存在？
+   ├─ 是 → 环境就绪 ✅（pythonVersion = 'bundled'）
+   │        可选执行 miqi-bridge.exe --check 获取详细版本（best-effort）
+   └─ 否 → 开发环境：按 MIQI_PYTHON_PATH → uv → .venv → python3 → python 查找
+```
+
+返回格式：
+```typescript
+{
+  ok: boolean           // 环境是否就绪
+  python_version: string // Python 版本号（打包环境为 'bundled' 或实际版本）
+  issues: string[]      // 问题列表
+  config_exists: boolean // ~/.miqi/config.json 是否存在
+}
+```
+
 ## Bridge 服务流程
 
 ```
