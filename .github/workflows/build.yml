@@ -46,6 +46,7 @@ jobs:
         working-directory: apps/desktop
         run: |
           $version = "${{ github.ref_name }}".Substring(1)
+          $version = $version -replace '\.post(\d+)', '-post.$1'
           $content = Get-Content package.json -Raw | ConvertFrom-Json
           $content.version = $version
           $content | ConvertTo-Json -Depth 100 | Set-Content package.json
