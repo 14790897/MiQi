@@ -17,6 +17,9 @@ win:
     - target: nsis
       arch:
         - x64
+    - target: msi
+      arch:
+        - x64
   icon: src/renderer/assets/icon.ico
 nsis:
   perMachine: true
