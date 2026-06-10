@@ -306,6 +306,10 @@ class AgentLoop:
         self._approval_callback = approval_callback
         self._session_key = session_key
         self._mcp_servers = mcp_servers or {}
+
+        # Phase 1: typed event emitter (dual-emit alongside legacy events)
+        self._event_emitter: Any = None
+        self._typed_events_enabled: bool = False
         self._mcp_stack: AsyncExitStack | None = None
         self._mcp_connected = False
         self._mcp_connecting = False
@@ -508,6 +512,16 @@ class AgentLoop:
         if cron_tool := self.tools.get("cron"):
             if isinstance(cron_tool, CronTool):
                 cron_tool.set_context(channel, chat_id)
+
+    def enable_typed_events(self, emitter: Any) -> None:
+        """Enable typed event emission alongside existing events (Phase 1).
+
+        Args:
+            emitter: EventEmitter instance that translates typed
+                     events to IPC channels.
+        """
+        self._event_emitter = emitter
+        self._typed_events_enabled = True
 
     async def _call_llm_for_summary(
         self,
@@ -1228,6 +1242,18 @@ class AgentLoop:
             except Exception as exc:
                 logger.warning("Failed to activate sandbox for {}: {}", key, exc)
 
+        # Phase 1: emit typed TurnStartedEvent (dual-emit)
+        _turn_id = ""
+        if self._typed_events_enabled and self._event_emitter:
+            import uuid as _uuid
+            _turn_id = str(_uuid.uuid4())[:12]
+            from miqi.protocol.events import TurnStartedEvent
+            await self._event_emitter.emit(TurnStartedEvent(
+                turn_id=_turn_id,
+                agent_name=self.agent_name,
+                thread_id=key,
+            ))
+
         previous_assistant = self._get_last_assistant_message(session)
 
         # Slash commands
@@ -1466,6 +1492,16 @@ class AgentLoop:
                 "timestamp": _dt.now().isoformat(),
             })
         self.sessions.save(session)
+
+        # Phase 1: emit typed TurnCompleteEvent (dual-emit)
+        if self._typed_events_enabled and self._event_emitter and _turn_id:
+            from miqi.protocol.events import TurnCompleteEvent
+            await self._event_emitter.emit(TurnCompleteEvent(
+                turn_id=_turn_id,
+                thread_id=key,
+                outcome="success" if final_content and "error" not in final_content.lower() else "partial",
+                tools_used=list(dict.fromkeys(_turn_tools)),
+            ))
 
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
