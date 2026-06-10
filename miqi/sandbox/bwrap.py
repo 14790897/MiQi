@@ -100,6 +100,7 @@ class BwrapSandbox:
         self.sandbox_home: str = f"{self._linux_base_dir}/home/miqi"
         self.sandbox_workspace: str = f"{self._linux_base_dir}/home/miqi/workspace"
         self.sandbox_rootfs: str = f"{self._linux_base_dir}/rootfs"
+        self.sandbox_etc: str = f"{self._linux_base_dir}/etc"  # writable /etc copy
 
         self._process: asyncio.subprocess.Process | None = None
         self._running = False
@@ -364,6 +365,36 @@ class BwrapSandbox:
         else:
             self._linux_workspace = None
 
+        # ── Copy host /etc into a writable sandbox-local copy ───────
+        # bwrap's --ro-bind-try /etc /etc can silently fail in WSL (the
+        # source directory may not be bind-mountable).  Instead, copy the
+        # entire /etc into the sandbox base directory and bind-mount that
+        # copy.  This also lets us inject custom resolv.conf / nsswitch.conf
+        # without dealing with read-only overlay ordering.
+        rc, _, err = await self._run_linux_command(
+            f"cp -a /etc/. '{self.sandbox_etc}/' 2>/dev/null || mkdir -p '{self.sandbox_etc}'"
+        )
+        if rc != 0:
+            logger.warning("Failed to copy /etc: {}", err)
+            # Fallback: create empty /etc and populate only essentials
+            await self._run_linux_command(f"mkdir -p '{self.sandbox_etc}'")
+
+        # Inject DNS configuration into the sandbox /etc copy
+        rc, _, err = await self._run_linux_command(
+            f"cp /etc/resolv.conf '{self.sandbox_etc}/resolv.conf' 2>/dev/null || "
+            f"echo 'nameserver 8.8.8.8' > '{self.sandbox_etc}/resolv.conf'; "
+            f"echo 'nameserver 114.114.114.114' >> '{self.sandbox_etc}/resolv.conf'"
+        )
+        if rc != 0:
+            logger.warning("Failed to create resolv.conf: {}", err)
+
+        rc, _, err = await self._run_linux_command(
+            f"cp /etc/nsswitch.conf '{self.sandbox_etc}/nsswitch.conf' 2>/dev/null || "
+            f"printf 'hosts: files dns\n' > '{self.sandbox_etc}/nsswitch.conf'"
+        )
+        if rc != 0:
+            logger.warning("Failed to create nsswitch.conf: {}", err)
+
         self._running = True
         logger.info(
             "Sandbox prepared for session {}: {}",
@@ -522,7 +553,7 @@ class BwrapSandbox:
     # mount-point directories (like /home/miqi) for subsequent --bind mounts.
     _RO_BIND_DIRS: list[str] = [
         "/usr", "/bin", "/lib", "/lib64", "/lib32",
-        "/etc", "/sbin", "/var", "/opt", "/snap",
+        "/sbin", "/var", "/opt", "/snap",
     ]
 
     def _build_bwrap_args(
@@ -592,10 +623,11 @@ class BwrapSandbox:
         else:
             args.extend(["--bind", self.sandbox_workspace, "/home/miqi/workspace"])
 
-        # ── /etc/resolv.conf (writable copy for DNS if network shared) ─
-        if self.share_net:
-            resolv_copy = f"{self._linux_base_dir}/resolv.conf"
-            args.extend(["--bind", resolv_copy, "/etc/resolv.conf"])
+        # ── /etc — writable copy from sandbox base dir ─────────────
+        # We copy the host's /etc during start() and inject custom DNS
+        # files.  Binding the entire copy avoids the ro-bind-try /etc /etc
+        # silent-failure problem in WSL and gives us full control.
+        args.extend(["--bind", self.sandbox_etc, "/etc"])
 
         # ── Extra bind mounts ───────────────────────────────────────
         for src in self.extra_ro_binds:
