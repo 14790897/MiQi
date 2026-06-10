@@ -10,6 +10,10 @@ import {
   Plus,
   Plug,
   Archive,
+  Bot,
+  ListChecks,
+  Shield,
+  Package,
   type LucideIcon,
 } from 'lucide-react'
 import type { SessionInfo } from '../../shared/ipc'
@@ -22,11 +26,15 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'chat', label: '对话', icon: MessageSquare },
+  { id: 'agents', label: 'Agents', icon: Bot },
+  { id: 'plan', label: 'Plan', icon: ListChecks },
   { id: 'mcps', label: 'MCPs', icon: Plug },
   { id: 'cron', label: '定时任务', icon: Clock },
   { id: 'memory', label: '记忆', icon: BookOpen },
   { id: 'experience', label: '经验', icon: BookOpen },
   { id: 'skills', label: '技能', icon: Wrench },
+  { id: 'permissions', label: 'Permissions', icon: Shield },
+  { id: 'plugins', label: 'Plugins', icon: Package },
   { id: 'settings', label: '设置', icon: Settings },
 ]
 
