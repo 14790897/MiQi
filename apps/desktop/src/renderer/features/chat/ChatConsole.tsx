@@ -274,6 +274,47 @@ export function ChatConsole({
   const unsubsRef = useRef<Array<() => void>>([])
   const currentSessionRef = useRef(sessionKey)
 
+  // ── Thread tabs for multi-agent support ──
+  interface ThreadTab {
+    threadId: string
+    agentType: string
+    label: string
+  }
+  const [threads, setThreads] = useState<ThreadTab[]>([
+    { threadId: 'main', agentType: 'main', label: 'Main' },
+  ])
+  const [activeThreadId, setActiveThreadId] = useState('main')
+
+  useEffect(() => {
+    const unsub = window.miqi.agents?.onSpawned((data) => {
+      setThreads((prev) => {
+        if (prev.find((t) => t.threadId === data.sub_thread_id)) return prev
+        return [
+          ...prev,
+          {
+            threadId: data.sub_thread_id,
+            agentType: data.agent_type,
+            label: data.task_label || data.agent_type,
+          },
+        ]
+      })
+    })
+    return () => { if (unsub) unsub() }
+  }, [])
+
+  useEffect(() => {
+    const unsub = window.miqi.agents?.onCompleted((data) => {
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.threadId === data.sub_thread_id
+            ? { ...t, label: `${t.label.replace(/ ✓$/, '')} ✓` }
+            : t,
+        ),
+      )
+    })
+    return () => { if (unsub) unsub() }
+  }, [])
+
   /** Upsert a file into trackedFiles */
   const trackFile = useCallback((path: string, op: TrackedFile['op'], truncated = false) => {
     setTrackedFiles((prev) => {
@@ -479,7 +520,10 @@ export function ChatConsole({
     unsubsRef.current = [unsubProgress, unsubFinal, unsubError, unsubAborted]
 
     try {
-      await window.miqi.chat.send(content, currentSessionRef.current)
+      const key = activeThreadId === 'main'
+        ? currentSessionRef.current
+        : `desktop:${activeThreadId}`
+      await window.miqi.chat.send(content, key)
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId)
       setMessages((prev) => [
@@ -625,6 +669,38 @@ export function ChatConsole({
         className="hidden"
         onChange={handleFileChange}
       />
+
+      {/* ── Thread tabs ── */}
+      {threads.length > 1 && (
+        <div className="flex gap-1 px-2 pt-1 overflow-x-auto border-b border-[var(--border)] shrink-0">
+          {threads.map((t) => (
+            <button
+              key={t.threadId}
+              onClick={() => setActiveThreadId(t.threadId)}
+              className={cn(
+                'px-3 py-1.5 text-xs rounded-t whitespace-nowrap transition-colors',
+                activeThreadId === t.threadId
+                  ? 'bg-[var(--surface)] text-[var(--text)] border-t border-x border-[var(--border)]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)]',
+              )}
+            >
+              {t.label}
+              {t.threadId !== 'main' && (
+                <button
+                  className="ml-1.5 text-[var(--text-muted)] hover:text-[var(--danger)]"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setThreads((prev) => prev.filter((th) => th.threadId !== t.threadId))
+                    if (activeThreadId === t.threadId) setActiveThreadId('main')
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ── Task header bar ── */}
       <div
