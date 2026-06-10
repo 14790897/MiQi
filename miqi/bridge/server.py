@@ -2062,6 +2062,58 @@ def _deep_merge(base: dict, updates: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Permissions handlers (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+def handle_permissions_get(req_id: str, params: dict) -> None:
+    """Return current permission engine configuration."""
+    orch = _state._orchestrator
+    if orch is not None:
+        pe = orch.permissions
+        _result(req_id, {
+            "permanent_allowlist": list(pe.permanent_allowlist),
+            "deny_patterns": list(pe.deny_patterns),
+        })
+    else:
+        _result(req_id, {
+            "permanent_allowlist": [],
+            "deny_patterns": [],
+        })
+
+
+def handle_permissions_update(req_id: str, params: dict) -> None:
+    """Update permission engine deny/allow patterns."""
+    config = params.get("config", {})
+    orch = _state._orchestrator
+    if orch is not None:
+        pe = orch.permissions
+        if "permanent_allowlist" in config:
+            pe.permanent_allowlist = set(config["permanent_allowlist"])
+        if "deny_patterns" in config:
+            pe.deny_patterns = set(config["deny_patterns"])
+    _result(req_id, {"saved": True})
+
+
+def handle_permissions_permanent_add(req_id: str, params: dict) -> None:
+    """Add a pattern to the permanent allowlist."""
+    pattern = params.get("pattern", "")
+    orch = _state._orchestrator
+    if orch is not None and pattern:
+        orch.permissions.permanent_allowlist.add(pattern)
+    _result(req_id, {"added": bool(pattern)})
+
+
+def handle_permissions_permanent_remove(req_id: str, params: dict) -> None:
+    """Remove a pattern from the permanent allowlist."""
+    pattern = params.get("pattern", "")
+    orch = _state._orchestrator
+    if orch is not None and pattern:
+        orch.permissions.permanent_allowlist.discard(pattern)
+    _result(req_id, {"removed": bool(pattern)})
+
+
+# ---------------------------------------------------------------------------
 # Main dispatch
 # ---------------------------------------------------------------------------
 
@@ -2123,6 +2175,10 @@ _METHODS = {
     "files.revert": handle_files_revert,
     "files.accept": handle_files_accept,
     "python.check": handle_python_check,
+    "permissions.get": handle_permissions_get,
+    "permissions.update": handle_permissions_update,
+    "permissions.permanent.add": handle_permissions_permanent_add,
+    "permissions.permanent.remove": handle_permissions_permanent_remove,
 }
 
 
