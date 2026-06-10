@@ -62,6 +62,7 @@ class SandboxManager:
         auto_cleanup: bool = True,
         wsl_distro: str = "",
         wsl_base_dir: str = "/tmp/miqi-sandboxes",
+        sandbox_distro_name: str = "AIShadowSandbox",
     ):
         self.workspace = workspace
         self.sandbox_base_dir = sandbox_base_dir or workspace / "sandboxes"
@@ -71,6 +72,7 @@ class SandboxManager:
         self.auto_cleanup = auto_cleanup
         self.wsl_distro = wsl_distro
         self.wsl_base_dir = wsl_base_dir
+        self.sandbox_distro_name = sandbox_distro_name
 
         self._sandboxes: dict[str, BwrapSandbox] = {}
         self._active_key: str | None = None
@@ -220,6 +222,10 @@ class SandboxManager:
 
         Returns True if sandboxing is available, False otherwise.
         """
+        if self._initialized:
+            # Already initialized, check current state
+            return self._lock is not None
+
         if not self.enabled:
             logger.info("Sandbox disabled by configuration")
             self._initialized = True
@@ -234,6 +240,10 @@ class SandboxManager:
             self._initialized = True
             return False
 
+        # Only create lock if not already created (handles re-initialization)
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        
         self._initialized = True
 
         # Clean up sandboxes left from a previous bridge run
@@ -259,6 +269,10 @@ class SandboxManager:
 
         # Check bwrap availability on first create
         if not await BwrapSandbox.is_available(wsl_distro=self.wsl_distro):
+            return None
+
+        if self._lock is None:
+            logger.error("Sandbox manager lock not initialized")
             return None
 
         async with self._lock:
@@ -305,29 +319,52 @@ class SandboxManager:
 
     async def destroy(self, session_key: str) -> bool:
         """Stop and remove a sandbox for the given session."""
-        async with self._lock:
+        sandbox = None
+        if self._lock is not None:
+            try:
+                async with self._lock:
+                    sandbox = self._sandboxes.pop(session_key, None)
+            except RuntimeError:
+                sandbox = self._sandboxes.pop(session_key, None)
+        else:
             sandbox = self._sandboxes.pop(session_key, None)
-            if sandbox is None:
-                return False
 
-            await sandbox.stop()
-            self._save_state()
+        if sandbox is None:
+            return False
 
-            if self._active_key == session_key:
-                self._active_key = None
+        await sandbox.stop()
+        self._save_state()
 
-            logger.info("Destroyed sandbox for session: {}", session_key)
-            return True
+        if self._active_key == session_key:
+            self._active_key = None
+
+        logger.info("Destroyed sandbox for session: {}", session_key)
+        return True
 
     async def destroy_all(self) -> int:
         """Stop and remove all sandboxes. Returns count destroyed."""
         count = 0
-        async with self._lock:
-            for key, sandbox in list(self._sandboxes.items()):
-                await sandbox.stop()
-                count += 1
+        sandboxes = []
+        
+        if self._lock is not None:
+            try:
+                async with self._lock:
+                    sandboxes = list(self._sandboxes.items())
+                    self._sandboxes.clear()
+                    self._active_key = None
+            except RuntimeError:
+                sandboxes = list(self._sandboxes.items())
+                self._sandboxes.clear()
+                self._active_key = None
+        else:
+            sandboxes = list(self._sandboxes.items())
             self._sandboxes.clear()
             self._active_key = None
+
+        for key, sandbox in sandboxes:
+            await sandbox.stop()
+            count += 1
+        
         # Save empty state after destroying all
         self._save_state()
         return count
