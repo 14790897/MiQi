@@ -4,7 +4,7 @@ import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import type { BridgeManager } from '../bridge'
-import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, ConfigUpdateInput, ProviderTestInput, ProviderUpdateInput, ChannelsUpdateInput, CronCreateInput, CronUpdateInput, CronToggleInput, CronDeleteInput, CronRunInput, CronRunsInput, MemoryGetInput, MemoryUpdateInput, MemoryLessonUnlearnInput, SkillsGetInput, FilesReadInput, FilesWriteInput, McpUpsertInput, McpDeleteInput } from '../../shared/ipc'
+import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, ConfigUpdateInput, ProviderTestInput, ProviderUpdateInput, ChannelsUpdateInput, CronCreateInput, CronUpdateInput, CronToggleInput, CronDeleteInput, CronRunInput, CronRunsInput, MemoryGetInput, MemoryUpdateInput, MemoryLessonUnlearnInput, SkillsGetInput, FilesReadInput, FilesWriteInput, McpUpsertInput, McpDeleteInput, AgentSpawnInput, PermissionsUpdateInput } from '../../shared/ipc'
 import type { WslCheckResult } from '../../shared/ipc'
 
 const { ipcMain, dialog } = electron
@@ -697,5 +697,78 @@ for m in ("pydantic", "httpx", "loguru"):
     writeFileSync(configPath, JSON.stringify(existing, null, 2), 'utf8')
 
     return { saved: true, path: configPath }
+  })
+
+  // ---------------------------------------------------------------------------
+  // Agents (Phase 2)
+  // ---------------------------------------------------------------------------
+  ipcMain.handle(IPC.AGENT_LIST, async () => {
+    return bridge.sendSafe('agent.list')
+  })
+
+  ipcMain.handle(IPC.AGENT_SPAWN, async (_event, payload: unknown) => {
+    const input = AgentSpawnInput.parse(payload)
+    return bridge.sendSafe('agent.spawn', {
+      agent_type: input.agent_type,
+      task: input.task,
+      label: input.label,
+    })
+  })
+
+  ipcMain.handle(IPC.AGENT_KILL, async (_event, payload: unknown) => {
+    const { agent_id } = payload as { agent_id: string }
+    return bridge.sendSafe('agent.kill', { agent_id })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Plan (Phase 2)
+  // ---------------------------------------------------------------------------
+  ipcMain.handle(IPC.PLAN_GET, async (_event, payload: unknown) => {
+    const { thread_id } = payload as { thread_id: string }
+    return bridge.sendSafe('plan.get', { thread_id })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Permissions (Phase 3)
+  // ---------------------------------------------------------------------------
+  ipcMain.handle(IPC.PERMISSIONS_GET, async () => {
+    return bridge.sendSafe('permissions.get')
+  })
+
+  ipcMain.handle(IPC.PERMISSIONS_UPDATE, async (_event, payload: unknown) => {
+    const input = PermissionsUpdateInput.parse(payload)
+    return bridge.sendSafe('permissions.update', { config: input })
+  })
+
+  ipcMain.handle(IPC.PERMISSIONS_PERMANENT_ADD, async (_event, payload: unknown) => {
+    const { pattern } = payload as { pattern: string }
+    return bridge.sendSafe('permissions.permanent.add', { pattern })
+  })
+
+  ipcMain.handle(IPC.PERMISSIONS_PERMANENT_REMOVE, async (_event, payload: unknown) => {
+    const { pattern } = payload as { pattern: string }
+    return bridge.sendSafe('permissions.permanent.remove', { pattern })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Plugins (Phase 4)
+  // ---------------------------------------------------------------------------
+  ipcMain.handle(IPC.PLUGINS_LIST, async () => {
+    return bridge.sendSafe('plugins.list')
+  })
+
+  ipcMain.handle(IPC.PLUGINS_INSTALL, async (_event, payload: unknown) => {
+    const { name } = payload as { name: string }
+    return bridge.sendSafe('plugins.install', { name })
+  })
+
+  ipcMain.handle(IPC.PLUGINS_UNINSTALL, async (_event, payload: unknown) => {
+    const { name } = payload as { name: string }
+    return bridge.sendSafe('plugins.uninstall', { name })
+  })
+
+  ipcMain.handle(IPC.PLUGINS_TOGGLE, async (_event, payload: unknown) => {
+    const { name, enabled } = payload as { name: string; enabled: boolean }
+    return bridge.sendSafe('plugins.toggle', { name, enabled })
   })
 }
