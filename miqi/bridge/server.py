@@ -130,6 +130,8 @@ class BridgeState:
         self._approval_decisions: dict[str, str] = {}
         self._approval_meta: dict[str, dict] = {}
         self._sandbox_manager: Any = None  # shared SandboxManager across agents
+        self._event_emitter: Any = None  # Phase 1 shared EventEmitter
+        self._agent_control: Any = None  # Phase 2 shared AgentControl
 
     def load_config(self):
         from miqi.config.loader import load_config
@@ -362,6 +364,21 @@ def handle_chat_send(req_id: str, params: dict) -> None:
                 return _state.get_approval_decision(approval_id)
 
             agent = _state.build_agent(session_key, approval_callback=_desktop_approval_callback)
+
+            # Phase 1: wire EventEmitter for typed events (dual-emit)
+            if _state._event_emitter is None:
+                from miqi.bridge.event_emitter import EventEmitter
+
+                def _bridge_send_event(channel: str, data: dict) -> None:
+                    _send({
+                        "type": channel,
+                        "data": data,
+                    })
+
+                _state._event_emitter = EventEmitter(_bridge_send_event)
+                _log("Typed event protocol enabled (Phase 1 dual-emit)")
+            agent.enable_typed_events(_state._event_emitter)
+
             _state.set_active(agent, req_id)
 
             async def on_progress(text: str, tool_hint: bool = False) -> None:
