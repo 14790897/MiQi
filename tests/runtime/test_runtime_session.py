@@ -116,3 +116,39 @@ async def test_runtime_session_next_event_timeout(fake_config, fake_provider):
     await runtime.stop()
 
     assert event is None
+
+
+@pytest.mark.asyncio
+async def test_runtime_session_receives_service_events(fake_config, fake_provider):
+    """Events emitted by services (not just TaskRunner) flow to next_event()."""
+    from miqi.protocol.commands import UserMessage
+
+    runtime = RuntimeSession.create(
+        config=fake_config,
+        provider=fake_provider,
+        session_id="cli:default",
+        workspace=fake_config.workspace_path,
+    )
+
+    await runtime.start()
+
+    # Inject an event through the services' event emitter directly,
+    # simulating what the orchestrator or AgentControl would emit
+    from miqi.protocol.events import ToolCallBeginEvent
+    await runtime.services.event_emitter.emit(ToolCallBeginEvent(
+        turn_id="test-turn",
+        tool_call_id="tc-1",
+        tool_name="read_file",
+        tool_display="read_file /tmp/x",
+        arguments={"path": "/tmp/x"},
+    ))
+
+    await runtime.submit(UserMessage(content="hello", thread_id="cli:default"))
+
+    # The first event should be our manually-injected tool event
+    first_event = await runtime.next_event(timeout=5)
+    await runtime.stop()
+
+    assert first_event is not None
+    assert first_event.__class__.__name__ == "ToolCallBeginEvent"
+    assert first_event.tool_name == "read_file"
