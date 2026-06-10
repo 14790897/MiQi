@@ -399,26 +399,18 @@ def handle_chat_send(req_id: str, params: dict) -> None:
 
             # Phase 3: initialize shared ToolOrchestrator
             if _state._orchestrator is None:
-                from miqi.execution.orchestrator import ToolOrchestrator
-                from miqi.execution.permission_engine import PermissionEngine
-                from miqi.execution.sandbox_policy import SandboxPolicyEngine
-                from miqi.execution.hook_runtime import HookRuntime
+                from miqi.execution.factory import create_default_orchestrator
 
                 bwrap_ok = (
                     _state._sandbox_manager is not None
                     and _state._sandbox_manager != "disabled"
                 )
 
-                _state._orchestrator = ToolOrchestrator(
-                    permission_engine=PermissionEngine(
-                        permanent_allowlist=set(_state._approval_meta.keys()),
-                    ),
-                    sandbox_engine=SandboxPolicyEngine(
-                        bwrap_available=bwrap_ok,
-                    ),
-                    hook_runtime=HookRuntime(),
-                    tool_registry=None,
+                _state._orchestrator = create_default_orchestrator(
+                    tool_registry=None,  # Wired to agent.tools below
                     event_emitter=_state._event_emitter,
+                    bwrap_available=bwrap_ok,
+                    permanent_allowlist=set(_state._approval_meta.keys()),
                 )
                 _log("Tool orchestration engine enabled (Phase 3)")
 

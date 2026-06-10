@@ -569,6 +569,8 @@ def register_management_commands(
             mcp_servers=config.tools.mcp_servers,
             channels_config=config.channels,
         )
+        from miqi.execution.factory import configure_agent_orchestrator
+        configure_agent_orchestrator(agent_loop)
 
         result_holder = []
 

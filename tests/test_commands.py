@@ -153,6 +153,7 @@ def test_agent_command_passes_runtime_configs(monkeypatch, tmp_path):
     monkeypatch.setattr("miqi.cli.commands._make_provider", lambda _cfg: object())
     monkeypatch.setattr("miqi.cron.service.CronService", FakeCronService)
     monkeypatch.setattr("miqi.agent.loop.AgentLoop", FakeAgentLoop)
+    monkeypatch.setattr("miqi.execution.factory.configure_agent_orchestrator", lambda _loop: None)
 
     result = runner.invoke(app, ["agent", "-m", "hello"])
 
@@ -200,6 +201,7 @@ def test_cron_run_passes_runtime_configs(monkeypatch, tmp_path):
     monkeypatch.setattr("miqi.cli.commands._make_provider", lambda _cfg: object())
     monkeypatch.setattr("miqi.cron.service.CronService", FakeCronService)
     monkeypatch.setattr("miqi.agent.loop.AgentLoop", FakeAgentLoop)
+    monkeypatch.setattr("miqi.execution.factory.configure_agent_orchestrator", lambda _loop: None)
 
     result = runner.invoke(app, ["cron", "run", "demo", "--force"])
 

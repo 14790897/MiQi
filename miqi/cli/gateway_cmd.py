@@ -92,6 +92,8 @@ def register_gateway_command(
             mcp_servers=config.tools.mcp_servers,
             channels_config=config.channels,
         )
+        from miqi.execution.factory import configure_agent_orchestrator
+        configure_agent_orchestrator(agent)
 
         async def on_cron_job(job: CronJob) -> str | None:
             response = await agent.process_direct(
