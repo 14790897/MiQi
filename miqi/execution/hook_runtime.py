@@ -15,8 +15,37 @@ from loguru import logger
 
 
 class HookPoint(str, Enum):
+    """Hook points matching the Codex runtime lifecycle.
+
+    Pre-/post-tool hooks run in the tool execution context.
+    Session/turn/subagent hooks allow plugins to observe and
+    react to runtime state transitions.
+    """
+
+    # Tool-level hooks (existing)
     PRE_TOOL_USE = "pre_tool_use"
     POST_TOOL_USE = "post_tool_use"
+
+    # Session lifecycle
+    SESSION_START = "session_start"
+    SESSION_END = "session_end"
+
+    # Turn lifecycle
+    PROMPT_SUBMIT = "prompt_submit"
+    TURN_START = "turn_start"
+    TURN_END = "turn_end"
+
+    # Tool execution (aliases for pre/post)
+    PRE_TOOL = "pre_tool"
+    POST_TOOL = "post_tool"
+
+    # Compaction lifecycle
+    PRE_COMPACT = "pre_compact"
+    POST_COMPACT = "post_compact"
+
+    # Sub-agent lifecycle
+    SUBAGENT_START = "subagent_start"
+    SUBAGENT_END = "subagent_end"
 
 
 HookCallback = Callable[[Any], Awaitable[None]]

@@ -88,3 +88,76 @@ async def test_task_runner_sanitizes_processing_errors(fake_services):
     # Must NOT leak the raw exception message
     assert "secret API key" not in event.message
     assert "An internal error occurred" in event.message
+
+
+# ---------------------------------------------------------------------------
+# Phase 13: TaskRunner main path uses CapabilityResolver + PermissionProfile
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_task_runner_attaches_capabilities_and_permission_profile(fake_services):
+    """The main UserMessage path must resolve capabilities via CapabilityResolver
+    and attach a PermissionProfile to the TurnContext before calling TurnRunner."""
+    import asyncio as _asyncio
+    from unittest.mock import MagicMock
+
+    from miqi.runtime.capabilities import CapabilityResolver
+    from miqi.runtime.task_runner import TaskRunner
+
+    # Create a proper CapabilityResolver
+    tool_reg = MagicMock()
+    tool_reg.get_definitions.return_value = [
+        {"type": "function", "function": {"name": "read_file", "parameters": {}}},
+        {"type": "function", "function": {"name": "exec", "parameters": {}}},
+    ]
+    fake_services.tool_registry = tool_reg
+
+    capability_resolver = CapabilityResolver(
+        tool_registry=tool_reg,
+        plugin_manager=None,
+    )
+    fake_services.capability_resolver = capability_resolver
+
+    # Track what turn and tools TurnRunner receives
+    captured_turn = None
+    captured_tools = None
+
+    async def _capture(**kwargs):
+        nonlocal captured_turn, captured_tools
+        captured_turn = kwargs.get("turn")
+        captured_tools = kwargs.get("tools")
+        run_result = MagicMock()
+        run_result.final_content = "ok"
+        return run_result
+
+    fake_services.turn_runner.run.side_effect = _capture
+
+    events = _asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    from miqi.protocol.commands import UserMessage
+    await runner.handle(UserMessage(content="hello", thread_id="cli:default"))
+
+    # TurnContext should have capabilities attached
+    assert captured_turn is not None, "TurnRunner was not called"
+    assert captured_turn.capabilities is not None, "turn.capabilities was not set"
+    assert len(captured_turn.capabilities.tool_definitions) > 0, (
+        "capabilities.tool_definitions should have tools"
+    )
+
+    # Tools passed to TurnRunner should come from capability resolver
+    assert captured_tools is not None, "tools argument was not passed"
+    assert len(captured_tools) > 0, "tools should come from capabilities"
+    assert captured_tools == captured_turn.capabilities.tool_definitions
+
+    # TurnContext should have permission_profile
+    assert captured_turn.permission_profile is not None, (
+        "turn.permission_profile was not set"
+    )
+    from miqi.runtime.permission_profile import PermissionProfile
+    assert isinstance(captured_turn.permission_profile, PermissionProfile)
+    assert captured_turn.permission_profile.workspace == fake_services.workspace
+
+    # Verify an AgentMessageEvent was queued
+    event = await _asyncio.wait_for(events.get(), timeout=1)
+    assert event.content == "ok"

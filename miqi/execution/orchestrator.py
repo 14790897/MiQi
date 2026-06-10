@@ -60,6 +60,8 @@ class ToolExecutionContext:
     turn_id: str
     thread_id: str
     agent_type: str
+    # Phase 13: per-turn permission profile (set by TurnRunner/AgentControl)
+    permission_profile: Any | None = None
     # Filled by orchestrator
     permission_decision: PermissionDecision | None = None
     sandbox_selection: SandboxSelection | None = None
@@ -98,6 +100,14 @@ class ToolOrchestrator:
         try:
             # 1. Pre-tool-use hooks
             await self.hooks.run(HookPoint.PRE_TOOL_USE, ctx)
+
+            # Phase 13: apply per-turn permission profile overrides
+            permission_profile = getattr(ctx, "permission_profile", None)
+            if permission_profile is not None:
+                if hasattr(permission_profile, "permanent_allowlist"):
+                    self.permissions.permanent_allowlist.update(
+                        permission_profile.permanent_allowlist
+                    )
 
             # 2. Permission check
             decision = await self.permissions.check(ctx)

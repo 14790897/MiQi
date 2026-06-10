@@ -3,6 +3,9 @@
 Extracted from AgentLoop._run_agent_loop. Executes a single turn:
 calls the provider, routes tool calls through ToolRuntime, builds
 messages through ContextRuntime, and returns TurnResult.
+
+Also provides run_agent_job() for AgentJobRuntime — a simplified
+single-turn execution path for sub-agent jobs.
 """
 
 from __future__ import annotations
@@ -34,12 +37,14 @@ class TurnRunner:
         context_runtime: Any,
         event_emitter: Any,
         max_iterations: int,
+        capability_resolver: Any | None = None,
     ):
         self._provider = provider
         self._tools = tool_runtime
         self._context = context_runtime
         self._events = event_emitter
         self._max_iterations = max_iterations
+        self._capability_resolver = capability_resolver
 
     async def run(
         self,
@@ -121,4 +126,43 @@ class TurnRunner:
             ),
             messages=messages,
             tools_used=tools_used,
+        )
+
+    async def run_agent_job(self, job: Any) -> TurnResult:
+        """Run a sub-agent job through TurnRunner.
+
+        Builds a TurnContext from the job metadata, resolves tools
+        via the CapabilityResolver if available, and executes a
+        single turn. Used by AgentJobRuntime._run().
+        """
+        from pathlib import Path
+
+        from miqi.runtime.agent_registry import AgentRegistry
+        from miqi.runtime.turn_context import TurnContext
+
+        metadata = AgentRegistry().resolve(job.agent_type)
+        turn = TurnContext(
+            turn_id=job.job_id,
+            agent_metadata=metadata,
+            thread_id=job.thread_id,
+            workspace=getattr(self._provider, "workspace", Path(".")),
+            model="default",
+            provider=self._provider,
+            temperature=0.1,
+            max_tokens=8192,
+        )
+
+        # Resolve capabilities if available (Phase 13)
+        if self._capability_resolver is not None:
+            capabilities = self._capability_resolver.resolve(agent_metadata=metadata)
+            turn.capabilities = capabilities
+            tools = capabilities.tool_definitions
+        else:
+            tools = []
+
+        return await self.run(
+            turn=turn,
+            user_content=job.task,
+            system_prompt=metadata.system_prompt,
+            tools=tools,
         )

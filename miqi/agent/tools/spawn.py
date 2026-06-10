@@ -70,41 +70,27 @@ class SpawnTool(Tool):
     async def execute(self, task: str, label: str | None = None, **kwargs: Any) -> str:
         """Spawn a subagent to execute the given task.
 
-        Uses AgentControl as the primary path. Falls back to the legacy
-        SubagentManager only when AgentControl is not wired.
+        Requires AgentControl to be wired. The legacy SubagentManager
+        fallback has been removed (Phase 13).
         """
         display_label = label or (task[:30] + "..." if len(task) > 30 else task)
 
-        # Phase 2 primary path: AgentControl.spawn()
-        if self._agent_control is not None:
-            try:
-                agent = await self._agent_control.spawn(
-                    agent_type="code-agent",
-                    task=task,
-                    label=display_label,
-                )
-                logger.info(
-                    "Subagent spawned via AgentControl: {} ({})",
-                    agent.agent_id, display_label,
-                )
-                return (
-                    f"Spawned sub-agent {agent.agent_id} "
-                    f"(thread: {agent.thread_id}) to handle: {display_label}"
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Failed to spawn subagent via AgentControl: {}; "
-                    "falling back to legacy SubagentManager",
-                    exc,
-                )
-                # Fall through to legacy path on error
+        if self._agent_control is None:
+            raise RuntimeError(
+                "SpawnTool requires AgentControl. "
+                "Legacy SubagentManager fallback is disabled."
+            )
 
-        # Legacy fallback: SubagentManager.spawn()
-        result = await self._manager.spawn(
+        agent = await self._agent_control.spawn(
+            agent_type="code-agent",
             task=task,
-            label=label,
-            origin_channel=self._origin_channel,
-            origin_chat_id=self._origin_chat_id,
+            label=display_label,
         )
-
-        return result
+        logger.info(
+            "Subagent spawned via AgentControl: {} ({})",
+            agent.agent_id, display_label,
+        )
+        return (
+            f"Spawned sub-agent {agent.agent_id} "
+            f"(thread: {agent.thread_id}) to handle: {display_label}"
+        )

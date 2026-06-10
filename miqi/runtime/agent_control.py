@@ -59,6 +59,7 @@ class AgentControl:
         provider: Any = None,  # LLMProvider
         orchestrator: Any = None,  # ToolOrchestrator
         tool_registry: Any = None,  # ToolRegistry — for role-filtered tool definitions
+        agent_jobs: Any = None,  # AgentJobRuntime — Phase 13
     ):
         self.session_id = session_id
         self.registry = registry
@@ -67,6 +68,7 @@ class AgentControl:
         self._provider = provider
         self._orchestrator = orchestrator
         self._tool_registry = tool_registry
+        self._agent_jobs = agent_jobs
         self._agents: dict[str, LiveAgent] = {}  # agent_id → LiveAgent
         self._thread_agents: dict[str, str] = {}  # thread_id → agent_id
         self._lock = asyncio.Lock()
@@ -96,8 +98,20 @@ class AgentControl:
             LiveAgent handle for the spawned agent
         """
         metadata = self.registry.resolve(agent_type)
-        agent_id = str(uuid.uuid4())[:12]
-        thread_id = f"{self.session_id}:{agent_id}"
+
+        # Phase 13: when AgentJobRuntime is available, start the job FIRST
+        # so the event carries the correct job-allocated IDs.
+        if self._agent_jobs is not None:
+            job = await self._agent_jobs.start(
+                agent_type=agent_type,
+                task=task,
+                parent_thread_id=parent_agent_id or self.session_id,
+            )
+            agent_id = job.job_id
+            thread_id = job.thread_id
+        else:
+            agent_id = str(uuid.uuid4())[:12]
+            thread_id = f"{self.session_id}:{agent_id}"
 
         agent = LiveAgent(
             agent_id=agent_id,
@@ -106,12 +120,12 @@ class AgentControl:
             state=AgentStateMachine(),
             parent_agent_id=parent_agent_id,
         )
-        # AgentStateMachine starts at IDLE — no transition needed
 
         async with self._lock:
             self._agents[agent_id] = agent
             self._thread_agents[thread_id] = agent_id
 
+        # Emit SpawnedEvent with the FINAL IDs
         await self._events.emit(SubAgentSpawnedEvent(
             parent_turn_id=parent_agent_id or self.session_id,
             sub_agent_id=agent_id,
@@ -120,12 +134,20 @@ class AgentControl:
             task_label=label or task[:40],
         ))
 
-        # Start background execution if provider is available
+        if self._agent_jobs is not None:
+            # Job already started above — just transition and return
+            agent.state.transition(AgentStatus.THINKING)
+            logger.info(
+                "Spawned agent {} via AgentJobRuntime (type: {})",
+                agent.agent_id, agent_type,
+            )
+            return agent
+
+        # Legacy direct execution: start background task if provider is available
         if self._provider is not None:
             agent.state.transition(AgentStatus.THINKING)
             task_ref = asyncio.create_task(self._run_agent(agent, task))
             self._running_tasks[agent_id] = task_ref
-            # Cleanup task reference on completion
             task_ref.add_done_callback(lambda _t: self._running_tasks.pop(agent_id, None))
 
         logger.info(
@@ -186,7 +208,18 @@ class AgentControl:
 
         Removes the agent from the registry and cancels the asyncio Task
         so the sub-agent does not continue running or emit completed events.
+
+        Phase 13: If AgentJobRuntime owns this agent, delegates kill to
+        the job runtime to ensure the background job task is cancelled.
         """
+        # Phase 13: delegate job cancellation to AgentJobRuntime
+        if self._agent_jobs is not None:
+            try:
+                self._agent_jobs.get(agent_id)  # verify it's a managed job
+                await self._agent_jobs.kill(agent_id)
+            except KeyError:
+                pass
+
         # Cancel background task first (outside lock to avoid deadlock)
         task = self._running_tasks.pop(agent_id, None)
         if task is not None and not task.done():
@@ -209,9 +242,13 @@ class AgentControl:
         return agent.state.current
 
     def list_agents(self) -> list[dict[str, Any]]:
-        """List all agents with their status and result preview."""
-        return [
-            {
+        """List all agents with their status and result preview.
+
+        Merges job status from AgentJobRuntime when available (Phase 13).
+        """
+        result = []
+        for a in self._agents.values():
+            entry = {
                 "agent_id": a.agent_id,
                 "thread_id": a.thread_id,
                 "type": a.metadata.display_name,
@@ -222,15 +259,28 @@ class AgentControl:
                 "error": a.error,
                 "completed_at": a.completed_at,
             }
-            for a in self._agents.values()
-        ]
+            # Phase 13: overlay job status when available
+            if self._agent_jobs is not None:
+                try:
+                    job = self._agent_jobs.get(a.agent_id)
+                    entry["status"] = job.status
+                    entry["result_preview"] = (job.result or "")[:200]
+                    entry["error"] = job.error
+                    entry["completed_at"] = job.completed_at
+                except KeyError:
+                    pass
+            result.append(entry)
+        return result
 
     def get_agent_detail(self, agent_id: str) -> dict[str, Any]:
-        """Get detailed information about an agent including full messages."""
+        """Get detailed information about an agent including full messages.
+
+        Merges job result from AgentJobRuntime when available (Phase 13).
+        """
         agent = self._agents.get(agent_id)
         if agent is None:
             raise KeyError(f"Unknown agent: {agent_id}")
-        return {
+        detail = {
             "agent_id": agent.agent_id,
             "thread_id": agent.thread_id,
             "type": agent.metadata.display_name,
@@ -242,6 +292,17 @@ class AgentControl:
             "spawned_at": agent.spawned_at,
             "completed_at": agent.completed_at,
         }
+        # Phase 13: overlay job result when available
+        if self._agent_jobs is not None:
+            try:
+                job = self._agent_jobs.get(agent_id)
+                detail["status"] = job.status
+                detail["result"] = job.result
+                detail["error"] = job.error
+                detail["completed_at"] = job.completed_at
+            except KeyError:
+                pass
+        return detail
 
     async def _run_agent(self, agent: LiveAgent, task: str) -> None:
         """Execute the agent's task loop.

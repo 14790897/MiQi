@@ -22,7 +22,11 @@ class ToolRuntime:
         self._orchestrator = orchestrator
 
     async def execute_one(self, turn: Any, tool_call: Any) -> ToolExecutionContext:
-        """Execute a single tool call through the orchestrator."""
+        """Execute a single tool call through the orchestrator.
+
+        Propagates turn-level permission_profile into the tool execution
+        context so the orchestrator can apply per-turn policy overrides.
+        """
         ctx = ToolExecutionContext(
             tool_name=tool_call.name,
             tool_call_id=tool_call.id,
@@ -31,6 +35,10 @@ class ToolRuntime:
             thread_id=turn.thread_id,
             agent_type=turn.agent_metadata.name,
         )
+        # Phase 13: pass per-turn permission profile to orchestrator
+        permission_profile = getattr(turn, "permission_profile", None)
+        if permission_profile is not None:
+            ctx.permission_profile = permission_profile
         return await self._orchestrator.execute(ctx)
 
     async def execute_many(

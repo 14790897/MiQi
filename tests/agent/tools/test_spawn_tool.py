@@ -1,8 +1,8 @@
-"""Tests for miqi.agent.tools.spawn — Phase 10 post-audit.
+"""Tests for miqi.agent.tools.spawn — Phase 13 updated.
 
-Verifies that SpawnTool does not double-launch:
+Verifies that SpawnTool requires AgentControl (no legacy fallback):
 - When AgentControl is wired, only AgentControl.spawn() is used.
-- When AgentControl is None, legacy SubagentManager.spawn() fallback works.
+- When AgentControl is None, RuntimeError is raised.
 """
 
 import asyncio
@@ -13,7 +13,7 @@ import pytest
 
 @pytest.fixture
 def mock_subagent_manager():
-    """Create a mock SubagentManager."""
+    """Create a mock SubagentManager (kept for dead code compatibility)."""
     mgr = AsyncMock()
     mgr.spawn = AsyncMock(return_value="legacy-result")
     return mgr
@@ -22,8 +22,6 @@ def mock_subagent_manager():
 @pytest.fixture
 def mock_agent_control():
     """Create a mock AgentControl."""
-    from unittest.mock import AsyncMock
-
     class _FakeAgent:
         agent_id = "agent-abc123"
         thread_id = "thread-xyz789"
@@ -53,8 +51,11 @@ def test_spawn_tool_uses_agent_control_when_available(mock_subagent_manager, moc
     assert "thread-xyz789" in result
 
 
-def test_spawn_tool_falls_back_when_agent_control_is_none(mock_subagent_manager):
-    """When _agent_control is None, SpawnTool falls back to legacy manager."""
+def test_spawn_tool_requires_agent_control(mock_subagent_manager):
+    """When _agent_control is None, SpawnTool raises RuntimeError (Phase 13).
+
+    The legacy SubagentManager fallback has been removed.
+    """
     from miqi.agent.tools.spawn import SpawnTool
 
     tool = SpawnTool(
@@ -62,17 +63,17 @@ def test_spawn_tool_falls_back_when_agent_control_is_none(mock_subagent_manager)
         agent_control=None,
     )
 
-    result = asyncio.run(tool.execute(task="test task", label="test-label"))
+    with pytest.raises(RuntimeError, match="AgentControl"):
+        asyncio.run(tool.execute(task="test task", label="test-label"))
 
-    # Legacy manager was called
-    mock_subagent_manager.spawn.assert_called_once()
-    assert result == "legacy-result"
+    # Legacy manager was NOT called
+    mock_subagent_manager.spawn.assert_not_called()
 
 
-def test_spawn_tool_falls_back_when_agent_control_spawn_fails(
+def test_spawn_tool_no_longer_falls_back_on_agent_control_failure(
     mock_subagent_manager, mock_agent_control,
 ):
-    """When AgentControl.spawn() raises, fall back to legacy manager."""
+    """When AgentControl.spawn() raises, exception propagates (no fallback)."""
     from miqi.agent.tools.spawn import SpawnTool
 
     mock_agent_control.spawn.side_effect = RuntimeError("AgentControl unavailable")
@@ -82,10 +83,10 @@ def test_spawn_tool_falls_back_when_agent_control_spawn_fails(
         agent_control=mock_agent_control,
     )
 
-    result = asyncio.run(tool.execute(task="test task", label="test-label"))
+    with pytest.raises(RuntimeError, match="AgentControl unavailable"):
+        asyncio.run(tool.execute(task="test task", label="test-label"))
 
     # AgentControl was tried
     mock_agent_control.spawn.assert_called_once()
-    # Legacy manager was called as fallback
-    mock_subagent_manager.spawn.assert_called_once()
-    assert result == "legacy-result"
+    # Legacy manager was NOT called (no fallback)
+    mock_subagent_manager.spawn.assert_not_called()

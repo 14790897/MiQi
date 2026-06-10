@@ -48,6 +48,10 @@ class RuntimeServices:
     tool_runtime: Any  # ToolRuntime (Phase 12)
     context_runtime: Any  # ContextRuntime (Phase 12)
     turn_runner: Any  # TurnRunner (Phase 12)
+    # Phase 13
+    plugin_manager: Any | None = None
+    agent_jobs: Any | None = None  # AgentJobRuntime
+    capability_resolver: Any | None = None  # CapabilityResolver
 
     @classmethod
     def from_config(
@@ -128,15 +132,37 @@ class RuntimeServices:
 
         tool_runtime = ToolRuntime(orchestrator=orchestrator)
         context_runtime = ContextRuntime()
+
+        # Phase 13: capability resolver (requires PluginManager and ToolRegistry)
+        from pathlib import Path as _Path
+        from miqi.runtime.capabilities import CapabilityResolver
+        from miqi.skills.plugin_manager import PluginManager
+
+        plugin_manager = PluginManager(
+            user_plugins_dir=_Path.home() / ".miqi" / "plugins",
+            system_plugins_dir=_Path(__file__).parent.parent / "plugins",
+            workspace=workspace,
+        )
+
+        capability_resolver = CapabilityResolver(
+            tool_registry=agent_loop.tools,
+            plugin_manager=plugin_manager,
+        )
+
         turn_runner = TurnRunner(
             provider=provider,
             tool_runtime=tool_runtime,
             context_runtime=context_runtime,
             event_emitter=emitter,
             max_iterations=defaults.max_tool_iterations,
+            capability_resolver=capability_resolver,
         )
 
-        return cls(
+        # Phase 13: AgentJobRuntime (depends on TurnRunner)
+        from miqi.runtime.agent_jobs import AgentJobRuntime
+
+        # Build partial services so AgentJobRuntime can reference them
+        services = cls(
             session_id=session_id,
             workspace=workspace,
             bus=bus,
@@ -150,4 +176,14 @@ class RuntimeServices:
             tool_runtime=tool_runtime,
             context_runtime=context_runtime,
             turn_runner=turn_runner,
+            plugin_manager=plugin_manager,
+            capability_resolver=capability_resolver,
         )
+
+        agent_jobs = AgentJobRuntime(services=services)
+        services.agent_jobs = agent_jobs
+
+        # Wire AgentJobRuntime into AgentControl (Phase 13 delegation)
+        agent_control._agent_jobs = agent_jobs
+
+        return services

@@ -431,3 +431,121 @@ async def test_killed_agent_not_marked_completed(tmp_path, event_emitter):
     assert agent.error == "Cancelled"
     # Result should not be set (killed before completion)
     assert agent.result is None
+
+
+# ---------------------------------------------------------------------------
+# Phase 13 integration: spawn ordering (job-first), kill delegation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_spawn_emits_event_with_job_ids(tmp_path, event_emitter):
+    """When AgentJobRuntime is wired, SubAgentSpawnedEvent carries job IDs
+    (not temporary IDs), and returned LiveAgent matches them."""
+    import asyncio as _asyncio
+    from unittest.mock import MagicMock
+    from miqi.runtime.agent_registry import AgentRegistry
+    from miqi.runtime.agent_control import AgentControl
+    from miqi.runtime.agent_jobs import AgentJobRuntime
+
+    # Simple services mock for AgentJobRuntime
+    services = MagicMock()
+    services.session_id = "test-session"
+    services.turn_runner = MagicMock()
+
+    async def _fake_run_agent_job(job):
+        from miqi.runtime.turn_runner import TurnResult
+        return TurnResult(final_content="done", messages=[], tools_used=[])
+
+    services.turn_runner.run_agent_job = _fake_run_agent_job
+
+    agent_jobs = AgentJobRuntime(services=services)
+
+    control = AgentControl(
+        session_id="test-session",
+        registry=AgentRegistry(),
+        event_emitter=event_emitter,
+        workspace=tmp_path,
+        agent_jobs=agent_jobs,
+    )
+
+    # Clear the spawn event so we can capture the fresh one
+    event_emitter.emit.reset_mock()
+
+    agent = await control.spawn("code-agent", "test task", label="test-job-ids")
+
+    # The returned agent should use job-allocated IDs
+    assert agent.agent_id
+    assert agent.thread_id
+
+    # Verify the emitted event carries the SAME IDs
+    event_emitter.emit.assert_called()
+    call_args = event_emitter.emit.call_args
+    event = call_args[0][0] if call_args[0] else None
+    assert event is not None, "No SubAgentSpawnedEvent emitted"
+
+    from miqi.protocol.events import SubAgentSpawnedEvent
+    assert isinstance(event, SubAgentSpawnedEvent)
+
+    # event.sub_agent_id must match returned agent.agent_id (job.job_id)
+    assert event.sub_agent_id == agent.agent_id, (
+        f"Event sub_agent_id {event.sub_agent_id} != agent.agent_id {agent.agent_id}"
+    )
+    assert event.sub_thread_id == agent.thread_id, (
+        f"Event sub_thread_id {event.sub_thread_id} != agent.thread_id {agent.thread_id}"
+    )
+
+    # Give the job task time to complete
+    await _asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_kill_with_agent_jobs_cancels_job(tmp_path, event_emitter):
+    """kill() must delegate to AgentJobRuntime.kill() when agent is job-backed,
+    and the job status must be aborted."""
+    import asyncio as _asyncio
+    from unittest.mock import MagicMock
+    from miqi.runtime.agent_registry import AgentRegistry
+    from miqi.runtime.agent_control import AgentControl
+    from miqi.runtime.agent_jobs import AgentJobRuntime
+
+    services = MagicMock()
+    services.session_id = "test-session"
+
+    # Blocking turn runner so the job stays running
+    async def _blocking(_job):
+        await _asyncio.sleep(10)
+        from miqi.runtime.turn_runner import TurnResult
+        return TurnResult(final_content="done", messages=[], tools_used=[])
+
+    services.turn_runner.run_agent_job = _blocking
+
+    agent_jobs = AgentJobRuntime(services=services)
+
+    control = AgentControl(
+        session_id="test-session",
+        registry=AgentRegistry(),
+        event_emitter=event_emitter,
+        workspace=tmp_path,
+        agent_jobs=agent_jobs,
+    )
+
+    event_emitter.emit.reset_mock()
+    agent = await control.spawn("code-agent", "blocking task", label="blocking-job")
+
+    # Give the job a tick to start
+    await _asyncio.sleep(0.02)
+
+    # Kill through AgentControl
+    await control.kill(agent.agent_id)
+
+    # Agent should be removed from _agents
+    assert agent.agent_id not in control._agents
+
+    # Job should be aborted
+    jobs = agent_jobs.list()
+    found = next((j for j in jobs if j["job_id"] == agent.agent_id), None)
+    assert found is not None, "Job should still exist"
+    assert found["status"] == "aborted", f"Expected aborted, got {found['status']}"
+
+    await _asyncio.sleep(0.02)

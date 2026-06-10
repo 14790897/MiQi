@@ -36,3 +36,6 @@ class TurnContext:
     # Current date/time for the system prompt
     current_date: str = ""
     timezone: str = "UTC"
+    # Phase 13: resolved capabilities and permission profile
+    capabilities: Any | None = None
+    permission_profile: Any | None = None
