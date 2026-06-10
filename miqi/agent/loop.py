@@ -38,6 +38,11 @@ from miqi.agent.tools.spawn import SpawnTool
 from miqi.agent.tools.task_trace import TaskBeginTool, TaskEndTool, TraceSearchTool
 from miqi.agent.tools.web import WebFetchTool, WebSearchTool
 from miqi.agent.trace.store import TraceStore
+from miqi.documents.docx_tool import DocxReadTool, DocxWriteTool
+from miqi.documents.pptx_tool import PptxReadTool, PptxWriteTool
+from miqi.documents.xlsx_tool import XlsxReadTool, XlsxWriteTool
+from miqi.plan.plan_tool import PlanCreateTool, PlanUpdateTool
+from miqi.plan.plan_tracker import PlanTracker
 from miqi.bus.events import InboundMessage, OutboundMessage
 from miqi.bus.queue import MessageBus
 from miqi.config.schema import (
@@ -287,6 +292,7 @@ class AgentLoop:
             compact_keep_messages=self.session_config.compact_keep_messages,
         )
         self.tools = ToolRegistry()
+        self._plan_tracker = PlanTracker()
         self.subagents = SubagentManager(
             provider=provider,
             workspace=workspace,
@@ -456,6 +462,16 @@ class AgentLoop:
         ))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
+        # Plan tools
+        self.tools.register(PlanCreateTool(tracker=self._plan_tracker))
+        self.tools.register(PlanUpdateTool(tracker=self._plan_tracker))
+        # Office document tools
+        self.tools.register(DocxReadTool())
+        self.tools.register(DocxWriteTool())
+        self.tools.register(PptxReadTool())
+        self.tools.register(PptxWriteTool())
+        self.tools.register(XlsxReadTool())
+        self.tools.register(XlsxWriteTool())
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy with exponential backoff)."""
@@ -889,53 +905,45 @@ class AgentLoop:
                                         tool_hint=True,
                                     )
 
-                        # Phase 3: route through ToolOrchestrator
-                        if self._orchestrator is not None:
-                            from miqi.execution.orchestrator import ToolExecutionContext
+                        # Route through ToolOrchestrator (sole execution path)
+                        from miqi.execution.orchestrator import ToolExecutionContext
 
-                            _octx = ToolExecutionContext(
-                                tool_name=tool_call.name,
-                                tool_call_id=tool_call.id,
-                                arguments=tool_call.arguments,
+                        _octx = ToolExecutionContext(
+                            tool_name=tool_call.name,
+                            tool_call_id=tool_call.id,
+                            arguments=tool_call.arguments,
+                            turn_id=session_key,
+                            thread_id=session_key,
+                            agent_type=getattr(self, '_agent_type', 'main'),
+                        )
+                        _octx = await self._orchestrator.execute(_octx)
+                        result = _octx.result or ""
+
+                        # Emit typed tool events (Phase 3)
+                        if self._typed_events_enabled and self._event_emitter:
+                            from miqi.protocol.events import (
+                                ToolCallBeginEvent, ToolCallEndEvent,
+                            )
+                            await self._event_emitter.emit(ToolCallBeginEvent(
                                 turn_id=session_key,
-                                thread_id=session_key,
-                                agent_type=getattr(self, '_agent_type', 'main'),
+                                tool_call_id=tool_call.id,
+                                tool_name=tool_call.name,
+                                tool_display=tool_call.name,
+                                arguments=tool_call.arguments,
+                            ))
+                            success = not (
+                                isinstance(result, str)
+                                and result.startswith("Error")
                             )
-                            _octx = await self._orchestrator.execute(_octx)
-                            result = _octx.result or ""
-
-                            # Emit typed tool events (Phase 3)
-                            if self._typed_events_enabled and self._event_emitter:
-                                from miqi.protocol.events import (
-                                    ToolCallBeginEvent, ToolCallEndEvent,
-                                )
-                                await self._event_emitter.emit(ToolCallBeginEvent(
-                                    turn_id=session_key,
-                                    tool_call_id=tool_call.id,
-                                    tool_name=tool_call.name,
-                                    tool_display=tool_call.name,
-                                    arguments=tool_call.arguments,
-                                ))
-                                success = not (
-                                    isinstance(result, str)
-                                    and result.startswith("Error")
-                                )
-                                await self._event_emitter.emit(ToolCallEndEvent(
-                                    turn_id=session_key,
-                                    tool_call_id=tool_call.id,
-                                    tool_name=tool_call.name,
-                                    success=success,
-                                    output_preview=(result or "")[:200],
-                                    output_size=len(result or ""),
-                                    duration_ms=_octx.duration_ms,
-                                ))
-                        else:
-                            result = await self.tools.execute(
-                                tool_call.name,
-                                tool_call.arguments,
-                                _on_progress=_mcp_on_progress,
-                                session_id=session_key,
-                            )
+                            await self._event_emitter.emit(ToolCallEndEvent(
+                                turn_id=session_key,
+                                tool_call_id=tool_call.id,
+                                tool_name=tool_call.name,
+                                success=success,
+                                output_preview=(result or "")[:200],
+                                output_size=len(result or ""),
+                                duration_ms=_octx.duration_ms,
+                            ))
                         # Log tool execution result for debugging (truncated)
                         _res_preview = (result or "")[:500]
                         if isinstance(result, str) and len(result) > 500:
