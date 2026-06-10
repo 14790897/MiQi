@@ -360,7 +360,7 @@ class SandboxConfig(Base):
     """Sandbox isolation configuration for per-session environments."""
 
     enabled: bool = True
-    share_net: bool = False  # Allow network access inside sandbox
+    share_net: bool = True  # Allow network access inside sandbox
     max_sandboxes: int = 10  # Maximum concurrent sandboxes
     auto_cleanup: bool = True  # Clean up sandbox on session archive/delete
     wsl_distro: str = "AIShadowSandbox"  # WSL distribution name (e.g. "AIShadowSandbox"). Auto-detected if empty on Windows.
