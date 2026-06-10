@@ -1141,8 +1141,10 @@ def _validate_memory_path(file_path: str) -> Path:
     memory_dir = _get_memory_dir()
     # Resolve the requested path relative to memory dir
     resolved = (memory_dir / file_path).resolve()
-    # Must be within the memory directory
-    if not str(resolved).startswith(str(memory_dir.resolve())):
+    # Must be within the memory directory — use relative_to for robust containment
+    try:
+        resolved.relative_to(memory_dir.resolve())
+    except ValueError:
         raise ValueError(f"Path escapes memory directory: {file_path}")
     return resolved
 
@@ -2211,8 +2213,10 @@ def handle_plugins_install(req_id: str, params: dict) -> None:
     import subprocess
     import shutil
     target_dir = (pm.user_dir / name).resolve()
-    # Ensure resolved path stays within the plugins directory
-    if not str(target_dir).startswith(str(pm.user_dir.resolve())):
+    # Ensure resolved path stays within the plugins directory — use relative_to for robust containment
+    try:
+        target_dir.relative_to(pm.user_dir.resolve())
+    except ValueError:
         _result(req_id, {"ok": False, "error": "Invalid plugin path"})
         return
     if target_dir.exists():
@@ -2281,8 +2285,10 @@ def handle_plugins_uninstall(req_id: str, params: dict) -> None:
     for base in [pm.user_dir, pm.system_dir]:
         target = (base / name).resolve()
         base_resolved = base.resolve()
-        # Ensure resolved path stays within the plugins directory
-        if not str(target).startswith(str(base_resolved)):
+        # Ensure resolved path stays within the plugins directory — use relative_to for robust containment
+        try:
+            target.relative_to(base_resolved)
+        except ValueError:
             continue
         if target.exists():
             shutil.rmtree(target, ignore_errors=True)
