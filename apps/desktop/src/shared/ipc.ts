@@ -282,6 +282,7 @@ export interface PendingApproval {
   approval_id: string
   command: string
   description: string
+  category?: string  // "exec" | "file_write" | "network" | "patch_apply"
   allow_permanent: boolean
   created_at: number
   age_seconds: number
