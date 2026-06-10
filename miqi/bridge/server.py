@@ -2199,9 +2199,12 @@ def handle_plugins_install(req_id: str, params: dict) -> None:
         _result(req_id, {"ok": False, "error": "Plugin manager not initialized"})
         return
 
-    # Validate plugin name: no path separators, no traversal
+    # Validate plugin name: no path separators, no traversal, no '..'
     import re as _re
     if not _re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', name):
+        _result(req_id, {"ok": False, "error": "Invalid plugin name"})
+        return
+    if ".." in name:
         _result(req_id, {"ok": False, "error": "Invalid plugin name"})
         return
 
@@ -2234,7 +2237,7 @@ def handle_plugins_install(req_id: str, params: dict) -> None:
                 return
 
             subprocess.run(
-                ["git", "clone", "--depth=1", url, str(target_dir)],
+                ["git", "clone", "--depth=1", "--", url, str(target_dir)],
                 check=True, capture_output=True, text=True, timeout=60,
             )
             # Reload plugins
@@ -2270,6 +2273,9 @@ def handle_plugins_uninstall(req_id: str, params: dict) -> None:
     if not _re2.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', name):
         _result(req_id, {"ok": False, "error": "Invalid plugin name"})
         return
+    if ".." in name:
+        _result(req_id, {"ok": False, "error": "Invalid plugin name"})
+        return
 
     import shutil
     for base in [pm.user_dir, pm.system_dir]:
@@ -2299,6 +2305,9 @@ def handle_plugins_toggle(req_id: str, params: dict) -> None:
     # Validate plugin name
     import re as _re3
     if not _re3.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', name):
+        _result(req_id, {"ok": False, "error": "Invalid plugin name"})
+        return
+    if ".." in name:
         _result(req_id, {"ok": False, "error": "Invalid plugin name"})
         return
 
