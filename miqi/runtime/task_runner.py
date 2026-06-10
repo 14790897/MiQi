@@ -71,9 +71,12 @@ class TaskRunner:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            # Log full details server-side, send sanitized message to client
+            from loguru import logger
+            logger.error("Agent processing error in turn {}: {}", turn_id, exc, exc_info=True)
             await self._events.put(ErrorEvent(
                 turn_id=turn_id,
                 severity=EventSeverity.ERROR,
-                message=str(exc),
+                message="An internal error occurred while processing your message.",
                 recoverable=False,
             ))

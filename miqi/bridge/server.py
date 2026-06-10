@@ -143,17 +143,23 @@ class BridgeState:
         self.config = load_config()
         return self.config
 
-    async def get_runtime_session(self, session_key: str, approval_callback=None):
+    async def get_runtime_session(self, session_key: str, *, caller_id: str = "", approval_callback=None):
         """Get or create a RuntimeSession for the given session key.
 
         Sessions are cached and reused across bridge requests. This is the
         Phase 11 foundation — actual chat routing through RuntimeSession
         will happen in Phase 14.
+
+        Session keys are namespaced per caller to prevent cross-user
+        session access when multiple frontends share a bridge process.
         """
         from miqi.providers.factory import make_provider
         from miqi.runtime.session import RuntimeSession
 
-        runtime = self._runtime_sessions.get(session_key)
+        # Namespace sessions by caller to prevent cross-user access
+        ns_key = f"{caller_id}:{session_key}" if caller_id else session_key
+
+        runtime = self._runtime_sessions.get(ns_key)
         if runtime is not None:
             return runtime
 
@@ -162,11 +168,11 @@ class BridgeState:
         runtime = RuntimeSession.create(
             config=config,
             provider=provider,
-            session_id=session_key,
+            session_id=ns_key,
             workspace=config.workspace_path,
         )
         await runtime.start()
-        self._runtime_sessions[session_key] = runtime
+        self._runtime_sessions[ns_key] = runtime
         return runtime
 
     def _ensure_sandbox_manager(self):

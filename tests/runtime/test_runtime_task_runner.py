@@ -62,3 +62,26 @@ async def test_task_runner_emits_error_for_unknown_type(fake_services):
     event = await asyncio.wait_for(events.get(), timeout=1)
     assert event.__class__.__name__ == "ErrorEvent"
     assert "Unknown submission type" in event.message
+
+
+@pytest.mark.asyncio
+async def test_task_runner_sanitizes_processing_errors(fake_services):
+    """Exception messages from agent processing are sanitized, not leaked."""
+    import asyncio as _asyncio
+
+    # Make agent_loop.process_direct raise with sensitive details
+    fake_services.agent_loop.process_direct.side_effect = RuntimeError(
+        "secret API key leaked in stack trace"
+    )
+
+    events = _asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    from miqi.protocol.commands import UserMessage
+    await runner.handle(UserMessage(content="test", thread_id="cli:default"))
+
+    event = await _asyncio.wait_for(events.get(), timeout=1)
+    assert event.__class__.__name__ == "ErrorEvent"
+    # Must NOT leak the raw exception message
+    assert "secret API key" not in event.message
+    assert "An internal error occurred" in event.message
