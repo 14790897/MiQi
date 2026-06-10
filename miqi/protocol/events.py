@@ -7,3 +7,28 @@ The protocol uses a Submission-Queue / Event-Queue pattern:
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any
+import time
+
+
+# ── Event Severity ──────────────────────────────────────────
+
+class EventSeverity(str, Enum):
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+# ── Agent Status ────────────────────────────────────────────
+
+class AgentStatus(str, Enum):
+    IDLE = "idle"
+    THINKING = "thinking"
+    EXECUTING = "executing"
+    WAITING_APPROVAL = "waiting_approval"
+    COMPLETED = "completed"
+    ERROR = "error"
+    ABORTED = "aborted"
