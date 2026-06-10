@@ -7,6 +7,7 @@ import os
 import signal
 import sys
 from contextlib import nullcontext
+from typing import Any
 
 import typer
 
@@ -129,9 +130,10 @@ def register_agent_command(
         if message:
             async def run_once():
                 with _thinking_ctx():
-                    response = await agent_loop.process_direct(message, session_id, on_progress=_cli_progress)
+                    response = await _run_agent_once_via_runtime(
+                        config, provider, message, session_id,
+                    )
                 print_agent_response(response, render_markdown=markdown)
-                await agent_loop.close_mcp()
 
             asyncio.run(run_once())
         else:
@@ -233,3 +235,42 @@ def register_agent_command(
                     await agent_loop.close_mcp()
 
             asyncio.run(run_interactive())
+
+
+async def _run_agent_once_via_runtime(
+    config: Any,
+    provider: Any,
+    message: str,
+    session_id: str,
+) -> str:
+    """Run a single-turn agent request through RuntimeSession.
+
+    This is the Phase 11 migration path: one-shot CLI usage goes through
+    the runtime submission loop instead of calling AgentLoop directly.
+    Interactive mode still uses AgentLoop directly (Phase 14 migration).
+    """
+    from miqi.protocol.commands import UserMessage
+    from miqi.protocol.events import AgentMessageEvent
+    from miqi.runtime.session import RuntimeSession
+
+    runtime = RuntimeSession.create(
+        config=config,
+        provider=provider,
+        session_id=session_id,
+        workspace=config.workspace_path,
+    )
+    await runtime.start()
+    try:
+        await runtime.submit(UserMessage(content=message, thread_id=session_id))
+        while True:
+            event = await runtime.next_event(timeout=120)
+            if event is None:
+                raise TimeoutError("Timed out waiting for runtime response")
+            if isinstance(event, AgentMessageEvent):
+                return event.content
+            if event.__class__.__name__ == "ErrorEvent":
+                raise RuntimeError(
+                    getattr(event, "message", "runtime error")
+                )
+    finally:
+        await runtime.stop()

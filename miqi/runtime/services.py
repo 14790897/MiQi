@@ -1,0 +1,132 @@
+"""Shared runtime services — builds and owns the service graph for one session.
+
+This is the single factory that creates AgentLoop, ToolOrchestrator,
+AgentControl, and all related wiring. Frontends should use RuntimeSession
+instead of building AgentLoop directly.
+
+All heavy imports are lazy to avoid circular imports with AgentLoop
+(which imports from miqi.runtime for TurnContext/AgentRegistry).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+
+class RuntimeEventEmitter:
+    """Event emitter that routes typed protocol events to a configurable sink."""
+
+    def __init__(self, sink: Any | None = None):
+        self._sink = sink
+
+    async def emit(self, event: Any) -> None:
+        if self._sink is None:
+            return
+        await self._sink(event)
+
+
+@dataclass
+class RuntimeServices:
+    """All services needed for a single runtime session.
+
+    Owns AgentLoop, ToolOrchestrator, AgentControl, event emitter, and
+    the shared tool registry. Created once per session via from_config().
+    """
+
+    session_id: str
+    workspace: Path
+    bus: Any  # MessageBus
+    provider: Any
+    event_emitter: RuntimeEventEmitter
+    agent_loop: Any  # AgentLoop
+    tool_registry: Any
+    orchestrator: Any
+    agent_registry: Any  # AgentRegistry
+    agent_control: Any  # AgentControl
+
+    @classmethod
+    def from_config(
+        cls,
+        *,
+        config: Any,
+        provider: Any,
+        session_id: str,
+        workspace: Path,
+        event_sink: Any | None = None,
+    ) -> "RuntimeServices":
+        """Build the full service graph from a Config + provider.
+
+        Returns a RuntimeServices ready for use by RuntimeSession.
+        """
+        # Lazy imports to avoid circular imports with AgentLoop
+        from miqi.agent.loop import AgentLoop
+        from miqi.bus.queue import MessageBus
+        from miqi.execution.factory import create_default_orchestrator
+        from miqi.runtime.agent_control import AgentControl
+        from miqi.runtime.agent_registry import AgentRegistry
+
+        bus = MessageBus()
+        defaults = config.agents.defaults
+        agent_loop = AgentLoop(
+            bus=bus,
+            provider=provider,
+            workspace=workspace,
+            agent_name=defaults.name,
+            model=defaults.model,
+            temperature=defaults.temperature,
+            max_tokens=defaults.max_tokens,
+            max_iterations=defaults.max_tool_iterations,
+            reflect_after_tool_calls=defaults.reflect_after_tool_calls,
+            web_config=config.tools.web,
+            paper_config=config.tools.papers,
+            memory_window=defaults.memory_window,
+            max_tool_result_chars=defaults.max_tool_result_chars,
+            context_limit_chars=defaults.context_limit_chars,
+            exec_config=config.tools.exec,
+            memory_config=config.agents.memory,
+            self_improvement_config=config.agents.self_improvement,
+            session_config=config.agents.sessions,
+            restrict_to_workspace=config.tools.restrict_to_workspace,
+            mcp_servers=config.tools.mcp_servers,
+            channels_config=config.channels,
+        )
+
+        emitter = RuntimeEventEmitter(event_sink)
+
+        orchestrator = create_default_orchestrator(
+            tool_registry=agent_loop.tools,
+            event_emitter=emitter,
+        )
+        agent_loop.set_orchestrator(orchestrator)
+
+        registry = AgentRegistry()
+        agent_control = AgentControl(
+            session_id=session_id,
+            registry=registry,
+            event_emitter=emitter,
+            workspace=workspace,
+            provider=provider,
+            orchestrator=orchestrator,
+            tool_registry=agent_loop.tools,
+        )
+
+        # Wire SpawnTool into AgentControl
+        spawn_tool = agent_loop.tools.get("spawn")
+        if spawn_tool is not None and hasattr(spawn_tool, "_agent_control"):
+            spawn_tool._agent_control = agent_control
+            spawn_tool._event_emitter = emitter
+
+        return cls(
+            session_id=session_id,
+            workspace=workspace,
+            bus=bus,
+            provider=provider,
+            event_emitter=emitter,
+            agent_loop=agent_loop,
+            tool_registry=agent_loop.tools,
+            orchestrator=orchestrator,
+            agent_registry=registry,
+            agent_control=agent_control,
+        )
