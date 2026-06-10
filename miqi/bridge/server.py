@@ -2072,11 +2072,17 @@ def handle_permissions_get(req_id: str, params: dict) -> None:
     if orch is not None:
         pe = orch.permissions
         _result(req_id, {
+            "filesystem": {"rules": [], "default_mode": "read"},
+            "network": "allow_all",
+            "exec_approval": "dangerous",
             "permanent_allowlist": list(pe.permanent_allowlist),
             "deny_patterns": list(pe.deny_patterns),
         })
     else:
         _result(req_id, {
+            "filesystem": {"rules": [], "default_mode": "read"},
+            "network": "allow_all",
+            "exec_approval": "dangerous",
             "permanent_allowlist": [],
             "deny_patterns": [],
         })
