@@ -197,6 +197,7 @@ class AgentLoop:
                 auto_cleanup=self.sandbox_config.auto_cleanup,
                 wsl_distro=self.sandbox_config.wsl_distro,
                 wsl_base_dir=self.sandbox_config.wsl_base_dir,
+                sandbox_distro_name=self.sandbox_config.sandbox_distro_name,
             )
 
         self.memory = MemoryStore(

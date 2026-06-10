@@ -347,10 +347,20 @@ export function SetupWizard({ onComplete, onExit }: { onComplete: () => void; on
   }
 
   const exportDistro = async () => {
-    // Skip if AISandbox already exists as a WSL distro
-    if (wslCheck?.distros?.includes('AISandbox')) {
-      setWslExportResult({ exported: true, distro: 'AISandbox', tarPath: null, error: null })
-      setWslImportResult({ imported: true, distro: 'AISandbox', installLocation: null, error: null })
+    // Skip if AIShadowSandbox already exists as a WSL distro
+    if (wslCheck?.distros?.includes('AIShadowSandbox')) {
+      setWslExportResult({
+        exported: true,
+        distro: 'AIShadowSandbox',
+        tarPath: null,
+        error: null,
+      })
+      setWslImportResult({
+        imported: true,
+        distro: 'AIShadowSandbox',
+        installLocation: null,
+        error: null,
+      })
       return
     }
     if (wslCheck?.defaultDistro) {
@@ -358,7 +368,9 @@ export function SetupWizard({ onComplete, onExit }: { onComplete: () => void; on
       setWslExportResult(null)
       setWslExportError('')
       try {
-        const result = await window.miqi.wsl.exportDistro(wslCheck.defaultDistro)
+        const result = await window.miqi.wsl.exportDistro(
+          wslCheck.defaultDistro,
+        )
         setWslExportResult(result)
         if (result.exported) {
           // Auto-import after successful export
@@ -368,7 +380,7 @@ export function SetupWizard({ onComplete, onExit }: { onComplete: () => void; on
           try {
             const impResult = await window.miqi.wsl.importDistro({
               tarPath: result.tarPath!,
-              distroName: 'AISandbox',
+              distroName: 'AIShadowSandbox',
             })
             setWslImportResult(impResult)
           } catch (e: any) {
@@ -384,18 +396,23 @@ export function SetupWizard({ onComplete, onExit }: { onComplete: () => void; on
   }
 
   // Auto-trigger sandbox distro setup when WSL is detected with a distro.
-  // Skips if AISandbox already exists or export was already completed.
+  // Skips if AIShadowSandbox already exists or export was already completed.
   useEffect(() => {
     if (
       wslCheck?.installed &&
       wslCheck?.defaultDistro &&
       !wslExportResult &&
       !wslExporting &&
-      !wslCheck?.distros?.includes('AISandbox')
+      !wslCheck?.distros?.includes('AIShadowSandbox')
     ) {
       exportDistro()
     }
-  }, [wslCheck?.installed, wslCheck?.defaultDistro, wslExportResult, wslExporting])
+  }, [
+    wslCheck?.installed,
+    wslCheck?.defaultDistro,
+    wslExportResult,
+    wslExporting,
+  ])
 
   const importDistro = async () => {
     if (wslExportResult?.tarPath) {
@@ -405,7 +422,7 @@ export function SetupWizard({ onComplete, onExit }: { onComplete: () => void; on
       try {
         const result = await window.miqi.wsl.importDistro({
           tarPath: wslExportResult.tarPath,
-          distroName: 'AISandbox',
+          distroName: 'AIShadowSandbox',
         })
         setWslImportResult(result)
       } catch (e: any) {
@@ -704,7 +721,7 @@ export function SetupWizard({ onComplete, onExit }: { onComplete: () => void; on
             {wslImporting && (
               <div className="flex items-center gap-2 text-xs text-[var(--accent)]">
                 <Loader2 size={14} className="animate-spin" />
-                正在导入专用沙箱发行版 AISandbox…
+                正在导入专用沙箱发行版 AIShadowSandbox…
               </div>
             )}
             {/* Export completed */}
@@ -724,10 +741,14 @@ export function SetupWizard({ onComplete, onExit }: { onComplete: () => void; on
               />
             )}
             {wslExportError && (
-              <p className="text-xs text-[var(--danger)]">导出失败: {wslExportError}</p>
+              <p className="text-xs text-[var(--danger)]">
+                导出失败: {wslExportError}
+              </p>
             )}
             {wslImportError && (
-              <p className="text-xs text-[var(--danger)]">导入失败: {wslImportError}</p>
+              <p className="text-xs text-[var(--danger)]">
+                导入失败: {wslImportError}
+              </p>
             )}
           </div>
         )}
