@@ -67,6 +67,8 @@ def register_gateway_command(
         cron_store_path = get_data_dir() / "cron" / "jobs.json"
         cron = CronService(cron_store_path, job_timeout=config.cron.job_timeout_seconds)
 
+        # Phase 14: AgentLoop still used for bus-based channel message loop.
+        # Cron and heartbeat callbacks use RuntimeSession + RuntimeClient.
         agent = AgentLoop(
             bus=bus,
             provider=provider,
@@ -95,16 +97,28 @@ def register_gateway_command(
         from miqi.execution.factory import configure_agent_orchestrator
         configure_agent_orchestrator(agent)
 
-        async def on_cron_job(job: CronJob) -> str | None:
-            response = await agent.process_direct(
-                job.payload.message,
-                session_key=f"cron:{job.id}",
-                channel=job.payload.channel or "cli",
-                chat_id=job.payload.to or "direct",
-            )
+        # Phase 14: runtime for cron/heartbeat (direct calls, not bus-driven)
+        from miqi.runtime.client import RuntimeClient
+        from miqi.runtime.session import RuntimeSession
+
+        gateway_runtime = RuntimeSession.create(
+            config=config,
+            provider=provider,
+            session_id="gateway:default",
+            workspace=config.workspace_path,
+        )
+
+        async def on_cron_job_via_runtime(job: CronJob) -> str | None:
+            await gateway_runtime.start()
+            try:
+                response = await RuntimeClient(gateway_runtime).ask(
+                    job.payload.message,
+                    thread_id=f"cron:{job.id}",
+                )
+            finally:
+                await gateway_runtime.stop()
             if job.payload.deliver and job.payload.to:
                 from miqi.bus.events import OutboundMessage
-
                 await bus.publish_outbound(
                     OutboundMessage(
                         channel=job.payload.channel or "cli",
@@ -114,7 +128,7 @@ def register_gateway_command(
                 )
             return response
 
-        cron.on_job = on_cron_job
+        cron.on_job = on_cron_job_via_runtime
 
         channels = ChannelManager(config, bus)
 
@@ -132,18 +146,14 @@ def register_gateway_command(
             return "cli", "direct"
 
         async def on_heartbeat(prompt: str) -> str:
-            channel, chat_id = _pick_heartbeat_target()
-
-            async def _silent(*_args, **_kwargs):
-                pass
-
-            return await agent.process_direct(
-                prompt,
-                session_key="heartbeat",
-                channel=channel,
-                chat_id=chat_id,
-                on_progress=_silent,
-            )
+            await gateway_runtime.start()
+            try:
+                return await RuntimeClient(gateway_runtime).ask(
+                    prompt,
+                    thread_id="heartbeat",
+                )
+            finally:
+                await gateway_runtime.stop()
 
         async def on_heartbeat_notify(response: str) -> None:
             from miqi.bus.events import OutboundMessage

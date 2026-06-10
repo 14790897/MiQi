@@ -207,6 +207,8 @@ class BridgeState:
             wsl_base_dir=getattr(sb_cfg, "wsl_base_dir", "/tmp/miqi-sandboxes"),
         )
 
+    # Legacy compatibility path. Do not use for chat.send after Phase 14.
+    # Use get_runtime_session() + RuntimeClient instead.
     def build_agent(self, session_key: str, approval_callback=None):
         """Create an AgentLoop for the given session."""
         from miqi.agent.loop import AgentLoop
@@ -381,170 +383,100 @@ def handle_status(req_id: str, params: dict) -> None:
 
 
 def handle_chat_send(req_id: str, params: dict) -> None:
-    content = params["content"]
-    session_key = params.get("session_key", "desktop:default")
+    """Handle chat.send — submits to RuntimeSession via RuntimeClient (Phase 14).
+
+    No longer constructs AgentLoop or calls process_direct() directly.
+    The runtime owns all agent lifecycle; the bridge is a thin client.
+    """
 
     def _run_in_thread() -> None:
-        async def _run() -> None:
-            # Build desktop approval callback (blocks thread, sends event to renderer)
-            config = _state.load_config()
-            approval_timeout = config.agents.command_approval.timeout
-            approval_enabled = config.agents.command_approval.enabled
-
-            def _desktop_approval_callback(command: str, description: str, *, allow_permanent: bool = True) -> str:
-                if not approval_enabled:
-                    return "once"
-                approval_id = str(uuid.uuid4())
-                evt = _state.register_approval(approval_id, {
-                    "command": command,
-                    "description": description,
-                    "allow_permanent": allow_permanent,
-                })
-                _event(req_id, "approval_request", {
-                    "approval_id": approval_id,
-                    "command": command,
-                    "description": description,
-                    "allow_permanent": allow_permanent,
-                })
-                if not evt.wait(timeout=approval_timeout):
-                    _state.resolve_approval(approval_id, "deny")
-                    return "deny"
-                return _state.get_approval_decision(approval_id)
-
-            agent = _state.build_agent(session_key, approval_callback=_desktop_approval_callback)
-
-            # Phase 1: wire EventEmitter for typed events (dual-emit)
-            if _state._event_emitter is None:
-                from miqi.bridge.event_emitter import EventEmitter
-
-                def _bridge_send_event(channel: str, data: dict) -> None:
-                    _send({
-                        "type": channel,
-                        "data": data,
-                    })
-
-                _state._event_emitter = EventEmitter(_bridge_send_event)
-                _log("Typed event protocol enabled (Phase 1 dual-emit)")
-            agent.enable_typed_events(_state._event_emitter)
-
-            # Phase 2: initialize shared AgentControl
-            if _state._agent_control is None:
-                from miqi.runtime.agent_registry import AgentRegistry
-                from miqi.runtime.agent_control import AgentControl
-                registry = AgentRegistry()
-                _state._agent_control = AgentControl(
-                    session_id=session_key,
-                    registry=registry,
-                    event_emitter=_state._event_emitter,
-                    workspace=config.workspace_path,
-                    provider=agent.provider,
-                    tool_registry=agent.tools,
-                )
-                _log("Multi-agent runtime enabled (Phase 2)")
-
-            # Phase 3: initialize shared ToolOrchestrator
-            if _state._orchestrator is None:
-                from miqi.execution.factory import create_default_orchestrator
-
-                bwrap_ok = (
-                    _state._sandbox_manager is not None
-                    and _state._sandbox_manager != "disabled"
-                )
-
-                _state._orchestrator = create_default_orchestrator(
-                    tool_registry=None,  # Wired to agent.tools below
-                    event_emitter=_state._event_emitter,
-                    bwrap_available=bwrap_ok,
-                    permanent_allowlist=set(_state._approval_meta.keys()),
-                )
-                _log("Tool orchestration engine enabled (Phase 3)")
-
-            # Wire orchestrator into agent
-            agent._orchestrator = _state._orchestrator
-            if _state._orchestrator.tools is None:
-                _state._orchestrator.tools = agent.tools
-
-            # Wire plan tracker into BridgeState (for plan.get handler)
-            if hasattr(agent, '_plan_tracker') and agent._plan_tracker is not None:
-                _state._plan_tracker = agent._plan_tracker
-
-            # Phase 4: initialize shared PluginManager
-            if _state._plugin_manager is None:
-                from pathlib import Path as _Path
-                from miqi.skills.plugin_manager import PluginManager
-                _state._plugin_manager = PluginManager(
-                    user_plugins_dir=_Path.home() / ".miqi" / "plugins",
-                    system_plugins_dir=_Path(__file__).parent.parent / "plugins",
-                    workspace=config.workspace_path,
-                )
-                try:
-                    await _state._plugin_manager.discover()
-                    _log("Plugin manager enabled (Phase 4)")
-                except Exception as _exc:
-                    _log(f"Plugin discover failed: {_exc}")
-                    _state._plugin_manager = None  # Reset so retry on next call
-
-            # Wire orchestrator and tool registry into AgentControl (for sub-agent tool execution)
-            if _state._orchestrator is not None and _state._agent_control is not None:
-                _state._agent_control._orchestrator = _state._orchestrator
-                if _state._agent_control._tool_registry is None:
-                    _state._agent_control._tool_registry = agent.tools
-
-            # Wire AgentControl into spawn tool (Phase 2 bridge)
-            spawn_tool = agent.tools.get("spawn")
-            _log(f"Spawn tool wiring: tool={spawn_tool}, agent_control={_state._agent_control}")
-            if spawn_tool is not None:
-                from miqi.agent.tools.spawn import SpawnTool
-                if isinstance(spawn_tool, SpawnTool):
-                    spawn_tool._agent_control = _state._agent_control
-                    spawn_tool._event_emitter = _state._event_emitter
-                    _log(f"Spawn tool wired with AgentControl: {_state._agent_control is not None}")
-                else:
-                    _log(f"Spawn tool is not SpawnTool instance: {type(spawn_tool)}")
-            else:
-                _log("Spawn tool not found in agent.tools")
-
-            _state.set_active(agent, req_id)
-
-            async def on_progress(text: str, tool_hint: bool = False) -> None:
-                _event(req_id, "progress", {"text": text, "tool_hint": tool_hint})
-
-            try:
-                result = await agent.process_direct(
-                    content=content,
-                    session_key=session_key,
-                    channel="desktop",
-                    chat_id=session_key,
-                    on_progress=on_progress,
-                )
-                aborted = agent._abort_event.is_set()
-                _terminal_event(req_id, "final", {"content": result, "aborted": aborted})
-            except Exception as exc:
-                _log(f"chat.send error: {exc}")
-                _terminal_event(req_id, "error", {"message": str(exc)})
-            finally:
-                _state.set_active(None, "")
-                # Stop the agent to clean up sandbox resources
-                try:
-                    agent.stop()
-                except Exception as exc:
-                    _log(f"agent.stop error: {exc}")
-
-        asyncio.run(_run())
+        asyncio.run(_run_chat_send_via_runtime(req_id, params))
 
     t = threading.Thread(target=_run_in_thread, daemon=True)
     t.start()
     _result(req_id, {"accepted": True})
 
 
+def _caller_id_from_params(params: dict) -> str:
+    """Extract a stable caller identity from chat.send params for session isolation."""
+    return str(
+        params.get("caller_id")
+        or params.get("client_id")
+        or params.get("user_id")
+        or "desktop"
+    )
+
+
+async def _run_chat_send_via_runtime(req_id: str, params: dict) -> None:
+    """Execute chat.send through RuntimeSession + RuntimeClient.
+
+    Submits the user message to RuntimeSession and drains events
+    through RuntimeClient.ask(), forwarding progress and approval
+    events to the frontend via bridge _event() calls.
+    """
+    content = params["content"]
+    session_key = params.get("session_key", "desktop:default")
+    caller_id = _caller_id_from_params(params)
+
+    # Ensure shared bridge services are initialized (orchestrator, plugin mgr, etc.)
+    # This happens lazily inside get_runtime_session → RuntimeSession.create →
+    # RuntimeServices.from_config(), which builds the full service graph.
+    runtime = await _state.get_runtime_session(
+        session_key,
+        caller_id=caller_id,
+    )
+
+    async def _on_event(event: Any) -> None:
+        """Forward runtime events to the bridge frontend."""
+        name = event.__class__.__name__
+        if name == "ApprovalRequestedEvent":
+            _event(req_id, "approval_request", getattr(event, "__dict__", {}))
+        elif name.endswith("BeginEvent") or name.endswith("EndEvent"):
+            _event(req_id, "progress", {"event": name, "data": getattr(event, "__dict__", {})})
+        elif name not in {"AgentMessageEvent", "ErrorEvent"}:
+            _event(req_id, "progress", {"event": name, "data": getattr(event, "__dict__", {})})
+
+    try:
+        from miqi.runtime.client import RuntimeClient
+
+        result = await RuntimeClient(runtime).ask(
+            content,
+            thread_id=session_key,
+            on_event=_on_event,
+        )
+        _terminal_event(req_id, "final", {"content": result, "aborted": False})
+    except Exception as exc:
+        _log(f"chat.send runtime error: {exc}")
+        _terminal_event(req_id, "error", {"message": str(exc)})
+
+
 def handle_chat_abort(req_id: str, params: dict) -> None:
-    result = _state.abort_active()
-    aborted = result["aborted"]
-    active_req_id = result.get("req_id")
-    if aborted and active_req_id:
-        # Notify frontend to dismiss any orphan approval modal immediately
-        _event(active_req_id, "approval_cleared", {"reason": "abort"})
-        _terminal_event(active_req_id, "aborted", {"message": "Chat aborted by user"})
+    """Abort the active turn via RuntimeSession (Phase 14)."""
+    from miqi.protocol.commands import AbortTurn
+
+    session_key = params.get("session_key", "desktop:default")
+    caller_id = _caller_id_from_params(params)
+    aborted = False
+
+    async def _abort():
+        nonlocal aborted
+        runtime = await _state.get_runtime_session(
+            session_key,
+            caller_id=caller_id,
+        )
+        await runtime.submit(AbortTurn(thread_id=session_key))
+        aborted = True
+        # Also clear any legacy active agent for backward compat
+        _state.abort_active()
+
+    try:
+        asyncio.run(_abort())
+    except Exception as exc:
+        _log(f"chat.abort error: {exc}")
+
+    if aborted:
+        _event(req_id, "approval_cleared", {"reason": "abort"})
+        _terminal_event(req_id, "aborted", {"message": "Chat aborted by user"})
     _result(req_id, {"aborted": aborted})
 
 

@@ -45,7 +45,8 @@ class MiQiTui(App):
     """
 
     _plan_visible: bool = False
-    _agent_loop: object = None  # AgentLoop instance for runtime connection
+    _runtime: object = None  # RuntimeSession (Phase 14)
+    _client: object = None   # RuntimeClient (Phase 14)
 
     async def connect_runtime(
         self,
@@ -53,27 +54,24 @@ class MiQiTui(App):
         workspace: Path,
         model: str = "default",
     ) -> None:
-        """Connect to a real AgentLoop runtime.
+        """Connect to MiQi runtime via RuntimeSession (Phase 14).
 
-        Args:
-            provider: LLMProvider instance
-            workspace: Working directory
-            model: Model name to use
+        Does NOT construct AgentLoop directly. Uses RuntimeSession
+        which owns the full service graph internally.
         """
-        from miqi.agent.loop import AgentLoop
-        from miqi.bus.queue import MessageBus
-        from miqi.execution.factory import configure_agent_orchestrator
+        from miqi.config.loader import load_config
+        from miqi.runtime.client import RuntimeClient
+        from miqi.runtime.session import RuntimeSession
 
-        bus = MessageBus()
-        self._agent_loop = AgentLoop(
-            bus=bus,
+        config = load_config(workspace)
+        self._runtime = RuntimeSession.create(
+            config=config,
             provider=provider,
+            session_id="tui:default",
             workspace=workspace,
-            model=model,
         )
-
-        # Create and wire orchestrator (required — AgentLoop fails fast without it)
-        configure_agent_orchestrator(self._agent_loop)
+        await self._runtime.start()
+        self._client = RuntimeClient(self._runtime)
 
         self._append_message(
             "System",
@@ -105,7 +103,7 @@ class MiQiTui(App):
         event.input.value = ""
 
         # If runtime is connected, process the message
-        if self._agent_loop is not None:
+        if self._client is not None:
             self._process_message(content)
         else:
             self._append_message(
@@ -116,9 +114,11 @@ class MiQiTui(App):
 
     def action_abort(self) -> None:
         """Abort the current turn."""
-        if self._agent_loop is not None:
+        if self._runtime is not None:
             try:
-                self._agent_loop.stop()  # type: ignore[union-attr]
+                import asyncio as _asyncio
+                from miqi.protocol.commands import AbortTurn
+                _asyncio.run(self._runtime.submit(AbortTurn(thread_id="tui:default")))
                 self._append_message("System", "Turn aborted.")
             except Exception:
                 pass
@@ -207,21 +207,32 @@ class MiQiTui(App):
         chat.update(f"{current}\n\n[{sender}]: {content}")
 
     def _process_message(self, content: str) -> None:
-        """Process a message through the connected AgentLoop."""
+        """Process a message through RuntimeClient (Phase 14)."""
         import asyncio
 
         async def _run() -> None:
             try:
-                response = await self._agent_loop.process_direct(  # type: ignore[union-attr]
-                    content=content,
-                    session_key="tui:default",
-                    channel="tui",
+                response = await self._client.ask(  # type: ignore[union-attr]
+                    content,
+                    thread_id="tui:default",
+                    on_event=self._handle_runtime_event,
                 )
                 self._append_message("MiQi", response or "(no response)")
             except Exception as e:
                 self._append_message("MiQi", f"Error: {e}")
 
         asyncio.create_task(_run())
+
+    def _handle_runtime_event(self, event: object) -> None:
+        """Handle runtime progress events — update plan/diff when appropriate."""
+        name = event.__class__.__name__
+        if name.lower().endswith("beginevent"):
+            data = getattr(event, "__dict__", {})
+            hint = data.get("tool_display") or data.get("tool_name", "")
+            if hint:
+                self._append_message("Tool", f"🔧 {hint}")
+        elif name.lower().endswith("endevent"):
+            pass  # Tool end — output shown in main answer
 
 
 def _load_runtime_from_config() -> tuple[Any, Path, str] | None:

@@ -41,8 +41,6 @@ def register_agent_command(
         """Interact with the agent directly."""
         from loguru import logger
 
-        from miqi.agent.loop import AgentLoop
-        from miqi.bus.queue import MessageBus
         from miqi.config.loader import get_data_dir, load_config
         from miqi.cron.service import CronService
 
@@ -60,72 +58,15 @@ def register_agent_command(
             )
 
         config = load_config()
-
-        bus = MessageBus()
         provider = make_provider(config)
 
         cron_store_path = get_data_dir() / "cron" / "jobs.json"
         cron = CronService(cron_store_path, job_timeout=config.cron.job_timeout_seconds)
 
-        agent_loop = AgentLoop(
-            bus=bus,
-            provider=provider,
-            workspace=config.workspace_path,
-            agent_name=config.agents.defaults.name,
-            model=config.agents.defaults.model,
-            temperature=config.agents.defaults.temperature,
-            max_tokens=config.agents.defaults.max_tokens,
-            max_iterations=config.agents.defaults.max_tool_iterations,
-            reflect_after_tool_calls=config.agents.defaults.reflect_after_tool_calls,
-            web_config=config.tools.web,
-            paper_config=config.tools.papers,
-            memory_window=config.agents.defaults.memory_window,
-            max_tool_result_chars=config.agents.defaults.max_tool_result_chars,
-            context_limit_chars=config.agents.defaults.context_limit_chars,
-            exec_config=config.tools.exec,
-            memory_config=config.agents.memory,
-            self_improvement_config=config.agents.self_improvement,
-            session_config=config.agents.sessions,
-            cron_service=cron,
-            restrict_to_workspace=config.tools.restrict_to_workspace,
-            mcp_servers=config.tools.mcp_servers,
-            channels_config=config.channels,
-        )
-        from miqi.execution.factory import configure_agent_orchestrator
-        configure_agent_orchestrator(agent_loop)
-
         def _thinking_ctx():
             if logs:
                 return nullcontext()
             return console.status("[dim]miqi is thinking...[/dim]", spinner="dots")
-
-        async def _cli_progress(content: str, *, tool_hint: bool = False) -> None:
-            ch = agent_loop.channels_config
-            if ch and tool_hint and not ch.send_tool_hints:
-                return
-            if ch and not tool_hint and not ch.send_progress:
-                return
-            console.print(f"  [dim]↳ {content}[/dim]")
-
-        async def on_cron_job(job) -> str | None:
-            from miqi.bus.events import OutboundMessage
-            response = await agent_loop.process_direct(
-                job.payload.message,
-                session_key=f"cron:{job.id}",
-                channel=job.payload.channel or "cli",
-                chat_id=job.payload.to or "direct",
-            )
-            if job.payload.deliver and job.payload.to:
-                await bus.publish_outbound(
-                    OutboundMessage(
-                        channel=job.payload.channel or "cli",
-                        chat_id=job.payload.to,
-                        content=response or "",
-                    )
-                )
-            return response
-
-        cron.on_job = on_cron_job
 
         if message:
             async def run_once():
@@ -137,7 +78,8 @@ def register_agent_command(
 
             asyncio.run(run_once())
         else:
-            from miqi.bus.events import InboundMessage
+            from miqi.runtime.client import RuntimeClient
+            from miqi.runtime.session import RuntimeSession
 
             init_prompt_session()
             console.print(
@@ -150,7 +92,6 @@ def register_agent_command(
                 cli_channel, cli_chat_id = "cli", session_id
 
             def _exit_on_sigint(signum, frame):
-                agent_loop.stop()
                 restore_terminal()
                 console.print("\nGoodbye!")
                 os._exit(0)
@@ -158,38 +99,33 @@ def register_agent_command(
             signal.signal(signal.SIGINT, _exit_on_sigint)
 
             async def run_interactive():
+                # Phase 14: create RuntimeSession, not AgentLoop
+                runtime = RuntimeSession.create(
+                    config=config,
+                    provider=provider,
+                    session_id=session_id,
+                    workspace=config.workspace_path,
+                )
+                await runtime.start()
                 await cron.start()
-                bus_task = asyncio.create_task(agent_loop.run())
-                turn_done = asyncio.Event()
-                turn_done.set()
-                turn_response: list[str] = []
+                client = RuntimeClient(runtime)
 
-                async def _consume_outbound():
-                    while True:
-                        try:
-                            msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
-                            if msg.metadata.get("_progress"):
-                                is_tool_hint = msg.metadata.get("_tool_hint", False)
-                                ch = agent_loop.channels_config
-                                if ch and is_tool_hint and not ch.send_tool_hints:
-                                    pass
-                                elif ch and not is_tool_hint and not ch.send_progress:
-                                    pass
-                                else:
-                                    console.print(f"  [dim]↳ {msg.content}[/dim]")
-                            elif not turn_done.is_set():
-                                if msg.content:
-                                    turn_response.append(msg.content)
-                                turn_done.set()
-                            elif msg.content:
-                                console.print()
-                                print_agent_response(msg.content, render_markdown=markdown)
-                        except asyncio.TimeoutError:
-                            continue
-                        except asyncio.CancelledError:
-                            break
+                async def _runtime_event_to_cli_progress(event):
+                    name = event.__class__.__name__
+                    if name.endswith("BeginEvent"):
+                        data = getattr(event, "__dict__", {})
+                        hint = data.get("tool_display") or data.get("tool_name", "")
+                        if hint:
+                            console.print(f"  [dim]↳ {hint}[/dim]")
 
-                outbound_task = asyncio.create_task(_consume_outbound())
+                async def on_cron_job_via_runtime(job) -> str | None:
+                    return await client.ask(
+                        job.payload.message,
+                        thread_id=f"cron:{job.id}",
+                        on_event=_runtime_event_to_cli_progress,
+                    )
+
+                cron.on_job = on_cron_job_via_runtime
 
                 try:
                     while True:
@@ -205,21 +141,15 @@ def register_agent_command(
                                 console.print("\nGoodbye!")
                                 break
 
-                            turn_done.clear()
-                            turn_response.clear()
-
-                            await bus.publish_inbound(InboundMessage(
-                                channel=cli_channel,
-                                sender_id="user",
-                                chat_id=cli_chat_id,
-                                content=user_input,
-                            ))
-
                             with _thinking_ctx():
-                                await turn_done.wait()
+                                response = await client.ask(
+                                    user_input,
+                                    thread_id=session_id,
+                                    on_event=_runtime_event_to_cli_progress,
+                                )
 
-                            if turn_response:
-                                print_agent_response(turn_response[0], render_markdown=markdown)
+                            if response:
+                                print_agent_response(response, render_markdown=markdown)
                         except KeyboardInterrupt:
                             restore_terminal()
                             console.print("\nGoodbye!")
@@ -229,10 +159,7 @@ def register_agent_command(
                             console.print("\nGoodbye!")
                             break
                 finally:
-                    agent_loop.stop()
-                    outbound_task.cancel()
-                    await asyncio.gather(bus_task, outbound_task, return_exceptions=True)
-                    await agent_loop.close_mcp()
+                    await runtime.stop()
 
             asyncio.run(run_interactive())
 
@@ -243,14 +170,11 @@ async def _run_agent_once_via_runtime(
     message: str,
     session_id: str,
 ) -> str:
-    """Run a single-turn agent request through RuntimeSession.
+    """Run a single-turn agent request through RuntimeSession + RuntimeClient.
 
-    This is the Phase 11 migration path: one-shot CLI usage goes through
-    the runtime submission loop instead of calling AgentLoop directly.
-    Interactive mode still uses AgentLoop directly (Phase 14 migration).
+    Phase 14: uses RuntimeClient.ask() instead of manual event drain.
     """
-    from miqi.protocol.commands import UserMessage
-    from miqi.protocol.events import AgentMessageEvent
+    from miqi.runtime.client import RuntimeClient
     from miqi.runtime.session import RuntimeSession
 
     runtime = RuntimeSession.create(
@@ -261,16 +185,6 @@ async def _run_agent_once_via_runtime(
     )
     await runtime.start()
     try:
-        await runtime.submit(UserMessage(content=message, thread_id=session_id))
-        while True:
-            event = await runtime.next_event(timeout=120)
-            if event is None:
-                raise TimeoutError("Timed out waiting for runtime response")
-            if isinstance(event, AgentMessageEvent):
-                return event.content
-            if event.__class__.__name__ == "ErrorEvent":
-                raise RuntimeError(
-                    getattr(event, "message", "runtime error")
-                )
+        return await RuntimeClient(runtime).ask(message, thread_id=session_id)
     finally:
         await runtime.stop()

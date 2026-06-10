@@ -74,32 +74,44 @@ def test_tui_load_runtime_handles_failure_gracefully():
 # Task 10.8: TUI AgentLoop gets an orchestrator
 # ---------------------------------------------------------------------------
 
-def test_tui_connect_runtime_creates_orchestrator():
-    """connect_runtime() must create orchestrator and wire it to AgentLoop."""
+def test_tui_connect_runtime_creates_runtime_session():
+    """Phase 14: connect_runtime() creates RuntimeSession + RuntimeClient."""
     from miqi.tui.app import MiQiTui
     import asyncio
 
+    rtc = []
+
+    class FakeRuntime:
+        async def start(self):
+            pass
+
+    def _fake_create(*, config, provider, session_id, workspace, **kwargs):
+        rtc.append({"config": config, "session_id": session_id, "workspace": workspace})
+        return FakeRuntime()
+
     async def _test():
-        app = MiQiTui(driver_class=None)  # Skip Textual driver for testing
-        # Mock _append_message to avoid Textual DOM errors
+        app = MiQiTui(driver_class=None)
         app._append_message = MagicMock()
         provider = AsyncMock()
 
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             workspace = Path(tmp)
-            await app.connect_runtime(provider, workspace)
 
-            # AgentLoop was created
-            assert app._agent_loop is not None
+            mock_config = MagicMock()
+            mock_config.workspace_path = workspace
 
-            # Orchestrator is set
-            assert app._agent_loop._orchestrator is not None
+            with patch("miqi.config.loader.load_config", return_value=mock_config), \
+                 patch("miqi.runtime.session.RuntimeSession.create", _fake_create):
+                await app.connect_runtime(provider, workspace)
 
-            # Orchestrator.tools == AgentLoop.tools
-            assert app._agent_loop._orchestrator.tools is app._agent_loop.tools
-
-            # current_turn is None until processing starts
-            assert app._agent_loop.current_turn is None
+            # Phase 14: RuntimeSession was created, not AgentLoop
+            assert len(rtc) == 1, "RuntimeSession.create should be called once"
+            assert app._runtime is not None, "RuntimeSession should be stored"
+            assert app._client is not None, "RuntimeClient should be stored"
+            assert getattr(app, "_agent_loop", None) is None, (
+                "TUI should not store AgentLoop directly"
+            )
+            assert rtc[0]["session_id"] == "tui:default"
 
     asyncio.run(_test())
 
