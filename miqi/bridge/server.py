@@ -152,7 +152,19 @@ class BridgeState:
 
         Session keys are namespaced per caller to prevent cross-user
         session access when multiple frontends share a bridge process.
+        caller_id will become REQUIRED in Phase 14 (no default).
         """
+        import warnings
+
+        if not caller_id:
+            warnings.warn(
+                "get_runtime_session called without caller_id — "
+                "sessions are NOT isolated. caller_id will be required "
+                "in Phase 14.",
+                FutureWarning,
+                stacklevel=2,
+            )
+
         from miqi.providers.factory import make_provider
         from miqi.runtime.session import RuntimeSession
 
