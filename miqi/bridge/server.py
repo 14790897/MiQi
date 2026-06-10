@@ -135,12 +135,39 @@ class BridgeState:
         self._orchestrator: Any = None  # Phase 3 shared ToolOrchestrator
         self._plan_tracker: Any = None  # Phase 9 shared PlanTracker
         self._plugin_manager: Any = None  # Phase 4 shared PluginManager
+        self._runtime_sessions: dict[str, Any] = {}  # Phase 11 RuntimeSession cache
 
     def load_config(self):
         from miqi.config.loader import load_config
 
         self.config = load_config()
         return self.config
+
+    async def get_runtime_session(self, session_key: str, approval_callback=None):
+        """Get or create a RuntimeSession for the given session key.
+
+        Sessions are cached and reused across bridge requests. This is the
+        Phase 11 foundation — actual chat routing through RuntimeSession
+        will happen in Phase 14.
+        """
+        from miqi.providers.factory import make_provider
+        from miqi.runtime.session import RuntimeSession
+
+        runtime = self._runtime_sessions.get(session_key)
+        if runtime is not None:
+            return runtime
+
+        config = self.load_config()
+        provider = make_provider(config)
+        runtime = RuntimeSession.create(
+            config=config,
+            provider=provider,
+            session_id=session_key,
+            workspace=config.workspace_path,
+        )
+        await runtime.start()
+        self._runtime_sessions[session_key] = runtime
+        return runtime
 
     def _ensure_sandbox_manager(self):
         """Lazy-init the shared SandboxManager from config."""

@@ -148,23 +148,34 @@ def test_agent_command_passes_runtime_configs(monkeypatch, tmp_path):
         async def close_mcp(self):
             return None
 
+    # One-shot now goes through RuntimeSession; mock it to verify config flow
+    runtime_captured: dict = {}
+
+    async def _fake_runtime(config, provider, message, session_id):
+        runtime_captured["config"] = config
+        runtime_captured["provider"] = provider
+        runtime_captured["message"] = message
+        runtime_captured["session_id"] = session_id
+        return "ok"
+
     monkeypatch.setattr("miqi.config.loader.load_config", lambda: config)
     monkeypatch.setattr("miqi.config.loader.get_data_dir", lambda: tmp_path)
     monkeypatch.setattr("miqi.cli.commands._make_provider", lambda _cfg: object())
     monkeypatch.setattr("miqi.cron.service.CronService", FakeCronService)
     monkeypatch.setattr("miqi.agent.loop.AgentLoop", FakeAgentLoop)
     monkeypatch.setattr("miqi.execution.factory.configure_agent_orchestrator", lambda _loop: None)
+    monkeypatch.setattr(
+        "miqi.cli.agent_cmd._run_agent_once_via_runtime",
+        _fake_runtime,
+    )
 
     result = runner.invoke(app, ["agent", "-m", "hello"])
 
     assert result.exit_code == 0
-    assert captured["agent_name"] == config.agents.defaults.name
-    assert captured["reflect_after_tool_calls"] == config.agents.defaults.reflect_after_tool_calls
-    assert captured["web_config"] is config.tools.web
-    assert captured["paper_config"] is config.tools.papers
-    assert captured["memory_config"] is config.agents.memory
-    assert captured["self_improvement_config"] is config.agents.self_improvement
-    assert captured["session_config"] is config.agents.sessions
+    # Runtime received the correct config
+    assert runtime_captured["config"] is config
+    assert runtime_captured["message"] == "hello"
+    assert runtime_captured["session_id"] == "cli:default"
 
 
 def test_cron_run_passes_runtime_configs(monkeypatch, tmp_path):
