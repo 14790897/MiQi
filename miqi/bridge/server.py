@@ -478,13 +478,11 @@ def handle_chat_send(req_id: str, params: dict) -> None:
                     workspace=config.workspace_path,
                 )
                 try:
-                    import asyncio as _asyncio
-                    _asyncio.get_event_loop().run_until_complete(
-                        _state._plugin_manager.discover()
-                    )
-                except Exception:
-                    pass
-                _log("Plugin manager enabled (Phase 4)")
+                    await _state._plugin_manager.discover()
+                    _log("Plugin manager enabled (Phase 4)")
+                except Exception as _exc:
+                    _log(f"Plugin discover failed: {_exc}")
+                    _state._plugin_manager = None  # Reset so retry on next call
 
             # Wire orchestrator and tool registry into AgentControl (for sub-agent tool execution)
             if _state._orchestrator is not None and _state._agent_control is not None:
@@ -2284,9 +2282,9 @@ def handle_plugins_install(req_id: str, params: dict) -> None:
                 ["git", "clone", "--depth=1", "--", url, str(target_dir)],
                 check=True, capture_output=True, text=True, timeout=60,
             )
-            # Reload plugins
-            import asyncio as _asyncio
-            _asyncio.get_event_loop().run_until_complete(pm.discover())
+            # Reload plugins (safe async call from sync handler)
+            from miqi.utils.async_utils import run_async_safely
+            run_async_safely(pm.discover())
             # Update MCP servers from newly installed plugin
             new_servers = pm.get_mcp_servers()
             if new_servers and hasattr(_state, '_mcp_servers'):

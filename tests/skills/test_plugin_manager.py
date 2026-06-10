@@ -222,3 +222,44 @@ def test_get_mcp_servers_only_returns_active():
         pm._plugins["server-plugin"].status = "disabled"
         servers = pm.get_mcp_servers()
         assert len(servers) == 0
+
+
+# ---------------------------------------------------------------------------
+# Test: await discover() in async context — no RuntimeWarning
+# ---------------------------------------------------------------------------
+
+def test_await_discover_in_async_context_no_warning():
+    """Bridge pattern: asyncio.run() wraps an async fn that awaits discover().
+    Must NOT produce 'coroutine was never awaited' RuntimeWarning.
+    """
+    import asyncio
+    import warnings
+    from pathlib import Path
+
+    from miqi.skills.plugin_manager import PluginManager
+
+    with tempfile.TemporaryDirectory() as tmp:
+        user_dir = Path(tmp) / "user"
+        user_dir.mkdir()
+        system_dir = Path(tmp) / "system"
+        system_dir.mkdir()
+
+        async def _bridge_init():
+            pm = PluginManager(
+                user_plugins_dir=user_dir,
+                system_plugins_dir=system_dir,
+            )
+            return await pm.discover()
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = asyncio.run(_bridge_init())
+
+        runtime_warnings = [
+            x for x in w
+            if "never awaited" in str(x.message)
+        ]
+        assert len(runtime_warnings) == 0, (
+            f"RuntimeWarning: {[str(x.message) for x in runtime_warnings]}"
+        )
+        assert isinstance(result, list)
