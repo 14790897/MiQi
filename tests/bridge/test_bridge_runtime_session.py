@@ -38,3 +38,22 @@ async def test_bridge_state_creates_distinct_sessions(monkeypatch, fake_config, 
     assert session_a is not session_b
     await session_a.stop()
     await session_b.stop()
+
+
+@pytest.mark.asyncio
+async def test_bridge_state_isolates_sessions_by_caller(monkeypatch, fake_config, fake_provider):
+    """Different callers with same session key get different RuntimeSessions."""
+    from miqi.bridge.server import BridgeState
+
+    state = BridgeState()
+    monkeypatch.setattr(state, "load_config", lambda: fake_config)
+    monkeypatch.setattr(
+        "miqi.providers.factory.make_provider", lambda config: fake_provider,
+    )
+
+    session_alice = await state.get_runtime_session("desktop:default", caller_id="alice")
+    session_bob = await state.get_runtime_session("desktop:default", caller_id="bob")
+
+    assert session_alice is not session_bob, "Different callers must get isolated sessions"
+    await session_alice.stop()
+    await session_bob.stop()
