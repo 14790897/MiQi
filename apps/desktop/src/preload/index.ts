@@ -26,8 +26,10 @@ import type {
   MemoryLessonUnlearnResult,
   ExperienceEntry,
   SkillSummary,
-  SkillDetail,
+  WslExportDistroResult,
+  WslImportDistroResult,
   SkillsListResult,
+  SkillDetail,
   McpServerConfig,
   McpServerInfo,
   FileNode,
@@ -284,6 +286,10 @@ const api = {
       ipcRenderer.invoke(IPC.WSL_CHECK),
     install: (): Promise<{ launched: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.WSL_INSTALL),
+    exportDistro: (distroName: string): Promise<WslExportDistroResult> =>
+      ipcRenderer.invoke(IPC.WSL_EXPORT_DISTRO, distroName),
+    importDistro: (options: { tarPath: string; distroName: string }): Promise<WslImportDistroResult> =>
+      ipcRenderer.invoke(IPC.WSL_IMPORT_DISTRO, options),
   },
 
   // -- Initial config write (no bridge needed) --------------------------------

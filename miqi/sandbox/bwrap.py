@@ -70,6 +70,7 @@ class BwrapSandbox:
         gid: int = 1000,
         wsl_distro: str = "",
         wsl_base_dir: str = "/tmp/miqi-sandboxes",
+        sandbox_distro_name: str = "",
     ):
         self.session_key = session_key
         self.workspace = Path(workspace).resolve()
@@ -81,6 +82,7 @@ class BwrapSandbox:
         self.gid = gid
         self.wsl_distro = wsl_distro
         self.wsl_base_dir = wsl_base_dir
+        self.sandbox_distro_name = sandbox_distro_name
 
         # Per-session directories (always Linux-style paths inside WSL or native)
         safe_key = session_key.replace(":", "_").replace("/", "_").replace("\\", "_")
@@ -235,6 +237,10 @@ class BwrapSandbox:
 
     def _wsl_prefix(self) -> list[str]:
         """Build the wsl.exe prefix for command execution."""
+        # If a dedicated sandbox distro is configured, always use it
+        # This avoids sudo requirement because sandbox uses --unshare-user-try
+        if self.sandbox_distro_name:
+            return ["wsl.exe", "-d", self.sandbox_distro_name, "--"]
         distro = self._detected_distro or self.wsl_distro
         if distro:
             return ["wsl.exe", "-d", distro, "--"]
