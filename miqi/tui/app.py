@@ -100,6 +100,60 @@ class MiQiTui(App):
         """Save current session."""
         self._append_message("System", "Session saved.")
 
+    def update_plan(self, plan_data: dict) -> None:
+        """Update the plan sidebar with current plan state."""
+        sidebar = self.query_one("#plan-sidebar", Static)
+        steps = plan_data.get("steps", [])
+        if not steps:
+            sidebar.update("")
+            return
+
+        lines = [f"[bold]{plan_data.get('title', 'Plan')}[/bold]\n"]
+        icons = {"pending": "○", "in_progress": "●", "completed": "✓", "skipped": "—"}
+        for step in steps:
+            icon = icons.get(step.get("status", "pending"), "?")
+            desc = step.get("description", "")
+            status = step.get("status", "pending")
+            if status == "in_progress":
+                lines.append(f"[bold blue]{icon} {desc}[/bold blue]")
+            elif status == "completed":
+                lines.append(f"[green]{icon} {desc}[/green]")
+            elif status == "skipped":
+                lines.append(f"[dim]{icon} {desc}[/dim]")
+            else:
+                lines.append(f"{icon} {desc}")
+        sidebar.update("\n".join(lines))
+
+    def show_diff(self, filepath: str, old: str, new: str) -> None:
+        """Show an inline diff in the chat area."""
+        import difflib
+        chat = self.query_one("#chat", Static)
+        current = str(chat.renderable or "")
+
+        diff = list(difflib.unified_diff(
+            old.splitlines(keepends=True),
+            new.splitlines(keepends=True),
+            fromfile=f"a/{filepath}",
+            tofile=f"b/{filepath}",
+            lineterm="",
+        ))
+
+        formatted: list[str] = []
+        for line in diff:
+            if line.startswith("@@"):
+                formatted.append(f"[cyan]{line}[/cyan]")
+            elif line.startswith("+"):
+                formatted.append(f"[green]{line}[/green]")
+            elif line.startswith("-"):
+                formatted.append(f"[red]{line}[/red]")
+            else:
+                formatted.append(line)
+
+        chat.update(
+            f"{current}\n\n[bold]Diff: {filepath}[/bold]\n"
+            + "\n".join(formatted)
+        )
+
     def _append_message(self, sender: str, content: str) -> None:
         """Append a message to the chat display."""
         chat = self.query_one("#chat", Static)
