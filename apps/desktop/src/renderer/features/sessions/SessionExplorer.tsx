@@ -5,8 +5,8 @@ import { Button } from '../../components/ui/Button'
 import { ScrollArea } from '../../components/ui/ScrollArea'
 import { ContextMenu } from '../../components/ContextMenu'
 import { cn } from '../../lib/utils'
-import { MessageSquare, Trash2, RefreshCw, Loader2, Clock } from 'lucide-react'
-import type { SessionInfo, SessionDetail } from '../../../shared/ipc'
+import { MessageSquare, Trash2, RefreshCw, Loader2, Clock, Bot } from 'lucide-react'
+import type { SessionInfo, SessionDetail, LiveAgentInfo } from '../../../shared/ipc'
 
 export function SessionExplorer({
   onOpenSession,
@@ -20,6 +20,20 @@ export function SessionExplorer({
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<SessionDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  // Agent status polling (Phase 7.8)
+  const [agents, setAgents] = useState<LiveAgentInfo[]>([])
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const r = await window.miqi.agents.list()
+        setAgents(r?.agents || [])
+      } catch { /* bridge not ready */ }
+    }
+    load()
+    const interval = setInterval(load, 5000)
+    return () => clearInterval(interval)
+  }, [])
 
   const loadSessions = useCallback(async () => {
     setLoading(true)
@@ -134,7 +148,32 @@ export function SessionExplorer({
                     >
                       <MessageSquare size={16} className="text-[var(--text-muted)] shrink-0 mt-0.5" />
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm text-[var(--text)] truncate">{s.key}</div>
+                        <div className="text-sm text-[var(--text)] truncate flex items-center gap-1.5">
+                          {s.key}
+                          {(() => {
+                            const agent = agents.find((a) =>
+                              a.thread_id === s.key ||
+                              a.thread_id.endsWith(':' + s.key) ||
+                              s.key.includes(a.agent_id),
+                            )
+                            if (!agent) return null
+                            const colors: Record<string, string> = {
+                              idle: 'bg-gray-400',
+                              thinking: 'bg-yellow-400 animate-pulse',
+                              executing: 'bg-blue-400 animate-pulse',
+                              waiting_approval: 'bg-purple-400 animate-pulse',
+                              completed: 'bg-green-500',
+                              error: 'bg-red-500',
+                              aborted: 'bg-orange-500',
+                            }
+                            return (
+                              <span className="flex items-center gap-1 shrink-0" title={`${agent.type}: ${agent.status}`}>
+                                <Bot size={11} className="text-[var(--text-muted)]" />
+                                <span className={`w-2 h-2 rounded-full ${colors[agent.status] || 'bg-gray-400'}`} />
+                              </span>
+                            )
+                          })()}
+                        </div>
                         {s.updated_at && (
                           <div className="flex items-center gap-1 text-xs text-[var(--text-faint)] mt-0.5">
                             <Clock size={10} />
