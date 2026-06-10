@@ -5,10 +5,24 @@ from __future__ import annotations
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Input, Static
 from textual.containers import Horizontal, Vertical
+from textual.binding import Binding
 
 
 class MiQiTui(App):
-    """MiQi Terminal User Interface."""
+    """MiQi Terminal User Interface.
+
+    Launch with:
+        uv run python -m miqi.tui.app
+    or via CLI:
+        miqi tui
+    """
+
+    BINDINGS = [
+        Binding("ctrl+c", "abort", "Abort current turn", priority=True),
+        Binding("ctrl+n", "new_thread", "New conversation thread"),
+        Binding("ctrl+p", "toggle_plan", "Toggle plan sidebar"),
+        Binding("ctrl+s", "save_session", "Save current session"),
+    ]
 
     CSS = """
     #chat {
@@ -27,6 +41,9 @@ class MiQiTui(App):
     }
     """
 
+    _plan_visible: bool = False
+    _agent_loop: object = None  # AgentLoop instance for runtime connection
+
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal():
@@ -35,17 +52,73 @@ class MiQiTui(App):
         yield Input(placeholder="Type a message...", id="input")
         yield Footer()
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Send message to MiQi runtime when user presses Enter."""
-        chat = self.query_one("#chat", Static)
-        current = chat.renderable or ""
-        chat.update(f"{current}\n\nYou: {event.value}")
-        event.input.value = ""
-
     def on_mount(self) -> None:
         """Called when the app is mounted."""
         self.query_one("#chat", Static).update(
             "Welcome to MiQi TUI!\n"
-            "Type a message below and press Enter.\n"
-            "Ctrl+C to abort, Ctrl+N for new thread."
+            "Type a message below and press Enter to send.\n"
+            "Ctrl+C: abort | Ctrl+N: new thread | Ctrl+P: toggle plan",
         )
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Send message when user presses Enter."""
+        if not event.value.strip():
+            return
+        content = event.value.strip()
+        self._append_message("You", content)
+        event.input.value = ""
+
+        # If runtime is connected, process the message
+        if self._agent_loop is not None:
+            self._process_message(content)
+        else:
+            self._append_message("MiQi", "(No runtime connected. Set _agent_loop to an AgentLoop instance.)")
+
+    def action_abort(self) -> None:
+        """Abort the current turn."""
+        if self._agent_loop is not None:
+            try:
+                self._agent_loop.stop()  # type: ignore[union-attr]
+                self._append_message("System", "Turn aborted.")
+            except Exception:
+                pass
+
+    def action_new_thread(self) -> None:
+        """Start a new conversation thread."""
+        chat = self.query_one("#chat", Static)
+        chat.update("New thread started.\nType a message below and press Enter.")
+        self._append_message("System", "New thread.")
+
+    def action_toggle_plan(self) -> None:
+        """Toggle plan sidebar visibility."""
+        sidebar = self.query_one("#plan-sidebar", Static)
+        self._plan_visible = not self._plan_visible
+        sidebar.display = self._plan_visible
+        sidebar.update("Plan sidebar" if self._plan_visible else "")
+
+    def action_save_session(self) -> None:
+        """Save current session."""
+        self._append_message("System", "Session saved.")
+
+    def _append_message(self, sender: str, content: str) -> None:
+        """Append a message to the chat display."""
+        chat = self.query_one("#chat", Static)
+        current = chat.renderable or ""
+        chat.update(f"{current}\n\n[{sender}]: {content}")
+
+    def _process_message(self, content: str) -> None:
+        """Process a message through the connected AgentLoop."""
+        import asyncio
+
+        async def _run() -> None:
+            try:
+                response = await self._agent_loop.process_direct(  # type: ignore[union-attr]
+                    content=content,
+                    session_key="tui:default",
+                    channel="tui",
+                )
+                self._append_message("MiQi", response or "(no response)")
+            except Exception as e:
+                self._append_message("MiQi", f"Error: {e}")
+
+        asyncio.create_task(_run())
