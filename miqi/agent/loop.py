@@ -326,6 +326,7 @@ class AgentLoop:
         # Phase 3: unified execution engine
         self._orchestrator: Any = None  # ToolOrchestrator (replaces direct tool.execute)
         self._current_turn: Any = None  # TurnContext — set per turn, cleared after
+        self._tool_runtime: Any = None  # ToolRuntime — created lazily from orchestrator
         self._mcp_stack: AsyncExitStack | None = None
         self._mcp_connected = False
         self._mcp_connecting = False
@@ -481,6 +482,26 @@ class AgentLoop:
         """Set the ToolOrchestrator for all tool execution."""
         self._orchestrator = orchestrator
         self._orchestrator.tools = self.tools
+
+    @staticmethod
+    def _make_bridge_turn(session_key: str, agent_type: str = "main") -> Any:
+        """Create a minimal TurnContext-like object for backward compat.
+
+        Used when AgentLoop._run_agent_loop is called directly (tests, legacy
+        callers) without a proper TurnContext. Phase 14 will remove this.
+        """
+        from miqi.runtime.agent_registry import AgentRegistry
+        from miqi.runtime.turn_context import TurnContext
+
+        metadata = AgentRegistry().resolve(agent_type)
+        return TurnContext(
+            turn_id=session_key,
+            agent_metadata=metadata,
+            thread_id=session_key,
+            workspace=Path("."),  # Legacy callers may not have workspace set yet
+            model="default",
+            provider=None,
+        )
 
     @property
     def current_turn(self) -> Any | None:
@@ -845,23 +866,18 @@ class AgentLoop:
                 # Dispatch tool calls: run parallelisable batches concurrently,
                 # fall back to sequential for tools that must run one at a time.
                 # Both paths go through ToolOrchestrator (sole execution path).
+                # Build a turn proxy for ToolRuntime when TurnContext is not yet set
+                # (backward compat — _process_message now creates TurnContext, but
+                # tests and legacy callers may invoke _run_agent_loop directly).
+                _turn = self._current_turn or AgentLoop._make_bridge_turn(
+                    session_key, getattr(self, '_agent_type', 'main'),
+                )
+
                 if self.tools.should_parallelize(_tc_dicts):
-                    from miqi.execution.orchestrator import ToolExecutionContext
+                    from miqi.runtime.tool_runtime import ToolRuntime
 
-                    async def _execute_one(tc):
-                        ctx = ToolExecutionContext(
-                            tool_name=tc.name,
-                            tool_call_id=tc.id,
-                            arguments=tc.arguments,
-                            turn_id=session_key,
-                            thread_id=session_key,
-                            agent_type=getattr(self, '_agent_type', 'main'),
-                        )
-                        return await self._orchestrator.execute(ctx)
-
-                    contexts = await asyncio.gather(
-                        *[_execute_one(tc) for tc in response.tool_calls]
-                    )
+                    _tool_rt = ToolRuntime(orchestrator=self._orchestrator)
+                    contexts = await _tool_rt.execute_many(_turn, response.tool_calls)
                     for tool_call, ctx in zip(response.tool_calls, contexts):
                         result = ctx.result or ""
                         tools_used.append(tool_call.name)
@@ -936,18 +952,11 @@ class AgentLoop:
                                         tool_hint=True,
                                     )
 
-                        # Route through ToolOrchestrator (sole execution path)
-                        from miqi.execution.orchestrator import ToolExecutionContext
+                        # Route through ToolRuntime (sole execution path)
+                        from miqi.runtime.tool_runtime import ToolRuntime
 
-                        _octx = ToolExecutionContext(
-                            tool_name=tool_call.name,
-                            tool_call_id=tool_call.id,
-                            arguments=tool_call.arguments,
-                            turn_id=session_key,
-                            thread_id=session_key,
-                            agent_type=getattr(self, '_agent_type', 'main'),
-                        )
-                        _octx = await self._orchestrator.execute(_octx)
+                        _tool_rt = ToolRuntime(orchestrator=self._orchestrator)
+                        _octx = await _tool_rt.execute_one(_turn, tool_call)
                         result = _octx.result or ""
 
                         # Emit typed tool events (Phase 3)

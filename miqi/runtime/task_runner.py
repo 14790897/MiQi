@@ -56,16 +56,32 @@ class TaskRunner:
     async def _handle_user_message(self, msg: UserMessage) -> None:
         turn_id = str(uuid.uuid4())[:12]
         try:
+            # Build TurnContext and run through TurnRunner (Phase 12)
+            from miqi.runtime.agent_registry import AgentRegistry
+            from miqi.runtime.turn_context import TurnContext
+
+            metadata = AgentRegistry().resolve("main")
             thread_id = msg.thread_id or "cli:default"
-            result = await self.services.agent_loop.process_direct(
-                msg.content,
-                session_key=thread_id,
-                channel=getattr(msg, "channel", None) or "runtime",
-                chat_id=thread_id,
+            turn = TurnContext(
+                turn_id=turn_id,
+                agent_metadata=metadata,
+                thread_id=thread_id,
+                workspace=self.services.workspace,
+                model=self.services.agent_loop.model,
+                provider=self.services.provider,
+                temperature=self.services.agent_loop.temperature,
+                max_tokens=self.services.agent_loop.max_tokens,
+            )
+            tools = self.services.tool_registry.get_definitions()
+            result = await self.services.turn_runner.run(
+                turn=turn,
+                user_content=msg.content,
+                system_prompt=metadata.system_prompt,
+                tools=tools,
             )
             await self._events.put(AgentMessageEvent(
                 turn_id=turn_id,
-                content=result or "",
+                content=result.final_content or "",
                 finish_reason="stop",
             ))
         except asyncio.CancelledError:
