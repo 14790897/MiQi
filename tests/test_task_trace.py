@@ -149,6 +149,21 @@ async def test_nudge_injection(tmp_path: Path):
         self_improvement_config=AgentSelfImprovementConfig(trace_nudge_interval=1),
     )
 
+    # Set up orchestrator (required by Phase 10 fail-fast)
+    from unittest.mock import AsyncMock
+    from miqi.execution.orchestrator import ToolOrchestrator
+    from miqi.execution.permission_engine import PermissionEngine
+    from miqi.execution.sandbox_policy import SandboxPolicyEngine
+    from miqi.execution.hook_runtime import HookRuntime
+    orchestrator = ToolOrchestrator(
+        permission_engine=PermissionEngine(),
+        sandbox_engine=SandboxPolicyEngine(),
+        hook_runtime=HookRuntime(),
+        tool_registry=loop.tools,
+        event_emitter=AsyncMock(),
+    )
+    loop.set_orchestrator(orchestrator)
+
     await loop._process_message(
         InboundMessage(channel="cli", sender_id="user", chat_id="trace", content="first")
     )

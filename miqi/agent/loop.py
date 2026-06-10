@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import uuid
 import time as _time_mod
 from collections import deque
 from contextlib import AsyncExitStack
@@ -43,6 +44,8 @@ from miqi.documents.pptx_tool import PptxReadTool, PptxWriteTool
 from miqi.documents.xlsx_tool import XlsxReadTool, XlsxWriteTool
 from miqi.plan.plan_tool import PlanCreateTool, PlanUpdateTool
 from miqi.plan.plan_tracker import PlanTracker
+from miqi.runtime.turn_context import TurnContext
+from miqi.runtime.agent_registry import AgentRegistry
 from miqi.bus.events import InboundMessage, OutboundMessage
 from miqi.bus.queue import MessageBus
 from miqi.config.schema import (
@@ -322,6 +325,7 @@ class AgentLoop:
 
         # Phase 3: unified execution engine
         self._orchestrator: Any = None  # ToolOrchestrator (replaces direct tool.execute)
+        self._current_turn: Any = None  # TurnContext — set per turn, cleared after
         self._mcp_stack: AsyncExitStack | None = None
         self._mcp_connected = False
         self._mcp_connecting = False
@@ -472,6 +476,16 @@ class AgentLoop:
         self.tools.register(PptxWriteTool())
         self.tools.register(XlsxReadTool())
         self.tools.register(XlsxWriteTool())
+
+    def set_orchestrator(self, orchestrator: Any) -> None:
+        """Set the ToolOrchestrator for all tool execution."""
+        self._orchestrator = orchestrator
+        self._orchestrator.tools = self.tools
+
+    @property
+    def current_turn(self) -> Any | None:
+        """Return the current turn's TurnContext, if one is active."""
+        return getattr(self, "_current_turn", None)
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy with exponential backoff)."""
@@ -688,6 +702,11 @@ class AgentLoop:
         session_key: str = "",
     ) -> tuple[str | None, list[str], list[dict]]:
         """Run the agent iteration loop. Returns (final_content, tools_used, messages)."""
+        if self._orchestrator is None:
+            raise RuntimeError(
+                "ToolOrchestrator must be configured before AgentLoop runs. "
+                "Use AgentLoop.set_orchestrator() or wire it via BridgeServer."
+            )
         messages = initial_messages
         final_content = None
         tools_used: list[str] = []
@@ -825,14 +844,26 @@ class AgentLoop:
 
                 # Dispatch tool calls: run parallelisable batches concurrently,
                 # fall back to sequential for tools that must run one at a time.
+                # Both paths go through ToolOrchestrator (sole execution path).
                 if self.tools.should_parallelize(_tc_dicts):
-                    parallel_results = await self.tools.execute_concurrent(
-                        _tc_dicts, default_kwargs={"session_id": session_key},
+                    from miqi.execution.orchestrator import ToolExecutionContext
+
+                    async def _execute_one(tc):
+                        ctx = ToolExecutionContext(
+                            tool_name=tc.name,
+                            tool_call_id=tc.id,
+                            arguments=tc.arguments,
+                            turn_id=session_key,
+                            thread_id=session_key,
+                            agent_type=getattr(self, '_agent_type', 'main'),
+                        )
+                        return await self._orchestrator.execute(ctx)
+
+                    contexts = await asyncio.gather(
+                        *[_execute_one(tc) for tc in response.tool_calls]
                     )
-                    # execute_concurrent returns list[tuple[tc_id, result_str]]
-                    result_by_id = dict(parallel_results)
-                    for tool_call in response.tool_calls:
-                        result = result_by_id.get(tool_call.id, "")
+                    for tool_call, ctx in zip(response.tool_calls, contexts):
+                        result = ctx.result or ""
                         tools_used.append(tool_call.name)
                         # Log tool call + result (truncated)
                         args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
@@ -840,7 +871,7 @@ class AgentLoop:
                         if isinstance(result, str) and len(result) > 200:
                             _res_preview += f"…({len(result)}chars)"
                         logger.info(
-                            "Tool (parallel): {}({}) → {}",
+                            "Tool (parallel, v2): {}({}) → {}",
                             tool_call.name,
                             args_str[:100],
                             _res_preview,
@@ -1276,6 +1307,20 @@ class AgentLoop:
                         "You are running inside an isolated Linux sandbox (bwrap). "
                         "Use Linux-style paths (/home/miqi/workspace/) and Linux commands only."
                     })
+            # Create per-turn TurnContext
+            _turn_registry = AgentRegistry()
+            _turn_meta = _turn_registry.resolve(getattr(self, '_agent_type', 'main'))
+            self._current_turn = TurnContext(
+                turn_id=str(uuid.uuid4())[:12],
+                agent_metadata=_turn_meta,
+                thread_id=key,
+                workspace=self.workspace,
+                model=self.model,
+                provider=self.provider,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                current_date=getattr(self.context, "current_date", ""),
+            )
             try:
                 final_content, _, all_msgs = await self._run_agent_loop(
                     messages, session_key=key,
@@ -1283,6 +1328,7 @@ class AgentLoop:
             finally:
                 for _gw in self._mcp_gateways:
                     _gw.deactivate()
+                self._current_turn = None
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
             return OutboundMessage(channel=channel, chat_id=chat_id,
@@ -1475,6 +1521,21 @@ class AgentLoop:
 
         _turn_tools: list[str] = []
         _turn_exc = False
+
+        # Create per-turn TurnContext
+        _turn_registry = AgentRegistry()
+        _turn_meta = _turn_registry.resolve(getattr(self, '_agent_type', 'main'))
+        self._current_turn = TurnContext(
+            turn_id=str(uuid.uuid4())[:12],
+            agent_metadata=_turn_meta,
+            thread_id=key,
+            workspace=self.workspace,
+            model=self.model,
+            provider=self.provider,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            current_date=getattr(self.context, "current_date", ""),
+        )
         try:
             final_content, _turn_tools, all_msgs = await self._run_agent_loop(
                 initial_messages, on_progress=on_progress or _bus_progress,
@@ -1488,6 +1549,7 @@ class AgentLoop:
         finally:
             for _gw in self._mcp_gateways:
                 _gw.deactivate()
+            self._current_turn = None
             if self.trace_store.enabled:
                 if _turn_exc:
                     _t_outcome, _t_notes = "failure", "exception during agent loop"
