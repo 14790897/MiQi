@@ -449,7 +449,11 @@ class AgentLoop:
         self.tools.register(SessionSearchTool(memory=self.memory, session_manager=self.sessions))
         self.tools.register(SkillManageTool(workspace=self.workspace))
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
-        self.tools.register(SpawnTool(manager=self.subagents))
+        self.tools.register(SpawnTool(
+            manager=self.subagents,
+            agent_control=None,  # Will be wired by bridge after AgentControl init
+            event_emitter=self._event_emitter,
+        ))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
 

@@ -423,6 +423,14 @@ def handle_chat_send(req_id: str, params: dict) -> None:
             if _state._orchestrator.tools is None:
                 _state._orchestrator.tools = agent.tools
 
+            # Wire AgentControl into spawn tool (Phase 2 bridge)
+            spawn_tool = agent.tools.get("spawn")
+            if spawn_tool is not None:
+                from miqi.agent.tools.spawn import SpawnTool
+                if isinstance(spawn_tool, SpawnTool):
+                    spawn_tool._agent_control = _state._agent_control
+                    spawn_tool._event_emitter = _state._event_emitter
+
             _state.set_active(agent, req_id)
 
             async def on_progress(text: str, tool_hint: bool = False) -> None:
