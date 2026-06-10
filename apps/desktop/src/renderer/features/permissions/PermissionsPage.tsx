@@ -33,7 +33,7 @@ export function PermissionsPage() {
     (async () => {
       try {
         const result = await window.miqi.permissions.get()
-        if (result) setConfig(result as unknown as PermissionsConfig)
+        if (result) setConfig({ ...DEFAULT_CONFIG, ...(result as unknown as PermissionsConfig) })
       } catch { /* use defaults */ }
       setLoading(false)
     })()
