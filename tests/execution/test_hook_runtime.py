@@ -155,3 +155,32 @@ async def test_no_matching_hooks():
 
     await runtime.run(HookPoint.PRE_TOOL_USE, FakeContext("other_tool"))
     assert calls == []  # no match
+
+
+# ---------------------------------------------------------------------------
+# Phase 13.6: expanded hook lifecycle
+# ---------------------------------------------------------------------------
+
+def test_hook_points_include_codex_runtime_lifecycle():
+    """HookPoint enum covers the full Codex runtime lifecycle."""
+    from miqi.execution.hook_runtime import HookPoint
+
+    names = {item.value for item in HookPoint}
+    assert "session_start" in names
+    assert "prompt_submit" in names
+    assert "pre_compact" in names
+    assert "subagent_start" in names
+    assert "turn_start" in names
+    assert "turn_end" in names
+    assert "pre_tool" in names
+    assert "post_tool" in names
+
+
+def test_hook_runtime_accepts_new_hook_points():
+    """HookRuntime._hooks dict has entries for all new HookPoint values."""
+    from miqi.execution.hook_runtime import HookRuntime, HookPoint
+
+    runtime = HookRuntime()
+    for point in HookPoint:
+        assert point in runtime._hooks, f"Missing hook point: {point}"
+        assert isinstance(runtime._hooks[point], list)

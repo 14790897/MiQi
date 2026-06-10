@@ -76,3 +76,57 @@ def test_tool_runtime_requires_orchestrator():
     """ToolRuntime raises RuntimeError when orchestrator is None."""
     with pytest.raises(RuntimeError, match="ToolRuntime requires a ToolOrchestrator"):
         ToolRuntime(orchestrator=None)
+
+
+# ---------------------------------------------------------------------------
+# Phase 13: permission_profile propagation
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_tool_runtime_propagates_permission_profile_to_ctx(fake_orchestrator):
+    """ToolRuntime must pass turn.permission_profile into ToolExecutionContext."""
+    from pathlib import Path
+    from miqi.runtime.permission_profile import PermissionProfile
+    from miqi.runtime.tool_runtime import ToolRuntime
+
+    profile = PermissionProfile(
+        workspace=Path("/tmp/test"),
+        filesystem_mode="workspace-readonly",
+        network="none",
+        allow_exec=False,
+        permanent_allowlist={"safe-cmd"},
+    )
+
+    class _TurnWithProfile:
+        turn_id = "turn-pp"
+        thread_id = "thread-pp"
+
+        class _Meta:
+            name = "code-agent"
+        agent_metadata = _Meta()
+        permission_profile = profile
+
+    turn = _TurnWithProfile()
+
+    # Track the ctx the orchestrator receives
+    received_ctx = None
+
+    async def _capture(ctx):
+        nonlocal received_ctx
+        received_ctx = ctx
+        ctx.result = "ok"
+        ctx.duration_ms = 3
+        return ctx
+
+    fake_orchestrator.execute.side_effect = _capture
+
+    runtime = ToolRuntime(orchestrator=fake_orchestrator)
+    ctx_result = await runtime.execute_one(turn, _FakeToolCall())
+
+    assert received_ctx is not None, "orchestrator.execute was not called"
+    assert received_ctx.permission_profile is profile, (
+        "permission_profile must be the same object"
+    )
+    assert received_ctx.permission_profile.filesystem_mode == "workspace-readonly"
+    assert "safe-cmd" in received_ctx.permission_profile.permanent_allowlist
+    assert ctx_result is received_ctx

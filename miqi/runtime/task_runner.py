@@ -72,7 +72,23 @@ class TaskRunner:
                 temperature=self.services.agent_loop.temperature,
                 max_tokens=self.services.agent_loop.max_tokens,
             )
-            tools = self.services.tool_registry.get_definitions()
+
+            # Phase 13: resolve capabilities and permission profile
+            tools: list[dict[str, Any]] = []
+            capability_resolver = getattr(self.services, "capability_resolver", None)
+            if capability_resolver is not None:
+                capabilities = capability_resolver.resolve(agent_metadata=metadata)
+                turn.capabilities = capabilities
+                tools = capabilities.tool_definitions
+            else:
+                tools = self.services.tool_registry.get_definitions()
+
+            # Phase 13: attach permission profile for orchestrator
+            from miqi.runtime.permission_profile import PermissionProfile
+            turn.permission_profile = PermissionProfile(
+                workspace=self.services.workspace,
+            )
+
             result = await self.services.turn_runner.run(
                 turn=turn,
                 user_content=msg.content,
