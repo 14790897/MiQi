@@ -30,11 +30,11 @@ class RuntimeSession:
         await runtime.stop()
     """
 
-    def __init__(self, *, services: RuntimeServices):
+    def __init__(self, *, services: RuntimeServices, event_queue: asyncio.Queue | None = None):
         self.services = services
         self.session_id = services.session_id
         self._submissions: asyncio.Queue[Any] = asyncio.Queue()
-        self._events: asyncio.Queue[Any] = asyncio.Queue()
+        self._events: asyncio.Queue[Any] = event_queue or asyncio.Queue()
         self._runner = TaskRunner(services=services, event_queue=self._events)
         self._task: asyncio.Task | None = None
         self._stopped = asyncio.Event()
@@ -50,18 +50,22 @@ class RuntimeSession:
     ) -> "RuntimeSession":
         """Create a RuntimeSession from config and provider.
 
-        The event_sink is wired automatically to the session's internal
-        event queue so that services (AgentControl, orchestrator) emit
-        typed events that consumers read via next_event().
+        All typed events emitted by the orchestrator, AgentControl, spawn-tool,
+        and other services flow into the session's event queue and become
+        available through next_event(). This includes tool-call-begin/end,
+        sub-agent-spawned/completed, turn-start/complete, and error events.
         """
+        # Shared event queue — services push into it, consumers read from it
+        events: asyncio.Queue[Any] = asyncio.Queue()
+
         services = RuntimeServices.from_config(
             config=config,
             provider=provider,
             session_id=session_id,
             workspace=workspace,
-            event_sink=None,  # Services emit via event_emitter, not this sink
+            event_sink=events.put,  # asyncio.Queue.put is a coroutine sink
         )
-        runtime = cls(services=services)
+        runtime = cls(services=services, event_queue=events)
         return runtime
 
     async def start(self) -> None:
