@@ -326,3 +326,108 @@ async def test_get_agent_detail_unknown_raises(tmp_path, event_emitter):
 
     with pytest.raises(KeyError, match="Unknown agent"):
         control.get_agent_detail("nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# Phase 10 post-audit: kill cancels background task
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_kill_cancels_running_task(tmp_path, event_emitter, fake_tool_registry):
+    """kill() must cancel the background asyncio Task so the sub-agent stops."""
+    import asyncio as _asyncio
+    from unittest.mock import MagicMock
+    from miqi.runtime.agent_registry import AgentRegistry
+    from miqi.runtime.agent_control import AgentControl
+
+    # Blocking provider — never returns, so task stays running until cancelled
+    class BlockingProvider:
+        async def chat(self, **kwargs):
+            await _asyncio.sleep(10)
+            return _FakeResponse(content="done")
+
+    blocking = BlockingProvider()
+
+    control = AgentControl(
+        session_id="test-session",
+        registry=AgentRegistry(),
+        event_emitter=event_emitter,
+        workspace=tmp_path,
+        provider=blocking,
+        tool_registry=fake_tool_registry,
+        orchestrator="placeholder",
+    )
+
+    # Spawn starts the background task
+    agent = await control.spawn("code-agent", "long task", label="long-task")
+
+    # Agent should have a running task
+    assert agent.agent_id in control._running_tasks
+    task = control._running_tasks[agent.agent_id]
+    assert not task.done(), "Task should be running"
+
+    # Kill should cancel the task
+    await control.kill(agent.agent_id)
+
+    # Task should be removed from running tasks
+    assert agent.agent_id not in control._running_tasks
+
+    # Agent should be removed from _agents
+    assert agent.agent_id not in control._agents
+
+    # Allow pending cancellation to propagate
+    await _asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_killed_agent_not_marked_completed(tmp_path, event_emitter):
+    """A killed agent should not be marked COMPLETED after kill()."""
+    import asyncio as _asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from miqi.runtime.agent_registry import AgentRegistry
+    from miqi.runtime.agent_control import AgentControl
+
+    # Fake provider that blocks until cancelled
+    class BlockingProvider:
+        async def chat(self, **kwargs):
+            await _asyncio.sleep(10)  # long-running
+            return _FakeResponse(content="done")
+    blocking = BlockingProvider()
+
+    # Tool registry that returns empty definitions
+    tool_reg = MagicMock()
+    tool_reg.get_definitions.return_value = []
+
+    control = AgentControl(
+        session_id="test-session",
+        registry=AgentRegistry(),
+        event_emitter=AsyncMock(),
+        workspace=tmp_path,
+        provider=blocking,
+        tool_registry=tool_reg,
+        orchestrator="placeholder",
+    )
+
+    agent = await control.spawn("code-agent", "blocking task", label="blocking")
+    task_ref = control._running_tasks.get(agent.agent_id)
+    assert task_ref is not None, "Task must be started by spawn"
+
+    # Give the task a tick to start
+    await _asyncio.sleep(0.01)
+
+    # Kill the agent
+    await control.kill(agent.agent_id)
+
+    # Wait for cancellation to propagate
+    try:
+        await _asyncio.wait_for(task_ref, timeout=1.0)
+    except (_asyncio.CancelledError, _asyncio.TimeoutError):
+        pass
+
+    # Agent state should be ABORTED, not COMPLETED
+    assert agent.state.current.value != "completed"
+    # Agent error should be "Cancelled"
+    assert agent.error == "Cancelled"
+    # Result should not be set (killed before completion)
+    assert agent.result is None

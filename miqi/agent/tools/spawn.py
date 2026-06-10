@@ -68,11 +68,14 @@ class SpawnTool(Tool):
         }
 
     async def execute(self, task: str, label: str | None = None, **kwargs: Any) -> str:
-        """Spawn a subagent to execute the given task."""
-        # Phase 2: register with AgentControl before spawning via SubagentManager
-        display_label = label or (task[:30] + "..." if len(task) > 30 else task)
-        agent_id = str(uuid.uuid4())[:12]
+        """Spawn a subagent to execute the given task.
 
+        Uses AgentControl as the primary path. Falls back to the legacy
+        SubagentManager only when AgentControl is not wired.
+        """
+        display_label = label or (task[:30] + "..." if len(task) > 30 else task)
+
+        # Phase 2 primary path: AgentControl.spawn()
         if self._agent_control is not None:
             try:
                 agent = await self._agent_control.spawn(
@@ -80,16 +83,23 @@ class SpawnTool(Tool):
                     task=task,
                     label=display_label,
                 )
-                agent_id = agent.agent_id
                 logger.info(
-                    "Subagent registered with AgentControl: {} ({})",
-                    agent_id, display_label,
+                    "Subagent spawned via AgentControl: {} ({})",
+                    agent.agent_id, display_label,
+                )
+                return (
+                    f"Spawned sub-agent {agent.agent_id} "
+                    f"(thread: {agent.thread_id}) to handle: {display_label}"
                 )
             except Exception as exc:
                 logger.warning(
-                    "Failed to register subagent with AgentControl: {}", exc
+                    "Failed to spawn subagent via AgentControl: {}; "
+                    "falling back to legacy SubagentManager",
+                    exc,
                 )
+                # Fall through to legacy path on error
 
+        # Legacy fallback: SubagentManager.spawn()
         result = await self._manager.spawn(
             task=task,
             label=label,

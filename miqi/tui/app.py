@@ -62,10 +62,7 @@ class MiQiTui(App):
         """
         from miqi.agent.loop import AgentLoop
         from miqi.bus.queue import MessageBus
-        from miqi.execution.orchestrator import ToolOrchestrator
-        from miqi.execution.permission_engine import PermissionEngine
-        from miqi.execution.sandbox_policy import SandboxPolicyEngine
-        from miqi.execution.hook_runtime import HookRuntime
+        from miqi.execution.factory import configure_agent_orchestrator
 
         bus = MessageBus()
         self._agent_loop = AgentLoop(
@@ -76,19 +73,7 @@ class MiQiTui(App):
         )
 
         # Create and wire orchestrator (required — AgentLoop fails fast without it)
-        # No-op event emitter for TUI (typed events not wired through Textual)
-        class _NoopEmitter:
-            async def emit(self, event):
-                pass
-
-        orchestrator = ToolOrchestrator(
-            permission_engine=PermissionEngine(),
-            sandbox_engine=SandboxPolicyEngine(),
-            hook_runtime=HookRuntime(),
-            tool_registry=self._agent_loop.tools,
-            event_emitter=_NoopEmitter(),
-        )
-        self._agent_loop.set_orchestrator(orchestrator)
+        configure_agent_orchestrator(self._agent_loop)
 
         self._append_message(
             "System",

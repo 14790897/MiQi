@@ -182,7 +182,16 @@ class AgentControl:
         return agent
 
     async def kill(self, agent_id: str) -> None:
-        """Kill a running agent."""
+        """Kill a running agent and cancel its background task.
+
+        Removes the agent from the registry and cancels the asyncio Task
+        so the sub-agent does not continue running or emit completed events.
+        """
+        # Cancel background task first (outside lock to avoid deadlock)
+        task = self._running_tasks.pop(agent_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+
         async with self._lock:
             agent = self._agents.pop(agent_id, None)
             if agent is None:
@@ -264,7 +273,9 @@ class AgentControl:
             ]
 
         try:
-            agent.state.transition(AgentStatus.THINKING)
+            # Only transition if not already in THINKING (spawn may have pre-set it)
+            if agent.state.current != AgentStatus.THINKING:
+                agent.state.transition(AgentStatus.THINKING)
             agent.messages = [
                 {"role": "system", "content": agent.metadata.system_prompt},
                 {"role": "user", "content": task},
@@ -459,7 +470,12 @@ class AgentControl:
             ))
 
         except asyncio.CancelledError:
-            agent.state.transition(AgentStatus.ABORTED)
+            # Only transition if not already in a terminal state (kill may have
+            # transitioned to ABORTED before the CancelledError propagated here)
+            if agent.state.current not in (
+                AgentStatus.ABORTED, AgentStatus.COMPLETED, AgentStatus.ERROR,
+            ):
+                agent.state.transition(AgentStatus.ABORTED)
             agent.error = "Cancelled"
             agent.completed_at = _time.time()
         except Exception as e:

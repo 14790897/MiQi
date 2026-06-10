@@ -90,6 +90,8 @@ def register_agent_command(
             mcp_servers=config.tools.mcp_servers,
             channels_config=config.channels,
         )
+        from miqi.execution.factory import configure_agent_orchestrator
+        configure_agent_orchestrator(agent_loop)
 
         def _thinking_ctx():
             if logs:
