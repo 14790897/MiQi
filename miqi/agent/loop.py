@@ -310,6 +310,12 @@ class AgentLoop:
         # Phase 1: typed event emitter (dual-emit alongside legacy events)
         self._event_emitter: Any = None
         self._typed_events_enabled: bool = False
+
+        # Phase 2: multi-agent runtime
+        self._agent_type: str = "main"    # This agent's role
+
+        # Phase 3: unified execution engine
+        self._orchestrator: Any = None  # ToolOrchestrator (replaces direct tool.execute)
         self._mcp_stack: AsyncExitStack | None = None
         self._mcp_connected = False
         self._mcp_connecting = False
@@ -879,12 +885,53 @@ class AgentLoop:
                                         tool_hint=True,
                                     )
 
-                        result = await self.tools.execute(
-                            tool_call.name,
-                            tool_call.arguments,
-                            _on_progress=_mcp_on_progress,
-                            session_id=session_key,
-                        )
+                        # Phase 3: route through ToolOrchestrator
+                        if self._orchestrator is not None:
+                            from miqi.execution.orchestrator import ToolExecutionContext
+
+                            _octx = ToolExecutionContext(
+                                tool_name=tool_call.name,
+                                tool_call_id=tool_call.id,
+                                arguments=tool_call.arguments,
+                                turn_id=session_key,
+                                thread_id=session_key,
+                                agent_type=getattr(self, '_agent_type', 'main'),
+                            )
+                            _octx = await self._orchestrator.execute(_octx)
+                            result = _octx.result or ""
+
+                            # Emit typed tool events (Phase 3)
+                            if self._typed_events_enabled and self._event_emitter:
+                                from miqi.protocol.events import (
+                                    ToolCallBeginEvent, ToolCallEndEvent,
+                                )
+                                await self._event_emitter.emit(ToolCallBeginEvent(
+                                    turn_id=session_key,
+                                    tool_call_id=tool_call.id,
+                                    tool_name=tool_call.name,
+                                    tool_display=tool_call.name,
+                                    arguments=tool_call.arguments,
+                                ))
+                                success = not (
+                                    isinstance(result, str)
+                                    and result.startswith("Error")
+                                )
+                                await self._event_emitter.emit(ToolCallEndEvent(
+                                    turn_id=session_key,
+                                    tool_call_id=tool_call.id,
+                                    tool_name=tool_call.name,
+                                    success=success,
+                                    output_preview=(result or "")[:200],
+                                    output_size=len(result or ""),
+                                    duration_ms=_octx.duration_ms,
+                                ))
+                        else:
+                            result = await self.tools.execute(
+                                tool_call.name,
+                                tool_call.arguments,
+                                _on_progress=_mcp_on_progress,
+                                session_id=session_key,
+                            )
                         # Log tool execution result for debugging (truncated)
                         _res_preview = (result or "")[:500]
                         if isinstance(result, str) and len(result) > 500:
