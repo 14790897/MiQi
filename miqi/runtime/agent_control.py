@@ -14,6 +14,11 @@ from miqi.protocol.events import (
     AgentStatus,
     SubAgentSpawnedEvent,
     SubAgentCompletedEvent,
+    TurnStartedEvent,
+    TurnCompleteEvent,
+    ToolCallBeginEvent,
+    ToolCallEndEvent,
+    AgentMessageEvent,
     ErrorEvent,
     EventSeverity,
 )
@@ -187,3 +192,241 @@ class AgentControl:
             }
             for a in self._agents.values()
         ]
+
+    async def _run_agent(self, agent: LiveAgent, task: str) -> None:
+        """Execute the agent's task loop.
+
+        This is the core integration point between:
+        - AgentControl (multi-agent lifecycle)
+        - TurnContext (per-turn configuration)
+        - ToolOrchestrator (unified tool execution)
+        - EventEmitter (typed event output)
+
+        For the main agent, this is called from the existing AgentLoop
+        after migration. For sub-agents, this is called from spawn().
+        """
+        import uuid as _uuid
+        import time as _time
+        import json
+        import re as _re
+
+        turn_id = str(_uuid.uuid4())[:12]
+        tools_used: list[str] = []
+
+        try:
+            agent.state.transition(AgentStatus.THINKING)
+
+            # Emit turn started
+            await self._events.emit(TurnStartedEvent(
+                turn_id=turn_id,
+                agent_name=agent.metadata.display_name,
+                thread_id=agent.thread_id,
+            ))
+
+            # Build TurnContext
+            from miqi.runtime.turn_context import TurnContext
+            turn_ctx = TurnContext(
+                turn_id=turn_id,
+                agent_metadata=agent.metadata,
+                thread_id=agent.thread_id,
+                workspace=self.workspace,
+                model="default",
+                provider=None,  # Set by caller after spawn
+                temperature=0.1,
+                max_tokens=8192,
+            )
+
+            # Build initial messages
+            messages: list[dict] = [
+                {"role": "system", "content": agent.metadata.system_prompt},
+                {"role": "user", "content": task},
+            ]
+
+            # ── Main turn loop ──────────────────────────────────
+            final_content: str | None = None
+            max_iterations = agent.metadata.max_iterations
+
+            for iteration in range(1, max_iterations + 1):
+                # 1. Call LLM (requires provider to be wired)
+                if turn_ctx.provider is None:
+                    final_content = (
+                        "Agent provider not wired. "
+                        "AgentControl._run_agent() requires a provider "
+                        "to be set on TurnContext.provider before execution. "
+                        "In production, this is done by AgentLoop via BridgeServer."
+                    )
+                    break
+
+                response = await turn_ctx.provider.chat(
+                    messages=messages,
+                    tools=None,
+                    model=turn_ctx.model,
+                    temperature=turn_ctx.temperature,
+                    max_tokens=turn_ctx.max_tokens,
+                )
+
+                # 2. Handle tool calls
+                if response.has_tool_calls:
+                    agent.state.transition(AgentStatus.EXECUTING)
+
+                    tool_call_dicts = []
+                    for tc in response.tool_calls:
+                        tools_used.append(tc.name)
+
+                        # Emit tool begin event
+                        hint = self._format_tool_hint(tc.name, tc.arguments)
+                        await self._events.emit(ToolCallBeginEvent(
+                            turn_id=turn_id,
+                            tool_call_id=tc.id,
+                            tool_name=tc.name,
+                            tool_display=hint,
+                            arguments=tc.arguments,
+                        ))
+
+                        # Route through orchestrator if available
+                        orchestrator = getattr(self, '_orchestrator', None)
+                        if orchestrator is not None:
+                            from miqi.execution.orchestrator import ToolExecutionContext
+                            ctx = ToolExecutionContext(
+                                tool_name=tc.name,
+                                tool_call_id=tc.id,
+                                arguments=tc.arguments,
+                                turn_id=turn_id,
+                                thread_id=agent.thread_id,
+                                agent_type=agent.metadata.name,
+                            )
+                            ctx = await orchestrator.execute(ctx)
+                            result = ctx.result or ""
+                            success = not (
+                                isinstance(result, str)
+                                and result.startswith("Error")
+                            )
+                            duration = ctx.duration_ms
+                        else:
+                            result = f"Error: no orchestrator available for {tc.name}"
+                            success = False
+                            duration = 0
+
+                        # Emit tool end event
+                        preview = (result or "")[:200]
+                        await self._events.emit(ToolCallEndEvent(
+                            turn_id=turn_id,
+                            tool_call_id=tc.id,
+                            tool_name=tc.name,
+                            success=success,
+                            output_preview=preview,
+                            output_size=len(result or ""),
+                            duration_ms=duration,
+                        ))
+
+                        # Build tool call dict for message history
+                        tool_call_dicts.append({
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": json.dumps(
+                                    tc.arguments, ensure_ascii=False
+                                ),
+                            },
+                        })
+
+                        # Add tool result to messages
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "name": tc.name,
+                            "content": result or "",
+                        })
+
+                    # Add assistant message with tool calls
+                    messages.append({
+                        "role": "assistant",
+                        "content": response.content or "",
+                        "tool_calls": tool_call_dicts,
+                    })
+
+                    # Reflect prompt for next iteration
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            "Check if the task is complete. "
+                            "If more tools are needed, call them now. "
+                            "If the task is done, provide a clear final answer."
+                        ),
+                    })
+
+                    agent.state.transition(AgentStatus.THINKING)
+
+                else:
+                    # No tool calls — final response
+                    final_content = self._strip_think(response.content)
+                    if final_content:
+                        await self._events.emit(AgentMessageEvent(
+                            turn_id=turn_id,
+                            content=final_content,
+                            finish_reason=(
+                                response.finish_reason or "stop"
+                            ),
+                        ))
+                    break
+
+            # Handle iteration exhaustion
+            if final_content is None:
+                summary = (
+                    ", ".join(dict.fromkeys(tools_used))
+                    if tools_used else "none"
+                )
+                final_content = (
+                    f"Reached maximum iterations ({max_iterations}). "
+                    f"Tools used: {summary}. "
+                    f"Try breaking your task into smaller steps."
+                )
+
+            # Turn complete
+            agent.state.transition(AgentStatus.COMPLETED)
+            await self._events.emit(TurnCompleteEvent(
+                turn_id=turn_id,
+                thread_id=agent.thread_id,
+                outcome="success",
+                tools_used=list(dict.fromkeys(tools_used)),
+            ))
+            await self._events.emit(SubAgentCompletedEvent(
+                sub_agent_id=agent.agent_id,
+                sub_thread_id=agent.thread_id,
+                outcome="success",
+                summary=(final_content or "")[:100],
+            ))
+
+        except asyncio.CancelledError:
+            agent.state.transition(AgentStatus.ABORTED)
+        except Exception as e:
+            agent.state.transition(AgentStatus.ERROR)
+            logger.error(
+                "Agent {} turn error: {}", agent.agent_id, e
+            )
+            await self._events.emit(ErrorEvent(
+                turn_id=turn_id,
+                severity=EventSeverity.ERROR,
+                message=str(e),
+                recoverable=False,
+            ))
+
+    @staticmethod
+    def _format_tool_hint(name: str, args: dict) -> str:
+        """Format a tool call as a concise display hint."""
+        val = next(iter(args.values()), "") if args else ""
+        if not isinstance(val, str):
+            return name
+        if len(val) > 50:
+            return f'{name}("{val[:50]}…")'
+        return f'{name}("{val}")'
+
+    @staticmethod
+    def _strip_think(text: str | None) -> str | None:
+        """Remove <think>…</think> blocks from model output."""
+        if not text:
+            return None
+        import re
+        result = re.sub(r"<think>[\s\S]*?</think>", "", text).strip()
+        return result or None
