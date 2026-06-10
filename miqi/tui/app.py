@@ -102,17 +102,20 @@ class MiQiTui(App):
 
     def update_plan(self, plan_data: dict) -> None:
         """Update the plan sidebar with current plan state."""
+        from rich.markup import escape
+
         sidebar = self.query_one("#plan-sidebar", Static)
         steps = plan_data.get("steps", [])
         if not steps:
             sidebar.update("")
             return
 
-        lines = [f"[bold]{plan_data.get('title', 'Plan')}[/bold]\n"]
+        title = escape(str(plan_data.get("title", "Plan")))
+        lines = [f"[bold]{title}[/bold]\n"]
         icons = {"pending": "○", "in_progress": "●", "completed": "✓", "skipped": "—"}
         for step in steps:
             icon = icons.get(step.get("status", "pending"), "?")
-            desc = step.get("description", "")
+            desc = escape(str(step.get("description", "")))
             status = step.get("status", "pending")
             if status == "in_progress":
                 lines.append(f"[bold blue]{icon} {desc}[/bold blue]")
@@ -127,6 +130,8 @@ class MiQiTui(App):
     def show_diff(self, filepath: str, old: str, new: str) -> None:
         """Show an inline diff in the chat area."""
         import difflib
+        from rich.markup import escape
+
         chat = self.query_one("#chat", Static)
         current = str(chat.renderable or "")
 
@@ -140,17 +145,18 @@ class MiQiTui(App):
 
         formatted: list[str] = []
         for line in diff:
+            escaped = escape(line)
             if line.startswith("@@"):
-                formatted.append(f"[cyan]{line}[/cyan]")
+                formatted.append(f"[cyan]{escaped}[/cyan]")
             elif line.startswith("+"):
-                formatted.append(f"[green]{line}[/green]")
+                formatted.append(f"[green]{escaped}[/green]")
             elif line.startswith("-"):
-                formatted.append(f"[red]{line}[/red]")
+                formatted.append(f"[red]{escaped}[/red]")
             else:
-                formatted.append(line)
+                formatted.append(escaped)
 
         chat.update(
-            f"{current}\n\n[bold]Diff: {filepath}[/bold]\n"
+            f"{current}\n\n[bold]Diff: {escape(filepath)}[/bold]\n"
             + "\n".join(formatted)
         )
 
