@@ -2114,6 +2114,38 @@ def handle_permissions_permanent_remove(req_id: str, params: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Plugin handlers (Phase 4)
+# ---------------------------------------------------------------------------
+
+
+def handle_plugins_list(req_id: str, params: dict) -> None:
+    """List installed plugins."""
+    plugins = []
+    if hasattr(_state, '_agent_control') and _state._agent_control:
+        pass  # Future: collect plugins from PluginManager
+    _result(req_id, {"plugins": plugins})
+
+
+def handle_plugins_install(req_id: str, params: dict) -> None:
+    """Install a plugin by name."""
+    name = params.get("name", "")
+    _result(req_id, {"ok": False, "error": "Plugin installation not yet implemented"})
+
+
+def handle_plugins_uninstall(req_id: str, params: dict) -> None:
+    """Uninstall a plugin by name."""
+    name = params.get("name", "")
+    _result(req_id, {"ok": False, "error": "Plugin uninstallation not yet implemented"})
+
+
+def handle_plugins_toggle(req_id: str, params: dict) -> None:
+    """Toggle a plugin enabled/disabled."""
+    name = params.get("name", "")
+    enabled = params.get("enabled", False)
+    _result(req_id, {"ok": False, "error": "Plugin toggle not yet implemented"})
+
+
+# ---------------------------------------------------------------------------
 # Main dispatch
 # ---------------------------------------------------------------------------
 
@@ -2176,6 +2208,10 @@ _METHODS = {
     "files.accept": handle_files_accept,
     "python.check": handle_python_check,
     "permissions.get": handle_permissions_get,
+    "plugins.list": handle_plugins_list,
+    "plugins.install": handle_plugins_install,
+    "plugins.uninstall": handle_plugins_uninstall,
+    "plugins.toggle": handle_plugins_toggle,
     "permissions.update": handle_permissions_update,
     "permissions.permanent.add": handle_permissions_permanent_add,
     "permissions.permanent.remove": handle_permissions_permanent_remove,
