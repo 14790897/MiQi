@@ -62,6 +62,10 @@ class MiQiTui(App):
         """
         from miqi.agent.loop import AgentLoop
         from miqi.bus.queue import MessageBus
+        from miqi.execution.orchestrator import ToolOrchestrator
+        from miqi.execution.permission_engine import PermissionEngine
+        from miqi.execution.sandbox_policy import SandboxPolicyEngine
+        from miqi.execution.hook_runtime import HookRuntime
 
         bus = MessageBus()
         self._agent_loop = AgentLoop(
@@ -70,6 +74,22 @@ class MiQiTui(App):
             workspace=workspace,
             model=model,
         )
+
+        # Create and wire orchestrator (required — AgentLoop fails fast without it)
+        # No-op event emitter for TUI (typed events not wired through Textual)
+        class _NoopEmitter:
+            async def emit(self, event):
+                pass
+
+        orchestrator = ToolOrchestrator(
+            permission_engine=PermissionEngine(),
+            sandbox_engine=SandboxPolicyEngine(),
+            hook_runtime=HookRuntime(),
+            tool_registry=self._agent_loop.tools,
+            event_emitter=_NoopEmitter(),
+        )
+        self._agent_loop.set_orchestrator(orchestrator)
+
         self._append_message(
             "System",
             f"Connected to MiQi runtime (model: {model}, workspace: {workspace})",
@@ -219,28 +239,33 @@ class MiQiTui(App):
         asyncio.create_task(_run())
 
 
+def _load_runtime_from_config() -> tuple[Any, Path, str] | None:
+    """Load a provider, workspace, and model from config for TUI.
+
+    Extracted so it can be tested without launching Textual.
+    Returns (provider, workspace, model) or None on failure.
+    """
+    from pathlib import Path
+    from miqi.config.loader import load_config
+    from miqi.providers.factory import make_provider
+
+    try:
+        workspace = Path.cwd()
+        config = load_config(workspace)
+        provider = make_provider(config)
+        model = getattr(config.agents.defaults, 'model', 'default')
+        return provider, workspace, model
+    except Exception:
+        return None
+
+
 async def main() -> None:
     """Entry point: create TUI with optional runtime connection."""
-    import sys
-    from pathlib import Path
-
-    workspace = Path.cwd()
-    provider = None
-
-    # Try to create a provider from config
-    try:
-        from miqi.config.loader import load_config
-        config = load_config(workspace)
-        providers = getattr(config, 'providers', {})
-        if providers:
-            from miqi.providers.base import LLMProvider
-            provider = LLMProvider.from_config(providers)
-    except Exception:
-        pass
-
+    runtime = _load_runtime_from_config()
     app = MiQiTui()
-    if provider:
-        await app.connect_runtime(provider, workspace)
+    if runtime:
+        provider, workspace, model = runtime
+        await app.connect_runtime(provider, workspace, model)
     await app.run_async()
 
 

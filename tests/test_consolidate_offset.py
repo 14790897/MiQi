@@ -13,6 +13,21 @@ MEMORY_WINDOW = 50
 KEEP_COUNT = MEMORY_WINDOW // 2  # 25
 
 
+def _make_test_orchestrator(tool_registry):
+    """Create a minimal orchestrator for tests (Phase 10 requirement)."""
+    from miqi.execution.orchestrator import ToolOrchestrator
+    from miqi.execution.permission_engine import PermissionEngine
+    from miqi.execution.sandbox_policy import SandboxPolicyEngine
+    from miqi.execution.hook_runtime import HookRuntime
+    return ToolOrchestrator(
+        permission_engine=PermissionEngine(),
+        sandbox_engine=SandboxPolicyEngine(),
+        hook_runtime=HookRuntime(),
+        tool_registry=tool_registry,
+        event_emitter=AsyncMock(),
+    )
+
+
 def create_session_with_messages(key: str, count: int, role: str = "user") -> Session:
     """Create a session and add the specified number of messages.
 
@@ -499,6 +514,7 @@ class TestConsolidationDeduplicationGuard:
             bus=bus, provider=provider, workspace=tmp_path, model="test-model", memory_window=10
         )
 
+        loop.set_orchestrator(_make_test_orchestrator(loop.tools))
         loop.provider.chat = AsyncMock(return_value=LLMResponse(content="ok", tool_calls=[]))
         loop.tools.get_definitions = MagicMock(return_value=[])
 
@@ -543,6 +559,7 @@ class TestConsolidationDeduplicationGuard:
             bus=bus, provider=provider, workspace=tmp_path, model="test-model", memory_window=10
         )
 
+        loop.set_orchestrator(_make_test_orchestrator(loop.tools))
         loop.provider.chat = AsyncMock(return_value=LLMResponse(content="ok", tool_calls=[]))
         loop.tools.get_definitions = MagicMock(return_value=[])
 
@@ -595,6 +612,7 @@ class TestConsolidationDeduplicationGuard:
             bus=bus, provider=provider, workspace=tmp_path, model="test-model", memory_window=10
         )
 
+        loop.set_orchestrator(_make_test_orchestrator(loop.tools))
         loop.provider.chat = AsyncMock(return_value=LLMResponse(content="ok", tool_calls=[]))
         loop.tools.get_definitions = MagicMock(return_value=[])
 
@@ -640,6 +658,7 @@ class TestConsolidationDeduplicationGuard:
             bus=bus, provider=provider, workspace=tmp_path, model="test-model", memory_window=10
         )
 
+        loop.set_orchestrator(_make_test_orchestrator(loop.tools))
         loop.provider.chat = AsyncMock(return_value=LLMResponse(content="ok", tool_calls=[]))
         loop.tools.get_definitions = MagicMock(return_value=[])
 
@@ -698,6 +717,7 @@ class TestConsolidationDeduplicationGuard:
             bus=bus, provider=provider, workspace=tmp_path, model="test-model", memory_window=10
         )
 
+        loop.set_orchestrator(_make_test_orchestrator(loop.tools))
         loop.provider.chat = AsyncMock(return_value=LLMResponse(content="ok", tool_calls=[]))
         loop.tools.get_definitions = MagicMock(return_value=[])
 
@@ -742,6 +762,7 @@ class TestConsolidationDeduplicationGuard:
             bus=bus, provider=provider, workspace=tmp_path, model="test-model", memory_window=10
         )
 
+        loop.set_orchestrator(_make_test_orchestrator(loop.tools))
         loop.provider.chat = AsyncMock(return_value=LLMResponse(content="ok", tool_calls=[]))
         loop.tools.get_definitions = MagicMock(return_value=[])
 
@@ -803,6 +824,7 @@ class TestConsolidationDeduplicationGuard:
             bus=bus, provider=provider, workspace=tmp_path, model="test-model", memory_window=10
         )
 
+        loop.set_orchestrator(_make_test_orchestrator(loop.tools))
         loop.provider.chat = AsyncMock(return_value=LLMResponse(content="ok", tool_calls=[]))
         loop.tools.get_definitions = MagicMock(return_value=[])
 

@@ -35,6 +35,10 @@ class LiveAgent:
     state: AgentStateMachine
     parent_agent_id: str | None = None
     spawned_at: float = field(default_factory=lambda: __import__("time").time())
+    result: str | None = None
+    error: str | None = None
+    messages: list[dict[str, Any]] = field(default_factory=list)
+    completed_at: float | None = None
 
 
 class AgentControl:
@@ -54,6 +58,7 @@ class AgentControl:
         *,
         provider: Any = None,  # LLMProvider
         orchestrator: Any = None,  # ToolOrchestrator
+        tool_registry: Any = None,  # ToolRegistry — for role-filtered tool definitions
     ):
         self.session_id = session_id
         self.registry = registry
@@ -61,6 +66,7 @@ class AgentControl:
         self.workspace = workspace
         self._provider = provider
         self._orchestrator = orchestrator
+        self._tool_registry = tool_registry
         self._agents: dict[str, LiveAgent] = {}  # agent_id → LiveAgent
         self._thread_agents: dict[str, str] = {}  # thread_id → agent_id
         self._lock = asyncio.Lock()
@@ -194,7 +200,7 @@ class AgentControl:
         return agent.state.current
 
     def list_agents(self) -> list[dict[str, Any]]:
-        """List all agents with their status."""
+        """List all agents with their status and result preview."""
         return [
             {
                 "agent_id": a.agent_id,
@@ -203,9 +209,30 @@ class AgentControl:
                 "status": a.state.current.value,
                 "parent": a.parent_agent_id,
                 "label": a.metadata.description,
+                "result_preview": (a.result or "")[:200],
+                "error": a.error,
+                "completed_at": a.completed_at,
             }
             for a in self._agents.values()
         ]
+
+    def get_agent_detail(self, agent_id: str) -> dict[str, Any]:
+        """Get detailed information about an agent including full messages."""
+        agent = self._agents.get(agent_id)
+        if agent is None:
+            raise KeyError(f"Unknown agent: {agent_id}")
+        return {
+            "agent_id": agent.agent_id,
+            "thread_id": agent.thread_id,
+            "type": agent.metadata.display_name,
+            "status": agent.state.current.value,
+            "parent": agent.parent_agent_id,
+            "result": agent.result,
+            "error": agent.error,
+            "messages": agent.messages,
+            "spawned_at": agent.spawned_at,
+            "completed_at": agent.completed_at,
+        }
 
     async def _run_agent(self, agent: LiveAgent, task: str) -> None:
         """Execute the agent's task loop.
@@ -216,19 +243,32 @@ class AgentControl:
         - ToolOrchestrator (unified tool execution)
         - EventEmitter (typed event output)
 
-        For the main agent, this is called from the existing AgentLoop
-        after migration. For sub-agents, this is called from spawn().
+        All tool calls go through ToolOrchestrator. Sub-agents receive
+        role-filtered tool definitions based on their agent type.
+        Results, errors, and messages are persisted on LiveAgent.
         """
         import uuid as _uuid
         import time as _time
         import json
-        import re as _re
 
         turn_id = str(_uuid.uuid4())[:12]
         tools_used: list[str] = []
 
+        # Build role-filtered tool definitions
+        tool_defs = None
+        if self._tool_registry is not None:
+            allowed = set(agent.metadata.available_tools)
+            tool_defs = [
+                spec for spec in self._tool_registry.get_definitions()
+                if spec.get("function", {}).get("name") in allowed
+            ]
+
         try:
             agent.state.transition(AgentStatus.THINKING)
+            agent.messages = [
+                {"role": "system", "content": agent.metadata.system_prompt},
+                {"role": "user", "content": task},
+            ]
 
             # Emit turn started
             await self._events.emit(TurnStartedEvent(
@@ -250,11 +290,7 @@ class AgentControl:
                 max_tokens=8192,
             )
 
-            # Build initial messages
-            messages: list[dict] = [
-                {"role": "system", "content": agent.metadata.system_prompt},
-                {"role": "user", "content": task},
-            ]
+            messages = agent.messages
 
             # ── Main turn loop ──────────────────────────────────
             final_content: str | None = None
@@ -272,7 +308,7 @@ class AgentControl:
 
                 response = await _provider.chat(
                     messages=messages,
-                    tools=None,
+                    tools=tool_defs,
                     model=turn_ctx.model,
                     temperature=turn_ctx.temperature,
                     max_tokens=turn_ctx.max_tokens,
@@ -281,6 +317,13 @@ class AgentControl:
                 # 2. Handle tool calls
                 if response.has_tool_calls:
                     agent.state.transition(AgentStatus.EXECUTING)
+
+                    # Fail fast if orchestrator is not available
+                    if self._orchestrator is None:
+                        raise RuntimeError(
+                            "ToolOrchestrator must be configured before "
+                            "sub-agent tool execution."
+                        )
 
                     tool_call_dicts = []
                     for tc in response.tool_calls:
@@ -296,8 +339,7 @@ class AgentControl:
                             arguments=tc.arguments,
                         ))
 
-                        # Route through ToolOrchestrator (sole execution path)
-                        orchestrator = getattr(self, '_orchestrator', None)
+                        # Route through ToolOrchestrator (sole execution path — no fallback)
                         from miqi.execution.orchestrator import ToolExecutionContext
                         ctx = ToolExecutionContext(
                             tool_name=tc.name,
@@ -307,8 +349,7 @@ class AgentControl:
                             thread_id=agent.thread_id,
                             agent_type=agent.metadata.name,
                         )
-                        if orchestrator is not None:
-                            ctx = await orchestrator.execute(ctx)
+                        ctx = await self._orchestrator.execute(ctx)
                         result = ctx.result or ""
                         success = not (
                             isinstance(result, str)
@@ -370,6 +411,11 @@ class AgentControl:
                 else:
                     # No tool calls — final response
                     final_content = self._strip_think(response.content)
+                    # Record assistant response in messages
+                    messages.append({
+                        "role": "assistant",
+                        "content": response.content or "",
+                    })
                     if final_content:
                         await self._events.emit(AgentMessageEvent(
                             turn_id=turn_id,
@@ -392,6 +438,11 @@ class AgentControl:
                     f"Try breaking your task into smaller steps."
                 )
 
+            # Persist results on LiveAgent
+            agent.result = final_content
+            agent.messages = messages
+            agent.completed_at = _time.time()
+
             # Turn complete
             agent.state.transition(AgentStatus.COMPLETED)
             await self._events.emit(TurnCompleteEvent(
@@ -409,8 +460,12 @@ class AgentControl:
 
         except asyncio.CancelledError:
             agent.state.transition(AgentStatus.ABORTED)
+            agent.error = "Cancelled"
+            agent.completed_at = _time.time()
         except Exception as e:
             agent.state.transition(AgentStatus.ERROR)
+            agent.error = str(e)
+            agent.completed_at = _time.time()
             logger.error(
                 "Agent {} turn error: {}", agent.agent_id, e
             )

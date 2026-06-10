@@ -393,6 +393,7 @@ def handle_chat_send(req_id: str, params: dict) -> None:
                     event_emitter=_state._event_emitter,
                     workspace=config.workspace_path,
                     provider=agent.provider,
+                    tool_registry=agent.tools,
                 )
                 _log("Multi-agent runtime enabled (Phase 2)")
 
@@ -448,9 +449,11 @@ def handle_chat_send(req_id: str, params: dict) -> None:
                     pass
                 _log("Plugin manager enabled (Phase 4)")
 
-            # Wire orchestrator into AgentControl (for sub-agent tool execution)
+            # Wire orchestrator and tool registry into AgentControl (for sub-agent tool execution)
             if _state._orchestrator is not None and _state._agent_control is not None:
                 _state._agent_control._orchestrator = _state._orchestrator
+                if _state._agent_control._tool_registry is None:
+                    _state._agent_control._tool_registry = agent.tools
 
             # Wire AgentControl into spawn tool (Phase 2 bridge)
             spawn_tool = agent.tools.get("spawn")
@@ -2340,6 +2343,20 @@ def handle_agent_list(req_id: str, params: dict) -> None:
         _result(req_id, {"agents": []})
 
 
+def handle_agent_get(req_id: str, params: dict) -> None:
+    """Get detailed information about an agent."""
+    ac = _state._agent_control
+    if ac is None:
+        _result(req_id, {"error": "Agent control not initialized"})
+        return
+    agent_id = params.get("agent_id", "")
+    try:
+        detail = ac.get_agent_detail(agent_id)
+        _result(req_id, {"agent": detail})
+    except KeyError:
+        _result(req_id, {"error": f"Unknown agent: {agent_id}"})
+
+
 def handle_agent_spawn(req_id: str, params: dict) -> None:
     """Spawn a sub-agent for a task."""
     ac = _state._agent_control
@@ -2467,6 +2484,7 @@ _METHODS = {
     "permissions.permanent.add": handle_permissions_permanent_add,
     "permissions.permanent.remove": handle_permissions_permanent_remove,
     "agent.list": handle_agent_list,
+    "agent.get": handle_agent_get,
     "agent.spawn": handle_agent_spawn,
     "agent.kill": handle_agent_kill,
     "plan.get": handle_plan_get,
