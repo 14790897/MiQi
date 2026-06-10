@@ -1,17 +1,24 @@
 """Permission policy decision engine.
 
 Consults (in order):
-1. Read-only tools → always allow
-2. Config-based deny rules
+1. Config-based deny rules (checked first — explicit blocks always win)
+2. Read-only tools → auto-allow (unless blocked by deny pattern)
 3. Permanent whitelist
-4. Falls through to APPROVAL_REQUIRED for dangerous operations
+4. Shell safety check (metacharacter-aware)
+5. File write approval
+6. Default: deny-by-default (APPROVAL_REQUIRED)
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+
+# Shell metacharacters that indicate command chaining or injection
+_SHELL_METACHAR_PATTERN = re.compile(r"[;&|`$(){}\[\]<>!\n\r]")
 
 
 class PermissionVerdict(str, Enum):
@@ -31,21 +38,25 @@ class PermissionDecision:
 
 
 class PermissionEngine:
-    """Central permission decision engine."""
+    """Central permission decision engine.
 
-    # Read-only tools: auto-allow
+    Deny-by-default architecture: unknown tools require approval.
+    Explicit deny patterns take precedence over everything else.
+    """
+
+    # Read-only tools: auto-allow (but deny patterns still checked first)
     READ_ONLY_TOOLS: frozenset[str] = frozenset({
         "read_file", "list_dir", "web_search", "web_fetch",
         "session_search", "trace_search", "paper_search", "paper_get",
         "docx_read", "pptx_read", "xlsx_read", "memory",
     })
 
-    # Safe shell commands: auto-allow
+    # Safe shell commands: auto-allow (metacharacter-free commands only)
     SAFE_COMMAND_PREFIXES: tuple[str, ...] = (
         "ls ", "cat ", "head ", "tail ", "wc ", "grep ",
         "find ", "which ", "pwd", "echo ", "date", "whoami",
         "git status", "git log", "git diff", "git branch",
-        "git show", "python --version", "node --version",
+        "python --version", "node --version",
         "cargo --version", "npm --version", "pip list",
         "poetry --version", "uv --version", "dir ", "type ",
     )
@@ -69,11 +80,7 @@ class PermissionEngine:
         """
         tool_name = ctx.tool_name
 
-        # 1. Read-only tools: always allow
-        if tool_name in self.READ_ONLY_TOOLS:
-            return PermissionDecision(verdict=PermissionVerdict.ALLOW)
-
-        # 2. Deny list check (patterns match tool_name or arguments)
+        # 1. Deny list check FIRST — explicit blocks always win
         for pattern in self.deny_patterns:
             if pattern in tool_name or pattern in str(ctx.arguments):
                 return PermissionDecision(
@@ -81,12 +88,16 @@ class PermissionEngine:
                     reason=f"Matches deny pattern: {pattern}",
                 )
 
+        # 2. Read-only tools: auto-allow (unless blocked above)
+        if tool_name in self.READ_ONLY_TOOLS:
+            return PermissionDecision(verdict=PermissionVerdict.ALLOW)
+
         # 3. Permanent allowlist (keyed by tool + arguments)
         cmd_key = self._make_key(ctx)
         if cmd_key in self.permanent_allowlist:
             return PermissionDecision(verdict=PermissionVerdict.ALLOW)
 
-        # 4. Shell commands: check safety
+        # 4. Shell commands: metacharacter-aware safety check
         if tool_name == "exec":
             cmd = ctx.arguments.get("command", "")
             if self._is_safe_command(cmd):
@@ -110,12 +121,24 @@ class PermissionEngine:
                 allow_permanent=True,
             )
 
-        # 6. Default: allow unknown/safe tools
-        return PermissionDecision(verdict=PermissionVerdict.ALLOW)
+        # 6. Default: deny-by-default — unknown tools require approval
+        return PermissionDecision(
+            verdict=PermissionVerdict.APPROVAL_REQUIRED,
+            category="unknown_tool",
+            description=f"Unknown tool: {tool_name}",
+            details={"tool_name": tool_name},
+        )
 
     def _is_safe_command(self, cmd: str) -> bool:
-        """Check if a shell command is safe to auto-approve."""
-        cmd_lower = cmd.strip().lower()
+        """Check if a shell command is safe to auto-approve.
+
+        Rejects any command containing shell metacharacters
+        (;, &, |, `, $, etc.) even if the prefix matches.
+        """
+        cmd_stripped = cmd.strip()
+        if _SHELL_METACHAR_PATTERN.search(cmd_stripped):
+            return False
+        cmd_lower = cmd_stripped.lower()
         return any(cmd_lower.startswith(p) for p in self.SAFE_COMMAND_PREFIXES)
 
     @staticmethod

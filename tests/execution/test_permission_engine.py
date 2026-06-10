@@ -98,11 +98,48 @@ async def test_deny_pattern_in_arguments():
 
 
 @pytest.mark.asyncio
-async def test_default_tools_auto_allow():
+async def test_default_deny_by_default():
+    """Unknown tools should require approval (deny-by-default)."""
     engine = PermissionEngine()
     ctx = FakeContext("unknown_tool", {})
     decision = await engine.check(ctx)
-    assert decision.verdict == PermissionVerdict.ALLOW
+    assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
+
+
+@pytest.mark.asyncio
+async def test_deny_pattern_blocks_read_only_tools():
+    """Deny patterns should block even read-only tools."""
+    engine = PermissionEngine(deny_patterns={"secret_file"})
+    ctx = FakeContext("read_file", {"path": "/etc/secret_file.txt"})
+    decision = await engine.check(ctx)
+    assert decision.verdict == PermissionVerdict.DENY
+
+
+@pytest.mark.asyncio
+async def test_shell_metacharacter_rejected():
+    """Commands with shell metacharacters should require approval."""
+    engine = PermissionEngine()
+    ctx = FakeContext("exec", {"command": "ls && rm -rf /tmp"})
+    decision = await engine.check(ctx)
+    assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
+
+
+@pytest.mark.asyncio
+async def test_shell_pipe_rejected():
+    """Piped commands should require approval."""
+    engine = PermissionEngine()
+    ctx = FakeContext("exec", {"command": "cat /etc/passwd | grep root"})
+    decision = await engine.check(ctx)
+    assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
+
+
+@pytest.mark.asyncio
+async def test_shell_substitution_rejected():
+    """Command substitution should require approval."""
+    engine = PermissionEngine()
+    ctx = FakeContext("exec", {"command": "echo $(whoami)"})
+    decision = await engine.check(ctx)
+    assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
 
 
 @pytest.mark.asyncio
