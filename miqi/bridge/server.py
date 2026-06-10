@@ -425,11 +425,17 @@ def handle_chat_send(req_id: str, params: dict) -> None:
 
             # Wire AgentControl into spawn tool (Phase 2 bridge)
             spawn_tool = agent.tools.get("spawn")
+            _log(f"Spawn tool wiring: tool={spawn_tool}, agent_control={_state._agent_control}")
             if spawn_tool is not None:
                 from miqi.agent.tools.spawn import SpawnTool
                 if isinstance(spawn_tool, SpawnTool):
                     spawn_tool._agent_control = _state._agent_control
                     spawn_tool._event_emitter = _state._event_emitter
+                    _log(f"Spawn tool wired with AgentControl: {_state._agent_control is not None}")
+                else:
+                    _log(f"Spawn tool is not SpawnTool instance: {type(spawn_tool)}")
+            else:
+                _log("Spawn tool not found in agent.tools")
 
             _state.set_active(agent, req_id)
 
