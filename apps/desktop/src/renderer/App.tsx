@@ -14,14 +14,26 @@ import { CronPage } from './features/cron/CronPage'
 import { MemoryPage } from './features/memory/MemoryPage'
 import { ExperiencePage } from './features/experience/ExperiencePage'
 import { SkillsPage } from './features/skills/SkillsPage'
+import AgentPanel from './features/agents/AgentPanel'
+import PlanTracker from './features/plan/PlanTracker'
+import { ApprovalsPage } from './features/approvals/ApprovalsPage'
+import { PermissionsPage } from './features/permissions/PermissionsPage'
+import { PluginMarket } from './features/plugins/PluginMarket'
+import { SessionExplorer } from './features/sessions/SessionExplorer'
 
 type NavId =
   | 'chat'
+  | 'agents'
+  | 'plan'
   | 'mcps'
   | 'cron'
   | 'memory'
   | 'experience'
   | 'skills'
+  | 'permissions'
+  | 'plugins'
+  | 'approvals'
+  | 'sessions'
   | 'settings'
 
 const PRELOAD_OK = typeof window !== 'undefined' && !!(window as any).miqi
@@ -229,6 +241,14 @@ function AppShell() {
                 {activeNav === 'memory' && <MemoryPage />}
                 {activeNav === 'experience' && <ExperiencePage />}
                 {activeNav === 'skills' && <SkillsPage />}
+                {activeNav === 'agents' && <AgentPanel />}
+                {activeNav === 'plan' && <PlanTracker />}
+                {activeNav === 'approvals' && <ApprovalsPage />}
+                {activeNav === 'permissions' && <PermissionsPage />}
+                {activeNav === 'plugins' && <PluginMarket />}
+                {activeNav === 'sessions' && <SessionExplorer
+                  onOpenSession={(key: string) => { setSessionKey(key); setActiveNav('chat') }}
+                />}
                 {activeNav === 'settings' && <SettingsPage onReopenSetup={() => { setCanSkipSetup(true); setNeedsSetup(true) }} />}
               </main>
             </div>
