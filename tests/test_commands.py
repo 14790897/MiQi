@@ -179,52 +179,60 @@ def test_agent_command_passes_runtime_configs(monkeypatch, tmp_path):
 
 
 def test_cron_run_passes_runtime_configs(monkeypatch, tmp_path):
+    """Phase 14: cron_run uses RuntimeSession + RuntimeClient, not AgentLoop."""
     config = Config()
     config.providers.openrouter.api_key = "sk-or-v1-test"
     config.agents.defaults.workspace = str(tmp_path / "workspace")
     (tmp_path / "workspace").mkdir(parents=True, exist_ok=True)
 
-    captured: dict = {}
+    runtime_calls: list = []
+
+    class FakeRuntime:
+        async def start(self):
+            pass
+        async def stop(self):
+            pass
+        async def submit(self, _submission):
+            pass
+        async def next_event(self, timeout=None):
+            from miqi.protocol.events import AgentMessageEvent
+            return AgentMessageEvent(turn_id="t1", content="ok", finish_reason="stop")
 
     class FakeCronService:
         def __init__(self, _store_path):
             self.on_job = None
 
         async def run_job(self, _job_id, force=False):
+            if self.on_job is not None:
+                # Simulate a cron job callback
+                await self.on_job(_FakeCronJob())
             return bool(force)
 
-    class FakeAgentLoop:
-        def __init__(self, **kwargs):
-            captured.update(kwargs)
-            self.channels_config = kwargs.get("channels_config")
+    class _FakeCronJob:
+        id = "demo"
+        payload = type("Payload", (), {"message": "test", "channel": "cli", "to": "direct", "deliver": False})()
 
-        async def process_direct(self, *_args, **_kwargs):
-            return "ok"
-
-        async def close_mcp(self):
-            return None
-
-        def stop(self):
-            return None
+    def _fake_create(*, config, provider, session_id, workspace, **kwargs):
+        runtime_calls.append({
+            "config": config,
+            "session_id": session_id,
+            "workspace": workspace,
+        })
+        return FakeRuntime()
 
     monkeypatch.setattr("miqi.config.loader.load_config", lambda: config)
     monkeypatch.setattr("miqi.config.loader.get_data_dir", lambda: tmp_path)
     monkeypatch.setattr("miqi.cli.commands._make_provider", lambda _cfg: object())
     monkeypatch.setattr("miqi.cron.service.CronService", FakeCronService)
-    monkeypatch.setattr("miqi.agent.loop.AgentLoop", FakeAgentLoop)
-    monkeypatch.setattr("miqi.execution.factory.configure_agent_orchestrator", lambda _loop: None)
+    monkeypatch.setattr("miqi.runtime.session.RuntimeSession.create", _fake_create)
 
     result = runner.invoke(app, ["cron", "run", "demo", "--force"])
 
     assert result.exit_code == 0
     assert "Job executed" in result.stdout
-    assert captured["agent_name"] == config.agents.defaults.name
-    assert captured["reflect_after_tool_calls"] == config.agents.defaults.reflect_after_tool_calls
-    assert captured["web_config"] is config.tools.web
-    assert captured["paper_config"] is config.tools.papers
-    assert captured["memory_config"] is config.agents.memory
-    assert captured["self_improvement_config"] is config.agents.self_improvement
-    assert captured["session_config"] is config.agents.sessions
+    assert len(runtime_calls) >= 1
+    assert runtime_calls[0]["config"] is config
+    assert runtime_calls[0]["session_id"] == "cron:demo"
 
 
 def test_interactive_onboard_configures_papers_and_skips_feishu(monkeypatch):
