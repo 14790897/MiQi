@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Document body -->
+  <rect x="3" y="1" width="21" height="27" rx="2" fill="#F5F5F5"/>
+  <!-- Folded corner -->
+  <path d="M20 1 L24 5 H20 Z" fill="#E0E0E0"/>
+  <path d="M20 1 L24 5 L20 5 Z" fill="#BDBDBD"/>
+  <!-- Orange-red banner at bottom -->
+  <rect x="3" y="18" width="21" height="10" rx="0" fill="#BF360C"/>
+  <rect x="3" y="26" width="21" height="2" rx="0 0 2 2" fill="#BF360C"/>
+  <!-- P text in white -->
+  <text x="13.5" y="26.5" font-family="Arial Black, sans-serif" font-size="8.5" font-weight="900" fill="white" text-anchor="middle">P</text>
+  <!-- Lines on document -->
+  <rect x="6" y="8" width="12" height="1.5" rx="0.75" fill="#BDBDBD"/>
+  <rect x="6" y="11" width="14" height="1.5" rx="0.75" fill="#BDBDBD"/>
+  <rect x="6" y="14" width="10" height="1.5" rx="0.75" fill="#BDBDBD"/>
+</svg>
