@@ -45,6 +45,9 @@ class RuntimeServices:
     orchestrator: Any
     agent_registry: Any  # AgentRegistry
     agent_control: Any  # AgentControl
+    tool_runtime: Any  # ToolRuntime (Phase 12)
+    context_runtime: Any  # ContextRuntime (Phase 12)
+    turn_runner: Any  # TurnRunner (Phase 12)
 
     @classmethod
     def from_config(
@@ -118,6 +121,21 @@ class RuntimeServices:
             spawn_tool._agent_control = agent_control
             spawn_tool._event_emitter = emitter
 
+        # Phase 12: runtime-owned turn execution components
+        from miqi.runtime.context_runtime import ContextRuntime
+        from miqi.runtime.tool_runtime import ToolRuntime
+        from miqi.runtime.turn_runner import TurnRunner
+
+        tool_runtime = ToolRuntime(orchestrator=orchestrator)
+        context_runtime = ContextRuntime()
+        turn_runner = TurnRunner(
+            provider=provider,
+            tool_runtime=tool_runtime,
+            context_runtime=context_runtime,
+            event_emitter=emitter,
+            max_iterations=defaults.max_tool_iterations,
+        )
+
         return cls(
             session_id=session_id,
             workspace=workspace,
@@ -129,4 +147,7 @@ class RuntimeServices:
             orchestrator=orchestrator,
             agent_registry=registry,
             agent_control=agent_control,
+            tool_runtime=tool_runtime,
+            context_runtime=context_runtime,
+            turn_runner=turn_runner,
         )

@@ -9,14 +9,17 @@ from miqi.runtime.task_runner import TaskRunner
 
 
 @pytest.mark.asyncio
-async def test_task_runner_routes_user_message_to_agent_loop(fake_services):
-    """UserMessage is routed to agent_loop.process_direct and emits AgentMessageEvent."""
+async def test_task_runner_routes_user_message_to_turn_runner(fake_services):
+    """UserMessage goes through TurnRunner.run, not agent_loop.process_direct."""
     events = asyncio.Queue()
     runner = TaskRunner(services=fake_services, event_queue=events)
 
     await runner.handle(UserMessage(content="hello", thread_id="cli:default"))
 
-    fake_services.agent_loop.process_direct.assert_awaited_once()
+    # TurnRunner is the new path
+    fake_services.turn_runner.run.assert_awaited_once()
+    # agent_loop.process_direct should NOT be called
+    fake_services.agent_loop.process_direct.assert_not_awaited()
     event = await asyncio.wait_for(events.get(), timeout=1)
     assert hasattr(event, "content")
     assert event.content == "hi there"
@@ -66,11 +69,11 @@ async def test_task_runner_emits_error_for_unknown_type(fake_services):
 
 @pytest.mark.asyncio
 async def test_task_runner_sanitizes_processing_errors(fake_services):
-    """Exception messages from agent processing are sanitized, not leaked."""
+    """Exception messages from turn runner are sanitized, not leaked."""
     import asyncio as _asyncio
 
-    # Make agent_loop.process_direct raise with sensitive details
-    fake_services.agent_loop.process_direct.side_effect = RuntimeError(
+    # TurnRunner.run raises with sensitive details
+    fake_services.turn_runner.run.side_effect = RuntimeError(
         "secret API key leaked in stack trace"
     )
 
