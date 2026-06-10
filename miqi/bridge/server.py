@@ -132,6 +132,7 @@ class BridgeState:
         self._sandbox_manager: Any = None  # shared SandboxManager across agents
         self._event_emitter: Any = None  # Phase 1 shared EventEmitter
         self._agent_control: Any = None  # Phase 2 shared AgentControl
+        self._orchestrator: Any = None  # Phase 3 shared ToolOrchestrator
 
     def load_config(self):
         from miqi.config.loader import load_config
@@ -378,6 +379,49 @@ def handle_chat_send(req_id: str, params: dict) -> None:
                 _state._event_emitter = EventEmitter(_bridge_send_event)
                 _log("Typed event protocol enabled (Phase 1 dual-emit)")
             agent.enable_typed_events(_state._event_emitter)
+
+            # Phase 2: initialize shared AgentControl
+            if _state._agent_control is None:
+                from miqi.runtime.agent_registry import AgentRegistry
+                from miqi.runtime.agent_control import AgentControl
+                registry = AgentRegistry()
+                _state._agent_control = AgentControl(
+                    session_id=session_key,
+                    registry=registry,
+                    event_emitter=_state._event_emitter,
+                    workspace=config.workspace_path,
+                )
+                _log("Multi-agent runtime enabled (Phase 2)")
+
+            # Phase 3: initialize shared ToolOrchestrator
+            if _state._orchestrator is None:
+                from miqi.execution.orchestrator import ToolOrchestrator
+                from miqi.execution.permission_engine import PermissionEngine
+                from miqi.execution.sandbox_policy import SandboxPolicyEngine
+                from miqi.execution.hook_runtime import HookRuntime
+
+                bwrap_ok = (
+                    _state._sandbox_manager is not None
+                    and _state._sandbox_manager != "disabled"
+                )
+
+                _state._orchestrator = ToolOrchestrator(
+                    permission_engine=PermissionEngine(
+                        permanent_allowlist=set(_state._approval_meta.keys()),
+                    ),
+                    sandbox_engine=SandboxPolicyEngine(
+                        bwrap_available=bwrap_ok,
+                    ),
+                    hook_runtime=HookRuntime(),
+                    tool_registry=None,
+                    event_emitter=_state._event_emitter,
+                )
+                _log("Tool orchestration engine enabled (Phase 3)")
+
+            # Wire orchestrator into agent
+            agent._orchestrator = _state._orchestrator
+            if _state._orchestrator.tool_registry is None:
+                _state._orchestrator.tool_registry = agent.tools
 
             _state.set_active(agent, req_id)
 
