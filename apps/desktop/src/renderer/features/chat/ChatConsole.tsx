@@ -49,6 +49,7 @@ interface Message {
   content: string
   attachments?: Attachment[]
   toolHint?: boolean
+  toolCallId?: string
   /** When true the message is collapsed by default (user can click to expand) */
   collapsed?: boolean
   /** Short label shown when collapsed (e.g. "exec" or "write_file → /path/to/file") */
@@ -268,6 +269,10 @@ export function ChatConsole({
   } | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
   const [reverting, setReverting] = useState(false)
+  // Inline exec output: tool_call_id → accumulated stdout/stderr
+  const [execOutputs, setExecOutputs] = useState<
+    Record<string, { stdout: string; stderr: string; running: boolean }>
+  >({})
   const [merging, setMerging] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -496,10 +501,25 @@ export function ChatConsole({
       }
     }
 
-    const unsubProgress = window.miqi.chat.onProgress((data: ChatProgress) => {
+    const unsubProgress = window.miqi.chat.onProgress((data: any) => {
+      // Handle stream deltas from exec (Phase 7 inline tool progress)
+      if (data.stream && data.delta && data.tool_call_id) {
+        setExecOutputs((prev) => {
+          const current = prev[data.tool_call_id] || { stdout: '', stderr: '', running: true }
+          return {
+            ...prev,
+            [data.tool_call_id]: {
+              ...current,
+              [data.stream === 'stdout' ? 'stdout' : 'stderr']:
+                current[data.stream === 'stdout' ? 'stdout' : 'stderr'] + data.delta,
+            },
+          }
+        })
+        return
+      }
       setMessages((prev) => [
         ...prev,
-        { role: 'progress', content: data.text, toolHint: data.tool_hint, timestamp: Date.now() },
+        { role: 'progress', content: data.text, toolHint: data.tool_hint, toolCallId: data.tool_call_id, timestamp: Date.now() },
       ])
       // Parse file operations from tool hints
       if (data.tool_hint && data.text) {
@@ -829,6 +849,7 @@ export function ChatConsole({
                   <MessageBubble
                     key={`${msg.timestamp}-${i}`}
                     msg={msg}
+                    execOutputs={execOutputs}
                     isLast={i === messages.length - 1}
                     onCopy={(text) => handleCopy(text, i)}
                     isCopied={copiedIdx === i}
@@ -1600,8 +1621,9 @@ function TrackedFileCard({
   )
 }
 
-function MessageBubble({ msg, isLast, onCopy, isCopied, onRetry }: {
+function MessageBubble({ msg, execOutputs, isLast, onCopy, isCopied, onRetry }: {
   msg: Message
+  execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>
   isLast: boolean
   onCopy: (text: string) => void
   isCopied: boolean
@@ -1627,6 +1649,20 @@ function MessageBubble({ msg, isLast, onCopy, isCopied, onRetry }: {
           <span>{msg.summary || msg.content}</span>
         ) : (
           <span className="whitespace-pre-wrap break-all">{msg.content}</span>
+        )}
+        {/* Inline exec output (Phase 7.4) */}
+        {msg.toolCallId && execOutputs[msg.toolCallId] && (
+          <div className="ml-5 mt-1 p-2 bg-black/80 text-green-400 text-[11px] font-mono rounded max-h-48 overflow-y-auto border border-gray-700">
+            <pre className="whitespace-pre-wrap">
+              {execOutputs[msg.toolCallId].stdout}
+              {execOutputs[msg.toolCallId].stderr ? (
+                <span className="text-red-400">{execOutputs[msg.toolCallId].stderr}</span>
+              ) : null}
+            </pre>
+            {execOutputs[msg.toolCallId].running && (
+              <span className="inline-block w-1.5 h-3 bg-green-400 animate-pulse ml-0.5 align-middle" />
+            )}
+          </div>
         )}
       </div>
     )

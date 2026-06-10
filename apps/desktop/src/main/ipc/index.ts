@@ -59,6 +59,9 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         safeSend('approval:request', data)
       } else if (type === 'approval_cleared') {
         safeSend('approval:cleared', data)
+      } else if (type === 'chat:delta' || type === 'delta') {
+        // Forward as chat:progress so existing handler catches stream deltas
+        safeSend('chat:progress', data)
       }
     })
 
