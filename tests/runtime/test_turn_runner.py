@@ -136,3 +136,54 @@ async def test_turn_runner_exhausts_iterations(turn_runner, fake_turn_context):
     )
 
     assert "Reached maximum iterations" in result.final_content
+
+
+@pytest.mark.asyncio
+async def test_turn_runner_tool_call_message_ordering(turn_runner, fake_turn_context):
+    """TurnRunner must produce user → assistant(tool_calls) → tool → assistant."""
+    runner, provider = turn_runner
+
+    tc1 = _FakeToolCall("read_file", {"path": "/tmp/a"}, "tcid-1")
+    tc2 = _FakeToolCall("list_dir", {"path": "/tmp"}, "tcid-2")
+
+    # Track the second chat call's messages to verify ordering
+    captured_messages: list = []
+    call_count = 0
+
+    async def _smart_chat(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _FakeResponse(tool_calls=[tc1, tc2])
+        else:
+            captured_messages.extend(kwargs["messages"])
+            return _FakeResponse(content="done after tools")
+
+    provider.chat = _smart_chat
+
+    result = await runner.run(
+        turn=fake_turn_context,
+        user_content="task",
+        system_prompt="sys",
+        tools=[
+            {"type": "function", "function": {"name": "read_file", "parameters": {}}},
+            {"type": "function", "function": {"name": "list_dir", "parameters": {}}},
+        ],
+    )
+
+    assert result.final_content == "done after tools"
+
+    # The second provider call should receive: user → assistant(tool_calls) → tool → tool
+    roles = [m["role"] for m in captured_messages]
+    assert roles == ["system", "user", "assistant", "tool", "tool"], (
+        f"Bad tool-call ordering: {roles}"
+    )
+
+    # Assistant message must have tool_calls and appear before tool results
+    asst_idx = roles.index("assistant")
+    tool_indices = [i for i, r in enumerate(roles) if r == "tool"]
+    assert asst_idx < tool_indices[0], "assistant(tool_calls) must precede tool results"
+
+    # Tool call IDs must match
+    tool_call_ids = [m["tool_call_id"] for m in captured_messages if m["role"] == "tool"]
+    assert tool_call_ids == ["tcid-1", "tcid-2"], f"tool_call_ids out of order: {tool_call_ids}"

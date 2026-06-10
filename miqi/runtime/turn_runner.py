@@ -78,8 +78,10 @@ class TurnRunner:
 
             # Execute tool calls concurrently through ToolRuntime
             contexts = await self._tools.execute_many(turn, response.tool_calls)
+
+            # 1. Build assistant tool-call entries (no message mutation yet)
             assistant_tool_calls: list[dict[str, Any]] = []
-            for tool_call, ctx in zip(response.tool_calls, contexts):
+            for tool_call in response.tool_calls:
                 tools_used.append(tool_call.name)
                 assistant_tool_calls.append({
                     "id": tool_call.id,
@@ -93,17 +95,22 @@ class TurnRunner:
                         ),
                     },
                 })
+
+            # 2. Assistant message with tool_calls MUST precede tool results
+            messages = self._context.add_assistant_message(
+                messages=messages,
+                content=response.content or "",
+                tool_calls=assistant_tool_calls,
+            )
+
+            # 3. Append tool results in order (assistant → tool → tool → …)
+            for tool_call, ctx in zip(response.tool_calls, contexts):
                 messages = self._context.add_tool_result(
                     messages=messages,
                     tool_call_id=tool_call.id,
                     name=tool_call.name,
                     content=ctx.result or "",
                 )
-            messages = self._context.add_assistant_message(
-                messages=messages,
-                content=response.content or "",
-                tool_calls=assistant_tool_calls,
-            )
 
         # Exhausted iterations
         return TurnResult(
