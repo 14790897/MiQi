@@ -2146,6 +2146,70 @@ def handle_plugins_toggle(req_id: str, params: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Agent + Plan handlers (Phase 2/3 bridge)
+# ---------------------------------------------------------------------------
+
+
+def handle_agent_list(req_id: str, params: dict) -> None:
+    """List all agents and their status."""
+    ac = _state._agent_control
+    if ac is not None:
+        agents = ac.list_agents()
+        _result(req_id, {"agents": agents})
+    else:
+        _result(req_id, {"agents": []})
+
+
+def handle_agent_spawn(req_id: str, params: dict) -> None:
+    """Spawn a sub-agent for a task."""
+    ac = _state._agent_control
+    if ac is None:
+        _result(req_id, {"error": "Agent control not initialized"})
+        return
+    import asyncio
+
+    async def _spawn():
+        agent = await ac.spawn(
+            agent_type=params.get("agent_type", "code-agent"),
+            task=params.get("task", ""),
+            label=params.get("label"),
+        )
+        return {"agent_id": agent.agent_id, "thread_id": agent.thread_id}
+
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    result = loop.run_until_complete(_spawn())
+    _result(req_id, {"agent": result})
+
+
+def handle_agent_kill(req_id: str, params: dict) -> None:
+    """Kill an agent by ID."""
+    ac = _state._agent_control
+    agent_id = params.get("agent_id", "")
+    if ac is not None and agent_id:
+        import asyncio
+
+        async def _kill():
+            await ac.kill(agent_id)
+
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        loop.run_until_complete(_kill())
+    _result(req_id, {"killed": bool(agent_id)})
+
+
+def handle_plan_get(req_id: str, params: dict) -> None:
+    """Get current plan for a thread."""
+    _result(req_id, {"plan": None})
+
+
+# ---------------------------------------------------------------------------
 # Main dispatch
 # ---------------------------------------------------------------------------
 
@@ -2215,6 +2279,10 @@ _METHODS = {
     "permissions.update": handle_permissions_update,
     "permissions.permanent.add": handle_permissions_permanent_add,
     "permissions.permanent.remove": handle_permissions_permanent_remove,
+    "agent.list": handle_agent_list,
+    "agent.spawn": handle_agent_spawn,
+    "agent.kill": handle_agent_kill,
+    "plan.get": handle_plan_get,
 }
 
 
