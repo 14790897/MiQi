@@ -7,7 +7,7 @@ from miqi.protocol.events import AgentStatus
 
 
 VALID_TRANSITIONS: dict[AgentStatus, set[AgentStatus]] = {
-    AgentStatus.IDLE: {AgentStatus.THINKING},
+    AgentStatus.IDLE: {AgentStatus.THINKING, AgentStatus.ABORTED},
     AgentStatus.THINKING: {
         AgentStatus.EXECUTING,
         AgentStatus.WAITING_APPROVAL,
