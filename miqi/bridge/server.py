@@ -133,6 +133,8 @@ class BridgeState:
         self._event_emitter: Any = None  # Phase 1 shared EventEmitter
         self._agent_control: Any = None  # Phase 2 shared AgentControl
         self._orchestrator: Any = None  # Phase 3 shared ToolOrchestrator
+        self._plan_tracker: Any = None  # Phase 9 shared PlanTracker
+        self._plugin_manager: Any = None  # Phase 4 shared PluginManager
 
     def load_config(self):
         from miqi.config.loader import load_config
@@ -390,6 +392,7 @@ def handle_chat_send(req_id: str, params: dict) -> None:
                     registry=registry,
                     event_emitter=_state._event_emitter,
                     workspace=config.workspace_path,
+                    provider=agent.provider,
                 )
                 _log("Multi-agent runtime enabled (Phase 2)")
 
@@ -422,6 +425,32 @@ def handle_chat_send(req_id: str, params: dict) -> None:
             agent._orchestrator = _state._orchestrator
             if _state._orchestrator.tools is None:
                 _state._orchestrator.tools = agent.tools
+
+            # Wire plan tracker into BridgeState (for plan.get handler)
+            if hasattr(agent, '_plan_tracker') and agent._plan_tracker is not None:
+                _state._plan_tracker = agent._plan_tracker
+
+            # Phase 4: initialize shared PluginManager
+            if _state._plugin_manager is None:
+                from pathlib import Path as _Path
+                from miqi.skills.plugin_manager import PluginManager
+                _state._plugin_manager = PluginManager(
+                    user_plugins_dir=_Path.home() / ".miqi" / "plugins",
+                    system_plugins_dir=_Path(__file__).parent.parent / "plugins",
+                    workspace=config.workspace_path,
+                )
+                try:
+                    import asyncio as _asyncio
+                    _asyncio.get_event_loop().run_until_complete(
+                        _state._plugin_manager.discover()
+                    )
+                except Exception:
+                    pass
+                _log("Plugin manager enabled (Phase 4)")
+
+            # Wire orchestrator into AgentControl (for sub-agent tool execution)
+            if _state._orchestrator is not None and _state._agent_control is not None:
+                _state._agent_control._orchestrator = _state._orchestrator
 
             # Wire AgentControl into spawn tool (Phase 2 bridge)
             spawn_tool = agent.tools.get("spawn")
@@ -2140,29 +2169,104 @@ def handle_permissions_permanent_remove(req_id: str, params: dict) -> None:
 
 def handle_plugins_list(req_id: str, params: dict) -> None:
     """List installed plugins."""
+    pm = getattr(_state, '_plugin_manager', None)
+    if pm is None:
+        _result(req_id, {"plugins": []})
+        return
     plugins = []
-    if hasattr(_state, '_agent_control') and _state._agent_control:
-        pass  # Future: collect plugins from PluginManager
+    for p in pm.list_plugins():
+        plugins.append({
+            "name": p.manifest.name,
+            "version": p.manifest.version,
+            "description": p.manifest.description,
+            "author": p.manifest.author,
+            "scope": p.scope,
+            "status": p.status,
+            "error": p.error,
+            "mcp_servers": p.manifest.mcp_servers,
+            "skills": p.manifest.skills,
+            "slash_commands": p.manifest.slash_commands,
+        })
     _result(req_id, {"plugins": plugins})
 
 
 def handle_plugins_install(req_id: str, params: dict) -> None:
-    """Install a plugin by name."""
+    """Install a plugin from a GitHub URL or local path."""
     name = params.get("name", "")
-    _result(req_id, {"ok": False, "error": "Plugin installation not yet implemented"})
+    url = params.get("url", "")
+    pm = getattr(_state, '_plugin_manager', None)
+    if pm is None:
+        _result(req_id, {"ok": False, "error": "Plugin manager not initialized"})
+        return
+
+    import subprocess
+    import shutil
+    target_dir = pm.user_dir / name
+    if target_dir.exists():
+        _result(req_id, {"ok": False, "error": f"Plugin '{name}' already installed"})
+        return
+
+    try:
+        if url:
+            subprocess.run(
+                ["git", "clone", url, str(target_dir)],
+                check=True, capture_output=True, text=True, timeout=60,
+            )
+            # Reload plugins
+            import asyncio as _asyncio
+            _asyncio.get_event_loop().run_until_complete(pm.discover())
+            # Update MCP servers from newly installed plugin
+            new_servers = pm.get_mcp_servers()
+            if new_servers and hasattr(_state, '_mcp_servers'):
+                _state._mcp_servers.update({s.get("name", ""): s for s in new_servers})
+            _result(req_id, {"ok": True, "name": name})
+        else:
+            _result(req_id, {"ok": False, "error": "url is required for plugin installation"})
+    except subprocess.CalledProcessError as e:
+        if target_dir.exists():
+            shutil.rmtree(target_dir, ignore_errors=True)
+        _result(req_id, {"ok": False, "error": f"Clone failed: {e.stderr}"})
+    except Exception as e:
+        if target_dir.exists():
+            shutil.rmtree(target_dir, ignore_errors=True)
+        _result(req_id, {"ok": False, "error": str(e)})
 
 
 def handle_plugins_uninstall(req_id: str, params: dict) -> None:
     """Uninstall a plugin by name."""
     name = params.get("name", "")
-    _result(req_id, {"ok": False, "error": "Plugin uninstallation not yet implemented"})
+    pm = getattr(_state, '_plugin_manager', None)
+    if pm is None:
+        _result(req_id, {"ok": False, "error": "Plugin manager not initialized"})
+        return
+
+    import shutil
+    for base in [pm.user_dir, pm.system_dir]:
+        target = base / name
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
+            if name in pm._plugins:
+                del pm._plugins[name]
+            _result(req_id, {"ok": True, "name": name})
+            return
+    _result(req_id, {"ok": False, "error": f"Plugin '{name}' not found"})
 
 
 def handle_plugins_toggle(req_id: str, params: dict) -> None:
     """Toggle a plugin enabled/disabled."""
     name = params.get("name", "")
     enabled = params.get("enabled", False)
-    _result(req_id, {"ok": False, "error": "Plugin toggle not yet implemented"})
+    pm = getattr(_state, '_plugin_manager', None)
+    if pm is None:
+        _result(req_id, {"ok": False, "error": "Plugin manager not initialized"})
+        return
+
+    plugin = pm._plugins.get(name)
+    if plugin is None:
+        _result(req_id, {"ok": False, "error": f"Plugin '{name}' not found"})
+        return
+    plugin.status = "active" if enabled else "disabled"
+    _result(req_id, {"ok": True, "name": name, "enabled": enabled})
 
 
 # ---------------------------------------------------------------------------
@@ -2226,6 +2330,13 @@ def handle_agent_kill(req_id: str, params: dict) -> None:
 
 def handle_plan_get(req_id: str, params: dict) -> None:
     """Get current plan for a thread."""
+    plan_id = params.get("plan_id", "")
+    tracker = getattr(_state, '_plan_tracker', None)
+    if tracker is not None and plan_id:
+        plan = tracker.get(plan_id)
+        if plan is not None:
+            _result(req_id, {"plan": tracker.to_dict(plan)})
+            return
     _result(req_id, {"plan": None})
 
 

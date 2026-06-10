@@ -94,3 +94,17 @@ async def test_spawn_main_agent(agent_control, event_emitter):
     agent = await agent_control.spawn("main", "General task", label="main-task")
     assert agent.metadata.name == "main"
     assert agent.metadata.max_iterations == 40
+
+
+@pytest.mark.asyncio
+async def test_fork_creates_new_agent(agent_control, event_emitter):
+    parent = await agent_control.spawn("code-agent", "test task", label="parent")
+    child = await agent_control.fork(parent.thread_id)
+    assert child.agent_id != parent.agent_id
+    assert child.thread_id != parent.thread_id
+
+
+@pytest.mark.asyncio
+async def test_fork_unknown_thread_raises(agent_control):
+    with pytest.raises(ValueError, match="Unknown thread"):
+        await agent_control.fork("nonexistent-thread")

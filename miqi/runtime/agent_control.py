@@ -51,14 +51,20 @@ class AgentControl:
         registry: AgentRegistry,
         event_emitter: Any,  # EventEmitter — sends events to bridge
         workspace: Path,
+        *,
+        provider: Any = None,  # LLMProvider
+        orchestrator: Any = None,  # ToolOrchestrator
     ):
         self.session_id = session_id
         self.registry = registry
         self._events = event_emitter
         self.workspace = workspace
+        self._provider = provider
+        self._orchestrator = orchestrator
         self._agents: dict[str, LiveAgent] = {}  # agent_id → LiveAgent
         self._thread_agents: dict[str, str] = {}  # thread_id → agent_id
         self._lock = asyncio.Lock()
+        self._running_tasks: dict[str, asyncio.Task] = {}  # agent_id → background task
 
     async def spawn(
         self,
@@ -107,6 +113,14 @@ class AgentControl:
             agent_type=agent_type,
             task_label=label or task[:40],
         ))
+
+        # Start background execution if provider is available
+        if self._provider is not None:
+            agent.state.transition(AgentStatus.THINKING)
+            task_ref = asyncio.create_task(self._run_agent(agent, task))
+            self._running_tasks[agent_id] = task_ref
+            # Cleanup task reference on completion
+            task_ref.add_done_callback(lambda _t: self._running_tasks.pop(agent_id, None))
 
         logger.info(
             "Spawned agent {} of type {} for thread {}",
@@ -247,17 +261,16 @@ class AgentControl:
             max_iterations = agent.metadata.max_iterations
 
             for iteration in range(1, max_iterations + 1):
-                # 1. Call LLM (requires provider to be wired)
-                if turn_ctx.provider is None:
+                # 1. Call LLM (use TurnContext provider, fall back to self._provider)
+                _provider = turn_ctx.provider or self._provider
+                if _provider is None:
                     final_content = (
                         "Agent provider not wired. "
-                        "AgentControl._run_agent() requires a provider "
-                        "to be set on TurnContext.provider before execution. "
-                        "In production, this is done by AgentLoop via BridgeServer."
+                        "AgentControl._run_agent() requires a provider."
                     )
                     break
 
-                response = await turn_ctx.provider.chat(
+                response = await _provider.chat(
                     messages=messages,
                     tools=None,
                     model=turn_ctx.model,
@@ -283,29 +296,25 @@ class AgentControl:
                             arguments=tc.arguments,
                         ))
 
-                        # Route through orchestrator if available
+                        # Route through ToolOrchestrator (sole execution path)
                         orchestrator = getattr(self, '_orchestrator', None)
+                        from miqi.execution.orchestrator import ToolExecutionContext
+                        ctx = ToolExecutionContext(
+                            tool_name=tc.name,
+                            tool_call_id=tc.id,
+                            arguments=tc.arguments,
+                            turn_id=turn_id,
+                            thread_id=agent.thread_id,
+                            agent_type=agent.metadata.name,
+                        )
                         if orchestrator is not None:
-                            from miqi.execution.orchestrator import ToolExecutionContext
-                            ctx = ToolExecutionContext(
-                                tool_name=tc.name,
-                                tool_call_id=tc.id,
-                                arguments=tc.arguments,
-                                turn_id=turn_id,
-                                thread_id=agent.thread_id,
-                                agent_type=agent.metadata.name,
-                            )
                             ctx = await orchestrator.execute(ctx)
-                            result = ctx.result or ""
-                            success = not (
-                                isinstance(result, str)
-                                and result.startswith("Error")
-                            )
-                            duration = ctx.duration_ms
-                        else:
-                            result = f"Error: no orchestrator available for {tc.name}"
-                            success = False
-                            duration = 0
+                        result = ctx.result or ""
+                        success = not (
+                            isinstance(result, str)
+                            and result.startswith("Error")
+                        )
+                        duration = ctx.duration_ms
 
                         # Emit tool end event
                         preview = (result or "")[:200]

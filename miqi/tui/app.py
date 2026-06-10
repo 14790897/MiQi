@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Input, Static
 from textual.containers import Horizontal, Vertical
@@ -44,6 +47,34 @@ class MiQiTui(App):
     _plan_visible: bool = False
     _agent_loop: object = None  # AgentLoop instance for runtime connection
 
+    async def connect_runtime(
+        self,
+        provider: Any,
+        workspace: Path,
+        model: str = "default",
+    ) -> None:
+        """Connect to a real AgentLoop runtime.
+
+        Args:
+            provider: LLMProvider instance
+            workspace: Working directory
+            model: Model name to use
+        """
+        from miqi.agent.loop import AgentLoop
+        from miqi.bus.queue import MessageBus
+
+        bus = MessageBus()
+        self._agent_loop = AgentLoop(
+            bus=bus,
+            provider=provider,
+            workspace=workspace,
+            model=model,
+        )
+        self._append_message(
+            "System",
+            f"Connected to MiQi runtime (model: {model}, workspace: {workspace})",
+        )
+
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal():
@@ -72,7 +103,11 @@ class MiQiTui(App):
         if self._agent_loop is not None:
             self._process_message(content)
         else:
-            self._append_message("MiQi", "(No runtime connected. Set _agent_loop to an AgentLoop instance.)")
+            self._append_message(
+                "MiQi",
+                "(No runtime connected. Use `miqi tui --connect` to connect, "
+                "or call app.connect_runtime(provider, workspace) in code.)",
+            )
 
     def action_abort(self) -> None:
         """Abort the current turn."""
@@ -182,3 +217,33 @@ class MiQiTui(App):
                 self._append_message("MiQi", f"Error: {e}")
 
         asyncio.create_task(_run())
+
+
+async def main() -> None:
+    """Entry point: create TUI with optional runtime connection."""
+    import sys
+    from pathlib import Path
+
+    workspace = Path.cwd()
+    provider = None
+
+    # Try to create a provider from config
+    try:
+        from miqi.config.loader import load_config
+        config = load_config(workspace)
+        providers = getattr(config, 'providers', {})
+        if providers:
+            from miqi.providers.base import LLMProvider
+            provider = LLMProvider.from_config(providers)
+    except Exception:
+        pass
+
+    app = MiQiTui()
+    if provider:
+        await app.connect_runtime(provider, workspace)
+    await app.run_async()
+
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
