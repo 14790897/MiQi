@@ -2199,17 +2199,42 @@ def handle_plugins_install(req_id: str, params: dict) -> None:
         _result(req_id, {"ok": False, "error": "Plugin manager not initialized"})
         return
 
+    # Validate plugin name: no path separators, no traversal
+    import re as _re
+    if not _re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', name):
+        _result(req_id, {"ok": False, "error": "Invalid plugin name"})
+        return
+
     import subprocess
     import shutil
-    target_dir = pm.user_dir / name
+    target_dir = (pm.user_dir / name).resolve()
+    # Ensure resolved path stays within the plugins directory
+    if not str(target_dir).startswith(str(pm.user_dir.resolve())):
+        _result(req_id, {"ok": False, "error": "Invalid plugin path"})
+        return
     if target_dir.exists():
         _result(req_id, {"ok": False, "error": f"Plugin '{name}' already installed"})
         return
 
     try:
         if url:
+            # Validate URL: HTTPS only, known hosts only
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            ALLOWED_HOSTS = {"github.com", "gitlab.com", "bitbucket.org"}
+            if parsed.scheme != "https":
+                _result(req_id, {"ok": False, "error": "Only HTTPS URLs are supported"})
+                return
+            if parsed.hostname not in ALLOWED_HOSTS:
+                _result(req_id, {"ok": False, "error": f"Unsupported host: {parsed.hostname}"})
+                return
+            # Prevent credential injection in URL
+            if "@" in parsed.netloc:
+                _result(req_id, {"ok": False, "error": "Credentials in URL are not allowed"})
+                return
+
             subprocess.run(
-                ["git", "clone", url, str(target_dir)],
+                ["git", "clone", "--depth=1", url, str(target_dir)],
                 check=True, capture_output=True, text=True, timeout=60,
             )
             # Reload plugins
@@ -2240,9 +2265,19 @@ def handle_plugins_uninstall(req_id: str, params: dict) -> None:
         _result(req_id, {"ok": False, "error": "Plugin manager not initialized"})
         return
 
+    # Validate plugin name: no path separators, no traversal
+    import re as _re2
+    if not _re2.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', name):
+        _result(req_id, {"ok": False, "error": "Invalid plugin name"})
+        return
+
     import shutil
     for base in [pm.user_dir, pm.system_dir]:
-        target = base / name
+        target = (base / name).resolve()
+        base_resolved = base.resolve()
+        # Ensure resolved path stays within the plugins directory
+        if not str(target).startswith(str(base_resolved)):
+            continue
         if target.exists():
             shutil.rmtree(target, ignore_errors=True)
             if name in pm._plugins:
@@ -2259,6 +2294,12 @@ def handle_plugins_toggle(req_id: str, params: dict) -> None:
     pm = getattr(_state, '_plugin_manager', None)
     if pm is None:
         _result(req_id, {"ok": False, "error": "Plugin manager not initialized"})
+        return
+
+    # Validate plugin name
+    import re as _re3
+    if not _re3.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', name):
+        _result(req_id, {"ok": False, "error": "Invalid plugin name"})
         return
 
     plugin = pm._plugins.get(name)
