@@ -27,6 +27,7 @@ import {
   BookOpen,
   GitCompare,
   Undo2,
+  ListChecks,
 } from 'lucide-react'
 import type {
   ChatProgress,
@@ -311,6 +312,26 @@ export function ChatConsole({
             : t,
         ),
       )
+    })
+    return () => { if (unsub) unsub() }
+  }, [])
+
+  // ── Plan sidebar state ──
+  interface PlanStep {
+    id: string
+    description: string
+    status: 'pending' | 'in_progress' | 'completed' | 'skipped'
+    depends_on: string[]
+  }
+  const [plan, setPlan] = useState<{ title: string; steps: PlanStep[] } | null>(null)
+  const [planOpen, setPlanOpen] = useState(false)
+
+  useEffect(() => {
+    const unsub = window.miqi.plan?.onUpdated((data) => {
+      if (data.plan) {
+        setPlan(data.plan)
+        setPlanOpen(true)
+      }
     })
     return () => { if (unsub) unsub() }
   }, [])
@@ -746,6 +767,18 @@ export function ChatConsole({
             )}
           </ContextMenu>
           <button
+            onClick={() => setPlanOpen(!planOpen)}
+            className={cn(
+              'p-1.5 rounded transition-colors',
+              planOpen
+                ? 'text-[var(--accent)] bg-[var(--accent)]/10'
+                : 'text-[var(--text-muted)] hover:text-[var(--text)]',
+            )}
+            title="Toggle plan"
+          >
+            <ListChecks size={16} />
+          </button>
+          <button
             onClick={handleNewSession}
             disabled={streaming}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
@@ -917,6 +950,42 @@ export function ChatConsole({
             </div>
           </div>
         </div>
+
+        {/* ── Plan Sidebar ── */}
+        {planOpen && plan && (
+          <div className="w-72 border-l border-[var(--border)] bg-[var(--surface)] flex flex-col shrink-0">
+            <div className="flex items-center justify-between p-2 border-b border-[var(--border)]">
+              <span className="text-sm font-semibold truncate">{plan.title}</span>
+              <button
+                onClick={() => setPlanOpen(false)}
+                className="text-[var(--text-muted)] hover:text-[var(--text)]"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {plan.steps.map((step) => (
+                <div key={step.id} className="flex items-start gap-2 text-xs py-1">
+                  <span className={cn(
+                    'mt-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[10px] shrink-0',
+                    step.status === 'completed' && 'bg-green-500 text-white',
+                    step.status === 'in_progress' && 'bg-blue-500 text-white animate-pulse',
+                    step.status === 'pending' && 'bg-gray-300 text-gray-600',
+                    step.status === 'skipped' && 'bg-gray-200 text-gray-400',
+                  )}>
+                    {step.status === 'completed' ? '✓' : step.status === 'in_progress' ? '●' : '○'}
+                  </span>
+                  <span className={cn(
+                    step.status === 'skipped' && 'line-through text-[var(--text-muted)]',
+                    step.status === 'in_progress' && 'font-medium',
+                  )}>
+                    {step.description}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── Right panel: Task Assets ── */}
         {panelOpen && (
