@@ -67,8 +67,7 @@ packages = ["miqi"]
 include = [
     "miqi/**/*.py",
     "miqi/templates/**/*.md",
-    "miqi/skills/**/*.md",
-    "miqi/skills/**/*.sh",
+    "miqi/skills/**/*",
 ]
 
 [tool.hatch.build.targets.sdist]
