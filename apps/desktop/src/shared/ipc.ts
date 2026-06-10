@@ -84,6 +84,8 @@ export const IPC = {
   // WSL2 check & install (Windows only, no bridge needed)
   WSL_CHECK: 'wsl:check',
   WSL_INSTALL: 'wsl:install',
+  WSL_EXPORT_DISTRO: 'wsl:export_distro',
+  WSL_IMPORT_DISTRO: 'wsl:import_distro',
 
   // Write initial config (no bridge needed — used by Setup Wizard)
   CONFIG_WRITE_INITIAL: 'config:write_initial',
@@ -634,4 +636,16 @@ export interface WslCheckResult {
   distros: string[]        // e.g. ["Ubuntu"]
   defaultDistro: string | null
   running: boolean         // whether WSL is currently active
+}
+export interface WslExportDistroResult {
+  exported: boolean
+  distro: string | null      // exported distro name
+  tarPath: string | null     // path to exported tar file
+  error: string | null
+}
+export interface WslImportDistroResult {
+  imported: boolean
+  distro: string | null      // imported distro name
+  installLocation: string | null // where the distro was installed
+  error: string | null
 }

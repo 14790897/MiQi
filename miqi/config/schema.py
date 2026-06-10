@@ -363,8 +363,10 @@ class SandboxConfig(Base):
     share_net: bool = False  # Allow network access inside sandbox
     max_sandboxes: int = 10  # Maximum concurrent sandboxes
     auto_cleanup: bool = True  # Clean up sandbox on session archive/delete
-    wsl_distro: str = ""  # WSL distribution name (e.g. "AIShadowSandbox"). Auto-detected if empty on Windows.
+    wsl_distro: str = "AIShadowSandbox"  # WSL distribution name (e.g. "AIShadowSandbox"). Auto-detected if empty on Windows.
+
     wsl_base_dir: str = "/tmp/miqi-sandboxes"  # Sandbox directory inside WSL filesystem
+    sandbox_distro_name: str = "AISandbox"  # Dedicated sandbox distro name (imported from the default distro)
 
 
 class ExecToolConfig(Base):

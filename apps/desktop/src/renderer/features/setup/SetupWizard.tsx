@@ -18,7 +18,7 @@ import {
   Monitor,
 } from 'lucide-react'
 import type { PythonCheckResult } from '../../../shared/ipc'
-import type { WslCheckResult } from '../../../shared/ipc'
+import type { WslCheckResult, WslExportDistroResult, WslImportDistroResult } from '../../../shared/ipc'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -198,6 +198,12 @@ export function SetupWizard({ onComplete, onExit }: { onComplete: () => void; on
   const [wslChecking, setWslChecking] = useState(false)
   const [wslInstalling, setWslInstalling] = useState(false)
   const [wslInstallError, setWslInstallError] = useState('')
+  const [wslExporting, setWslExporting] = useState(false)
+  const [wslExportResult, setWslExportResult] = useState<WslExportDistroResult | null>(null)
+  const [wslImporting, setWslImporting] = useState(false)
+  const [wslImportResult, setWslImportResult] = useState<WslImportDistroResult | null>(null)
+  const [wslExportError, setWslExportError] = useState('')
+  const [wslImportError, setWslImportError] = useState('')
 
   // ---- Provider ----
   const [selectedProvider, setSelectedProvider] = useState('')
@@ -338,6 +344,75 @@ export function SetupWizard({ onComplete, onExit }: { onComplete: () => void; on
       setWslInstallError(e?.message ?? String(e))
     }
     setWslInstalling(false)
+  }
+
+  const exportDistro = async () => {
+    // Skip if AISandbox already exists as a WSL distro
+    if (wslCheck?.distros?.includes('AISandbox')) {
+      setWslExportResult({ exported: true, distro: 'AISandbox', tarPath: null, error: null })
+      setWslImportResult({ imported: true, distro: 'AISandbox', installLocation: null, error: null })
+      return
+    }
+    if (wslCheck?.defaultDistro) {
+      setWslExporting(true)
+      setWslExportResult(null)
+      setWslExportError('')
+      try {
+        const result = await window.miqi.wsl.exportDistro(wslCheck.defaultDistro)
+        setWslExportResult(result)
+        if (result.exported) {
+          // Auto-import after successful export
+          setWslImporting(true)
+          setWslImportResult(null)
+          setWslImportError('')
+          try {
+            const impResult = await window.miqi.wsl.importDistro({
+              tarPath: result.tarPath!,
+              distroName: 'AISandbox',
+            })
+            setWslImportResult(impResult)
+          } catch (e: any) {
+            setWslImportError(e?.message ?? String(e))
+          }
+          setWslImporting(false)
+        }
+      } catch (e: any) {
+        setWslExportError(e?.message ?? String(e))
+      }
+      setWslExporting(false)
+    }
+  }
+
+  // Auto-trigger sandbox distro setup when WSL is detected with a distro.
+  // Skips if AISandbox already exists or export was already completed.
+  useEffect(() => {
+    if (
+      wslCheck?.installed &&
+      wslCheck?.defaultDistro &&
+      !wslExportResult &&
+      !wslExporting &&
+      !wslCheck?.distros?.includes('AISandbox')
+    ) {
+      exportDistro()
+    }
+  }, [wslCheck?.installed, wslCheck?.defaultDistro, wslExportResult, wslExporting])
+
+  const importDistro = async () => {
+    if (wslExportResult?.tarPath) {
+      setWslImporting(true)
+      setWslImportResult(null)
+      setWslImportError('')
+      try {
+        const result = await window.miqi.wsl.importDistro({
+          tarPath: wslExportResult.tarPath,
+          distroName: 'AISandbox',
+        })
+        setWslImportResult(result)
+      } catch (e: any) {
+        setWslImportError(e?.message ?? String(e))
+      }
+      setWslImporting(false)
+    }
   }
 
   const testProvider = async () => {
@@ -606,6 +681,54 @@ export function SetupWizard({ onComplete, onExit }: { onComplete: () => void; on
             <p className="text-xs text-[var(--text-faint)]">
               安装完成后点击"重新检测"刷新状态。
             </p>
+          </div>
+        )}
+
+        {/* WSL2 installed with distro → auto-setup dedicated sandbox distro */}
+        {wslCheck && isInstalled && hasDistro && (
+          <div className="flex flex-col gap-2 bg-[var(--surface-muted)] rounded-lg p-4">
+            <h3 className="text-sm font-medium text-[var(--text)]">
+              专用沙箱发行版
+            </h3>
+            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+              正在自动导出专用 WSL 发行版供沙箱隔离使用，避免沙箱需要 sudo 权限…
+            </p>
+            {/* Auto-export progress */}
+            {wslExporting && (
+              <div className="flex items-center gap-2 text-xs text-[var(--accent)]">
+                <Loader2 size={14} className="animate-spin" />
+                正在导出 {wslCheck.defaultDistro} 到专用沙箱发行版…
+              </div>
+            )}
+            {/* Auto-import progress */}
+            {wslImporting && (
+              <div className="flex items-center gap-2 text-xs text-[var(--accent)]">
+                <Loader2 size={14} className="animate-spin" />
+                正在导入专用沙箱发行版 AISandbox…
+              </div>
+            )}
+            {/* Export completed */}
+            {wslExportResult?.exported && (
+              <CheckItem
+                label="导出沙箱发行版"
+                ok={true}
+                detail={`已导出 ${wslExportResult.distro}`}
+              />
+            )}
+            {/* Import completed */}
+            {wslImportResult?.imported && (
+              <CheckItem
+                label="导入专用沙箱发行版"
+                ok={true}
+                detail={`已导入 ${wslImportResult.distro}`}
+              />
+            )}
+            {wslExportError && (
+              <p className="text-xs text-[var(--danger)]">导出失败: {wslExportError}</p>
+            )}
+            {wslImportError && (
+              <p className="text-xs text-[var(--danger)]">导入失败: {wslImportError}</p>
+            )}
           </div>
         )}
 

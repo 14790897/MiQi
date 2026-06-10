@@ -280,6 +280,7 @@ class SandboxManager:
                 share_net=self.share_net,
                 wsl_distro=self.wsl_distro,
                 wsl_base_dir=self.wsl_base_dir,
+                sandbox_distro_name=self.sandbox_distro_name,
             )
 
             try:

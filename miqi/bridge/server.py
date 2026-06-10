@@ -178,6 +178,7 @@ class BridgeState:
             auto_cleanup=getattr(sb_cfg, "auto_cleanup", True),
             wsl_distro=getattr(sb_cfg, "wsl_distro", ""),
             wsl_base_dir=getattr(sb_cfg, "wsl_base_dir", "/tmp/miqi-sandboxes"),
+            sandbox_distro_name=getattr(sb_cfg, "sandbox_distro_name", "AISandbox"),
         )
 
     def build_agent(self, session_key: str, approval_callback=None):

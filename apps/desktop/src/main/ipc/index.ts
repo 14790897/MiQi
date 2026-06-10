@@ -410,6 +410,81 @@ for m in ("pydantic", "httpx", "loguru"):
     }
   })
 
+  // Export default WSL distro to a tar file for sandbox use.
+  // This creates a dedicated sandbox distro that avoids requiring sudo
+  // because the sandbox uses --unshare-user-try (user namespace).
+  ipcMain.handle(IPC.WSL_EXPORT_DISTRO, async (_, distroName: string) => {
+    if (process.platform !== 'win32') {
+      return { exported: false, distro: null, tarPath: null, error: 'Not on Windows' }
+    }
+    if (!distroName) {
+      return { exported: false, distro: null, tarPath: null, error: 'No distro to export' }
+    }
+    try {
+      // Export the specified distro to a tar file
+      const exportDir = process.env['LOCALAPPDATA'] || process.env['APPDATA'] || ''
+      if (!exportDir) {
+        return { exported: false, distro: null, tarPath: null, error: 'LOCALAPPDATA not found' }
+      }
+      const tarPath = join(exportDir, `${distroName}.tar`)
+      const child = spawnSync(
+        'wsl.exe',
+        [
+          '-d', distroName,
+          '--export', distroName,
+          '-t', tarPath,
+        ],
+        { timeout: 120000, encoding: 'utf8' },
+      )
+      if (child.status !== 0) {
+        return { exported: false, distro: null, tarPath: null, error: child.stderr || 'Export failed' }
+      }
+      return { exported: true, distro: distroName, tarPath, error: null }
+    } catch (e: any) {
+      return { exported: false, distro: null, tarPath: null, error: e?.message ?? String(e) }
+    }
+  })
+
+  // Import a dedicated sandbox distro from a tar file.
+  // The imported distro is used exclusively by the sandbox,
+  // avoiding sudo requirement because sandbox uses --unshare-user-try.
+  ipcMain.handle(IPC.WSL_IMPORT_DISTRO, async (_, options: { tarPath: string; distroName: string }) => {
+    if (process.platform !== 'win32') {
+      return { imported: false, distro: null, installLocation: null, error: 'Not on Windows' }
+    }
+    const { tarPath, distroName } = options
+    if (!tarPath) {
+      return { imported: false, distro: null, installLocation: null, error: 'No tar file path provided' }
+    }
+    if (!distroName) {
+      return { imported: false, distro: null, installLocation: null, error: 'No distro name provided' }
+    }
+    try {
+      // Import the tar file as a new dedicated sandbox distro
+      // Use LOCALAPPDATA as install location to avoid requiring admin
+      const installLocation = join(
+        process.env['LOCALAPPDATA'] || process.env['APPDATA'] || '',
+        'MiQi Sandbox',
+      )
+      const child = spawnSync(
+        'wsl.exe',
+        [
+          '--import', distroName,
+          installLocation,
+          tarPath,
+          '--version', '2',  // Always WSL2 for sandbox
+        ],
+        { timeout: 120000, encoding: 'utf8' },
+      )
+      if (child.status !== 0) {
+        return { imported: false, distro: null, installLocation: null, error: child.stderr || 'Import failed' }
+      }
+      return { imported: true, distroName, installLocation, error: null }
+    } catch (e: any) {
+      return { imported: false, distro: null, installLocation: null, error: e?.message ?? String(e) }
+    }
+  })
+
   // -----------------------------------------------------------------------
   // Dialog (file open for workspace)
   // -----------------------------------------------------------------------
