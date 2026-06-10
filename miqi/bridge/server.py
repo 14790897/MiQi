@@ -420,8 +420,8 @@ def handle_chat_send(req_id: str, params: dict) -> None:
 
             # Wire orchestrator into agent
             agent._orchestrator = _state._orchestrator
-            if _state._orchestrator.tool_registry is None:
-                _state._orchestrator.tool_registry = agent.tools
+            if _state._orchestrator.tools is None:
+                _state._orchestrator.tools = agent.tools
 
             _state.set_active(agent, req_id)
 
