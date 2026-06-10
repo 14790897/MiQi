@@ -43,6 +43,11 @@ import type {
   ChatAborted,
   PythonCheckResult,
   WslCheckResult,
+  LiveAgentInfo,
+  AgentSpawnedEvent,
+  AgentCompletedEvent,
+  Plan,
+  PlanUpdatedEvent,
 } from '../shared/ipc'
 
 // ---------------------------------------------------------------------------
@@ -296,6 +301,61 @@ const api = {
   dialog: {
     openFile: (): Promise<string | null> =>
       ipcRenderer.invoke(IPC.DIALOG_OPEN_FILE),
+  },
+
+  // -- Agents (Phase 1) --------------------------------------------------------
+  agents: {
+    list: (): Promise<{ agents: LiveAgentInfo[] }> =>
+      ipcRenderer.invoke(IPC.AGENT_LIST),
+    spawn: (agentType: string, task: string, label?: string): Promise<{ agent: LiveAgentInfo }> =>
+      ipcRenderer.invoke(IPC.AGENT_SPAWN, { agent_type: agentType, task, label }),
+    kill: (agentId: string): Promise<{ killed: boolean }> =>
+      ipcRenderer.invoke(IPC.AGENT_KILL, { agent_id: agentId }),
+    onSpawned: (callback: (data: AgentSpawnedEvent) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: AgentSpawnedEvent) => callback(data)
+      ipcRenderer.on(IPC_EVENTS.AGENT_SPAWNED, handler)
+      return () => ipcRenderer.removeListener(IPC_EVENTS.AGENT_SPAWNED, handler)
+    },
+    onCompleted: (callback: (data: AgentCompletedEvent) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: AgentCompletedEvent) => callback(data)
+      ipcRenderer.on(IPC_EVENTS.AGENT_COMPLETED, handler)
+      return () => ipcRenderer.removeListener(IPC_EVENTS.AGENT_COMPLETED, handler)
+    },
+  },
+
+  // -- Plan (Phase 2) ----------------------------------------------------------
+  plan: {
+    get: (threadId: string): Promise<{ plan: Plan | null }> =>
+      ipcRenderer.invoke(IPC.PLAN_GET, { thread_id: threadId }),
+    onUpdated: (callback: (data: PlanUpdatedEvent) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: PlanUpdatedEvent) => callback(data)
+      ipcRenderer.on(IPC_EVENTS.PLAN_UPDATED, handler)
+      return () => ipcRenderer.removeListener(IPC_EVENTS.PLAN_UPDATED, handler)
+    },
+  },
+
+  // -- Permissions (Phase 1) ---------------------------------------------------
+  permissions: {
+    get: (): Promise<Record<string, unknown>> =>
+      ipcRenderer.invoke(IPC.PERMISSIONS_GET),
+    update: (config: Record<string, unknown>): Promise<{ saved: boolean }> =>
+      ipcRenderer.invoke(IPC.PERMISSIONS_UPDATE, { config }),
+    addPermanent: (pattern: string): Promise<{ added: boolean }> =>
+      ipcRenderer.invoke(IPC.PERMISSIONS_PERMANENT_ADD, { pattern }),
+    removePermanent: (pattern: string): Promise<{ removed: boolean }> =>
+      ipcRenderer.invoke(IPC.PERMISSIONS_PERMANENT_REMOVE, { pattern }),
+  },
+
+  // -- Plugins (Phase 4) -------------------------------------------------------
+  plugins: {
+    list: (): Promise<{ plugins: Record<string, unknown>[] }> =>
+      ipcRenderer.invoke(IPC.PLUGINS_LIST),
+    install: (name: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.PLUGINS_INSTALL, { name }),
+    uninstall: (name: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.PLUGINS_UNINSTALL, { name }),
+    toggle: (name: string, enabled: boolean): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.PLUGINS_TOGGLE, { name, enabled }),
   },
 }
 

@@ -90,6 +90,26 @@ export const IPC = {
 
   // Dialog
   DIALOG_OPEN_FILE: 'dialog:openFile',
+
+  // New: Multi-Agent (Phase 1)
+  AGENT_LIST: 'agent:list',
+  AGENT_KILL: 'agent:kill',
+  AGENT_SPAWN: 'agent:spawn',
+
+  // New: Plan tracking (Phase 2)
+  PLAN_GET: 'plan:get',
+
+  // New: Permissions (Phase 1)
+  PERMISSIONS_GET: 'permissions:get',
+  PERMISSIONS_UPDATE: 'permissions:update',
+  PERMISSIONS_PERMANENT_ADD: 'permissions:permanent:add',
+  PERMISSIONS_PERMANENT_REMOVE: 'permissions:permanent:remove',
+
+  // New: Plugin management (Phase 4)
+  PLUGINS_LIST: 'plugins:list',
+  PLUGINS_INSTALL: 'plugins:install',
+  PLUGINS_UNINSTALL: 'plugins:uninstall',
+  PLUGINS_TOGGLE: 'plugins:toggle',
 } as const
 
 // ---------------------------------------------------------------------------
@@ -106,6 +126,13 @@ export const IPC_EVENTS = {
   CHAT_ABORTED: 'chat:aborted',
   APPROVAL_REQUEST: 'approval:request',
   APPROVAL_CLEARED: 'approval:cleared',
+
+  // New events (Phase 1)
+  AGENT_SPAWNED: 'agent:spawned',
+  AGENT_COMPLETED: 'agent:completed',
+  PLAN_UPDATED: 'plan:updated',
+  TURN_STARTED: 'turn:started',
+  TURN_COMPLETED: 'turn:completed',
 } as const
 
 // ---------------------------------------------------------------------------
@@ -141,6 +168,26 @@ export const ProviderUpdateInput = z.object({
   api_base: z.string().nullable().optional(),
   extra_headers: z.record(z.string()).nullable().optional(),
   model: z.string().optional(),
+})
+
+// New Phase 1 schemas
+export const AgentSpawnInput = z.object({
+  agent_type: z.string().min(1),
+  task: z.string().min(1),
+  label: z.string().optional(),
+})
+
+export const PermissionsUpdateInput = z.object({
+  filesystem: z.object({
+    rules: z.array(z.object({
+      path: z.string(),
+      mode: z.enum(['read', 'write', 'none']),
+      recursive: z.boolean().optional(),
+    })),
+    default_mode: z.enum(['read', 'write', 'none']).optional(),
+  }).optional(),
+  network: z.enum(['allow_all', 'block_all', 'allow_list']).optional(),
+  exec_approval: z.enum(['never', 'dangerous', 'always']).optional(),
 })
 
 // ---------------------------------------------------------------------------
@@ -634,4 +681,65 @@ export interface WslCheckResult {
   distros: string[]        // e.g. ["Ubuntu"]
   defaultDistro: string | null
   running: boolean         // whether WSL is currently active
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1: New types for multi-agent, plan, permissions
+// ---------------------------------------------------------------------------
+
+export interface LiveAgentInfo {
+  agent_id: string
+  thread_id: string
+  type: string
+  status: 'idle' | 'thinking' | 'executing' | 'waiting_approval' | 'completed' | 'error' | 'aborted'
+  parent: string | null
+  label: string
+  spawned_at: number
+}
+
+export interface PlanStep {
+  id: string
+  description: string
+  status: 'pending' | 'in_progress' | 'completed' | 'skipped'
+  depends_on: string[]
+}
+
+export interface Plan {
+  plan_id: string
+  title: string
+  steps: PlanStep[]
+  created_at: number
+  updated_at: number
+}
+
+export interface AgentSpawnedEvent {
+  sub_agent_id: string
+  sub_thread_id: string
+  agent_type: string
+  task_label: string
+}
+
+export interface AgentCompletedEvent {
+  sub_agent_id: string
+  sub_thread_id: string
+  outcome: string
+  summary: string
+}
+
+export interface PlanUpdatedEvent {
+  plan: Plan
+}
+
+export interface TurnStartedEvent {
+  turn_id: string
+  agent_name: string
+  thread_id: string
+}
+
+export interface TurnCompletedEvent {
+  turn_id: string
+  thread_id: string
+  outcome: string
+  tools_used: string[]
+  token_usage: Record<string, number>
 }
