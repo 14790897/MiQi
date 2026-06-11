@@ -87,7 +87,8 @@ class TaskRunner:
             await self._handle_thread_command(submission)
             return
         if isinstance(submission, ConfigUpdate):
-            # Phase 18: mutate session state and emit ConfigUpdatedEvent
+            # Phase 18: mutate session state and emit ConfigUpdatedEvent.
+            # All failure paths must emit CommandRejectedEvent, never crash.
             state = getattr(self.services, "session_state", None)
             if state is None or not hasattr(state, "apply_config_update"):
                 await self._events.put(CommandRejectedEvent(
@@ -96,7 +97,15 @@ class TaskRunner:
                     recoverable=False,
                 ))
                 return
-            state.apply_config_update(submission.path, submission.value)
+            try:
+                state.apply_config_update(submission.path, submission.value)
+            except (ValueError, AttributeError, TypeError) as exc:
+                await self._events.put(CommandRejectedEvent(
+                    command_type="ConfigUpdate",
+                    reason=str(exc),
+                    recoverable=False,
+                ))
+                return
             await self._events.put(ConfigUpdatedEvent(
                 path=submission.path,
                 value=submission.value,
@@ -277,7 +286,11 @@ class TaskRunner:
             self._turn_cancel_events.pop(thread_id, None)
 
     async def _handle_thread_command(self, cmd: ThreadCommand) -> None:
-        """Phase 18: dispatch thread lifecycle actions to ThreadRuntime."""
+        """Phase 18: dispatch thread lifecycle actions to ThreadRuntime.
+
+        All failure paths emit CommandRejectedEvent — no exceptions
+        escape to the caller.
+        """
         from miqi.protocol.events import (
             ThreadCreatedEvent,
             ThreadDeletedEvent,
@@ -294,10 +307,18 @@ class TaskRunner:
             return
 
         if cmd.action == "new":
-            thread = await threads.create_thread(
-                title=cmd.params.get("title", "New thread"),
-                thread_id=cmd.params.get("thread_id"),
-            )
+            try:
+                thread = await threads.create_thread(
+                    title=cmd.params.get("title", "New thread"),
+                    thread_id=cmd.params.get("thread_id"),
+                )
+            except (KeyError, ValueError, AttributeError, TypeError) as exc:
+                await self._events.put(CommandRejectedEvent(
+                    command_type="ThreadCommand",
+                    reason=str(exc),
+                    recoverable=False,
+                ))
+                return
             await self._events.put(ThreadCreatedEvent(
                 thread_id=thread.thread_id,
                 title=thread.title,
@@ -306,7 +327,22 @@ class TaskRunner:
             return
 
         if cmd.action == "rename":
-            thread = await threads.rename_thread(cmd.thread_id, cmd.params["title"])
+            if "title" not in cmd.params or not cmd.params["title"]:
+                await self._events.put(CommandRejectedEvent(
+                    command_type="ThreadCommand",
+                    reason="rename requires a non-empty 'title' in params",
+                    recoverable=False,
+                ))
+                return
+            try:
+                thread = await threads.rename_thread(cmd.thread_id, cmd.params["title"])
+            except (KeyError, ValueError, AttributeError, TypeError) as exc:
+                await self._events.put(CommandRejectedEvent(
+                    command_type="ThreadCommand",
+                    reason=str(exc),
+                    recoverable=False,
+                ))
+                return
             await self._events.put(ThreadUpdatedEvent(
                 thread_id=thread.thread_id,
                 title=thread.title,
@@ -315,7 +351,15 @@ class TaskRunner:
             return
 
         if cmd.action == "archive":
-            thread = await threads.archive_thread(cmd.thread_id)
+            try:
+                thread = await threads.archive_thread(cmd.thread_id)
+            except (KeyError, ValueError, AttributeError, TypeError) as exc:
+                await self._events.put(CommandRejectedEvent(
+                    command_type="ThreadCommand",
+                    reason=str(exc),
+                    recoverable=False,
+                ))
+                return
             await self._events.put(ThreadUpdatedEvent(
                 thread_id=thread.thread_id,
                 title=thread.title,
@@ -324,15 +368,31 @@ class TaskRunner:
             return
 
         if cmd.action == "delete":
-            await threads.delete_thread(cmd.thread_id)
+            try:
+                await threads.delete_thread(cmd.thread_id)
+            except (KeyError, ValueError, AttributeError, TypeError) as exc:
+                await self._events.put(CommandRejectedEvent(
+                    command_type="ThreadCommand",
+                    reason=str(exc),
+                    recoverable=False,
+                ))
+                return
             await self._events.put(ThreadDeletedEvent(thread_id=cmd.thread_id))
             return
 
         if cmd.action == "fork":
-            thread = await threads.fork_thread(
-                cmd.thread_id,
-                title=cmd.params.get("title", "Forked thread"),
-            )
+            try:
+                thread = await threads.fork_thread(
+                    cmd.thread_id,
+                    title=cmd.params.get("title", "Forked thread"),
+                )
+            except (KeyError, ValueError, AttributeError, TypeError) as exc:
+                await self._events.put(CommandRejectedEvent(
+                    command_type="ThreadCommand",
+                    reason=str(exc),
+                    recoverable=False,
+                ))
+                return
             await self._events.put(ThreadCreatedEvent(
                 thread_id=thread.thread_id,
                 title=thread.title,

@@ -220,6 +220,134 @@ def test_session_state_rejects_dunder_paths():
     with _pytest.raises(ValueError, match="dunder.*private"):
         state.apply_config_update("agents.defaults.__init__", "bad")
 
+    # Empty path
+    with _pytest.raises(ValueError, match="empty"):
+        state.apply_config_update("", "bad")
+
+    # Empty segment
+    with _pytest.raises(ValueError, match="empty segment"):
+        state.apply_config_update("agents..defaults", "bad")
+
+
+# ---------------------------------------------------------------------------
+# Phase 18 hardening: ConfigUpdate failure → CommandRejectedEvent
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_config_update_empty_path_rejected(fake_services):
+    """ConfigUpdate with empty path emits CommandRejectedEvent, never crashes."""
+    from miqi.protocol.commands import ConfigUpdate
+    from miqi.protocol.events import CommandRejectedEvent
+    from miqi.runtime.task_runner import TaskRunner
+
+    events = asyncio.Queue()
+    fake_services.session_state = MagicMock()
+    fake_services.session_state.apply_config_update = MagicMock(
+        side_effect=ValueError("Config update path must not be empty"),
+    )
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(ConfigUpdate(path="", value=42))
+
+    event = await asyncio.wait_for(events.get(), timeout=1)
+    assert isinstance(event, CommandRejectedEvent)
+    assert "empty" in event.reason.lower()
+
+
+@pytest.mark.asyncio
+async def test_config_update_missing_attribute_rejected(fake_services):
+    """ConfigUpdate targeting a nonexistent attribute emits CommandRejectedEvent."""
+    from miqi.protocol.commands import ConfigUpdate
+    from miqi.protocol.events import CommandRejectedEvent
+    from miqi.runtime.task_runner import TaskRunner
+
+    events = asyncio.Queue()
+    fake_services.session_state = MagicMock()
+    fake_services.session_state.apply_config_update = MagicMock(
+        side_effect=AttributeError("no such attribute"),
+    )
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(ConfigUpdate(path="nonexistent.field", value=42))
+
+    event = await asyncio.wait_for(events.get(), timeout=1)
+    assert isinstance(event, CommandRejectedEvent)
+    assert "no such attribute" in event.reason
+
+
+# ---------------------------------------------------------------------------
+# Phase 18 hardening: ThreadCommand failure → CommandRejectedEvent
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_thread_command_rename_missing_title_rejected(fake_services):
+    """ThreadCommand rename without title emits CommandRejectedEvent."""
+    from miqi.protocol.commands import ThreadCommand
+    from miqi.protocol.events import CommandRejectedEvent
+    from miqi.runtime.task_runner import TaskRunner
+
+    events = asyncio.Queue()
+    fake_services.thread_runtime = MagicMock()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(ThreadCommand(
+        action="rename",
+        thread_id="t1",
+        params={},  # missing title
+    ))
+
+    event = await asyncio.wait_for(events.get(), timeout=1)
+    assert isinstance(event, CommandRejectedEvent)
+    assert "title" in event.reason.lower()
+
+
+@pytest.mark.asyncio
+async def test_thread_command_archive_unknown_thread_rejected(fake_services):
+    """ThreadCommand archive on nonexistent thread emits CommandRejectedEvent."""
+    from unittest.mock import AsyncMock
+
+    from miqi.protocol.commands import ThreadCommand
+    from miqi.protocol.events import CommandRejectedEvent
+    from miqi.runtime.task_runner import TaskRunner
+
+    events = asyncio.Queue()
+    fake_services.thread_runtime = MagicMock()
+    fake_services.thread_runtime.archive_thread = AsyncMock(
+        side_effect=KeyError("thread not found"),
+    )
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(ThreadCommand(action="archive", thread_id="no-such"))
+
+    event = await asyncio.wait_for(events.get(), timeout=1)
+    assert isinstance(event, CommandRejectedEvent)
+    assert "thread not found" in event.reason
+
+
+@pytest.mark.asyncio
+async def test_thread_command_fork_unknown_parent_rejected(fake_services):
+    """ThreadCommand fork on nonexistent parent emits CommandRejectedEvent."""
+    from unittest.mock import AsyncMock
+
+    from miqi.protocol.commands import ThreadCommand
+    from miqi.protocol.events import CommandRejectedEvent
+    from miqi.runtime.task_runner import TaskRunner
+
+    events = asyncio.Queue()
+    fake_services.thread_runtime = MagicMock()
+    fake_services.thread_runtime.fork_thread = AsyncMock(
+        side_effect=KeyError("parent thread not found"),
+    )
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(ThreadCommand(action="fork", thread_id="no-such"))
+
+    event = await asyncio.wait_for(events.get(), timeout=1)
+    assert isinstance(event, CommandRejectedEvent)
+    assert "parent thread not found" in event.reason
+
 
 @pytest.mark.asyncio
 async def test_task_runner_sanitizes_processing_errors(fake_services):

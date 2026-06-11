@@ -31,16 +31,23 @@ class SessionState:
         E.g., path="agents.defaults.temperature" sets
         self.config_snapshot.agents.defaults.temperature = value.
 
-        Raises ValueError for paths containing dunder/private segments.
+        Raises ValueError for empty path, empty segments, or dunder/private
+        segments.  Raises AttributeError/TypeError for missing attributes.
         """
-        target: Any = self.config_snapshot
+        if not path or not path.strip():
+            raise ValueError("Config update path must not be empty")
         parts = path.split(".")
         for part in parts:
+            if not part or not part.strip():
+                raise ValueError(
+                    f"Config update path {path!r} contains an empty segment"
+                )
             if "__" in part or part.startswith("_"):
                 raise ValueError(
                     f"Invalid config path segment {part!r}: "
                     f"dunder and private attributes are not allowed"
                 )
+        target: Any = self.config_snapshot
         for part in parts[:-1]:
             target = getattr(target, part)
         setattr(target, parts[-1], value)
