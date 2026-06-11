@@ -136,7 +136,24 @@ class RuntimeServices:
         from miqi.runtime.turn_runner import TurnRunner
 
         tool_runtime = ToolRuntime(orchestrator=orchestrator)
-        context_runtime = ContextRuntime()
+
+        # Phase 19 follow-up: wire real ContextCompressor via provider.chat()
+        async def _summarize_for_compaction(
+            msgs: list[dict[str, Any]], model: str,
+        ) -> str:
+            response = await provider.chat(
+                messages=msgs,
+                tools=None,
+                model=model,
+                temperature=0.3,
+                max_tokens=4096,
+            )
+            return response.content or ""
+
+        context_runtime = ContextRuntime(
+            llm_call_fn=_summarize_for_compaction,
+            context_limit_chars=defaults.context_limit_chars,
+        )
 
         # Phase 13: capability resolver (requires PluginManager and ToolRegistry)
         from pathlib import Path as _Path

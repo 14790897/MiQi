@@ -114,3 +114,38 @@ async def test_replace_messages_with_compaction_replaces_visible_history(tmp_pat
 
     messages = await runtime.load_messages("t1")
     assert messages == [{"role": "system", "content": "[summary]"}]
+
+
+@pytest.mark.asyncio
+async def test_compaction_record_stores_audit_metadata(tmp_path):
+    """The runtime_compactions row must store messages_before/after and
+    tokens_saved, not just replacement_json."""
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+    await runtime.initialize()
+    await runtime.append_message(thread_id="t1", turn_id="a", role="user", content="old")
+    await runtime.append_message(thread_id="t1", turn_id="a", role="assistant", content="old answer")
+
+    await runtime.replace_messages_with_compaction(
+        "t1",
+        "compact-1",
+        [{"role": "system", "content": "[summary]"}],
+        messages_before=2,
+        messages_after=1,
+        tokens_saved=50,
+    )
+
+    # Query the compaction record directly
+    import aiosqlite, json
+    async with aiosqlite.connect(str(tmp_path / "runtime.db")) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM runtime_compactions WHERE thread_id = ? AND session_id = ?",
+            ("t1", "test-session"),
+        )
+        row = await cursor.fetchone()
+
+    assert row is not None, "Compaction record should exist"
+    assert row["messages_before"] == 2
+    assert row["messages_after"] == 1
+    assert row["tokens_saved"] == 50
+    assert json.loads(row["replacement_json"]) == [{"role": "system", "content": "[summary]"}]

@@ -8,12 +8,16 @@ AgentLoop and ContextBuilder.
 Phase 19: adds CompactionResult, estimate_tokens, compress_messages,
 compact_thread, and should_auto_compact for runtime-owned context
 compaction.
+
+Phase 19 follow-up: wires real ContextCompressor via llm_call_fn
+injection so compress_messages() actually compresses through the
+5-phase algorithm from miqi.agent.context_compressor.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable, Awaitable
 
 
 @dataclass(frozen=True)
@@ -35,7 +39,29 @@ class ContextRuntime:
 
     Phase 19: runtime-owned context compaction (estimate_tokens,
     compress_messages, compact_thread, should_auto_compact).
+
+    When llm_call_fn is provided, compress_messages() delegates to
+    ContextCompressor (5-phase algorithm) for real compression.
+    Without it, compress_messages() is an explicit no-op.
     """
+
+    def __init__(
+        self,
+        *,
+        llm_call_fn: Callable[
+            [list[dict[str, Any]], str], Awaitable[str]
+        ] | None = None,
+        context_limit_chars: int = 0,
+        compression_threshold_chars: int = 0,
+    ):
+        self._compressor: Any = None
+        self._compression_threshold_chars = compression_threshold_chars
+        if llm_call_fn is not None:
+            from miqi.agent.context_compressor import ContextCompressor
+            self._compressor = ContextCompressor(
+                llm_call_fn=llm_call_fn,
+                context_limit_chars=context_limit_chars,
+            )
 
     # ── Phase 12: message building ──────────────────────────────────────
 
@@ -110,13 +136,23 @@ class ContextRuntime:
         model: str,
         session_id: str = "",
     ) -> list[dict[str, Any]]:
-        """Compress messages into a compact representation.
+        """Compress messages using ContextCompressor when configured.
 
-        Default implementation is a no-op — returns messages unchanged.
-        Subclasses or tests override with real compression logic
-        (e.g. ContextCompressor from miqi.agent.context_compressor).
+        When _compressor is None (no llm_call_fn provided), returns
+        messages unchanged as an explicit no-op.
+        When _compressor is set, delegates to the 5-phase compression
+        algorithm from miqi.agent.context_compressor.
         """
-        return messages
+        if self._compressor is None:
+            return messages
+        # Short-circuit when messages are below the threshold
+        if self._compression_threshold_chars > 0:
+            total_chars = sum(len(str(m.get("content") or "")) for m in messages)
+            if total_chars < self._compression_threshold_chars:
+                return messages
+        return await self._compressor.compress(
+            messages, model=model, session_id=session_id,
+        )
 
     async def compact_thread(
         self,
@@ -129,7 +165,8 @@ class ContextRuntime:
         """Load thread history, compress it, and persist replacement.
 
         Returns a CompactionResult with before/after counts and token savings.
-        Calls history_runtime.replace_messages_with_compaction() to persist.
+        Calls history_runtime.replace_messages_with_compaction() to persist
+        with full audit metadata.
         """
         messages = await history_runtime.load_messages(thread_id)
         before_tokens = self.estimate_tokens(messages)
@@ -143,6 +180,9 @@ class ContextRuntime:
             thread_id,
             turn_id,
             replacement,
+            messages_before=len(messages),
+            messages_after=len(replacement),
+            tokens_saved=max(0, before_tokens - after_tokens),
         )
         return CompactionResult(
             thread_id=thread_id,
