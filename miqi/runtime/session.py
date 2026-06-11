@@ -101,9 +101,24 @@ class RuntimeSession:
         self._stopped.set()
         if self._task is not None:
             self._task.cancel()
-            await asyncio.gather(self._task, return_exceptions=True)
+            # Cancel active turn task if still running
+            if self._active_turn_task is not None and not self._active_turn_task.done():
+                self._active_turn_task.cancel()
+            await asyncio.gather(
+                self._task,
+                *([self._active_turn_task] if self._active_turn_task is not None and not self._active_turn_task.done() else []),
+                return_exceptions=True,
+            )
         self.services.agent_loop.stop()
         await self.services.agent_loop.close_mcp()
+        # Phase 22 hardening: close persistent aiosqlite connections before
+        # the event loop shuts down to avoid background-thread leaks.
+        history = getattr(self.services, "history_runtime", None)
+        if history is not None:
+            await history.close()
+        threads = getattr(self.services, "thread_runtime", None)
+        if threads is not None:
+            await threads.close()
 
     async def submit(self, submission: Any) -> None:
         """Submit a command to the runtime (UserMessage, AbortTurn, etc.)."""
