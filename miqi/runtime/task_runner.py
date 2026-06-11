@@ -210,6 +210,34 @@ class TaskRunner:
             else:
                 history = []
 
+            # Phase 19: auto-compact before turn if history exceeds budget
+            ctx_runtime = getattr(self.services, "context_runtime", None)
+            auto_limit = getattr(self.services.agent_loop, "context_limit_chars", 0)
+            if history_runtime is not None and ctx_runtime is not None and auto_limit:
+                token_limit = max(1, int(auto_limit) // 4)
+                if ctx_runtime.should_auto_compact(history, token_limit):
+                    try:
+                        compact_result = await ctx_runtime.compact_thread(
+                            history_runtime=history_runtime,
+                            thread_id=thread_id,
+                            turn_id=f"compact-{turn_id}",
+                            model=turn.model,
+                        )
+                        await self._events.put(ContextCompactedEvent(
+                            turn_id=turn_id,
+                            thread_id=thread_id,
+                            messages_before=compact_result.messages_before,
+                            messages_after=compact_result.messages_after,
+                            tokens_saved=compact_result.tokens_saved,
+                        ))
+                        # Reload compacted history for the turn
+                        history = await history_runtime.load_messages(thread_id)
+                    except Exception:
+                        # Compaction failed — proceed with unbounded recent
+                        # history. The exception is already logged inside
+                        # ContextRuntime.compact_thread / compress_messages.
+                        pass
+
             # Emit TurnStartedEvent
             await self._events.put(TurnStartedEvent(
                 turn_id=turn_id,

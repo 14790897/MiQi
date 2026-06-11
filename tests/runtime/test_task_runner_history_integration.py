@@ -187,3 +187,108 @@ async def test_task_runner_persists_tool_call_messages(
         assert stored[3]["content"] == "done after tools"
     finally:
         await runtime.stop()
+
+
+# ---------------------------------------------------------------------------
+# Phase 19: auto-compact before turn
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_short_history_does_not_trigger_compact(
+    fake_config, fake_provider, tmp_path,
+):
+    """When history is short, should_auto_compact returns False and no
+    ContextCompactedEvent is emitted."""
+    from miqi.protocol.events import ContextCompactedEvent, TurnCompleteEvent
+
+    runtime = RuntimeSession.create(
+        config=fake_config,
+        provider=fake_provider,
+        session_id="sess-no-compact",
+        workspace=tmp_path,
+    )
+
+    # Make should_auto_compact always return False
+    runtime.services.context_runtime.should_auto_compact = lambda msgs, lim: False
+
+    await runtime.start()
+    try:
+        await runtime.submit(UserMessage(content="hello", thread_id="thread-x"))
+
+        events: list[object] = []
+        seen_complete = False
+        while not seen_complete:
+            ev = await runtime.next_event(timeout=2)
+            if ev is None:
+                break
+            events.append(ev)
+            if isinstance(ev, TurnCompleteEvent):
+                seen_complete = True
+
+        # No ContextCompactedEvent should appear
+        compact_events = [e for e in events if isinstance(e, ContextCompactedEvent)]
+        assert len(compact_events) == 0, (
+            f"Should not compact short history: {compact_events}"
+        )
+    finally:
+        await runtime.stop()
+
+
+@pytest.mark.asyncio
+async def test_task_runner_auto_compacts_before_large_turn(
+    fake_config, fake_provider, tmp_path,
+):
+    """When should_auto_compact returns True, the turn emits ContextCompactedEvent
+    before AgentMessageEvent."""
+    from unittest.mock import AsyncMock
+
+    from miqi.protocol.events import ContextCompactedEvent, TurnCompleteEvent
+    from miqi.runtime.context_runtime import CompactionResult
+
+    runtime = RuntimeSession.create(
+        config=fake_config,
+        provider=fake_provider,
+        session_id="sess-auto-compact",
+        workspace=tmp_path,
+    )
+
+    # Override auto-compact trigger
+    runtime.services.context_runtime.should_auto_compact = lambda msgs, lim: True
+    runtime.services.context_runtime.compact_thread = AsyncMock(return_value=CompactionResult(
+        thread_id="thread-auto",
+        messages_before=100,
+        messages_after=10,
+        tokens_saved=1000,
+        replacement_messages=[],
+    ))
+
+    await runtime.start()
+    try:
+        await runtime.submit(UserMessage(content="hello", thread_id="thread-auto"))
+
+        events: list[object] = []
+        seen_complete = False
+        while not seen_complete:
+            ev = await runtime.next_event(timeout=2)
+            if ev is None:
+                break
+            events.append(ev)
+            if isinstance(ev, TurnCompleteEvent):
+                seen_complete = True
+
+        event_names = [e.__class__.__name__ for e in events]
+        assert "ContextCompactedEvent" in event_names, (
+            f"Expected ContextCompactedEvent in: {event_names}"
+        )
+        # ContextCompactedEvent must come before AgentMessageEvent
+        compact_idx = event_names.index("ContextCompactedEvent")
+        agent_idx = next(
+            i for i, n in enumerate(event_names) if n == "AgentMessageEvent"
+        )
+        assert compact_idx < agent_idx, (
+            f"ContextCompactedEvent ({compact_idx}) must precede "
+            f"AgentMessageEvent ({agent_idx})"
+        )
+    finally:
+        await runtime.stop()
