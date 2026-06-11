@@ -154,6 +154,12 @@ def fake_provider():
             # Default: final answer
             return _FakeResponse(content="Done.", tool_calls=[])
 
+        async def stream_chat(self, **kwargs):
+            """Phase 20: streaming fallback wrapping chat()."""
+            from miqi.providers.base import LLMStreamEvent
+            response = await self.chat(**kwargs)
+            yield LLMStreamEvent(kind="completed", response=response)
+
     return FakeProvider()
 
 

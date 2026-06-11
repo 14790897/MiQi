@@ -87,6 +87,11 @@ async def test_runtime_session_emits_error_on_bad_provider(fake_config):
         async def chat(self, **kwargs):
             raise RuntimeError("provider crash")
 
+        async def stream_chat(self, **kwargs):
+            from miqi.providers.base import LLMStreamEvent
+            response = await self.chat(**kwargs)
+            yield LLMStreamEvent(kind="completed", response=response)
+
     runtime = RuntimeSession.create(
         config=fake_config,
         provider=BadProvider(),
@@ -180,6 +185,11 @@ async def test_runtime_session_abort_cancels_active_turn(fake_config):
                 "content": "done", "tool_calls": [], "has_tool_calls": False,
             })()
 
+        async def stream_chat(self, **kwargs):
+            from miqi.providers.base import LLMStreamEvent
+            response = await self.chat(**kwargs)
+            yield LLMStreamEvent(kind="completed", response=response)
+
     from miqi.protocol.commands import AbortTurn
 
     runtime = RuntimeSession.create(
@@ -249,6 +259,12 @@ async def test_runtime_session_queues_non_abort_during_active_turn(fake_config):
                 "has_tool_calls": False,
                 "finish_reason": "stop",
             })()
+
+        async def stream_chat(self, **kwargs):
+            """Phase 20: streaming fallback wrapping chat()."""
+            from miqi.providers.base import LLMStreamEvent
+            response = await self.chat(**kwargs)
+            yield LLMStreamEvent(kind="completed", response=response)
 
     from miqi.protocol.commands import UserMessage
 
