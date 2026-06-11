@@ -1,6 +1,7 @@
 """Tests for TaskRunner (Phase 11.3)."""
 
 import asyncio
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -100,6 +101,62 @@ async def test_task_runner_emits_error_for_unknown_type(fake_services):
     event = await asyncio.wait_for(events.get(), timeout=1)
     assert event.__class__.__name__ == "ErrorEvent"
     assert "Unknown submission type" in event.message
+
+
+# ---------------------------------------------------------------------------
+# Phase 18: ThreadCommand wired to ThreadRuntime
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_thread_command_create_emits_thread_created(fake_services):
+    """ThreadCommand(action='new') must call ThreadRuntime.create_thread
+    and emit ThreadCreatedEvent."""
+    from unittest.mock import AsyncMock
+
+    from miqi.protocol.commands import ThreadCommand
+    from miqi.protocol.events import ThreadCreatedEvent
+    from miqi.runtime.task_runner import TaskRunner
+
+    events = asyncio.Queue()
+    thread = type("Thread", (), {
+        "thread_id": "thread-new",
+        "title": "New thread",
+        "parent_thread_id": None,
+    })()
+
+    fake_services.thread_runtime = MagicMock()
+    fake_services.thread_runtime.create_thread = AsyncMock(return_value=thread)
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(ThreadCommand(
+        action="new",
+        thread_id="ignored",
+        params={"title": "New thread"},
+    ))
+
+    event = await asyncio.wait_for(events.get(), timeout=1)
+    assert isinstance(event, ThreadCreatedEvent)
+    assert event.thread_id == "thread-new"
+    assert event.title == "New thread"
+
+
+@pytest.mark.asyncio
+async def test_thread_command_unknown_action_rejected(fake_services):
+    """ThreadCommand with unknown action emits CommandRejectedEvent."""
+    from miqi.protocol.commands import ThreadCommand
+    from miqi.protocol.events import CommandRejectedEvent
+    from miqi.runtime.task_runner import TaskRunner
+
+    events = asyncio.Queue()
+    fake_services.thread_runtime = MagicMock()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(ThreadCommand(action="explode", thread_id="t1"))
+
+    event = await asyncio.wait_for(events.get(), timeout=1)
+    assert isinstance(event, CommandRejectedEvent)
+    assert event.command_type == "ThreadCommand"
 
 
 @pytest.mark.asyncio
