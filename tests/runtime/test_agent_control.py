@@ -3,7 +3,7 @@
 import asyncio
 import pytest
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from miqi.runtime.agent_registry import AgentRegistry
 from miqi.runtime.agent_control import AgentControl, LiveAgent
 from miqi.protocol.events import AgentStatus
@@ -11,7 +11,7 @@ from miqi.protocol.events import AgentStatus
 
 @pytest.fixture
 def event_emitter():
-    emitter = AsyncMock()
+    emitter = MagicMock()
     emitter.emit = AsyncMock()
     return emitter
 
@@ -399,10 +399,12 @@ async def test_killed_agent_not_marked_completed(tmp_path, event_emitter):
     tool_reg = MagicMock()
     tool_reg.get_definitions.return_value = []
 
+    ev = MagicMock()
+    ev.emit = AsyncMock()
     control = AgentControl(
         session_id="test-session",
         registry=AgentRegistry(),
-        event_emitter=AsyncMock(),
+        event_emitter=ev,
         workspace=tmp_path,
         provider=blocking,
         tool_registry=tool_reg,

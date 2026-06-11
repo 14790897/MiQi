@@ -160,8 +160,9 @@ async def test_nudge_injection(tmp_path: Path):
         sandbox_engine=SandboxPolicyEngine(),
         hook_runtime=HookRuntime(),
         tool_registry=loop.tools,
-        event_emitter=AsyncMock(),
+        event_emitter=MagicMock(),
     )
+    orchestrator.events.emit = AsyncMock()
     loop.set_orchestrator(orchestrator)
 
     await loop._process_message(

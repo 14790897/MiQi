@@ -1,6 +1,6 @@
 """Tests for ToolRuntime (Phase 12.1)."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -25,7 +25,8 @@ class _FakeToolCall:
 
 @pytest.fixture
 def fake_orchestrator():
-    orchestrator = AsyncMock()
+    orchestrator = MagicMock()
+    orchestrator.execute = AsyncMock()
     async def _execute(ctx):
         ctx.result = "ok"
         ctx.duration_ms = 5

@@ -6,7 +6,7 @@ Verifies that SpawnTool requires AgentControl (no legacy fallback):
 """
 
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -14,7 +14,7 @@ import pytest
 @pytest.fixture
 def mock_subagent_manager():
     """Create a mock SubagentManager (kept for dead code compatibility)."""
-    mgr = AsyncMock()
+    mgr = MagicMock()
     mgr.spawn = AsyncMock(return_value="legacy-result")
     return mgr
 
@@ -26,7 +26,7 @@ def mock_agent_control():
         agent_id = "agent-abc123"
         thread_id = "thread-xyz789"
 
-    ac = AsyncMock()
+    ac = MagicMock()
     ac.spawn = AsyncMock(return_value=_FakeAgent())
     return ac
 

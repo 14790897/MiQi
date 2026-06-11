@@ -12,13 +12,26 @@ from miqi.execution.orchestrator import (
 
 @pytest.fixture
 def mock_components():
-    """Create mocked components for the orchestrator."""
+    """Create mocked components for the orchestrator.
+
+    Containers are plain MagicMock; only async methods are AsyncMock
+    to avoid RuntimeWarning from unawaited coroutines during GC.
+    """
+    pe = MagicMock()
+    pe.check = AsyncMock()
+    se = MagicMock()
+    se.select = AsyncMock()
+    hr = MagicMock()
+    hr.run = AsyncMock()
+    tr = MagicMock()
+    ev = MagicMock()
+    ev.emit = AsyncMock()
     return {
-        "permission_engine": AsyncMock(),
-        "sandbox_engine": AsyncMock(),
-        "hook_runtime": AsyncMock(),
-        "tool_registry": MagicMock(),
-        "event_emitter": AsyncMock(),
+        "permission_engine": pe,
+        "sandbox_engine": se,
+        "hook_runtime": hr,
+        "tool_registry": tr,
+        "event_emitter": ev,
     }
 
 

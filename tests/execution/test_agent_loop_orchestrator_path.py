@@ -9,7 +9,7 @@ These tests would FAIL before Phase 10 fixes:
 import asyncio
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 
 def _make_temp_dir():
@@ -55,12 +55,14 @@ def _make_minimal_orchestrator():
     from miqi.execution.sandbox_policy import SandboxPolicyEngine
     from miqi.execution.hook_runtime import HookRuntime
 
+    emitter = MagicMock()
+    emitter.emit = AsyncMock()
     return ToolOrchestrator(
         permission_engine=PermissionEngine(),
         sandbox_engine=SandboxPolicyEngine(),
         hook_runtime=HookRuntime(),
         tool_registry=None,
-        event_emitter=AsyncMock(),
+        event_emitter=emitter,
     )
 
 
@@ -74,7 +76,8 @@ def test_parallel_tool_calls_use_orchestrator_not_execute_concurrent():
     from miqi.bus.queue import MessageBus
 
     bus = MessageBus()
-    provider = AsyncMock()
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
     provider.chat = AsyncMock()
 
     with _make_temp_dir() as tmp:
@@ -139,7 +142,9 @@ def test_agent_loop_raises_when_no_orchestrator():
     from miqi.bus.queue import MessageBus
 
     bus = MessageBus()
-    provider = AsyncMock()
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
+    provider.chat = AsyncMock()
 
     with _make_temp_dir() as tmp:
         workspace = Path(tmp)
@@ -160,7 +165,9 @@ def test_set_orchestrator_method():
     from miqi.bus.queue import MessageBus
 
     bus = MessageBus()
-    provider = AsyncMock()
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
+    provider.chat = AsyncMock()
 
     with _make_temp_dir() as tmp:
         workspace = Path(tmp)
@@ -183,7 +190,8 @@ def test_turn_context_created_and_cleared():
     from miqi.bus.queue import MessageBus
 
     bus = MessageBus()
-    provider = AsyncMock()
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
     response = _make_fake_response(content="Hello!", has_tool_calls=False)
     provider.chat = AsyncMock(return_value=response)
 
