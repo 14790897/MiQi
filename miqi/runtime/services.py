@@ -57,6 +57,8 @@ class RuntimeServices:
     session_state: Any | None = None
     history_runtime: Any | None = None
     thread_runtime: Any | None = None
+    # Phase 21: MCP runtime adapter
+    mcp_runtime: Any | None = None
 
     @classmethod
     def from_config(
@@ -171,6 +173,10 @@ class RuntimeServices:
             plugin_manager=plugin_manager,
         )
 
+        # Phase 21: MCP runtime adapter
+        from miqi.runtime.mcp_runtime import McpRuntime
+        mcp_runtime = McpRuntime(plugin_manager=plugin_manager)
+
         turn_runner = TurnRunner(
             provider=provider,
             tool_runtime=tool_runtime,
@@ -218,6 +224,7 @@ class RuntimeServices:
             session_state=session_state,
             history_runtime=history_runtime,
             thread_runtime=thread_runtime,
+            mcp_runtime=mcp_runtime,
         )
 
         agent_jobs = AgentJobRuntime(services=services)
