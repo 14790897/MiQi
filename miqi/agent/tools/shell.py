@@ -79,36 +79,72 @@ class ExecTool(Tool):
     async def execute(self, command: str, working_dir: str | None = None, **kwargs: Any) -> str:
         cwd = working_dir or self.working_dir or os.getcwd()
 
-        # If desktop approval callback is wired in, use the full approval system.
-        # Otherwise fall back to the static guard.
-        if self.approval_callback is not None:
-            import functools
-            from miqi.agent.command_approval import check_dangerous_command
-            loop = asyncio.get_event_loop()
-            check_fn = functools.partial(
-                check_dangerous_command,
-                command,
-                approval_callback=self.approval_callback,
-            )
-            approval_result = await loop.run_in_executor(None, check_fn)
-            if not approval_result.get("approved", True):
-                return approval_result.get(
-                    "message",
-                    "Error: Command blocked — user denied approval.",
+        # Phase 21: extract runtime-injected event emitter and metadata
+        event_emitter = kwargs.pop("_event_emitter", None)
+        turn_id = kwargs.pop("_turn_id", "")
+        tool_call_id = kwargs.pop("_tool_call_id", "")
+        cancel_event = kwargs.pop("_cancel_event", None)
+
+        # Phase 21: emit exec begin event
+        if event_emitter is not None:
+            from miqi.protocol.events import ExecCommandBeginEvent
+            await event_emitter.emit(ExecCommandBeginEvent(
+                turn_id=turn_id,
+                tool_call_id=tool_call_id,
+                command=command,
+                cwd=cwd,
+                sandbox_type="bwrap" if self._sandbox_manager is not None else "none",
+            ))
+
+        # Phase 21: exec end event needs a single exit point.
+        # Capture the result so we can emit the end event after.
+        async def _run() -> str:
+            # If desktop approval callback is wired in, use the full approval system.
+            # Otherwise fall back to the static guard.
+            if self.approval_callback is not None:
+                import functools
+                from miqi.agent.command_approval import check_dangerous_command
+                loop = asyncio.get_event_loop()
+                check_fn = functools.partial(
+                    check_dangerous_command,
+                    command,
+                    approval_callback=self.approval_callback,
                 )
-        else:
-            guard_error = self._guard_command(command, cwd)
-            if guard_error:
-                return guard_error
+                approval_result = await loop.run_in_executor(None, check_fn)
+                if not approval_result.get("approved", True):
+                    return approval_result.get(
+                        "message",
+                        "Error: Command blocked — user denied approval.",
+                    )
+            else:
+                guard_error = self._guard_command(command, cwd)
+                if guard_error:
+                    return guard_error
 
-        # Try sandbox execution first if a sandbox manager is available
-        if self._sandbox_manager is not None:
-            sandbox = self._sandbox_manager.active_sandbox
-            if sandbox and sandbox.is_running:
-                return await self._execute_in_sandbox(sandbox, command, cwd)
+            # Try sandbox execution first if a sandbox manager is available
+            if self._sandbox_manager is not None:
+                sandbox = self._sandbox_manager.active_sandbox
+                if sandbox and sandbox.is_running:
+                    return await self._execute_in_sandbox(sandbox, command, cwd)
 
-        # Fall back to direct execution (no sandbox)
-        return await self._execute_direct(command, cwd)
+            # Fall back to direct execution (no sandbox)
+            return await self._execute_direct(command, cwd)
+
+        result = await _run()
+
+        # Phase 21: emit exec end event
+        if event_emitter is not None:
+            from miqi.protocol.events import ExecCommandEndEvent
+            exit_code = 0 if not result.startswith("Error:") else 1
+            await event_emitter.emit(ExecCommandEndEvent(
+                turn_id=turn_id,
+                tool_call_id=tool_call_id,
+                exit_code=exit_code,
+                duration_ms=0,
+                output_size=len(result),
+            ))
+
+        return result
 
     async def _execute_in_sandbox(
         self, sandbox, command: str, cwd: str

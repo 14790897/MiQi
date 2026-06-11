@@ -224,4 +224,12 @@ class ToolOrchestrator:
         if sandbox.sandbox_type != SandboxType.NONE:
             kwargs["_sandbox"] = sandbox
 
+        # Phase 21: pass runtime event emitter and cancellation to exec tool
+        if ctx.tool_name == "exec":
+            kwargs["_event_emitter"] = self.events
+            kwargs["_turn_id"] = ctx.turn_id
+            kwargs["_tool_call_id"] = ctx.tool_call_id
+            if ctx.cancel_event is not None:
+                kwargs["_cancel_event"] = ctx.cancel_event
+
         return await tool.execute(**kwargs)
