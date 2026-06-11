@@ -50,6 +50,33 @@ class ThreadCommand:
     params: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class CompactCommand:
+    """Request context compaction for a thread."""
+    type: str = field(default="compact", init=False)
+    thread_id: str
+    reason: str = "manual"
+
+
+@dataclass
+class UserInputAnswer:
+    """Answer to a runtime input request (elicitation)."""
+    type: str = field(default="user_input_answer", init=False)
+    request_id: str
+    answers: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class RunUserShellCommand:
+    """Execute a shell command requested by the user (not the agent)."""
+    type: str = field(default="run_user_shell_command", init=False)
+    command: str
+    thread_id: str | None = None
+
+
 # ── Union type ──────────────────────────────────────────────
 
-Submission = UserMessage | ApprovalResponse | AbortTurn | ConfigUpdate | ThreadCommand
+Submission = (
+    UserMessage | ApprovalResponse | AbortTurn | ConfigUpdate |
+    ThreadCommand | CompactCommand | UserInputAnswer | RunUserShellCommand
+)
