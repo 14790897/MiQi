@@ -306,3 +306,32 @@ def test_runtime_services_include_history_and_thread_runtime(
     assert services.session_state.session_id == "sess-history"
     assert services.session_state.workspace == tmp_path
 
+
+@pytest.mark.asyncio
+async def test_runtime_session_start_initializes_history_stores(
+    fake_config, fake_provider, tmp_path,
+):
+    """RuntimeSession.start() must init history/thread stores and create default thread."""
+    from miqi.runtime.session import RuntimeSession
+
+    runtime = RuntimeSession.create(
+        config=fake_config,
+        provider=fake_provider,
+        session_id="sess-init",
+        workspace=tmp_path,
+    )
+
+    await runtime.start()
+    try:
+        db_path = tmp_path / ".miqi-runtime" / "runtime.db"
+        assert db_path.exists(), f"runtime DB should exist at {db_path}"
+
+        # Default thread must exist
+        thread = await runtime.services.thread_runtime.get_thread(
+            runtime.services.session_state.active_thread_id,
+        )
+        assert thread is not None
+        assert thread.title == "Default"
+    finally:
+        await runtime.stop()
+
