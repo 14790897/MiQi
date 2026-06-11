@@ -29,6 +29,7 @@ async def test_history_runtime_appends_and_loads_messages(tmp_path):
 
     assert [item.role for item in items] == ["user", "assistant"]
     assert [item.content for item in items] == ["hello", "hi"]
+    await runtime.close()
 
 
 @pytest.mark.asyncio
@@ -51,6 +52,7 @@ async def test_history_runtime_records_turn_lifecycle(tmp_path):
     assert turn.tools_used == ["read_file"]
     assert turn.token_usage["prompt_tokens"] == 10
     assert turn.completed_at is not None
+    await runtime.close()
 
 
 @pytest.mark.asyncio
@@ -72,6 +74,7 @@ async def test_history_runtime_append_message_convenience(tmp_path):
 
     items = await runtime.load_items("thread-1")
     assert len(items) == 1
+    await runtime.close()
 
 
 @pytest.mark.asyncio
@@ -91,6 +94,7 @@ async def test_history_runtime_load_messages_formats_for_provider(tmp_path):
     assert len(messages) == 2
     assert messages[0] == {"role": "user", "content": "hello"}
     assert messages[1] == {"role": "assistant", "content": "hi there"}
+    await runtime.close()
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +118,7 @@ async def test_replace_messages_with_compaction_replaces_visible_history(tmp_pat
 
     messages = await runtime.load_messages("t1")
     assert messages == [{"role": "system", "content": "[summary]"}]
+    await runtime.close()
 
 
 @pytest.mark.asyncio
@@ -149,3 +154,4 @@ async def test_compaction_record_stores_audit_metadata(tmp_path):
     assert row["messages_after"] == 1
     assert row["tokens_saved"] == 50
     assert json.loads(row["replacement_json"]) == [{"role": "system", "content": "[summary]"}]
+    await runtime.close()
