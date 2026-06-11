@@ -321,8 +321,8 @@ def handle_status(req_id: str, params: dict) -> None:
 def handle_chat_send(req_id: str, params: dict) -> None:
     """Handle chat.send — submits to RuntimeSession via RuntimeClient (Phase 14).
 
-    No longer constructs AgentLoop or calls process_direct() directly.
-    The runtime owns all agent lifecycle; the bridge is a thin client.
+    The runtime owns all agent lifecycle; the bridge is a thin client
+    that submits commands and reads events from RuntimeSession.
     """
 
     def _run_in_thread() -> None:
