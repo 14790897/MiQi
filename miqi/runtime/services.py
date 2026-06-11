@@ -1,11 +1,15 @@
 """Shared runtime services — builds and owns the service graph for one session.
 
-This is the single factory that creates the full service graph (AgentLoop,
-ToolOrchestrator, AgentControl, TurnRunner, etc.) for one session. Frontends
-should use RuntimeSession instead of building services directly.
+This is the single factory that creates the full service graph (ToolRegistry,
+ToolOrchestrator, AgentControl, TurnRunner, PluginManager, CapabilityResolver,
+McpRuntime, etc.) for one session. Frontends should use RuntimeSession instead
+of building services directly.
 
-All heavy imports are lazy to avoid circular imports with AgentLoop
-(which imports from miqi.runtime for TurnContext/AgentRegistry).
+Phase 22: RuntimeServices no longer constructs or depends on AgentLoop.
+The former agent_loop field is now a RuntimeAgentLoopCompat shim that
+provides only config-level attributes (model, temperature, max_tokens,
+context_limit_chars) for callers that haven't been fully migrated yet.
+All heavy imports are lazy to avoid circular imports.
 """
 
 from __future__ import annotations
@@ -28,12 +32,16 @@ class RuntimeEventEmitter:
 
 
 class RuntimeAgentLoopCompat:
-    """Temporary compatibility object for tests and shutdown hooks.
+    """Temporary compatibility shim — NOT a real AgentLoop.
 
-    Replaces the old AgentLoop reference in RuntimeServices without
-    actually constructing or depending on AgentLoop. Provides the
-    config-level attributes that callers (TaskRunner, RuntimeSession)
-    still read, plus no-op stop()/close_mcp().
+    This exists solely so callers (TaskRunner, RuntimeSession) that still
+    read model/temperature/max_tokens/context_limit_chars from
+    ``services.agent_loop`` don't break while they are migrated to read
+    config directly. It does NOT construct, wrap, or delegate to the
+    real AgentLoop class. The stop() and close_mcp() methods are no-ops.
+
+    Once all callers read config from RuntimeServices directly, this
+    class and the ``agent_loop`` field on RuntimeServices can be removed.
     """
 
     def __init__(
@@ -62,9 +70,12 @@ class RuntimeAgentLoopCompat:
 class RuntimeServices:
     """All services needed for a single runtime session.
 
-    Owns the full service graph for a single session — AgentLoop,
-    ToolOrchestrator, AgentControl, TurnRunner, and all related wiring.
+    Owns the full service graph for a single session — ToolRegistry,
+    ToolOrchestrator, AgentControl, TurnRunner, PluginManager,
+    CapabilityResolver, McpRuntime, and all related wiring.
     Created once per session via from_config().
+
+    Phase 22: no longer depends on or constructs AgentLoop.
     """
 
     session_id: str
@@ -72,7 +83,7 @@ class RuntimeServices:
     bus: Any  # MessageBus
     provider: Any
     event_emitter: RuntimeEventEmitter
-    agent_loop: Any  # AgentLoop
+    agent_loop: Any  # RuntimeAgentLoopCompat (temporary compat shim; NOT a real AgentLoop)
     tool_registry: Any
     orchestrator: Any
     agent_registry: Any  # AgentRegistry

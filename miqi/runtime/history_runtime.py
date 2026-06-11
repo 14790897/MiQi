@@ -7,6 +7,10 @@ scoped to a single session for cross-session isolation.
 
 Phase 19: adds runtime_compactions table and
 replace_messages_with_compaction() for persistent context compaction.
+
+Phase 22 hardening: uses a single persistent aiosqlite connection
+instead of per-method connect() to prevent background-thread leaks
+when the event loop shuts down.
 """
 
 from __future__ import annotations
@@ -53,67 +57,97 @@ class HistoryRuntime:
     All queries are filtered by session_id to prevent cross-session
     data access. Threads are implicitly scoped by the session that
     creates them.
+
+    Uses a single persistent aiosqlite connection (opened in initialize(),
+    closed in close()) to avoid background-thread leaks on event-loop
+    shutdown.
     """
 
     def __init__(self, db_path: Path, *, session_id: str):
         self.db_path = db_path
         self.session_id = session_id
+        self._db: aiosqlite.Connection | None = None
+
+    # ── lifecycle ──────────────────────────────────────────────────────
 
     async def initialize(self) -> None:
+        """Open persistent connection and create tables."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(str(self.db_path)) as db:
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS runtime_turns (
-                    turn_id TEXT PRIMARY KEY,
-                    thread_id TEXT NOT NULL,
-                    session_id TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    started_at REAL NOT NULL,
-                    completed_at REAL,
-                    tools_used_json TEXT NOT NULL,
-                    token_usage_json TEXT NOT NULL
-                )
-            """)
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS runtime_history_items (
-                    item_id TEXT PRIMARY KEY,
-                    thread_id TEXT NOT NULL,
-                    session_id TEXT NOT NULL,
-                    turn_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    created_at REAL NOT NULL
-                )
-            """)
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS runtime_compactions (
-                    compaction_id TEXT PRIMARY KEY,
-                    thread_id TEXT NOT NULL,
-                    session_id TEXT NOT NULL,
-                    turn_id TEXT NOT NULL,
-                    messages_before INTEGER NOT NULL DEFAULT 0,
-                    messages_after INTEGER NOT NULL DEFAULT 0,
-                    tokens_saved INTEGER NOT NULL DEFAULT 0,
-                    replacement_json TEXT NOT NULL,
-                    created_at REAL NOT NULL
-                )
-            """)
-            await db.commit()
+        self._db = await aiosqlite.connect(str(self.db_path))
+        self._db.row_factory = aiosqlite.Row
+        await self._db.execute("""
+            CREATE TABLE IF NOT EXISTS runtime_turns (
+                turn_id TEXT PRIMARY KEY,
+                thread_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                started_at REAL NOT NULL,
+                completed_at REAL,
+                tools_used_json TEXT NOT NULL,
+                token_usage_json TEXT NOT NULL
+            )
+        """)
+        await self._db.execute("""
+            CREATE TABLE IF NOT EXISTS runtime_history_items (
+                item_id TEXT PRIMARY KEY,
+                thread_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                turn_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at REAL NOT NULL
+            )
+        """)
+        await self._db.execute("""
+            CREATE TABLE IF NOT EXISTS runtime_compactions (
+                compaction_id TEXT PRIMARY KEY,
+                thread_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                turn_id TEXT NOT NULL,
+                messages_before INTEGER NOT NULL DEFAULT 0,
+                messages_after INTEGER NOT NULL DEFAULT 0,
+                tokens_saved INTEGER NOT NULL DEFAULT 0,
+                replacement_json TEXT NOT NULL,
+                created_at REAL NOT NULL
+            )
+        """)
+        await self._db.commit()
+
+    async def close(self) -> None:
+        """Close the persistent database connection.
+
+        Safe to call multiple times; no-op if already closed or never
+        initialized.
+        """
+        if self._db is not None:
+            await self._db.close()
+            self._db = None
+
+    @property
+    def _conn(self) -> aiosqlite.Connection:
+        """Return the persistent connection, raising if not initialized."""
+        if self._db is None:
+            raise RuntimeError(
+                "HistoryRuntime.initialize() must be called before use"
+            )
+        return self._db
+
+    # ── turns ──────────────────────────────────────────────────────────
 
     async def start_turn(self, turn_id: str, *, thread_id: str) -> None:
-        async with aiosqlite.connect(str(self.db_path)) as db:
-            await db.execute(
-                """INSERT OR REPLACE INTO runtime_turns
-                   (turn_id, thread_id, session_id, status, started_at,
-                    completed_at, tools_used_json, token_usage_json)
-                   VALUES (?, ?, ?, ?, ?, NULL, ?, ?)""",
-                (
-                    turn_id, thread_id, self.session_id, "running",
-                    time.time(), "[]", "{}",
-                ),
-            )
-            await db.commit()
+        db = self._conn
+        await db.execute(
+            """INSERT OR REPLACE INTO runtime_turns
+               (turn_id, thread_id, session_id, status, started_at,
+                completed_at, tools_used_json, token_usage_json)
+               VALUES (?, ?, ?, ?, ?, NULL, ?, ?)""",
+            (
+                turn_id, thread_id, self.session_id, "running",
+                time.time(), "[]", "{}",
+            ),
+        )
+        await db.commit()
 
     async def complete_turn(
         self,
@@ -123,31 +157,30 @@ class HistoryRuntime:
         tools_used: list[str],
         token_usage: dict[str, int],
     ) -> None:
-        async with aiosqlite.connect(str(self.db_path)) as db:
-            await db.execute(
-                """UPDATE runtime_turns
-                   SET status = ?, completed_at = ?, tools_used_json = ?,
-                       token_usage_json = ?
-                   WHERE turn_id = ? AND session_id = ?""",
-                (
-                    status,
-                    time.time(),
-                    json.dumps(tools_used),
-                    json.dumps(token_usage),
-                    turn_id,
-                    self.session_id,
-                ),
-            )
-            await db.commit()
+        db = self._conn
+        await db.execute(
+            """UPDATE runtime_turns
+               SET status = ?, completed_at = ?, tools_used_json = ?,
+                   token_usage_json = ?
+               WHERE turn_id = ? AND session_id = ?""",
+            (
+                status,
+                time.time(),
+                json.dumps(tools_used),
+                json.dumps(token_usage),
+                turn_id,
+                self.session_id,
+            ),
+        )
+        await db.commit()
 
     async def get_turn(self, turn_id: str) -> TurnRecord | None:
-        async with aiosqlite.connect(str(self.db_path)) as db:
-            db.row_factory = aiosqlite.Row
-            cursor = await db.execute(
-                "SELECT * FROM runtime_turns WHERE turn_id = ? AND session_id = ?",
-                (turn_id, self.session_id),
-            )
-            row = await cursor.fetchone()
+        db = self._conn
+        cursor = await db.execute(
+            "SELECT * FROM runtime_turns WHERE turn_id = ? AND session_id = ?",
+            (turn_id, self.session_id),
+        )
+        row = await cursor.fetchone()
         if row is None:
             return None
         return TurnRecord(
@@ -160,25 +193,27 @@ class HistoryRuntime:
             token_usage=json.loads(row["token_usage_json"]),
         )
 
+    # ── history items ──────────────────────────────────────────────────
+
     async def append_item(self, item: HistoryItem) -> None:
-        async with aiosqlite.connect(str(self.db_path)) as db:
-            await db.execute(
-                """INSERT INTO runtime_history_items
-                   (item_id, thread_id, session_id, turn_id, role, content,
-                    payload_json, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    item.item_id,
-                    item.thread_id,
-                    self.session_id,
-                    item.turn_id,
-                    item.role,
-                    item.content,
-                    json.dumps(item.payload),
-                    item.created_at,
-                ),
-            )
-            await db.commit()
+        db = self._conn
+        await db.execute(
+            """INSERT INTO runtime_history_items
+               (item_id, thread_id, session_id, turn_id, role, content,
+                payload_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                item.item_id,
+                item.thread_id,
+                self.session_id,
+                item.turn_id,
+                item.role,
+                item.content,
+                json.dumps(item.payload),
+                item.created_at,
+            ),
+        )
+        await db.commit()
 
     async def append_message(
         self,
@@ -201,15 +236,14 @@ class HistoryRuntime:
         return item
 
     async def load_items(self, thread_id: str) -> list[HistoryItem]:
-        async with aiosqlite.connect(str(self.db_path)) as db:
-            db.row_factory = aiosqlite.Row
-            cursor = await db.execute(
-                """SELECT * FROM runtime_history_items
-                   WHERE thread_id = ? AND session_id = ?
-                   ORDER BY created_at ASC, item_id ASC""",
-                (thread_id, self.session_id),
-            )
-            rows = await cursor.fetchall()
+        db = self._conn
+        cursor = await db.execute(
+            """SELECT * FROM runtime_history_items
+               WHERE thread_id = ? AND session_id = ?
+               ORDER BY created_at ASC, item_id ASC""",
+            (thread_id, self.session_id),
+        )
+        rows = await cursor.fetchall()
         return [
             HistoryItem(
                 item_id=row["item_id"],
@@ -251,56 +285,56 @@ class HistoryRuntime:
         replacement messages, and records a compaction row with full
         audit metadata.
         """
+        db = self._conn
         compaction_id = str(uuid.uuid4())
-        async with aiosqlite.connect(str(self.db_path)) as db:
-            # Delete existing items for this thread (session-scoped)
+        # Delete existing items for this thread (session-scoped)
+        await db.execute(
+            "DELETE FROM runtime_history_items WHERE thread_id = ? AND session_id = ?",
+            (thread_id, self.session_id),
+        )
+        # Insert replacement messages
+        for msg in replacement_messages:
             await db.execute(
-                "DELETE FROM runtime_history_items WHERE thread_id = ? AND session_id = ?",
-                (thread_id, self.session_id),
-            )
-            # Insert replacement messages
-            for msg in replacement_messages:
-                await db.execute(
-                    """INSERT INTO runtime_history_items
-                       (item_id, thread_id, session_id, turn_id, role, content,
-                        payload_json, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        str(uuid.uuid4()),
-                        thread_id,
-                        self.session_id,
-                        turn_id,
-                        msg["role"],
-                        msg.get("content") or "",
-                        json.dumps(
-                            {
-                                "message_fields": {
-                                    k: v
-                                    for k, v in msg.items()
-                                    if k not in {"role", "content"}
-                                },
-                            },
-                        ),
-                        time.time(),
-                    ),
-                )
-            # Record the compaction with full audit metadata
-            await db.execute(
-                """INSERT INTO runtime_compactions
-                   (compaction_id, thread_id, session_id, turn_id,
-                    messages_before, messages_after, tokens_saved,
-                    replacement_json, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO runtime_history_items
+                   (item_id, thread_id, session_id, turn_id, role, content,
+                    payload_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    compaction_id,
+                    str(uuid.uuid4()),
                     thread_id,
                     self.session_id,
                     turn_id,
-                    messages_before,
-                    messages_after,
-                    tokens_saved,
-                    json.dumps(replacement_messages),
+                    msg["role"],
+                    msg.get("content") or "",
+                    json.dumps(
+                        {
+                            "message_fields": {
+                                k: v
+                                for k, v in msg.items()
+                                if k not in {"role", "content"}
+                            },
+                        },
+                    ),
                     time.time(),
                 ),
             )
-            await db.commit()
+        # Record the compaction with full audit metadata
+        await db.execute(
+            """INSERT INTO runtime_compactions
+               (compaction_id, thread_id, session_id, turn_id,
+                messages_before, messages_after, tokens_saved,
+                replacement_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                compaction_id,
+                thread_id,
+                self.session_id,
+                turn_id,
+                messages_before,
+                messages_after,
+                tokens_saved,
+                json.dumps(replacement_messages),
+                time.time(),
+            ),
+        )
+        await db.commit()
