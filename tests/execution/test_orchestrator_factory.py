@@ -57,7 +57,7 @@ def test_configure_agent_orchestrator_wires_tools():
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         workspace = Path(tmp)
-        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace)
+        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace, model="test-model")
 
         configure_agent_orchestrator(loop)
 
@@ -98,7 +98,7 @@ def test_configure_agent_orchestrator_prevents_fail_fast():
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         workspace = Path(tmp)
-        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace)
+        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace, model="test-model")
 
         configure_agent_orchestrator(loop)
 

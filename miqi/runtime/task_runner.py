@@ -1,6 +1,6 @@
 """Task runner — dispatches incoming submissions to the right handler.
 
-Routes UserMessage through AgentLoop, handles AbortTurn, and emits
+Routes UserMessage through TurnRunner, handles AbortTurn, and emits
 typed protocol events onto the shared event queue.
 """
 
@@ -21,7 +21,7 @@ from miqi.protocol.events import AgentMessageEvent, ErrorEvent, EventSeverity
 
 
 class TaskRunner:
-    """Dispatches submissions and converts AgentLoop output to typed events.
+    """Dispatches submissions and converts TurnRunner output to typed events.
 
     Does NOT own services — it receives them from RuntimeSession.
     """
@@ -55,7 +55,7 @@ class TaskRunner:
             await self._events.put(ErrorEvent(
                 turn_id=str(uuid.uuid4())[:12],
                 severity=EventSeverity.WARNING,
-                message=f"Submission type {type(submission).__name__} is not wired in Phase 11",
+                message=f"Submission type {type(submission).__name__} is not yet wired",
                 recoverable=True,
             ))
             return

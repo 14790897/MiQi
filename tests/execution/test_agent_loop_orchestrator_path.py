@@ -79,7 +79,7 @@ def test_parallel_tool_calls_use_orchestrator_not_execute_concurrent():
 
     with _make_temp_dir() as tmp:
         workspace = Path(tmp)
-        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace)
+        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace, model="test-model")
 
         # Set up orchestrator
         orchestrator = _make_minimal_orchestrator()
@@ -143,7 +143,7 @@ def test_agent_loop_raises_when_no_orchestrator():
 
     with _make_temp_dir() as tmp:
         workspace = Path(tmp)
-        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace)
+        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace, model="test-model")
         # Do NOT set orchestrator
         loop._orchestrator = None
 
@@ -164,7 +164,7 @@ def test_set_orchestrator_method():
 
     with _make_temp_dir() as tmp:
         workspace = Path(tmp)
-        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace)
+        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace, model="test-model")
 
         orchestrator = _make_minimal_orchestrator()
         loop.set_orchestrator(orchestrator)
@@ -189,7 +189,7 @@ def test_turn_context_created_and_cleared():
 
     with _make_temp_dir() as tmp:
         workspace = Path(tmp)
-        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace)
+        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace, model="test-model")
 
         orchestrator = _make_minimal_orchestrator()
         orchestrator.tools = loop.tools

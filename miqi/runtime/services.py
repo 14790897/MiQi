@@ -1,8 +1,8 @@
 """Shared runtime services — builds and owns the service graph for one session.
 
-This is the single factory that creates AgentLoop, ToolOrchestrator,
-AgentControl, and all related wiring. Frontends should use RuntimeSession
-instead of building AgentLoop directly.
+This is the single factory that creates the full service graph (AgentLoop,
+ToolOrchestrator, AgentControl, TurnRunner, etc.) for one session. Frontends
+should use RuntimeSession instead of building services directly.
 
 All heavy imports are lazy to avoid circular imports with AgentLoop
 (which imports from miqi.runtime for TurnContext/AgentRegistry).
@@ -31,8 +31,9 @@ class RuntimeEventEmitter:
 class RuntimeServices:
     """All services needed for a single runtime session.
 
-    Owns AgentLoop, ToolOrchestrator, AgentControl, event emitter, and
-    the shared tool registry. Created once per session via from_config().
+    Owns the full service graph for a single session — AgentLoop,
+    ToolOrchestrator, AgentControl, TurnRunner, and all related wiring.
+    Created once per session via from_config().
     """
 
     session_id: str
