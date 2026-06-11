@@ -270,6 +270,54 @@ class SessionConfiguredEvent:
     sandbox_enforcement: str
 
 
+# ── Phase 18: Thread Lifecycle Events ──────────────────────
+
+
+@dataclass
+class ThreadCreatedEvent:
+    """A new thread was created."""
+    type: str = field(default="thread_created", init=False)
+    thread_id: str
+    title: str
+    parent_thread_id: str | None = None
+
+
+@dataclass
+class ThreadUpdatedEvent:
+    """A thread's title or status was changed."""
+    type: str = field(default="thread_updated", init=False)
+    thread_id: str
+    title: str | None = None
+    status: str | None = None
+
+
+@dataclass
+class ThreadDeletedEvent:
+    """A thread was deleted."""
+    type: str = field(default="thread_deleted", init=False)
+    thread_id: str
+
+
+# ── Phase 18: Config & Command Events ──────────────────────
+
+
+@dataclass
+class ConfigUpdatedEvent:
+    """Session configuration was updated at runtime."""
+    type: str = field(default="config_updated", init=False)
+    path: str
+    value: Any
+
+
+@dataclass
+class CommandRejectedEvent:
+    """A command was rejected because it is unsupported or invalid."""
+    type: str = field(default="command_rejected", init=False)
+    command_type: str
+    reason: str
+    recoverable: bool = True
+
+
 # ── Union type for dispatch ─────────────────────────────────
 
 EventMsg = (
@@ -281,5 +329,7 @@ EventMsg = (
     SubAgentSpawnedEvent | SubAgentCompletedEvent |
     PlanUpdateEvent |
     ErrorEvent | WarningEvent |
-    ContextCompactedEvent | SessionConfiguredEvent
+    ContextCompactedEvent | SessionConfiguredEvent |
+    ThreadCreatedEvent | ThreadUpdatedEvent | ThreadDeletedEvent |
+    ConfigUpdatedEvent | CommandRejectedEvent
 )
