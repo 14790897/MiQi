@@ -11,7 +11,7 @@ from miqi.runtime.task_runner import TaskRunner
 
 @pytest.mark.asyncio
 async def test_task_runner_routes_user_message_to_turn_runner(fake_services):
-    """UserMessage goes through TurnRunner.run, not agent_loop.process_direct."""
+    """UserMessage goes through TurnRunner.run."""
     events = asyncio.Queue()
     runner = TaskRunner(services=fake_services, event_queue=events)
 
@@ -19,8 +19,6 @@ async def test_task_runner_routes_user_message_to_turn_runner(fake_services):
 
     # TurnRunner is the new path
     fake_services.turn_runner.run.assert_awaited_once()
-    # agent_loop.process_direct should NOT be called
-    fake_services.agent_loop.process_direct.assert_not_awaited()
 
     # Phase 17: TurnStartedEvent is emitted before AgentMessageEvent.
     # Drain past non-content events until we find the final message.
