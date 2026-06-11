@@ -35,4 +35,8 @@ def fake_services(fake_config, fake_provider):
     run_result = MagicMock()
     run_result.final_content = "hi there"
     services.turn_runner.run.return_value = run_result
+    # Phase 17: explicitly None to avoid MagicMock auto-creation
+    services.history_runtime = None
+    services.thread_runtime = None
+    services.session_state = None
     return services

@@ -20,8 +20,15 @@ async def test_task_runner_routes_user_message_to_turn_runner(fake_services):
     fake_services.turn_runner.run.assert_awaited_once()
     # agent_loop.process_direct should NOT be called
     fake_services.agent_loop.process_direct.assert_not_awaited()
-    event = await asyncio.wait_for(events.get(), timeout=1)
-    assert hasattr(event, "content")
+
+    # Phase 17: TurnStartedEvent is emitted before AgentMessageEvent.
+    # Drain past non-content events until we find the final message.
+    event = None
+    while True:
+        ev = await asyncio.wait_for(events.get(), timeout=1)
+        if hasattr(ev, "content"):
+            event = ev
+            break
     assert event.content == "hi there"
 
 
@@ -93,9 +100,14 @@ async def test_task_runner_sanitizes_processing_errors(fake_services):
     from miqi.protocol.commands import UserMessage
     await runner.handle(UserMessage(content="test", thread_id="cli:default"))
 
-    event = await _asyncio.wait_for(events.get(), timeout=1)
-    assert event.__class__.__name__ == "ErrorEvent"
-    # Must NOT leak the raw exception message
+    # Phase 17: TurnStartedEvent arrives first, then ErrorEvent.
+    # Drain past non-ErrorEvent events.
+    event = None
+    while True:
+        ev = await _asyncio.wait_for(events.get(), timeout=1)
+        if ev.__class__.__name__ == "ErrorEvent":
+            event = ev
+            break
     assert "secret API key" not in event.message
     assert "An internal error occurred" in event.message
 
@@ -168,6 +180,11 @@ async def test_task_runner_attaches_capabilities_and_permission_profile(fake_ser
     assert isinstance(captured_turn.permission_profile, PermissionProfile)
     assert captured_turn.permission_profile.workspace == fake_services.workspace
 
-    # Verify an AgentMessageEvent was queued
-    event = await _asyncio.wait_for(events.get(), timeout=1)
+    # Phase 17: verify AgentMessageEvent was queued (after TurnStartedEvent)
+    event = None
+    while True:
+        ev = await _asyncio.wait_for(events.get(), timeout=1)
+        if hasattr(ev, "content"):
+            event = ev
+            break
     assert event.content == "ok"
