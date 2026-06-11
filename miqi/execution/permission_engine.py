@@ -97,8 +97,34 @@ class PermissionEngine:
         if cmd_key in self.permanent_allowlist:
             return PermissionDecision(verdict=PermissionVerdict.ALLOW)
 
-        # 4. Shell commands: metacharacter-aware safety check
+        # 4. Phase 21: permission profile prefix rules for exec
         if tool_name == "exec":
+            profile = getattr(ctx, "permission_profile", None)
+            if profile is not None:
+                cmd = str(ctx.arguments.get("command", ""))
+                parts = cmd.split()
+                # Deny rules checked first — explicit blocks always win
+                for prefix in getattr(profile, "exec_deny_prefixes", []):
+                    if parts[:len(prefix)] == prefix:
+                        return PermissionDecision(
+                            verdict=PermissionVerdict.DENY,
+                            reason=(
+                                f"Denied by permission profile prefix: "
+                                f"{' '.join(prefix)}"
+                            ),
+                        )
+                # Allow rules — skip further safety checks
+                for prefix in getattr(profile, "exec_allow_prefixes", []):
+                    if parts[:len(prefix)] == prefix:
+                        return PermissionDecision(
+                            verdict=PermissionVerdict.ALLOW,
+                            reason=(
+                                f"Allowed by permission profile prefix: "
+                                f"{' '.join(prefix)}"
+                            ),
+                        )
+
+            # 5. Shell commands: metacharacter-aware safety check
             cmd = ctx.arguments.get("command", "")
             if self._is_safe_command(cmd):
                 return PermissionDecision(verdict=PermissionVerdict.ALLOW)
@@ -110,7 +136,7 @@ class PermissionEngine:
                 allow_permanent=True,
             )
 
-        # 5. File writes: require approval unless whitelisted
+        # 6. File writes: require approval unless whitelisted
         if tool_name in frozenset({"write_file", "edit_file", "delete_file"}):
             path = ctx.arguments.get("path", "") or ctx.arguments.get("file_path", "")
             return PermissionDecision(
@@ -121,7 +147,7 @@ class PermissionEngine:
                 allow_permanent=True,
             )
 
-        # 6. Default: deny-by-default — unknown tools require approval
+        # 7. Default: deny-by-default — unknown tools require approval
         return PermissionDecision(
             verdict=PermissionVerdict.APPROVAL_REQUIRED,
             category="unknown_tool",
