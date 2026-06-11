@@ -88,8 +88,10 @@ async def test_approval_response_resolves_orchestrator(fake_services):
 
 
 @pytest.mark.asyncio
-async def test_task_runner_emits_error_for_unknown_type(fake_services):
-    """Unknown submission types get an ERROR ErrorEvent."""
+async def test_task_runner_unknown_submission_command_rejected(fake_services):
+    """Unknown submission types emit CommandRejectedEvent (Phase 18)."""
+    from miqi.protocol.events import CommandRejectedEvent
+
     events = asyncio.Queue()
     runner = TaskRunner(services=fake_services, event_queue=events)
 
@@ -99,8 +101,8 @@ async def test_task_runner_emits_error_for_unknown_type(fake_services):
     await runner.handle(BogusCommand())
 
     event = await asyncio.wait_for(events.get(), timeout=1)
-    assert event.__class__.__name__ == "ErrorEvent"
-    assert "Unknown submission type" in event.message
+    assert isinstance(event, CommandRejectedEvent)
+    assert event.recoverable is False
 
 
 # ---------------------------------------------------------------------------
