@@ -27,6 +27,37 @@ class RuntimeEventEmitter:
         await self._sink(event)
 
 
+class RuntimeAgentLoopCompat:
+    """Temporary compatibility object for tests and shutdown hooks.
+
+    Replaces the old AgentLoop reference in RuntimeServices without
+    actually constructing or depending on AgentLoop. Provides the
+    config-level attributes that callers (TaskRunner, RuntimeSession)
+    still read, plus no-op stop()/close_mcp().
+    """
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        max_tool_result_chars: int,
+        context_limit_chars: int,
+    ):
+        self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.max_tool_result_chars = max_tool_result_chars
+        self.context_limit_chars = context_limit_chars
+
+    def stop(self) -> None:
+        return None
+
+    async def close_mcp(self) -> None:
+        return None
+
+
 @dataclass
 class RuntimeServices:
     """All services needed for a single runtime session.
@@ -74,46 +105,44 @@ class RuntimeServices:
 
         Returns a RuntimeServices ready for use by RuntimeSession.
         """
-        # Lazy imports to avoid circular imports with AgentLoop
-        from miqi.agent.loop import AgentLoop
+        # Lazy imports to avoid circular imports
         from miqi.bus.queue import MessageBus
         from miqi.execution.factory import create_default_orchestrator
+        from miqi.plan.plan_tracker import PlanTracker
         from miqi.runtime.agent_control import AgentControl
         from miqi.runtime.agent_registry import AgentRegistry
+        from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
 
         bus = MessageBus()
         defaults = config.agents.defaults
-        agent_loop = AgentLoop(
-            bus=bus,
-            provider=provider,
+
+        # Phase 22: runtime-owned tool registry (replaces AgentLoop._register_default_tools)
+        plan_tracker = PlanTracker()
+        tool_registry = create_runtime_tool_registry(
+            config=config,
             workspace=workspace,
-            agent_name=defaults.name,
+            provider=provider,
+            bus=bus,
+            approval_callback=None,
+            sandbox_manager=None,
+            plan_tracker=plan_tracker,
+        )
+
+        # Compatibility shim for callers that still read model/temperature/etc.
+        agent_loop = RuntimeAgentLoopCompat(
             model=defaults.model,
             temperature=defaults.temperature,
             max_tokens=defaults.max_tokens,
-            max_iterations=defaults.max_tool_iterations,
-            reflect_after_tool_calls=defaults.reflect_after_tool_calls,
-            web_config=config.tools.web,
-            paper_config=config.tools.papers,
-            memory_window=defaults.memory_window,
             max_tool_result_chars=defaults.max_tool_result_chars,
             context_limit_chars=defaults.context_limit_chars,
-            exec_config=config.tools.exec,
-            memory_config=config.agents.memory,
-            self_improvement_config=config.agents.self_improvement,
-            session_config=config.agents.sessions,
-            restrict_to_workspace=config.tools.restrict_to_workspace,
-            mcp_servers=config.tools.mcp_servers,
-            channels_config=config.channels,
         )
 
         emitter = RuntimeEventEmitter(event_sink)
 
         orchestrator = create_default_orchestrator(
-            tool_registry=agent_loop.tools,
+            tool_registry=tool_registry,
             event_emitter=emitter,
         )
-        agent_loop.set_orchestrator(orchestrator)
 
         registry = AgentRegistry()
         agent_control = AgentControl(
@@ -123,11 +152,11 @@ class RuntimeServices:
             workspace=workspace,
             provider=provider,
             orchestrator=orchestrator,
-            tool_registry=agent_loop.tools,
+            tool_registry=tool_registry,
         )
 
         # Wire SpawnTool into AgentControl
-        spawn_tool = agent_loop.tools.get("spawn")
+        spawn_tool = tool_registry.get("spawn")
         if spawn_tool is not None and hasattr(spawn_tool, "_agent_control"):
             spawn_tool._agent_control = agent_control
             spawn_tool._event_emitter = emitter
@@ -169,7 +198,7 @@ class RuntimeServices:
         )
 
         capability_resolver = CapabilityResolver(
-            tool_registry=agent_loop.tools,
+            tool_registry=tool_registry,
             plugin_manager=plugin_manager,
         )
 
@@ -212,7 +241,7 @@ class RuntimeServices:
             provider=provider,
             event_emitter=emitter,
             agent_loop=agent_loop,
-            tool_registry=agent_loop.tools,
+            tool_registry=tool_registry,
             orchestrator=orchestrator,
             agent_registry=registry,
             agent_control=agent_control,
