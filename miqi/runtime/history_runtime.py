@@ -2,7 +2,8 @@
 
 Owns SQLite storage for turn records, history items (messages),
 and provides load/append/query methods used by TaskRunner and
-ContextRuntime. One instance per workspace.
+ContextRuntime. One instance per workspace, scoped to a single
+session for cross-session isolation.
 """
 
 from __future__ import annotations
@@ -44,16 +45,16 @@ class TurnRecord:
 
 
 class HistoryRuntime:
-    """Persistent runtime history for one workspace.
+    """Persistent runtime history scoped to one session.
 
-    Provides:
-      - start_turn / complete_turn for turn lifecycle tracking
-      - append_item / append_message for message persistence
-      - load_items / load_messages for history retrieval
+    All queries are filtered by session_id to prevent cross-session
+    data access. Threads are implicitly scoped by the session that
+    creates them.
     """
 
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, *, session_id: str):
         self.db_path = db_path
+        self.session_id = session_id
 
     async def initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,6 +63,7 @@ class HistoryRuntime:
                 CREATE TABLE IF NOT EXISTS runtime_turns (
                     turn_id TEXT PRIMARY KEY,
                     thread_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
                     status TEXT NOT NULL,
                     started_at REAL NOT NULL,
                     completed_at REAL,
@@ -73,6 +75,7 @@ class HistoryRuntime:
                 CREATE TABLE IF NOT EXISTS runtime_history_items (
                     item_id TEXT PRIMARY KEY,
                     thread_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
                     turn_id TEXT NOT NULL,
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
@@ -86,10 +89,13 @@ class HistoryRuntime:
         async with aiosqlite.connect(str(self.db_path)) as db:
             await db.execute(
                 """INSERT OR REPLACE INTO runtime_turns
-                   (turn_id, thread_id, status, started_at, completed_at,
-                    tools_used_json, token_usage_json)
-                   VALUES (?, ?, ?, ?, NULL, ?, ?)""",
-                (turn_id, thread_id, "running", time.time(), "[]", "{}"),
+                   (turn_id, thread_id, session_id, status, started_at,
+                    completed_at, tools_used_json, token_usage_json)
+                   VALUES (?, ?, ?, ?, ?, NULL, ?, ?)""",
+                (
+                    turn_id, thread_id, self.session_id, "running",
+                    time.time(), "[]", "{}",
+                ),
             )
             await db.commit()
 
@@ -106,13 +112,14 @@ class HistoryRuntime:
                 """UPDATE runtime_turns
                    SET status = ?, completed_at = ?, tools_used_json = ?,
                        token_usage_json = ?
-                   WHERE turn_id = ?""",
+                   WHERE turn_id = ? AND session_id = ?""",
                 (
                     status,
                     time.time(),
                     json.dumps(tools_used),
                     json.dumps(token_usage),
                     turn_id,
+                    self.session_id,
                 ),
             )
             await db.commit()
@@ -121,8 +128,8 @@ class HistoryRuntime:
         async with aiosqlite.connect(str(self.db_path)) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
-                "SELECT * FROM runtime_turns WHERE turn_id = ?",
-                (turn_id,),
+                "SELECT * FROM runtime_turns WHERE turn_id = ? AND session_id = ?",
+                (turn_id, self.session_id),
             )
             row = await cursor.fetchone()
         if row is None:
@@ -141,12 +148,13 @@ class HistoryRuntime:
         async with aiosqlite.connect(str(self.db_path)) as db:
             await db.execute(
                 """INSERT INTO runtime_history_items
-                   (item_id, thread_id, turn_id, role, content, payload_json,
-                    created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   (item_id, thread_id, session_id, turn_id, role, content,
+                    payload_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     item.item_id,
                     item.thread_id,
+                    self.session_id,
                     item.turn_id,
                     item.role,
                     item.content,
@@ -181,9 +189,9 @@ class HistoryRuntime:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 """SELECT * FROM runtime_history_items
-                   WHERE thread_id = ?
+                   WHERE thread_id = ? AND session_id = ?
                    ORDER BY created_at ASC, item_id ASC""",
-                (thread_id,),
+                (thread_id, self.session_id),
             )
             rows = await cursor.fetchall()
         return [

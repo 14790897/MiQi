@@ -172,7 +172,7 @@ class RuntimeServices:
         from miqi.runtime.thread_runtime import ThreadRuntime
 
         runtime_db = workspace / ".miqi-runtime" / "runtime.db"
-        history_runtime = HistoryRuntime(runtime_db)
+        history_runtime = HistoryRuntime(runtime_db, session_id=session_id)
         thread_runtime = ThreadRuntime(runtime_db, session_id=session_id)
         session_state = SessionState(
             session_id=session_id,
