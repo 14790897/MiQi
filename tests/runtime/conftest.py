@@ -16,7 +16,6 @@ def fake_services(fake_config, fake_provider):
     services.provider = fake_provider
     services.event_emitter = RuntimeEventEmitter()
     services.agent_loop = MagicMock()
-    services.agent_loop.process_direct = AsyncMock(return_value="hi there")
     services.agent_loop.model = "test-model"
     services.agent_loop.temperature = 0.1
     services.agent_loop.max_tokens = 4096
