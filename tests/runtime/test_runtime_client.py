@@ -170,3 +170,43 @@ async def test_runtime_client_per_runtime_lock_two_clients():
     assert ra == "resp-A", f"Client A got wrong response: {ra}"
     assert rb == "resp-B", f"Client B got wrong response: {rb}"
     assert len(runtime.submissions) == 2
+
+
+# ---------------------------------------------------------------------------
+# Phase 20: streaming delta forwarding
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_runtime_client_forwards_deltas_and_returns_final():
+    """RuntimeClient.ask() must forward AgentMessageDeltaEvent to on_event
+    and return the final content from AgentMessageEvent."""
+    from miqi.protocol.events import AgentMessageDeltaEvent
+
+    class QueuedRuntime:
+        def __init__(self):
+            self.submissions = []
+            self.events = [
+                AgentMessageDeltaEvent(turn_id="t1", delta="a", index=0),
+                AgentMessageDeltaEvent(turn_id="t1", delta="b", index=1),
+                AgentMessageEvent(turn_id="t1", content="ab", finish_reason="stop"),
+            ]
+
+        async def submit(self, submission):
+            self.submissions.append(submission)
+
+        async def next_event(self, timeout=None):
+            if not self.events:
+                return None
+            return self.events.pop(0)
+
+    seen: list = []
+    result = await RuntimeClient(QueuedRuntime()).ask(
+        "hi",
+        thread_id="t1",
+        on_event=seen.append,
+    )
+
+    assert result == "ab"
+    deltas = [e for e in seen if isinstance(e, AgentMessageDeltaEvent)]
+    assert [e.delta for e in deltas] == ["a", "b"]
