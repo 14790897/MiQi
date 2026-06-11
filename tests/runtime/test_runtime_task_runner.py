@@ -397,6 +397,9 @@ async def test_compact_command_emits_context_compacted(fake_services):
     assert event.messages_before == 10
     assert event.messages_after == 3
     assert event.tokens_saved == 100
+    # Phase 19 follow-up: turn_id must be the compact turn id, not thread_id
+    assert event.turn_id != "thread-1"
+    assert event.turn_id.startswith("compact-")
 
 
 @pytest.mark.asyncio

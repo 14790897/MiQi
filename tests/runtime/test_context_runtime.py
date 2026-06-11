@@ -112,7 +112,10 @@ async def test_context_runtime_compact_thread_replaces_history():
         async def load_messages(self, thread_id):
             return list(self.messages)
 
-        async def replace_messages_with_compaction(self, thread_id, turn_id, replacement):
+        async def replace_messages_with_compaction(
+            self, thread_id, turn_id, replacement,
+            messages_before=0, messages_after=0, tokens_saved=0,
+        ):
             self.replaced = replacement
 
     async def fake_compress(messages, model, session_id=""):
@@ -154,3 +157,55 @@ def test_context_runtime_should_auto_compact():
     msgs = [{"role": "user", "content": "x" * 400}]  # 400 chars → 100 tokens
     assert runtime.should_auto_compact(msgs, token_limit=50) is True
     assert runtime.should_auto_compact(msgs, token_limit=200) is False
+
+
+@pytest.mark.asyncio
+async def test_context_runtime_with_real_compressor_reduces_messages():
+    """When llm_call_fn is injected, compress_messages() delegates to
+    ContextCompressor and actually reduces message count."""
+    from unittest.mock import AsyncMock
+
+    # A fake LLM that returns a summary string
+    fake_llm = AsyncMock(return_value="[Compressed summary of conversation]")
+
+    # Use a moderate context limit so tail budget < total messages
+    runtime = ContextRuntime(
+        llm_call_fn=fake_llm,
+        context_limit_chars=50000,
+    )
+
+    # Build LARGE messages with substantial content to exceed tail budget
+    messages: list[dict] = []
+    for i in range(40):
+        messages.append({
+            "role": "user",
+            "content": f"message {i:02d}: " + "x" * 250,
+        })
+        messages.append({
+            "role": "assistant",
+            "content": f"response {i:02d}: " + "y" * 250,
+        })
+
+    compressed = await runtime.compress_messages(
+        messages, model="test-model", session_id="test-session",
+    )
+
+    # Should have called the LLM for summary
+    fake_llm.assert_awaited_once()
+    # Should be fewer messages than original
+    assert len(compressed) < len(messages), (
+        f"Expected compressed < original, got {len(compressed)} >= {len(messages)}"
+    )
+    # Should contain the summary content
+    assert any(
+        "summary" in str(m.get("content", "")).lower() for m in compressed
+    ), f"Compressed output should contain summary: {compressed}"
+
+
+def test_context_runtime_no_compressor_is_explicit_no_op():
+    """Without llm_call_fn, compress_messages() returns messages unchanged
+    but behavior is explicit, not accidental."""
+    runtime = ContextRuntime()  # no llm_call_fn
+
+    # _compressor should be None
+    assert runtime._compressor is None

@@ -298,11 +298,16 @@ async def test_task_runner_auto_compacts_before_large_turn(
 async def test_compaction_failure_does_not_crash_runtime(
     fake_config, fake_provider, tmp_path,
 ):
-    """When compact_thread raises, the turn proceeds with unbounded history
-    and the runtime does not crash."""
+    """When compact_thread raises, the runtime emits a recoverable ErrorEvent
+    and the turn proceeds with unbounded history — no crash."""
     from unittest.mock import AsyncMock
 
-    from miqi.protocol.events import AgentMessageEvent, TurnCompleteEvent
+    from miqi.protocol.events import (
+        AgentMessageEvent,
+        ErrorEvent,
+        EventSeverity,
+        TurnCompleteEvent,
+    )
 
     runtime = RuntimeSession.create(
         config=fake_config,
@@ -342,6 +347,14 @@ async def test_compaction_failure_does_not_crash_runtime(
         # Compaction failure must NOT emit ContextCompactedEvent
         assert "ContextCompactedEvent" not in event_names, (
             f"Failed compaction should not emit compact event: {event_names}"
+        )
+        # Phase 19 follow-up: must emit a recoverable ErrorEvent
+        error_events = [e for e in events if isinstance(e, ErrorEvent)]
+        assert len(error_events) >= 1, (
+            f"Should emit ErrorEvent on compaction failure, got: {event_names}"
+        )
+        assert all(e.recoverable for e in error_events), (
+            "Compaction failure ErrorEvents must be recoverable"
         )
     finally:
         await runtime.stop()
@@ -443,3 +456,90 @@ async def test_compaction_record_persisted_and_reused(
     # First message should be the summary
     assert stored[0]["role"] == "system"
     assert "[compacted summary]" in stored[0]["content"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 19 follow-up: real compressor integration test
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_real_compactor_produces_summary_and_replaces_history(tmp_path):
+    """End-to-end: real ContextRuntime + fake LLM → ContextCompressor
+    compresses history and writes [CONTEXT SUMMARY ...] into persisted
+    messages. Old messages are replaced."""
+    from unittest.mock import AsyncMock
+
+    from miqi.runtime.context_runtime import ContextRuntime
+    from miqi.runtime.history_runtime import HistoryRuntime
+
+    db_path = tmp_path / "runtime.db"
+    hist = HistoryRuntime(db_path, session_id="sess-real")
+    await hist.initialize()
+
+    # Populate a large history that will trigger compression
+    for i in range(30):
+        await hist.append_message(
+            thread_id="t1", turn_id=f"turn-{i:02d}", role="user",
+            content=f"User question number {i:02d}: " + "data " * 40,
+        )
+        await hist.append_message(
+            thread_id="t1", turn_id=f"turn-{i:02d}", role="assistant",
+            content=f"Assistant answer number {i:02d}: " + "info " * 40,
+        )
+
+    initial_count = len(await hist.load_messages("t1"))
+    assert initial_count == 60, f"Expected 60 pre-populated messages, got {initial_count}"
+
+    # Fake LLM returns a summary string (ContextCompressor wraps it)
+    fake_llm = AsyncMock(return_value="## CONVERSATION SUMMARY\n\n**Goal:** summarised all prior turns")
+
+    ctx = ContextRuntime(
+        llm_call_fn=fake_llm,
+        context_limit_chars=20000,  # tight limit → tail ~2000 tokens
+    )
+
+    result = await ctx.compact_thread(
+        history_runtime=hist,
+        thread_id="t1",
+        turn_id="compact-real",
+        model="test-model",
+    )
+
+    # Verify the compaction result
+    assert result.messages_before == 60
+    assert result.messages_after < 60, (
+        f"Compaction should reduce messages, got {result.messages_after} >= {result.messages_before}"
+    )
+    assert result.tokens_saved > 0, "Should save tokens"
+
+    # Verify persisted history has the summary
+    stored = await hist.load_messages("t1")
+    assert len(stored) < 60, f"Persisted history should be compacted, got {len(stored)}"
+
+    # The summary message from ContextCompressor contains "[CONTEXT SUMMARY"
+    summary_msgs = [
+        m for m in stored
+        if "CONTEXT SUMMARY" in str(m.get("content", ""))
+    ]
+    assert len(summary_msgs) >= 1, (
+        f"Should contain [CONTEXT SUMMARY ...] message, got roles: "
+        f"{[m['role'] for m in stored]}"
+    )
+    # Summary must be a system message
+    assert summary_msgs[0]["role"] == "system"
+
+    # Verify compaction audit record
+    import aiosqlite, json
+    async with aiosqlite.connect(str(db_path)) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM runtime_compactions WHERE thread_id = ? AND session_id = ?",
+            ("t1", "sess-real"),
+        )
+        row = await cursor.fetchone()
+
+    assert row is not None
+    assert row["messages_before"] == 60
+    assert row["messages_after"] < 60
+    assert row["tokens_saved"] > 0

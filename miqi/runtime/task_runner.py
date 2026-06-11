@@ -123,11 +123,12 @@ class TaskRunner:
                     recoverable=False,
                 ))
                 return
+            compact_turn_id = f"compact-{str(uuid.uuid4())[:12]}"
             try:
                 result = await ctx_runtime.compact_thread(
                     history_runtime=history_runtime,
                     thread_id=submission.thread_id,
-                    turn_id=f"compact-{str(uuid.uuid4())[:12]}",
+                    turn_id=compact_turn_id,
                     model=getattr(self.services.agent_loop, "model", "default"),
                 )
             except Exception as exc:
@@ -138,7 +139,7 @@ class TaskRunner:
                 ))
                 return
             await self._events.put(ContextCompactedEvent(
-                turn_id=getattr(submission, "thread_id", ""),
+                turn_id=compact_turn_id,
                 thread_id=result.thread_id,
                 messages_before=result.messages_before,
                 messages_after=result.messages_after,
@@ -232,11 +233,23 @@ class TaskRunner:
                         ))
                         # Reload compacted history for the turn
                         history = await history_runtime.load_messages(thread_id)
-                    except Exception:
-                        # Compaction failed — proceed with unbounded recent
-                        # history. The exception is already logged inside
-                        # ContextRuntime.compact_thread / compress_messages.
-                        pass
+                    except Exception as compact_exc:
+                        # Compaction failed — log and emit recoverable
+                        # ErrorEvent, then proceed with unbounded history.
+                        from loguru import logger
+                        logger.exception(
+                            "Auto-compact failed for thread {}: {}",
+                            thread_id, compact_exc,
+                        )
+                        await self._events.put(ErrorEvent(
+                            turn_id=turn_id,
+                            severity=EventSeverity.WARNING,
+                            message=(
+                                f"Context compaction failed for thread "
+                                f"{thread_id}: {compact_exc}"
+                            ),
+                            recoverable=True,
+                        ))
 
             # Emit TurnStartedEvent
             await self._events.put(TurnStartedEvent(

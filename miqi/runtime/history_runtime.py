@@ -92,6 +92,9 @@ class HistoryRuntime:
                     thread_id TEXT NOT NULL,
                     session_id TEXT NOT NULL,
                     turn_id TEXT NOT NULL,
+                    messages_before INTEGER NOT NULL DEFAULT 0,
+                    messages_after INTEGER NOT NULL DEFAULT 0,
+                    tokens_saved INTEGER NOT NULL DEFAULT 0,
                     replacement_json TEXT NOT NULL,
                     created_at REAL NOT NULL
                 )
@@ -237,11 +240,16 @@ class HistoryRuntime:
         thread_id: str,
         turn_id: str,
         replacement_messages: list[dict[str, Any]],
+        *,
+        messages_before: int = 0,
+        messages_after: int = 0,
+        tokens_saved: int = 0,
     ) -> None:
         """Replace all history items for a thread with compacted messages.
 
         Deletes existing items (scoped by session_id), inserts the
-        replacement messages, and records a compaction row for audit.
+        replacement messages, and records a compaction row with full
+        audit metadata.
         """
         compaction_id = str(uuid.uuid4())
         async with aiosqlite.connect(str(self.db_path)) as db:
@@ -276,17 +284,21 @@ class HistoryRuntime:
                         time.time(),
                     ),
                 )
-            # Record the compaction for audit
+            # Record the compaction with full audit metadata
             await db.execute(
                 """INSERT INTO runtime_compactions
                    (compaction_id, thread_id, session_id, turn_id,
+                    messages_before, messages_after, tokens_saved,
                     replacement_json, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     compaction_id,
                     thread_id,
                     self.session_id,
                     turn_id,
+                    messages_before,
+                    messages_after,
+                    tokens_saved,
                     json.dumps(replacement_messages),
                     time.time(),
                 ),
