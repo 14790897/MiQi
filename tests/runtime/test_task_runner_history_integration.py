@@ -456,6 +456,7 @@ async def test_compaction_record_persisted_and_reused(
     # First message should be the summary
     assert stored[0]["role"] == "system"
     assert "[compacted summary]" in stored[0]["content"]
+    await hist.close()
 
 
 # ---------------------------------------------------------------------------
@@ -516,6 +517,7 @@ async def test_real_compactor_produces_summary_and_replaces_history(tmp_path):
     # Verify persisted history has the summary
     stored = await hist.load_messages("t1")
     assert len(stored) < 60, f"Persisted history should be compacted, got {len(stored)}"
+    await hist.close()
 
     # The summary message from ContextCompressor contains "[CONTEXT SUMMARY"
     summary_msgs = [
