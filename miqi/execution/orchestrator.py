@@ -62,6 +62,8 @@ class ToolExecutionContext:
     agent_type: str
     # Phase 13: per-turn permission profile (set by TurnRunner/AgentControl)
     permission_profile: Any | None = None
+    # Phase 21: cancellation event for long-running tool calls
+    cancel_event: Any | None = None
     # Filled by orchestrator
     permission_decision: PermissionDecision | None = None
     sandbox_selection: SandboxSelection | None = None

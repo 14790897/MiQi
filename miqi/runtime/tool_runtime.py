@@ -39,6 +39,10 @@ class ToolRuntime:
         permission_profile = getattr(turn, "permission_profile", None)
         if permission_profile is not None:
             ctx.permission_profile = permission_profile
+        # Phase 21: pass cancellation event into tool execution context
+        cancel_event = getattr(turn, "cancel_event", None)
+        if cancel_event is not None:
+            ctx.cancel_event = cancel_event
         return await self._orchestrator.execute(ctx)
 
     async def execute_many(

@@ -131,3 +131,37 @@ async def test_tool_runtime_propagates_permission_profile_to_ctx(fake_orchestrat
     assert received_ctx.permission_profile.filesystem_mode == "workspace-readonly"
     assert "safe-cmd" in received_ctx.permission_profile.permanent_allowlist
     assert ctx_result is received_ctx
+
+
+# ---------------------------------------------------------------------------
+# Phase 21: tool cancellation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tool_runtime_passes_cancel_event():
+    """ToolRuntime must forward turn.cancel_event into ToolExecutionContext."""
+    import asyncio as _asyncio
+
+    from miqi.runtime.tool_runtime import ToolRuntime
+
+    orchestrator = MagicMock()
+    orchestrator.execute = AsyncMock(side_effect=lambda ctx: ctx)
+    runtime = ToolRuntime(orchestrator=orchestrator)
+
+    turn = MagicMock()
+    turn.turn_id = "turn-1"
+    turn.thread_id = "thread-1"
+    turn.agent_metadata.name = "main"
+    turn.cancel_event = _asyncio.Event()
+
+    call = MagicMock()
+    call.name = "exec"
+    call.id = "tc-1"
+    call.arguments = {"command": "sleep 10"}
+
+    ctx = await runtime.execute_one(turn, call)
+
+    assert ctx.cancel_event is turn.cancel_event, (
+        "ToolExecutionContext must carry the turn's cancel_event"
+    )
