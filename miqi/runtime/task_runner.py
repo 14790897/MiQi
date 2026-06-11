@@ -29,6 +29,8 @@ class TaskRunner:
     def __init__(self, *, services: Any, event_queue: Any):
         self.services = services
         self._events = event_queue
+        # Phase 14 follow-up: per-thread active turn cancellation event
+        self._turn_cancel_events: dict[str, asyncio.Event] = {}
 
     async def handle(self, submission: Any) -> None:
         """Route a submission to the correct handler."""
@@ -36,7 +38,18 @@ class TaskRunner:
             await self._handle_user_message(submission)
             return
         if isinstance(submission, AbortTurn):
-            self.services.agent_loop.stop()
+            # Phase 14 follow-up: signal cancellation to the active turn
+            # instead of calling agent_loop.stop()
+            thread_id = getattr(submission, "thread_id", None) or "default"
+            cancel_evt = self._turn_cancel_events.get(thread_id)
+            if cancel_evt is not None:
+                cancel_evt.set()
+            await self._events.put(ErrorEvent(
+                turn_id=str(uuid.uuid4())[:12],
+                severity=EventSeverity.WARNING,
+                message=f"Turn aborted for thread {thread_id}.",
+                recoverable=True,
+            ))
             return
         if isinstance(submission, (ApprovalResponse, ConfigUpdate, ThreadCommand)):
             await self._events.put(ErrorEvent(
@@ -55,13 +68,18 @@ class TaskRunner:
 
     async def _handle_user_message(self, msg: UserMessage) -> None:
         turn_id = str(uuid.uuid4())[:12]
+        thread_id = msg.thread_id or "cli:default"
+
+        # Phase 14 follow-up: register a cancel event so AbortTurn can
+        # signal this specific turn to stop.
+        cancel_evt = asyncio.Event()
+        self._turn_cancel_events[thread_id] = cancel_evt
         try:
             # Build TurnContext and run through TurnRunner (Phase 12)
             from miqi.runtime.agent_registry import AgentRegistry
             from miqi.runtime.turn_context import TurnContext
 
             metadata = AgentRegistry().resolve("main")
-            thread_id = msg.thread_id or "cli:default"
             turn = TurnContext(
                 turn_id=turn_id,
                 agent_metadata=metadata,
@@ -89,11 +107,22 @@ class TaskRunner:
                 workspace=self.services.workspace,
             )
 
+            # Check for abort before starting turn
+            if cancel_evt.is_set():
+                await self._events.put(ErrorEvent(
+                    turn_id=turn_id,
+                    severity=EventSeverity.WARNING,
+                    message="Turn aborted before start.",
+                    recoverable=True,
+                ))
+                return
+
             result = await self.services.turn_runner.run(
                 turn=turn,
                 user_content=msg.content,
                 system_prompt=metadata.system_prompt,
                 tools=tools,
+                cancel_event=cancel_evt,
             )
             await self._events.put(AgentMessageEvent(
                 turn_id=turn_id,
@@ -101,6 +130,12 @@ class TaskRunner:
                 finish_reason="stop",
             ))
         except asyncio.CancelledError:
+            await self._events.put(ErrorEvent(
+                turn_id=turn_id,
+                severity=EventSeverity.WARNING,
+                message="Turn was cancelled.",
+                recoverable=True,
+            ))
             raise
         except Exception as exc:
             # Log full details server-side, send sanitized message to client
@@ -112,3 +147,5 @@ class TaskRunner:
                 message="An internal error occurred while processing your message.",
                 recoverable=False,
             ))
+        finally:
+            self._turn_cancel_events.pop(thread_id, None)

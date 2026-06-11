@@ -79,3 +79,48 @@ async def test_runtime_client_times_out():
 
     with pytest.raises(TimeoutError, match="Timed out"):
         await client.ask("hi", thread_id="cli:default", timeout=0.01)
+
+
+# ---------------------------------------------------------------------------
+# Phase 14 follow-up: concurrency safety
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_runtime_client_concurrent_asks_dont_interleave():
+    """Two concurrent ask() on the same client must not mix up responses."""
+    import asyncio as _asyncio
+
+    class QueuedRuntime:
+        """Runtime that queues responses deterministically."""
+        def __init__(self):
+            self.submissions = []
+            self._events: _asyncio.Queue = _asyncio.Queue()
+
+        async def submit(self, submission):
+            self.submissions.append(submission)
+
+        async def next_event(self, timeout=None):
+            try:
+                return await _asyncio.wait_for(self._events.get(), timeout=timeout or 5)
+            except _asyncio.TimeoutError:
+                return None
+
+    runtime = QueuedRuntime()
+    client = RuntimeClient(runtime)
+
+    # Queue events for two users: "A" first, then "B"
+    await runtime._events.put(AgentMessageEvent(turn_id="tA", content="response-A", finish_reason="stop"))
+    await runtime._events.put(AgentMessageEvent(turn_id="tB", content="response-B", finish_reason="stop"))
+
+    async def ask_a():
+        return await client.ask("msg-A", thread_id="thread-A")
+
+    async def ask_b():
+        return await client.ask("msg-B", thread_id="thread-B")
+
+    ra, rb = await _asyncio.gather(ask_a(), ask_b())
+
+    # Each must get its OWN response (not swapped)
+    assert ra == "response-A", f"A got {ra}"
+    assert rb == "response-B", f"B got {rb}"
+    assert len(runtime.submissions) == 2

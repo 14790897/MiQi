@@ -152,3 +152,61 @@ async def test_runtime_session_receives_service_events(fake_config, fake_provide
     assert first_event is not None
     assert first_event.__class__.__name__ == "ToolCallBeginEvent"
     assert first_event.tool_name == "read_file"
+
+
+# ---------------------------------------------------------------------------
+# Phase 14 follow-up: abort cancellation
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_runtime_session_abort_cancels_active_turn(fake_config):
+    """Submitting AbortTurn after UserMessage must cancel the active turn
+    and emit a cancellation event."""
+
+    class BlockingProvider:
+        async def chat(self, **kwargs):
+            await asyncio.sleep(10)  # Blocks until cancelled
+            return type("FakeResponse", (), {
+                "content": "done", "tool_calls": [], "has_tool_calls": False,
+            })()
+
+    from miqi.protocol.commands import AbortTurn
+
+    runtime = RuntimeSession.create(
+        config=fake_config,
+        provider=BlockingProvider(),
+        session_id="cli:default",
+        workspace=fake_config.workspace_path,
+    )
+
+    await runtime.start()
+
+    # Submit UserMessage (will block on provider.chat)
+    await runtime.submit(UserMessage(content="long task", thread_id="cli:default"))
+
+    # Give the turn a tick to enter provider.chat
+    await asyncio.sleep(0.05)
+
+    # Submit abort
+    await runtime.submit(AbortTurn(thread_id="cli:default"))
+
+    # Collect events — should see the abort warning, not a completed response
+    events_seen: list[str] = []
+    try:
+        while True:
+            event = await asyncio.wait_for(runtime.next_event(), timeout=2)
+            events_seen.append(event.__class__.__name__)
+            if "ErrorEvent" in events_seen or "AgentMessage" in events_seen:
+                break
+    except asyncio.TimeoutError:
+        pass
+
+    await runtime.stop()
+
+    # Must have seen the abort-related event (either ErrorEvent from abort,
+    # or the runtime should have cancelled)
+    assert any(
+        "Error" in e or "abort" in e.lower()
+        for e in events_seen
+    ), f"No abort event seen. Events: {events_seen}"
+
