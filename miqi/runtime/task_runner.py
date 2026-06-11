@@ -25,6 +25,7 @@ from miqi.protocol.events import (
     ApprovalResolvedEvent,
     CommandRejectedEvent,
     ConfigUpdatedEvent,
+    ContextCompactedEvent,
     ErrorEvent,
     EventSeverity,
     TurnAbortedEvent,
@@ -111,7 +112,40 @@ class TaskRunner:
                 value=submission.value,
             ))
             return
-        if isinstance(submission, (CompactCommand, UserInputAnswer, RunUserShellCommand)):
+        if isinstance(submission, CompactCommand):
+            # Phase 19: trigger context compaction via ContextRuntime
+            ctx_runtime = getattr(self.services, "context_runtime", None)
+            history_runtime = getattr(self.services, "history_runtime", None)
+            if ctx_runtime is None or history_runtime is None:
+                await self._events.put(CommandRejectedEvent(
+                    command_type="CompactCommand",
+                    reason="Runtime has no context or history manager",
+                    recoverable=False,
+                ))
+                return
+            try:
+                result = await ctx_runtime.compact_thread(
+                    history_runtime=history_runtime,
+                    thread_id=submission.thread_id,
+                    turn_id=f"compact-{str(uuid.uuid4())[:12]}",
+                    model=getattr(self.services.agent_loop, "model", "default"),
+                )
+            except Exception as exc:
+                await self._events.put(CommandRejectedEvent(
+                    command_type="CompactCommand",
+                    reason=str(exc),
+                    recoverable=True,
+                ))
+                return
+            await self._events.put(ContextCompactedEvent(
+                turn_id=getattr(submission, "thread_id", ""),
+                thread_id=result.thread_id,
+                messages_before=result.messages_before,
+                messages_after=result.messages_after,
+                tokens_saved=result.tokens_saved,
+            ))
+            return
+        if isinstance(submission, (UserInputAnswer, RunUserShellCommand)):
             await self._events.put(CommandRejectedEvent(
                 command_type=type(submission).__name__,
                 reason=f"{type(submission).__name__} is reserved for future use",
