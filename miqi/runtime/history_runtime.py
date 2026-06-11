@@ -1,9 +1,12 @@
-"""History runtime — persistent turn and message history.
+"""History runtime — persistent turn, message, and compaction history.
 
 Owns SQLite storage for turn records, history items (messages),
-and provides load/append/query methods used by TaskRunner and
-ContextRuntime. One instance per workspace, scoped to a single
-session for cross-session isolation.
+compaction records, and provides load/append/query/replace methods
+used by TaskRunner and ContextRuntime. One instance per workspace,
+scoped to a single session for cross-session isolation.
+
+Phase 19: adds runtime_compactions table and
+replace_messages_with_compaction() for persistent context compaction.
 """
 
 from __future__ import annotations
@@ -80,6 +83,16 @@ class HistoryRuntime:
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
                     payload_json TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                )
+            """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS runtime_compactions (
+                    compaction_id TEXT PRIMARY KEY,
+                    thread_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    turn_id TEXT NOT NULL,
+                    replacement_json TEXT NOT NULL,
                     created_at REAL NOT NULL
                 )
             """)
@@ -216,3 +229,66 @@ class HistoryRuntime:
             msg.update(item.payload.get("message_fields", {}))
             messages.append(msg)
         return messages
+
+    # ── Phase 19: compaction persistence ───────────────────────────────
+
+    async def replace_messages_with_compaction(
+        self,
+        thread_id: str,
+        turn_id: str,
+        replacement_messages: list[dict[str, Any]],
+    ) -> None:
+        """Replace all history items for a thread with compacted messages.
+
+        Deletes existing items (scoped by session_id), inserts the
+        replacement messages, and records a compaction row for audit.
+        """
+        compaction_id = str(uuid.uuid4())
+        async with aiosqlite.connect(str(self.db_path)) as db:
+            # Delete existing items for this thread (session-scoped)
+            await db.execute(
+                "DELETE FROM runtime_history_items WHERE thread_id = ? AND session_id = ?",
+                (thread_id, self.session_id),
+            )
+            # Insert replacement messages
+            for msg in replacement_messages:
+                await db.execute(
+                    """INSERT INTO runtime_history_items
+                       (item_id, thread_id, session_id, turn_id, role, content,
+                        payload_json, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        str(uuid.uuid4()),
+                        thread_id,
+                        self.session_id,
+                        turn_id,
+                        msg["role"],
+                        msg.get("content") or "",
+                        json.dumps(
+                            {
+                                "message_fields": {
+                                    k: v
+                                    for k, v in msg.items()
+                                    if k not in {"role", "content"}
+                                },
+                            },
+                        ),
+                        time.time(),
+                    ),
+                )
+            # Record the compaction for audit
+            await db.execute(
+                """INSERT INTO runtime_compactions
+                   (compaction_id, thread_id, session_id, turn_id,
+                    replacement_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    compaction_id,
+                    thread_id,
+                    self.session_id,
+                    turn_id,
+                    json.dumps(replacement_messages),
+                    time.time(),
+                ),
+            )
+            await db.commit()
