@@ -23,6 +23,7 @@ async def test_thread_runtime_create_rename_archive_delete(tmp_path):
 
     await runtime.delete_thread(thread.thread_id)
     assert await runtime.get_thread(thread.thread_id) is None
+    await runtime.close()
 
 
 @pytest.mark.asyncio
@@ -35,6 +36,7 @@ async def test_thread_runtime_fork_records_parent(tmp_path):
 
     assert child.parent_thread_id == parent.thread_id
     assert child.status == "active"
+    await runtime.close()
 
 
 @pytest.mark.asyncio
@@ -54,6 +56,7 @@ async def test_thread_runtime_list_threads(tmp_path):
 
     all_threads = await runtime.list_threads(include_archived=True)
     assert len(all_threads) == 3
+    await runtime.close()
 
 
 @pytest.mark.asyncio
@@ -89,3 +92,5 @@ async def test_thread_runtime_cross_session_same_thread_id(tmp_path):
     await rt_a.delete_thread("same-thread")
     assert await rt_a.get_thread("same-thread") is None
     assert await rt_b.get_thread("same-thread") is not None
+    await rt_a.close()
+    await rt_b.close()
