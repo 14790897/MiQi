@@ -76,7 +76,22 @@ class RuntimeSession:
         return runtime
 
     async def start(self) -> None:
-        """Start the background dispatch loop."""
+        """Start the background dispatch loop and initialize runtime stores."""
+        # Phase 17: initialize persistent history and thread stores
+        history = getattr(self.services, "history_runtime", None)
+        if history is not None:
+            await history.initialize()
+        threads = getattr(self.services, "thread_runtime", None)
+        if threads is not None:
+            await threads.initialize()
+            default_thread_id = self.services.session_state.active_thread_id
+            existing = await threads.get_thread(default_thread_id)
+            if existing is None:
+                await threads.create_thread(
+                    thread_id=default_thread_id,
+                    title="Default",
+                )
+
         if self._task is None or self._task.done():
             self._stopped.clear()
             self._task = asyncio.create_task(self._run())
