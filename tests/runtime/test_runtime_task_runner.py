@@ -191,6 +191,36 @@ async def test_config_update_mutates_session_state(fake_services):
     assert event.value == 0.2
 
 
+def test_session_state_rejects_dunder_paths():
+    """apply_config_update must reject paths with __ or _private segments."""
+    import pytest as _pytest
+
+    from miqi.runtime.session_state import SessionState
+
+    state = SessionState(
+        session_id="sess-1",
+        workspace=__import__("pathlib").Path("/tmp"),
+        active_thread_id="t1",
+        config_snapshot=type("C", (), {"agents": type("A", (), {"defaults": type("D", (), {"temperature": 0.1})()})()})(),
+    )
+
+    # Valid path
+    state.apply_config_update("agents.defaults.temperature", 0.9)
+    assert state.config_snapshot.agents.defaults.temperature == 0.9
+
+    # Dunder path
+    with _pytest.raises(ValueError, match="dunder.*private"):
+        state.apply_config_update("agents.__class__", "bad")
+
+    # Private path
+    with _pytest.raises(ValueError, match="dunder.*private"):
+        state.apply_config_update("_private.attr", "bad")
+
+    # Nested dunder
+    with _pytest.raises(ValueError, match="dunder.*private"):
+        state.apply_config_update("agents.defaults.__init__", "bad")
+
+
 @pytest.mark.asyncio
 async def test_task_runner_sanitizes_processing_errors(fake_services):
     """Exception messages from turn runner are sanitized, not leaked."""

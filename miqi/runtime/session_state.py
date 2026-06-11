@@ -30,9 +30,17 @@ class SessionState:
 
         E.g., path="agents.defaults.temperature" sets
         self.config_snapshot.agents.defaults.temperature = value.
+
+        Raises ValueError for paths containing dunder/private segments.
         """
         target: Any = self.config_snapshot
         parts = path.split(".")
+        for part in parts:
+            if "__" in part or part.startswith("_"):
+                raise ValueError(
+                    f"Invalid config path segment {part!r}: "
+                    f"dunder and private attributes are not allowed"
+                )
         for part in parts[:-1]:
             target = getattr(target, part)
         setattr(target, parts[-1], value)
