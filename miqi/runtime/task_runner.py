@@ -102,10 +102,16 @@ class TaskRunner:
                 value=submission.value,
             ))
             return
-        await self._events.put(ErrorEvent(
-            turn_id=str(uuid.uuid4())[:12],
-            severity=EventSeverity.ERROR,
-            message=f"Unknown submission type: {type(submission).__name__}",
+        if isinstance(submission, (CompactCommand, UserInputAnswer, RunUserShellCommand)):
+            await self._events.put(CommandRejectedEvent(
+                command_type=type(submission).__name__,
+                reason=f"{type(submission).__name__} is reserved for future use",
+                recoverable=True,
+            ))
+            return
+        await self._events.put(CommandRejectedEvent(
+            command_type=type(submission).__name__,
+            reason=f"Unknown submission type: {type(submission).__name__}",
             recoverable=False,
         ))
 
