@@ -43,13 +43,14 @@ class ThreadRuntime:
         async with aiosqlite.connect(str(self.db_path)) as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS runtime_threads (
-                    thread_id TEXT PRIMARY KEY,
+                    thread_id TEXT NOT NULL,
                     session_id TEXT NOT NULL,
                     title TEXT NOT NULL,
                     status TEXT NOT NULL,
                     parent_thread_id TEXT,
                     created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY (session_id, thread_id)
                 )
             """)
             await db.commit()
