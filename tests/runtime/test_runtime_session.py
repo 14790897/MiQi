@@ -210,3 +210,75 @@ async def test_runtime_session_abort_cancels_active_turn(fake_config):
         for e in events_seen
     ), f"No abort event seen. Events: {events_seen}"
 
+
+# ---------------------------------------------------------------------------
+# Phase 14 follow-up v2: queued submissions during active turn
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_runtime_session_queues_non_abort_during_active_turn(fake_config):
+    """Non-AbortTurn submissions during an active turn MUST NOT be dropped.
+    They are queued and processed after the current turn completes."""
+
+    first_started = asyncio.Event()
+    first_can_finish = asyncio.Event()
+    call_count = 0
+
+    class GatedProvider:
+        """First call blocks until first_can_finish is set;
+        second call returns immediately."""
+        async def chat(self, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                first_started.set()
+                await first_can_finish.wait()  # Block until test unblocks
+            return type("FakeResponse", (), {
+                "content": f"response-{call_count}",
+                "tool_calls": [],
+                "has_tool_calls": False,
+                "finish_reason": "stop",
+            })()
+
+    from miqi.protocol.commands import UserMessage
+
+    runtime = RuntimeSession.create(
+        config=fake_config,
+        provider=GatedProvider(),
+        session_id="cli:default",
+        workspace=fake_config.workspace_path,
+    )
+
+    await runtime.start()
+
+    # Submit first message (will block provider)
+    await runtime.submit(UserMessage(content="first", thread_id="cli:default"))
+    # Wait for the first turn to enter provider.chat
+    await asyncio.wait_for(first_started.wait(), timeout=5)
+
+    # Submit second message while first is still blocked
+    await runtime.submit(UserMessage(content="second", thread_id="cli:default"))
+    # Give the dispatch loop a tick to process the second submission into _pending
+    await asyncio.sleep(0.05)
+
+    # Now unblock the first turn
+    first_can_finish.set()
+
+    # Collect events — should see two AgentMessageEvents
+    responses: list[str] = []
+    try:
+        while len(responses) < 2:
+            event = await asyncio.wait_for(runtime.next_event(), timeout=5)
+            if hasattr(event, "content"):
+                responses.append(event.content)
+    except asyncio.TimeoutError:
+        pass
+
+    await runtime.stop()
+
+    assert len(responses) == 2, (
+        f"Expected 2 responses, got {len(responses)}: {responses}"
+    )
+    assert "response-1" in responses
+    assert "response-2" in responses
+

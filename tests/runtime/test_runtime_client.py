@@ -124,3 +124,49 @@ async def test_runtime_client_concurrent_asks_dont_interleave():
     assert ra == "response-A", f"A got {ra}"
     assert rb == "response-B", f"B got {rb}"
     assert len(runtime.submissions) == 2
+
+
+# ---------------------------------------------------------------------------
+# Phase 14 follow-up v2: per-runtime lock (two clients, one runtime)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_runtime_client_per_runtime_lock_two_clients():
+    """Two different RuntimeClient instances sharing one RuntimeSession
+    must not interleave responses. The lock is on the runtime."""
+    import asyncio as _asyncio
+
+    class QueuedRuntime:
+        def __init__(self):
+            self.submissions = []
+            self._events: _asyncio.Queue = _asyncio.Queue()
+            self._ask_lock = _asyncio.Lock()
+
+        async def submit(self, submission):
+            self.submissions.append(submission)
+
+        async def next_event(self, timeout=None):
+            try:
+                return await _asyncio.wait_for(self._events.get(), timeout=timeout or 5)
+            except _asyncio.TimeoutError:
+                return None
+
+    runtime = QueuedRuntime()
+    client_a = RuntimeClient(runtime)
+    client_b = RuntimeClient(runtime)
+
+    # Queue two responses
+    await runtime._events.put(AgentMessageEvent(turn_id="tA", content="resp-A", finish_reason="stop"))
+    await runtime._events.put(AgentMessageEvent(turn_id="tB", content="resp-B", finish_reason="stop"))
+
+    async def ask_a():
+        return await client_a.ask("msg-A", thread_id="thread-A")
+
+    async def ask_b():
+        return await client_b.ask("msg-B", thread_id="thread-B")
+
+    ra, rb = await _asyncio.gather(ask_a(), ask_b())
+
+    assert ra == "resp-A", f"Client A got wrong response: {ra}"
+    assert rb == "resp-B", f"Client B got wrong response: {rb}"
+    assert len(runtime.submissions) == 2

@@ -41,6 +41,10 @@ class RuntimeSession:
         # Phase 14 follow-up: track active turn for abort
         self._active_turn_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
+        # Phase 14 follow-up v2: pending submissions queued during active turn
+        self._pending: list[Any] = []
+        # Phase 14 follow-up v2: per-runtime ask lock (used by RuntimeClient)
+        self._ask_lock = asyncio.Lock()
 
     @classmethod
     def create(
@@ -105,24 +109,34 @@ class RuntimeSession:
     async def _run(self) -> None:
         """Main dispatch loop: dequeue submissions → TaskRunner.handle().
 
-        Phase 14 follow-up: non-blocking dispatch that can dequeue AbortTurn
-        while a UserMessage turn is still running. Uses asyncio.wait() to
-        race the active turn task against new submissions.
+        Phase 14 follow-up v2: non-blocking dispatch that can dequeue AbortTurn
+        while a UserMessage turn is running. Non-AbortTurn submissions arriving
+        during an active turn are queued in _pending and processed after the
+        current turn completes (FIFO, no silent drops).
         """
         from miqi.protocol.commands import AbortTurn
 
         while not self._stopped.is_set():
-            # If no turn is running, wait for the next submission
+            # If no turn is running, dequeue next submission (pending first)
             async with self._lock:
                 if self._active_turn_task is None:
-                    try:
-                        submission = await asyncio.wait_for(
-                            self._submissions.get(), timeout=0.5,
-                        )
-                    except asyncio.TimeoutError:
+                    submission = None
+                    if self._pending:
+                        submission = self._pending.pop(0)
+                    elif not self._submissions.empty():
+                        submission = self._submissions.get_nowait()
+                    else:
+                        try:
+                            submission = await asyncio.wait_for(
+                                self._submissions.get(), timeout=0.5,
+                            )
+                        except asyncio.TimeoutError:
+                            continue
+                        except asyncio.CancelledError:
+                            break
+
+                    if submission is None:
                         continue
-                    except asyncio.CancelledError:
-                        break
 
                     if isinstance(submission, AbortTurn):
                         await self._runner.handle(submission)
@@ -136,27 +150,29 @@ class RuntimeSession:
 
             # A turn is running — wait for EITHER it to finish OR a new submission
             assert self._active_turn_task is not None
+            get_task = asyncio.create_task(self._submissions.get())
             done, pending = await asyncio.wait(
-                [self._active_turn_task, asyncio.create_task(self._submissions.get())],
+                [self._active_turn_task, get_task],
                 return_when=asyncio.FIRST_COMPLETED,
             )
 
-            # Cancel the get() waiter if the turn finished first
-            for p in pending:
-                p.cancel()
-
             for d in done:
                 if d is self._active_turn_task:
-                    # Turn finished
+                    # Turn completed — clear active, surface exceptions
                     async with self._lock:
+                        finished = self._active_turn_task
                         self._active_turn_task = None
-                    try:
-                        await d  # Let any exception surface
-                    except asyncio.CancelledError:
-                        pass
-                    except Exception:
-                        pass
-                else:
+                    if finished is not None and finished.done():
+                        try:
+                            await finished
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception:
+                            pass
+                    # Cancel the get_task waiter (no longer needed)
+                    if not get_task.done():
+                        get_task.cancel()
+                elif d is get_task:
                     # New submission arrived while turn was running
                     submission = d.result()
                     if isinstance(submission, AbortTurn):
@@ -164,6 +180,18 @@ class RuntimeSession:
                             if self._active_turn_task is not None:
                                 self._active_turn_task.cancel()
                                 self._active_turn_task = None
+                        if not get_task.done():
+                            get_task.cancel()
                         await self._runner.handle(submission)
-                    # Non-AbortTurn submissions while a turn is running
-                    # are dropped silently (avoid stacking turns)
+                    else:
+                        # Queue non-AbortTurn for processing after this turn
+                        async with self._lock:
+                            self._pending.append(submission)
+                else:
+                    if not get_task.done():
+                        get_task.cancel()
+
+            # Clean up any pending get_task that wasn't handled
+            for p in pending:
+                if p is not self._active_turn_task and not p.done():
+                    p.cancel()
