@@ -60,11 +60,21 @@ async def test_runtime_session_accepts_user_message(fake_config, fake_provider):
 
     await runtime.start()
     await runtime.submit(UserMessage(content="hello", thread_id="cli:default"))
-    event = await runtime.next_event(timeout=5)
+
+    # Phase 17: TurnStartedEvent arrives before AgentMessageEvent.
+    # Drain events until we find one with 'content'.
+    event: object | None = None
+    while True:
+        ev = await runtime.next_event(timeout=5)
+        if ev is None:
+            break
+        if hasattr(ev, "content"):
+            event = ev
+            break
+
     await runtime.stop()
 
-    assert event is not None, "Expected an event from runtime"
-    # AgentMessageEvent has 'content' attribute
+    assert event is not None, "Expected an AgentMessageEvent from runtime"
     assert hasattr(event, "content"), f"Got {type(event).__name__}"
     assert event.content == "done"
 

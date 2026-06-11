@@ -11,7 +11,7 @@ single-turn execution path for sub-agent jobs.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -21,6 +21,8 @@ class TurnResult:
     final_content: str
     messages: list[dict[str, Any]]
     tools_used: list[str]
+    token_usage: dict[str, int] = field(default_factory=dict)
+    messages_delta: list[dict[str, Any]] = field(default_factory=list)
 
 
 class TurnRunner:
@@ -89,7 +91,13 @@ class TurnRunner:
                     messages=messages,
                     content=content,
                 )
-                return TurnResult(content, messages, tools_used)
+                return TurnResult(
+                    final_content=content,
+                    messages=messages,
+                    tools_used=tools_used,
+                    token_usage=getattr(response, "usage", {}) or {},
+                    messages_delta=[{"role": "assistant", "content": content}],
+                )
 
             # Execute tool calls concurrently through ToolRuntime
             contexts = await self._tools.execute_many(turn, response.tool_calls)
@@ -128,14 +136,16 @@ class TurnRunner:
                 )
 
         # Exhausted iterations
+        content = (
+            f"Reached maximum iterations ({self._max_iterations}). "
+            f"Tools used: {', '.join(dict.fromkeys(tools_used)) or 'none'}. "
+            f"Try breaking your task into smaller steps."
+        )
         return TurnResult(
-            final_content=(
-                f"Reached maximum iterations ({self._max_iterations}). "
-                f"Tools used: {', '.join(dict.fromkeys(tools_used)) or 'none'}. "
-                f"Try breaking your task into smaller steps."
-            ),
+            final_content=content,
             messages=messages,
             tools_used=tools_used,
+            messages_delta=[{"role": "assistant", "content": content}],
         )
 
     async def run_agent_job(self, job: Any) -> TurnResult:

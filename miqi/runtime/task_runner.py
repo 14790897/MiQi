@@ -17,7 +17,14 @@ from miqi.protocol.commands import (
     ThreadCommand,
     UserMessage,
 )
-from miqi.protocol.events import AgentMessageEvent, ErrorEvent, EventSeverity
+from miqi.protocol.events import (
+    AgentMessageEvent,
+    ErrorEvent,
+    EventSeverity,
+    TurnAbortedEvent,
+    TurnCompleteEvent,
+    TurnStartedEvent,
+)
 
 
 class TaskRunner:
@@ -74,46 +81,79 @@ class TaskRunner:
         # signal this specific turn to stop.
         cancel_evt = asyncio.Event()
         self._turn_cancel_events[thread_id] = cancel_evt
+
+        # Phase 17: get history runtime for persistence and loading
+        history_runtime = getattr(self.services, "history_runtime", None)
+
+        # Build TurnContext and run through TurnRunner (Phase 12)
+        from miqi.runtime.agent_registry import AgentRegistry
+        from miqi.runtime.turn_context import TurnContext
+
+        metadata = AgentRegistry().resolve("main")
+        turn = TurnContext(
+            turn_id=turn_id,
+            agent_metadata=metadata,
+            thread_id=thread_id,
+            workspace=self.services.workspace,
+            model=self.services.agent_loop.model,
+            provider=self.services.provider,
+            temperature=self.services.agent_loop.temperature,
+            max_tokens=self.services.agent_loop.max_tokens,
+        )
+
+        # Phase 13: resolve capabilities and permission profile
+        tools: list[dict[str, Any]] = []
+        capability_resolver = getattr(self.services, "capability_resolver", None)
+        if capability_resolver is not None:
+            capabilities = capability_resolver.resolve(agent_metadata=metadata)
+            turn.capabilities = capabilities
+            tools = capabilities.tool_definitions
+        else:
+            tools = self.services.tool_registry.get_definitions()
+
+        # Phase 13: attach permission profile for orchestrator
+        from miqi.runtime.permission_profile import PermissionProfile
+        turn.permission_profile = PermissionProfile(
+            workspace=self.services.workspace,
+        )
+
         try:
-            # Build TurnContext and run through TurnRunner (Phase 12)
-            from miqi.runtime.agent_registry import AgentRegistry
-            from miqi.runtime.turn_context import TurnContext
-
-            metadata = AgentRegistry().resolve("main")
-            turn = TurnContext(
-                turn_id=turn_id,
-                agent_metadata=metadata,
-                thread_id=thread_id,
-                workspace=self.services.workspace,
-                model=self.services.agent_loop.model,
-                provider=self.services.provider,
-                temperature=self.services.agent_loop.temperature,
-                max_tokens=self.services.agent_loop.max_tokens,
-            )
-
-            # Phase 13: resolve capabilities and permission profile
-            tools: list[dict[str, Any]] = []
-            capability_resolver = getattr(self.services, "capability_resolver", None)
-            if capability_resolver is not None:
-                capabilities = capability_resolver.resolve(agent_metadata=metadata)
-                turn.capabilities = capabilities
-                tools = capabilities.tool_definitions
+            # Phase 17: load history and start turn tracking
+            if history_runtime is not None:
+                await history_runtime.start_turn(turn_id, thread_id=thread_id)
+                history = await history_runtime.load_messages(thread_id)
             else:
-                tools = self.services.tool_registry.get_definitions()
+                history = []
 
-            # Phase 13: attach permission profile for orchestrator
-            from miqi.runtime.permission_profile import PermissionProfile
-            turn.permission_profile = PermissionProfile(
-                workspace=self.services.workspace,
-            )
+            # Emit TurnStartedEvent
+            await self._events.put(TurnStartedEvent(
+                turn_id=turn_id,
+                agent_name=metadata.name,
+                thread_id=thread_id,
+            ))
+
+            # Persist the user message
+            if history_runtime is not None:
+                await history_runtime.append_message(
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    role="user",
+                    content=msg.content,
+                )
 
             # Check for abort before starting turn
             if cancel_evt.is_set():
-                await self._events.put(ErrorEvent(
+                if history_runtime is not None:
+                    await history_runtime.complete_turn(
+                        turn_id,
+                        status="aborted",
+                        tools_used=[],
+                        token_usage={},
+                    )
+                await self._events.put(TurnAbortedEvent(
                     turn_id=turn_id,
-                    severity=EventSeverity.WARNING,
-                    message="Turn aborted before start.",
-                    recoverable=True,
+                    thread_id=thread_id,
+                    reason="Turn aborted before start.",
                 ))
                 return
 
@@ -122,22 +162,66 @@ class TaskRunner:
                 user_content=msg.content,
                 system_prompt=metadata.system_prompt,
                 tools=tools,
+                history=history,
                 cancel_event=cancel_evt,
             )
+
+            # Phase 17: persist assistant messages and complete turn
+            if history_runtime is not None:
+                for message in result.messages_delta:
+                    await history_runtime.append_message(
+                        thread_id=thread_id,
+                        turn_id=turn_id,
+                        role=message["role"],
+                        content=message.get("content") or "",
+                        payload={
+                            "message_fields": {
+                                k: v for k, v in message.items()
+                                if k not in {"role", "content"}
+                            },
+                        },
+                    )
+                await history_runtime.complete_turn(
+                    turn_id,
+                    status="completed",
+                    tools_used=result.tools_used,
+                    token_usage=result.token_usage,
+                )
+
             await self._events.put(AgentMessageEvent(
                 turn_id=turn_id,
                 content=result.final_content or "",
                 finish_reason="stop",
             ))
-        except asyncio.CancelledError:
-            await self._events.put(ErrorEvent(
+            await self._events.put(TurnCompleteEvent(
                 turn_id=turn_id,
-                severity=EventSeverity.WARNING,
-                message="Turn was cancelled.",
-                recoverable=True,
+                thread_id=thread_id,
+                outcome="success",
+                tools_used=result.tools_used,
+                token_usage=result.token_usage,
+            ))
+        except asyncio.CancelledError:
+            if history_runtime is not None:
+                await history_runtime.complete_turn(
+                    turn_id,
+                    status="aborted",
+                    tools_used=[],
+                    token_usage={},
+                )
+            await self._events.put(TurnAbortedEvent(
+                turn_id=turn_id,
+                thread_id=thread_id,
+                reason="Turn was cancelled.",
             ))
             raise
         except Exception as exc:
+            if history_runtime is not None:
+                await history_runtime.complete_turn(
+                    turn_id,
+                    status="error",
+                    tools_used=[],
+                    token_usage={},
+                )
             # Log full details server-side, send sanitized message to client
             from loguru import logger
             logger.error("Agent processing error in turn {}: {}", turn_id, exc, exc_info=True)
