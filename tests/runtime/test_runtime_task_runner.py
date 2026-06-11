@@ -58,7 +58,7 @@ async def test_task_runner_emits_warning_for_unwired_types(fake_services):
 
     event = await asyncio.wait_for(events.get(), timeout=1)
     assert event.__class__.__name__ == "ErrorEvent"
-    assert "not wired" in event.message
+    assert "not yet wired" in event.message
 
 
 @pytest.mark.asyncio

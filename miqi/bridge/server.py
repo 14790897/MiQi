@@ -118,13 +118,11 @@ def _terminal_event(req_id: str, event_type: str, data: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 class BridgeState:
-    """Holds cached config, active agent, abort state, and shared sandbox manager."""
+    """Holds cached config, abort state, and shared sandbox manager."""
 
     def __init__(self) -> None:
         self.config = None  # lazy-loaded
         self._lock = threading.Lock()
-        self._active_agent: Any = None
-        self._active_req_id: str | None = None
         self._terminated: set[str] = set()
         self._pending_approvals: dict[str, threading.Event] = {}
         self._approval_decisions: dict[str, str] = {}
@@ -207,62 +205,6 @@ class BridgeState:
             wsl_base_dir=getattr(sb_cfg, "wsl_base_dir", "/tmp/miqi-sandboxes"),
         )
 
-    # Legacy compatibility path. Do not use for chat.send after Phase 14.
-    # Use get_runtime_session() + RuntimeClient instead.
-    def build_agent(self, session_key: str, approval_callback=None):
-        """Create an AgentLoop for the given session."""
-        from miqi.agent.loop import AgentLoop
-        from miqi.bus.queue import MessageBus
-
-        config = self.load_config()
-        provider = config.build_provider(config.agents.defaults.model)
-        if provider is None:
-            raise RuntimeError(
-                f"No provider configured for model '{config.agents.defaults.model}'. "
-                "Run setup first."
-            )
-
-        defaults = config.agents.defaults
-        bus = MessageBus()
-
-        self._ensure_sandbox_manager()
-        # Pass the shared manager so all agents reuse the same sandbox pool
-        sandbox_mgr = None if self._sandbox_manager == "disabled" else self._sandbox_manager
-
-        agent = AgentLoop(
-            bus=bus,
-            provider=provider,
-            workspace=config.workspace_path,
-            agent_name=defaults.name,
-            model=defaults.model,
-            max_iterations=defaults.max_tool_iterations,
-            temperature=defaults.temperature,
-            max_tokens=defaults.max_tokens,
-            memory_window=defaults.memory_window,
-            reflect_after_tool_calls=defaults.reflect_after_tool_calls,
-            max_tool_result_chars=defaults.max_tool_result_chars,
-            context_limit_chars=defaults.context_limit_chars,
-            memory_config=config.agents.memory,
-            self_improvement_config=config.agents.self_improvement,
-            session_config=config.agents.sessions,
-            exec_config=config.tools.exec,
-            web_config=config.tools.web,
-            paper_config=config.tools.papers,
-            restrict_to_workspace=config.tools.restrict_to_workspace,
-            mcp_servers={},
-            channels_config=config.channels,
-            smart_routing_config=config.agents.smart_routing,
-            approval_callback=approval_callback,
-            session_key=session_key,
-            sandbox_manager=sandbox_mgr,
-        )
-        return agent
-
-    def set_active(self, agent: Any, req_id: str) -> None:
-        with self._lock:
-            self._active_agent = agent
-            self._active_req_id = req_id
-
     def destroy_sandbox(self, session_key: str) -> bool:
         """Destroy the sandbox for a session (called on delete/archive)."""
         if self._sandbox_manager is None or self._sandbox_manager == "disabled":
@@ -280,22 +222,16 @@ class BridgeState:
             return False
 
     def abort_active(self) -> dict:
-        with self._lock:
-            agent = self._active_agent
-            req_id = self._active_req_id
-            self._active_agent = None
-            self._active_req_id = None
-        # Wake all pending approvals so the blocked chat daemon thread can exit.
-        # Without this, a thread waiting on evt.wait() in _desktop_approval_callback
-        # would remain stuck until the approval timeout expires.
+        """Resolve all pending approvals so blocked daemon threads can exit.
+
+        After Phase 14, turn abort is handled by RuntimeSession.submit(AbortTurn(...)).
+        This method remains as a safety net to unblock approval-waiting threads
+        (the user-facing abort button also calls RuntimeSession, not this method).
+        """
         pending_ids = self.list_pending_approval_ids()
         for aid in pending_ids:
             self.resolve_approval(aid, "deny")
-        if agent is not None:
-            agent._abort_event.set()
-            agent.stop()
-            return {"aborted": True, "req_id": req_id}
-        return {"aborted": False}
+        return {"aborted": len(pending_ids) > 0}
 
     def mark_terminated(self, req_id: str) -> bool:
         """Atomically check-and-mark a request as terminated.
@@ -466,7 +402,7 @@ def handle_chat_abort(req_id: str, params: dict) -> None:
         )
         await runtime.submit(AbortTurn(thread_id=session_key))
         aborted = True
-        # Also clear any legacy active agent for backward compat
+        # Resolve pending approvals so blocked daemon threads can exit
         _state.abort_active()
 
     try:
