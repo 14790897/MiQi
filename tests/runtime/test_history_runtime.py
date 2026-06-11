@@ -7,7 +7,7 @@ from miqi.runtime.history_runtime import HistoryRuntime, HistoryItem
 
 @pytest.mark.asyncio
 async def test_history_runtime_appends_and_loads_messages(tmp_path):
-    runtime = HistoryRuntime(tmp_path / "runtime.db")
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
     await runtime.initialize()
 
     await runtime.append_item(HistoryItem(
@@ -33,7 +33,7 @@ async def test_history_runtime_appends_and_loads_messages(tmp_path):
 
 @pytest.mark.asyncio
 async def test_history_runtime_records_turn_lifecycle(tmp_path):
-    runtime = HistoryRuntime(tmp_path / "runtime.db")
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
     await runtime.initialize()
 
     await runtime.start_turn("turn-1", thread_id="thread-1")
@@ -56,7 +56,7 @@ async def test_history_runtime_records_turn_lifecycle(tmp_path):
 @pytest.mark.asyncio
 async def test_history_runtime_append_message_convenience(tmp_path):
     """append_message() creates an item with auto-generated id."""
-    runtime = HistoryRuntime(tmp_path / "runtime.db")
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
     await runtime.initialize()
 
     item = await runtime.append_message(
@@ -77,7 +77,7 @@ async def test_history_runtime_append_message_convenience(tmp_path):
 @pytest.mark.asyncio
 async def test_history_runtime_load_messages_formats_for_provider(tmp_path):
     """load_messages() returns provider-friendly dicts."""
-    runtime = HistoryRuntime(tmp_path / "runtime.db")
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
     await runtime.initialize()
 
     await runtime.append_message(

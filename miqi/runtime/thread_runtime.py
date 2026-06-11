@@ -80,8 +80,9 @@ class ThreadRuntime:
         async with aiosqlite.connect(str(self.db_path)) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
-                "SELECT * FROM runtime_threads WHERE thread_id = ?",
-                (thread_id,),
+                """SELECT * FROM runtime_threads
+                   WHERE thread_id = ? AND session_id = ?""",
+                (thread_id, self.session_id),
             )
             row = await cursor.fetchone()
         if row is None:
@@ -113,8 +114,9 @@ class ThreadRuntime:
     async def delete_thread(self, thread_id: str) -> None:
         async with aiosqlite.connect(str(self.db_path)) as db:
             await db.execute(
-                "DELETE FROM runtime_threads WHERE thread_id = ?",
-                (thread_id,),
+                """DELETE FROM runtime_threads
+                   WHERE thread_id = ? AND session_id = ?""",
+                (thread_id, self.session_id),
             )
             await db.commit()
 
@@ -169,7 +171,7 @@ class ThreadRuntime:
             await db.execute(
                 """UPDATE runtime_threads
                    SET title = ?, status = ?, updated_at = ?
-                   WHERE thread_id = ?""",
-                (next_title, next_status, time.time(), thread_id),
+                   WHERE thread_id = ? AND session_id = ?""",
+                (next_title, next_status, time.time(), thread_id, self.session_id),
             )
             await db.commit()
