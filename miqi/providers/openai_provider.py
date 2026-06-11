@@ -474,11 +474,12 @@ class OpenAIProvider(LLMProvider):
                 ),
             )
 
-        except Exception as e:
+        except Exception:
+            logger.exception("LLM streaming error for model {}", resolved)
             yield LLMStreamEvent(
                 kind="completed",
                 response=LLMResponse(
-                    content=f"Error calling LLM: {e}",
+                    content="An unexpected error occurred while processing your request.",
                     finish_reason="error",
                 ),
             )

@@ -112,7 +112,7 @@ async def test_openai_streaming_yields_error_on_exception():
     assert events[0].kind == "completed"
     assert events[0].response is not None
     assert events[0].response.finish_reason == "error"
-    assert "Error calling LLM" in events[0].response.content
+    assert "unexpected error" in events[0].response.content.lower()
 
 
 @pytest.mark.asyncio
