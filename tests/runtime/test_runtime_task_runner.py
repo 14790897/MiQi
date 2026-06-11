@@ -349,6 +349,20 @@ async def test_thread_command_fork_unknown_parent_rejected(fake_services):
     assert "parent thread not found" in event.reason
 
 
+# ---------------------------------------------------------------------------
+# Phase 19: CompactCommand verification
+# ---------------------------------------------------------------------------
+
+
+def test_compact_command_is_submission():
+    """CompactCommand exists, has correct type, and is part of Submission."""
+    from miqi.protocol.commands import CompactCommand, Submission
+
+    cmd = CompactCommand(thread_id="thread-1")
+    assert cmd.type == "compact"
+    assert cmd.reason == "manual"
+
+
 @pytest.mark.asyncio
 async def test_task_runner_sanitizes_processing_errors(fake_services):
     """Exception messages from turn runner are sanitized, not leaked."""
