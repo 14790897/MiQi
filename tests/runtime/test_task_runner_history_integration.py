@@ -103,3 +103,87 @@ async def test_task_runner_persists_history_across_turns(
         ], f"Stored messages: {[m['content'] for m in stored]}"
     finally:
         await runtime.stop()
+
+
+@pytest.mark.asyncio
+async def test_task_runner_persists_tool_call_messages(
+    fake_config, fake_provider, tmp_path,
+):
+    """A turn with tool calls must persist user → assistant(tool_calls) →
+    tool → assistant(final) in history."""
+    from miqi.runtime.turn_runner import TurnResult
+
+    async def fake_run_with_tools(
+        *, turn, user_content, system_prompt, tools, history=None, cancel_event=None,
+    ):
+        return TurnResult(
+            final_content="done after tools",
+            messages=[],
+            tools_used=["read_file"],
+            token_usage={},
+            messages_delta=[
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "tc-1",
+                        "type": "function",
+                        "function": {"name": "read_file", "arguments": '{"path":"/tmp/x"}'},
+                    }],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "tc-1",
+                    "content": "hello world",
+                },
+                {
+                    "role": "assistant",
+                    "content": "done after tools",
+                },
+            ],
+        )
+
+    runtime = RuntimeSession.create(
+        config=fake_config,
+        provider=fake_provider,
+        session_id="sess-tool-history",
+        workspace=tmp_path,
+    )
+    runtime.services.turn_runner.run = fake_run_with_tools  # type: ignore[attr-defined]
+
+    await runtime.start()
+    try:
+        await runtime.submit(UserMessage(content="read /tmp/x", thread_id="thread-tools"))
+
+        events: list[object] = []
+        seen_agent = False
+        seen_complete = False
+        while not (seen_agent and seen_complete):
+            ev = await runtime.next_event(timeout=2)
+            if ev is None:
+                break
+            events.append(ev)
+            if isinstance(ev, AgentMessageEvent):
+                seen_agent = True
+            if isinstance(ev, TurnCompleteEvent):
+                seen_complete = True
+
+        assert seen_agent, "Should get final AgentMessageEvent"
+
+        # Verify persisted history order
+        stored = await runtime.services.history_runtime.load_messages("thread-tools")
+        assert len(stored) == 4, (
+            f"Expected 4 messages, got {len(stored)}: {[m['role'] for m in stored]}"
+        )
+        assert stored[0]["role"] == "user"
+        assert stored[0]["content"] == "read /tmp/x"
+        assert stored[1]["role"] == "assistant"
+        assert "tool_calls" in stored[1], (
+            "assistant message should carry tool_calls"
+        )
+        assert stored[2]["role"] == "tool"
+        assert stored[2]["content"] == "hello world"
+        assert stored[3]["role"] == "assistant"
+        assert stored[3]["content"] == "done after tools"
+    finally:
+        await runtime.stop()

@@ -71,6 +71,9 @@ class TurnRunner:
             history=history,
         )
         tools_used: list[str] = []
+        # Phase 17: accumulate messages added during this turn for persistence.
+        # Each entry is a provider-compatible {role, content, ...} dict.
+        messages_delta: list[dict[str, Any]] = []
 
         for _iteration in range(self._max_iterations):
             # Phase 14 follow-up: check cancellation before expensive work
@@ -91,12 +94,14 @@ class TurnRunner:
                     messages=messages,
                     content=content,
                 )
+                # Append final assistant message to delta
+                messages_delta.append({"role": "assistant", "content": content})
                 return TurnResult(
                     final_content=content,
                     messages=messages,
                     tools_used=tools_used,
                     token_usage=getattr(response, "usage", {}) or {},
-                    messages_delta=[{"role": "assistant", "content": content}],
+                    messages_delta=messages_delta,
                 )
 
             # Execute tool calls concurrently through ToolRuntime
@@ -125,6 +130,13 @@ class TurnRunner:
                 content=response.content or "",
                 tool_calls=assistant_tool_calls,
             )
+            # Persist assistant(tool_calls) in messages_delta
+            asst_delta: dict[str, Any] = {
+                "role": "assistant",
+                "content": response.content or None,
+                "tool_calls": assistant_tool_calls,
+            }
+            messages_delta.append(asst_delta)
 
             # 3. Append tool results in order (assistant → tool → tool → …)
             for tool_call, ctx in zip(response.tool_calls, contexts):
@@ -134,6 +146,12 @@ class TurnRunner:
                     name=tool_call.name,
                     content=ctx.result or "",
                 )
+                # Persist tool result in messages_delta
+                messages_delta.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": ctx.result or "",
+                })
 
         # Exhausted iterations
         content = (
@@ -141,11 +159,12 @@ class TurnRunner:
             f"Tools used: {', '.join(dict.fromkeys(tools_used)) or 'none'}. "
             f"Try breaking your task into smaller steps."
         )
+        messages_delta.append({"role": "assistant", "content": content})
         return TurnResult(
             final_content=content,
             messages=messages,
             tools_used=tools_used,
-            messages_delta=[{"role": "assistant", "content": content}],
+            messages_delta=messages_delta,
         )
 
     async def run_agent_job(self, job: Any) -> TurnResult:
