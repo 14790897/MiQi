@@ -282,3 +282,27 @@ async def test_runtime_session_queues_non_abort_during_active_turn(fake_config):
     assert "response-1" in responses
     assert "response-2" in responses
 
+
+# ---------------------------------------------------------------------------
+# Phase 17: session / thread / history runtime wiring
+# ---------------------------------------------------------------------------
+
+def test_runtime_services_include_history_and_thread_runtime(
+    fake_config, fake_provider, tmp_path,
+):
+    """RuntimeServices must carry HistoryRuntime, ThreadRuntime, SessionState."""
+    from miqi.runtime.services import RuntimeServices
+
+    services = RuntimeServices.from_config(
+        config=fake_config,
+        provider=fake_provider,
+        session_id="sess-history",
+        workspace=tmp_path,
+    )
+
+    assert services.history_runtime is not None
+    assert services.thread_runtime is not None
+    assert services.session_state is not None
+    assert services.session_state.session_id == "sess-history"
+    assert services.session_state.workspace == tmp_path
+
