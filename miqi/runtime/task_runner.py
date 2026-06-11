@@ -24,6 +24,7 @@ from miqi.protocol.events import (
     AgentMessageEvent,
     ApprovalResolvedEvent,
     CommandRejectedEvent,
+    ConfigUpdatedEvent,
     ErrorEvent,
     EventSeverity,
     TurnAbortedEvent,
@@ -86,11 +87,19 @@ class TaskRunner:
             await self._handle_thread_command(submission)
             return
         if isinstance(submission, ConfigUpdate):
-            await self._events.put(ErrorEvent(
-                turn_id=str(uuid.uuid4())[:12],
-                severity=EventSeverity.WARNING,
-                message=f"Submission type {type(submission).__name__} is not yet wired",
-                recoverable=True,
+            # Phase 18: mutate session state and emit ConfigUpdatedEvent
+            state = getattr(self.services, "session_state", None)
+            if state is None or not hasattr(state, "apply_config_update"):
+                await self._events.put(CommandRejectedEvent(
+                    command_type="ConfigUpdate",
+                    reason="Runtime has no mutable session state",
+                    recoverable=False,
+                ))
+                return
+            state.apply_config_update(submission.path, submission.value)
+            await self._events.put(ConfigUpdatedEvent(
+                path=submission.path,
+                value=submission.value,
             ))
             return
         await self._events.put(ErrorEvent(

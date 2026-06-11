@@ -159,6 +159,36 @@ async def test_thread_command_unknown_action_rejected(fake_services):
     assert event.command_type == "ThreadCommand"
 
 
+# ---------------------------------------------------------------------------
+# Phase 18: ConfigUpdate wired to SessionState
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_config_update_mutates_session_state(fake_services):
+    """ConfigUpdate must call SessionState.apply_config_update and emit
+    ConfigUpdatedEvent."""
+    from miqi.protocol.commands import ConfigUpdate
+    from miqi.protocol.events import ConfigUpdatedEvent
+    from miqi.runtime.task_runner import TaskRunner
+
+    events = asyncio.Queue()
+    fake_services.session_state = MagicMock()
+    fake_services.session_state.apply_config_update = MagicMock()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(ConfigUpdate(path="agents.defaults.temperature", value=0.2))
+
+    fake_services.session_state.apply_config_update.assert_called_once_with(
+        "agents.defaults.temperature",
+        0.2,
+    )
+    event = await asyncio.wait_for(events.get(), timeout=1)
+    assert isinstance(event, ConfigUpdatedEvent)
+    assert event.path == "agents.defaults.temperature"
+    assert event.value == 0.2
+
+
 @pytest.mark.asyncio
 async def test_task_runner_sanitizes_processing_errors(fake_services):
     """Exception messages from turn runner are sanitized, not leaked."""
