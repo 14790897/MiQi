@@ -10,6 +10,7 @@ single-turn execution path for sub-agent jobs.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
@@ -54,8 +55,13 @@ class TurnRunner:
         system_prompt: str,
         tools: list[dict[str, Any]] | None,
         history: list[dict[str, Any]] | None = None,
+        cancel_event: Any | None = None,
     ) -> TurnResult:
-        """Execute a full turn: model calls until final response or max iters."""
+        """Execute a full turn: model calls until final response or max iters.
+
+        Phase 14 follow-up: checks cancel_event (asyncio.Event) at each
+        iteration and yields with CancelledError when set.
+        """
         messages = self._context.build_initial_messages(
             turn=turn,
             user_content=user_content,
@@ -65,6 +71,10 @@ class TurnRunner:
         tools_used: list[str] = []
 
         for _iteration in range(self._max_iterations):
+            # Phase 14 follow-up: check cancellation before expensive work
+            if cancel_event is not None and cancel_event.is_set():
+                raise asyncio.CancelledError("Turn cancelled via AbortTurn")
+
             response = await self._provider.chat(
                 messages=messages,
                 tools=tools,

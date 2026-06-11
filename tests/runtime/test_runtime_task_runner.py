@@ -27,13 +27,23 @@ async def test_task_runner_routes_user_message_to_turn_runner(fake_services):
 
 @pytest.mark.asyncio
 async def test_task_runner_handles_abort_turn(fake_services):
-    """AbortTurn stops the agent loop."""
+    """AbortTurn signals cancellation event and emits ErrorEvent (Phase 14 follow-up).
+
+    No longer calls agent_loop.stop(). Instead sets the per-thread cancel
+    event and emits an ErrorEvent warning.
+    """
     events = asyncio.Queue()
     runner = TaskRunner(services=fake_services, event_queue=events)
 
     await runner.handle(AbortTurn(thread_id="cli:default"))
 
-    fake_services.agent_loop.stop.assert_called_once()
+    # agent_loop.stop() is no longer called for abort
+    fake_services.agent_loop.stop.assert_not_called()
+
+    # Should emit an ErrorEvent (warning about abort)
+    event = await asyncio.wait_for(events.get(), timeout=1)
+    assert event.__class__.__name__ == "ErrorEvent"
+    assert "aborted" in event.message.lower()
 
 
 @pytest.mark.asyncio

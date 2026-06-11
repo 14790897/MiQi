@@ -24,7 +24,6 @@ def register_gateway_command(
         """Start the MiQi gateway."""
         from loguru import logger
 
-        from miqi.agent.loop import AgentLoop
         from miqi.bus.queue import MessageBus
         from miqi.channels.manager import ChannelManager
         from miqi.config.loader import get_data_dir, load_config
@@ -67,38 +66,10 @@ def register_gateway_command(
         cron_store_path = get_data_dir() / "cron" / "jobs.json"
         cron = CronService(cron_store_path, job_timeout=config.cron.job_timeout_seconds)
 
-        # Phase 14: AgentLoop still used for bus-based channel message loop.
-        # Cron and heartbeat callbacks use RuntimeSession + RuntimeClient.
-        agent = AgentLoop(
-            bus=bus,
-            provider=provider,
-            workspace=config.workspace_path,
-            agent_name=config.agents.defaults.name,
-            model=config.agents.defaults.model,
-            temperature=config.agents.defaults.temperature,
-            max_tokens=config.agents.defaults.max_tokens,
-            max_iterations=config.agents.defaults.max_tool_iterations,
-            reflect_after_tool_calls=config.agents.defaults.reflect_after_tool_calls,
-            web_config=config.tools.web,
-            paper_config=config.tools.papers,
-            memory_window=config.agents.defaults.memory_window,
-            max_tool_result_chars=config.agents.defaults.max_tool_result_chars,
-            context_limit_chars=config.agents.defaults.context_limit_chars,
-            exec_config=config.tools.exec,
-            memory_config=config.agents.memory,
-            self_improvement_config=config.agents.self_improvement,
-            session_config=config.agents.sessions,
-            cron_service=cron,
-            restrict_to_workspace=config.tools.restrict_to_workspace,
-            session_manager=session_manager,
-            mcp_servers=config.tools.mcp_servers,
-            channels_config=config.channels,
-        )
-        from miqi.execution.factory import configure_agent_orchestrator
-        configure_agent_orchestrator(agent)
-
-        # Phase 14: runtime for cron/heartbeat (direct calls, not bus-driven)
+        # Phase 14 follow-up: RuntimeSession owns ALL gateway processing.
+        # No more AgentLoop — channels route through GatewayRuntimeDispatcher.
         from miqi.runtime.client import RuntimeClient
+        from miqi.runtime.gateway_dispatcher import GatewayRuntimeDispatcher
         from miqi.runtime.session import RuntimeSession
 
         gateway_runtime = RuntimeSession.create(
@@ -107,16 +78,13 @@ def register_gateway_command(
             session_id="gateway:default",
             workspace=config.workspace_path,
         )
+        gateway_client = RuntimeClient(gateway_runtime)
 
         async def on_cron_job_via_runtime(job: CronJob) -> str | None:
-            await gateway_runtime.start()
-            try:
-                response = await RuntimeClient(gateway_runtime).ask(
-                    job.payload.message,
-                    thread_id=f"cron:{job.id}",
-                )
-            finally:
-                await gateway_runtime.stop()
+            response = await gateway_client.ask(
+                job.payload.message,
+                thread_id=f"cron:{job.id}",
+            )
             if job.payload.deliver and job.payload.to:
                 from miqi.bus.events import OutboundMessage
                 await bus.publish_outbound(
@@ -146,18 +114,13 @@ def register_gateway_command(
             return "cli", "direct"
 
         async def on_heartbeat(prompt: str) -> str:
-            await gateway_runtime.start()
-            try:
-                return await RuntimeClient(gateway_runtime).ask(
-                    prompt,
-                    thread_id="heartbeat",
-                )
-            finally:
-                await gateway_runtime.stop()
+            return await gateway_client.ask(
+                prompt,
+                thread_id="heartbeat",
+            )
 
         async def on_heartbeat_notify(response: str) -> None:
             from miqi.bus.events import OutboundMessage
-
             channel, chat_id = _pick_heartbeat_target()
             if channel == "cli":
                 return
@@ -172,6 +135,14 @@ def register_gateway_command(
             on_notify=on_heartbeat_notify,
             interval_s=heartbeat_interval_s,
             enabled=config.heartbeat.enabled,
+        )
+
+        # Channel dispatch: GatewayRuntimeDispatcher replaces AgentLoop.run()
+        channel_dispatcher = GatewayRuntimeDispatcher(
+            bus=bus,
+            channel_manager=channels,
+            runtime=gateway_runtime,
+            client=gateway_client,
         )
 
         if channels.enabled_channels:
@@ -191,6 +162,8 @@ def register_gateway_command(
 
         async def run():
             try:
+                # Phase 14 follow-up: start runtime once, reuse for all calls
+                await gateway_runtime.start()
                 await cron.start()
 
                 cron_status = cron.status()
@@ -199,16 +172,16 @@ def register_gateway_command(
 
                 await heartbeat.start()
                 await asyncio.gather(
-                    agent.run(),
+                    channel_dispatcher.run(),
                     channels.start_all(),
                 )
             except KeyboardInterrupt:
                 console.print("\nShutting down...")
             finally:
-                await agent.close_mcp()
+                # Phase 14 follow-up: stop runtime once
+                await gateway_runtime.stop()
                 heartbeat.stop()
                 cron.stop()
-                agent.stop()
                 await channels.stop_all()
 
         asyncio.run(run())
