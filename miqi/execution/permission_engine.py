@@ -113,9 +113,19 @@ class PermissionEngine:
                                 f"{' '.join(prefix)}"
                             ),
                         )
-                # Allow rules — skip further safety checks
+                # Allow rules — still require metacharacter safety
                 for prefix in getattr(profile, "exec_allow_prefixes", []):
                     if parts[:len(prefix)] == prefix:
+                        if not self._is_safe_command(cmd):
+                            return PermissionDecision(
+                                verdict=PermissionVerdict.APPROVAL_REQUIRED,
+                                category="exec",
+                                description=(
+                                    f"Allowed prefix but command contains "
+                                    f"shell metacharacters: {cmd[:100]}"
+                                ),
+                                details={"command": cmd},
+                            )
                         return PermissionDecision(
                             verdict=PermissionVerdict.ALLOW,
                             reason=(

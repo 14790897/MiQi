@@ -77,3 +77,30 @@ async def test_permission_profile_unmatched_command_falls_through(tmp_path):
     decision = await engine.check(ctx)
     # "echo" is a safe command prefix → ALLOW
     assert decision.verdict == PermissionVerdict.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_permission_profile_allow_prefix_still_checks_metacharacters(tmp_path):
+    """A command matching an allow prefix but containing shell
+    metacharacters must still require approval — allow is not a
+    blanket bypass of safety checks."""
+    engine = PermissionEngine()
+    ctx = ToolExecutionContext(
+        tool_name="exec",
+        tool_call_id="tc-1",
+        arguments={"command": "git status; rm -rf /"},
+        turn_id="turn-1",
+        thread_id="thread-1",
+        agent_type="main",
+        permission_profile=PermissionProfile(
+            workspace=tmp_path,
+            exec_allow_prefixes=[["git", "status"]],
+        ),
+    )
+
+    decision = await engine.check(ctx)
+    # Metacharacter ';' should block the allow rule
+    assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED, (
+        f"Expected APPROVAL_REQUIRED for metacharacter command, "
+        f"got {decision.verdict}: {decision.reason}"
+    )
