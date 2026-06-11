@@ -292,3 +292,154 @@ async def test_task_runner_auto_compacts_before_large_turn(
         )
     finally:
         await runtime.stop()
+
+
+@pytest.mark.asyncio
+async def test_compaction_failure_does_not_crash_runtime(
+    fake_config, fake_provider, tmp_path,
+):
+    """When compact_thread raises, the turn proceeds with unbounded history
+    and the runtime does not crash."""
+    from unittest.mock import AsyncMock
+
+    from miqi.protocol.events import AgentMessageEvent, TurnCompleteEvent
+
+    runtime = RuntimeSession.create(
+        config=fake_config,
+        provider=fake_provider,
+        session_id="sess-compact-fail",
+        workspace=tmp_path,
+    )
+
+    # should_auto_compact → True, but compact_thread → crash
+    runtime.services.context_runtime.should_auto_compact = lambda msgs, lim: True
+    runtime.services.context_runtime.compact_thread = AsyncMock(
+        side_effect=RuntimeError("compaction exploded"),
+    )
+
+    await runtime.start()
+    try:
+        await runtime.submit(UserMessage(content="hello", thread_id="thread-fail"))
+
+        events: list[object] = []
+        seen_complete = False
+        while not seen_complete:
+            ev = await runtime.next_event(timeout=2)
+            if ev is None:
+                break
+            events.append(ev)
+            if isinstance(ev, TurnCompleteEvent):
+                seen_complete = True
+
+        event_names = [e.__class__.__name__ for e in events]
+        # Turn should still complete successfully (graceful degradation)
+        assert "AgentMessageEvent" in event_names, (
+            f"Turn should produce agent message despite compaction failure: {event_names}"
+        )
+        assert "TurnCompleteEvent" in event_names, (
+            f"Turn should complete despite compaction failure: {event_names}"
+        )
+        # Compaction failure must NOT emit ContextCompactedEvent
+        assert "ContextCompactedEvent" not in event_names, (
+            f"Failed compaction should not emit compact event: {event_names}"
+        )
+    finally:
+        await runtime.stop()
+
+
+@pytest.mark.asyncio
+async def test_compaction_record_persisted_and_reused(
+    fake_config, fake_provider, tmp_path,
+):
+    """After compaction, replacement messages are persisted and reused
+    in the next turn's history. Uses TaskRunner directly for precise control."""
+    import asyncio as _asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from miqi.runtime.context_runtime import CompactionResult
+    from miqi.runtime.history_runtime import HistoryRuntime
+    from miqi.runtime.task_runner import TaskRunner
+
+    # Build a real HistoryRuntime
+    db_path = tmp_path / ".miqi-runtime" / "runtime.db"
+    hist = HistoryRuntime(db_path, session_id="sess-cp")
+    await hist.initialize()
+    for i in range(10):
+        await hist.append_message(
+            thread_id="thread-cp", turn_id="pre", role="user",
+            content=f"message {i}",
+        )
+
+    # Build services with real history_runtime + real context_runtime
+    from miqi.runtime.context_runtime import ContextRuntime
+    from miqi.runtime.services import RuntimeEventEmitter
+
+    services = MagicMock()
+    services.session_id = "sess-cp"
+    services.workspace = tmp_path
+    services.provider = fake_provider
+    services.event_emitter = RuntimeEventEmitter()
+    services.agent_loop = MagicMock()
+    services.agent_loop.model = "test-model"
+    services.agent_loop.temperature = 0.1
+    services.agent_loop.max_tokens = 4096
+    services.agent_loop.context_limit_chars = 600000
+    services.agent_loop.stop = MagicMock()
+    services.tool_registry = MagicMock()
+    services.tool_registry.get_definitions.return_value = []
+    services.orchestrator = MagicMock()
+    services.agent_registry = MagicMock()
+    services.agent_control = MagicMock()
+    services.tool_runtime = MagicMock()
+    services.turn_runner = MagicMock()
+    services.turn_runner.run = AsyncMock()
+    run_result = MagicMock()
+    run_result.final_content = "hi"
+    run_result.messages_delta = [{"role": "assistant", "content": "hi"}]
+    run_result.tools_used = []
+    run_result.token_usage = {}
+    services.turn_runner.run.return_value = run_result
+    services.capability_resolver = None
+    services.history_runtime = hist
+    services.session_state = None
+    services.thread_runtime = None
+
+    # Real ContextRuntime but override compress with async function
+    ctx = ContextRuntime()
+    async def fake_compress(messages, model, session_id=""):
+        return [
+            {"role": "system", "content": "[compacted summary]"},
+            {"role": "user", "content": "most recent message"},
+        ]
+    ctx.compress_messages = fake_compress
+    ctx.should_auto_compact = lambda messages, token_limit: True
+    services.context_runtime = ctx
+
+    events = _asyncio.Queue()
+    runner = TaskRunner(services=services, event_queue=events)
+
+    await runner.handle(UserMessage(content="final", thread_id="thread-cp"))
+
+    # Drain events
+    event_list: list[object] = []
+    while True:
+        try:
+            ev = await _asyncio.wait_for(events.get(), timeout=0.5)
+            event_list.append(ev)
+        except _asyncio.TimeoutError:
+            break
+
+    event_names = [e.__class__.__name__ for e in event_list]
+    assert "ContextCompactedEvent" in event_names, (
+        f"Expected ContextCompactedEvent in: {event_names}"
+    )
+
+    # Verify persisted history now has compacted messages + new turn
+    stored = await hist.load_messages("thread-cp")
+    assert len(stored) >= 3, (
+        f"Expected at least summary + recent + final, got: "
+        f"{[m['role'] for m in stored]}"
+    )
+    # First message should be the summary
+    assert stored[0]["role"] == "system"
+    assert "[compacted summary]" in stored[0]["content"]
