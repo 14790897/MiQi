@@ -363,6 +363,62 @@ def test_compact_command_is_submission():
     assert cmd.reason == "manual"
 
 
+# ---------------------------------------------------------------------------
+# Phase 19: CompactCommand wired to ContextRuntime
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_compact_command_emits_context_compacted(fake_services):
+    """CompactCommand must call context_runtime.compact_thread and emit
+    ContextCompactedEvent (Phase 19)."""
+    from unittest.mock import AsyncMock
+
+    from miqi.protocol.commands import CompactCommand
+    from miqi.protocol.events import ContextCompactedEvent
+    from miqi.runtime.context_runtime import CompactionResult
+    from miqi.runtime.task_runner import TaskRunner
+
+    events = asyncio.Queue()
+    fake_services.context_runtime.compact_thread = AsyncMock(return_value=CompactionResult(
+        thread_id="thread-1",
+        messages_before=10,
+        messages_after=3,
+        tokens_saved=100,
+        replacement_messages=[],
+    ))
+    fake_services.history_runtime = MagicMock()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(CompactCommand(thread_id="thread-1"))
+
+    event = await asyncio.wait_for(events.get(), timeout=1)
+    assert isinstance(event, ContextCompactedEvent)
+    assert event.messages_before == 10
+    assert event.messages_after == 3
+    assert event.tokens_saved == 100
+
+
+@pytest.mark.asyncio
+async def test_compact_command_no_runtime_emits_rejected(fake_services):
+    """CompactCommand without context_runtime or history_runtime emits
+    CommandRejectedEvent."""
+    from miqi.protocol.commands import CompactCommand
+    from miqi.protocol.events import CommandRejectedEvent
+    from miqi.runtime.task_runner import TaskRunner
+
+    events = asyncio.Queue()
+    fake_services.context_runtime = None
+    fake_services.history_runtime = None
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(CompactCommand(thread_id="thread-1"))
+
+    event = await asyncio.wait_for(events.get(), timeout=1)
+    assert isinstance(event, CommandRejectedEvent)
+    assert event.command_type == "CompactCommand"
+
+
 @pytest.mark.asyncio
 async def test_task_runner_sanitizes_processing_errors(fake_services):
     """Exception messages from turn runner are sanitized, not leaked."""
