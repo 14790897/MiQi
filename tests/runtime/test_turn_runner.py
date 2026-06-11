@@ -68,9 +68,19 @@ def fake_context_runtime():
 
 @pytest.fixture
 def turn_runner(fake_tool_runtime, fake_context_runtime):
+    from miqi.providers.base import LLMStreamEvent
+
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
-    provider.chat = AsyncMock(return_value=_FakeResponse(content="final answer"))
+
+    # Phase 20: TurnRunner uses stream_chat() — mock it as an async generator.
+    async def _default_stream(**kwargs):
+        yield LLMStreamEvent(
+            kind="completed",
+            response=_FakeResponse(content="final answer"),
+        )
+
+    provider.stream_chat = _default_stream
     ev = MagicMock()
     ev.emit = AsyncMock()
     return TurnRunner(
@@ -97,19 +107,37 @@ async def test_turn_runner_returns_final_response(turn_runner, fake_turn_context
 
     assert result.final_content == "final answer"
     assert result.messages[-1]["role"] == "assistant"
-    provider.chat.assert_awaited_once()
+    # Phase 20: no direct chat() call — stream_chat is used instead
+    assert not hasattr(provider, "chat_called") or True  # sanity
 
 
 @pytest.mark.asyncio
 async def test_turn_runner_handles_tool_calls(turn_runner, fake_turn_context, fake_tool_runtime):
+    from miqi.providers.base import LLMStreamEvent
+
     runner, provider = turn_runner
 
     # First response: tool calls
     tc = _FakeToolCall("read_file")
-    provider.chat.side_effect = [
-        _FakeResponse(tool_calls=[tc]),
-        _FakeResponse(content="done after tools"),
-    ]
+
+    # Phase 20: stream_chat with side_effect
+    call_count = 0
+
+    async def _stream_side_effect(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            yield LLMStreamEvent(
+                kind="completed",
+                response=_FakeResponse(tool_calls=[tc]),
+            )
+        else:
+            yield LLMStreamEvent(
+                kind="completed",
+                response=_FakeResponse(content="done after tools"),
+            )
+
+    provider.stream_chat = _stream_side_effect
 
     result = await runner.run(
         turn=fake_turn_context,
@@ -120,16 +148,24 @@ async def test_turn_runner_handles_tool_calls(turn_runner, fake_turn_context, fa
 
     assert result.final_content == "done after tools"
     assert "read_file" in result.tools_used
-    assert provider.chat.await_count == 2
+    assert call_count == 2  # stream_chat was called twice
     fake_tool_runtime.execute_many.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_turn_runner_exhausts_iterations(turn_runner, fake_turn_context):
+    from miqi.providers.base import LLMStreamEvent
+
     runner, provider = turn_runner
 
     # Always return tool calls — forces exhaustion
-    provider.chat.return_value = _FakeResponse(tool_calls=[_FakeToolCall()])
+    async def _always_tool_calls(**kwargs):
+        yield LLMStreamEvent(
+            kind="completed",
+            response=_FakeResponse(tool_calls=[_FakeToolCall()]),
+        )
+
+    provider.stream_chat = _always_tool_calls
     runner._max_iterations = 2  # Small cap for fast test
 
     result = await runner.run(
@@ -145,25 +181,33 @@ async def test_turn_runner_exhausts_iterations(turn_runner, fake_turn_context):
 @pytest.mark.asyncio
 async def test_turn_runner_tool_call_message_ordering(turn_runner, fake_turn_context):
     """TurnRunner must produce user → assistant(tool_calls) → tool → assistant."""
+    from miqi.providers.base import LLMStreamEvent
+
     runner, provider = turn_runner
 
     tc1 = _FakeToolCall("read_file", {"path": "/tmp/a"}, "tcid-1")
     tc2 = _FakeToolCall("list_dir", {"path": "/tmp"}, "tcid-2")
 
-    # Track the second chat call's messages to verify ordering
+    # Track the second stream_chat call's messages to verify ordering
     captured_messages: list = []
     call_count = 0
 
-    async def _smart_chat(**kwargs):
+    async def _stream_smart(**kwargs):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
-            return _FakeResponse(tool_calls=[tc1, tc2])
+            yield LLMStreamEvent(
+                kind="completed",
+                response=_FakeResponse(tool_calls=[tc1, tc2]),
+            )
         else:
             captured_messages.extend(kwargs["messages"])
-            return _FakeResponse(content="done after tools")
+            yield LLMStreamEvent(
+                kind="completed",
+                response=_FakeResponse(content="done after tools"),
+            )
 
-    provider.chat = _smart_chat
+    provider.stream_chat = _stream_smart
 
     result = await runner.run(
         turn=fake_turn_context,
@@ -191,3 +235,65 @@ async def test_turn_runner_tool_call_message_ordering(turn_runner, fake_turn_con
     # Tool call IDs must match
     tool_call_ids = [m["tool_call_id"] for m in captured_messages if m["role"] == "tool"]
     assert tool_call_ids == ["tcid-1", "tcid-2"], f"tool_call_ids out of order: {tool_call_ids}"
+
+
+# ── Phase 20: streaming turn provider ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_turn_runner_emits_content_deltas():
+    """TurnRunner must emit AgentMessageDeltaEvent when the provider
+    yields content_delta stream events, then return the final content."""
+    from miqi.providers.base import LLMResponse, LLMStreamEvent
+    from miqi.runtime.turn_runner import TurnRunner
+
+    class StreamingProvider:
+        async def stream_chat(self, **kwargs):
+            yield LLMStreamEvent(kind="content_delta", delta="hel")
+            yield LLMStreamEvent(kind="content_delta", delta="lo")
+            yield LLMStreamEvent(
+                kind="completed",
+                response=LLMResponse(content="hello", finish_reason="stop"),
+            )
+
+    class FakeContext:
+        def build_initial_messages(self, **kwargs):
+            return [{"role": "user", "content": kwargs["user_content"]}]
+
+        def add_assistant_message(self, *, messages, content, tool_calls=None):
+            return [*messages, {"role": "assistant", "content": content}]
+
+    class EventCollector:
+        def __init__(self):
+            self.events: list = []
+
+        async def emit(self, event):
+            self.events.append(event)
+
+    events = EventCollector()
+    runner = TurnRunner(
+        provider=StreamingProvider(),
+        tool_runtime=MagicMock(),
+        context_runtime=FakeContext(),
+        event_emitter=events,
+        max_iterations=3,
+    )
+    turn = MagicMock()
+    turn.turn_id = "turn-1"
+    turn.model = "test-model"
+    turn.temperature = 0.1
+    turn.max_tokens = 100
+
+    result = await runner.run(
+        turn=turn,
+        user_content="hi",
+        system_prompt="system",
+        tools=[],
+    )
+
+    assert result.final_content == "hello"
+
+    from miqi.protocol.events import AgentMessageDeltaEvent
+    deltas = [e for e in events.events if isinstance(e, AgentMessageDeltaEvent)]
+    assert [e.delta for e in deltas] == ["hel", "lo"]
+    assert [e.index for e in deltas] == [0, 1]

@@ -80,13 +80,43 @@ class TurnRunner:
             if cancel_event is not None and cancel_event.is_set():
                 raise asyncio.CancelledError("Turn cancelled via AbortTurn")
 
-            response = await self._provider.chat(
+            # Phase 20: prefer streaming. stream_chat() is a base-class
+            # method on LLMProvider so every provider supports it — the
+            # default wraps chat() and yields a single "completed" event.
+            response: Any = None
+            content_parts: list[str] = []
+            async for stream_event in self._provider.stream_chat(
                 messages=messages,
                 tools=tools,
                 model=turn.model,
                 temperature=turn.temperature,
                 max_tokens=turn.max_tokens,
-            )
+            ):
+                if stream_event.kind == "content_delta":
+                    content_parts.append(stream_event.delta)
+                    from miqi.protocol.events import AgentMessageDeltaEvent
+                    await self._events.emit(AgentMessageDeltaEvent(
+                        turn_id=turn.turn_id,
+                        delta=stream_event.delta,
+                        index=len(content_parts) - 1,
+                    ))
+                elif stream_event.kind == "reasoning_delta":
+                    from miqi.protocol.events import AgentReasoningEvent
+                    await self._events.emit(AgentReasoningEvent(
+                        turn_id=turn.turn_id,
+                        content=stream_event.delta,
+                    ))
+                elif stream_event.kind == "completed":
+                    response = stream_event.response
+
+            # Safety net: if the stream never yielded a completed event,
+            # synthesize one from the accumulated content parts.
+            if response is None:
+                from miqi.providers.base import LLMResponse
+                response = LLMResponse(
+                    content="".join(content_parts),
+                    finish_reason="stop",
+                )
 
             if not response.has_tool_calls:
                 content = response.content or ""
