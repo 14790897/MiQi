@@ -53,6 +53,10 @@ class RuntimeServices:
     plugin_manager: Any | None = None
     agent_jobs: Any | None = None  # AgentJobRuntime
     capability_resolver: Any | None = None  # CapabilityResolver
+    # Phase 17: session / thread / history runtime
+    session_state: Any | None = None
+    history_runtime: Any | None = None
+    thread_runtime: Any | None = None
 
     @classmethod
     def from_config(
@@ -162,6 +166,21 @@ class RuntimeServices:
         # Phase 13: AgentJobRuntime (depends on TurnRunner)
         from miqi.runtime.agent_jobs import AgentJobRuntime
 
+        # Phase 17: session state, history runtime, thread runtime
+        from miqi.runtime.history_runtime import HistoryRuntime
+        from miqi.runtime.session_state import SessionState
+        from miqi.runtime.thread_runtime import ThreadRuntime
+
+        runtime_db = workspace / ".miqi-runtime" / "runtime.db"
+        history_runtime = HistoryRuntime(runtime_db)
+        thread_runtime = ThreadRuntime(runtime_db, session_id=session_id)
+        session_state = SessionState(
+            session_id=session_id,
+            workspace=workspace,
+            active_thread_id=f"{session_id}:default",
+            config_snapshot=config,
+        )
+
         # Build partial services so AgentJobRuntime can reference them
         services = cls(
             session_id=session_id,
@@ -179,6 +198,9 @@ class RuntimeServices:
             turn_runner=turn_runner,
             plugin_manager=plugin_manager,
             capability_resolver=capability_resolver,
+            session_state=session_state,
+            history_runtime=history_runtime,
+            thread_runtime=thread_runtime,
         )
 
         agent_jobs = AgentJobRuntime(services=services)
