@@ -1,5 +1,7 @@
 """Tests for ContextRuntime (Phase 12.2)."""
 
+import pytest
+
 from miqi.runtime.context_runtime import ContextRuntime
 
 
@@ -86,3 +88,69 @@ def test_context_runtime_adds_assistant_with_tool_calls():
 
     assert updated[-1]["role"] == "assistant"
     assert updated[-1]["tool_calls"] == tool_calls
+
+
+# ---------------------------------------------------------------------------
+# Phase 19: Context compaction
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_context_runtime_compact_thread_replaces_history():
+    """compact_thread() reads history, compresses, and replaces via history_runtime."""
+    from miqi.runtime.context_runtime import ContextRuntime
+
+    class FakeHistory:
+        def __init__(self):
+            self.messages = [
+                {"role": "user", "content": "one"},
+                {"role": "assistant", "content": "two"},
+                {"role": "user", "content": "three"},
+            ]
+            self.replaced = None
+
+        async def load_messages(self, thread_id):
+            return list(self.messages)
+
+        async def replace_messages_with_compaction(self, thread_id, turn_id, replacement):
+            self.replaced = replacement
+
+    async def fake_compress(messages, model, session_id=""):
+        return [{"role": "system", "content": "[summary]"}, messages[-1]]
+
+    runtime = ContextRuntime()
+    runtime.compress_messages = fake_compress
+    history = FakeHistory()
+
+    result = await runtime.compact_thread(
+        history_runtime=history,
+        thread_id="thread-1",
+        turn_id="compact-1",
+        model="test-model",
+    )
+
+    assert result.messages_before == 3
+    assert result.messages_after == 2
+    assert history.replaced == [
+        {"role": "system", "content": "[summary]"},
+        {"role": "user", "content": "three"},
+    ]
+
+
+def test_context_runtime_estimate_tokens():
+    """estimate_tokens() approximates token count (chars / 4)."""
+    runtime = ContextRuntime()
+    msgs = [
+        {"role": "user", "content": "hello world"},
+        {"role": "assistant", "content": "hi"},
+    ]
+    # "hello world" (11) + "hi" (2) = 13 chars → 13//4 = 3 tokens
+    assert runtime.estimate_tokens(msgs) == 3
+
+
+def test_context_runtime_should_auto_compact():
+    """should_auto_compact() returns True when estimated tokens >= limit."""
+    runtime = ContextRuntime()
+    msgs = [{"role": "user", "content": "x" * 400}]  # 400 chars → 100 tokens
+    assert runtime.should_auto_compact(msgs, token_limit=50) is True
+    assert runtime.should_auto_compact(msgs, token_limit=200) is False
