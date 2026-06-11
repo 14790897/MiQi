@@ -7,8 +7,6 @@ consumes typed events from the runtime, and returns the final content.
 
 from __future__ import annotations
 
-import asyncio
-import uuid
 from typing import Any, Awaitable, Callable
 
 from miqi.protocol.commands import UserMessage
@@ -23,13 +21,13 @@ class RuntimeClient:
     Frontends use this instead of directly calling AgentLoop or
     duplicating event-drain loops.
 
-    Phase 14 follow-up: serializes concurrent ask() calls per-runtime
-    via an async lock so responses never get mixed up between callers.
+    Phase 14 follow-up v2: ask() serialization uses the runtime-owned
+    _ask_lock (not a per-client lock) so multiple RuntimeClient instances
+    sharing the same RuntimeSession don't interleave responses.
     """
 
     def __init__(self, runtime: Any):
         self.runtime = runtime
-        self._lock = asyncio.Lock()
 
     async def ask(
         self,
@@ -41,10 +39,9 @@ class RuntimeClient:
     ) -> str:
         """Submit a user message and wait for the final assistant response.
 
-        Phase 14 follow-up: uses a per-client async lock to serialize
-        calls so concurrent ask() on the same runtime don't interleave.
-        Each ask() also tags its submission with a request_id so it can
-        correlate the correct AgentMessageEvent response.
+        Uses runtime._ask_lock to serialize concurrent ask() calls across
+        all RuntimeClient instances that share the same RuntimeSession.
+        Each call submits, then drains events until its AgentMessageEvent.
 
         Args:
             content: The user's message text.
@@ -59,9 +56,10 @@ class RuntimeClient:
             TimeoutError: If no response arrives within timeout.
             RuntimeError: If the runtime emits an ErrorEvent.
         """
-        request_id = str(uuid.uuid4())[:12]
-
-        async with self._lock:
+        lock = getattr(self.runtime, "_ask_lock", None)
+        if lock is not None:
+            await lock.acquire()
+        try:
             await self.runtime.submit(
                 UserMessage(content=content, thread_id=thread_id)
             )
@@ -81,3 +79,6 @@ class RuntimeClient:
                     maybe = on_event(event)
                     if hasattr(maybe, "__await__"):
                         await maybe
+        finally:
+            if lock is not None and lock.locked():
+                lock.release()
