@@ -341,5 +341,147 @@ class OpenAIProvider(LLMProvider):
 
         return None
 
+    async def stream_chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+    ):
+        """OpenAI-compatible streaming chat.
+
+        Yields content_delta for text, reasoning_delta for thinking
+        content, and completed with the full LLMResponse.  On error
+        yields a completed event with finish_reason="error" so the
+        runtime always receives a terminal event.
+        """
+        from miqi.providers.base import LLMStreamEvent, LLMResponse, ToolCallRequest
+
+        original_model = model or self.default_model
+        resolved = self._resolve_model(original_model)
+        max_tokens = max(1, max_tokens)
+
+        spec = self._selected_spec or find_by_model(original_model)
+        keep_reasoning = bool(spec and spec.supports_reasoning_history)
+
+        kwargs: dict[str, Any] = {
+            "model": resolved,
+            "messages": self._sanitize_messages(
+                self._sanitize_empty_content(messages),
+                keep_reasoning=keep_reasoning,
+            ),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+
+        self._apply_model_overrides(resolved, kwargs)
+
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+
+        try:
+            stream = await self._client.chat.completions.create(**kwargs)
+
+            content_parts: list[str] = []
+            reasoning_parts: list[str] = []
+            # Accumulate tool calls incrementally (OpenAI sends index + fragments)
+            tool_call_accum: dict[int, dict[str, Any]] = {}
+            finish_reason: str | None = None
+            usage: dict[str, int] = {}
+
+            async for chunk in stream:
+                if not chunk.choices:
+                    # usage-only chunk (stream_options: include_usage)
+                    if hasattr(chunk, "usage") and chunk.usage:
+                        usage = {
+                            "prompt_tokens": getattr(chunk.usage, "prompt_tokens", 0) or 0,
+                            "completion_tokens": getattr(chunk.usage, "completion_tokens", 0) or 0,
+                            "total_tokens": getattr(chunk.usage, "total_tokens", 0) or 0,
+                        }
+                    continue
+
+                delta = chunk.choices[0].delta
+                choice_finish = chunk.choices[0].finish_reason
+                if choice_finish:
+                    finish_reason = choice_finish
+
+                # Content delta
+                content_text = getattr(delta, "content", None) or ""
+                if content_text:
+                    content_parts.append(content_text)
+                    yield LLMStreamEvent(kind="content_delta", delta=content_text)
+
+                # Reasoning delta (Kimi, DeepSeek-R1, etc.)
+                reasoning_text = getattr(delta, "reasoning_content", None) or ""
+                if reasoning_text:
+                    reasoning_parts.append(reasoning_text)
+                    yield LLMStreamEvent(kind="reasoning_delta", delta=reasoning_text)
+
+                # Tool calls — incremental accumulation
+                if hasattr(delta, "tool_calls") and delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in tool_call_accum:
+                            tool_call_accum[idx] = {
+                                "id": tc.id or "",
+                                "type": "function",
+                                "function": {
+                                    "name": "",
+                                    "arguments": "",
+                                },
+                            }
+                        acc = tool_call_accum[idx]
+                        if tc.id:
+                            acc["id"] = tc.id
+                        if hasattr(tc, "function") and tc.function:
+                            if hasattr(tc.function, "name") and tc.function.name:
+                                acc["function"]["name"] += tc.function.name
+                            if hasattr(tc.function, "arguments") and tc.function.arguments:
+                                acc["function"]["arguments"] += tc.function.arguments
+
+            # Build final response
+            full_content = "".join(content_parts) or None
+            full_reasoning = "".join(reasoning_parts) or None
+
+            # Parse accumulated tool calls
+            parsed_tool_calls: list[ToolCallRequest] = []
+            for idx in sorted(tool_call_accum.keys()):
+                acc = tool_call_accum[idx]
+                try:
+                    args = json.loads(acc["function"]["arguments"])
+                except (json.JSONDecodeError, ValueError):
+                    args = {}
+                if not isinstance(args, dict):
+                    args = {}
+                parsed_tool_calls.append(ToolCallRequest(
+                    id=acc["id"],
+                    name=acc["function"]["name"],
+                    arguments=args,
+                ))
+
+            yield LLMStreamEvent(
+                kind="completed",
+                response=LLMResponse(
+                    content=full_content,
+                    tool_calls=parsed_tool_calls,
+                    finish_reason=finish_reason or "stop",
+                    usage=usage,
+                    reasoning_content=full_reasoning,
+                ),
+            )
+
+        except Exception as e:
+            yield LLMStreamEvent(
+                kind="completed",
+                response=LLMResponse(
+                    content=f"Error calling LLM: {e}",
+                    finish_reason="error",
+                ),
+            )
+
     def get_default_model(self) -> str:
         return self.default_model
