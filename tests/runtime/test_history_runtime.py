@@ -91,3 +91,26 @@ async def test_history_runtime_load_messages_formats_for_provider(tmp_path):
     assert len(messages) == 2
     assert messages[0] == {"role": "user", "content": "hello"}
     assert messages[1] == {"role": "assistant", "content": "hi there"}
+
+
+# ---------------------------------------------------------------------------
+# Phase 19: compaction persistence
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_replace_messages_with_compaction_replaces_visible_history(tmp_path):
+    """replace_messages_with_compaction() clears old items and inserts replacement."""
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+    await runtime.initialize()
+    await runtime.append_message(thread_id="t1", turn_id="a", role="user", content="old")
+    await runtime.append_message(thread_id="t1", turn_id="a", role="assistant", content="old answer")
+
+    await runtime.replace_messages_with_compaction(
+        "t1",
+        "compact-1",
+        [{"role": "system", "content": "[summary]"}],
+    )
+
+    messages = await runtime.load_messages("t1")
+    assert messages == [{"role": "system", "content": "[summary]"}]
