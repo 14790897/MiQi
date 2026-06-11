@@ -82,7 +82,10 @@ class TaskRunner:
                 decision=submission.decision,
             ))
             return
-        if isinstance(submission, (ConfigUpdate, ThreadCommand)):
+        if isinstance(submission, ThreadCommand):
+            await self._handle_thread_command(submission)
+            return
+        if isinstance(submission, ConfigUpdate):
             await self._events.put(ErrorEvent(
                 turn_id=str(uuid.uuid4())[:12],
                 severity=EventSeverity.WARNING,
@@ -257,3 +260,73 @@ class TaskRunner:
             ))
         finally:
             self._turn_cancel_events.pop(thread_id, None)
+
+    async def _handle_thread_command(self, cmd: ThreadCommand) -> None:
+        """Phase 18: dispatch thread lifecycle actions to ThreadRuntime."""
+        from miqi.protocol.events import (
+            ThreadCreatedEvent,
+            ThreadDeletedEvent,
+            ThreadUpdatedEvent,
+        )
+
+        threads = getattr(self.services, "thread_runtime", None)
+        if threads is None:
+            await self._events.put(CommandRejectedEvent(
+                command_type="ThreadCommand",
+                reason="Runtime has no thread manager",
+                recoverable=False,
+            ))
+            return
+
+        if cmd.action == "new":
+            thread = await threads.create_thread(
+                title=cmd.params.get("title", "New thread"),
+                thread_id=cmd.params.get("thread_id"),
+            )
+            await self._events.put(ThreadCreatedEvent(
+                thread_id=thread.thread_id,
+                title=thread.title,
+                parent_thread_id=thread.parent_thread_id,
+            ))
+            return
+
+        if cmd.action == "rename":
+            thread = await threads.rename_thread(cmd.thread_id, cmd.params["title"])
+            await self._events.put(ThreadUpdatedEvent(
+                thread_id=thread.thread_id,
+                title=thread.title,
+                status=thread.status,
+            ))
+            return
+
+        if cmd.action == "archive":
+            thread = await threads.archive_thread(cmd.thread_id)
+            await self._events.put(ThreadUpdatedEvent(
+                thread_id=thread.thread_id,
+                title=thread.title,
+                status=thread.status,
+            ))
+            return
+
+        if cmd.action == "delete":
+            await threads.delete_thread(cmd.thread_id)
+            await self._events.put(ThreadDeletedEvent(thread_id=cmd.thread_id))
+            return
+
+        if cmd.action == "fork":
+            thread = await threads.fork_thread(
+                cmd.thread_id,
+                title=cmd.params.get("title", "Forked thread"),
+            )
+            await self._events.put(ThreadCreatedEvent(
+                thread_id=thread.thread_id,
+                title=thread.title,
+                parent_thread_id=thread.parent_thread_id,
+            ))
+            return
+
+        await self._events.put(CommandRejectedEvent(
+            command_type="ThreadCommand",
+            reason=f"Unknown thread action: {cmd.action}",
+            recoverable=False,
+        ))
