@@ -13,12 +13,17 @@ from typing import Any
 from miqi.protocol.commands import (
     AbortTurn,
     ApprovalResponse,
+    CompactCommand,
     ConfigUpdate,
+    RunUserShellCommand,
     ThreadCommand,
+    UserInputAnswer,
     UserMessage,
 )
 from miqi.protocol.events import (
     AgentMessageEvent,
+    ApprovalResolvedEvent,
+    CommandRejectedEvent,
     ErrorEvent,
     EventSeverity,
     TurnAbortedEvent,
@@ -58,7 +63,26 @@ class TaskRunner:
                 recoverable=True,
             ))
             return
-        if isinstance(submission, (ApprovalResponse, ConfigUpdate, ThreadCommand)):
+        if isinstance(submission, ApprovalResponse):
+            # Phase 18: resolve orchestrator approval
+            orchestrator = getattr(self.services, "orchestrator", None)
+            if orchestrator is None or not hasattr(orchestrator, "resolve_approval"):
+                await self._events.put(CommandRejectedEvent(
+                    command_type="ApprovalResponse",
+                    reason="Runtime has no approval resolver",
+                    recoverable=False,
+                ))
+                return
+            orchestrator.resolve_approval(
+                submission.approval_id,
+                submission.decision,
+            )
+            await self._events.put(ApprovalResolvedEvent(
+                approval_id=submission.approval_id,
+                decision=submission.decision,
+            ))
+            return
+        if isinstance(submission, (ConfigUpdate, ThreadCommand)):
             await self._events.put(ErrorEvent(
                 turn_id=str(uuid.uuid4())[:12],
                 severity=EventSeverity.WARNING,

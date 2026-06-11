@@ -54,18 +54,36 @@ async def test_task_runner_handles_abort_turn(fake_services):
 
 
 @pytest.mark.asyncio
-async def test_task_runner_emits_warning_for_unwired_types(fake_services):
-    """ApprovalResponse emits a WARNING ErrorEvent (not wired in Phase 11)."""
+async def test_approval_response_resolves_orchestrator(fake_services):
+    """ApprovalResponse resolves the orchestrator's pending approval (Phase 18)."""
     from miqi.protocol.commands import ApprovalResponse
+    from miqi.protocol.events import ApprovalResolvedEvent
+    from miqi.runtime.task_runner import TaskRunner
 
     events = asyncio.Queue()
+    seen: dict[str, str] = {}
+
+    def resolve_approval(approval_id: str, decision: str) -> None:
+        seen["approval_id"] = approval_id
+        seen["decision"] = decision
+
+    fake_services.orchestrator.resolve_approval = resolve_approval
     runner = TaskRunner(services=fake_services, event_queue=events)
 
     await runner.handle(ApprovalResponse(approval_id="ap-1", decision="allow"))
 
-    event = await asyncio.wait_for(events.get(), timeout=1)
-    assert event.__class__.__name__ == "ErrorEvent"
-    assert "not yet wired" in event.message
+    # Verify ApprovalResolvedEvent emitted
+    event: object | None = None
+    while True:
+        ev = await asyncio.wait_for(events.get(), timeout=1)
+        if isinstance(ev, ApprovalResolvedEvent):
+            event = ev
+            break
+
+    assert event is not None, "Expected ApprovalResolvedEvent"
+    assert event.approval_id == "ap-1"  # type: ignore[union-attr]
+    assert event.decision == "allow"  # type: ignore[union-attr]
+    assert seen == {"approval_id": "ap-1", "decision": "allow"}
 
 
 @pytest.mark.asyncio
