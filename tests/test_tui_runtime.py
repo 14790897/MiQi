@@ -92,7 +92,9 @@ def test_tui_connect_runtime_creates_runtime_session():
     async def _test():
         app = MiQiTui(driver_class=None)
         app._append_message = MagicMock()
-        provider = AsyncMock()
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        provider.chat = AsyncMock()
 
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             workspace = Path(tmp)
@@ -122,11 +124,13 @@ def test_tui_connect_runtime_agent_loop_would_fail_fast_without_orchestrator():
     from miqi.bus.queue import MessageBus
 
     bus = MessageBus()
-    provider = AsyncMock()
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
+    provider.chat = AsyncMock()
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         workspace = Path(tmp)
-        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace)
+        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace, model="test-model")
         # No orchestrator — should fail fast
         loop._orchestrator = None
 

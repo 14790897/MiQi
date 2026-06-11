@@ -19,12 +19,14 @@ def _make_test_orchestrator(tool_registry):
     from miqi.execution.permission_engine import PermissionEngine
     from miqi.execution.sandbox_policy import SandboxPolicyEngine
     from miqi.execution.hook_runtime import HookRuntime
+    ev = MagicMock()
+    ev.emit = AsyncMock()
     return ToolOrchestrator(
         permission_engine=PermissionEngine(),
         sandbox_engine=SandboxPolicyEngine(),
         hook_runtime=HookRuntime(),
         tool_registry=tool_registry,
-        event_emitter=AsyncMock(),
+        event_emitter=ev,
     )
 
 

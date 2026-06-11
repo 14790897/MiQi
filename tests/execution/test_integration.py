@@ -1,7 +1,7 @@
 """Integration tests for the execution pipeline (orchestrator + permission engine)."""
 
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 
 def _make_orchestrator(permission_engine=None, deny_patterns=None, permanent_allowlist=None):
@@ -22,8 +22,9 @@ def _make_orchestrator(permission_engine=None, deny_patterns=None, permanent_all
         sandbox_engine=SandboxPolicyEngine(),
         hook_runtime=HookRuntime(),
         tool_registry=None,
-        event_emitter=AsyncMock(),
+        event_emitter=MagicMock(),
     )
+    orchestrator.events.emit = AsyncMock()
     return orchestrator
 
 

@@ -1,6 +1,6 @@
 """Tests for miqi.execution.factory — shared orchestrator factory (Phase 10 post-audit)."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 
 def test_create_default_orchestrator_noop_emitter_when_none():
@@ -23,7 +23,8 @@ def test_create_default_orchestrator_with_event_emitter():
     """When event_emitter is provided, it is used directly."""
     from miqi.execution.factory import create_default_orchestrator
 
-    emitter = AsyncMock()
+    emitter = MagicMock()
+    emitter.emit = AsyncMock()
     orchestrator = create_default_orchestrator(
         tool_registry=None,
         event_emitter=emitter,
@@ -53,7 +54,9 @@ def test_configure_agent_orchestrator_wires_tools():
     import tempfile
 
     bus = MessageBus()
-    provider = AsyncMock()
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
+    provider.chat = AsyncMock()
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         workspace = Path(tmp)
@@ -79,7 +82,8 @@ def test_configure_agent_orchestrator_prevents_fail_fast():
     import tempfile
 
     bus = MessageBus()
-    provider = AsyncMock()
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
     provider.chat = AsyncMock()
 
     class FakeResponse:

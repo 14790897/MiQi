@@ -1,6 +1,6 @@
 """Tests for TurnRunner (Phase 12.3)."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -45,7 +45,8 @@ def fake_turn_context():
 
 @pytest.fixture
 def fake_tool_runtime():
-    runtime = AsyncMock()
+    runtime = MagicMock()
+    runtime.execute_many = AsyncMock()
 
     class _Ctx:
         def __init__(self, tc):
@@ -67,13 +68,16 @@ def fake_context_runtime():
 
 @pytest.fixture
 def turn_runner(fake_tool_runtime, fake_context_runtime):
-    provider = AsyncMock()
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
     provider.chat = AsyncMock(return_value=_FakeResponse(content="final answer"))
+    ev = MagicMock()
+    ev.emit = AsyncMock()
     return TurnRunner(
         provider=provider,
         tool_runtime=fake_tool_runtime,
         context_runtime=fake_context_runtime,
-        event_emitter=AsyncMock(),
+        event_emitter=ev,
         max_iterations=3,
     ), provider
 
