@@ -249,8 +249,27 @@ class SandboxManager:
 
     # ── Sandbox CRUD ───────────────────────────────────────────────────
 
-    async def get_or_create(self, session_key: str) -> BwrapSandbox | None:
+    def _sandbox_key(self, session_key: str, *, client_id: str | None = None) -> str:
+        """Compute the internal sandbox dict key.
+
+        Phase 30: When client_id is provided, uses client-scoped namespace:
+            sandbox_key = f"{client_id}:{session_key}"
+        This prevents two clients with the same session_key from sharing
+        a sandbox. When client_id is None (legacy/single-tenant path),
+        uses raw session_key for backward compatibility.
+        """
+        if client_id is not None:
+            return f"{client_id}:{session_key}"
+        return session_key
+
+    async def get_or_create(
+        self, session_key: str, *, client_id: str | None = None,
+    ) -> BwrapSandbox | None:
         """Get an existing sandbox for the session, or create a new one.
+
+        client_id (Phase 30): Required for multi-tenant isolation.
+        When provided, the internal sandbox key is namespaced as
+        ``client_id:session_key`` to prevent cross-client sandbox sharing.
 
         Returns None if sandboxing is not available or disabled.
         """
@@ -261,20 +280,22 @@ class SandboxManager:
         if not await BwrapSandbox.is_available(wsl_distro=self.wsl_distro):
             return None
 
+        sandbox_key = self._sandbox_key(session_key, client_id=client_id)
+
         async with self._lock:
-            if session_key in self._sandboxes:
-                sandbox = self._sandboxes[session_key]
+            if sandbox_key in self._sandboxes:
+                sandbox = self._sandboxes[sandbox_key]
                 if sandbox.is_running:
                     return sandbox
                 # Sandbox was stopped, remove and recreate
-                del self._sandboxes[session_key]
+                del self._sandboxes[sandbox_key]
 
             # Enforce max sandboxes limit
             if len(self._sandboxes) >= self.max_sandboxes:
                 await self._evict_oldest()
 
             sandbox = BwrapSandbox(
-                session_key=session_key,
+                session_key=sandbox_key,
                 workspace=self.workspace,
                 sandbox_base_dir=self.sandbox_base_dir if not self.wsl_distro else None,
                 share_net=self.share_net,
@@ -284,38 +305,53 @@ class SandboxManager:
 
             try:
                 await sandbox.start()
-                self._sandboxes[session_key] = sandbox
+                self._sandboxes[sandbox_key] = sandbox
                 self._save_state()
-                logger.info("Created sandbox for session: {}", session_key)
+                logger.info(
+                    "Created sandbox for session: {} (client={})",
+                    session_key, client_id,
+                )
                 return sandbox
             except BwrapSandboxError as exc:
-                logger.error("Failed to create sandbox for {}: {}", session_key, exc)
+                logger.error(
+                    "Failed to create sandbox for {} (client={}): {}",
+                    session_key, client_id, exc,
+                )
                 return None
 
-    async def activate(self, session_key: str) -> BwrapSandbox | None:
+    async def activate(
+        self, session_key: str, *, client_id: str | None = None,
+    ) -> BwrapSandbox | None:
         """Set the active sandbox for the given session.
 
         This is called when the user switches to a different conversation.
         Returns the activated sandbox, or None if not available.
         """
-        sandbox = await self.get_or_create(session_key)
-        self._active_key = session_key
+        sandbox_key = self._sandbox_key(session_key, client_id=client_id)
+        sandbox = await self.get_or_create(session_key, client_id=client_id)
+        self._active_key = sandbox_key
         return sandbox
 
-    async def destroy(self, session_key: str) -> bool:
+    async def destroy(
+        self, session_key: str, *, client_id: str | None = None,
+    ) -> bool:
         """Stop and remove a sandbox for the given session."""
+        sandbox_key = self._sandbox_key(session_key, client_id=client_id)
         async with self._lock:
-            sandbox = self._sandboxes.pop(session_key, None)
+            sandbox = self._sandboxes.pop(sandbox_key, None)
             if sandbox is None:
                 return False
 
             await sandbox.stop()
             self._save_state()
 
-            if self._active_key == session_key:
+            if self._active_key == sandbox_key:
                 self._active_key = None
 
-            logger.info("Destroyed sandbox for session: {}", session_key)
+            logger.info(
+                "Destroyed sandbox for session: {} (client={})",
+                session_key, client_id,
+            )
             return True
 
     async def destroy_all(self) -> int:
@@ -348,9 +384,12 @@ class SandboxManager:
     def sandbox_count(self) -> int:
         return len(self._sandboxes)
 
-    def get_sandbox(self, session_key: str) -> BwrapSandbox | None:
+    def get_sandbox(
+        self, session_key: str, *, client_id: str | None = None,
+    ) -> BwrapSandbox | None:
         """Get a sandbox by session key without creating one."""
-        return self._sandboxes.get(session_key)
+        sandbox_key = self._sandbox_key(session_key, client_id=client_id)
+        return self._sandboxes.get(sandbox_key)
 
     def list_sandboxes(self) -> list[dict[str, Any]]:
         """List all active sandboxes with their status."""
