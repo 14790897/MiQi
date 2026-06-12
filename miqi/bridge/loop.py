@@ -177,6 +177,14 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("approvals.add_permanent", approvals_add_permanent_handler)
         self._app_server.register_method("approvals.history", approvals_history_handler)
 
+        # Register Phase 28.3: config.* handlers
+        from miqi.runtime.config_handlers import (
+            config_get_handler,
+            config_update_handler,
+        )
+        self._app_server.register_method("config.get", config_get_handler)
+        self._app_server.register_method("config.update", config_update_handler)
+
         logger.info(
             "BridgeRuntimeLoop: AppServer initialized with {} methods",
             len(self._app_server._methods),

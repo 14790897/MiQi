@@ -2200,8 +2200,7 @@ _METHODS = {
     "sessions.list_archived": handle_sessions_list_archived,
     "sessions.get_tracked_files": handle_sessions_get_tracked_files,
     "sessions.clear_tracked_files": handle_sessions_clear_tracked_files,
-    "config.get": handle_config_get,
-    "config.update": handle_config_update,
+    # config.get/config.update are now AppServer methods (Phase 28.3)
     "providers.list": handle_providers_list,
     "providers.test": handle_providers_test,
     "providers.update": handle_providers_update,
