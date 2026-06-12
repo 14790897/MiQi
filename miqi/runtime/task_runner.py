@@ -170,6 +170,8 @@ class TaskRunner:
 
         # Phase 17: get history runtime for persistence and loading
         history_runtime = getattr(self.services, "history_runtime", None)
+        # Phase 24: get ledger runtime for append-only event recording
+        ledger = getattr(self.services, "ledger_runtime", None)
 
         # Build TurnContext and run through TurnRunner (Phase 12)
         from miqi.runtime.agent_registry import AgentRegistry
@@ -208,6 +210,14 @@ class TaskRunner:
             if history_runtime is not None:
                 await history_runtime.start_turn(turn_id, thread_id=thread_id)
                 history = await history_runtime.load_messages(thread_id)
+            # Phase 24: record turn start in ledger
+            if ledger is not None:
+                await ledger.append_item(
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    item_type="turn_started",
+                    payload={"agent_name": metadata.name},
+                )
             else:
                 history = []
 
@@ -266,6 +276,16 @@ class TaskRunner:
                     role="user",
                     content=msg.content,
                 )
+            # Phase 24: record user message in ledger
+            if ledger is not None:
+                await ledger.append_item(
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    item_type="message",
+                    role="user",
+                    content=msg.content,
+                    payload={"message_fields": {}},
+                )
 
             # Check for abort before starting turn
             if cancel_evt.is_set():
@@ -275,6 +295,13 @@ class TaskRunner:
                         status="aborted",
                         tools_used=[],
                         token_usage={},
+                    )
+                if ledger is not None:
+                    await ledger.append_item(
+                        thread_id=thread_id,
+                        turn_id=turn_id,
+                        item_type="turn_aborted",
+                        payload={"reason": "Turn aborted before start."},
                     )
                 await self._events.put(TurnAbortedEvent(
                     turn_id=turn_id,
@@ -313,6 +340,31 @@ class TaskRunner:
                     tools_used=result.tools_used,
                     token_usage=result.token_usage,
                 )
+            # Phase 24: record assistant messages and turn completion in ledger
+            if ledger is not None:
+                for message in result.messages_delta:
+                    await ledger.append_item(
+                        thread_id=thread_id,
+                        turn_id=turn_id,
+                        item_type="message",
+                        role=message.get("role"),
+                        content=message.get("content") or "",
+                        payload={
+                            "message_fields": {
+                                k: v for k, v in message.items()
+                                if k not in {"role", "content"}
+                            },
+                        },
+                    )
+                await ledger.append_item(
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    item_type="turn_completed",
+                    payload={
+                        "final_content": result.final_content,
+                        "token_usage": result.token_usage,
+                    },
+                )
 
             await self._events.put(AgentMessageEvent(
                 turn_id=turn_id,
@@ -334,6 +386,13 @@ class TaskRunner:
                     tools_used=[],
                     token_usage={},
                 )
+            if ledger is not None:
+                await ledger.append_item(
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    item_type="turn_aborted",
+                    payload={"reason": "Turn was cancelled."},
+                )
             await self._events.put(TurnAbortedEvent(
                 turn_id=turn_id,
                 thread_id=thread_id,
@@ -347,6 +406,13 @@ class TaskRunner:
                     status="error",
                     tools_used=[],
                     token_usage={},
+                )
+            if ledger is not None:
+                await ledger.append_item(
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    item_type="error",
+                    payload={"recoverable": False, "source": "task_runner"},
                 )
             # Log full details server-side, send sanitized message to client
             from loguru import logger

@@ -416,6 +416,7 @@ async def test_compaction_record_persisted_and_reused(
     services.history_runtime = hist
     services.session_state = None
     services.thread_runtime = None
+    services.ledger_runtime = None   # Phase 24: no ledger in this test
 
     # Real ContextRuntime but override compress with async function
     ctx = ContextRuntime()
