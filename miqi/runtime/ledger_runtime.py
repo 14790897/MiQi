@@ -94,6 +94,7 @@ class LedgerRuntime:
         payload: dict[str, Any] | None = None,
     ) -> LedgerItem:
         db = self._conn
+        payload_dict = dict(payload or {})
         async with self._write_lock:
             async with db.execute(
                 """SELECT COALESCE(MAX(seq), 0) + 1
@@ -112,9 +113,11 @@ class LedgerRuntime:
                 item_type=item_type,
                 role=role,
                 content=content,
-                payload=dict(payload or {}),
+                payload=payload_dict,
                 created_at=time.time(),
             )
+            # Phase 25: sanitize payload so non-JSON types don't crash
+            safe_payload = self._sanitize_payload(item.payload)
             await db.execute(
                 """INSERT INTO runtime_ledger_items
                    (item_id, session_id, thread_id, turn_id, seq, item_type,
@@ -129,12 +132,46 @@ class LedgerRuntime:
                     item.item_type,
                     item.role,
                     item.content,
-                    json.dumps(item.payload),
+                    json.dumps(safe_payload),
                     item.created_at,
                 ),
             )
             await db.commit()
         return item
+
+    @staticmethod
+    def _sanitize_payload(obj: Any) -> Any:
+        """Recursively convert non-JSON-serializable values to safe types.
+
+        bytes → base64-encoded string (with b64: prefix)
+        set → sorted list
+        Enum → .value
+        Other non-serializable types → repr() string (with str: prefix)
+        """
+        if isinstance(obj, dict):
+            return {k: LedgerRuntime._sanitize_payload(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [LedgerRuntime._sanitize_payload(v) for v in obj]
+        if isinstance(obj, bytes):
+            import base64
+            return "b64:" + base64.b64encode(obj).decode("ascii")
+        if isinstance(obj, set):
+            return sorted(LedgerRuntime._sanitize_payload(v) for v in obj)
+        if isinstance(obj, str):
+            return obj
+        if isinstance(obj, (int, float, bool)):
+            return obj
+        if obj is None:
+            return obj
+        # Handle Enum — use .value attribute
+        if hasattr(obj, "value"):
+            return obj.value
+        # Fallback: convert to string with marker
+        try:
+            json.dumps(obj)
+            return obj
+        except (TypeError, ValueError):
+            return f"str:{obj!r}"
 
     async def load_items(self, thread_id: str) -> list[LedgerItem]:
         db = self._conn
