@@ -154,6 +154,10 @@ class BridgeRuntimeLoop:
         # Register Phase 27.3: chat.send through AppServer
         self._app_server.register_method("chat.send", self._chat_send_handler)
 
+        # Register Phase 27.4: agent.spawn/kill through AppServer
+        self._app_server.register_method("agent.spawn", self._agent_spawn_handler)
+        self._app_server.register_method("agent.kill", self._agent_kill_handler)
+
         # Register Phase 26.5 replay handlers
         register_replay_handlers(self._app_server)
 
@@ -348,6 +352,50 @@ class BridgeRuntimeLoop:
             await _emit_terminal("error", {
                 "message": str(exc),
             })
+
+    # ── agent.spawn / agent.kill handlers ──────────────────────────────────
+
+    async def _agent_spawn_handler(
+        self, request_id: str, params: dict, client_id: str,
+        session_id: str | None, registry: Any,
+    ) -> dict:
+        """AppServer handler for agent.spawn."""
+        from miqi.runtime.app_server import AppServerError
+
+        session = await registry.get_session(client_id, session_id)
+        if session is None:
+            raise AppServerError("Not authorized", code="UNAUTHORIZED")
+
+        ac = getattr(session.services, "agent_control", None)
+        if ac is None:
+            raise AppServerError(
+                "Agent control not initialized", code="INTERNAL",
+            )
+
+        agent = await ac.spawn(
+            agent_type=params.get("agent_type", "code-agent"),
+            task=params.get("task", ""),
+            label=params.get("label"),
+        )
+        return {"result": {"agent_id": agent.agent_id, "thread_id": agent.thread_id}}
+
+    async def _agent_kill_handler(
+        self, request_id: str, params: dict, client_id: str,
+        session_id: str | None, registry: Any,
+    ) -> dict:
+        """AppServer handler for agent.kill."""
+        from miqi.runtime.app_server import AppServerError
+
+        session = await registry.get_session(client_id, session_id)
+        if session is None:
+            raise AppServerError("Not authorized", code="UNAUTHORIZED")
+
+        agent_id = params.get("agent_id", "")
+        if agent_id:
+            ac = getattr(session.services, "agent_control", None)
+            if ac is not None:
+                await ac.kill(agent_id)
+        return {"result": {"killed": bool(agent_id)}}
 
     # ── event sink ─────────────────────────────────────────────────────────
 
