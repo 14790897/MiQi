@@ -321,16 +321,17 @@ async def test_app_server_handler_error_is_caught_and_sanitized(fake_registry_wi
 # ── client_id compatibility shim ─────────────────────────────────────────
 
 
-def test_registry_missing_client_id_generates_legacy_id_with_warning():
+def test_registry_missing_client_id_raises_error():
+    """Phase 27.5: missing client_id raises AppServerError."""
+    from miqi.runtime.app_server import AppServerError
     from miqi.runtime.app_server import ClientSessionRegistry
 
     registry = ClientSessionRegistry()
-    with pytest.warns(UserWarning, match="client_id"):
-        cid = registry.resolve_client_id(None)
-    assert cid.startswith("legacy-desktop-")
+    with pytest.raises(AppServerError, match="client_id is required"):
+        registry.resolve_client_id(None)
 
 
-def test_registry_explicit_client_id_no_warning():
+def test_registry_explicit_client_id_accepted():
     from miqi.runtime.app_server import ClientSessionRegistry
 
     registry = ClientSessionRegistry()

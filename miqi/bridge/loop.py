@@ -14,7 +14,6 @@ import sys
 import threading
 import traceback
 import uuid
-import warnings
 from pathlib import Path
 from typing import Any
 
@@ -534,24 +533,22 @@ class BridgeRuntimeLoop:
     def _resolve_client_id(self, params: dict) -> str:
         """Resolve client_id from request params.
 
-        Phase 27.1-27.4: compatibility shim generates a legacy ID with
-        warning. Phase 27.5 will make this required and reject missing IDs.
-        In dev_mode, a predictable dev- prefix is used.
+        Phase 27.5: client_id is REQUIRED in production mode. Missing
+        client_id raises AppServerError with code INVALID_PARAMS.
+        In dev_mode, a predictable dev- prefix is used for convenience.
         """
         raw = params.get("client_id") or params.get("caller_id") or params.get("user_id")
         if raw:
             return raw
         if self._dev_mode:
             return f"dev-{uuid.uuid4().hex[:6]}"
-        # Compatibility shim — will be removed in 27.5
-        generated = f"legacy-desktop-{uuid.uuid4().hex[:8]}"
-        warnings.warn(
-            f"client_id not provided — generated {generated}. "
-            f"client_id will be REQUIRED in a future phase.",
-            UserWarning,
-            stacklevel=2,
+        from miqi.runtime.app_server import AppServerError
+
+        raise AppServerError(
+            "client_id is required",
+            code="INVALID_PARAMS",
+            recoverable=False,
         )
-        return generated
 
     # ── shutdown ───────────────────────────────────────────────────────────
 

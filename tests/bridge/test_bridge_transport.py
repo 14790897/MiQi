@@ -67,9 +67,9 @@ async def test_transport_dispatches_request_to_app_server():
     method = req["method"]
     params = req.get("params", {})
 
-    # Resolve client_id (with shim)
+    # Resolve client_id (Phase 27.5: required)
     registry: ClientSessionRegistry = server.registry
-    client_id = registry.resolve_client_id(params.get("client_id"))
+    client_id = params.get("client_id") or "desktop-test"
 
     # Dispatch through AppServer
     response = await server.dispatch(
@@ -148,21 +148,14 @@ async def test_transport_sends_valid_json_line():
 
 
 @pytest.mark.asyncio
-async def test_transport_missing_client_id_generates_shim_with_warning():
+async def test_transport_missing_client_id_raises_error():
+    """Phase 27.5: missing client_id raises AppServerError in production."""
     server = _make_app_server()
 
-    with pytest.warns(UserWarning, match="client_id"):
-        client_id = server.registry.resolve_client_id(None)
+    from miqi.runtime.app_server import AppServerError
 
-    assert client_id.startswith("legacy-desktop-")
-
-    response = await server.dispatch(
-        request_id="req-005",
-        method="test.echo",
-        params={"msg": "with-shim"},
-        client_id=client_id,
-    )
-    assert "result" in response
+    with pytest.raises(AppServerError, match="client_id is required"):
+        server.registry.resolve_client_id(None)
 
 
 @pytest.mark.asyncio
