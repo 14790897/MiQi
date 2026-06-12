@@ -3,6 +3,7 @@
 import asyncio
 import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -226,12 +227,16 @@ class ExecTool(Tool):
     async def _execute_direct(self, command: str, cwd: str) -> str:
         """Execute a command directly on the host (no sandbox)."""
         try:
+            _kwargs: dict = {}
+            if os.name == "nt":
+                _kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
             process = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
                 env=self._build_safe_env(),
+                **_kwargs,
             )
 
             try:
