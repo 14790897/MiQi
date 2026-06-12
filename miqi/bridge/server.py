@@ -2168,48 +2168,9 @@ def handle_agent_get(req_id: str, params: dict) -> None:
         _result(req_id, {"error": f"Unknown agent: {agent_id}"})
 
 
-def handle_agent_spawn(req_id: str, params: dict) -> None:
-    """Spawn a sub-agent for a task."""
-    ac = _state._agent_control
-    if ac is None:
-        _result(req_id, {"error": "Agent control not initialized"})
-        return
-    import asyncio
-
-    async def _spawn():
-        agent = await ac.spawn(
-            agent_type=params.get("agent_type", "code-agent"),
-            task=params.get("task", ""),
-            label=params.get("label"),
-        )
-        return {"agent_id": agent.agent_id, "thread_id": agent.thread_id}
-
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    result = loop.run_until_complete(_spawn())
-    _result(req_id, {"agent": result})
-
-
-def handle_agent_kill(req_id: str, params: dict) -> None:
-    """Kill an agent by ID."""
-    ac = _state._agent_control
-    agent_id = params.get("agent_id", "")
-    if ac is not None and agent_id:
-        import asyncio
-
-        async def _kill():
-            await ac.kill(agent_id)
-
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        loop.run_until_complete(_kill())
-    _result(req_id, {"killed": bool(agent_id)})
+# Phase 27.4: handle_agent_spawn and handle_agent_kill removed.
+# agent.spawn and agent.kill now route through AppServer handlers
+# registered by BridgeRuntimeLoop._init_app_server().
 
 
 def handle_plan_get(req_id: str, params: dict) -> None:
@@ -2295,8 +2256,7 @@ _METHODS = {
     "permissions.permanent.remove": handle_permissions_permanent_remove,
     "agent.list": handle_agent_list,
     "agent.get": handle_agent_get,
-    "agent.spawn": handle_agent_spawn,
-    "agent.kill": handle_agent_kill,
+    # agent.spawn and agent.kill now AppServer methods (Phase 27.4)
     "plan.get": handle_plan_get,
 }
 
