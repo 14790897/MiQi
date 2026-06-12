@@ -8,6 +8,7 @@ of truth for provider-message reconstruction and debug replay.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -46,6 +47,7 @@ class LedgerRuntime:
         self.db_path = db_path
         self.session_id = session_id
         self._db: aiosqlite.Connection | None = None
+        self._write_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -92,45 +94,46 @@ class LedgerRuntime:
         payload: dict[str, Any] | None = None,
     ) -> LedgerItem:
         db = self._conn
-        async with db.execute(
-            """SELECT COALESCE(MAX(seq), 0) + 1
-               FROM runtime_ledger_items
-               WHERE session_id = ? AND thread_id = ?""",
-            (self.session_id, thread_id),
-        ) as cursor:
-            row = await cursor.fetchone()
-        seq = int(row[0])
-        item = LedgerItem(
-            item_id=str(uuid.uuid4()),
-            session_id=self.session_id,
-            thread_id=thread_id,
-            turn_id=turn_id,
-            seq=seq,
-            item_type=item_type,
-            role=role,
-            content=content,
-            payload=dict(payload or {}),
-            created_at=time.time(),
-        )
-        await db.execute(
-            """INSERT INTO runtime_ledger_items
-               (item_id, session_id, thread_id, turn_id, seq, item_type,
-                role, content, payload_json, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                item.item_id,
-                item.session_id,
-                item.thread_id,
-                item.turn_id,
-                item.seq,
-                item.item_type,
-                item.role,
-                item.content,
-                json.dumps(item.payload),
-                item.created_at,
-            ),
-        )
-        await db.commit()
+        async with self._write_lock:
+            async with db.execute(
+                """SELECT COALESCE(MAX(seq), 0) + 1
+                   FROM runtime_ledger_items
+                   WHERE session_id = ? AND thread_id = ?""",
+                (self.session_id, thread_id),
+            ) as cursor:
+                row = await cursor.fetchone()
+            seq = int(row[0])
+            item = LedgerItem(
+                item_id=str(uuid.uuid4()),
+                session_id=self.session_id,
+                thread_id=thread_id,
+                turn_id=turn_id,
+                seq=seq,
+                item_type=item_type,
+                role=role,
+                content=content,
+                payload=dict(payload or {}),
+                created_at=time.time(),
+            )
+            await db.execute(
+                """INSERT INTO runtime_ledger_items
+                   (item_id, session_id, thread_id, turn_id, seq, item_type,
+                    role, content, payload_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    item.item_id,
+                    item.session_id,
+                    item.thread_id,
+                    item.turn_id,
+                    item.seq,
+                    item.item_type,
+                    item.role,
+                    item.content,
+                    json.dumps(item.payload),
+                    item.created_at,
+                ),
+            )
+            await db.commit()
         return item
 
     async def load_items(self, thread_id: str) -> list[LedgerItem]:

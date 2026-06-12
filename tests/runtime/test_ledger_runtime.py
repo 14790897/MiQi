@@ -1,4 +1,6 @@
-"""Tests for LedgerRuntime — append-only item log (Phase 24)."""
+"""Tests for LedgerRuntime — append-only item log (Phase 24 + hardening)."""
+
+import asyncio
 
 import pytest
 
@@ -100,5 +102,47 @@ async def test_ledger_reconstructs_provider_messages(tmp_path):
             {"role": "user", "content": "hello"},
             {"role": "assistant", "content": "hi", "tool_calls": [{"id": "call-1"}]},
         ]
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_ledger_concurrent_appends_sequential_no_duplicate_seqs(tmp_path):
+    """Bug fix: concurrent append_item() calls to the same thread must
+    produce monotonically increasing seq values with no duplicates."""
+    from miqi.runtime.ledger_runtime import LedgerRuntime
+
+    runtime = LedgerRuntime(tmp_path / "runtime.db", session_id="sess-1")
+    await runtime.initialize()
+    try:
+        N = 20
+
+        async def append_one(i: int):
+            return await runtime.append_item(
+                thread_id="thread-1",
+                turn_id="turn-1",
+                item_type="message",
+                role="user",
+                content=f"msg-{i}",
+                payload={},
+            )
+
+        # Launch N concurrent appends
+        items = await asyncio.gather(*(append_one(i) for i in range(N)))
+
+        # All items must have unique seq values 1..N (in any order
+        # since concurrent appends don't guarantee submission order,
+        # but they MUST guarantee uniqueness).
+        seqs = sorted(item.seq for item in items)
+        assert seqs == list(range(1, N + 1)), (
+            f"Expected seq 1..{N}, got {seqs}. "
+            f"Duplicates: {[s for s in seqs if seqs.count(s) > 1]}"
+        )
+        assert len(set(seqs)) == N, f"Duplicate seq values found: {seqs}"
+
+        # Also verify all items are loadable and correctly ordered
+        loaded = await runtime.load_items("thread-1")
+        assert len(loaded) == N
+        assert [item.seq for item in loaded] == list(range(1, N + 1))
     finally:
         await runtime.close()
