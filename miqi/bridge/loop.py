@@ -157,6 +157,14 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("agent.spawn", self._agent_spawn_handler)
         self._app_server.register_method("agent.kill", self._agent_kill_handler)
 
+        # Register Phase 28.5: agent.list/get through same AgentControl as spawn/kill
+        from miqi.runtime.agent_handlers import (
+            agent_list_handler,
+            agent_get_handler,
+        )
+        self._app_server.register_method("agent.list", agent_list_handler)
+        self._app_server.register_method("agent.get", agent_get_handler)
+
         # Register Phase 26.5 replay handlers
         register_replay_handlers(self._app_server)
 
