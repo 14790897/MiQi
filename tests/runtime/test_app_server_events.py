@@ -23,6 +23,10 @@ async def test_client_subscribes_and_receives_events():
     from miqi.runtime.app_server import AppServer, ClientSessionRegistry
 
     registry = ClientSessionRegistry()
+    # Register client-1 as authorized for session-1
+    registry._session_clients["session-1"] = {"client-1"}
+    registry._client_sessions.setdefault("client-1", set()).add("session-1")
+
     server = AppServer(registry)
     await server.start()
     try:
@@ -45,6 +49,9 @@ async def test_client_does_not_receive_after_unsubscribe():
     from miqi.runtime.app_server import AppServer, ClientSessionRegistry
 
     registry = ClientSessionRegistry()
+    registry._session_clients["session-1"] = {"client-1"}
+    registry._client_sessions.setdefault("client-1", set()).add("session-1")
+
     server = AppServer(registry)
     await server.start()
     try:
@@ -67,6 +74,10 @@ async def test_multiple_clients_receive_same_session_events():
     from miqi.runtime.app_server import AppServer, ClientSessionRegistry
 
     registry = ClientSessionRegistry()
+    registry._session_clients["shared-session"] = {"client-A", "client-B"}
+    registry._client_sessions.setdefault("client-A", set()).add("shared-session")
+    registry._client_sessions.setdefault("client-B", set()).add("shared-session")
+
     server = AppServer(registry)
     await server.start()
     try:
@@ -91,6 +102,9 @@ async def test_unsubscribed_client_not_notified_of_other_session():
     from miqi.runtime.app_server import AppServer, ClientSessionRegistry
 
     registry = ClientSessionRegistry()
+    registry._session_clients["session-A"] = {"client-A"}
+    registry._client_sessions.setdefault("client-A", set()).add("session-A")
+
     server = AppServer(registry)
     await server.start()
     try:
@@ -114,6 +128,8 @@ async def test_event_with_request_id_correlates_to_request():
     from miqi.runtime.app_server import AppServer, ClientSessionRegistry
 
     registry = ClientSessionRegistry()
+    registry._session_clients["session-1"] = {"client-1"}
+    registry._client_sessions.setdefault("client-1", set()).add("session-1")
     server = AppServer(registry)
     await server.start()
     try:
@@ -151,6 +167,8 @@ async def test_client_without_sink_ignored():
     from miqi.runtime.app_server import AppServer, ClientSessionRegistry
 
     registry = ClientSessionRegistry()
+    registry._session_clients["session-1"] = {"no-sink-client"}
+    registry._client_sessions.setdefault("no-sink-client", set()).add("session-1")
     server = AppServer(registry)
     server.subscribe("no-sink-client", "session-1")
     # No sink set — event should be dropped silently, not crash
@@ -162,6 +180,8 @@ async def test_event_preserves_order_for_single_client():
     from miqi.runtime.app_server import AppServer, ClientSessionRegistry
 
     registry = ClientSessionRegistry()
+    registry._session_clients["session-1"] = {"client-1"}
+    registry._client_sessions.setdefault("client-1", set()).add("session-1")
     server = AppServer(registry)
     await server.start()
     try:
@@ -176,3 +196,22 @@ async def test_event_preserves_order_for_single_client():
         assert [e["data"]["i"] for e in collector.events] == [0, 1, 2, 3, 4]
     finally:
         await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_unauthorized_client_cannot_subscribe():
+    """Security: unauthorized clients are silently refused subscription."""
+    from miqi.runtime.app_server import AppServer, ClientSessionRegistry
+
+    registry = ClientSessionRegistry()
+    registry._session_clients["session-1"] = {"authorized-client"}
+    # unauthorized-client is NOT in session-1's client set
+
+    server = AppServer(registry)
+    collector = _EventCollector()
+    server.set_event_sink("unauthorized-client", collector.sink)
+    server.subscribe("unauthorized-client", "session-1")
+
+    # Emit event — unauthorized client should NOT receive it
+    await server.emit_event("session-1", "test", {"msg": "secret"})
+    assert len(collector.events) == 0
