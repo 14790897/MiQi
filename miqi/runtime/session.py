@@ -91,6 +91,10 @@ class RuntimeSession:
                     thread_id=default_thread_id,
                     title="Default",
                 )
+        # Phase 24: initialize append-only event ledger
+        ledger = getattr(self.services, "ledger_runtime", None)
+        if ledger is not None:
+            await ledger.initialize()
 
         if self._task is None or self._task.done():
             self._stopped.clear()
@@ -119,6 +123,10 @@ class RuntimeSession:
         threads = getattr(self.services, "thread_runtime", None)
         if threads is not None:
             await threads.close()
+        # Phase 24: close append-only event ledger
+        ledger = getattr(self.services, "ledger_runtime", None)
+        if ledger is not None:
+            await ledger.close()
 
     async def submit(self, submission: Any) -> None:
         """Submit a command to the runtime (UserMessage, AbortTurn, etc.)."""
