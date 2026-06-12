@@ -225,7 +225,6 @@ def test_bridge_existing_dispatch_still_works(monkeypatch):
 
     # _METHODS should contain the existing handlers
     assert "status" in _METHODS
-    assert "chat.send" in _METHODS
-    assert "chat.abort" in _METHODS
+    # chat.send and chat.abort are now AppServer methods (Phase 27.3)
     assert "config.get" in _METHODS
     assert "sessions.list" in _METHODS
