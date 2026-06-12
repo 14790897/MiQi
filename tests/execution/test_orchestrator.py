@@ -360,3 +360,490 @@ async def test_non_exec_tool_bwrap_sandbox_still_injected(
     assert result.result == "write-ok"
     call_kwargs = mock_tool.execute.call_args.kwargs
     assert "_sandbox" in call_kwargs
+
+
+# ── Phase 31.4: Approval lifecycle hardening ───────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_approval_metadata_includes_all_required_fields(orchestrator, mock_components):
+    """When an approval is requested, _approval_meta must contain:
+    approval_id, client_id, session_id, thread_id, turn_id, tool_call_id,
+    tool_name, category, timeout_ms.
+    """
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Run: dangerous command",
+        details={"command": "rm -rf /test"},
+        allow_permanent=True,
+    )
+    mock_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    mock_components["tool_registry"].get.return_value = MagicMock()
+    mock_components["tool_registry"].get.return_value.execute = AsyncMock(
+        return_value="done"
+    )
+
+    ctx = make_ctx(
+        tool_name="exec",
+        tool_call_id="call_approval_meta",
+        turn_id="turn-approval-meta",
+        thread_id="thread-approval-meta",
+        arguments={"command": "rm -rf /test"},
+    )
+    ctx.client_id = "client-test"
+    ctx.session_id = "client-test:session-test"
+
+    # Start execute in background — it will block waiting for approval
+    task = asyncio.create_task(orchestrator.execute(ctx))
+    await asyncio.sleep(0.05)
+
+    # Check metadata stored by orchestrator
+    approval_id = f"{ctx.turn_id}:{ctx.tool_call_id}"
+    meta = orchestrator._approval_meta.get(approval_id, {})
+    assert meta["approval_id"] == approval_id
+    assert meta["client_id"] == "client-test"
+    assert meta["session_id"] == "client-test:session-test"
+    assert meta["thread_id"] == "thread-approval-meta"
+    assert meta["turn_id"] == "turn-approval-meta"
+    assert meta["tool_call_id"] == "call_approval_meta"
+    assert meta["tool_name"] == "exec"
+    assert meta["category"] == "exec"
+    assert "timeout_ms" in meta
+    assert meta["allow_permanent"] is True
+
+    # Cleanup
+    orchestrator.resolve_approval(approval_id, "deny")
+    await task
+
+
+@pytest.mark.asyncio
+async def test_deny_decision_unblocks_and_does_not_execute(orchestrator, mock_components):
+    """When user denies, the waiting tool call must return 'denied'
+    and the tool MUST NOT be executed."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Run: cmd",
+        details={"command": "cmd"},
+    )
+    mock_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    tool_mock = MagicMock()
+    tool_mock.execute = AsyncMock(return_value="should-not-run")
+    mock_components["tool_registry"].get.return_value = tool_mock
+
+    ctx = make_ctx(tool_name="exec", arguments={"command": "cmd"})
+    task = asyncio.create_task(orchestrator.execute(ctx))
+    await asyncio.sleep(0.05)
+
+    approval_id = f"{ctx.turn_id}:{ctx.tool_call_id}"
+    orchestrator.resolve_approval(approval_id, "deny")
+
+    result = await task
+    assert "denied" in result.result.lower()
+    tool_mock.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_allow_decision_resumes_one_tool_call(orchestrator, mock_components):
+    """When user allows, exactly one waiting tool call resumes."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Run: safe cmd",
+        details={"command": "safe"},
+    )
+    mock_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    mock_tool = MagicMock()
+    mock_tool.execute = AsyncMock(return_value="exec-ok")
+    mock_components["tool_registry"].get.return_value = mock_tool
+
+    ctx = make_ctx(tool_name="exec", arguments={"command": "safe"})
+    task = asyncio.create_task(orchestrator.execute(ctx))
+    await asyncio.sleep(0.05)
+
+    approval_id = f"{ctx.turn_id}:{ctx.tool_call_id}"
+    orchestrator.resolve_approval(approval_id, "once")
+
+    result = await task
+    assert result.result == "exec-ok"
+    mock_tool.execute.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_approval_timeout_cleans_pending_and_denies(orchestrator, mock_components):
+    """When approval times out, the pending future and metadata must
+    be cleaned, and the tool call must return a denial."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Run: cmd",
+    )
+    # Set very short timeout
+    orchestrator.approval_timeout_ms = 50
+
+    ctx = make_ctx(tool_name="exec", arguments={"command": "cmd"})
+    result = await orchestrator.execute(ctx)
+
+    assert "denied" in result.result.lower() or "timeout" in result.result.lower()
+    # No stale approvals
+    assert len(orchestrator.list_pending_approvals()) == 0
+    approval_id = f"{ctx.turn_id}:{ctx.tool_call_id}"
+    assert approval_id not in orchestrator._pending_approvals
+
+
+@pytest.mark.asyncio
+async def test_approval_timeout_emits_terminal_event(orchestrator, mock_components):
+    """Phase 31.4: on approval timeout, an ApprovalResolvedEvent with
+    decision='timeout' must be emitted."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+    from miqi.protocol.events import ApprovalResolvedEvent
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Run: cmd",
+    )
+    orchestrator.approval_timeout_ms = 50
+
+    # Collect emitted events
+    emitted: list = []
+    mock_components["event_emitter"].emit = AsyncMock(
+        side_effect=lambda e: emitted.append(e)
+    )
+
+    ctx = make_ctx(tool_name="exec", arguments={"command": "cmd"})
+    await orchestrator.execute(ctx)
+
+    resolved_events = [e for e in emitted
+                       if isinstance(e, ApprovalResolvedEvent)]
+    timeout_events = [e for e in resolved_events if e.decision == "timeout"]
+    assert len(timeout_events) >= 1, (
+        f"Expected >=1 timeout ApprovalResolvedEvent, got {resolved_events}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_abort_cancels_pending_approval(orchestrator, mock_components):
+    """Phase 31.4: cancel_approvals_for_thread must deny pending
+    approvals and unblock waiting tool calls."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Run: long cmd",
+    )
+    mock_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    tool_mock = MagicMock()
+    tool_mock.execute = AsyncMock(return_value="should-not-run")
+    mock_components["tool_registry"].get.return_value = tool_mock
+
+    ctx = make_ctx(
+        tool_name="exec",
+        tool_call_id="call-abort",
+        turn_id="turn-abort",
+        thread_id="thread-abort",
+        arguments={"command": "long"},
+    )
+    task = asyncio.create_task(orchestrator.execute(ctx))
+    await asyncio.sleep(0.05)
+
+    # Abort the thread
+    cancelled = await orchestrator.cancel_approvals_for_thread("thread-abort")
+    assert cancelled >= 1, f"Expected at least 1 approval cancelled, got {cancelled}"
+
+    result = await task
+    assert "denied" in result.result.lower() or "aborted" in result.result.lower()
+    tool_mock.execute.assert_not_called()
+
+    # No stale metadata
+    approval_id = f"{ctx.turn_id}:{ctx.tool_call_id}"
+    assert approval_id not in orchestrator._pending_approvals
+    assert approval_id not in orchestrator._approval_meta
+
+
+@pytest.mark.asyncio
+async def test_abort_emits_terminal_approval_event(orchestrator, mock_components):
+    """Phase 31.4: cancel_approvals_for_thread must emit
+    ApprovalResolvedEvent(decision='abort') for each cancelled approval."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+    from miqi.protocol.events import ApprovalResolvedEvent
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Run: cmd",
+    )
+    mock_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    tool_mock = MagicMock()
+    tool_mock.execute = AsyncMock(return_value="ok")
+    mock_components["tool_registry"].get.return_value = tool_mock
+
+    emitted: list = []
+    mock_components["event_emitter"].emit = AsyncMock(
+        side_effect=lambda e: emitted.append(e)
+    )
+
+    ctx = make_ctx(
+        tool_name="exec",
+        tool_call_id="call-abort-ev",
+        turn_id="turn-abort-ev",
+        thread_id="thread-abort-ev",
+        arguments={"command": "cmd"},
+    )
+    task = asyncio.create_task(orchestrator.execute(ctx))
+    await asyncio.sleep(0.05)
+
+    cancelled = await orchestrator.cancel_approvals_for_thread("thread-abort-ev")
+    assert cancelled == 1
+    await task
+
+    resolved = [e for e in emitted if isinstance(e, ApprovalResolvedEvent)]
+    abort_events = [e for e in resolved if e.decision == "abort"]
+    assert len(abort_events) == 1, (
+        f"Expected 1 abort ApprovalResolvedEvent, got {abort_events}"
+    )
+    assert abort_events[0].approval_id == f"{ctx.turn_id}:{ctx.tool_call_id}"
+
+
+@pytest.mark.asyncio
+async def test_no_stale_approval_after_resolve(orchestrator, mock_components):
+    """Phase 31.4: after an approval is resolved (allow/deny/timeout/abort),
+    approvals.list must not include the stale approval."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Run: cmd",
+    )
+    mock_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    mock_tool = MagicMock()
+    mock_tool.execute = AsyncMock(return_value="ok")
+    mock_components["tool_registry"].get.return_value = mock_tool
+
+    ctx = make_ctx(
+        tool_name="exec", tool_call_id="call-no-stale",
+        turn_id="turn-no-stale", arguments={"command": "cmd"},
+    )
+    task = asyncio.create_task(orchestrator.execute(ctx))
+    await asyncio.sleep(0.05)
+
+    approval_id = f"{ctx.turn_id}:{ctx.tool_call_id}"
+    assert len(orchestrator.list_pending_approvals()) == 1
+
+    orchestrator.resolve_approval(approval_id, "once")
+    await task
+
+    assert len(orchestrator.list_pending_approvals()) == 0
+
+
+@pytest.mark.asyncio
+async def test_invalid_decision_is_rejected(orchestrator, mock_components):
+    """Phase 31.4: resolve_approval with an invalid decision must NOT
+    resolve the future (it stays pending)."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Run: cmd",
+    )
+    mock_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    tool_mock = MagicMock()
+    tool_mock.execute = AsyncMock(return_value="ok")
+    mock_components["tool_registry"].get.return_value = tool_mock
+
+    ctx = make_ctx(
+        tool_name="exec", tool_call_id="call-invalid",
+        turn_id="turn-invalid", arguments={"command": "cmd"},
+    )
+    task = asyncio.create_task(orchestrator.execute(ctx))
+    await asyncio.sleep(0.05)
+
+    approval_id = f"{ctx.turn_id}:{ctx.tool_call_id}"
+    # Attempt invalid decision
+    orchestrator.resolve_approval(approval_id, "bogus_decision")
+    # The approval should still be pending
+    assert orchestrator.has_approval(approval_id), (
+        "Invalid decision should NOT resolve the approval"
+    )
+    assert len(orchestrator.list_pending_approvals()) == 1
+
+    # Clean up with valid deny
+    orchestrator.resolve_approval(approval_id, "deny")
+    result = await task
+    assert "denied" in result.result.lower()
+
+
+@pytest.mark.asyncio
+async def test_sanitized_details_are_json_serializable_and_bounded(orchestrator, mock_components):
+    """Phase 31.4: _sanitize_details must return JSON-serializable values
+    and drop sensitive keys."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+    import json
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Test sanitization",
+        details={
+            "command": "safe-cmd",
+            "secret": "sk-abc123shouldnotleak",
+            "password": "hunter2",
+            "exception": ValueError("boom"),
+            "normal_key": "normal-value",
+            "nested": {"inner_secret": "hidden", "ok": True},
+        },
+    )
+    mock_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    tool_mock = MagicMock()
+    tool_mock.execute = AsyncMock(return_value="ok")
+    mock_components["tool_registry"].get.return_value = tool_mock
+
+    ctx = make_ctx(
+        tool_name="exec", tool_call_id="call-sanitize",
+        turn_id="turn-sanitize", arguments={"command": "safe-cmd"},
+    )
+    task = asyncio.create_task(orchestrator.execute(ctx))
+    await asyncio.sleep(0.05)
+
+    meta = orchestrator._approval_meta.get(f"{ctx.turn_id}:{ctx.tool_call_id}", {})
+
+    # Sensitive keys must be absent
+    sanitized = meta["details"]
+    assert "secret" not in sanitized, f"Sensitive key 'secret' leaked: {sanitized}"
+    assert "password" not in sanitized, f"Sensitive key 'password' leaked: {sanitized}"
+    assert "exception" not in sanitized, f"Sensitive key 'exception' leaked: {sanitized}"
+
+    # Normal keys must be present
+    assert sanitized.get("normal_key") == "normal-value"
+    assert sanitized.get("command") == "safe-cmd"
+
+    # Must be JSON-serializable
+    try:
+        json.dumps(sanitized)
+    except (TypeError, ValueError) as e:
+        pytest.fail(f"Sanitized details not JSON-serializable: {e}")
+
+    # Cleanup
+    orchestrator.resolve_approval(f"{ctx.turn_id}:{ctx.tool_call_id}", "deny")
+    await task
+
+
+@pytest.mark.asyncio
+async def test_allow_always_adds_to_permanent_allowlist(orchestrator, mock_components):
+    """Phase 31.4: 'always' decision must add the pattern to the
+    permanent allowlist via the permission engine."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Run: always-allowed-cmd",
+        details={"command": "always-allowed-cmd"},
+        allow_permanent=True,
+    )
+    mock_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    tool_mock = MagicMock()
+    tool_mock.execute = AsyncMock(return_value="ok")
+    mock_components["tool_registry"].get.return_value = tool_mock
+
+    ctx = make_ctx(
+        tool_name="exec", tool_call_id="call-always",
+        turn_id="turn-always", arguments={"command": "always-allowed-cmd"},
+    )
+    task = asyncio.create_task(orchestrator.execute(ctx))
+    await asyncio.sleep(0.05)
+
+    # Replace mock with a real set so _record_permanent_approval can add to it
+    orchestrator.permissions.permanent_allowlist = set()
+
+    approval_id = f"{ctx.turn_id}:{ctx.tool_call_id}"
+
+    orchestrator.resolve_approval(approval_id, "always")
+    await task
+
+    # The pattern should be added
+    assert "Run: always-allowed-cmd" in orchestrator.permissions.permanent_allowlist
+
+
+@pytest.mark.asyncio
+async def test_pending_approvals_empty_after_abort(orchestrator, mock_components):
+    """Phase 31.4: after abort, approvals.list must be empty for the
+    aborted thread."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Run: cmd1",
+    )
+    mock_tool = MagicMock()
+    mock_tool.execute = AsyncMock(return_value="ok")
+    mock_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    mock_components["tool_registry"].get.return_value = mock_tool
+
+    ctx = make_ctx(
+        tool_name="exec", tool_call_id="call-abort-list",
+        turn_id="turn-abort-list", thread_id="thread-abort-list",
+        arguments={"command": "cmd1"},
+    )
+    task = asyncio.create_task(orchestrator.execute(ctx))
+    await asyncio.sleep(0.05)
+
+    assert len(orchestrator.list_pending_approvals()) == 1
+
+    await orchestrator.cancel_approvals_for_thread("thread-abort-list")
+    await task
+
+    assert len(orchestrator.list_pending_approvals()) == 0

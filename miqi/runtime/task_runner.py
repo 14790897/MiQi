@@ -58,6 +58,15 @@ class TaskRunner:
             cancel_evt = self._turn_cancel_events.get(thread_id)
             if cancel_evt is not None:
                 cancel_evt.set()
+
+            # Phase 31.4: cancel any pending approvals for this thread
+            # so waiting tool calls are unblocked and no orphan approvals
+            # remain in the pending set.
+            orchestrator = getattr(self.services, "orchestrator", None)
+            cancel_fn = getattr(orchestrator, "cancel_approvals_for_thread", None)
+            if callable(cancel_fn) and asyncio.iscoroutinefunction(cancel_fn):
+                await cancel_fn(thread_id, reason="Turn aborted by user.")
+
             await self._events.put(ErrorEvent(
                 turn_id=str(uuid.uuid4())[:12],
                 severity=EventSeverity.WARNING,
@@ -79,9 +88,13 @@ class TaskRunner:
                 submission.approval_id,
                 submission.decision,
             )
+            # Phase 31.4: include turn_id for ledger scoping.
+            # The turn_id is embedded in the approval_id (format: turn_id:tool_call_id).
+            turn_id = submission.approval_id.split(":")[0] if ":" in submission.approval_id else ""
             await self._events.put(ApprovalResolvedEvent(
                 approval_id=submission.approval_id,
                 decision=submission.decision,
+                turn_id=turn_id,
             ))
             return
         if isinstance(submission, ThreadCommand):
@@ -178,6 +191,11 @@ class TaskRunner:
         from miqi.runtime.turn_context import TurnContext
 
         metadata = AgentRegistry().resolve("main")
+        # Phase 31.4: extract client_id from session_id (format: client_id:session_key).
+        # This is a best-effort derivation; a dedicated client_id field on
+        # RuntimeServices would be a future improvement.
+        session_id = getattr(self.services, "session_id", "")
+        client_id = session_id.split(":")[0] if ":" in session_id else ""
         turn = TurnContext(
             turn_id=turn_id,
             agent_metadata=metadata,
@@ -187,6 +205,8 @@ class TaskRunner:
             provider=self.services.provider,
             temperature=self.services.agent_loop.temperature,
             max_tokens=self.services.agent_loop.max_tokens,
+            client_id=client_id,
+            session_id=session_id,
         )
 
         # Phase 13: resolve capabilities and permission profile

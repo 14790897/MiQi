@@ -34,6 +34,9 @@ class ToolRuntime:
             turn_id=turn.turn_id,
             thread_id=turn.thread_id,
             agent_type=turn.agent_metadata.name,
+            # Phase 31.4: propagate client/session for approval scoping
+            client_id=getattr(turn, "client_id", ""),
+            session_id=getattr(turn, "session_id", ""),
         )
         # Phase 13: pass per-turn permission profile to orchestrator
         permission_profile = getattr(turn, "permission_profile", None)

@@ -420,6 +420,10 @@ class AgentControl:
                             turn_id=turn_id,
                             thread_id=agent.thread_id,
                             agent_type=agent.metadata.name,
+                            # Phase 31.4: sub-agent context — client/session
+                            # inherited from the parent TurnContext when available
+                            client_id=turn_ctx.client_id,
+                            session_id=turn_ctx.session_id,
                         )
                         ctx = await self._orchestrator.execute(ctx)
                         result = ctx.result or ""
