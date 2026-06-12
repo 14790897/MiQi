@@ -219,6 +219,12 @@ class RuntimeServices:
         from miqi.runtime.mcp_runtime import McpRuntime
         mcp_runtime = McpRuntime(plugin_manager=plugin_manager)
 
+        # Phase 24: ledger runtime (created early so TurnRunner can use it)
+        runtime_db = workspace / ".miqi-runtime" / "runtime.db"
+        from miqi.runtime.ledger_runtime import LedgerRuntime
+
+        ledger_runtime = LedgerRuntime(runtime_db, session_id=session_id)
+
         turn_runner = TurnRunner(
             provider=provider,
             tool_runtime=tool_runtime,
@@ -226,6 +232,7 @@ class RuntimeServices:
             event_emitter=emitter,
             max_iterations=defaults.max_tool_iterations,
             capability_resolver=capability_resolver,
+            ledger_runtime=ledger_runtime,
         )
 
         # Phase 13: AgentJobRuntime (depends on TurnRunner)
@@ -236,14 +243,9 @@ class RuntimeServices:
         from miqi.runtime.session_state import SessionState
         from miqi.runtime.thread_runtime import ThreadRuntime
 
-        runtime_db = workspace / ".miqi-runtime" / "runtime.db"
         history_runtime = HistoryRuntime(runtime_db, session_id=session_id)
         thread_runtime = ThreadRuntime(runtime_db, session_id=session_id)
 
-        # Phase 24: append-only event ledger
-        from miqi.runtime.ledger_runtime import LedgerRuntime
-
-        ledger_runtime = LedgerRuntime(runtime_db, session_id=session_id)
         session_state = SessionState(
             session_id=session_id,
             workspace=workspace,

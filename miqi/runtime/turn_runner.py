@@ -41,6 +41,7 @@ class TurnRunner:
         event_emitter: Any,
         max_iterations: int,
         capability_resolver: Any | None = None,
+        ledger_runtime: Any | None = None,
     ):
         self._provider = provider
         self._tools = tool_runtime
@@ -48,6 +49,7 @@ class TurnRunner:
         self._events = event_emitter
         self._max_iterations = max_iterations
         self._capability_resolver = capability_resolver
+        self._ledger = ledger_runtime
 
     async def run(
         self,
@@ -100,12 +102,28 @@ class TurnRunner:
                         delta=stream_event.delta,
                         index=len(content_parts) - 1,
                     ))
+                    if self._ledger is not None:
+                        await self._ledger.append_item(
+                            thread_id=turn.thread_id,
+                            turn_id=turn.turn_id,
+                            item_type="assistant_delta",
+                            content=stream_event.delta,
+                            payload={"index": len(content_parts) - 1},
+                        )
                 elif stream_event.kind == "reasoning_delta":
                     from miqi.protocol.events import AgentReasoningEvent
                     await self._events.emit(AgentReasoningEvent(
                         turn_id=turn.turn_id,
                         content=stream_event.delta,
                     ))
+                    if self._ledger is not None:
+                        await self._ledger.append_item(
+                            thread_id=turn.thread_id,
+                            turn_id=turn.turn_id,
+                            item_type="reasoning_delta",
+                            content=stream_event.delta,
+                            payload={},
+                        )
                 elif stream_event.kind == "completed":
                     response = stream_event.response
 
@@ -134,8 +152,47 @@ class TurnRunner:
                     messages_delta=messages_delta,
                 )
 
+            # Phase 24: record tool call starts in ledger
+            if self._ledger is not None:
+                for tc in response.tool_calls:
+                    await self._ledger.append_item(
+                        thread_id=turn.thread_id,
+                        turn_id=turn.turn_id,
+                        item_type="tool_call_started",
+                        payload={
+                            "tool_call_id": tc.id,
+                            "name": tc.name,
+                            "arguments": getattr(tc, "arguments", None),
+                        },
+                    )
+
             # Execute tool calls concurrently through ToolRuntime
             contexts = await self._tools.execute_many(turn, response.tool_calls)
+
+            # Phase 24: record tool call completions in ledger
+            if self._ledger is not None:
+                for ctx in contexts:
+                    await self._ledger.append_item(
+                        thread_id=turn.thread_id,
+                        turn_id=turn.turn_id,
+                        item_type="tool_call_completed",
+                        payload={
+                            "tool_call_id": getattr(ctx, "tool_call_id", ""),
+                            "result": getattr(ctx, "result", None),
+                            "duration_ms": getattr(ctx, "duration_ms", 0),
+                            "retry_count": getattr(ctx, "retry_count", 0),
+                            "permission_verdict": (
+                                ctx.permission_decision.verdict.value
+                                if getattr(ctx, "permission_decision", None) is not None
+                                else None
+                            ),
+                            "sandbox_type": (
+                                ctx.sandbox_selection.sandbox_type.value
+                                if getattr(ctx, "sandbox_selection", None) is not None
+                                else None
+                            ),
+                        },
+                    )
 
             # 1. Build assistant tool-call entries (no message mutation yet)
             assistant_tool_calls: list[dict[str, Any]] = []
