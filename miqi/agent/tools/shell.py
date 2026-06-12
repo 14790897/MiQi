@@ -571,6 +571,13 @@ class ExecTool(Tool):
         Phase 31.6: *cancel_event* is raced against process completion.
         On cancel or timeout the subprocess is terminate-d then kill-ed.
         ``duration_ms`` measures real wall-clock time.
+
+        Phase 31.6+ (resource cleanup): Every internal asyncio.Task
+        (proc_wait, cancel_wait, stdout_task, stderr_task) is guaranteed
+        to be completed — via natural completion, explicit await after
+        kill, or cancel+await — before this method returns.  The finally
+        block is a safety net that cancels and awaits any task that
+        wasn't handled by the primary paths.
         """
         effective_timeout = (timeout_ms / 1000) if timeout_ms else self.timeout
         start = time.monotonic()
@@ -591,8 +598,8 @@ class ExecTool(Tool):
                 duration_ms=duration_ms,
             )
 
-        # Start streaming readers for stdout and stderr concurrently.
-        stdout_task = asyncio.create_task(
+        # ── Launch all internal tasks ─────────────────────────────────
+        stdout_task: asyncio.Task = asyncio.create_task(
             self._read_stream(
                 process.stdout, "stdout",
                 event_emitter=event_emitter,
@@ -600,7 +607,7 @@ class ExecTool(Tool):
                 tool_call_id=tool_call_id,
             ),
         )
-        stderr_task = asyncio.create_task(
+        stderr_task: asyncio.Task = asyncio.create_task(
             self._read_stream(
                 process.stderr, "stderr",
                 event_emitter=event_emitter,
@@ -608,10 +615,15 @@ class ExecTool(Tool):
                 tool_call_id=tool_call_id,
             ),
         )
+        proc_wait: asyncio.Task = asyncio.create_task(process.wait())
+        cancel_wait: asyncio.Task | None = None
+        stdout_text = ""
+        stdout_trunc = False
+        stderr_text = ""
+        stderr_trunc = False
 
         cancelled = False
         timed_out = False
-        proc_wait = asyncio.create_task(process.wait())
 
         try:
             if cancel_event is not None:
@@ -623,26 +635,50 @@ class ExecTool(Tool):
                 )
                 if cancel_wait in done:
                     cancelled = True
-                    cancel_wait.result()  # propagate exception if any
                 elif not done:
                     timed_out = True
+
+                # ── Normal completion: cancel_wait was *not* set — clean up ──
+                if cancel_wait is not None and not cancel_wait.done():
+                    cancel_wait.cancel()
+                    try:
+                        await cancel_wait
+                    except asyncio.CancelledError:
+                        pass
             else:
                 try:
                     await asyncio.wait_for(proc_wait, timeout=effective_timeout)
                 except asyncio.TimeoutError:
                     timed_out = True
-        except Exception:
-            # If the wait itself fails, treat as error.
-            timed_out = False
 
-        # On cancel or timeout — kill the subprocess (no orphans).
-        if cancelled or timed_out:
-            await self._kill_process(process)
+            # ── Cancel / timeout: kill process, then await proc_wait ──
+            if cancelled or timed_out:
+                await self._kill_process(process)
+                # After kill the process has exited — proc_wait should be
+                # done (or nearly done).  Explicitly await to guarantee
+                # no pending task remains.
+                if not proc_wait.done():
+                    try:
+                        await proc_wait
+                    except Exception:
+                        pass
 
-        # Wait for stream readers to finish (they see EOF when process
-        # exits / pipes close).
-        stdout_text, stdout_trunc = await stdout_task
-        stderr_text, stderr_trunc = await stderr_task
+            # ── Wait for stream readers — they see EOF when pipes close ──
+            # Normal path: readers complete naturally.
+            # Cancel/timeout path: after process is dead, pipes close and
+            # readers see EOF (or are cancelled in the safety net below).
+            stdout_text, stdout_trunc = await stdout_task
+            stderr_text, stderr_trunc = await stderr_task
+
+        finally:
+            # ── Safety net — NO task survives this method ────────────
+            for task in (cancel_wait, proc_wait, stdout_task, stderr_task):
+                if task is not None and not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except (asyncio.CancelledError, Exception):
+                        pass
 
         duration_ms = int((time.monotonic() - start) * 1000)
         exit_code = process.returncode if process.returncode is not None else -1
