@@ -46,17 +46,26 @@ def test_migrated_handlers_removed_from_methods():
     assert "agent.list" not in _METHODS, "agent.list should be migrated to AppServer"
     assert "agent.get" not in _METHODS, "agent.get should be migrated to AppServer"
 
+    # Phase 30: files.* migrated
+    assert "files.tree" not in _METHODS, "files.tree should be migrated to AppServer"
+    assert "files.read" not in _METHODS, "files.read should be migrated to AppServer"
+    assert "files.write" not in _METHODS, "files.write should be migrated to AppServer"
+    assert "files.delete" not in _METHODS, "files.delete should be migrated to AppServer"
+    assert "files.diff" not in _METHODS, "files.diff should be migrated to AppServer"
+    assert "files.revert" not in _METHODS, "files.revert should be migrated to AppServer"
+    assert "files.accept" not in _METHODS, "files.accept should be migrated to AppServer"
+
 
 def test_remaining_legacy_handlers_present():
     """Remaining legacy handlers that should NOT have been migrated are present."""
     from miqi.bridge.server import _METHODS
 
-    # These are explicitly NOT in scope for Phase 28
+    # These are explicitly NOT in scope for Phase 28+30
     assert "providers.list" in _METHODS
     assert "providers.test" in _METHODS
     assert "cron.list" in _METHODS
     assert "memory.list" in _METHODS
-    assert "files.tree" in _METHODS
+    # files.* were migrated to AppServer in Phase 30
     assert "permissions.get" in _METHODS
     assert "plugins.list" in _METHODS
     assert "plan.get" in _METHODS
@@ -65,14 +74,15 @@ def test_remaining_legacy_handlers_present():
 
 
 def test_methods_dict_count():
-    """_METHODS count has shrunk by migrated handlers (~17 removed)."""
+    """_METHODS count has shrunk by migrated handlers.
+
+    Phase 28: removed ~17 (approvals, config, sessions, chat, agent)
+    Phase 30: removed 7 (files.*)
+    """
     from miqi.bridge.server import _METHODS
 
-    # Before Phase 28: ~65 entries
-    # After Phase 28.2-28.5: ~48 entries
-    # Exact count depends on what was already migrated in Phases 26-27
     count = len(_METHODS)
-    assert count < 55, f"Expected fewer than 55 legacy handlers, got {count}"
+    assert count < 50, f"Expected fewer than 50 legacy handlers, got {count}"
     # Should have a reasonable minimum
     assert count > 30, f"Too few handlers, got {count} — did we remove too many?"
 
