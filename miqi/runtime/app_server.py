@@ -15,8 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-import uuid
-import warnings
 from pathlib import Path
 from typing import Any, Callable, Coroutine
 
@@ -70,22 +68,18 @@ class ClientSessionRegistry:
     # ── client_id resolution ─────────────────────────────────────────────
 
     def resolve_client_id(self, raw: str | None) -> str:
-        """Resolve a client_id, generating a legacy shim if missing.
+        """Resolve a client_id.
 
-        Phase 26 compatibility shim: when the Desktop frontend hasn't
-        been updated to send client_id yet, generate one with a warning.
-        This shim MUST be removed in Phase 27 — client_id will be required.
+        Phase 27.5: client_id is REQUIRED. Missing client_id raises
+        AppServerError. There is no longer a default or shim.
         """
         if raw:
             return raw
-        generated = f"legacy-desktop-{uuid.uuid4().hex[:8]}"
-        warnings.warn(
-            f"client_id not provided — generated {generated}. "
-            f"client_id will be REQUIRED in Phase 27.",
-            UserWarning,
-            stacklevel=2,
+        raise AppServerError(
+            "client_id is required",
+            code="INVALID_PARAMS",
+            recoverable=False,
         )
-        return generated
 
     # ── session lifecycle ────────────────────────────────────────────────
 

@@ -80,9 +80,10 @@ async def test_bridge_runtime_loop_resolve_client_id_with_explicit():
     assert loop._resolve_client_id({"client_id": "c1", "caller_id": "c2"}) == "c1"
 
 
-def test_bridge_runtime_loop_missing_client_id_warns():
-    """Missing client_id generates a warning and legacy shim in production mode."""
+def test_bridge_runtime_loop_missing_client_id_raises_error():
+    """Missing client_id raises AppServerError in production mode (Phase 27.5)."""
     from miqi.bridge.loop import BridgeRuntimeLoop
+    from miqi.runtime.app_server import AppServerError
 
     loop = BridgeRuntimeLoop(
         send_func=_CaptureSend().send,
@@ -90,10 +91,22 @@ def test_bridge_runtime_loop_missing_client_id_warns():
         dev_mode=False,
     )
 
-    with pytest.warns(UserWarning, match="client_id"):
-        client_id = loop._resolve_client_id({})
+    with pytest.raises(AppServerError, match="client_id is required"):
+        loop._resolve_client_id({})
 
-    assert client_id.startswith("legacy-desktop-")
+
+def test_bridge_runtime_loop_dev_mode_allows_missing_client_id():
+    """In dev mode, missing client_id generates a dev- prefix."""
+    from miqi.bridge.loop import BridgeRuntimeLoop
+
+    loop = BridgeRuntimeLoop(
+        send_func=_CaptureSend().send,
+        dispatch_legacy_func=_dispatch_legacy,
+        dev_mode=True,
+    )
+
+    client_id = loop._resolve_client_id({})
+    assert client_id.startswith("dev-")
 
 
 # ── AppServer method registration ────────────────────────────────────────
