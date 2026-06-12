@@ -139,10 +139,49 @@ class RuntimeSession:
         """
         try:
             if timeout is None:
-                return await self._events.get()
-            return await asyncio.wait_for(self._events.get(), timeout=timeout)
+                event = await self._events.get()
+            else:
+                event = await asyncio.wait_for(self._events.get(), timeout=timeout)
         except asyncio.TimeoutError:
             return None
+        # Phase 24: mirror selected events into the append-only ledger
+        await self._mirror_event_to_ledger(event)
+        return event
+
+    async def _mirror_event_to_ledger(self, event: Any) -> None:
+        """Record selected runtime events as immutable ledger items.
+
+        Only events with a matching item_type in the mapping are recorded.
+        Events without thread_id or turn_id default to "session".
+        """
+        ledger = getattr(self.services, "ledger_runtime", None)
+        if ledger is None:
+            return
+        thread_id = getattr(event, "thread_id", None) or getattr(event, "turn_id", None) or "session"
+        turn_id = getattr(event, "turn_id", None)
+        event_type = getattr(event, "type", event.__class__.__name__)
+        item_type = {
+            "command_rejected": "command_rejected",
+            "error": "error",
+            "warning": "warning",
+            "context_compacted": "context_compacted",
+            "approval_requested": "approval_requested",
+            "approval_resolved": "approval_resolved",
+            "exec_command_begin": "exec_started",
+            "exec_command_output_delta": "exec_output_delta",
+            "exec_command_end": "exec_completed",
+        }.get(event_type)
+        if item_type is None:
+            return
+        payload = getattr(event, "__dict__", {}).copy()
+        payload.pop("type", None)
+        await ledger.append_item(
+            thread_id=thread_id,
+            turn_id=turn_id,
+            item_type=item_type,
+            content=str(getattr(event, "message", getattr(event, "delta", "")) or ""),
+            payload=payload,
+        )
 
     async def _run(self) -> None:
         """Main dispatch loop: dequeue submissions → TaskRunner.handle().
