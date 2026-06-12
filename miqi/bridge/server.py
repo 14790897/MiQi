@@ -2453,6 +2453,10 @@ def _register_app_server_methods(server: Any) -> None:
 
     server.register_method("status", _status_handler)
 
+    # Phase 26.5: register replay/debug API handlers
+    from miqi.runtime.app_server import register_replay_handlers
+    register_replay_handlers(server)
+
 
 def _dispatch_via_appserver(req_id: str, method: str, params: dict) -> bool:
     """Try to dispatch a request through AppServer.
