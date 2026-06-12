@@ -195,8 +195,19 @@ def _resolve_sandbox_path(path: str, workspace: Path | None, sandbox) -> str:
 
     # ── Relative path → resolve against sandbox workspace ──
     if not path.startswith("/"):
-        result = f"/home/miqi/workspace/{path}"
-        _log.debug("Sandbox path: %s → %s (relative remap)", original_path, result)
+        # Compute the correct sandbox base path.
+        # If the tool's workspace is a subdirectory of the sandbox's global
+        # workspace (e.g. per-session dir), use the corresponding sandbox path
+        # so that per-session files are isolated from other sessions.
+        sandbox_base = "/home/miqi/workspace"
+        if workspace:
+            ws_str = str(workspace.resolve()).replace("\\", "/")
+            sb_ws_str = str(sandbox.workspace).replace("\\", "/")
+            if ws_str.startswith(sb_ws_str) and ws_str != sb_ws_str:
+                rel_subdir = ws_str[len(sb_ws_str):].lstrip("/")
+                sandbox_base = f"/home/miqi/workspace/{rel_subdir}"
+        result = f"{sandbox_base}/{path}"
+        _log.debug("Sandbox path: %s → %s (relative remap, base=%s)", original_path, result, sandbox_base)
         return result
 
     # ── Linux path that starts with workspace prefix → remap ──
