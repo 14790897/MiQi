@@ -210,6 +210,9 @@ class TaskRunner:
             if history_runtime is not None:
                 await history_runtime.start_turn(turn_id, thread_id=thread_id)
                 history = await history_runtime.load_messages(thread_id)
+            else:
+                history = []
+
             # Phase 24: record turn start in ledger
             if ledger is not None:
                 await ledger.append_item(
@@ -218,8 +221,6 @@ class TaskRunner:
                     item_type="turn_started",
                     payload={"agent_name": metadata.name},
                 )
-            else:
-                history = []
 
             # Phase 19: auto-compact before turn if history exceeds budget
             ctx_runtime = getattr(self.services, "context_runtime", None)

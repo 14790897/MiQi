@@ -45,6 +45,10 @@ class RuntimeSession:
         self._pending: list[Any] = []
         # Phase 14 follow-up v2: per-runtime ask lock (used by RuntimeClient)
         self._ask_lock = asyncio.Lock()
+        # Phase 24 hardening: turn_id → thread_id map so events that
+        # carry only turn_id (ExecCommandBeginEvent etc.) can resolve
+        # the correct ledger thread.
+        self._turn_thread_map: dict[str, str] = {}
 
     @classmethod
     def create(
@@ -152,13 +156,31 @@ class RuntimeSession:
         """Record selected runtime events as immutable ledger items.
 
         Only events with a matching item_type in the mapping are recorded.
-        Events without thread_id or turn_id default to "session".
+        Maintains a turn_id → thread_id map so events that carry only
+        turn_id (e.g. ExecCommandBeginEvent) resolve to the correct thread.
         """
         ledger = getattr(self.services, "ledger_runtime", None)
         if ledger is None:
             return
-        thread_id = getattr(event, "thread_id", None) or getattr(event, "turn_id", None) or "session"
-        turn_id = getattr(event, "turn_id", None)
+
+        turn_id: str | None = getattr(event, "turn_id", None)
+        event_thread_id: str | None = getattr(event, "thread_id", None)
+
+        # Record mapping whenever both fields are present on the event.
+        # This allows later events that carry only turn_id to resolve
+        # the correct thread for ledger storage.
+        if turn_id is not None and event_thread_id is not None:
+            self._turn_thread_map[turn_id] = event_thread_id
+
+        # Resolve thread_id: prefer explicit thread_id, then map lookup,
+        # then fall back to turn_id itself, then "session".
+        if event_thread_id is not None:
+            thread_id = event_thread_id
+        elif turn_id is not None:
+            thread_id = self._turn_thread_map.get(turn_id, turn_id)
+        else:
+            thread_id = "session"
+
         event_type = getattr(event, "type", event.__class__.__name__)
         item_type = {
             "command_rejected": "command_rejected",
