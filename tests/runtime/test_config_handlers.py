@@ -38,30 +38,33 @@ async def test_config_update_saves_and_propagates(fake_config, fake_provider, tm
     import miqi.bridge.server as bridge_module
     registry = ClientSessionRegistry()
 
-    # Get the current temperature to check propagation later
-    old_result = await config_get_handler("req-1", {}, "client-1", None, registry)
+    try:
+        # Get the current temperature to check propagation later
+        old_result = await config_get_handler("req-1", {}, "client-1", None, registry)
 
-    # Create a session so propagation can be verified
-    session = await registry.create_session(
-        client_id="client-1",
-        session_key="test-session",
-        config=fake_config,
-        provider=fake_provider,
-        workspace=tmp_path,
-    )
+        # Create a session so propagation can be verified
+        session = await registry.create_session(
+            client_id="client-1",
+            session_key="test-session",
+            config=fake_config,
+            provider=fake_provider,
+            workspace=tmp_path,
+        )
 
-    # Update a safe field (agents.defaults.name) to test propagation
-    result = await config_update_handler(
-        "req-1",
-        {"config": {"agents": {"defaults": {"name": "phase-28-test"}}}},
-        "client-1", None, registry,
-    )
-    assert result["result"]["saved"] is True
+        # Update a safe field (agents.defaults.name) to test propagation
+        result = await config_update_handler(
+            "req-1",
+            {"config": {"agents": {"defaults": {"name": "phase-28-test"}}}},
+            "client-1", None, registry,
+        )
+        assert result["result"]["saved"] is True
 
-    # Verify propagation: session's config_snapshot should have been updated
-    session_state = getattr(session.services, "session_state", None)
-    if session_state is not None:
-        assert session_state.config_snapshot is not None
+        # Verify propagation: session's config_snapshot should have been updated
+        session_state = getattr(session.services, "session_state", None)
+        if session_state is not None:
+            assert session_state.config_snapshot is not None
+    finally:
+        await registry.stop_all()
 
 
 @pytest.mark.asyncio

@@ -13,19 +13,22 @@ async def test_registry_create_and_get_session(fake_config, fake_provider, tmp_p
     from miqi.runtime.app_server import ClientSessionRegistry
 
     registry = ClientSessionRegistry()
-    session = await registry.create_session(
-        client_id="client-1",
-        session_key="my-session",
-        config=fake_config,
-        provider=fake_provider,
-        workspace=tmp_path,
-    )
-    assert session is not None
-    assert session.session_id.startswith("client-1:my-session")
+    try:
+        session = await registry.create_session(
+            client_id="client-1",
+            session_key="my-session",
+            config=fake_config,
+            provider=fake_provider,
+            workspace=tmp_path,
+        )
+        assert session is not None
+        assert session.session_id.startswith("client-1:my-session")
 
-    # Same client can retrieve it
-    got = await registry.get_session("client-1", session.session_id)
-    assert got is session
+        # Same client can retrieve it
+        got = await registry.get_session("client-1", session.session_id)
+        assert got is session
+    finally:
+        await registry.stop_all()
 
 
 @pytest.mark.asyncio
@@ -33,16 +36,19 @@ async def test_registry_unauthorized_client_cannot_access_session(fake_config, f
     from miqi.runtime.app_server import ClientSessionRegistry
 
     registry = ClientSessionRegistry()
-    session = await registry.create_session(
-        client_id="client-A",
-        session_key="private",
-        config=fake_config,
-        provider=fake_provider,
-        workspace=tmp_path,
-    )
-    # Client B tries to access — fails
-    got = await registry.get_session("client-B", session.session_id)
-    assert got is None
+    try:
+        session = await registry.create_session(
+            client_id="client-A",
+            session_key="private",
+            config=fake_config,
+            provider=fake_provider,
+            workspace=tmp_path,
+        )
+        # Client B tries to access — fails
+        got = await registry.get_session("client-B", session.session_id)
+        assert got is None
+    finally:
+        await registry.stop_all()
 
 
 @pytest.mark.asyncio
@@ -50,17 +56,20 @@ async def test_registry_authorize_grants_access(fake_config, fake_provider, tmp_
     from miqi.runtime.app_server import ClientSessionRegistry
 
     registry = ClientSessionRegistry()
-    session = await registry.create_session(
-        client_id="client-A",
-        session_key="shared",
-        config=fake_config,
-        provider=fake_provider,
-        workspace=tmp_path,
-    )
-    # A authorizes B
-    registry.authorize_client("client-A", session.session_id, "client-B")
-    got = await registry.get_session("client-B", session.session_id)
-    assert got is session
+    try:
+        session = await registry.create_session(
+            client_id="client-A",
+            session_key="shared",
+            config=fake_config,
+            provider=fake_provider,
+            workspace=tmp_path,
+        )
+        # A authorizes B
+        registry.authorize_client("client-A", session.session_id, "client-B")
+        got = await registry.get_session("client-B", session.session_id)
+        assert got is session
+    finally:
+        await registry.stop_all()
 
 
 @pytest.mark.asyncio
@@ -68,18 +77,21 @@ async def test_registry_list_sessions_only_returns_authorized(fake_config, fake_
     from miqi.runtime.app_server import ClientSessionRegistry
 
     registry = ClientSessionRegistry()
-    s1 = await registry.create_session(
-        client_id="client-A", session_key="s1",
-        config=fake_config, provider=fake_provider, workspace=tmp_path,
-    )
-    s2 = await registry.create_session(
-        client_id="client-B", session_key="s2",
-        config=fake_config, provider=fake_provider, workspace=tmp_path,
-    )
+    try:
+        s1 = await registry.create_session(
+            client_id="client-A", session_key="s1",
+            config=fake_config, provider=fake_provider, workspace=tmp_path,
+        )
+        s2 = await registry.create_session(
+            client_id="client-B", session_key="s2",
+            config=fake_config, provider=fake_provider, workspace=tmp_path,
+        )
 
-    a_sessions = registry.list_sessions("client-A")
-    assert s1.session_id in a_sessions
-    assert s2.session_id not in a_sessions
+        a_sessions = registry.list_sessions("client-A")
+        assert s1.session_id in a_sessions
+        assert s2.session_id not in a_sessions
+    finally:
+        await registry.stop_all()
 
 
 @pytest.mark.asyncio

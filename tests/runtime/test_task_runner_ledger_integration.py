@@ -36,7 +36,10 @@ async def test_history_passed_when_ledger_is_none(fake_config, fake_provider, tm
         )
 
         # Disable ledger — this is the scenario under test.
-        runtime.services.ledger_runtime = None
+        # Close the connection first to avoid orphaning the aiosqlite connection.
+        if runtime.services.ledger_runtime is not None:
+            await runtime.services.ledger_runtime.close()
+            runtime.services.ledger_runtime = None
 
         # Spy on turn_runner.run to capture the `history` kwarg.
         original_run = runtime.services.turn_runner.run
