@@ -22,6 +22,7 @@ def create_default_orchestrator(
     *,
     bwrap_available: bool = False,
     permanent_allowlist: set[str] | None = None,
+    ledger_runtime: Any | None = None,
 ) -> Any:
     """Create a ToolOrchestrator with sensible defaults.
 
@@ -30,6 +31,8 @@ def create_default_orchestrator(
         event_emitter: EventEmitter for typed events. Uses NoopEmitter if None.
         bwrap_available: Whether bwrap sandboxing is available on this system.
         permanent_allowlist: Set of commands that bypass permission checks.
+        ledger_runtime: Phase 31.8 — optional LedgerRuntime for
+            replay-persistent event recording.
 
     Returns:
         Configured ToolOrchestrator instance.
@@ -49,6 +52,7 @@ def create_default_orchestrator(
         hook_runtime=HookRuntime(),
         tool_registry=tool_registry,
         event_emitter=emitter,
+        ledger_runtime=ledger_runtime,
     )
 
 

@@ -118,6 +118,7 @@ class ToolOrchestrator:
         event_emitter: Any,  # EventEmitter
         approval_timeout_ms: int = 60_000,
         session_id: str = "",
+        ledger_runtime: Any | None = None,
     ):
         self.permissions = permission_engine
         self.sandbox = sandbox_engine
@@ -126,6 +127,8 @@ class ToolOrchestrator:
         self.events = event_emitter
         self.approval_timeout_ms = approval_timeout_ms
         self._session_id = session_id
+        # Phase 31.8: ledger runtime for replay-persistent event recording
+        self._ledger = ledger_runtime
         # In-flight approval futures: approval_id → Future[PermissionDecision]
         self._pending_approvals: dict[str, asyncio.Future] = {}
         # Approval metadata for listing: approval_id → metadata dict
@@ -264,6 +267,22 @@ class ToolOrchestrator:
             allow_permanent=decision.allow_permanent,
         ))
 
+        # Phase 31.8: record approval request in ledger for replay
+        if self._ledger is not None:
+            await self._ledger.append_item(
+                thread_id=ctx.thread_id,
+                turn_id=ctx.turn_id,
+                item_type="approval_requested",
+                payload={
+                    "approval_id": approval_id,
+                    "tool_call_id": ctx.tool_call_id,
+                    "tool_name": ctx.tool_name,
+                    "category": decision.category,
+                    "description": (decision.description or "")[:_MAX_DESCRIPTION_LENGTH],
+                    "allow_permanent": decision.allow_permanent,
+                },
+            )
+
         future: asyncio.Future = asyncio.get_event_loop().create_future()
         self._pending_approvals[approval_id] = future
         # Store enriched metadata for listing (Phase 28.2 + 31.4)
@@ -300,6 +319,20 @@ class ToolOrchestrator:
                 decision="timeout",
                 turn_id=ctx.turn_id,
             ))
+            # Phase 31.8: record timeout in ledger for replay
+            if self._ledger is not None:
+                await self._ledger.append_item(
+                    thread_id=ctx.thread_id,
+                    turn_id=ctx.turn_id,
+                    item_type="approval_resolved",
+                    payload={
+                        "approval_id": approval_id,
+                        "tool_call_id": ctx.tool_call_id,
+                        "decision": "timeout",
+                        "tool_name": ctx.tool_name,
+                        "category": decision.category,
+                    },
+                )
             return PermissionDecision(
                 verdict=PermissionVerdict.DENY,
                 reason="Approval timeout",
@@ -362,6 +395,21 @@ class ToolOrchestrator:
                 verdict=PermissionVerdict.DENY,
                 reason="User denied the request.",
             ))
+            # Phase 31.8: record denial in ledger for replay
+            if self._ledger is not None:
+                thread_id = meta.get("thread_id", "")
+                asyncio.ensure_future(self._ledger.append_item(
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    item_type="approval_resolved",
+                    payload={
+                        "approval_id": approval_id,
+                        "tool_call_id": meta.get("tool_call_id", ""),
+                        "decision": "deny",
+                        "tool_name": meta.get("tool_name", ""),
+                        "category": meta.get("category", ""),
+                    },
+                ))
             return ApprovalResolveResult(
                 resolved=True,
                 approval_id=approval_id,
@@ -382,6 +430,21 @@ class ToolOrchestrator:
             reason=reason,
             allow_permanent=(decision == "always"),
         ))
+        # Phase 31.8: record resolution in ledger for replay
+        if self._ledger is not None:
+            thread_id = meta.get("thread_id", "")
+            asyncio.ensure_future(self._ledger.append_item(
+                thread_id=thread_id,
+                turn_id=turn_id,
+                item_type="approval_resolved",
+                payload={
+                    "approval_id": approval_id,
+                    "tool_call_id": meta.get("tool_call_id", ""),
+                    "decision": decision,
+                    "tool_name": meta.get("tool_name", ""),
+                    "category": meta.get("category", ""),
+                },
+            ))
         return ApprovalResolveResult(
             resolved=True,
             approval_id=approval_id,
@@ -503,6 +566,22 @@ class ToolOrchestrator:
                 turn_id=turn_id,
             ))
 
+            # Phase 31.8: record abort in ledger for replay
+            if self._ledger is not None:
+                tool_call_id = meta.get("tool_call_id", "")
+                await self._ledger.append_item(
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    item_type="approval_resolved",
+                    payload={
+                        "approval_id": aid,
+                        "tool_call_id": tool_call_id,
+                        "decision": "abort",
+                        "tool_name": meta.get("tool_name", ""),
+                        "category": meta.get("category", ""),
+                    },
+                )
+
         self._thread_approvals.pop(thread_id, None)
         if cancelled:
             logger.info(
@@ -540,5 +619,9 @@ class ToolOrchestrator:
             kwargs["_tool_call_id"] = ctx.tool_call_id
             if ctx.cancel_event is not None:
                 kwargs["_cancel_event"] = ctx.cancel_event
+            # Phase 31.8: pass ledger runtime so exec events are recorded
+            if self._ledger is not None:
+                kwargs["_ledger_runtime"] = self._ledger
+                kwargs["_thread_id"] = ctx.thread_id
 
         return await tool.execute(**kwargs)
