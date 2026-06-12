@@ -2347,10 +2347,10 @@ def _graceful_shutdown() -> None:
             loop = None
 
         if loop and loop.is_running():
-            # We're inside a running loop — schedule the cleanup
+            # Phase 27.6: persistent loop running — schedule cleanup
             asyncio.ensure_future(sandbox_mgr.destroy_all())
         else:
-            # No running loop — create one
+            # No running loop (signal/atexit after loop closed) — create one
             asyncio.run(sandbox_mgr.destroy_all())
     except Exception as exc:
         _log(f"Sandbox cleanup on shutdown failed (non-fatal): {exc}")

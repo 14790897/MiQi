@@ -555,12 +555,33 @@ class BridgeRuntimeLoop:
     async def _shutdown(self) -> None:
         """Graceful shutdown sequence.
 
-        1. Stop AppServer (stops all RuntimeSessions, cancels TTL task)
-        2. Cancel all pending asyncio tasks
+        1. Cancel active chat drain tasks
+        2. Stop AppServer (stops all RuntimeSessions, cancels TTL task)
+        3. Clear terminal tracking
+        4. Signal shutdown complete
         """
-        logger.info("BridgeRuntimeLoop: starting graceful shutdown")
+        logger.info(
+            "BridgeRuntimeLoop: starting graceful shutdown "
+            "(%d active chat tasks)",
+            len(self._active_chat_tasks),
+        )
 
-        # 1. Stop AppServer
+        # 1. Cancel active chat drain tasks
+        for req_id, task in list(self._active_chat_tasks.items()):
+            if not task.done():
+                logger.debug(
+                    "BridgeRuntimeLoop: cancelling chat task {}", req_id,
+                )
+                task.cancel()
+        # Wait briefly for cancellations to propagate
+        if self._active_chat_tasks:
+            await asyncio.gather(
+                *list(self._active_chat_tasks.values()),
+                return_exceptions=True,
+            )
+        self._active_chat_tasks.clear()
+
+        # 2. Stop AppServer (stops RuntimeSessions, cancels TTL, etc.)
         if self._app_server is not None:
             try:
                 await self._app_server.stop()
@@ -569,7 +590,10 @@ class BridgeRuntimeLoop:
                     "BridgeRuntimeLoop: error stopping AppServer: {}", exc,
                 )
 
-        # 2. Signal shutdown complete
+        # 3. Clean up terminal tracking
+        self._terminal_sent.clear()
+
+        # 4. Signal shutdown complete
         if self._shutdown_event is not None:
             self._shutdown_event.set()
 
