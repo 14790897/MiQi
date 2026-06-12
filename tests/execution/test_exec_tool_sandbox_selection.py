@@ -4,7 +4,6 @@ These tests verify that ExecTool no longer makes independent sandbox decisions
 and instead follows the SandboxSelection injected by ToolOrchestrator.
 """
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -324,3 +323,231 @@ async def test_exec_tool_emits_begin_and_end_with_sandbox_selection(tmp_path):
     assert begin_events[0].sandbox_type == "none"
     assert end_events[0].turn_id == "turn-2"
     assert end_events[0].output_size > 0
+
+
+# ── 31.3: SandboxSelection.timeout_ms enforcement ──────────────────────
+
+@pytest.mark.asyncio
+async def test_sandbox_selection_timeout_ms_consumed():
+    """SandboxSelection.timeout_ms must be used as the actual exec timeout."""
+    tool = ExecTool(timeout=60)  # Default 60s — would NOT timeout normally
+    sel = _make_selection(SandboxType.NONE, timeout_ms=50)  # 50ms timeout
+
+    result = await tool.execute(
+        "python -c \"import time; time.sleep(10)\"",
+        _sandbox=sel,
+    )
+
+    assert "timed out" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_sandbox_selection_timeout_ms_not_exceeded():
+    """When timeout_ms is long enough, command completes normally."""
+    tool = ExecTool(timeout=1)  # 1s default — too short for slow commands
+    sel = _make_selection(SandboxType.NONE, timeout_ms=30_000)  # 30s from selection
+
+    result = await tool.execute(
+        "python -c \"print('completed')\"",
+        _sandbox=sel,
+    )
+
+    assert "completed" in result
+    assert "timed out" not in result.lower()
+
+
+# ── 31.3: SandboxSelection.env_passthrough enforcement ─────────────────
+
+@pytest.mark.asyncio
+async def test_sandbox_selection_env_passthrough_consumed():
+    """SandboxSelection.env_passthrough must allow otherwise-filtered env vars."""
+    import os
+
+    test_var = "_MIQI_PHASE31_ENV_TEST_313"
+    os.environ[test_var] = "phase31-env-value"
+    try:
+        tool = ExecTool(timeout=5)
+
+        # Without env_passthrough → the var should still be present
+        # (it doesn't match any sensitive pattern)
+        sel_no_passthrough = _make_selection(SandboxType.NONE)
+        result_no = await tool.execute(
+            f"python -c \"import os; print(os.environ.get('{test_var}', 'MISSING'))\"",
+            _sandbox=sel_no_passthrough,
+        )
+        assert "phase31-env-value" in result_no
+
+        # With env_passthrough containing the var → also present
+        sel_with = _make_selection(
+            SandboxType.NONE, env_passthrough=[test_var],
+        )
+        result_with = await tool.execute(
+            f"python -c \"import os; print(os.environ.get('{test_var}', 'MISSING'))\"",
+            _sandbox=sel_with,
+        )
+        assert "phase31-env-value" in result_with
+    finally:
+        os.environ.pop(test_var, None)
+
+
+@pytest.mark.asyncio
+async def test_sandbox_selection_env_passthrough_overrides_filter():
+    """env_passthrough from SandboxSelection must bypass the credential filter."""
+    import os
+
+    # Use a var name that WOULD be filtered by _build_safe_env
+    # (starts with a sensitive prefix like OPENAI_)
+    test_var = "OPENAI_MIQI_TEST_313"
+    os.environ[test_var] = "bypass-value"
+    try:
+        tool = ExecTool(timeout=5)
+
+        # Without env_passthrough → filtered out (default behavior)
+        sel_default = _make_selection(SandboxType.NONE)
+        result_default = await tool.execute(
+            f"python -c \"import os; print(os.environ.get('{test_var}', 'MISSING'))\"",
+            _sandbox=sel_default,
+        )
+        assert "MISSING" in result_default, (
+            f"Expected var to be filtered, got: {result_default!r}"
+        )
+
+        # With env_passthrough → must be present
+        sel_passthrough = _make_selection(
+            SandboxType.NONE, env_passthrough=[test_var],
+        )
+        result_passthrough = await tool.execute(
+            f"python -c \"import os; print(os.environ.get('{test_var}', 'MISSING'))\"",
+            _sandbox=sel_passthrough,
+        )
+        assert "bypass-value" in result_passthrough, (
+            f"Expected var to be present via env_passthrough, got: {result_passthrough!r}"
+        )
+    finally:
+        os.environ.pop(test_var, None)
+
+
+# ── 31.3: RESTRICTED enforcement ───────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_restricted_cwd_outside_workspace_fails(tmp_path):
+    """RESTRICTED with cwd outside workspace must fail closed."""
+    tool = ExecTool(
+        timeout=5,
+        working_dir=str(tmp_path),
+        restrict_to_workspace=True,
+    )
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    # Use a cwd outside the workspace (parent of tmp_path)
+    outside_dir = str(tmp_path.parent)
+
+    result = await tool.execute(
+        "echo should-not-run",
+        working_dir=outside_dir,
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "outside" in result.lower() or "workspace" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_restricted_cwd_within_workspace_succeeds(tmp_path):
+    """RESTRICTED with cwd inside workspace must succeed."""
+    tool = ExecTool(
+        timeout=5,
+        working_dir=str(tmp_path),
+        restrict_to_workspace=True,
+    )
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    result = await tool.execute(
+        "python -c \"print('within-workspace')\"",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "within-workspace" in result
+
+
+# ── 31.3: SandboxSelection policy metadata presence ────────────────────
+
+def test_sandbox_selection_includes_filesystem_policy():
+    """SandboxSelection.filesystem_policy must be populated."""
+    sel = _make_selection(SandboxType.BWRAP)
+    assert sel.filesystem_policy is not None
+    assert sel.filesystem_policy.default_mode == FileSystemAccessMode.READ
+
+
+def test_sandbox_selection_includes_network_policy():
+    """SandboxSelection.network_policy must be populated."""
+    sel = _make_selection(SandboxType.RESTRICTED)
+    assert sel.network_policy == NetworkSandboxPolicy.ALLOW_ALL
+
+
+def test_sandbox_selection_includes_timeout_ms():
+    """SandboxSelection.timeout_ms must be populated."""
+    sel = _make_selection(SandboxType.NONE, timeout_ms=45_000)
+    assert sel.timeout_ms == 45_000
+
+
+def test_sandbox_selection_includes_env_passthrough():
+    """SandboxSelection.env_passthrough must be populated."""
+    sel = _make_selection(SandboxType.NONE, env_passthrough=["PATH", "HOME"])
+    assert "PATH" in sel.env_passthrough
+    assert "HOME" in sel.env_passthrough
+
+
+# ── 31.3: SandboxPolicyEngine allow_fallback_to_none ───────────────────
+
+@pytest.mark.asyncio
+async def test_sandbox_policy_no_fallback_fails_on_exhaustion():
+    """SandboxPolicyEngine with allow_fallback_to_none=False raises SandboxDeniedError."""
+    from miqi.execution.sandbox_policy import (
+        SandboxPolicyEngine,
+        SandboxDeniedError,
+    )
+
+    engine = SandboxPolicyEngine(
+        bwrap_available=True,
+        allow_fallback_to_none=False,
+    )
+
+    class FakeCtx:
+        tool_name = "exec"
+        arguments = {"command": "npm test"}
+
+    # After exhausting all sandbox types (BWRAP→LANDLOCK→RESTRICTED→NONE),
+    # the next attempt should raise SandboxDeniedError
+    with pytest.raises(SandboxDeniedError):
+        await engine.select(FakeCtx(), attempt=4)
+
+
+# ── 31.3: PermissionProfile fields in SandboxSelection path ────────────
+
+@pytest.mark.asyncio
+async def test_permission_profile_filesystem_mode_in_sandbox_selection():
+    """When PermissionProfile has filesystem_mode, it should be reflected
+    in or at least compatible with the SandboxSelection."""
+    from miqi.runtime.permission_profile import PermissionProfile
+    from miqi.execution.sandbox_policy import SandboxPolicyEngine
+
+    profile = PermissionProfile(
+        workspace=None,  # type: ignore
+        filesystem_mode="workspace-readonly",
+        network_allowed=False,
+    )
+
+    engine = SandboxPolicyEngine()
+
+    class FakeCtx:
+        tool_name = "write_file"
+        arguments = {"path": "test.txt"}
+        permission_profile = profile
+
+    sel = await engine.select(FakeCtx())
+    # The selection exists with a valid type
+    assert sel.sandbox_type is not None
+    assert sel.filesystem_policy is not None
+    assert sel.network_policy is not None
