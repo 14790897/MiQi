@@ -2242,9 +2242,7 @@ _METHODS = {
     "permissions.update": handle_permissions_update,
     "permissions.permanent.add": handle_permissions_permanent_add,
     "permissions.permanent.remove": handle_permissions_permanent_remove,
-    "agent.list": handle_agent_list,
-    "agent.get": handle_agent_get,
-    # agent.spawn and agent.kill now AppServer methods (Phase 27.4)
+    # agent.* are now AppServer methods (Phases 27.4 + 28.5)
     "plan.get": handle_plan_get,
 }
 
