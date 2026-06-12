@@ -216,8 +216,11 @@ def test_bridge_existing_dispatch_still_works(monkeypatch):
     AppServer is added — backward compatibility."""
     from miqi.bridge.server import _METHODS, _dispatch
 
-    # _METHODS should contain the existing handlers
+    # _METHODS should contain the remaining legacy handlers
     assert "status" in _METHODS
     # chat.send and chat.abort are now AppServer methods (Phase 27.3)
-    assert "config.get" in _METHODS
-    assert "sessions.list" in _METHODS
+    # approvals.* are now AppServer methods (Phase 28.2)
+    # config.get/config.update are now AppServer methods (Phase 28.3)
+    assert "sessions.list" in _METHODS  # still legacy until Phase 28.4
+    assert "approvals.list" not in _METHODS  # migrated to AppServer
+    assert "config.get" not in _METHODS  # migrated to AppServer
