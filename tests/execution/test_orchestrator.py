@@ -903,3 +903,190 @@ async def test_pending_approvals_empty_after_abort(orchestrator, mock_components
     await task
 
     assert len(orchestrator.list_pending_approvals()) == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 31.8: Ledger recording of approval events by orchestrator
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class _FakeLedgerForOrch:
+    """Minimal fake LedgerRuntime for orchestrator ledger-writing tests."""
+
+    def __init__(self):
+        self.items: list[dict] = []
+
+    async def append_item(self, **kwargs):
+        self.items.append(kwargs)
+
+
+def _orchestrator_with_ledger(mock_components, ledger):
+    """Create an orchestrator with the ledger wired in."""
+    return ToolOrchestrator(
+        permission_engine=mock_components["permission_engine"],
+        sandbox_engine=mock_components["sandbox_engine"],
+        hook_runtime=mock_components["hook_runtime"],
+        tool_registry=mock_components["tool_registry"],
+        event_emitter=mock_components["event_emitter"],
+        ledger_runtime=ledger,
+    )
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_writes_approval_requested_to_ledger(mock_components):
+    """When approval is required, orchestrator must write approval_requested."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Run: test cmd",
+        details={"command": "test cmd"},
+        allow_permanent=True,
+    )
+    mock_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    mock_components["tool_registry"].get.return_value = MagicMock()
+    mock_components["tool_registry"].get.return_value.execute = AsyncMock(
+        return_value="ok",
+    )
+
+    fake_ledger = _FakeLedgerForOrch()
+    orch = _orchestrator_with_ledger(mock_components, fake_ledger)
+
+    ctx = make_ctx(
+        tool_name="exec", tool_call_id="call-ledger",
+        turn_id="turn-ledger", arguments={"command": "test cmd"},
+    )
+    task = asyncio.create_task(orch.execute(ctx))
+    await asyncio.sleep(0.05)
+
+    approval_id = f"{ctx.turn_id}:{ctx.tool_call_id}"
+    orch.resolve_approval(approval_id, "once")
+    await task
+
+    req_items = [it for it in fake_ledger.items if it["item_type"] == "approval_requested"]
+    assert len(req_items) == 1, f"Expected 1 approval_requested, got {fake_ledger.items}"
+    req = req_items[0]
+    assert req["thread_id"] == ctx.thread_id
+    assert req["payload"]["approval_id"] == approval_id
+    assert req["payload"]["tool_name"] == "exec"
+    assert req["payload"]["category"] == "exec"
+    assert req["payload"]["allow_permanent"] is True
+
+    res_items = [it for it in fake_ledger.items if it["item_type"] == "approval_resolved"]
+    assert len(res_items) == 1
+    assert res_items[0]["payload"]["decision"] == "once"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_writes_approval_denied_to_ledger(mock_components):
+    """When user denies, ledger must record approval_resolved(decision=deny)."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="file_write",
+        description="write_file: /tmp/x",
+        details={"path": "/tmp/x", "operation": "write_file"},
+    )
+    mock_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    tool_mock = MagicMock()
+    tool_mock.execute = AsyncMock(return_value="should-not-run")
+    mock_components["tool_registry"].get.return_value = tool_mock
+
+    fake_ledger = _FakeLedgerForOrch()
+    orch = _orchestrator_with_ledger(mock_components, fake_ledger)
+
+    ctx = make_ctx(
+        tool_name="write_file", tool_call_id="call-deny",
+        turn_id="turn-deny", arguments={"path": "/tmp/x"},
+    )
+    task = asyncio.create_task(orch.execute(ctx))
+    await asyncio.sleep(0.05)
+
+    approval_id = f"{ctx.turn_id}:{ctx.tool_call_id}"
+    orch.resolve_approval(approval_id, "deny")
+    await task
+
+    res_items = [it for it in fake_ledger.items if it["item_type"] == "approval_resolved"]
+    assert len(res_items) == 1
+    assert res_items[0]["payload"]["decision"] == "deny"
+    assert res_items[0]["payload"]["tool_name"] == "write_file"
+    assert res_items[0]["payload"]["category"] == "file_write"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_writes_approval_timeout_to_ledger(mock_components):
+    """When approval times out, ledger must record approval_resolved(decision=timeout)."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Run: cmd",
+    )
+
+    fake_ledger = _FakeLedgerForOrch()
+    orch = _orchestrator_with_ledger(mock_components, fake_ledger)
+    orch.approval_timeout_ms = 50
+
+    ctx = make_ctx(tool_name="exec", arguments={"command": "cmd"})
+    await orch.execute(ctx)
+
+    timeout_items = [
+        it for it in fake_ledger.items
+        if it["item_type"] == "approval_resolved" and it["payload"].get("decision") == "timeout"
+    ]
+    assert len(timeout_items) == 1, (
+        f"Expected 1 timeout approval_resolved, got {fake_ledger.items}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_writes_approval_abort_to_ledger(mock_components):
+    """cancel_approvals_for_thread must write approval_resolved(decision=abort)."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Run: cmd",
+    )
+    mock_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    tool_mock = MagicMock()
+    tool_mock.execute = AsyncMock(return_value="ok")
+    mock_components["tool_registry"].get.return_value = tool_mock
+
+    fake_ledger = _FakeLedgerForOrch()
+    orch = _orchestrator_with_ledger(mock_components, fake_ledger)
+
+    ctx = make_ctx(
+        tool_name="exec", tool_call_id="call-abort",
+        turn_id="turn-abort-ledger", thread_id="thread-abort-ledger",
+        arguments={"command": "cmd"},
+    )
+    task = asyncio.create_task(orch.execute(ctx))
+    await asyncio.sleep(0.05)
+
+    await orch.cancel_approvals_for_thread("thread-abort-ledger")
+    await task
+
+    abort_items = [
+        it for it in fake_ledger.items
+        if it["item_type"] == "approval_resolved" and it["payload"].get("decision") == "abort"
+    ]
+    assert len(abort_items) >= 1, (
+        f"Expected >=1 abort approval_resolved, got {fake_ledger.items}"
+    )
