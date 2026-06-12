@@ -215,6 +215,24 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("sessions.clear_tracked_files", sessions_clear_tracked_files_handler)
         self._app_server.register_method("sessions.claim_legacy", sessions_claim_legacy_handler)
 
+        # Register Phase 30: files.* handlers (client-scoped ownership)
+        from miqi.runtime.file_handlers import (
+            files_tree_handler,
+            files_read_handler,
+            files_write_handler,
+            files_delete_handler,
+            files_diff_handler,
+            files_revert_handler,
+            files_accept_handler,
+        )
+        self._app_server.register_method("files.tree", files_tree_handler)
+        self._app_server.register_method("files.read", files_read_handler)
+        self._app_server.register_method("files.write", files_write_handler)
+        self._app_server.register_method("files.delete", files_delete_handler)
+        self._app_server.register_method("files.diff", files_diff_handler)
+        self._app_server.register_method("files.revert", files_revert_handler)
+        self._app_server.register_method("files.accept", files_accept_handler)
+
         logger.info(
             "BridgeRuntimeLoop: AppServer initialized with {} methods",
             len(self._app_server._methods),
