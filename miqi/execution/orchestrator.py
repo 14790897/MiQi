@@ -259,9 +259,16 @@ class ToolOrchestrator:
         if tool is None:
             return f"Error: Unknown tool '{ctx.tool_name}'"
 
-        # Inject sandbox context into tool
+        # Inject sandbox context into tool.
+        # Phase 31: For exec tool, ALWAYS inject the SandboxSelection so
+        # ExecTool never makes independent sandbox decisions.  Even NONE
+        # must be communicated explicitly — otherwise ExecTool falls back
+        # to the legacy path and may use an active sandbox against the
+        # orchestrator's decision.
         kwargs = {**ctx.arguments}
-        if sandbox.sandbox_type != SandboxType.NONE:
+        if ctx.tool_name == "exec":
+            kwargs["_sandbox"] = sandbox
+        elif sandbox.sandbox_type != SandboxType.NONE:
             kwargs["_sandbox"] = sandbox
 
         # Phase 21: pass runtime event emitter and cancellation to exec tool

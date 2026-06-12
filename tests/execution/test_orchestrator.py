@@ -238,3 +238,125 @@ async def test_resolve_approval_deny(orchestrator, mock_components):
     result = await task
 
     assert "denied" in result.result.lower()
+
+
+# ── Phase 31.2b: SandboxSelection always injected for exec tool ───────────
+
+@pytest.mark.asyncio
+async def test_exec_tool_always_receives_sandbox_selection(
+    orchestrator, mock_components,
+):
+    """Phase 31 blocker fix: for exec tool, orchestrator must always
+    inject _sandbox kwarg — even when sandbox_type is NONE.  Without it,
+    ExecTool falls back to the legacy path and may use an active sandbox
+    against the orchestrator's decision."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+    from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
+    from miqi.protocol.permissions import (
+        FileSystemSandboxPolicy, NetworkSandboxPolicy,
+    )
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.ALLOW,
+    )
+
+    # Sandbox engine explicitly returns NONE — the orchestrator chose
+    # direct execution after exhausting stronger sandbox types.
+    none_selection = SandboxSelection(
+        sandbox_type=SandboxType.NONE,
+        filesystem_policy=FileSystemSandboxPolicy(),
+        network_policy=NetworkSandboxPolicy.ALLOW_ALL,
+        timeout_ms=30_000,
+        env_passthrough=["MY_VAR"],
+        reason="No stronger sandbox available — orchestrator chose NONE",
+    )
+    mock_components["sandbox_engine"].select.return_value = none_selection
+
+    mock_tool = MagicMock()
+    mock_tool.execute = AsyncMock(return_value="exec-ok")
+    mock_components["tool_registry"].get.return_value = mock_tool
+
+    ctx = make_ctx(tool_name="exec", arguments={"command": "echo hello"})
+    result = await orchestrator.execute(ctx)
+
+    assert result.result == "exec-ok"
+
+    # The critical assertion: _sandbox MUST have been injected even
+    # though sandbox_type is NONE.
+    call_kwargs = mock_tool.execute.call_args.kwargs
+    assert "_sandbox" in call_kwargs, (
+        "BUG: orchestrator did NOT inject _sandbox for exec tool "
+        "when sandbox_type is NONE.  ExecTool will fall back to the "
+        "legacy path and make independent sandbox decisions."
+    )
+    assert call_kwargs["_sandbox"] is none_selection
+    assert call_kwargs["_sandbox"].sandbox_type == SandboxType.NONE
+
+
+@pytest.mark.asyncio
+async def test_non_exec_tool_none_sandbox_not_injected(
+    orchestrator, mock_components,
+):
+    """For non-exec tools, _sandbox with NONE is NOT injected — preserving
+    existing behavior for tools that don't consume sandbox selection."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+    from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
+    from miqi.protocol.permissions import (
+        FileSystemSandboxPolicy, NetworkSandboxPolicy,
+    )
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.ALLOW,
+    )
+    mock_components["sandbox_engine"].select.return_value = SandboxSelection(
+        sandbox_type=SandboxType.NONE,
+        filesystem_policy=FileSystemSandboxPolicy(),
+        network_policy=NetworkSandboxPolicy.ALLOW_ALL,
+        reason="test",
+    )
+
+    mock_tool = MagicMock()
+    mock_tool.execute = AsyncMock(return_value="read-ok")
+    mock_components["tool_registry"].get.return_value = mock_tool
+
+    ctx = make_ctx(tool_name="read_file", arguments={"path": "test.txt"})
+    result = await orchestrator.execute(ctx)
+
+    assert result.result == "read-ok"
+    # For read_file with NONE sandbox, _sandbox should NOT be injected
+    call_kwargs = mock_tool.execute.call_args.kwargs
+    assert "_sandbox" not in call_kwargs
+
+
+@pytest.mark.asyncio
+async def test_non_exec_tool_bwrap_sandbox_still_injected(
+    orchestrator, mock_components,
+):
+    """For non-exec tools with BWRAP sandbox, _sandbox is still injected
+    (existing behavior preserved)."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+    from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
+    from miqi.protocol.permissions import (
+        FileSystemSandboxPolicy, NetworkSandboxPolicy,
+    )
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.ALLOW,
+    )
+    mock_components["sandbox_engine"].select.return_value = SandboxSelection(
+        sandbox_type=SandboxType.BWRAP,
+        filesystem_policy=FileSystemSandboxPolicy(),
+        network_policy=NetworkSandboxPolicy.ALLOW_ALL,
+        reason="test",
+    )
+
+    mock_tool = MagicMock()
+    mock_tool.execute = AsyncMock(return_value="write-ok")
+    mock_components["tool_registry"].get.return_value = mock_tool
+
+    ctx = make_ctx(tool_name="write_file", arguments={"path": "test.txt"})
+    result = await orchestrator.execute(ctx)
+
+    assert result.result == "write-ok"
+    call_kwargs = mock_tool.execute.call_args.kwargs
+    assert "_sandbox" in call_kwargs

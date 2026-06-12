@@ -84,6 +84,28 @@ async def test_sandbox_selection_none_allows_direct_execution():
 
 
 @pytest.mark.asyncio
+async def test_sandbox_selection_none_overrides_active_sandbox():
+    """Phase 31.2b blocker: when orchestrator passes _sandbox=NONE,
+    ExecTool MUST do direct execution — even if an active sandbox_manager
+    with a running sandbox exists.  The orchestrator's SandboxSelection
+    is the single source of truth; ExecTool must not second-guess it."""
+    mock_sandbox = _make_mock_sandbox(is_running=True)
+    mock_mgr = _make_mock_sandbox_manager(active_sandbox=mock_sandbox)
+
+    tool = ExecTool(timeout=5, sandbox_manager=mock_mgr)
+    sel = _make_selection(SandboxType.NONE)
+
+    result = await tool.execute(
+        "python -c \"print('direct-not-sandbox')\"",
+        _sandbox=sel,
+    )
+
+    assert "direct-not-sandbox" in result
+    # The sandbox must NOT have been used — orchestrator said NONE.
+    mock_sandbox.run_command.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_sandbox_selection_bwrap_with_active_sandbox():
     """When _sandbox is BWRAP and sandbox is active, use sandbox execution."""
     mock_sandbox = _make_mock_sandbox(is_running=True)
