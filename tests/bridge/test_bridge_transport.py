@@ -185,18 +185,34 @@ async def test_transport_explicit_client_id_no_warning():
 
 
 def test_bridge_app_server_created_in_main(monkeypatch, tmp_path):
-    """Verify that the bridge creates an AppServer during initialization."""
-    from miqi.bridge.server import _ensure_app_server
-    from miqi.runtime.app_server import AppServer
+    """Verify that the bridge creates an AppServer during initialization.
 
-    # Patch config loading
+    Phase 27.2: AppServer is created by BridgeRuntimeLoop._init_app_server(),
+    not by _ensure_app_server() (which is now a simple getter).
+    """
     import miqi.bridge.server as bridge_module
 
-    # Simulate creating an AppServer for the bridge
-    with patch.object(bridge_module, '_app_server', None, create=True):
-        app_server = _ensure_app_server()
-        assert isinstance(app_server, AppServer)
-        assert app_server.registry is not None
+    from miqi.bridge.loop import BridgeRuntimeLoop
+    from miqi.runtime.app_server import AppServer
+
+    # Create a BridgeRuntimeLoop and init its AppServer
+    capturer = _CaptureStdout()
+    loop = BridgeRuntimeLoop(
+        send_func=capturer.send,
+        dispatch_legacy_func=bridge_module._dispatch,
+    )
+    # Simulate what happens during startup
+    import asyncio
+    asyncio.run(loop._init_app_server())
+
+    app_server = loop.app_server
+    assert isinstance(app_server, AppServer)
+    assert app_server.registry is not None
+    assert "status" in app_server._methods
+    assert "replay.turns" in app_server._methods
+    assert "chat.abort" in app_server._methods
+
+    asyncio.run(loop.app_server.stop())
 
 
 # ── Existing dispatch compatibility ──────────────────────────────────────

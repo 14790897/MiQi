@@ -2408,103 +2408,20 @@ _app_server: Any = None  # lazily created AppServer
 
 
 def _ensure_app_server() -> Any:
-    """Lazily create the AppServer shared by all bridge handlers.
+    """Return the AppServer instance created by BridgeRuntimeLoop.
 
-    This is the Phase 26 transport adapter entry point. AppServer owns
-    the ClientSessionRegistry; the bridge is a transport shim over it.
-
-    Phase 26.2: additive — existing handlers keep working alongside
-    AppServer dispatch. Later tasks migrate handlers to AppServer
-    one group at a time.
+    Phase 27.2: AppServer is now owned by BridgeRuntimeLoop
+    (miqi/bridge/loop.py). This function returns the global
+    reference for backward compatibility with tests.
     """
     global _app_server
-    if _app_server is not None:
-        return _app_server
-
-    from miqi.runtime.app_server import AppServer, ClientSessionRegistry
-
-    registry = ClientSessionRegistry()
-    _app_server = AppServer(registry)
-    _register_app_server_methods(_app_server)
-    _log("AppServer initialized (Phase 26.2)")
     return _app_server
 
 
-def _register_app_server_methods(server: Any) -> None:
-    """Register bridge methods that have been migrated to AppServer.
-
-    Each handler adapts the legacy sync handler to the AppServer async
-    handler signature, capturing _send() output and returning it as a
-    result dict.
-
-    Phase 26.2: only status is migrated as a proving ground.
-    """
-
-    # ── status ───────────────────────────────────────────────────────────
-    async def _status_handler(request_id, params, client_id, session_id, registry_):
-        config_exists = Path.home() / ".miqi" / "config.json"
-        return {
-            "result": {
-                "status": "ok",
-                "configured": config_exists.exists(),
-                "python_version": sys.version,
-            },
-        }
-
-    server.register_method("status", _status_handler)
-
-    # Phase 26.5: register replay/debug API handlers
-    from miqi.runtime.app_server import register_replay_handlers
-    register_replay_handlers(server)
-
-    # Phase 26.6: register command handlers (thread, abort)
-    from miqi.runtime.app_server import register_command_handlers
-    register_command_handlers(server)
-
-
-def _dispatch_via_appserver(req_id: str, method: str, params: dict) -> bool:
-    """Try to dispatch a request through AppServer.
-
-    Phase 27.1: DEPRECATED — dispatch now goes through
-    BridgeRuntimeLoop._drain_loop() which uses the persistent event loop.
-    Kept for backward compatibility only (tests, legacy callers).
-
-    Returns True if the method was handled by AppServer, False if
-    it should fall through to legacy _dispatch().
-    """
-    server = _ensure_app_server()
-    if server is None:
-        return False
-
-    # Check if AppServer has this method
-    if method not in getattr(server, "_methods", {}):
-        return False
-
-    # Resolve client_id (Phase 26 compatibility shim)
-    client_id = server.registry.resolve_client_id(
-        params.get("client_id") or params.get("caller_id") or params.get("user_id")
-    )
-    session_id = params.get("session_key") or params.get("session_id")
-
-    async def _do_dispatch():
-        response = await server.dispatch(
-            request_id=req_id,
-            method=method,
-            params=params,
-            client_id=client_id,
-            session_id=session_id,
-        )
-        _send(response)
-
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.ensure_future(_do_dispatch())
-        else:
-            asyncio.run(_do_dispatch())
-    except RuntimeError:
-        asyncio.run(_do_dispatch())
-    return True
+# Phase 27.2: _register_app_server_methods removed. Handler registration
+# now happens in BridgeRuntimeLoop._init_app_server() in miqi/bridge/loop.py.
+# Phase 27.1: _dispatch_via_appserver removed. All dispatch now goes through
+# BridgeRuntimeLoop._drain_loop() which uses the persistent event loop.
 
 
 def _ensure_workspace_init() -> None:
