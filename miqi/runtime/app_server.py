@@ -13,6 +13,7 @@ Design principles:
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 import warnings
@@ -221,10 +222,13 @@ class AppServer:
         response = await server.dispatch(req_id, method, params, client_id, session_id)
     """
 
-    def __init__(self, registry: ClientSessionRegistry):
+    def __init__(self, registry: ClientSessionRegistry, *, ttl_interval_seconds: int = 300):
         self.registry = registry
         self._methods: dict[str, Handler] = {}
         self._middleware: list[Middleware] = []
+        self._ttl_interval = ttl_interval_seconds
+        self._ttl_task: asyncio.Task | None = None
+        self._running = False
 
     # ── method registration ──────────────────────────────────────────────
 
@@ -353,6 +357,47 @@ class AppServer:
         if "request_id" not in result:
             result = {"request_id": request_id, **result}
         return result
+
+    # ── lifecycle ────────────────────────────────────────────────────────
+
+    async def start(self) -> None:
+        """Start the AppServer and background TTL eviction task."""
+        if self._running:
+            return
+        self._running = True
+        self._ttl_task = asyncio.create_task(self._run_ttl_loop())
+        logger.info("AppServer started (TTL interval={}s)", self._ttl_interval)
+
+    async def stop(self) -> None:
+        """Stop the AppServer, cancel TTL task, and stop all sessions."""
+        self._running = False
+        if self._ttl_task is not None and not self._ttl_task.done():
+            self._ttl_task.cancel()
+            try:
+                await self._ttl_task
+            except asyncio.CancelledError:
+                pass
+            self._ttl_task = None
+        await self.registry.stop_all()
+        logger.info("AppServer stopped")
+
+    async def _run_ttl_loop(self) -> None:
+        """Background task that periodically evicts idle sessions."""
+        while self._running:
+            try:
+                await asyncio.sleep(self._ttl_interval)
+                if not self._running:
+                    break
+                evicted = await self.registry.evict_idle_sessions()
+                if evicted:
+                    logger.info(
+                        "AppServer TTL: evicted {} idle session(s): {}",
+                        len(evicted), evicted,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("AppServer TTL loop error: {}", exc)
 
     # ── event fanout (stub for 26.4) ─────────────────────────────────────
 
