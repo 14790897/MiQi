@@ -152,6 +152,29 @@ class RuntimeSession:
         await self._mirror_event_to_ledger(event)
         return event
 
+    # ── Phase 25: replay/debug API ───────────────────────────────────────
+
+    async def list_turns(self, thread_id: str) -> list[str]:
+        """Return turn_ids for a thread in ledger sequence order."""
+        replay = getattr(self.services, "replay_runtime", None)
+        if replay is None:
+            return []
+        return await replay.list_turns(thread_id)
+
+    async def get_turn_replay(self, thread_id: str, turn_id: str) -> Any | None:
+        """Return a TurnTimeline reconstructed from ledger items."""
+        replay = getattr(self.services, "replay_runtime", None)
+        if replay is None:
+            return None
+        return await replay.get_turn_timeline(thread_id, turn_id)
+
+    async def get_provider_messages(self, thread_id: str) -> list[dict[str, Any]]:
+        """Return provider-compatible message dicts from ledger."""
+        replay = getattr(self.services, "replay_runtime", None)
+        if replay is None:
+            return []
+        return await replay.get_provider_messages(thread_id)
+
     async def _mirror_event_to_ledger(self, event: Any) -> None:
         """Record selected runtime events as immutable ledger items.
 
@@ -197,6 +220,15 @@ class RuntimeSession:
             return
         payload = getattr(event, "__dict__", {}).copy()
         payload.pop("type", None)
+        # Phase 25: use dataclasses.asdict() for safe serialization when
+        # available — handles Enums, nested dataclasses, etc.
+        from dataclasses import asdict, is_dataclass
+        if is_dataclass(event):
+            payload = asdict(event)
+            payload.pop("type", None)
+        else:
+            payload = getattr(event, "__dict__", {}).copy()
+            payload.pop("type", None)
         await ledger.append_item(
             thread_id=thread_id,
             turn_id=turn_id,

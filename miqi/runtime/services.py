@@ -103,6 +103,8 @@ class RuntimeServices:
     mcp_runtime: Any | None = None
     # Phase 24: append-only event ledger
     ledger_runtime: Any | None = None
+    # Phase 25: replay/debug runtime
+    replay_runtime: Any | None = None
 
     @classmethod
     def from_config(
@@ -225,6 +227,11 @@ class RuntimeServices:
 
         ledger_runtime = LedgerRuntime(runtime_db, session_id=session_id)
 
+        # Phase 25: replay runtime (wraps ledger for reconstruction)
+        from miqi.runtime.replay_runtime import ReplayRuntime
+
+        replay_runtime = ReplayRuntime(ledger_runtime)
+
         turn_runner = TurnRunner(
             provider=provider,
             tool_runtime=tool_runtime,
@@ -275,6 +282,7 @@ class RuntimeServices:
             thread_runtime=thread_runtime,
             mcp_runtime=mcp_runtime,
             ledger_runtime=ledger_runtime,
+            replay_runtime=replay_runtime,
         )
 
         agent_jobs = AgentJobRuntime(services=services)
