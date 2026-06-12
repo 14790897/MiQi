@@ -9,6 +9,7 @@ from typing import Any
 from loguru import logger
 
 from miqi.agent.tools.base import Tool
+from miqi.execution.sandbox_policy import SandboxType
 
 
 class ExecTool(Tool):
@@ -85,6 +86,20 @@ class ExecTool(Tool):
         tool_call_id = kwargs.pop("_tool_call_id", "")
         cancel_event = kwargs.pop("_cancel_event", None)
 
+        # Phase 31: consume SandboxSelection injected by ToolOrchestrator.
+        # This is the single source of truth for how this command must execute.
+        # ExecTool MUST NOT make an independent sandbox decision that
+        # contradicts this selection.
+        _sandbox = kwargs.pop("_sandbox", None)
+
+        # Resolve sandbox_type for the begin event from the actual selection
+        if _sandbox is not None:
+            sandbox_type = _sandbox.sandbox_type.value
+        elif self._sandbox_manager is not None:
+            sandbox_type = "bwrap"
+        else:
+            sandbox_type = "none"
+
         # Phase 21: emit exec begin event
         if event_emitter is not None:
             from miqi.protocol.events import ExecCommandBeginEvent
@@ -93,7 +108,7 @@ class ExecTool(Tool):
                 tool_call_id=tool_call_id,
                 command=command,
                 cwd=cwd,
-                sandbox_type="bwrap" if self._sandbox_manager is not None else "none",
+                sandbox_type=sandbox_type,
             ))
 
         # Phase 21: exec end event needs a single exit point.
@@ -121,7 +136,16 @@ class ExecTool(Tool):
                 if guard_error:
                     return guard_error
 
-            # Try sandbox execution first if a sandbox manager is available
+            # Phase 31: if ToolOrchestrator injected a SandboxSelection,
+            # it is the single source of truth for how this command runs.
+            # ExecTool MUST follow it — no independent sandbox decision.
+            if _sandbox is not None:
+                return await self._execute_with_sandbox_selection(
+                    _sandbox, command, cwd,
+                )
+
+            # Legacy path (no orchestrator): backward-compatible behavior.
+            # Try sandbox execution first if a sandbox manager is available.
             if self._sandbox_manager is not None:
                 sandbox = self._sandbox_manager.active_sandbox
                 if sandbox and sandbox.is_running:
@@ -147,9 +171,19 @@ class ExecTool(Tool):
         return result
 
     async def _execute_in_sandbox(
-        self, sandbox, command: str, cwd: str
+        self, sandbox, command: str, cwd: str,
+        *,
+        timeout_ms: int | None = None,
+        env_passthrough: list[str] | None = None,
     ) -> str:
         """Execute a command inside the bwrap sandbox."""
+        effective_timeout = timeout_ms / 1000 if timeout_ms else self.timeout
+        effective_env_passthrough: frozenset[str]
+        if env_passthrough is not None:
+            effective_env_passthrough = frozenset(env_passthrough)
+        else:
+            effective_env_passthrough = self.env_passthrough
+
         try:
             # Build sandbox-relative working directory
             sandbox_cwd = self._resolve_sandbox_cwd(cwd)
@@ -163,15 +197,15 @@ class ExecTool(Tool):
             sandbox_env = sandbox.get_sandbox_env()
 
             # Only pass through explicitly allowed env vars from the host
-            if self.env_passthrough:
-                safe_env = self._build_safe_env()
-                for k in self.env_passthrough:
+            if effective_env_passthrough:
+                safe_env = self._build_safe_env(extra_passthrough=list(effective_env_passthrough))
+                for k in effective_env_passthrough:
                     if k in safe_env and k not in sandbox_env:
                         sandbox_env[k] = safe_env[k]
 
             exit_code, stdout, stderr = await sandbox.run_command(
                 command,
-                timeout=self.timeout,
+                timeout=effective_timeout,
                 env=sandbox_env,
                 cwd=sandbox_cwd,
             )
@@ -259,21 +293,120 @@ class ExecTool(Tool):
         # Relative path or other — default to workspace root
         return "/home/miqi/workspace"
 
-    async def _execute_direct(self, command: str, cwd: str) -> str:
+    async def _execute_with_sandbox_selection(
+        self, selection: Any, command: str, cwd: str,
+    ) -> str:
+        """Execute a command according to the ToolOrchestrator's SandboxSelection.
+
+        This is the SINGLE enforcement point for sandbox policy.  The
+        ``selection`` object is the output of
+        ``SandboxPolicyEngine.select()`` and was injected by
+        ``ToolOrchestrator._execute_in_sandbox()``.  ExecTool MUST NOT
+        second-guess it or silently fall back to a weaker execution mode.
+
+        Rules (Phase 31):
+        - NONE       → direct host execution (orchestrator explicitly allowed it).
+        - BWRAP      → must use bwrap sandbox.  Unavailable → fail closed.
+        - LANDLOCK   → unsupported yet.  Fail closed.
+        - RESTRICTED → direct execution with cwd/env/timeout enforcement.
+        """
+        st = selection.sandbox_type
+
+        # ── NONE: orchestrator explicitly allowed direct execution ──────
+        if st == SandboxType.NONE:
+            return await self._execute_direct(
+                command, cwd,
+                timeout_ms=selection.timeout_ms,
+                env_passthrough=list(selection.env_passthrough),
+            )
+
+        # ── BWRAP: strongest isolation; must be available ───────────────
+        if st == SandboxType.BWRAP:
+            sandbox = (
+                self._sandbox_manager.active_sandbox
+                if self._sandbox_manager is not None
+                else None
+            )
+            if sandbox is not None and sandbox.is_running:
+                return await self._execute_in_sandbox(
+                    sandbox, command, cwd,
+                    timeout_ms=selection.timeout_ms,
+                    env_passthrough=list(selection.env_passthrough),
+                )
+            # FAIL CLOSED — do NOT silently run on the host.
+            return (
+                "Error: BWRAP sandbox is required by policy but no sandbox "
+                "is currently active.  The command was NOT executed on the "
+                "host.  Check that the sandbox is running and retry."
+            )
+
+        # ── LANDLOCK: not yet implemented ───────────────────────────────
+        if st == SandboxType.LANDLOCK:
+            return (
+                "Error: LANDLOCK sandbox is not yet implemented in MiQi. "
+                "The command was NOT executed."
+            )
+
+        # ── RESTRICTED: process-level restrictions ──────────────────────
+        if st == SandboxType.RESTRICTED:
+            return await self._execute_restricted(
+                command, cwd, sandbox_selection=selection,
+            )
+
+        return f"Error: Unknown sandbox type '{st}'"
+
+    async def _execute_restricted(
+        self, command: str, cwd: str, sandbox_selection: Any,
+    ) -> str:
+        """Execute with RESTRICTED sandbox policy enforcement.
+
+        Enforces:
+        - cwd must be within workspace (when restrict_to_workspace is set)
+        - timeout_ms from SandboxSelection
+        - env_passthrough from SandboxSelection
+        - filesystem/network policy are recorded but enforcement is limited
+          (full isolation requires bwrap/Landlock).
+        """
+        # Validate cwd is within workspace when restriction is enabled
+        if self.restrict_to_workspace or self.working_dir:
+            cwd_path = Path(cwd).resolve()
+            workspace_path = Path(self.working_dir or os.getcwd()).resolve()
+            try:
+                cwd_path.relative_to(workspace_path)
+            except ValueError:
+                return (
+                    f"Error: RESTRICTED sandbox policy requires cwd to be "
+                    f"within the workspace.  cwd={cwd} is outside "
+                    f"workspace={workspace_path}.  Command was NOT executed."
+                )
+
+        return await self._execute_direct(
+            command, cwd,
+            timeout_ms=sandbox_selection.timeout_ms,
+            env_passthrough=list(sandbox_selection.env_passthrough),
+        )
+
+    async def _execute_direct(
+        self, command: str, cwd: str,
+        *,
+        timeout_ms: int | None = None,
+        env_passthrough: list[str] | None = None,
+    ) -> str:
         """Execute a command directly on the host (no sandbox)."""
+        effective_timeout = (timeout_ms / 1000) if timeout_ms else self.timeout
         try:
             process = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
-                env=self._build_safe_env(),
+                env=self._build_safe_env(extra_passthrough=env_passthrough),
             )
 
             try:
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(),
-                    timeout=self.timeout
+                    timeout=effective_timeout,
                 )
             except asyncio.TimeoutError:
                 process.kill()
@@ -283,7 +416,7 @@ class ExecTool(Tool):
                     await asyncio.wait_for(process.wait(), timeout=5.0)
                 except asyncio.TimeoutError:
                     pass
-                return f"Error: Command timed out after {self.timeout} seconds"
+                return f"Error: Command timed out after {effective_timeout:.0f} seconds"
 
             output_parts = []
 
@@ -310,7 +443,9 @@ class ExecTool(Tool):
         except Exception as e:
             return f"Error executing command: {str(e)}"
 
-    def _build_safe_env(self) -> dict[str, str]:
+    def _build_safe_env(
+        self, *, extra_passthrough: list[str] | None = None,
+    ) -> dict[str, str]:
         """Return a sanitised copy of os.environ with credential variables removed.
 
         MCP servers inject secrets (API keys, tokens, passwords) into the
@@ -318,7 +453,8 @@ class ExecTool(Tool):
         by the agent would inherit those secrets, leaking them to executed
         commands (e.g. ``exec("env")``).
 
-        Variables listed in ``self.env_passthrough`` are explicitly exempted
+        Variables listed in ``self.env_passthrough`` (and optionally
+        ``extra_passthrough`` from a SandboxSelection) are explicitly exempted
         from the filter.  This lets operators selectively allow scripts run via
         the exec tool to access specific credentials (e.g. ``OPENAI_API_KEY``)
         without opening the door to every secret in the environment.
@@ -335,9 +471,12 @@ class ExecTool(Tool):
             "TELEGRAM_", "SLACK_", "DISCORD_", "QQ_", "GROQ_",
             "AZURE_", "AWS_", "GOOGLE_", "GITHUB_", "BRAVE_", "OLLAMA_",
         )
+        passthrough = set(self.env_passthrough)
+        if extra_passthrough:
+            passthrough.update(extra_passthrough)
         return {
             k: v for k, v in os.environ.items()
-            if k in self.env_passthrough
+            if k in passthrough
             or (not _sensitive.search(k) and not k.startswith(_sensitive_prefixes))
         }
 
