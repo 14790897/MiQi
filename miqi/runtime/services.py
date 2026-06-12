@@ -101,6 +101,8 @@ class RuntimeServices:
     thread_runtime: Any | None = None
     # Phase 21: MCP runtime adapter
     mcp_runtime: Any | None = None
+    # Phase 24: append-only event ledger
+    ledger_runtime: Any | None = None
 
     @classmethod
     def from_config(
@@ -237,6 +239,11 @@ class RuntimeServices:
         runtime_db = workspace / ".miqi-runtime" / "runtime.db"
         history_runtime = HistoryRuntime(runtime_db, session_id=session_id)
         thread_runtime = ThreadRuntime(runtime_db, session_id=session_id)
+
+        # Phase 24: append-only event ledger
+        from miqi.runtime.ledger_runtime import LedgerRuntime
+
+        ledger_runtime = LedgerRuntime(runtime_db, session_id=session_id)
         session_state = SessionState(
             session_id=session_id,
             workspace=workspace,
@@ -265,6 +272,7 @@ class RuntimeServices:
             history_runtime=history_runtime,
             thread_runtime=thread_runtime,
             mcp_runtime=mcp_runtime,
+            ledger_runtime=ledger_runtime,
         )
 
         agent_jobs = AgentJobRuntime(services=services)
