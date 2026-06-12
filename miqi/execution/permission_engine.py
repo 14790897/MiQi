@@ -146,8 +146,15 @@ class PermissionEngine:
                 allow_permanent=True,
             )
 
-        # 6. File writes: require approval unless whitelisted
-        if tool_name in frozenset({"write_file", "edit_file", "delete_file"}):
+        # 6. File writes: require approval unless whitelisted.
+        # Phase 31.7: includes office document write tools so they are
+        # explicitly categorized (not falling through to "unknown_tool")
+        # and support permanent allowlisting.
+        _FILE_WRITE_TOOLS = frozenset({
+            "write_file", "edit_file", "delete_file",
+            "docx_write", "pptx_write", "xlsx_write",
+        })
+        if tool_name in _FILE_WRITE_TOOLS:
             path = ctx.arguments.get("path", "") or ctx.arguments.get("file_path", "")
             return PermissionDecision(
                 verdict=PermissionVerdict.APPROVAL_REQUIRED,
@@ -183,6 +190,7 @@ class PermissionEngine:
         tool = ctx.tool_name
         if tool == "exec":
             return f"exec:{ctx.arguments.get('command', '')}"
-        if tool in ("write_file", "edit_file", "delete_file"):
+        if tool in ("write_file", "edit_file", "delete_file",
+                      "docx_write", "pptx_write", "xlsx_write"):
             return f"{tool}:{ctx.arguments.get('path', '') or ctx.arguments.get('file_path', '')}"
         return f"{tool}:{hash(str(ctx.arguments))}"
