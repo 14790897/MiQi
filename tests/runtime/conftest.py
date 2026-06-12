@@ -38,4 +38,6 @@ def fake_services(fake_config, fake_provider):
     services.history_runtime = None
     services.thread_runtime = None
     services.session_state = None
+    # Phase 24: explicitly None to avoid MagicMock auto-creation
+    services.ledger_runtime = None
     return services
