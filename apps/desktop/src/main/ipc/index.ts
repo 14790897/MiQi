@@ -178,6 +178,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         const checkResult = spawnSync(bundledBridge, ['--check'], {
           timeout: 15000,
           encoding: 'utf8',
+        windowsHide: true,
         })
         if (checkResult.status === 0 && checkResult.stdout) {
           try {
@@ -217,7 +218,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
       let pythonCmd: string[] | null = null
       for (const candidate of candidates) {
         try {
-          const r = spawnSync(candidate[0], [...candidate.slice(1), '--version'], { timeout: 5000, encoding: 'utf8' })
+          const r = spawnSync(candidate[0], [...candidate.slice(1), '--version'], { timeout: 5000, encoding: 'utf8', windowsHide: true })
           if (r.status === 0) {
             pythonCmd = candidate
             const ver = (r.stdout || r.stderr || '').trim().replace(/^Python\s+/i, '')
@@ -248,7 +249,7 @@ for m in ("pydantic", "httpx", "loguru"):
         print("MISSING:" + m)
 `
         try {
-          const r = spawnSync(pythonCmd[0], [...pythonCmd.slice(1), '-c', checkScript], { timeout: 8000, encoding: 'utf8' })
+          const r = spawnSync(pythonCmd[0], [...pythonCmd.slice(1), '-c', checkScript], { timeout: 8000, encoding: 'utf8', windowsHide: true })
           const out = (r.stdout || '').trim()
           for (const line of out.split('\n')) {
             if (line.startsWith('MISSING:')) {
@@ -297,7 +298,7 @@ for m in ("pydantic", "httpx", "loguru"):
 
     // Check if WSL is installed at all
     try {
-      const statusResult = spawnSync('wsl', ['--status'], { timeout: 8000, encoding: 'buffer' })
+      const statusResult = spawnSync('wsl', ['--status'], { timeout: 8000, encoding: 'buffer', windowsHide: true })
       if (statusResult.status === 0) {
         installed = true
         // WSL --status outputs UTF-16LE on Windows; decode accordingly
@@ -329,7 +330,7 @@ for m in ("pydantic", "httpx", "loguru"):
     // List installed distros
     if (installed) {
       try {
-        const listResult = spawnSync('wsl', ['--list', '--quiet'], { timeout: 8000, encoding: 'buffer' })
+        const listResult = spawnSync('wsl', ['--list', '--quiet'], { timeout: 8000, encoding: 'buffer', windowsHide: true })
         if (listResult.status === 0) {
           const buf = listResult.stdout as Buffer | null
           let raw = ''
@@ -356,7 +357,7 @@ for m in ("pydantic", "httpx", "loguru"):
 
       // Check if WSL is currently running (any WSL process active)
       try {
-        const psResult = spawnSync('wsl', ['--list', '--running'], { timeout: 8000, encoding: 'buffer' })
+        const psResult = spawnSync('wsl', ['--list', '--running'], { timeout: 8000, encoding: 'buffer', windowsHide: true })
         if (psResult.status === 0) {
           const buf = psResult.stdout as Buffer | null
           let raw = ''
@@ -434,7 +435,7 @@ for m in ("pydantic", "httpx", "loguru"):
           '--export', distroName,
           '-t', tarPath,
         ],
-        { timeout: 120000, encoding: 'utf8' },
+        { timeout: 120000, encoding: 'utf8', windowsHide: true },
       )
       if (child.status !== 0) {
         return { exported: false, distro: null, tarPath: null, error: child.stderr || 'Export failed' }
@@ -474,7 +475,7 @@ for m in ("pydantic", "httpx", "loguru"):
           tarPath,
           '--version', '2',  // Always WSL2 for sandbox
         ],
-        { timeout: 120000, encoding: 'utf8' },
+        { timeout: 120000, encoding: 'utf8', windowsHide: true },
       )
       if (child.status !== 0) {
         return { imported: false, distro: null, installLocation: null, error: child.stderr || 'Import failed' }

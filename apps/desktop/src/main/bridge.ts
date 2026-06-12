@@ -45,7 +45,7 @@ function findBridgeExecutable(projectRoot: string): {
     existsSync(join(projectRoot, 'pyproject.toml'))
   ) {
     try {
-      execSync('uv --version', { stdio: 'ignore' })
+      execSync('uv --version', { stdio: 'ignore', windowsHide: true })
       const bridgeScript = join(projectRoot, 'miqi', 'bridge', 'server.py')
       return { command: 'uv', args: ['run', 'python', bridgeScript] }
     } catch {

@@ -1918,10 +1918,14 @@ def handle_skills_open_folder(req_id: str, params: dict) -> None:
     import subprocess
     import sys as _sys
 
+    _sp_kwargs: dict = {}
+    if _sys.platform == "win32":
+        _sp_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
     folder = str(skill_path.parent if skill_path.is_file() else skill_path)
     try:
         if _sys.platform == "win32":
-            subprocess.run(["explorer", folder], check=False)
+            subprocess.run(["explorer", folder], check=False, **_sp_kwargs)
         elif _sys.platform == "darwin":
             subprocess.run(["open", folder], check=False)
         else:

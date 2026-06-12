@@ -30,6 +30,16 @@ from typing import Any
 
 from loguru import logger
 
+# Windows: hide child process console window
+_SUBPROCESS_KWARGS: dict = {}
+if platform.system() == "Windows":
+    _SUBPROCESS_KWARGS["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+
+def _win_hide() -> dict:
+    """Return kwargs to hide console window on Windows."""
+    return _SUBPROCESS_KWARGS
+
 
 class BwrapSandboxError(Exception):
     """Error raised when bwrap operations fail."""
@@ -131,6 +141,7 @@ class BwrapSandbox:
                 *full_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+            **_win_hide(),
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -170,6 +181,7 @@ class BwrapSandbox:
                 *full_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+            **_win_hide(),
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -216,6 +228,7 @@ class BwrapSandbox:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+            **_win_hide(),
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -263,6 +276,7 @@ class BwrapSandbox:
                     "wsl.exe", "-d", preferred, "--", "bash", "-c", "which bwrap",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                **_win_hide(),
                 )
                 await proc.communicate()
                 if proc.returncode == 0:
@@ -276,6 +290,7 @@ class BwrapSandbox:
                 "wsl.exe", "-l", "-q",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+            **_win_hide(),
             )
             stdout_data, _ = await proc.communicate()
             if proc.returncode != 0:
@@ -297,6 +312,7 @@ class BwrapSandbox:
                         "wsl.exe", "-d", distro, "--", "bash", "-c", "which bwrap",
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
+                    **_win_hide(),
                     )
                     await check.communicate()
                     if check.returncode == 0:
@@ -457,6 +473,7 @@ class BwrapSandbox:
                     *full_args,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                **_win_hide(),
                 )
 
                 try:
@@ -523,6 +540,7 @@ class BwrapSandbox:
                 *full_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+            **_win_hide(),
             )
 
             try:
@@ -744,6 +762,7 @@ class BwrapSandbox:
                     "which", candidate,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                **_win_hide(),
                 )
                 await proc.wait()
                 if proc.returncode == 0:
@@ -801,6 +820,7 @@ class BwrapSandbox:
                 *prefix, "rm", "-rf", linux_dir,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+            **_win_hide(),
             )
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 process.communicate(), timeout=15.0
