@@ -1,5 +1,7 @@
 """Tests for BridgeRuntimeLoop persistent event loop (Phase 27.1)."""
 
+import asyncio
+
 import pytest
 
 
@@ -202,3 +204,99 @@ async def test_shutdown_stops_app_server():
 
     await loop._shutdown()
     assert loop.app_server._running is False
+
+
+# ── Phase 27 acceptance tests ────────────────────────────────────────────
+
+
+def test_chat_send_handler_registered_on_app_server():
+    """chat.send is registered as an AppServer method."""
+    from miqi.bridge.loop import BridgeRuntimeLoop
+
+    capturer = _CaptureSend()
+    loop = BridgeRuntimeLoop(
+        send_func=capturer.send,
+        dispatch_legacy_func=_dispatch_legacy,
+    )
+    asyncio.run(loop._init_app_server())
+
+    methods = loop.app_server._methods
+    assert "chat.send" in methods
+    assert "chat.abort" in methods
+    assert "agent.spawn" in methods
+    assert "agent.kill" in methods
+
+    asyncio.run(loop.app_server.stop())
+
+
+def test_missing_client_id_rejected_in_production():
+    """Missing client_id raises AppServerError (no legacy shim)."""
+    from miqi.bridge.loop import BridgeRuntimeLoop
+    from miqi.runtime.app_server import AppServerError
+
+    loop = BridgeRuntimeLoop(
+        send_func=_CaptureSend().send,
+        dispatch_legacy_func=_dispatch_legacy,
+        dev_mode=False,
+    )
+    with pytest.raises(AppServerError, match="client_id is required"):
+        loop._resolve_client_id({})
+
+
+def test_no_runtime_warning_in_production_path():
+    """BridgeRuntimeLoop in production mode raises no UserWarning."""
+    import warnings
+
+    from miqi.bridge.loop import BridgeRuntimeLoop
+    from miqi.runtime.app_server import AppServerError
+
+    loop = BridgeRuntimeLoop(
+        send_func=_CaptureSend().send,
+        dispatch_legacy_func=_dispatch_legacy,
+        dev_mode=False,
+    )
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        try:
+            loop._resolve_client_id({})
+        except AppServerError:
+            pass  # Expected
+
+    # No UserWarning should have been emitted
+    user_warnings = [x for x in w if issubclass(x.category, UserWarning)]
+    assert len(user_warnings) == 0, (
+        f"Unexpected UserWarning(s): {[str(x.message) for x in user_warnings]}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_shutdown_cancels_pending_tasks():
+    """After shutdown, pending tasks are cancelled and resources cleaned up."""
+    from miqi.bridge.loop import BridgeRuntimeLoop
+
+    capturer = _CaptureSend()
+    loop = BridgeRuntimeLoop(
+        send_func=capturer.send,
+        dispatch_legacy_func=_dispatch_legacy,
+    )
+    await loop._init_app_server()
+
+    # Manually add a task to simulate an active chat turn
+    async def _forever():
+        while True:
+            await asyncio.sleep(1)
+
+    task = asyncio.create_task(_forever())
+    loop._active_chat_tasks["test-task"] = task
+
+    await loop._shutdown()
+
+    # Task should be cancelled
+    assert task.done()
+    assert task.cancelled() or task.exception() is not None
+    # Active chat tasks should be cleared
+    assert len(loop._active_chat_tasks) == 0
+    # AppServer should be stopped
+    assert loop.app_server._running is False
+
