@@ -142,6 +142,78 @@ export class BridgeManager extends EventEmitter {
         crlfDelay: Infinity,
       })
 
+      // Stderr logging — always active
+      this.process.stderr!.on('data', (data: Buffer) => {
+        const text = data.toString().trim()
+        if (text) {
+          console.log(`[MIQI BRIDGE STDERR] ${text}`)
+          this.addLog(text)
+        }
+      })
+
+      this.process.on('error', (err) => {
+        this.addLog(`Bridge process error: ${err.message}`)
+        this.state = 'error'
+        this.process = null
+        this.emitState()
+      })
+
+      // ── Ready handshake ────────────────────────────────────────────
+      // Wait for the bridge to send {"type":"ready"} on stdout.
+      // PyInstaller onefile exe first-run extraction to %TEMP% can take
+      // 5-15+ seconds — the old 1500 ms blind sleep was not enough.
+      // Fallback: 60 s timeout (generous for slow disks / first run).
+      // ───────────────────────────────────────────────────────────────
+      await new Promise<void>((_resolve, _reject) => {
+        let settled = false
+
+        const done = (err?: Error) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timeout)
+          this.rl?.removeListener('line', onReadyLine)
+          this.process?.removeListener('close', onClose)
+          if (err) _reject(err)
+          else _resolve()
+        }
+
+        const onReadyLine = (line: string) => {
+          try {
+            const msg = JSON.parse(line)
+            if (msg.type === 'ready') {
+              done()
+            }
+          } catch {
+            // Non-JSON line (e.g. stray print) — ignore
+          }
+        }
+
+        const onClose = (code: number | null) => {
+          done(
+            new Error(
+              `Bridge process exited with code ${code} before ready signal`,
+            ),
+          )
+        }
+
+        const timeout = setTimeout(() => {
+          done(
+            new Error(
+              'Bridge did not send ready signal within 60 s (PyInstaller extraction may be stuck)',
+            ),
+          )
+        }, 60_000)
+
+        this.rl!.on('line', onReadyLine)
+        this.process!.once('close', onClose)
+      })
+
+      // Bridge is now fully initialized — switch to running state
+      this.addLog('Bridge ready')
+      this.state = 'running'
+      this.emitState()
+
+      // Install the permanent request-response line handler
       this.rl.on('line', (line: string) => {
         try {
           const resp: BridgeResponse = JSON.parse(line)
@@ -160,14 +232,7 @@ export class BridgeManager extends EventEmitter {
         }
       })
 
-      this.process.stderr!.on('data', (data: Buffer) => {
-        const text = data.toString().trim()
-        if (text) {
-          console.log(`[MIQI BRIDGE STDERR] ${text}`)
-          this.addLog(text)
-        }
-      })
-
+      // Handle unexpected exit after ready
       this.process.on('close', (code) => {
         this.addLog(`Bridge process exited with code ${code}`)
         this.state = code === 0 ? 'stopped' : 'error'
@@ -179,33 +244,6 @@ export class BridgeManager extends EventEmitter {
           pending.reject(new Error('Bridge process exited'))
           this.pending.delete(id)
         }
-      })
-
-      this.process.on('error', (err) => {
-        this.addLog(`Bridge process error: ${err.message}`)
-        this.state = 'error'
-        this.process = null
-        this.emitState()
-      })
-
-      // Wait briefly and check if process is still alive
-      await new Promise<void>((resolve, reject) => {
-        setTimeout(() => {
-          if (
-            this.process?.exitCode !== null &&
-            this.process?.exitCode !== undefined
-          ) {
-            reject(
-              new Error(
-                `Bridge process exited immediately with code ${this.process.exitCode}`,
-              ),
-            )
-          } else {
-            this.state = 'running'
-            this.emitState()
-            resolve()
-          }
-        }, 1500)
       })
     } catch (err) {
       this.state = 'error'

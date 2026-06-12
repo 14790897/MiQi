@@ -2278,6 +2278,12 @@ def main() -> None:
         # signal.signal can fail if not in main thread or not supported
         pass
 
+    # Signal readiness — the Electron side waits for this instead of a
+    # fixed timeout.  This is critical for PyInstaller onefile builds where
+    # the first-run extraction to %TEMP% can take 5-15+ seconds.
+    _send({"type": "ready"})
+    _log("Bridge ready — listening on stdin")
+
     for line in sys.stdin:
         line = line.strip()
         if not line:
