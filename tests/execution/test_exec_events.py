@@ -428,3 +428,177 @@ def _make_none_selection(*, timeout_ms: int = 30_000):
         env_passthrough=[],
         reason="test",
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 31.8: Ledger writing via _ledger_runtime injection
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class _FakeLedger:
+    """Minimal fake LedgerRuntime that records append_item calls."""
+
+    def __init__(self):
+        self.items: list[dict] = []
+
+    async def append_item(self, **kwargs):
+        self.items.append(kwargs)
+
+
+@pytest.mark.asyncio
+async def test_exec_tool_writes_ledger_begin_and_end(tmp_path):
+    """ExecTool with _ledger_runtime must write exec_started + exec_completed."""
+    from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
+    from miqi.protocol.permissions import (
+        FileSystemSandboxPolicy, NetworkSandboxPolicy,
+    )
+
+    fake_ledger = _FakeLedger()
+    emitter = _EventCollector()
+
+    tool = ExecTool(timeout=5)
+    result = await tool.execute(
+        "echo hello",
+        _event_emitter=emitter,
+        _turn_id="turn-1",
+        _tool_call_id="call-1",
+        _sandbox=SandboxSelection(
+            sandbox_type=SandboxType.NONE,
+            filesystem_policy=FileSystemSandboxPolicy(),
+            network_policy=NetworkSandboxPolicy.ALLOW_ALL,
+            timeout_ms=5000,
+            env_passthrough=[],
+            reason="test",
+        ),
+        _ledger_runtime=fake_ledger,
+        _thread_id="thread-1",
+    )
+
+    assert "hello" in result
+
+    # Verify ledger items
+    item_types = [it["item_type"] for it in fake_ledger.items]
+    assert "exec_started" in item_types, f"Missing exec_started in {item_types}"
+    assert "exec_completed" in item_types, f"Missing exec_completed in {item_types}"
+
+    started = next(it for it in fake_ledger.items if it["item_type"] == "exec_started")
+    assert started["payload"]["command"] == "echo hello"
+    assert started["payload"]["sandbox_type"] == "none"
+    assert started["thread_id"] == "thread-1"
+    assert started["turn_id"] == "turn-1"
+
+    completed = next(it for it in fake_ledger.items if it["item_type"] == "exec_completed")
+    assert completed["payload"]["tool_call_id"] == "call-1"
+    assert completed["payload"]["exit_code"] == 0
+    assert completed["payload"]["cancelled"] is False
+    assert completed["payload"]["timed_out"] is False
+
+
+@pytest.mark.asyncio
+async def test_exec_tool_writes_output_deltas_to_ledger(tmp_path):
+    """ExecTool must write exec_output_delta for each stdout/stderr chunk."""
+    import asyncio as _asyncio
+
+    from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
+    from miqi.protocol.permissions import (
+        FileSystemSandboxPolicy, NetworkSandboxPolicy,
+    )
+
+    fake_ledger = _FakeLedger()
+    emitter = _EventCollector()
+
+    tool = ExecTool(timeout=5)
+    result = await tool.execute(
+        "echo line1 && echo line2",
+        _event_emitter=emitter,
+        _turn_id="turn-delta",
+        _tool_call_id="call-delta",
+        _sandbox=SandboxSelection(
+            sandbox_type=SandboxType.NONE,
+            filesystem_policy=FileSystemSandboxPolicy(),
+            network_policy=NetworkSandboxPolicy.ALLOW_ALL,
+            timeout_ms=5000,
+            env_passthrough=[],
+            reason="test",
+        ),
+        _ledger_runtime=fake_ledger,
+        _thread_id="thread-delta",
+    )
+
+    # Verify delta items exist
+    deltas = [it for it in fake_ledger.items if it["item_type"] == "exec_output_delta"]
+    assert len(deltas) >= 1, f"Expected at least 1 output delta, got {len(deltas)}"
+    for d in deltas:
+        assert d["payload"]["tool_call_id"] == "call-delta"
+        assert d["payload"]["stream"] in ("stdout", "stderr")
+
+
+@pytest.mark.asyncio
+async def test_exec_tool_launch_failure_recorded_in_ledger():
+    """When process launch fails, exec_completed must be written with exit_code=1."""
+    fake_ledger = _FakeLedger()
+    emitter = _EventCollector()
+
+    tool = ExecTool(timeout=5)
+    # Use a command that will fail to launch (invalid shell syntax on Windows)
+    result = await tool.execute(
+        "nonexistent_command_xyz_12345",
+        _event_emitter=emitter,
+        _turn_id="turn-fail",
+        _tool_call_id="call-fail",
+        _sandbox=_none_sandbox(),
+        _ledger_runtime=fake_ledger,
+        _thread_id="thread-fail",
+    )
+
+    # exec_completed should still be written
+    completed = [it for it in fake_ledger.items if it["item_type"] == "exec_completed"]
+    assert len(completed) >= 1, f"Expected exec_completed for failed launch, got {fake_ledger.items}"
+    # exit_code may be 1 or non-zero (depends on shell)
+    assert completed[0]["payload"]["tool_call_id"] == "call-fail"
+
+
+@pytest.mark.asyncio
+async def test_exec_tool_cancelled_before_start_recorded(tmp_path):
+    """When cancel_event is already set before execution, exec_completed
+    must be written with cancelled=True and exit_code=-1."""
+    fake_ledger = _FakeLedger()
+    emitter = _EventCollector()
+    cancel_evt = asyncio.Event()
+    cancel_evt.set()  # Already cancelled before start
+
+    tool = ExecTool(timeout=5)
+    result = await tool.execute(
+        "echo should_not_run",
+        _event_emitter=emitter,
+        _turn_id="turn-cancel",
+        _tool_call_id="call-cancel",
+        _cancel_event=cancel_evt,
+        _sandbox=_none_sandbox(),
+        _ledger_runtime=fake_ledger,
+        _thread_id="thread-cancel",
+    )
+
+    assert "cancelled" in result.lower()
+
+    # exec_completed should have cancelled=True
+    completed = [it for it in fake_ledger.items if it["item_type"] == "exec_completed"]
+    assert len(completed) == 1
+    assert completed[0]["payload"]["cancelled"] is True
+    assert completed[0]["payload"]["exit_code"] == -1
+
+
+def _none_sandbox():
+    """Helper: SandboxSelection for NONE (direct execution)."""
+    from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
+    from miqi.protocol.permissions import (
+        FileSystemSandboxPolicy, NetworkSandboxPolicy,
+    )
+    return SandboxSelection(
+        sandbox_type=SandboxType.NONE,
+        filesystem_policy=FileSystemSandboxPolicy(),
+        network_policy=NetworkSandboxPolicy.ALLOW_ALL,
+        timeout_ms=5000,
+        env_passthrough=[],
+        reason="test",
+    )

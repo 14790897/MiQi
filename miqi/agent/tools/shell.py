@@ -254,6 +254,9 @@ class ExecTool(Tool):
         turn_id: str = "",
         tool_call_id: str = "",
         cancel_event: asyncio.Event | None = None,
+        # Phase 31.8: ledger runtime for replay-persistent event recording
+        ledger_runtime=None,
+        thread_id: str = "",
     ) -> _ExecResult:
         """Execute a command inside the bwrap sandbox.
 
@@ -405,6 +408,9 @@ class ExecTool(Tool):
         turn_id: str = "",
         tool_call_id: str = "",
         cancel_event: asyncio.Event | None = None,
+        # Phase 31.8: ledger runtime for replay-persistent event recording
+        ledger_runtime=None,
+        thread_id: str = "",
     ) -> _ExecResult:
         """Execute a command according to the ToolOrchestrator's SandboxSelection.
 
@@ -428,6 +434,9 @@ class ExecTool(Tool):
             turn_id=turn_id,
             tool_call_id=tool_call_id,
             cancel_event=cancel_event,
+            # Phase 31.8: pass ledger runtime and thread_id to sub-executors
+            ledger_runtime=ledger_runtime,
+            thread_id=thread_id,
         )
 
         # ── NONE: orchestrator explicitly allowed direct execution ──────
@@ -485,6 +494,9 @@ class ExecTool(Tool):
         turn_id: str = "",
         tool_call_id: str = "",
         cancel_event: asyncio.Event | None = None,
+        # Phase 31.8: ledger runtime for replay-persistent event recording
+        ledger_runtime=None,
+        thread_id: str = "",
     ) -> _ExecResult:
         """Execute with RESTRICTED sandbox policy enforcement.
 
@@ -519,6 +531,8 @@ class ExecTool(Tool):
             turn_id=turn_id,
             tool_call_id=tool_call_id,
             cancel_event=cancel_event,
+            ledger_runtime=ledger_runtime,
+            thread_id=thread_id,
         )
 
     # ── Streaming helpers ────────────────────────────────────────────
