@@ -865,8 +865,8 @@ async def test_allow_always_adds_to_permanent_allowlist(orchestrator, mock_compo
     orchestrator.resolve_approval(approval_id, "always")
     await task
 
-    # The pattern should be added
-    assert "Run: always-allowed-cmd" in orchestrator.permissions.permanent_allowlist
+    # Phase 31.7: pattern uses _make_key format (exec:command, not description)
+    assert "exec:always-allowed-cmd" in orchestrator.permissions.permanent_allowlist
 
 
 @pytest.mark.asyncio

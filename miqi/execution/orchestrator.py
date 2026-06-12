@@ -390,14 +390,39 @@ class ToolOrchestrator:
         )
 
     def _record_permanent_approval(self, meta: dict[str, Any]) -> None:
-        """Add the approved command pattern to the permanent allowlist.
+        """Add the approved tool+argument key to the permanent allowlist.
 
-        The description (or command field) is used as the pattern.
-        Scope is recorded as session-scoped via the session_id.
+        Builds the pattern using the same key format as
+        PermissionEngine._make_key so the allowlist entry actually
+        matches future permission checks:
+
+        - exec tools:     exec:<command>
+        - file_write tools: <tool_name>:<path>
+        - other tools:    <tool_name>:<hash of arguments>
+
+        Phase 31.7 fix: previously used ``description`` which contains
+        a user-facing format (e.g. "write_file: /tmp/x" with a space)
+        that never matched _make_key's format ("write_file:/tmp/x").
         """
-        pattern = (meta.get("description") or meta.get("command") or "").strip()
-        if not pattern:
-            return
+        tool = meta.get("tool_name", "")
+        if tool == "exec":
+            cmd = meta.get("command", "")
+            if not cmd:
+                return
+            pattern = f"exec:{cmd}"
+        elif tool in (
+            "write_file", "edit_file", "delete_file",
+            "docx_write", "pptx_write", "xlsx_write",
+        ):
+            path = (meta.get("details", {}) or {}).get("path", "")
+            if not path:
+                return
+            pattern = f"{tool}:{path}"
+        else:
+            # Fallback: use the description field (user-visible text)
+            pattern = (meta.get("description") or "").strip()
+            if not pattern:
+                return
         self.permissions.permanent_allowlist.add(pattern)
         logger.info(
             "Permanent approval recorded: pattern={!r} session={}",
