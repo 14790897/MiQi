@@ -3,6 +3,8 @@
 import asyncio
 import os
 import re
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +12,25 @@ from loguru import logger
 
 from miqi.agent.tools.base import Tool
 from miqi.execution.sandbox_policy import SandboxType
+from miqi.protocol.events import (
+    ExecCommandBeginEvent,
+    ExecCommandOutputDeltaEvent,
+    ExecCommandEndEvent,
+)
+
+
+# ── Internal result carrier ────────────────────────────────────────────
+
+
+@dataclass
+class _ExecResult:
+    """Carries the output of a single command execution plus metadata
+    needed to emit an accurate ExecCommandEndEvent."""
+    output: str
+    exit_code: int = 0
+    duration_ms: int = 0
+    cancelled: bool = False
+    timed_out: bool = False
 
 
 class ExecTool(Tool):
@@ -102,7 +123,6 @@ class ExecTool(Tool):
 
         # Phase 21: emit exec begin event
         if event_emitter is not None:
-            from miqi.protocol.events import ExecCommandBeginEvent
             await event_emitter.emit(ExecCommandBeginEvent(
                 turn_id=turn_id,
                 tool_call_id=tool_call_id,
@@ -111,11 +131,11 @@ class ExecTool(Tool):
                 sandbox_type=sandbox_type,
             ))
 
-        # Phase 21: exec end event needs a single exit point.
-        # Capture the result so we can emit the end event after.
-        async def _run() -> str:
-            # If desktop approval callback is wired in, use the full approval system.
-            # Otherwise fall back to the static guard.
+        # Phase 31.5: exec end event needs a single exit point.
+        # _ExecResult carries output + metadata so the end event is accurate.
+        async def _run() -> _ExecResult:
+            # If desktop approval callback is wired in, use the full
+            # approval system.  Otherwise fall back to the static guard.
             if self.approval_callback is not None:
                 import functools
                 from miqi.agent.command_approval import check_dangerous_command
@@ -127,56 +147,85 @@ class ExecTool(Tool):
                 )
                 approval_result = await loop.run_in_executor(None, check_fn)
                 if not approval_result.get("approved", True):
-                    return approval_result.get(
+                    msg = approval_result.get(
                         "message",
                         "Error: Command blocked — user denied approval.",
                     )
+                    return _ExecResult(output=msg, exit_code=1)
             else:
                 guard_error = self._guard_command(command, cwd)
                 if guard_error:
-                    return guard_error
+                    return _ExecResult(output=guard_error, exit_code=1)
+
+            # Phase 31.6: if cancel_event is already set before we start,
+            # return immediately without spawning a subprocess.
+            if cancel_event is not None and cancel_event.is_set():
+                return _ExecResult(
+                    output="Error: Command cancelled before start.",
+                    exit_code=-1, cancelled=True,
+                )
+
+            # ── common args shared by every execution path ──────────
+            exec_kwargs = dict(
+                event_emitter=event_emitter,
+                turn_id=turn_id,
+                tool_call_id=tool_call_id,
+                cancel_event=cancel_event,
+            )
 
             # Phase 31: if ToolOrchestrator injected a SandboxSelection,
             # it is the single source of truth for how this command runs.
             # ExecTool MUST follow it — no independent sandbox decision.
             if _sandbox is not None:
                 return await self._execute_with_sandbox_selection(
-                    _sandbox, command, cwd,
+                    _sandbox, command, cwd, **exec_kwargs,
                 )
 
             # Legacy path (no orchestrator): backward-compatible behavior.
-            # Try sandbox execution first if a sandbox manager is available.
             if self._sandbox_manager is not None:
                 sandbox = self._sandbox_manager.active_sandbox
                 if sandbox and sandbox.is_running:
-                    return await self._execute_in_sandbox(sandbox, command, cwd)
+                    return await self._execute_in_sandbox(
+                        sandbox, command, cwd, **exec_kwargs,
+                    )
 
             # Fall back to direct execution (no sandbox)
-            return await self._execute_direct(command, cwd)
+            return await self._execute_direct(command, cwd, **exec_kwargs)
 
-        result = await _run()
+        exec_result = await _run()
 
-        # Phase 21: emit exec end event
+        # Phase 31.5: emit exec end event with real metadata.
         if event_emitter is not None:
-            from miqi.protocol.events import ExecCommandEndEvent
-            exit_code = 0 if not result.startswith("Error:") else 1
             await event_emitter.emit(ExecCommandEndEvent(
                 turn_id=turn_id,
                 tool_call_id=tool_call_id,
-                exit_code=exit_code,
-                duration_ms=0,
-                output_size=len(result),
+                exit_code=exec_result.exit_code,
+                duration_ms=exec_result.duration_ms,
+                output_size=len(exec_result.output),
             ))
 
-        return result
+        return exec_result.output
 
     async def _execute_in_sandbox(
         self, sandbox, command: str, cwd: str,
         *,
         timeout_ms: int | None = None,
         env_passthrough: list[str] | None = None,
-    ) -> str:
-        """Execute a command inside the bwrap sandbox."""
+        event_emitter=None,
+        turn_id: str = "",
+        tool_call_id: str = "",
+        cancel_event: asyncio.Event | None = None,
+    ) -> _ExecResult:
+        """Execute a command inside the bwrap sandbox.
+
+        .. note::
+            The sandbox does not yet support incremental stdout/stderr
+            streaming (sandbox.run_command returns everything at once)
+            nor mid-execution cancellation.  Therefore no
+            ExecCommandOutputDeltaEvent is emitted for the bwrap path.
+            This is a known limitation tracked for a future phase.
+        """
+        _ = event_emitter, turn_id, tool_call_id  # unused in sandbox path
         effective_timeout = timeout_ms / 1000 if timeout_ms else self.timeout
         effective_env_passthrough: frozenset[str]
         if env_passthrough is not None:
@@ -184,6 +233,14 @@ class ExecTool(Tool):
         else:
             effective_env_passthrough = self.env_passthrough
 
+        # Phase 31.6: honour cancel_event before starting sandbox work.
+        if cancel_event is not None and cancel_event.is_set():
+            return _ExecResult(
+                output="Error: Command cancelled before sandbox start.",
+                exit_code=-1, cancelled=True,
+            )
+
+        start = time.monotonic()
         try:
             # Build sandbox-relative working directory
             sandbox_cwd = self._resolve_sandbox_cwd(cwd)
@@ -210,6 +267,8 @@ class ExecTool(Tool):
                 cwd=sandbox_cwd,
             )
 
+            duration_ms = int((time.monotonic() - start) * 1000)
+
             output_parts = []
             if stdout:
                 output_parts.append(stdout)
@@ -225,17 +284,24 @@ class ExecTool(Tool):
             if len(result) > max_len:
                 result = result[:max_len] + f"\n... (truncated, {len(result) - max_len} more chars)"
 
-            return result
+            return _ExecResult(
+                output=result, exit_code=exit_code, duration_ms=duration_ms,
+            )
 
         except Exception as e:
+            duration_ms = int((time.monotonic() - start) * 1000)
             logger.error("Sandbox execution failed: {} — {}", type(e).__name__, e)
             # Do NOT silently fall back to host execution.
             # The model needs to know the sandbox failed so it can adjust
             # its commands (e.g. use Linux paths instead of Windows paths).
-            return (
-                f"Error: Sandbox execution failed — {type(e).__name__}: {e}\n"
-                f"Hint: You are running inside a Linux sandbox. Use Linux-style "
-                f"paths (e.g. /home/miqi/workspace/) and Linux commands."
+            return _ExecResult(
+                output=(
+                    f"Error: Sandbox execution failed — {type(e).__name__}: {e}\n"
+                    f"Hint: You are running inside a Linux sandbox. Use Linux-style "
+                    f"paths (e.g. /home/miqi/workspace/) and Linux commands."
+                ),
+                exit_code=1,
+                duration_ms=duration_ms,
             )
 
     def _resolve_sandbox_cwd(self, cwd: str) -> str:
@@ -295,7 +361,12 @@ class ExecTool(Tool):
 
     async def _execute_with_sandbox_selection(
         self, selection: Any, command: str, cwd: str,
-    ) -> str:
+        *,
+        event_emitter=None,
+        turn_id: str = "",
+        tool_call_id: str = "",
+        cancel_event: asyncio.Event | None = None,
+    ) -> _ExecResult:
         """Execute a command according to the ToolOrchestrator's SandboxSelection.
 
         This is the SINGLE enforcement point for sandbox policy.  The
@@ -311,14 +382,18 @@ class ExecTool(Tool):
         - RESTRICTED → direct execution with cwd/env/timeout enforcement.
         """
         st = selection.sandbox_type
+        common = dict(
+            timeout_ms=selection.timeout_ms,
+            env_passthrough=list(selection.env_passthrough),
+            event_emitter=event_emitter,
+            turn_id=turn_id,
+            tool_call_id=tool_call_id,
+            cancel_event=cancel_event,
+        )
 
         # ── NONE: orchestrator explicitly allowed direct execution ──────
         if st == SandboxType.NONE:
-            return await self._execute_direct(
-                command, cwd,
-                timeout_ms=selection.timeout_ms,
-                env_passthrough=list(selection.env_passthrough),
-            )
+            return await self._execute_direct(command, cwd, **common)
 
         # ── BWRAP: strongest isolation; must be available ───────────────
         if st == SandboxType.BWRAP:
@@ -329,35 +404,49 @@ class ExecTool(Tool):
             )
             if sandbox is not None and sandbox.is_running:
                 return await self._execute_in_sandbox(
-                    sandbox, command, cwd,
-                    timeout_ms=selection.timeout_ms,
-                    env_passthrough=list(selection.env_passthrough),
+                    sandbox, command, cwd, **common,
                 )
             # FAIL CLOSED — do NOT silently run on the host.
-            return (
-                "Error: BWRAP sandbox is required by policy but no sandbox "
-                "is currently active.  The command was NOT executed on the "
-                "host.  Check that the sandbox is running and retry."
+            return _ExecResult(
+                output=(
+                    "Error: BWRAP sandbox is required by policy but no sandbox "
+                    "is currently active.  The command was NOT executed on the "
+                    "host.  Check that the sandbox is running and retry."
+                ),
+                exit_code=1,
             )
 
         # ── LANDLOCK: not yet implemented ───────────────────────────────
         if st == SandboxType.LANDLOCK:
-            return (
-                "Error: LANDLOCK sandbox is not yet implemented in MiQi. "
-                "The command was NOT executed."
+            return _ExecResult(
+                output=(
+                    "Error: LANDLOCK sandbox is not yet implemented in MiQi. "
+                    "The command was NOT executed."
+                ),
+                exit_code=1,
             )
 
         # ── RESTRICTED: process-level restrictions ──────────────────────
         if st == SandboxType.RESTRICTED:
             return await self._execute_restricted(
-                command, cwd, sandbox_selection=selection,
+                command, cwd, sandbox_selection=selection, **common,
             )
 
-        return f"Error: Unknown sandbox type '{st}'"
+        return _ExecResult(
+            output=f"Error: Unknown sandbox type '{st}'",
+            exit_code=1,
+        )
 
     async def _execute_restricted(
         self, command: str, cwd: str, sandbox_selection: Any,
-    ) -> str:
+        *,
+        timeout_ms: int | None = None,
+        env_passthrough: list[str] | None = None,
+        event_emitter=None,
+        turn_id: str = "",
+        tool_call_id: str = "",
+        cancel_event: asyncio.Event | None = None,
+    ) -> _ExecResult:
         """Execute with RESTRICTED sandbox policy enforcement.
 
         Enforces:
@@ -374,26 +463,118 @@ class ExecTool(Tool):
             try:
                 cwd_path.relative_to(workspace_path)
             except ValueError:
-                return (
-                    f"Error: RESTRICTED sandbox policy requires cwd to be "
-                    f"within the workspace.  cwd={cwd} is outside "
-                    f"workspace={workspace_path}.  Command was NOT executed."
+                return _ExecResult(
+                    output=(
+                        f"Error: RESTRICTED sandbox policy requires cwd to be "
+                        f"within the workspace.  cwd={cwd} is outside "
+                        f"workspace={workspace_path}.  Command was NOT executed."
+                    ),
+                    exit_code=1,
                 )
 
         return await self._execute_direct(
             command, cwd,
             timeout_ms=sandbox_selection.timeout_ms,
             env_passthrough=list(sandbox_selection.env_passthrough),
+            event_emitter=event_emitter,
+            turn_id=turn_id,
+            tool_call_id=tool_call_id,
+            cancel_event=cancel_event,
         )
+
+    # ── Streaming helpers ────────────────────────────────────────────
+
+    @staticmethod
+    async def _read_stream(
+        stream: asyncio.StreamReader | None,
+        stream_name: str,
+        *,
+        event_emitter,
+        turn_id: str,
+        tool_call_id: str,
+        max_chars: int = 50_000,
+    ) -> tuple[str, bool]:
+        """Read *stream* incrementally, emit delta events, accumulate text.
+
+        Returns ``(accumulated_text, was_truncated)``.
+        """
+        if stream is None:
+            return "", False
+
+        chunks: list[str] = []
+        total = 0
+        truncated = False
+        while True:
+            try:
+                chunk = await stream.read(4096)
+            except Exception:
+                break
+            if not chunk:
+                break
+            text = chunk.decode("utf-8", errors="replace")
+            remaining = max_chars - total
+            if remaining <= 0:
+                truncated = True
+                break
+            if len(text) > remaining:
+                text = text[:remaining]
+                truncated = True
+            chunks.append(text)
+            total += len(text)
+            if event_emitter is not None:
+                await event_emitter.emit(ExecCommandOutputDeltaEvent(
+                    turn_id=turn_id,
+                    tool_call_id=tool_call_id,
+                    stream=stream_name,
+                    delta=text,
+                ))
+            if truncated:
+                break
+        return "".join(chunks), truncated
+
+    async def _kill_process(self, process: asyncio.subprocess.Process) -> None:
+        """Terminate, then kill *process* gracefully to avoid orphans."""
+        try:
+            process.terminate()
+        except ProcessLookupError:
+            return
+        try:
+            await asyncio.wait_for(process.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5.0)
+            except (asyncio.TimeoutError, ProcessLookupError):
+                pass
+
+    # ── Direct execution (Phase 31.5 streaming + 31.6 cancel/timeout) ──
 
     async def _execute_direct(
         self, command: str, cwd: str,
         *,
         timeout_ms: int | None = None,
         env_passthrough: list[str] | None = None,
-    ) -> str:
-        """Execute a command directly on the host (no sandbox)."""
+        event_emitter=None,
+        turn_id: str = "",
+        tool_call_id: str = "",
+        cancel_event: asyncio.Event | None = None,
+    ) -> _ExecResult:
+        """Execute a command directly on the host (no sandbox).
+
+        Phase 31.5: stdout/stderr are read incrementally and each chunk
+        is emitted as an ``ExecCommandOutputDeltaEvent``.  The final text
+        is still accumulated for the tool result.
+
+        Phase 31.6: *cancel_event* is raced against process completion.
+        On cancel or timeout the subprocess is terminate-d then kill-ed.
+        ``duration_ms`` measures real wall-clock time.
+        """
         effective_timeout = (timeout_ms / 1000) if timeout_ms else self.timeout
+        start = time.monotonic()
+
         try:
             process = await asyncio.create_subprocess_shell(
                 command,
@@ -402,46 +583,113 @@ class ExecTool(Tool):
                 cwd=cwd,
                 env=self._build_safe_env(extra_passthrough=env_passthrough),
             )
-
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=effective_timeout,
-                )
-            except asyncio.TimeoutError:
-                process.kill()
-                # Wait for the process to fully terminate so pipes are
-                # drained and file descriptors are released.
-                try:
-                    await asyncio.wait_for(process.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    pass
-                return f"Error: Command timed out after {effective_timeout:.0f} seconds"
-
-            output_parts = []
-
-            if stdout:
-                output_parts.append(stdout.decode("utf-8", errors="replace"))
-
-            if stderr:
-                stderr_text = stderr.decode("utf-8", errors="replace")
-                if stderr_text.strip():
-                    output_parts.append(f"STDERR:\n{stderr_text}")
-
-            if process.returncode != 0:
-                output_parts.append(f"\nExit code: {process.returncode}")
-
-            result = "\n".join(output_parts) if output_parts else "(no output)"
-
-            # Truncate very long output
-            max_len = 10000
-            if len(result) > max_len:
-                result = result[:max_len] + f"\n... (truncated, {len(result) - max_len} more chars)"
-
-            return result
-
         except Exception as e:
-            return f"Error executing command: {str(e)}"
+            duration_ms = int((time.monotonic() - start) * 1000)
+            return _ExecResult(
+                output=f"Error executing command: {str(e)}",
+                exit_code=1,
+                duration_ms=duration_ms,
+            )
+
+        # Start streaming readers for stdout and stderr concurrently.
+        stdout_task = asyncio.create_task(
+            self._read_stream(
+                process.stdout, "stdout",
+                event_emitter=event_emitter,
+                turn_id=turn_id,
+                tool_call_id=tool_call_id,
+            ),
+        )
+        stderr_task = asyncio.create_task(
+            self._read_stream(
+                process.stderr, "stderr",
+                event_emitter=event_emitter,
+                turn_id=turn_id,
+                tool_call_id=tool_call_id,
+            ),
+        )
+
+        cancelled = False
+        timed_out = False
+        proc_wait = asyncio.create_task(process.wait())
+
+        try:
+            if cancel_event is not None:
+                cancel_wait = asyncio.create_task(cancel_event.wait())
+                done, _ = await asyncio.wait(
+                    [proc_wait, cancel_wait],
+                    timeout=effective_timeout,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if cancel_wait in done:
+                    cancelled = True
+                    cancel_wait.result()  # propagate exception if any
+                elif not done:
+                    timed_out = True
+            else:
+                try:
+                    await asyncio.wait_for(proc_wait, timeout=effective_timeout)
+                except asyncio.TimeoutError:
+                    timed_out = True
+        except Exception:
+            # If the wait itself fails, treat as error.
+            timed_out = False
+
+        # On cancel or timeout — kill the subprocess (no orphans).
+        if cancelled or timed_out:
+            await self._kill_process(process)
+
+        # Wait for stream readers to finish (they see EOF when process
+        # exits / pipes close).
+        stdout_text, stdout_trunc = await stdout_task
+        stderr_text, stderr_trunc = await stderr_task
+
+        duration_ms = int((time.monotonic() - start) * 1000)
+        exit_code = process.returncode if process.returncode is not None else -1
+
+        # ── Build result text ─────────────────────────────────────────
+        if cancelled:
+            return _ExecResult(
+                output="Error: Command cancelled by user.",
+                exit_code=exit_code, duration_ms=duration_ms,
+                cancelled=True,
+            )
+        if timed_out:
+            return _ExecResult(
+                output=(
+                    f"Error: Command timed out after "
+                    f"{effective_timeout:.0f} seconds"
+                ),
+                exit_code=exit_code, duration_ms=duration_ms,
+                timed_out=True,
+            )
+
+        trunc_note = ""
+        if stdout_trunc or stderr_trunc:
+            trunc_note = "\n[output truncated]"
+
+        output_parts: list[str] = []
+        if stdout_text:
+            output_parts.append(stdout_text)
+        if stderr_text and stderr_text.strip():
+            output_parts.append(f"STDERR:\n{stderr_text}")
+        if exit_code != 0:
+            output_parts.append(f"\nExit code: {exit_code}")
+        if trunc_note:
+            output_parts.append(trunc_note)
+
+        result = "\n".join(output_parts) if output_parts else "(no output)"
+
+        # Truncate aggregated result at a readable limit
+        max_len = 10_000
+        if len(result) > max_len:
+            result = result[:max_len] + (
+                f"\n... (truncated, {len(result) - max_len} more chars)"
+            )
+
+        return _ExecResult(
+            output=result, exit_code=exit_code, duration_ms=duration_ms,
+        )
 
     def _build_safe_env(
         self, *, extra_passthrough: list[str] | None = None,
