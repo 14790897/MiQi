@@ -407,7 +407,20 @@ class AppServer:
     # ── event subscription and fanout ────────────────────────────────────
 
     def subscribe(self, client_id: str, session_id: str) -> None:
-        """Start forwarding events from session_id to client_id."""
+        """Start forwarding events from session_id to client_id.
+
+        Client must be authorized for the session (verified against
+        the ClientSessionRegistry). Unauthorized clients are silently
+        ignored — no subscription is created and no error is raised,
+        because subscription requests can come from untrusted transports.
+        """
+        authorized = self.registry._session_clients.get(session_id, set())
+        if client_id not in authorized:
+            logger.warning(
+                "AppServer: refusing subscription for unauthorized client {} "
+                "to session {}", client_id, session_id,
+            )
+            return
         self._subscriptions.setdefault(session_id, set()).add(client_id)
         logger.debug("AppServer: client {} subscribed to session {}", client_id, session_id)
 
