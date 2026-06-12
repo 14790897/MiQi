@@ -203,6 +203,7 @@ class BridgeRuntimeLoop:
             sessions_list_archived_handler,
             sessions_get_tracked_files_handler,
             sessions_clear_tracked_files_handler,
+            sessions_claim_legacy_handler,
         )
         self._app_server.register_method("sessions.list", sessions_list_handler)
         self._app_server.register_method("sessions.get", sessions_get_handler)
@@ -212,6 +213,7 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("sessions.list_archived", sessions_list_archived_handler)
         self._app_server.register_method("sessions.get_tracked_files", sessions_get_tracked_files_handler)
         self._app_server.register_method("sessions.clear_tracked_files", sessions_clear_tracked_files_handler)
+        self._app_server.register_method("sessions.claim_legacy", sessions_claim_legacy_handler)
 
         logger.info(
             "BridgeRuntimeLoop: AppServer initialized with {} methods",
