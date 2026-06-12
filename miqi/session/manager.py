@@ -208,6 +208,12 @@ class SessionManager:
                     data = json.loads(line)
                     if data.get("_type") == "metadata":
                         metadata = data.get("metadata", {})
+                        # Propagate owner_client_id from top-level
+                        # (top-level is used by get_owner() for fast queries;
+                        #  metadata sub-dict is used by Session.metadata.get())
+                        owner_from_top = data.get("owner_client_id")
+                        if owner_from_top and "owner_client_id" not in metadata:
+                            metadata["owner_client_id"] = owner_from_top
                         if data.get("created_at"):
                             created_at = datetime.fromisoformat(data["created_at"])
                         if data.get("updated_at"):
@@ -243,6 +249,12 @@ class SessionManager:
         path.parent.mkdir(parents=True, exist_ok=True)
 
         should_rewrite = not path.exists() or len(session.messages) < session.saved_count
+
+        # Force rewrite if owner_client_id was set but not yet on disk
+        if not should_rewrite and session.metadata.get("owner_client_id"):
+            owner_on_disk = self._read_owner(session.key)
+            if owner_on_disk is None:
+                should_rewrite = True
 
         if should_rewrite:
             with open(path, "w", encoding="utf-8") as f:
@@ -593,7 +605,8 @@ class SessionManager:
 
         Returns True if the session was successfully claimed.
         Returns False if the session is already claimed by this client
-        (idempotent — no error).
+        (idempotent — no error) or if the session does not exist on disk
+        (cannot claim nonexistent sessions).
         Raises OwnershipError if the session is owned by a different client.
         """
         owner = self.get_owner(key)
@@ -605,10 +618,14 @@ class SessionManager:
         if owner == client_id:
             return False  # Already claimed, idempotent
 
-        # Session is unowned — claim it
-        session = self.get_or_create(key)
+        # Session is unowned — load it from disk (do NOT create new)
+        session = self._load(key)
+        if session is None:
+            return False  # Cannot claim a nonexistent session
+
         session.metadata["owner_client_id"] = client_id
         self.save(session)
+        self._cache[key] = session
         logger.info(
             "Session {} claimed by client {}", key, client_id,
         )
