@@ -146,8 +146,18 @@ class LedgerRuntime:
             (self.session_id, thread_id),
         ) as cursor:
             rows = await cursor.fetchall()
-        return [
-            LedgerItem(
+        items: list[LedgerItem] = []
+        for row in rows:
+            try:
+                payload = json.loads(row["payload_json"])
+            except (json.JSONDecodeError, TypeError) as exc:
+                from loguru import logger
+                logger.warning(
+                    "LedgerRuntime: skipping corrupt payload_json for item {}: {}",
+                    row["item_id"], exc,
+                )
+                payload = {}
+            items.append(LedgerItem(
                 item_id=row["item_id"],
                 session_id=row["session_id"],
                 thread_id=row["thread_id"],
@@ -156,11 +166,10 @@ class LedgerRuntime:
                 item_type=row["item_type"],
                 role=row["role"],
                 content=row["content"],
-                payload=json.loads(row["payload_json"]),
+                payload=payload,
                 created_at=row["created_at"],
-            )
-            for row in rows
-        ]
+            ))
+        return items
 
     async def load_provider_messages(self, thread_id: str) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
