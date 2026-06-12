@@ -229,6 +229,11 @@ class AppServer:
         self._ttl_interval = ttl_interval_seconds
         self._ttl_task: asyncio.Task | None = None
         self._running = False
+        # Phase 26.4: event subscription
+        # session_id → {client_id}
+        self._subscriptions: dict[str, set[str]] = {}
+        # client_id → async callable(event_dict)
+        self._event_sinks: dict[str, Any] = {}
 
     # ── method registration ──────────────────────────────────────────────
 
@@ -399,8 +404,67 @@ class AppServer:
             except Exception as exc:
                 logger.warning("AppServer TTL loop error: {}", exc)
 
-    # ── event fanout (stub for 26.4) ─────────────────────────────────────
+    # ── event subscription and fanout ────────────────────────────────────
 
-    async def emit_event(self, client_id: str, event_type: str, data: Any, *, request_id: str | None = None) -> None:
-        """Placeholder — event fanout implemented in Task 26.4."""
-        pass
+    def subscribe(self, client_id: str, session_id: str) -> None:
+        """Start forwarding events from session_id to client_id."""
+        self._subscriptions.setdefault(session_id, set()).add(client_id)
+        logger.debug("AppServer: client {} subscribed to session {}", client_id, session_id)
+
+    def unsubscribe(self, client_id: str, session_id: str) -> None:
+        """Stop forwarding events from session_id to client_id."""
+        subs = self._subscriptions.get(session_id)
+        if subs is not None:
+            subs.discard(client_id)
+            if not subs:
+                del self._subscriptions[session_id]
+        logger.debug("AppServer: client {} unsubscribed from session {}", client_id, session_id)
+
+    def set_event_sink(self, client_id: str, sink: Any) -> None:
+        """Register an async callable that receives event dicts for a client.
+
+        The sink is called as: await sink({"event": ..., "data": ..., "request_id": ...})
+        Transport adapters register their output function here.
+        """
+        self._event_sinks[client_id] = sink
+
+    def remove_event_sink(self, client_id: str) -> None:
+        """Remove the event sink for a client (e.g., on disconnect)."""
+        self._event_sinks.pop(client_id, None)
+        # Also unsubscribe from all sessions
+        for subs in list(self._subscriptions.values()):
+            subs.discard(client_id)
+
+    async def emit_event(
+        self,
+        session_id: str,
+        event_type: str,
+        data: Any,
+        *,
+        request_id: str | None = None,
+    ) -> None:
+        """Emit an event to all clients subscribed to a session.
+
+        Clients without a registered sink are silently skipped.
+        """
+        subs = self._subscriptions.get(session_id, set())
+        if not subs:
+            return
+
+        envelope = {
+            "request_id": request_id,
+            "event": event_type,
+            "data": data,
+        }
+
+        for client_id in list(subs):
+            sink = self._event_sinks.get(client_id)
+            if sink is None:
+                continue
+            try:
+                await sink(envelope)
+            except Exception as exc:
+                logger.warning(
+                    "AppServer: failed to deliver event {} to client {}: {}",
+                    event_type, client_id, exc,
+                )
