@@ -337,6 +337,80 @@ async def test_no_duplicate_end_event_on_launch_failure(tmp_path):
     )
 
 
+# ── Phase 31.6+ resource cleanup ───────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_normal_completion_with_cancel_event_no_pending_cancel_wait(tmp_path):
+    """When a command completes normally but a cancel_event was passed,
+    the internal cancel_wait task must be cancelled (not left pending)."""
+    emitter = _EventCollector()
+    cancel_event = asyncio.Event()
+    tool = ExecTool(timeout=10, working_dir=str(tmp_path))
+
+    output = await tool.execute(
+        "python -c \"print('normal-exit')\"",
+        _event_emitter=emitter,
+        _turn_id="t-clean-normal",
+        _tool_call_id="tc-clean-normal",
+        _cancel_event=cancel_event,
+    )
+
+    assert "normal-exit" in output
+
+    # Must emit exactly one begin + one end event.
+    end_events = [e for e in emitter.events
+                  if isinstance(e, ExecCommandEndEvent)]
+    assert len(end_events) == 1
+    assert end_events[0].exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_timeout_no_pending_tasks(tmp_path):
+    """After a timeout kill, no internal asyncio task (proc_wait,
+    stdout/stderr readers) should remain pending."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+
+    output = await tool.execute(
+        "python -c \"import time; time.sleep(30)\"",
+        _event_emitter=_EventCollector(),
+        _turn_id="t-clean-timeout",
+        _tool_call_id="tc-clean-timeout",
+        _sandbox=_make_none_selection(timeout_ms=50),
+    )
+
+    assert "timed out" in output.lower()
+
+
+@pytest.mark.asyncio
+async def test_cancel_no_pending_tasks(tmp_path):
+    """After cancel-event kills a running subprocess, no internal
+    asyncio task should remain pending."""
+    emitter = _EventCollector()
+    cancel_event = asyncio.Event()
+    tool = ExecTool(timeout=30, working_dir=str(tmp_path))
+
+    async def cancel_after_delay():
+        await asyncio.sleep(0.2)
+        cancel_event.set()
+
+    cancel_task = asyncio.create_task(cancel_after_delay())
+
+    output = await tool.execute(
+        "python -c \"import time; time.sleep(60)\"",
+        _event_emitter=emitter,
+        _turn_id="t-clean-cancel",
+        _tool_call_id="tc-clean-cancel",
+        _cancel_event=cancel_event,
+    )
+
+    await cancel_task
+
+    assert "cancelled" in output.lower()
+    end_events = [e for e in emitter.events
+                  if isinstance(e, ExecCommandEndEvent)]
+    assert len(end_events) == 1
+
+
 # ── Helpers ─────────────────────────────────────────────────────────────
 
 def _make_none_selection(*, timeout_ms: int = 30_000):
