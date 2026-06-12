@@ -180,6 +180,7 @@ class ApprovalRequestedEvent:
     description: str
     details: dict[str, Any] = field(default_factory=dict)
     allow_permanent: bool = False
+    thread_id: str = ""  # Phase 31.4: scoped to thread for abort reconciliation
     timestamp: float = field(default_factory=time.time)
 
 
@@ -188,7 +189,8 @@ class ApprovalResolvedEvent:
     """An approval was resolved (by user, timeout, or policy)."""
     type: str = field(default="approval_resolved", init=False)
     approval_id: str
-    decision: str  # "allow" | "deny" | "allow_permanent"
+    decision: str  # "allow" | "deny" | "allow_permanent" | "timeout" | "abort"
+    turn_id: str = ""  # Phase 31.4: turn that generated the approval
     timestamp: float = field(default_factory=time.time)
 
 

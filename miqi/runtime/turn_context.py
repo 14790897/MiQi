@@ -25,6 +25,9 @@ class TurnContext:
     # Provider
     model: str
     provider: Any  # LLMProvider
+    # Phase 31.4: client/session identity for approval scoping
+    client_id: str = ""
+    session_id: str = ""
     temperature: float = 0.1
     max_tokens: int = 8192
     # Permissions
