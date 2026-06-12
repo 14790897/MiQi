@@ -24,10 +24,10 @@ tests/
 featherflow/agent/memory.py.bak
 .miqi/
 CLAUDE.md
-.workbuddy/memory
+.workbuddy/
 dist-new/
 node_modules/
 .vite/deps
 软著申请材料/*
 company_svg
-skill.md
+# skill.md
