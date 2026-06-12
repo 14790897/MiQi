@@ -134,6 +134,7 @@ export class BridgeManager extends EventEmitter {
         cwd: this.projectRoot,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' },
+        windowsHide: true,
       })
 
       this.rl = createInterface({
