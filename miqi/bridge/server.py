@@ -2457,6 +2457,10 @@ def _register_app_server_methods(server: Any) -> None:
     from miqi.runtime.app_server import register_replay_handlers
     register_replay_handlers(server)
 
+    # Phase 26.6: register command handlers (thread, abort)
+    from miqi.runtime.app_server import register_command_handlers
+    register_command_handlers(server)
+
 
 def _dispatch_via_appserver(req_id: str, method: str, params: dict) -> bool:
     """Try to dispatch a request through AppServer.
