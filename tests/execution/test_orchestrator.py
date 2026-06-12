@@ -366,6 +366,62 @@ async def test_non_exec_tool_bwrap_sandbox_still_injected(
 
 
 @pytest.mark.asyncio
+async def test_resolve_approval_returns_structured_result(orchestrator, mock_components):
+    """Phase 31.4: resolve_approval must return ApprovalResolveResult
+    with resolved=True on success and resolved=False on failure."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+    from miqi.execution.orchestrator import ApprovalResolveResult
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Run: test cmd",
+    )
+
+    ctx = make_ctx(
+        tool_name="exec", tool_call_id="call-structured",
+        turn_id="turn-structured", arguments={"command": "test"},
+    )
+    task = asyncio.create_task(orchestrator.execute(ctx))
+    await asyncio.sleep(0.05)
+
+    approval_id = f"{ctx.turn_id}:{ctx.tool_call_id}"
+
+    # ── Successful resolve ──
+    result = orchestrator.resolve_approval(approval_id, "once")
+    assert isinstance(result, ApprovalResolveResult)
+    assert result.resolved is True
+    assert result.approval_id == approval_id
+    assert result.normalized_decision == "once"
+    assert result.turn_id == ctx.turn_id
+    assert result.reason == ""
+    await task
+
+    # ── Nonexistent approval ──
+    result2 = orchestrator.resolve_approval("nonexistent:id", "once")
+    assert result2.resolved is False
+    assert "not found" in result2.reason.lower()
+
+    # ── Invalid decision ──
+    # Need a new pending approval for this test
+    ctx2 = make_ctx(
+        tool_name="exec", tool_call_id="call-invalid-decision",
+        turn_id="turn-invalid-decision", arguments={"command": "test"},
+    )
+    task2 = asyncio.create_task(orchestrator.execute(ctx2))
+    await asyncio.sleep(0.05)
+    approval_id2 = f"{ctx2.turn_id}:{ctx2.tool_call_id}"
+
+    result3 = orchestrator.resolve_approval(approval_id2, "bogus")
+    assert result3.resolved is False
+    assert "invalid" in result3.reason.lower()
+
+    # Cleanup
+    orchestrator.resolve_approval(approval_id2, "deny")
+    await task2
+
+
+@pytest.mark.asyncio
 async def test_approval_metadata_includes_all_required_fields(orchestrator, mock_components):
     """When an approval is requested, _approval_meta must contain:
     approval_id, client_id, session_id, thread_id, turn_id, tool_call_id,

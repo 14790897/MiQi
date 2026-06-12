@@ -185,6 +185,232 @@ async def test_approvals_resolve_missing_approval_id(fake_config, fake_provider,
     assert exc_info.value.code == "INVALID_PARAMS"
 
 
+# ── Phase 31.4: AppServer approvals.resolve terminal event tests ──────────
+
+
+@pytest.mark.asyncio
+async def test_approvals_resolve_allow_emits_resolved_event(fake_config, fake_provider, tmp_path):
+    """Phase 31.4: AppServer approvals.resolve with 'once' emits
+    ApprovalResolvedEvent through the runtime session's event emitter."""
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.approval_handlers import approvals_resolve_handler
+    from miqi.protocol.events import ApprovalResolvedEvent
+
+    registry = ClientSessionRegistry()
+    session = await _create_session_with_approval(registry, "client-A", "session-a", fake_config, fake_provider, tmp_path)
+    approval_id = session._test_approval_id
+
+    try:
+        result = await approvals_resolve_handler(
+            "req-1",
+            {"approval_id": approval_id, "decision": "once"},
+            "client-A", session.session_id, registry,
+        )
+        assert result["result"]["resolved"] is True
+        assert result["result"]["decision"] == "once"
+
+        # Verify ApprovalResolvedEvent was emitted into the event queue
+        event = await asyncio.wait_for(session._events.get(), timeout=1)
+        assert isinstance(event, ApprovalResolvedEvent), (
+            f"Expected ApprovalResolvedEvent, got {type(event).__name__}"
+        )
+        assert event.approval_id == approval_id
+        assert event.decision == "once"
+        assert event.turn_id == "test-turn"
+    finally:
+        await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_approvals_resolve_deny_emits_resolved_event(fake_config, fake_provider, tmp_path):
+    """Phase 31.4: AppServer approvals.resolve with 'deny' emits
+    ApprovalResolvedEvent with decision='deny'."""
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.approval_handlers import approvals_resolve_handler
+    from miqi.protocol.events import ApprovalResolvedEvent
+
+    registry = ClientSessionRegistry()
+    session = await _create_session_with_approval(registry, "client-A", "session-a", fake_config, fake_provider, tmp_path)
+    approval_id = session._test_approval_id
+
+    try:
+        result = await approvals_resolve_handler(
+            "req-1",
+            {"approval_id": approval_id, "decision": "deny"},
+            "client-A", session.session_id, registry,
+        )
+        assert result["result"]["resolved"] is True
+        assert result["result"]["decision"] == "deny"
+
+        # Verify ApprovalResolvedEvent was emitted
+        event = await asyncio.wait_for(session._events.get(), timeout=1)
+        assert isinstance(event, ApprovalResolvedEvent)
+        assert event.decision == "deny"
+        assert event.approval_id == approval_id
+    finally:
+        await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_approvals_resolve_always_emits_resolved_event(fake_config, fake_provider, tmp_path):
+    """Phase 31.4: AppServer approvals.resolve with 'always' emits
+    ApprovalResolvedEvent and updates the permanent allowlist."""
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.approval_handlers import approvals_resolve_handler
+    from miqi.protocol.events import ApprovalResolvedEvent
+
+    registry = ClientSessionRegistry()
+    session = await _create_session_with_approval(registry, "client-A", "session-a", fake_config, fake_provider, tmp_path)
+    approval_id = session._test_approval_id
+
+    # Ensure permanent_allowlist is a real set for the test
+    orchestrator = getattr(session.services, "orchestrator", None)
+    assert orchestrator is not None
+    orchestrator.permissions.permanent_allowlist = set()
+
+    try:
+        result = await approvals_resolve_handler(
+            "req-1",
+            {"approval_id": approval_id, "decision": "always"},
+            "client-A", session.session_id, registry,
+        )
+        assert result["result"]["resolved"] is True
+        assert result["result"]["decision"] == "always"
+
+        # Verify ApprovalResolvedEvent was emitted
+        event = await asyncio.wait_for(session._events.get(), timeout=1)
+        assert isinstance(event, ApprovalResolvedEvent)
+        assert event.decision == "always"
+        assert event.approval_id == approval_id
+
+        # Verify permanent allowlist was updated
+        assert "Delete test directory" in orchestrator.permissions.permanent_allowlist
+    finally:
+        await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_approvals_resolve_nonexistent_no_event(fake_config, fake_provider, tmp_path):
+    """Phase 31.4: AppServer approvals.resolve for a nonexistent approval
+    does NOT emit ApprovalResolvedEvent."""
+    from miqi.runtime.app_server import ClientSessionRegistry, AppServerError
+    from miqi.runtime.approval_handlers import approvals_resolve_handler
+
+    registry = ClientSessionRegistry()
+    session = await _create_session_with_approval(registry, "client-A", "session-a", fake_config, fake_provider, tmp_path)
+
+    try:
+        # Drain any existing events from session creation
+        while not session._events.empty():
+            session._events.get_nowait()
+
+        with pytest.raises(AppServerError) as exc_info:
+            await approvals_resolve_handler(
+                "req-1",
+                {"approval_id": "nonexistent-approval", "decision": "once"},
+                "client-A", session.session_id, registry,
+            )
+        assert exc_info.value.code == "UNAUTHORIZED"
+
+        # Verify no ApprovalResolvedEvent was emitted
+        assert session._events.empty(), (
+            "No events should be emitted for nonexistent approval resolve"
+        )
+    finally:
+        await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_approvals_resolve_invalid_decision_no_event(fake_config, fake_provider, tmp_path):
+    """Phase 31.4: AppServer approvals.resolve with invalid decision
+    does NOT emit ApprovalResolvedEvent."""
+    from miqi.runtime.app_server import ClientSessionRegistry, AppServerError
+    from miqi.runtime.approval_handlers import approvals_resolve_handler
+
+    registry = ClientSessionRegistry()
+
+    # Drain any events
+    # No session needed — invalid decision is caught before session lookup
+
+    with pytest.raises(AppServerError) as exc_info:
+        await approvals_resolve_handler(
+            "req-1",
+            {"approval_id": "test-1", "decision": "bogus_decision"},
+            "client-1", None, registry,
+        )
+    assert exc_info.value.code == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_approvals_resolve_legacy_allow_mapped_to_once(fake_config, fake_provider, tmp_path):
+    """Phase 31.4: legacy 'allow' decision is accepted and normalized to 'once'."""
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.approval_handlers import approvals_resolve_handler
+    from miqi.protocol.events import ApprovalResolvedEvent
+
+    registry = ClientSessionRegistry()
+    session = await _create_session_with_approval(registry, "client-A", "session-a", fake_config, fake_provider, tmp_path)
+    approval_id = session._test_approval_id
+
+    try:
+        result = await approvals_resolve_handler(
+            "req-1",
+            {"approval_id": approval_id, "decision": "allow"},
+            "client-A", session.session_id, registry,
+        )
+        assert result["result"]["resolved"] is True
+        assert result["result"]["decision"] == "once", (
+            "Legacy 'allow' should be normalized to 'once'"
+        )
+
+        # Verify ApprovalResolvedEvent was emitted with normalized decision
+        event = await asyncio.wait_for(session._events.get(), timeout=1)
+        assert isinstance(event, ApprovalResolvedEvent)
+        assert event.decision == "once", (
+            "ApprovalResolvedEvent should use normalized decision 'once', not 'allow'"
+        )
+    finally:
+        await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_approvals_resolve_legacy_allow_permanent_mapped_to_always(fake_config, fake_provider, tmp_path):
+    """Phase 31.4: legacy 'allow_permanent' decision is accepted and
+    normalized to 'always'."""
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.approval_handlers import approvals_resolve_handler
+    from miqi.protocol.events import ApprovalResolvedEvent
+
+    registry = ClientSessionRegistry()
+    session = await _create_session_with_approval(registry, "client-A", "session-a", fake_config, fake_provider, tmp_path)
+    approval_id = session._test_approval_id
+
+    orchestrator = getattr(session.services, "orchestrator", None)
+    assert orchestrator is not None
+    orchestrator.permissions.permanent_allowlist = set()
+
+    try:
+        result = await approvals_resolve_handler(
+            "req-1",
+            {"approval_id": approval_id, "decision": "allow_permanent"},
+            "client-A", session.session_id, registry,
+        )
+        assert result["result"]["resolved"] is True
+        assert result["result"]["decision"] == "always", (
+            "Legacy 'allow_permanent' should be normalized to 'always'"
+        )
+
+        # Verify ApprovalResolvedEvent was emitted with normalized decision
+        event = await asyncio.wait_for(session._events.get(), timeout=1)
+        assert isinstance(event, ApprovalResolvedEvent)
+        assert event.decision == "always", (
+            "ApprovalResolvedEvent should use normalized decision 'always', "
+            "not 'allow_permanent'"
+        )
+    finally:
+        await registry.stop_all()
+
+
 # ── approvals.clear_permanent ──────────────────────────────────────────────
 
 

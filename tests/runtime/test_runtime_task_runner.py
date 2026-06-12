@@ -58,13 +58,20 @@ async def test_approval_response_resolves_orchestrator(fake_services):
     from miqi.protocol.commands import ApprovalResponse
     from miqi.protocol.events import ApprovalResolvedEvent
     from miqi.runtime.task_runner import TaskRunner
+    from miqi.execution.orchestrator import ApprovalResolveResult
 
     events = asyncio.Queue()
     seen: dict[str, str] = {}
 
-    def resolve_approval(approval_id: str, decision: str) -> None:
+    def resolve_approval(approval_id: str, decision: str) -> ApprovalResolveResult:
         seen["approval_id"] = approval_id
         seen["decision"] = decision
+        return ApprovalResolveResult(
+            resolved=True,
+            approval_id=approval_id,
+            normalized_decision="once",  # "allow" maps to "once"
+            turn_id="turn-test",
+        )
 
     fake_services.orchestrator.resolve_approval = resolve_approval
     runner = TaskRunner(services=fake_services, event_queue=events)
@@ -81,8 +88,112 @@ async def test_approval_response_resolves_orchestrator(fake_services):
 
     assert event is not None, "Expected ApprovalResolvedEvent"
     assert event.approval_id == "ap-1"  # type: ignore[union-attr]
-    assert event.decision == "allow"  # type: ignore[union-attr]
+    assert event.decision == "once"  # type: ignore[union-attr]  # normalized
     assert seen == {"approval_id": "ap-1", "decision": "allow"}
+
+
+@pytest.mark.asyncio
+async def test_approval_response_nonexistent_approval_rejected(fake_services):
+    """Phase 31.4: ApprovalResponse for nonexistent approval emits
+    CommandRejectedEvent, NOT ApprovalResolvedEvent."""
+    from miqi.protocol.commands import ApprovalResponse
+    from miqi.protocol.events import CommandRejectedEvent
+    from miqi.runtime.task_runner import TaskRunner
+    from miqi.execution.orchestrator import ApprovalResolveResult
+
+    events = asyncio.Queue()
+
+    def resolve_approval(approval_id: str, _decision: str) -> ApprovalResolveResult:
+        return ApprovalResolveResult(
+            resolved=False,
+            approval_id=approval_id,
+            normalized_decision="",
+            turn_id="",
+            reason="Approval not found or already resolved",
+        )
+
+    fake_services.orchestrator.resolve_approval = resolve_approval
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(ApprovalResponse(approval_id="nonexistent", decision="once"))
+
+    # Should emit CommandRejectedEvent, NOT ApprovalResolvedEvent
+    event = await asyncio.wait_for(events.get(), timeout=1)
+    assert isinstance(event, CommandRejectedEvent), (
+        f"Expected CommandRejectedEvent for nonexistent approval, got {type(event).__name__}"
+    )
+    assert "not found" in event.reason.lower()
+
+    # Verify no ApprovalResolvedEvent is in the queue
+    assert events.empty(), "No other events should be emitted for failed resolve"
+
+
+@pytest.mark.asyncio
+async def test_approval_response_invalid_decision_rejected(fake_services):
+    """Phase 31.4: ApprovalResponse with invalid decision emits
+    CommandRejectedEvent, NOT ApprovalResolvedEvent."""
+    from miqi.protocol.commands import ApprovalResponse
+    from miqi.protocol.events import CommandRejectedEvent
+    from miqi.runtime.task_runner import TaskRunner
+    from miqi.execution.orchestrator import ApprovalResolveResult
+
+    events = asyncio.Queue()
+
+    def resolve_approval(approval_id: str, _decision: str) -> ApprovalResolveResult:
+        return ApprovalResolveResult(
+            resolved=False,
+            approval_id=approval_id,
+            normalized_decision="",
+            turn_id="",
+            reason="Invalid decision: 'bogus'",
+        )
+
+    fake_services.orchestrator.resolve_approval = resolve_approval
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(ApprovalResponse(approval_id="ap-1", decision="bogus"))
+
+    # Should emit CommandRejectedEvent, NOT ApprovalResolvedEvent
+    event = await asyncio.wait_for(events.get(), timeout=1)
+    assert isinstance(event, CommandRejectedEvent), (
+        f"Expected CommandRejectedEvent for invalid decision, got {type(event).__name__}"
+    )
+    assert "invalid" in event.reason.lower()
+
+    # Verify no ApprovalResolvedEvent is in the queue
+    assert events.empty(), "No other events should be emitted for invalid decision"
+
+
+@pytest.mark.asyncio
+async def test_approval_response_resolved_event_has_correct_turn_id(fake_services):
+    """Phase 31.4: successful TaskRunner ApprovalResponse emits
+    ApprovalResolvedEvent with turn_id from the orchestrator result."""
+    from miqi.protocol.commands import ApprovalResponse
+    from miqi.protocol.events import ApprovalResolvedEvent
+    from miqi.runtime.task_runner import TaskRunner
+    from miqi.execution.orchestrator import ApprovalResolveResult
+
+    events = asyncio.Queue()
+
+    def resolve_approval(approval_id: str, decision: str) -> ApprovalResolveResult:
+        # turn_id should come from metadata, not parsed from approval_id
+        return ApprovalResolveResult(
+            resolved=True,
+            approval_id=approval_id,
+            normalized_decision="once",
+            turn_id="turn-from-metadata",
+        )
+
+    fake_services.orchestrator.resolve_approval = resolve_approval
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(ApprovalResponse(approval_id="some-turn:tool-1", decision="allow"))
+
+    event = await asyncio.wait_for(events.get(), timeout=1)
+    assert isinstance(event, ApprovalResolvedEvent)
+    assert event.turn_id == "turn-from-metadata", (
+        "turn_id must come from orchestrator metadata, not parsed from approval_id"
+    )
 
 
 @pytest.mark.asyncio

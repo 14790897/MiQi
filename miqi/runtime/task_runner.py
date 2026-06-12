@@ -84,18 +84,25 @@ class TaskRunner:
                     recoverable=False,
                 ))
                 return
-            orchestrator.resolve_approval(
+            result = orchestrator.resolve_approval(
                 submission.approval_id,
                 submission.decision,
             )
-            # Phase 31.4: include turn_id for ledger scoping.
-            # The turn_id is embedded in the approval_id (format: turn_id:tool_call_id).
-            turn_id = submission.approval_id.split(":")[0] if ":" in submission.approval_id else ""
-            await self._events.put(ApprovalResolvedEvent(
-                approval_id=submission.approval_id,
-                decision=submission.decision,
-                turn_id=turn_id,
-            ))
+            # Phase 31.4: only emit terminal ApprovalResolvedEvent when
+            # the orchestrator confirms the approval was actually resolved.
+            # Invalid/nonexistent approvals emit CommandRejectedEvent instead.
+            if result.resolved:
+                await self._events.put(ApprovalResolvedEvent(
+                    approval_id=result.approval_id,
+                    decision=result.normalized_decision,
+                    turn_id=result.turn_id,
+                ))
+            else:
+                await self._events.put(CommandRejectedEvent(
+                    command_type="ApprovalResponse",
+                    reason=result.reason or "Approval resolution failed",
+                    recoverable=False,
+                ))
             return
         if isinstance(submission, ThreadCommand):
             await self._handle_thread_command(submission)

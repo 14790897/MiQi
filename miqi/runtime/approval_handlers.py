@@ -98,14 +98,23 @@ async def approvals_resolve_handler(
 
     Only the client that owns the session with the pending approval
     can resolve it. Cross-session resolution returns UNAUTHORIZED.
+
+    Phase 31.4 fix: only emits ApprovalResolvedEvent when the orchestrator
+    confirms resolved=True.  The event is routed through
+    runtime.services.event_emitter so it enters the RuntimeSession event
+    queue and is mirrored to the ledger.
     """
+    from miqi.protocol.events import ApprovalResolvedEvent
+
     approval_id = params.get("approval_id", "")
     decision = params.get("decision", "deny")
 
     if not approval_id:
         raise AppServerError("approval_id is required", code="INVALID_PARAMS")
 
-    if decision not in ("once", "session", "always", "deny"):
+    # Phase 31.4: allow legacy "allow" and "allow_permanent" through
+    # the handler gate — the orchestrator normalizes them.
+    if decision not in ("once", "session", "always", "deny", "allow", "allow_permanent"):
         raise AppServerError(
             f"Invalid decision: {decision}",
             code="INVALID_PARAMS",
@@ -120,12 +129,40 @@ async def approvals_resolve_handler(
         if orchestrator is None:
             continue
         if orchestrator.has_approval(approval_id):
-            orchestrator.resolve_approval(approval_id, decision)
+            result = orchestrator.resolve_approval(approval_id, decision)
+            if not result.resolved:
+                # Approval exists but resolve failed (invalid decision
+                # already caught above, so this is a duplicate or
+                # internal inconsistency)
+                logger.warning(
+                    "approvals.resolve: resolve_approval returned "
+                    "resolved=False for {} (decision={}, reason={})",
+                    approval_id, decision, result.reason,
+                )
+                raise AppServerError(
+                    "Approval could not be resolved",
+                    code="INTERNAL",
+                )
+            # Phase 31.4: emit terminal event through the runtime session's
+            # event emitter so it enters the event queue and ledger mirror.
+            event_emitter = getattr(runtime.services, "event_emitter", None)
+            if event_emitter is not None:
+                await event_emitter.emit(ApprovalResolvedEvent(
+                    approval_id=result.approval_id,
+                    decision=result.normalized_decision,
+                    turn_id=result.turn_id,
+                ))
             logger.info(
                 "approvals.resolve: {} = {} for session {} (client={})",
-                approval_id, decision, sid, client_id,
+                approval_id, result.normalized_decision, sid, client_id,
             )
-            return {"result": {"resolved": True, "approval_id": approval_id}}
+            return {
+                "result": {
+                    "resolved": True,
+                    "approval_id": approval_id,
+                    "decision": result.normalized_decision,
+                },
+            }
 
     # Approval not found in any of this client's sessions
     # It may belong to another client — don't leak that information
