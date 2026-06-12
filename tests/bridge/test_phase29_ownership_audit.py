@@ -51,22 +51,25 @@ async def test_sessions_list_handler_passes_client_id(fake_config, fake_provider
     registry = ClientSessionRegistry()
     workspace = tmp_path
 
-    # Create sessions for two clients
-    await registry.create_session(
-        client_id="client-A", session_key="a-session",
-        config=fake_config, provider=fake_provider, workspace=workspace,
-    )
-    await registry.create_session(
-        client_id="client-B", session_key="b-session",
-        config=fake_config, provider=fake_provider, workspace=workspace,
-    )
+    try:
+        # Create sessions for two clients
+        await registry.create_session(
+            client_id="client-A", session_key="a-session",
+            config=fake_config, provider=fake_provider, workspace=workspace,
+        )
+        await registry.create_session(
+            client_id="client-B", session_key="b-session",
+            config=fake_config, provider=fake_provider, workspace=workspace,
+        )
 
-    # Client A lists — should only see "a-session"
-    result = await sessions_list_handler("req-1", {}, "client-A", None, registry)
-    sessions = result["result"]["sessions"]
-    keys = [s["key"] for s in sessions]
-    assert "a-session" in keys
-    assert "b-session" not in keys, "client-A should not see client-B's session"
+        # Client A lists — should only see "a-session"
+        result = await sessions_list_handler("req-1", {}, "client-A", None, registry)
+        sessions = result["result"]["sessions"]
+        keys = [s["key"] for s in sessions]
+        assert "a-session" in keys
+        assert "b-session" not in keys, "client-A should not see client-B's session"
+    finally:
+        await registry.stop_all()
 
 
 @pytest.mark.asyncio

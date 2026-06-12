@@ -18,21 +18,24 @@ async def test_sessions_list_merges_active_and_disk(fake_config, fake_provider, 
 
     registry = ClientSessionRegistry()
 
-    # Create an active session
-    await registry.create_session(
-        client_id="client-1",
-        session_key="active-session",
-        config=fake_config,
-        provider=fake_provider,
-        workspace=tmp_path,
-    )
+    try:
+        # Create an active session
+        await registry.create_session(
+            client_id="client-1",
+            session_key="active-session",
+            config=fake_config,
+            provider=fake_provider,
+            workspace=tmp_path,
+        )
 
-    result = await sessions_list_handler("req-1", {}, "client-1", None, registry)
-    sessions = result["result"]["sessions"]
-    assert isinstance(sessions, list)
-    # Should have at least the active session
-    active_keys = [s["key"] for s in sessions if s.get("status") == "running"]
-    assert "active-session" in active_keys
+        result = await sessions_list_handler("req-1", {}, "client-1", None, registry)
+        sessions = result["result"]["sessions"]
+        assert isinstance(sessions, list)
+        # Should have at least the active session
+        active_keys = [s["key"] for s in sessions if s.get("status") == "running"]
+        assert "active-session" in active_keys
+    finally:
+        await registry.stop_all()
 
 
 @pytest.mark.asyncio
@@ -43,21 +46,24 @@ async def test_sessions_list_scoped_to_client(fake_config, fake_provider, tmp_pa
 
     registry = ClientSessionRegistry()
 
-    # Client A creates a session
-    await registry.create_session(
-        client_id="client-A",
-        session_key="private",
-        config=fake_config,
-        provider=fake_provider,
-        workspace=tmp_path,
-    )
+    try:
+        # Client A creates a session
+        await registry.create_session(
+            client_id="client-A",
+            session_key="private",
+            config=fake_config,
+            provider=fake_provider,
+            workspace=tmp_path,
+        )
 
-    # Client B's list should not see client-A's session
-    result = await sessions_list_handler("req-1", {}, "client-B", None, registry)
-    sessions = result["result"]["sessions"]
-    # None of client-B's sessions should have key "private" with status "running"
-    private_running = [s for s in sessions if s["key"] == "private" and s.get("status") == "running"]
-    assert len(private_running) == 0
+        # Client B's list should not see client-A's session
+        result = await sessions_list_handler("req-1", {}, "client-B", None, registry)
+        sessions = result["result"]["sessions"]
+        # None of client-B's sessions should have key "private" with status "running"
+        private_running = [s for s in sessions if s["key"] == "private" and s.get("status") == "running"]
+        assert len(private_running) == 0
+    finally:
+        await registry.stop_all()
 
 
 # ── sessions.get ───────────────────────────────────────────────────────────
@@ -71,19 +77,22 @@ async def test_sessions_get_active_session(fake_config, fake_provider, tmp_path)
 
     registry = ClientSessionRegistry()
 
-    await registry.create_session(
-        client_id="client-1",
-        session_key="my-session",
-        config=fake_config,
-        provider=fake_provider,
-        workspace=tmp_path,
-    )
+    try:
+        await registry.create_session(
+            client_id="client-1",
+            session_key="my-session",
+            config=fake_config,
+            provider=fake_provider,
+            workspace=tmp_path,
+        )
 
-    result = await sessions_get_handler(
-        "req-1", {"session_key": "my-session"}, "client-1", None, registry,
-    )
-    assert result["result"]["key"] == "my-session"
-    assert result["result"]["status"] == "running"
+        result = await sessions_get_handler(
+            "req-1", {"session_key": "my-session"}, "client-1", None, registry,
+        )
+        assert result["result"]["key"] == "my-session"
+        assert result["result"]["status"] == "running"
+    finally:
+        await registry.stop_all()
 
 
 @pytest.mark.asyncio

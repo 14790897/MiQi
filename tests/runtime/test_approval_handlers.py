@@ -54,24 +54,27 @@ async def test_approvals_list_scoped_to_client_sessions(fake_config, fake_provid
 
     registry = ClientSessionRegistry()
 
-    # Client A: session with 1 pending approval
-    await _create_session_with_approval(registry, "client-A", "session-a1", fake_config, fake_provider, tmp_path)
+    try:
+        # Client A: session with 1 pending approval
+        await _create_session_with_approval(registry, "client-A", "session-a1", fake_config, fake_provider, tmp_path)
 
-    # Client B: session with 2 pending approvals
-    await _create_session_with_approval(registry, "client-B", "session-b1", fake_config, fake_provider, tmp_path)
-    await _create_session_with_approval(registry, "client-B", "session-b2", fake_config, fake_provider, tmp_path)
+        # Client B: session with 2 pending approvals
+        await _create_session_with_approval(registry, "client-B", "session-b1", fake_config, fake_provider, tmp_path)
+        await _create_session_with_approval(registry, "client-B", "session-b2", fake_config, fake_provider, tmp_path)
 
-    # Client A should see only 1 pending approval (from session-a1)
-    result = await approvals_list_handler("req-1", {}, "client-A", None, registry)
-    pending = result["result"]["pending"]
-    pending_ids = result["result"]["pending_ids"]
-    assert len(pending) == 1, f"Expected 1 pending for client-A, got {len(pending)}"
-    assert "session-a1" in pending_ids[0]
+        # Client A should see only 1 pending approval (from session-a1)
+        result = await approvals_list_handler("req-1", {}, "client-A", None, registry)
+        pending = result["result"]["pending"]
+        pending_ids = result["result"]["pending_ids"]
+        assert len(pending) == 1, f"Expected 1 pending for client-A, got {len(pending)}"
+        assert "session-a1" in pending_ids[0]
 
-    # Client B should see 2 pending approvals
-    result = await approvals_list_handler("req-2", {}, "client-B", None, registry)
-    pending = result["result"]["pending"]
-    assert len(pending) == 2, f"Expected 2 pending for client-B, got {len(pending)}"
+        # Client B should see 2 pending approvals
+        result = await approvals_list_handler("req-2", {}, "client-B", None, registry)
+        pending = result["result"]["pending"]
+        assert len(pending) == 2, f"Expected 2 pending for client-B, got {len(pending)}"
+    finally:
+        await registry.stop_all()
 
 
 @pytest.mark.asyncio
@@ -115,13 +118,16 @@ async def test_approvals_resolve_own_session_approval(fake_config, fake_provider
     session = await _create_session_with_approval(registry, "client-A", "session-a", fake_config, fake_provider, tmp_path)
     approval_id = session._test_approval_id
 
-    result = await approvals_resolve_handler(
-        "req-1",
-        {"approval_id": approval_id, "decision": "once"},
-        "client-A", session.session_id, registry,
-    )
-    assert result["result"]["resolved"] is True
-    assert result["result"]["approval_id"] == approval_id
+    try:
+        result = await approvals_resolve_handler(
+            "req-1",
+            {"approval_id": approval_id, "decision": "once"},
+            "client-A", session.session_id, registry,
+        )
+        assert result["result"]["resolved"] is True
+        assert result["result"]["approval_id"] == approval_id
+    finally:
+        await registry.stop_all()
 
 
 @pytest.mark.asyncio
@@ -134,14 +140,17 @@ async def test_approvals_resolve_rejects_cross_client(fake_config, fake_provider
     session = await _create_session_with_approval(registry, "client-A", "session-a", fake_config, fake_provider, tmp_path)
     approval_id = session._test_approval_id
 
-    # Client B tries to resolve client A's approval
-    with pytest.raises(AppServerError) as exc_info:
-        await approvals_resolve_handler(
-            "req-1",
-            {"approval_id": approval_id, "decision": "once"},
-            "client-B", None, registry,
-        )
-    assert exc_info.value.code == "UNAUTHORIZED"
+    try:
+        # Client B tries to resolve client A's approval
+        with pytest.raises(AppServerError) as exc_info:
+            await approvals_resolve_handler(
+                "req-1",
+                {"approval_id": approval_id, "decision": "once"},
+                "client-B", None, registry,
+            )
+        assert exc_info.value.code == "UNAUTHORIZED"
+    finally:
+        await registry.stop_all()
 
 
 @pytest.mark.asyncio
