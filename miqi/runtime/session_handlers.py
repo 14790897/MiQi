@@ -214,15 +214,15 @@ async def sessions_delete_handler(
                 sid, exc,
             )
 
-    # 2. Destroy sandbox
+    # 2. Destroy sandbox (client-scoped: Phase 30)
     state = getattr(bridge_module, "_state", None)
     if state is not None:
         try:
-            state.destroy_sandbox(session_key)
+            state.destroy_sandbox(session_key, client_id=client_id)
         except Exception as exc:
             logger.warning(
-                "sessions.delete: error destroying sandbox for {}: {}",
-                session_key, exc,
+                "sessions.delete: error destroying sandbox for {} (client={}): {}",
+                session_key, client_id, exc,
             )
 
     # 3. Remove disk files (client-scoped)
@@ -278,15 +278,15 @@ async def sessions_archive_handler(
                 sid, exc,
             )
 
-    # 2. Destroy sandbox
+    # 2. Destroy sandbox (client-scoped: Phase 30)
     state = getattr(bridge_module, "_state", None)
     if state is not None:
         try:
-            state.destroy_sandbox(session_key)
+            state.destroy_sandbox(session_key, client_id=client_id)
         except Exception as exc:
             logger.warning(
-                "sessions.archive: error destroying sandbox for {}: {}",
-                session_key, exc,
+                "sessions.archive: error destroying sandbox for {} (client={}): {}",
+                session_key, client_id, exc,
             )
 
     # 3. Mark archived on disk (client-scoped)
