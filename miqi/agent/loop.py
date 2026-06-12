@@ -1199,10 +1199,12 @@ class AgentLoop:
             if self._sandbox_manager is not None:
                 _active_sb = self._sandbox_manager.active_sandbox
                 if _active_sb is not None and _active_sb.is_running:
+                    _win_ws2 = str(self.workspace.resolve())
                     messages.append({"role": "system", "content":
                         "## Sandbox Environment\n"
-                        "You are running inside an isolated Linux sandbox (bwrap). "
-                        "Use Linux-style paths (/home/miqi/workspace/) and Linux commands only."
+                        "You are running inside an isolated Linux sandbox (bwrap).\n"
+                        "Use Linux-style paths (/home/miqi/workspace/) and Linux commands for execution.\n"
+                        f"Map /home/miqi/workspace/ to Windows path {_win_ws2} when presenting file locations to the user."
                     })
             try:
                 final_content, _, all_msgs = await self._run_agent_loop(
@@ -1357,15 +1359,22 @@ class AgentLoop:
         if self._sandbox_manager is not None:
             _active_sb = self._sandbox_manager.active_sandbox
             if _active_sb is not None and _active_sb.is_running:
+                _win_ws = str(self.workspace.resolve())
                 _sb_hint = (
                     "## Sandbox Environment\n"
-                    "You are running inside an isolated Linux sandbox (bwrap). Key constraints:\n"
-                    "- Use **Linux-style paths** only: /home/miqi/workspace/ is your workspace root.\n"
-                    "- Windows paths (C:\\...) are NOT valid here. Use /home/miqi/workspace/ for workspace files.\n"
+                    "You are running inside an isolated Linux sandbox (bwrap).\n\n"
+                    "### For executing commands and tools:\n"
+                    "- Use Linux-style paths: /home/miqi/workspace/ is your workspace root.\n"
+                    "- Windows paths (C:\\...) are NOT valid inside the sandbox.\n"
                     "- The host filesystem is accessible via /mnt/c/, /mnt/d/ etc. if needed.\n"
                     "- Your home directory is /home/miqi/ (isolated per session).\n"
                     "- Commands run in a Linux environment (bash, python3, ls, grep, etc.).\n"
-                    "- No Windows commands (dir, type, where, echo %OS%) will work.\n"
+                    "- No Windows commands (dir, type, where, echo %OS%) will work.\n\n"
+                    "### For presenting results to the user:\n"
+                    f"- The user is on Windows. Your sandbox path /home/miqi/workspace/ maps to: {_win_ws}\n"
+                    "- Files under /home/miqi/workspace/ are accessible at the Windows path above.\n"
+                    "- **ALWAYS use the Windows path** (NOT /home/miqi/workspace/) when telling the user where a file is.\n"
+                    f"- Example: say 'File saved to {_win_ws}/report.pdf', NOT '/home/miqi/workspace/report.pdf'.\n"
                 )
                 initial_messages = initial_messages + [
                     {"role": "system", "content": _sb_hint}
