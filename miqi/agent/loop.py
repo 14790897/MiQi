@@ -1360,6 +1360,27 @@ class AgentLoop:
             _active_sb = self._sandbox_manager.active_sandbox
             if _active_sb is not None and _active_sb.is_running:
                 _win_ws = str(self.workspace.resolve())
+                # Session work dir info (for per-session isolation)
+                _swd = self.context.session_work_dir
+                if _swd:
+                    _swd_str = str(_swd.resolve()).replace("\\", "/")
+                    _win_ws_norm = _win_ws.replace("\\", "/")
+                    # Compute relative path (case-insensitive for Windows)
+                    _swd_lower = _swd_str.lower()
+                    _win_lower = _win_ws_norm.lower()
+                    if _swd_lower.startswith(_win_lower):
+                        _swd_sandbox = _swd_str[len(_win_ws_norm):].lstrip("/")
+                    else:
+                        _swd_sandbox = ""
+                    _session_dir_info = (
+                        f"\n### Session Working Directory\n"
+                        f"- Your session work dir (Windows): {_swd_str}\n"
+                        f"- Your session work dir (sandbox): /home/miqi/workspace/{_swd_sandbox}\n"
+                        "- **Use relative paths** when writing files — they will go to your session work dir.\n"
+                        "- This ensures your files are isolated from other conversations.\n"
+                    )
+                else:
+                    _session_dir_info = ""
                 _sb_hint = (
                     "## Sandbox Environment\n"
                     "You are running inside an isolated Linux sandbox (bwrap).\n\n"
@@ -1369,10 +1390,10 @@ class AgentLoop:
                     "- The host filesystem is accessible via /mnt/c/, /mnt/d/ etc. if needed.\n"
                     "- Your home directory is /home/miqi/ (isolated per session).\n"
                     "- Commands run in a Linux environment (bash, python3, ls, grep, etc.).\n"
-                    "- No Windows commands (dir, type, where, echo %OS%) will work.\n\n"
+                    "- No Windows commands (dir, type, where, echo %OS%) will work.\n"
+                    f"{_session_dir_info}\n"
                     "### For presenting results to the user:\n"
-                    f"- The user is on Windows. Your sandbox path /home/miqi/workspace/ maps to: {_win_ws}\n"
-                    "- Files under /home/miqi/workspace/ are accessible at the Windows path above.\n"
+                    f"- The user is on Windows. Your workspace root /home/miqi/workspace/ maps to: {_win_ws}\n"
                     "- **ALWAYS use the Windows path** (NOT /home/miqi/workspace/) when telling the user where a file is.\n"
                     f"- Example: say 'File saved to {_win_ws}/report.pdf', NOT '/home/miqi/workspace/report.pdf'.\n"
                 )
