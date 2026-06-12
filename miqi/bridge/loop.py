@@ -163,6 +163,20 @@ class BridgeRuntimeLoop:
         # Register Phase 26.6 command handlers (thread.*, chat.abort)
         register_command_handlers(self._app_server)
 
+        # Register Phase 28.2: approvals.* handlers (session-scoped)
+        from miqi.runtime.approval_handlers import (
+            approvals_list_handler,
+            approvals_resolve_handler,
+            approvals_clear_permanent_handler,
+            approvals_add_permanent_handler,
+            approvals_history_handler,
+        )
+        self._app_server.register_method("approvals.list", approvals_list_handler)
+        self._app_server.register_method("approvals.resolve", approvals_resolve_handler)
+        self._app_server.register_method("approvals.clear_permanent", approvals_clear_permanent_handler)
+        self._app_server.register_method("approvals.add_permanent", approvals_add_permanent_handler)
+        self._app_server.register_method("approvals.history", approvals_history_handler)
+
         logger.info(
             "BridgeRuntimeLoop: AppServer initialized with {} methods",
             len(self._app_server._methods),
