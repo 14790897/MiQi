@@ -2192,14 +2192,7 @@ def handle_plan_get(req_id: str, params: dict) -> None:
 _METHODS = {
     "status": handle_status,
     # chat.send and chat.abort are now AppServer methods (Phase 27.3)
-    "sessions.list": handle_sessions_list,
-    "sessions.get": handle_sessions_get,
-    "sessions.delete": handle_sessions_delete,
-    "sessions.archive": handle_sessions_archive,
-    "sessions.unarchive": handle_sessions_unarchive,
-    "sessions.list_archived": handle_sessions_list_archived,
-    "sessions.get_tracked_files": handle_sessions_get_tracked_files,
-    "sessions.clear_tracked_files": handle_sessions_clear_tracked_files,
+    # sessions.* are now AppServer methods (Phase 28.4)
     # config.get/config.update are now AppServer methods (Phase 28.3)
     "providers.list": handle_providers_list,
     "providers.test": handle_providers_test,
