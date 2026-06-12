@@ -42,9 +42,12 @@ from miqi.protocol.events import (
 )
 
 # Phase 31.4: valid approval decision values.
-# "allow" is a legacy synonym for "once" — preserved for backward compat.
-VALID_APPROVAL_DECISIONS = frozenset({"once", "session", "always", "deny", "allow"})
-_LEGACY_DECISION_MAP = {"allow": "once"}
+# "allow" is a legacy synonym for "once"; "allow_permanent" is a legacy
+# synonym for "always" — both preserved for backward compatibility.
+VALID_APPROVAL_DECISIONS = frozenset({
+    "once", "session", "always", "deny", "allow", "allow_permanent",
+})
+_LEGACY_DECISION_MAP = {"allow": "once", "allow_permanent": "always"}
 
 # Phase 31.4: max lengths for sanitized approval metadata fields
 _MAX_DESCRIPTION_LENGTH = 500
@@ -84,6 +87,21 @@ class ToolExecutionContext:
     result: str | None = None
     duration_ms: int = 0
     retry_count: int = 0
+
+
+@dataclass
+class ApprovalResolveResult:
+    """Structured result from ToolOrchestrator.resolve_approval().
+
+    resolved=False means the call was a no-op: either the approval_id
+    didn't exist, was already resolved, or the decision was invalid.
+    Callers MUST check resolved before emitting terminal events.
+    """
+    resolved: bool
+    approval_id: str
+    normalized_decision: str
+    turn_id: str
+    reason: str = ""  # explanation when resolved=False, empty on success
 
 
 class ToolOrchestrator:
@@ -294,38 +312,64 @@ class ToolOrchestrator:
                     and not self._thread_approvals[ctx.thread_id]):
                 del self._thread_approvals[ctx.thread_id]
 
-    def resolve_approval(self, approval_id: str, decision: str) -> None:
+    def resolve_approval(self, approval_id: str, decision: str) -> ApprovalResolveResult:
         """Called by bridge/TaskRunner when user responds to approval.
 
         Phase 31.4: validates the decision against the allowed set,
         handles allow_permanent/always via permanent allowlist boundary,
         and records the scope.
+
+        Returns:
+            ApprovalResolveResult with resolved=True on success.
+            resolved=False when the approval doesn't exist, is already
+            done, or the decision is invalid.  Callers MUST check
+            resolved before emitting terminal events.
         """
-        # Phase 31.4: map legacy "allow" → "once"
+        # Phase 31.4: map legacy decisions
+        original_decision = decision
         decision = _LEGACY_DECISION_MAP.get(decision, decision)
 
         if decision not in VALID_APPROVAL_DECISIONS:
             logger.warning(
-                "resolve_approval: invalid decision={!r} for approval_id={}",
-                decision, approval_id,
+                "resolve_approval: invalid decision={!r} (original={!r}) "
+                "for approval_id={}",
+                decision, original_decision, approval_id,
             )
-            return
+            return ApprovalResolveResult(
+                resolved=False,
+                approval_id=approval_id,
+                normalized_decision=decision,
+                turn_id="",
+                reason=f"Invalid decision: {original_decision!r}",
+            )
 
         future = self._pending_approvals.get(approval_id)
         if future is None or future.done():
             # Already resolved (timeout, abort, or duplicate response)
-            return
+            return ApprovalResolveResult(
+                resolved=False,
+                approval_id=approval_id,
+                normalized_decision=decision,
+                turn_id="",
+                reason="Approval not found or already resolved",
+            )
 
         meta = self._approval_meta.get(approval_id, {})
+        turn_id = meta.get("turn_id", "")
 
         if decision == "deny":
             future.set_result(PermissionDecision(
                 verdict=PermissionVerdict.DENY,
                 reason="User denied the request.",
             ))
-            return
+            return ApprovalResolveResult(
+                resolved=True,
+                approval_id=approval_id,
+                normalized_decision="deny",
+                turn_id=turn_id,
+            )
 
-        # allow / session / always — all permit execution
+        # allow ("once") / session / always — all permit execution
         verdict = PermissionVerdict.ALLOW
         reason = f"Approved by user (scope: {decision})"
 
@@ -338,6 +382,12 @@ class ToolOrchestrator:
             reason=reason,
             allow_permanent=(decision == "always"),
         ))
+        return ApprovalResolveResult(
+            resolved=True,
+            approval_id=approval_id,
+            normalized_decision=decision,
+            turn_id=turn_id,
+        )
 
     def _record_permanent_approval(self, meta: dict[str, Any]) -> None:
         """Add the approved command pattern to the permanent allowlist.
