@@ -2207,11 +2207,7 @@ _METHODS = {
     "providers.update": handle_providers_update,
     "channels.list": handle_channels_list,
     "channels.update": handle_channels_update,
-    "approvals.list": handle_approvals_list,
-    "approvals.resolve": handle_approvals_resolve,
-    "approvals.clear_permanent": handle_approvals_clear_permanent,
-    "approvals.add_permanent": handle_approvals_add_permanent,
-    "approvals.history": handle_approvals_history,
+    # approvals.* are now AppServer methods (Phase 28.2)
     "cron.list": handle_cron_list,
     "cron.create": handle_cron_create,
     "cron.update": handle_cron_update,

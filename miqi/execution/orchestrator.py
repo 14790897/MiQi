@@ -94,6 +94,8 @@ class ToolOrchestrator:
         self.approval_timeout_ms = approval_timeout_ms
         # In-flight approval futures: approval_id → Future[PermissionDecision]
         self._pending_approvals: dict[str, asyncio.Future] = {}
+        # Approval metadata for listing: approval_id → metadata dict
+        self._approval_meta: dict[str, dict[str, Any]] = {}
 
     async def execute(self, ctx: ToolExecutionContext) -> ToolExecutionContext:
         """Execute a tool call through the full orchestration pipeline."""
@@ -185,6 +187,16 @@ class ToolOrchestrator:
 
         future: asyncio.Future = asyncio.get_event_loop().create_future()
         self._pending_approvals[approval_id] = future
+        # Store metadata for listing (Phase 28.2)
+        self._approval_meta[approval_id] = {
+            "approval_id": approval_id,
+            "turn_id": ctx.turn_id,
+            "command": decision.description or "",
+            "description": decision.description or "",
+            "details": decision.details or "",
+            "allow_permanent": decision.allow_permanent,
+            "created_at": time.time(),
+        }
 
         try:
             response = await asyncio.wait_for(
@@ -198,6 +210,7 @@ class ToolOrchestrator:
             )
         finally:
             self._pending_approvals.pop(approval_id, None)
+            self._approval_meta.pop(approval_id, None)
 
     def resolve_approval(self, approval_id: str, decision: str) -> None:
         """Called by bridge when user responds to approval request."""
@@ -208,6 +221,33 @@ class ToolOrchestrator:
                 else PermissionVerdict.DENY,
                 reason=f"User chose: {decision}",
             ))
+
+    def list_pending_approvals(self) -> list[dict[str, Any]]:
+        """Return metadata for all pending approvals.
+
+        Phase 28.2: Exposes approval metadata for session-scoped listing.
+        Each entry includes approval_id, command, description, details,
+        allow_permanent, created_at, and age_seconds.
+        """
+        now = time.time()
+        result: list[dict[str, Any]] = []
+        for approval_id in self._pending_approvals:
+            meta = self._approval_meta.get(approval_id, {})
+            if meta:
+                result.append({
+                    "approval_id": approval_id,
+                    "command": meta.get("command", ""),
+                    "description": meta.get("description", ""),
+                    "details": meta.get("details", ""),
+                    "allow_permanent": meta.get("allow_permanent", True),
+                    "created_at": meta.get("created_at", now),
+                    "age_seconds": now - meta.get("created_at", now),
+                })
+        return result
+
+    def has_approval(self, approval_id: str) -> bool:
+        """Check if this orchestrator owns the given approval."""
+        return approval_id in self._pending_approvals
 
     async def _execute_in_sandbox(
         self,
