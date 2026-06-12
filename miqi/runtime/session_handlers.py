@@ -24,6 +24,7 @@ from typing import Any
 from loguru import logger
 
 from miqi.runtime.app_server import AppServerError
+from miqi.session.manager import OwnershipError
 
 
 def _get_session_manager() -> Any:
@@ -62,11 +63,11 @@ async def sessions_list_handler(
     # Active sessions from AppServer registry
     active_sids: set[str] = set(registry.list_sessions(client_id))
 
-    # Disk sessions from SessionManager
+    # Disk sessions from SessionManager (client-scoped)
     sm = _get_session_manager()
-    disk_sessions: list[dict[str, Any]] = sm.list_sessions()
+    disk_sessions: list[dict[str, Any]] = sm.list_sessions(client_id=client_id)
 
-    # Merge: mark each as active or inactive
+    # Merge: mark each as active, inactive, or unowned
     result_sessions: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
 
@@ -78,10 +79,19 @@ async def sessions_list_handler(
 
         sid = _client_session_id(client_id, key)
         is_active = sid in active_sids
+        ownership = s.get("ownership")
+
+        status: str
+        if is_active:
+            status = "running"
+        elif ownership == "unowned":
+            status = "unowned"  # Legacy session — requires explicit claim
+        else:
+            status = "inactive"
 
         result_sessions.append({
             **s,
-            "status": "running" if is_active else "inactive",
+            "status": status,
         })
 
     # Add any active sessions not on disk
@@ -97,6 +107,7 @@ async def sessions_list_handler(
                 "key": key,
                 "title": key,
                 "status": "running",
+                "ownership": "owned",
                 "created_at": None,
                 "updated_at": None,
                 "agent_count": len(getattr(getattr(runtime.services, "agent_control", None), "_agents", {})) if runtime else 0,
@@ -138,10 +149,10 @@ async def sessions_get_handler(
             },
         }
 
-    # Fall back to SessionManager
+    # Fall back to SessionManager (client-scoped)
     sm = _get_session_manager()
     try:
-        session = sm.get_or_create(session_key)
+        session = sm.get_or_create(session_key, client_id=client_id)
         return {
             "result": {
                 "key": session.key,
@@ -150,8 +161,11 @@ async def sessions_get_handler(
                 "updated_at": session.updated_at.isoformat(),
                 "metadata": session.metadata,
                 "status": "inactive",
+                "ownership": "owned",
             },
         }
+    except OwnershipError as exc:
+        raise AppServerError(exc.args[0], code=exc.code) from exc
     except Exception as exc:
         raise AppServerError(
             f"Failed to get session: {exc}",
@@ -211,9 +225,12 @@ async def sessions_delete_handler(
                 session_key, exc,
             )
 
-    # 3. Remove disk files
+    # 3. Remove disk files (client-scoped)
     sm = _get_session_manager()
-    disk_deleted = sm.delete(session_key)
+    try:
+        disk_deleted = sm.delete(session_key, client_id=client_id)
+    except OwnershipError as exc:
+        raise AppServerError(exc.args[0], code=exc.code) from exc
 
     # Success if runtime was stopped (session may not have been on disk)
     deleted = runtime_was_active or disk_deleted
@@ -272,9 +289,12 @@ async def sessions_archive_handler(
                 session_key, exc,
             )
 
-    # 3. Mark archived on disk
+    # 3. Mark archived on disk (client-scoped)
     sm = _get_session_manager()
-    sm.archive(session_key)
+    try:
+        sm.archive(session_key, client_id=client_id)
+    except OwnershipError as exc:
+        raise AppServerError(exc.args[0], code=exc.code) from exc
 
     return {"result": {"archived": True}}
 
@@ -295,7 +315,10 @@ async def sessions_unarchive_handler(
         raise AppServerError("session_key is required", code="INVALID_PARAMS")
 
     sm = _get_session_manager()
-    sm.unarchive(session_key)
+    try:
+        sm.unarchive(session_key, client_id=client_id)
+    except OwnershipError as exc:
+        raise AppServerError(exc.args[0], code=exc.code) from exc
 
     return {"result": {"unarchived": True}}
 
@@ -310,13 +333,13 @@ async def sessions_list_archived_handler(
     session_id: str | None,
     registry: Any,
 ) -> dict[str, Any]:
-    """List only archived sessions."""
+    """List only archived sessions (client-scoped)."""
     from miqi.session.manager import safe_filename
 
     sm = _get_session_manager()
-    sessions = sm.list_sessions(include_archived=True)
+    sessions = sm.list_sessions(include_archived=True, client_id=client_id)
 
-    # Filter to only archived ones
+    # Filter to only archived ones (already client-scoped by list_sessions)
     archived = []
     for s in sessions:
         safe_key = safe_filename(s["key"].replace(":", "_"))
@@ -337,13 +360,16 @@ async def sessions_get_tracked_files_handler(
     session_id: str | None,
     registry: Any,
 ) -> dict[str, Any]:
-    """Return tracked files for a session from tracked_files.json."""
+    """Return tracked files for a session from tracked_files.json (client-scoped)."""
     session_key = params.get("session_key", "")
     if not session_key:
         raise AppServerError("session_key is required", code="INVALID_PARAMS")
 
     sm = _get_session_manager()
-    files = sm.load_tracked_files(session_key)
+    try:
+        files = sm.load_tracked_files(session_key, client_id=client_id)
+    except OwnershipError as exc:
+        raise AppServerError(exc.args[0], code=exc.code) from exc
     result = [
         {"path": path, **info}
         for path, info in files.items()
@@ -362,12 +388,46 @@ async def sessions_clear_tracked_files_handler(
     session_id: str | None,
     registry: Any,
 ) -> dict[str, Any]:
-    """Remove all tracked file entries for a session."""
+    """Remove all tracked file entries for a session (client-scoped)."""
     session_key = params.get("session_key", "")
     if not session_key:
         raise AppServerError("session_key is required", code="INVALID_PARAMS")
 
     sm = _get_session_manager()
-    sm.clear_tracked_files(session_key)
+    try:
+        sm.clear_tracked_files(session_key, client_id=client_id)
+    except OwnershipError as exc:
+        raise AppServerError(exc.args[0], code=exc.code) from exc
 
     return {"result": {"cleared": True}}
+
+
+# ── sessions.claim_legacy ──────────────────────────────────────────────────
+
+
+async def sessions_claim_legacy_handler(
+    request_id: str,
+    params: dict[str, Any],
+    client_id: str,
+    session_id: str | None,
+    registry: Any,
+) -> dict[str, Any]:
+    """Explicitly claim an unowned legacy session.
+
+    This is the ONLY way to take ownership of a legacy session that
+    lacks owner_client_id metadata. Once claimed, the session is
+    permanently owned by the claiming client.
+
+    A session that is already owned by a different client cannot be
+    claimed — it will return UNAUTHORIZED.
+    """
+    session_key = params.get("session_key", "")
+    if not session_key:
+        raise AppServerError("session_key is required", code="INVALID_PARAMS")
+
+    sm = _get_session_manager()
+    try:
+        claimed = sm.claim_session(session_key, client_id)
+        return {"result": {"claimed": True, "was_already_claimed": not claimed}}
+    except OwnershipError as exc:
+        raise AppServerError(exc.args[0], code=exc.code) from exc
