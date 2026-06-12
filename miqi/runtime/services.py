@@ -227,6 +227,10 @@ class RuntimeServices:
 
         ledger_runtime = LedgerRuntime(runtime_db, session_id=session_id)
 
+        # Phase 31.8: wire ledger into orchestrator so exec/approval events
+        # are recorded for replay.
+        orchestrator._ledger = ledger_runtime
+
         # Phase 25: replay runtime (wraps ledger for reconstruction)
         from miqi.runtime.replay_runtime import ReplayRuntime
 

@@ -46,7 +46,30 @@ class ExecCommandReplay:
     exit_code: int | None = None
     duration_ms: int = 0
     output_size: int = 0
-    status: str = "pending"    # "completed" | "pending" | "error"
+    # Phase 31.8: terminal status flags from ledger
+    cancelled: bool = False
+    timed_out: bool = False
+    status: str = "pending"    # "completed" | "pending" | "error" | "timed_out" | "cancelled"
+
+
+@dataclass
+class ApprovalEventReplay:
+    """Reconstructed view of an approval lifecycle event from ledger items.
+
+    Phase 31.8: An approval goes through: requested → resolved (once/session/
+    always/deny/timeout/abort).  Each state change is a separate ledger item;
+    this dataclass captures the terminal state plus the initial request.
+    """
+
+    approval_id: str
+    tool_call_id: str = ""
+    tool_name: str = ""
+    category: str = ""
+    description: str = ""
+    allow_permanent: bool = False
+    request_seq: int = 0                     # seq at request time
+    decision: str = "pending"                # "pending" | "once" | "session" | "always" | "deny" | "timeout" | "abort"
+    resolved_seq: int | None = None          # seq at resolution time (None if still pending)
 
 
 @dataclass
@@ -54,7 +77,7 @@ class TurnTimeline:
     """Full turn reconstruction from ledger items.
 
     Covers the complete lifecycle: user input, streaming deltas,
-    tool calls, exec commands, errors, and final status.
+    tool calls, exec commands, approval events, errors, and final status.
     """
 
     turn_id: str
@@ -66,6 +89,8 @@ class TurnTimeline:
     reasoning_deltas: list[str] = field(default_factory=list)
     tool_calls: list[ToolCallReplay] = field(default_factory=list)
     exec_commands: list[ExecCommandReplay] = field(default_factory=list)
+    # Phase 31.8: approval lifecycle events
+    approval_events: list[ApprovalEventReplay] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
     started_at: float | None = None
     completed_at: float | None = None
@@ -145,6 +170,8 @@ class ReplayRuntime:
         # Mutable accumulators keyed by tool_call_id
         pending_tools: dict[str, ToolCallReplay] = {}
         pending_execs: dict[str, ExecCommandReplay] = {}
+        # Phase 31.8: approval events keyed by approval_id
+        pending_approvals: dict[str, ApprovalEventReplay] = {}
 
         for item in items:
             payload = self._safe_payload(item)
@@ -188,6 +215,39 @@ class ReplayRuntime:
                 tc.sandbox_type = payload.get("sandbox_type")
                 timeline.tool_calls.append(tc)
 
+            # ── Phase 31.8: approval lifecycle events ───────────────────
+
+            elif item.item_type == "approval_requested":
+                aid = payload.get("approval_id", "")
+                if not aid:
+                    continue
+                pending_approvals[aid] = ApprovalEventReplay(
+                    approval_id=aid,
+                    tool_call_id=payload.get("tool_call_id", ""),
+                    tool_name=payload.get("tool_name", ""),
+                    category=payload.get("category", ""),
+                    description=payload.get("description", ""),
+                    allow_permanent=payload.get("allow_permanent", False),
+                    request_seq=item.seq,
+                )
+
+            elif item.item_type == "approval_resolved":
+                aid = payload.get("approval_id", "")
+                decision = payload.get("decision", "deny")
+                if not aid:
+                    continue
+                ap = pending_approvals.pop(aid, ApprovalEventReplay(
+                    approval_id=aid,
+                    tool_call_id=payload.get("tool_call_id", ""),
+                    tool_name=payload.get("tool_name", ""),
+                    category=payload.get("category", ""),
+                ))
+                ap.decision = decision
+                ap.resolved_seq = item.seq
+                timeline.approval_events.append(ap)
+
+            # ── Exec lifecycle (may now carry terminal flags) ────────────
+
             elif item.item_type == "exec_started":
                 tc_id = payload.get("tool_call_id", "")
                 if not tc_id:
@@ -212,10 +272,21 @@ class ReplayRuntime:
                 ex = pending_execs.pop(tc_id, ExecCommandReplay(
                     tool_call_id=tc_id,
                 ))
-                ex.status = "completed"
                 ex.exit_code = payload.get("exit_code")
                 ex.duration_ms = payload.get("duration_ms", 0)
                 ex.output_size = payload.get("output_size", 0)
+                # Phase 31.8: terminal status flags
+                ex.cancelled = payload.get("cancelled", False)
+                ex.timed_out = payload.get("timed_out", False)
+                # Derive status from flags
+                if ex.timed_out:
+                    ex.status = "timed_out"
+                elif ex.cancelled:
+                    ex.status = "cancelled"
+                elif ex.exit_code is not None and ex.exit_code != 0:
+                    ex.status = "error"
+                else:
+                    ex.status = "completed"
                 timeline.exec_commands.append(ex)
 
             elif item.item_type == "error":
@@ -250,6 +321,11 @@ class ReplayRuntime:
         for ex in pending_execs.values():
             ex.status = "pending"
             timeline.exec_commands.append(ex)
+
+        # Phase 31.8: dangling approval requests → mark as pending
+        for ap in pending_approvals.values():
+            ap.decision = "pending"
+            timeline.approval_events.append(ap)
 
         return timeline
 

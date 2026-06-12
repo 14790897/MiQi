@@ -107,6 +107,11 @@ class ExecTool(Tool):
         tool_call_id = kwargs.pop("_tool_call_id", "")
         cancel_event = kwargs.pop("_cancel_event", None)
 
+        # Phase 31.8: consume ledger runtime and thread_id injected by
+        # ToolOrchestrator for replay-persistent event recording.
+        ledger_runtime = kwargs.pop("_ledger_runtime", None)
+        thread_id = kwargs.pop("_thread_id", "")
+
         # Phase 31: consume SandboxSelection injected by ToolOrchestrator.
         # This is the single source of truth for how this command must execute.
         # ExecTool MUST NOT make an independent sandbox decision that
@@ -130,6 +135,20 @@ class ExecTool(Tool):
                 cwd=cwd,
                 sandbox_type=sandbox_type,
             ))
+
+        # Phase 31.8: record exec start in ledger for replay
+        if ledger_runtime is not None:
+            await ledger_runtime.append_item(
+                thread_id=thread_id,
+                turn_id=turn_id,
+                item_type="exec_started",
+                payload={
+                    "tool_call_id": tool_call_id,
+                    "command": command,
+                    "cwd": cwd,
+                    "sandbox_type": sandbox_type,
+                },
+            )
 
         # Phase 31.5: exec end event needs a single exit point.
         # _ExecResult carries output + metadata so the end event is accurate.
@@ -171,6 +190,9 @@ class ExecTool(Tool):
                 turn_id=turn_id,
                 tool_call_id=tool_call_id,
                 cancel_event=cancel_event,
+                # Phase 31.8: ledger runtime and thread_id for replay
+                ledger_runtime=ledger_runtime,
+                thread_id=thread_id,
             )
 
             # Phase 31: if ToolOrchestrator injected a SandboxSelection,
@@ -203,6 +225,23 @@ class ExecTool(Tool):
                 duration_ms=exec_result.duration_ms,
                 output_size=len(exec_result.output),
             ))
+
+        # Phase 31.8: record exec completion in ledger for replay,
+        # including terminal status flags (timeout, cancel, non-zero exit).
+        if ledger_runtime is not None:
+            await ledger_runtime.append_item(
+                thread_id=thread_id,
+                turn_id=turn_id,
+                item_type="exec_completed",
+                payload={
+                    "tool_call_id": tool_call_id,
+                    "exit_code": exec_result.exit_code,
+                    "duration_ms": exec_result.duration_ms,
+                    "output_size": len(exec_result.output),
+                    "cancelled": exec_result.cancelled,
+                    "timed_out": exec_result.timed_out,
+                },
+            )
 
         return exec_result.output
 
@@ -493,6 +532,9 @@ class ExecTool(Tool):
         turn_id: str,
         tool_call_id: str,
         max_chars: int = 50_000,
+        # Phase 31.8: ledger runtime for replay-persistent delta recording
+        ledger_runtime=None,
+        thread_id: str = "",
     ) -> tuple[str, bool]:
         """Read *stream* incrementally, emit delta events, accumulate text.
 
@@ -528,6 +570,18 @@ class ExecTool(Tool):
                     stream=stream_name,
                     delta=text,
                 ))
+            # Phase 31.8: record exec output delta in ledger for replay
+            if ledger_runtime is not None:
+                await ledger_runtime.append_item(
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    item_type="exec_output_delta",
+                    content=text,
+                    payload={
+                        "tool_call_id": tool_call_id,
+                        "stream": stream_name,
+                    },
+                )
             if truncated:
                 break
         return "".join(chunks), truncated
@@ -561,6 +615,9 @@ class ExecTool(Tool):
         turn_id: str = "",
         tool_call_id: str = "",
         cancel_event: asyncio.Event | None = None,
+        # Phase 31.8: ledger runtime for replay-persistent exec event recording
+        ledger_runtime=None,
+        thread_id: str = "",
     ) -> _ExecResult:
         """Execute a command directly on the host (no sandbox).
 
@@ -605,6 +662,8 @@ class ExecTool(Tool):
                 event_emitter=event_emitter,
                 turn_id=turn_id,
                 tool_call_id=tool_call_id,
+                ledger_runtime=ledger_runtime,
+                thread_id=thread_id,
             ),
         )
         stderr_task: asyncio.Task = asyncio.create_task(
@@ -613,6 +672,8 @@ class ExecTool(Tool):
                 event_emitter=event_emitter,
                 turn_id=turn_id,
                 tool_call_id=tool_call_id,
+                ledger_runtime=ledger_runtime,
+                thread_id=thread_id,
             ),
         )
         proc_wait: asyncio.Task = asyncio.create_task(process.wait())
