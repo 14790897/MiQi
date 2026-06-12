@@ -318,102 +318,10 @@ def handle_status(req_id: str, params: dict) -> None:
     })
 
 
-def handle_chat_send(req_id: str, params: dict) -> None:
-    """Handle chat.send — submits to RuntimeSession via RuntimeClient (Phase 14).
-
-    The runtime owns all agent lifecycle; the bridge is a thin client
-    that submits commands and reads events from RuntimeSession.
-    """
-
-    def _run_in_thread() -> None:
-        asyncio.run(_run_chat_send_via_runtime(req_id, params))
-
-    t = threading.Thread(target=_run_in_thread, daemon=True)
-    t.start()
-    _result(req_id, {"accepted": True})
-
-
-def _caller_id_from_params(params: dict) -> str:
-    """Extract a stable caller identity from chat.send params for session isolation."""
-    return str(
-        params.get("caller_id")
-        or params.get("client_id")
-        or params.get("user_id")
-        or "desktop"
-    )
-
-
-async def _run_chat_send_via_runtime(req_id: str, params: dict) -> None:
-    """Execute chat.send through RuntimeSession + RuntimeClient.
-
-    Submits the user message to RuntimeSession and drains events
-    through RuntimeClient.ask(), forwarding progress and approval
-    events to the frontend via bridge _event() calls.
-    """
-    content = params["content"]
-    session_key = params.get("session_key", "desktop:default")
-    caller_id = _caller_id_from_params(params)
-
-    # Ensure shared bridge services are initialized (orchestrator, plugin mgr, etc.)
-    # This happens lazily inside get_runtime_session → RuntimeSession.create →
-    # RuntimeServices.from_config(), which builds the full service graph.
-    runtime = await _state.get_runtime_session(
-        session_key,
-        caller_id=caller_id,
-    )
-
-    async def _on_event(event: Any) -> None:
-        """Forward runtime events to the bridge frontend."""
-        name = event.__class__.__name__
-        if name == "ApprovalRequestedEvent":
-            _event(req_id, "approval_request", getattr(event, "__dict__", {}))
-        elif name.endswith("BeginEvent") or name.endswith("EndEvent"):
-            _event(req_id, "progress", {"event": name, "data": getattr(event, "__dict__", {})})
-        elif name not in {"AgentMessageEvent", "ErrorEvent"}:
-            _event(req_id, "progress", {"event": name, "data": getattr(event, "__dict__", {})})
-
-    try:
-        from miqi.runtime.client import RuntimeClient
-
-        result = await RuntimeClient(runtime).ask(
-            content,
-            thread_id=session_key,
-            on_event=_on_event,
-        )
-        _terminal_event(req_id, "final", {"content": result, "aborted": False})
-    except Exception as exc:
-        _log(f"chat.send runtime error: {exc}")
-        _terminal_event(req_id, "error", {"message": str(exc)})
-
-
-def handle_chat_abort(req_id: str, params: dict) -> None:
-    """Abort the active turn via RuntimeSession (Phase 14)."""
-    from miqi.protocol.commands import AbortTurn
-
-    session_key = params.get("session_key", "desktop:default")
-    caller_id = _caller_id_from_params(params)
-    aborted = False
-
-    async def _abort():
-        nonlocal aborted
-        runtime = await _state.get_runtime_session(
-            session_key,
-            caller_id=caller_id,
-        )
-        await runtime.submit(AbortTurn(thread_id=session_key))
-        aborted = True
-        # Resolve pending approvals so blocked daemon threads can exit
-        _state.abort_active()
-
-    try:
-        asyncio.run(_abort())
-    except Exception as exc:
-        _log(f"chat.abort error: {exc}")
-
-    if aborted:
-        _event(req_id, "approval_cleared", {"reason": "abort"})
-        _terminal_event(req_id, "aborted", {"message": "Chat aborted by user"})
-    _result(req_id, {"aborted": aborted})
+# Phase 27.3: handle_chat_send, _run_chat_send_via_runtime, handle_chat_abort,
+# and _caller_id_from_params removed. chat.send routes through
+# BridgeRuntimeLoop._chat_send_handler → AppServer → RuntimeSession.
+# chat.abort routes through AppServer (registered by register_command_handlers).
 
 
 def handle_sessions_list(req_id: str, params: dict) -> None:
@@ -2322,8 +2230,7 @@ def handle_plan_get(req_id: str, params: dict) -> None:
 
 _METHODS = {
     "status": handle_status,
-    "chat.send": handle_chat_send,
-    "chat.abort": handle_chat_abort,
+    # chat.send and chat.abort are now AppServer methods (Phase 27.3)
     "sessions.list": handle_sessions_list,
     "sessions.get": handle_sessions_get,
     "sessions.delete": handle_sessions_delete,
@@ -2532,6 +2439,7 @@ def main() -> None:
     bridge = BridgeRuntimeLoop(
         send_func=_send,
         dispatch_legacy_func=_dispatch,
+        bridge_state=_state,
         dev_mode=False,
     )
     bridge.start()

@@ -41,16 +41,20 @@ class BridgeRuntimeLoop:
         *,
         send_func: Any = None,
         dispatch_legacy_func: Any = None,
+        bridge_state: Any = None,
         dev_mode: bool = False,
     ):
         self._send = send_func
         self._dispatch_legacy = dispatch_legacy_func
+        self._bridge_state = bridge_state  # BridgeState for config/provider
         self._dev_mode = dev_mode
         self._loop: asyncio.AbstractEventLoop | None = None
         self._app_server: Any = None
         self._stdin_queue: asyncio.Queue | None = None
         self._shutdown_event: asyncio.Event | None = None
         self._pending_tasks: set[asyncio.Task] = set()
+        self._terminal_sent: set[str] = set()  # prevent duplicate terminal events
+        self._active_chat_tasks: dict[str, asyncio.Task] = {}  # req_id → drain task
 
     # ── public API ─────────────────────────────────────────────────────────
 
@@ -147,6 +151,9 @@ class BridgeRuntimeLoop:
         # Register bridge-owned handlers
         self._app_server.register_method("status", self._status_handler)
 
+        # Register Phase 27.3: chat.send through AppServer
+        self._app_server.register_method("chat.send", self._chat_send_handler)
+
         # Register Phase 26.5 replay handlers
         register_replay_handlers(self._app_server)
 
@@ -171,6 +178,176 @@ class BridgeRuntimeLoop:
                 "python_version": sys.version,
             },
         }
+
+    # ── chat.send handler ──────────────────────────────────────────────────
+
+    async def _chat_send_handler(
+        self, request_id: str, params: dict, client_id: str,
+        session_id: str | None, registry: Any,
+    ) -> dict:
+        """AppServer handler for chat.send.
+
+        Submits the user message to RuntimeSession, spawns a background
+        task to drain events, and returns immediately with {"accepted": true}.
+        Streaming events are forwarded through AppServer.emit_event().
+        """
+        from miqi.protocol.commands import UserMessage
+
+        content = params.get("content")
+        if not content:
+            from miqi.runtime.app_server import AppServerError
+
+            raise AppServerError("content is required", code="INVALID_PARAMS")
+
+        session_key = params.get("session_key", "desktop:default")
+        thread_id = params.get("thread_id", session_key)
+
+        # Get or create RuntimeSession
+        runtime_id = session_id or f"{client_id}:{session_key}"
+        runtime = await registry.get_session(client_id, runtime_id)
+        if runtime is None:
+            if self._bridge_state is None:
+                from miqi.runtime.app_server import AppServerError
+
+                raise AppServerError(
+                    "Bridge state not available for session creation",
+                    code="INTERNAL",
+                )
+            config = self._bridge_state.load_config()
+            from miqi.providers.factory import make_provider
+
+            provider = make_provider(config)
+            runtime = await registry.create_session(
+                client_id=client_id,
+                session_key=runtime_id,
+                config=config,
+                provider=provider,
+                workspace=config.workspace_path,
+            )
+
+        # Submit the user message
+        await runtime.submit(UserMessage(content=content, thread_id=thread_id))
+
+        # Spawn background drain task
+        app_server = self._app_server
+        task = asyncio.create_task(
+            self._drain_chat_events(
+                request_id=request_id,
+                runtime=runtime,
+                thread_id=thread_id,
+                session_id=runtime_id,
+                client_id=client_id,
+            )
+        )
+        self._active_chat_tasks[request_id] = task
+        # Clean up task reference when done
+        task.add_done_callback(lambda t: self._active_chat_tasks.pop(request_id, None))
+
+        logger.info(
+            "chat.send: submitted turn for client={} session={} thread={}",
+            client_id, runtime_id, thread_id,
+        )
+        return {"result": {"accepted": True}}
+
+    async def _drain_chat_events(
+        self,
+        request_id: str,
+        runtime: Any,
+        thread_id: str,
+        session_id: str,
+        client_id: str,
+    ) -> None:
+        """Background task: drain events from RuntimeSession and forward them.
+
+        Runs on the persistent loop. Forwards progress/approval events via
+        AppServer.emit_event(). Sends terminal event (final/error/aborted)
+        when the turn completes.
+        """
+        app_server = self._app_server
+
+        async def _emit(event_type: str, data: Any) -> None:
+            """Emit a non-terminal event through AppServer fanout."""
+            await app_server.emit_event(
+                session_id, event_type, data,
+                request_id=request_id,
+            )
+
+        async def _emit_terminal(event_type: str, data: Any) -> bool:
+            """Emit a terminal event, preventing duplicates."""
+            if request_id in self._terminal_sent:
+                return False
+            self._terminal_sent.add(request_id)
+            await app_server.emit_event(
+                session_id, event_type, data,
+                request_id=request_id,
+            )
+            return True
+
+        try:
+            from dataclasses import asdict, is_dataclass
+
+            from miqi.protocol.events import (
+                AgentMessageEvent,
+                ErrorEvent,
+                TurnCompleteEvent,
+            )
+
+            while True:
+                event = await runtime.next_event(timeout=300)
+                if event is None:
+                    # Timeout — no response from agent
+                    await _emit_terminal("error", {
+                        "message": "Turn timed out after 300s",
+                    })
+                    break
+
+                if isinstance(event, AgentMessageEvent):
+                    await _emit_terminal("final", {
+                        "content": event.content,
+                        "aborted": False,
+                    })
+                    break
+
+                if isinstance(event, ErrorEvent):
+                    await _emit_terminal("error", {
+                        "message": event.message,
+                    })
+                    break
+
+                if isinstance(event, TurnCompleteEvent):
+                    await _emit_terminal("final", {
+                        "content": "",
+                        "aborted": False,
+                        "status": "completed",
+                    })
+                    break
+
+                # Forward all other events as progress
+                event_name = event.__class__.__name__
+                if is_dataclass(event):
+                    payload = asdict(event)
+                else:
+                    payload = getattr(event, "__dict__", {})
+
+                if event_name == "ApprovalRequestedEvent":
+                    await _emit("approval_request", payload)
+                else:
+                    await _emit("progress", {
+                        "event": event_name,
+                        "data": payload,
+                    })
+
+        except asyncio.CancelledError:
+            await _emit_terminal("aborted", {
+                "message": "Chat aborted by user",
+            })
+        except Exception as exc:
+            logger.warning(
+                "chat.send drain error for request {}: {}", request_id, exc,
+            )
+            await _emit_terminal("error", {
+                "message": str(exc),
+            })
 
     # ── event sink ─────────────────────────────────────────────────────────
 
