@@ -185,6 +185,26 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("config.get", config_get_handler)
         self._app_server.register_method("config.update", config_update_handler)
 
+        # Register Phase 28.4: sessions.* handlers
+        from miqi.runtime.session_handlers import (
+            sessions_list_handler,
+            sessions_get_handler,
+            sessions_delete_handler,
+            sessions_archive_handler,
+            sessions_unarchive_handler,
+            sessions_list_archived_handler,
+            sessions_get_tracked_files_handler,
+            sessions_clear_tracked_files_handler,
+        )
+        self._app_server.register_method("sessions.list", sessions_list_handler)
+        self._app_server.register_method("sessions.get", sessions_get_handler)
+        self._app_server.register_method("sessions.delete", sessions_delete_handler)
+        self._app_server.register_method("sessions.archive", sessions_archive_handler)
+        self._app_server.register_method("sessions.unarchive", sessions_unarchive_handler)
+        self._app_server.register_method("sessions.list_archived", sessions_list_archived_handler)
+        self._app_server.register_method("sessions.get_tracked_files", sessions_get_tracked_files_handler)
+        self._app_server.register_method("sessions.clear_tracked_files", sessions_clear_tracked_files_handler)
+
         logger.info(
             "BridgeRuntimeLoop: AppServer initialized with {} methods",
             len(self._app_server._methods),

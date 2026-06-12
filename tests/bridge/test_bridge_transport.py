@@ -221,6 +221,11 @@ def test_bridge_existing_dispatch_still_works(monkeypatch):
     # chat.send and chat.abort are now AppServer methods (Phase 27.3)
     # approvals.* are now AppServer methods (Phase 28.2)
     # config.get/config.update are now AppServer methods (Phase 28.3)
-    assert "sessions.list" in _METHODS  # still legacy until Phase 28.4
+    # sessions.* are now AppServer methods (Phase 28.4)
     assert "approvals.list" not in _METHODS  # migrated to AppServer
     assert "config.get" not in _METHODS  # migrated to AppServer
+    assert "sessions.list" not in _METHODS  # migrated to AppServer
+    # These legacy handlers should still be present
+    assert "providers.list" in _METHODS
+    assert "cron.list" in _METHODS
+    assert "files.tree" in _METHODS
