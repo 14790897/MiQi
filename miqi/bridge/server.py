@@ -2465,6 +2465,10 @@ def _register_app_server_methods(server: Any) -> None:
 def _dispatch_via_appserver(req_id: str, method: str, params: dict) -> bool:
     """Try to dispatch a request through AppServer.
 
+    Phase 27.1: DEPRECATED — dispatch now goes through
+    BridgeRuntimeLoop._drain_loop() which uses the persistent event loop.
+    Kept for backward compatibility only (tests, legacy callers).
+
     Returns True if the method was handled by AppServer, False if
     it should fall through to legacy _dispatch().
     """
@@ -2580,15 +2584,12 @@ def main() -> None:
     _init_logging()
     _log("Bridge server starting")
     _ensure_workspace_init()
-    # Phase 26.2: initialize AppServer (additive — legacy dispatch still works)
-    try:
-        _ensure_app_server()
-    except Exception as exc:
-        _log(f"AppServer init warning (non-fatal): {exc}")
+
     # Persist approval history so records survive bridge restarts
     try:
         from miqi.agent.command_approval import init_history_file
         from miqi.config.loader import get_data_dir
+
         init_history_file(get_data_dir() / "approval_history.jsonl")
     except Exception as exc:
         _log(f"Approval history init warning (non-fatal): {exc}")
@@ -2606,26 +2607,17 @@ def main() -> None:
         # signal.signal can fail if not in main thread or not supported
         pass
 
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            req = json.loads(line)
-            method = req["method"]
-            req_id = req["id"]
-            params = req.get("params", {})
-            # Phase 26.2: try AppServer first, fall back to legacy dispatch
-            if not _dispatch_via_appserver(req_id, method, params):
-                _dispatch(req_id, method, params)
-        except json.JSONDecodeError as exc:
-            _log(f"Invalid JSON: {exc}")
-        except Exception:
-            _log(f"Unhandled error: {traceback.format_exc()}")
-            try:
-                _error(req.get("id", "?"), "Internal bridge error")
-            except Exception:
-                pass
+    # Phase 27.1: use BridgeRuntimeLoop with persistent asyncio event loop
+    # instead of per-request asyncio.run(). Legacy handlers continue to
+    # work via the _dispatch fallback path.
+    from miqi.bridge.loop import BridgeRuntimeLoop
+
+    bridge = BridgeRuntimeLoop(
+        send_func=_send,
+        dispatch_legacy_func=_dispatch,
+        dev_mode=False,
+    )
+    bridge.start()
 
     # stdin closed — graceful exit
     _graceful_shutdown()
