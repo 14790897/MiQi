@@ -1085,15 +1085,15 @@ export function ChatConsole({
               className="flex items-center justify-between px-4 py-3 border-b shrink-0"
               style={{ borderColor: 'var(--border-subtle)' }}
             >
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
                 <FileText
                   size={14}
                   style={{ color: 'var(--info)' }}
                   className="shrink-0"
                 />
                 <span
-                  className="text-sm font-medium truncate"
-                  style={{ color: 'var(--text)' }}
+                  className="text-[11px] font-mono break-all leading-relaxed"
+                  style={{ color: 'var(--text-muted)' }}
                   title={previewFile.path}
                 >
                   {previewFile.path}
@@ -1369,6 +1369,7 @@ function TrackedFileCard({
     delete: 'var(--danger)',
   }
   const OpIcon = file.op === 'read' ? BookOpen : file.op === 'delete' ? X : Pencil
+  const displayPath = file.path.replace(/\\/g, '/')
 
   return (
     <div
@@ -1378,16 +1379,16 @@ function TrackedFileCard({
         background: 'var(--surface)',
       }}
     >
-      <div className="flex items-start gap-2 mb-2">
+      <div className="flex items-start gap-2 mb-1">
         <FileText size={14} className="shrink-0 mt-0.5" style={{ color: opColor[file.op] }} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
             <span
-              className="text-[11px] font-medium truncate"
+              className="text-[12px] font-medium truncate"
               style={{ color: 'var(--text)' }}
-              title={file.path}
+              title={displayPath}
             >
-              {file.name.length > 20 ? file.name.slice(0, 18) + '…' : file.name}
+              {file.name.length > 30 ? file.name.slice(0, 28) + '…' : file.name}
             </span>
             <span
               className="text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0"
@@ -1399,15 +1400,6 @@ function TrackedFileCard({
               {file.op.toUpperCase()}
             </span>
           </div>
-          <span
-            className="text-[10px] font-mono truncate block"
-            style={{ color: 'var(--text-faint)' }}
-            title={file.path}
-          >
-            {file.path.replace(/\\/g, '/').length > 28
-              ? '…' + file.path.replace(/\\/g, '/').slice(-26)
-              : file.path.replace(/\\/g, '/')}
-          </span>
         </div>
       </div>
       {file.truncated ? (

@@ -773,8 +773,14 @@ class AgentLoop:
                                         op = {"write_file": "write", "edit_file": "edit",
                                               "delete_file": "delete", "read_file": "read"
                                               }.get(tc.name, "read")
+                                        # Resolve relative paths to absolute so the
+                                        # Task Assets panel shows full paths.
+                                        _path_arg = arg
+                                        if not arg.startswith(("/", "\\")) and not (len(arg) > 1 and arg[1] == ":"):
+                                            _base = self.context.session_work_dir or self.workspace
+                                            _path_arg = str((_base / arg).resolve())
                                         self.sessions.save_tracked_file(
-                                            self._session_key, arg, op=op)
+                                            self._session_key, _path_arg, op=op)
                         except Exception:
                             pass  # Non-critical: sidebar is a nice-to-have
 
