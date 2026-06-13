@@ -37,9 +37,34 @@ async def test_exec_tool_prefers_bwrap():
     assert selection.sandbox_type == SandboxType.BWRAP
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 33.4: LANDLOCK hardening — landlock_available=True does NOT select
+# LANDLOCK because landlock_supported=False (no real Landlock adapter yet).
+# ═══════════════════════════════════════════════════════════════════════════
+
+
 @pytest.mark.asyncio
-async def test_exec_tool_falls_back_to_landlock():
+async def test_landlock_available_does_not_select_landlock_when_unsupported():
+    """Phase 33.4: landlock_available=True but landlock_supported=False
+    → engine skips LANDLOCK, selects RESTRICTED instead."""
     engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=True)
+    ctx = FakeContext("exec", {"command": "npm test"})
+    selection = await engine.select(ctx)
+    # LANDLOCK should NOT be selected because landlock_supported=False
+    assert selection.sandbox_type == SandboxType.RESTRICTED
+    # Reason must explain why LANDLOCK was skipped
+    assert "landlock_available" in selection.reason.lower()
+    assert "landlock_supported" in selection.reason.lower()
+    assert "no Landlock adapter" in selection.reason
+
+
+@pytest.mark.asyncio
+async def test_landlock_available_and_supported_can_select_landlock():
+    """If both landlock_available AND landlock_supported are True,
+    LANDLOCK should be selectable (future-proof test)."""
+    engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=True)
+    # Simulate a future where the adapter exists
+    engine.landlock_supported = True
     ctx = FakeContext("exec", {"command": "npm test"})
     selection = await engine.select(ctx)
     assert selection.sandbox_type == SandboxType.LANDLOCK
@@ -47,14 +72,22 @@ async def test_exec_tool_falls_back_to_landlock():
 
 @pytest.mark.asyncio
 async def test_exec_tool_falls_back_to_restricted():
+    """Without bwrap or landlock, exec selects RESTRICTED."""
     engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=False)
     ctx = FakeContext("exec", {"command": "npm test"})
     selection = await engine.select(ctx)
     assert selection.sandbox_type == SandboxType.RESTRICTED
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 33.4: fallback hardening — exec NEVER falls back to NONE
+# ═══════════════════════════════════════════════════════════════════════════
+
+
 @pytest.mark.asyncio
-async def test_escalation_on_retry():
+async def test_escalation_on_retry_bwrap_available():
+    """With bwrap available, escalation chain is [BWRAP, LANDLOCK, RESTRICTED].
+    NONE is NOT in the chain.  Attempt 3 (beyond chain) raises for exec."""
     engine = SandboxPolicyEngine(bwrap_available=True)
     ctx = FakeContext("exec", {"command": "npm test"})
     # Attempt 0 → bwrap
@@ -66,20 +99,136 @@ async def test_escalation_on_retry():
     # Attempt 2 → restricted
     s2 = await engine.select(ctx, attempt=2)
     assert s2.sandbox_type == SandboxType.RESTRICTED
-    # Attempt 3 → none (fallback)
-    s3 = await engine.select(ctx, attempt=3)
-    assert s3.sandbox_type == SandboxType.NONE
+    # Attempt 3 → beyond chain → exec NEVER falls to NONE → raises
+    with pytest.raises(SandboxDeniedError) as exc_info:
+        await engine.select(ctx, attempt=3)
+    assert "NONE fallback is disabled for exec" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
-async def test_escalation_past_chain_raises_when_no_fallback():
+async def test_escalation_past_chain_raises_for_exec():
+    """Exec escalation exhausted → always raises, even with
+    allow_fallback_to_none=True."""
+    engine = SandboxPolicyEngine(
+        bwrap_available=True,
+        allow_fallback_to_none=True,
+    )
+    ctx = FakeContext("exec", {"command": "npm test"})
+    with pytest.raises(SandboxDeniedError) as exc_info:
+        await engine.select(ctx, attempt=4)
+    assert "NONE fallback is disabled for exec" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_allow_fallback_to_none_false_for_exec():
+    """allow_fallback_to_none=False with exec failure → clear error message."""
     engine = SandboxPolicyEngine(
         bwrap_available=True,
         allow_fallback_to_none=False,
     )
     ctx = FakeContext("exec", {"command": "npm test"})
-    with pytest.raises(SandboxDeniedError):
+    with pytest.raises(SandboxDeniedError) as exc_info:
         await engine.select(ctx, attempt=4)
+    assert "NONE fallback is disabled for exec" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_read_only_tools_still_none_after_exhaustion():
+    """read-only tools always get NONE, even with allow_fallback_to_none=False
+    and attempt beyond chain."""
+    engine = SandboxPolicyEngine(allow_fallback_to_none=False)
+    ctx = FakeContext("read_file", {"path": "test.py"})
+    # read-only tools skip escalation entirely
+    selection = await engine.select(ctx, attempt=0)
+    assert selection.sandbox_type == SandboxType.NONE
+    # Even with absurd attempt number
+    selection = await engine.select(ctx, attempt=99)
+    assert selection.sandbox_type == SandboxType.NONE
+
+
+@pytest.mark.asyncio
+async def test_write_file_fallback_to_none_when_allowed():
+    """write_file base is RESTRICTED. If RESTRICTED is exhausted,
+    fallback to NONE only when allow_fallback_to_none=True."""
+    engine = SandboxPolicyEngine(allow_fallback_to_none=True)
+    ctx = FakeContext("write_file", {"path": "/tmp/test.txt"})
+    # Attempt 0 → RESTRICTED
+    s0 = await engine.select(ctx, attempt=0)
+    assert s0.sandbox_type == SandboxType.RESTRICTED
+    # Attempt 1 → beyond chain → fallback to NONE (non-exec, allowed)
+    s1 = await engine.select(ctx, attempt=1)
+    assert s1.sandbox_type == SandboxType.NONE
+
+
+@pytest.mark.asyncio
+async def test_write_file_fallback_blocked_when_disallowed():
+    """write_file fallback to NONE blocked when allow_fallback_to_none=False."""
+    engine = SandboxPolicyEngine(allow_fallback_to_none=False)
+    ctx = FakeContext("write_file", {"path": "/tmp/test.txt"})
+    with pytest.raises(SandboxDeniedError):
+        await engine.select(ctx, attempt=1)
+
+
+@pytest.mark.asyncio
+async def test_exec_with_landlock_no_fallback_to_none():
+    """When bwrap unavailable and landlock unsupported, exec gets RESTRICTED.
+    Exhaustion beyond RESTRICTED must never fallback to NONE for exec."""
+    engine = SandboxPolicyEngine(
+        bwrap_available=False,
+        landlock_available=False,
+        allow_fallback_to_none=True,
+    )
+    ctx = FakeContext("exec", {"command": "npm test"})
+    # Attempt 0 → RESTRICTED
+    s0 = await engine.select(ctx, attempt=0)
+    assert s0.sandbox_type == SandboxType.RESTRICTED
+    # Attempt 1 → beyond chain → MUST raise for exec
+    with pytest.raises(SandboxDeniedError) as exc_info:
+        await engine.select(ctx, attempt=1)
+    assert "NONE fallback is disabled for exec" in str(exc_info.value)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 33.4: reason string enrichment
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_reason_includes_landlock_unsupported_info():
+    """Reason string must mention landlock unsupported when configured
+    but no adapter exists."""
+    engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=True)
+    ctx = FakeContext("exec", {"command": "npm test"})
+    selection = await engine.select(ctx)
+    assert selection.sandbox_type == SandboxType.RESTRICTED
+    assert "landlock_supported=False" in selection.reason
+    assert "no Landlock adapter" in selection.reason
+
+
+@pytest.mark.asyncio
+async def test_reason_includes_no_stronger_sandbox_info():
+    """Reason for RESTRICTED exec includes explanation of why no stronger
+    sandbox is available."""
+    engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=False)
+    ctx = FakeContext("exec", {"command": "npm test"})
+    selection = await engine.select(ctx)
+    assert selection.sandbox_type == SandboxType.RESTRICTED
+    assert "bwrap unavailable" in selection.reason
+    assert "no stronger sandbox" in selection.reason
+
+
+@pytest.mark.asyncio
+async def test_reason_for_read_only_tools():
+    """Read-only tools have clear reason string."""
+    engine = SandboxPolicyEngine()
+    ctx = FakeContext("read_file", {"path": "test.py"})
+    selection = await engine.select(ctx)
+    assert "sandbox not required" in selection.reason
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Original tests preserved (updated for Phase 33.4 semantics)
+# ═══════════════════════════════════════════════════════════════════════════
 
 
 @pytest.mark.asyncio
