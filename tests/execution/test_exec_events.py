@@ -1,6 +1,7 @@
 """Tests for exec lifecycle events (Phases 21, 31.5, 31.6)."""
 
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -602,3 +603,593 @@ def _none_sandbox():
         env_passthrough=[],
         reason="test",
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 33.2: BWRAP streaming / cancel hardening
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class _FakeBwrapHandle:
+    """Handle that wraps a real asyncio subprocess for testing bwrap streaming.
+
+    Spawns a real Python subprocess so that stdout/stderr are genuine
+    :class:`asyncio.StreamReader` objects — the ExecTool's
+    :meth:`_read_stream` works without mocking asyncio internals.
+    """
+
+    def __init__(self, process: asyncio.subprocess.Process):
+        self._process = process
+        self.kill_called = False
+        self.cleanup_called = False
+
+    @property
+    def stdout(self) -> asyncio.StreamReader | None:
+        return self._process.stdout
+
+    @property
+    def stderr(self) -> asyncio.StreamReader | None:
+        return self._process.stderr
+
+    @property
+    def returncode(self) -> int | None:
+        return self._process.returncode
+
+    async def wait(self) -> int:
+        await self._process.wait()
+        return self._process.returncode or -1
+
+    async def kill(self) -> None:
+        self.kill_called = True
+        try:
+            self._process.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            await asyncio.wait_for(self._process.wait(), timeout=5.0)
+        except (asyncio.TimeoutError, ProcessLookupError):
+            pass
+
+    async def cleanup(self) -> None:
+        self.cleanup_called = True
+
+
+async def _make_streaming_handle(
+    stdout_text: str = "",
+    stderr_text: str = "",
+    exit_code: int = 0,
+    *,
+    sleep_before: float = 0,
+    sleep_forever: bool = False,
+) -> _FakeBwrapHandle:
+    """Create a _FakeBwrapHandle backed by a real Python subprocess.
+
+    The subprocess writes *stdout_text* to stdout, *stderr_text* to stderr,
+    and exits with *exit_code*.  If *sleep_forever* is True, the process
+    sleeps indefinitely (used to test kill/timeout).
+    """
+    if sleep_forever:
+        script = "import time; time.sleep(3600)"
+    else:
+        parts = []
+        if sleep_before > 0:
+            parts.append(f"import time; time.sleep({sleep_before})")
+        parts.append("import sys")
+        if stdout_text:
+            parts.append(f"sys.stdout.write({stdout_text!r})")
+        if stderr_text:
+            parts.append(f"sys.stderr.write({stderr_text!r})")
+        parts.append(f"sys.exit({exit_code})")
+        script = "; ".join(parts)
+
+    process = await asyncio.create_subprocess_exec(
+        "python", "-c", script,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    return _FakeBwrapHandle(process)
+
+
+def _make_mock_sandbox_streaming(handle: _FakeBwrapHandle):
+    """Create a mock BwrapSandbox that returns *handle* from
+    run_command_streaming()."""
+    from unittest.mock import MagicMock
+
+    sandbox = MagicMock()
+    sandbox.is_running = True
+    sandbox.get_sandbox_env = MagicMock(return_value={})
+    sandbox.run_command_streaming = AsyncMock(return_value=handle)
+    return sandbox
+
+
+def _make_mock_sandbox_manager_streaming(sandbox):
+    """Create a mock SandboxManager with the streaming sandbox."""
+    from unittest.mock import MagicMock
+
+    mgr = MagicMock()
+    mgr.active_sandbox = sandbox
+    return mgr
+
+
+def _make_bwrap_selection(*, timeout_ms: int = 30_000):
+    """Create a SandboxSelection(BWRAP) for tests."""
+    from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
+    from miqi.protocol.permissions import (
+        FileSystemAccessMode,
+        FileSystemSandboxPolicy,
+        NetworkSandboxPolicy,
+    )
+    return SandboxSelection(
+        sandbox_type=SandboxType.BWRAP,
+        filesystem_policy=FileSystemSandboxPolicy(
+            default_mode=FileSystemAccessMode.READ,
+        ),
+        network_policy=NetworkSandboxPolicy.ALLOW_ALL,
+        timeout_ms=timeout_ms,
+        env_passthrough=[],
+        reason="test bwrap selection",
+    )
+
+
+# ── Phase 33.2: stdout/stderr delta events ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_bwrap_stdout_delta_emitted():
+    """Phase 33.2: bwrap path must emit ExecCommandOutputDeltaEvent for
+    stdout chunks during streaming execution."""
+    emitter = _EventCollector()
+    handle = await _make_streaming_handle(stdout_text="hello-from-bwrap")
+    sandbox = _make_mock_sandbox_streaming(handle)
+    mgr = _make_mock_sandbox_manager_streaming(sandbox)
+
+    tool = ExecTool(timeout=5, sandbox_manager=mgr)
+    sel = _make_bwrap_selection()
+
+    result = await tool.execute(
+        "echo hello",
+        _event_emitter=emitter,
+        _turn_id="t-bwrap-out",
+        _tool_call_id="tc-bwrap-out",
+        _sandbox=sel,
+    )
+
+    assert "hello-from-bwrap" in result
+
+    delta_events = [
+        e for e in emitter.events
+        if isinstance(e, ExecCommandOutputDeltaEvent)
+    ]
+    stdout_deltas = [d for d in delta_events if d.stream == "stdout"]
+    assert len(stdout_deltas) >= 1, (
+        f"Expected >=1 stdout delta from bwrap, got {delta_events}"
+    )
+    assert "hello-from-bwrap" in "".join(d.delta for d in stdout_deltas)
+
+    end_events = [e for e in emitter.events
+                  if isinstance(e, ExecCommandEndEvent)]
+    assert len(end_events) == 1
+
+
+@pytest.mark.asyncio
+async def test_bwrap_stderr_delta_emitted():
+    """Phase 33.2: bwrap path must emit ExecCommandOutputDeltaEvent for
+    stderr chunks during streaming execution."""
+    emitter = _EventCollector()
+    handle = await _make_streaming_handle(
+        stdout_text="ok", stderr_text="bwrap-err-msg",
+    )
+    sandbox = _make_mock_sandbox_streaming(handle)
+    mgr = _make_mock_sandbox_manager_streaming(sandbox)
+
+    tool = ExecTool(timeout=5, sandbox_manager=mgr)
+    sel = _make_bwrap_selection()
+
+    await tool.execute(
+        "echo hello",
+        _event_emitter=emitter,
+        _turn_id="t-bwrap-err",
+        _tool_call_id="tc-bwrap-err",
+        _sandbox=sel,
+    )
+
+    delta_events = [
+        e for e in emitter.events
+        if isinstance(e, ExecCommandOutputDeltaEvent)
+    ]
+    stderr_deltas = [d for d in delta_events if d.stream == "stderr"]
+    assert len(stderr_deltas) >= 1, (
+        f"Expected >=1 stderr delta from bwrap, got {delta_events}"
+    )
+    assert "bwrap-err-msg" in "".join(d.delta for d in stderr_deltas)
+
+
+@pytest.mark.asyncio
+async def test_bwrap_final_result_contains_stdout_stderr():
+    """Phase 33.2: bwrap final aggregated result must contain both stdout
+    and stderr content."""
+    emitter = _EventCollector()
+    handle = await _make_streaming_handle(
+        stdout_text="result-out", stderr_text="result-err",
+    )
+    sandbox = _make_mock_sandbox_streaming(handle)
+    mgr = _make_mock_sandbox_manager_streaming(sandbox)
+
+    tool = ExecTool(timeout=5, sandbox_manager=mgr)
+    sel = _make_bwrap_selection()
+
+    result = await tool.execute(
+        "echo hello",
+        _event_emitter=emitter,
+        _turn_id="t-bwrap-agg",
+        _tool_call_id="tc-bwrap-agg",
+        _sandbox=sel,
+    )
+
+    assert "result-out" in result
+    assert "result-err" in result
+
+
+# ── Phase 33.2: timeout kills ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_bwrap_timeout_kills_and_one_end_event():
+    """Phase 33.2: when a bwrap command exceeds its timeout, the process
+    must be killed (handle.kill() called) and exactly one EndEvent emitted."""
+    emitter = _EventCollector()
+    handle = await _make_streaming_handle(sleep_forever=True)
+    sandbox = _make_mock_sandbox_streaming(handle)
+    mgr = _make_mock_sandbox_manager_streaming(sandbox)
+
+    tool = ExecTool(timeout=5, sandbox_manager=mgr)
+    sel = _make_bwrap_selection(timeout_ms=200)  # 200ms timeout
+
+    result = await tool.execute(
+        "sleep 999",
+        _event_emitter=emitter,
+        _turn_id="t-bwrap-to",
+        _tool_call_id="tc-bwrap-to",
+        _sandbox=sel,
+    )
+
+    assert "timed out" in result.lower()
+    assert handle.kill_called, "handle.kill() must be called on timeout"
+
+    end_events = [e for e in emitter.events
+                  if isinstance(e, ExecCommandEndEvent)]
+    assert len(end_events) == 1, (
+        f"Expected exactly 1 end event after bwrap timeout, got {len(end_events)}"
+    )
+    assert end_events[0].exit_code != 0
+
+
+# ── Phase 33.2: cancel_event kills ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_bwrap_cancel_kills_and_one_end_event():
+    """Phase 33.2: when cancel_event is set during bwrap execution, the
+    process must be killed and exactly one EndEvent emitted."""
+    emitter = _EventCollector()
+    cancel_event = asyncio.Event()
+    handle = await _make_streaming_handle(sleep_forever=True)
+    sandbox = _make_mock_sandbox_streaming(handle)
+    mgr = _make_mock_sandbox_manager_streaming(sandbox)
+
+    tool = ExecTool(timeout=30, sandbox_manager=mgr)
+    sel = _make_bwrap_selection(timeout_ms=30_000)
+
+    async def cancel_after_delay():
+        await asyncio.sleep(0.2)
+        cancel_event.set()
+
+    cancel_task = asyncio.create_task(cancel_after_delay())
+
+    result = await tool.execute(
+        "sleep 999",
+        _event_emitter=emitter,
+        _turn_id="t-bwrap-cancel",
+        _tool_call_id="tc-bwrap-cancel",
+        _cancel_event=cancel_event,
+        _sandbox=sel,
+    )
+
+    await cancel_task
+
+    assert "cancelled" in result.lower()
+    assert handle.kill_called, "handle.kill() must be called on cancel"
+
+    end_events = [e for e in emitter.events
+                  if isinstance(e, ExecCommandEndEvent)]
+    assert len(end_events) == 1, (
+        f"Expected exactly 1 end event after bwrap cancel, got {len(end_events)}"
+    )
+
+
+# ── Phase 33.2: no duplicate end event ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_bwrap_no_duplicate_end_event_on_failure():
+    """Phase 33.2: a bwrap command that fails (non-zero exit) must still
+    emit exactly one end event."""
+    emitter = _EventCollector()
+    handle = await _make_streaming_handle(
+        stdout_text="", stderr_text="something went wrong", exit_code=2,
+    )
+    sandbox = _make_mock_sandbox_streaming(handle)
+    mgr = _make_mock_sandbox_manager_streaming(sandbox)
+
+    tool = ExecTool(timeout=5, sandbox_manager=mgr)
+    sel = _make_bwrap_selection()
+
+    await tool.execute(
+        "false",
+        _event_emitter=emitter,
+        _turn_id="t-bwrap-fail",
+        _tool_call_id="tc-bwrap-fail",
+        _sandbox=sel,
+    )
+
+    end_events = [e for e in emitter.events
+                  if isinstance(e, ExecCommandEndEvent)]
+    assert len(end_events) == 1, (
+        f"Expected exactly 1 end event on bwrap command failure, got {len(end_events)}"
+    )
+
+
+# ── Phase 33.2: no pending internal tasks ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_bwrap_no_pending_tasks_on_normal():
+    """Phase 33.2: after normal bwrap completion, no internal asyncio
+    tasks are left pending."""
+    handle = await _make_streaming_handle(stdout_text="normal-done")
+    sandbox = _make_mock_sandbox_streaming(handle)
+    mgr = _make_mock_sandbox_manager_streaming(sandbox)
+
+    tool = ExecTool(timeout=10, sandbox_manager=mgr)
+    sel = _make_bwrap_selection()
+
+    result = await tool.execute(
+        "echo ok",
+        _event_emitter=_EventCollector(),
+        _turn_id="t-bwrap-clean",
+        _tool_call_id="tc-bwrap-clean",
+        _sandbox=sel,
+    )
+
+    assert "normal-done" in result
+    assert handle.cleanup_called, "handle.cleanup() must be called"
+
+
+@pytest.mark.asyncio
+async def test_bwrap_no_pending_tasks_on_timeout():
+    """Phase 33.2: after bwrap timeout, no internal asyncio tasks are
+    left pending."""
+    handle = await _make_streaming_handle(sleep_forever=True)
+    sandbox = _make_mock_sandbox_streaming(handle)
+    mgr = _make_mock_sandbox_manager_streaming(sandbox)
+
+    tool = ExecTool(timeout=5, sandbox_manager=mgr)
+    sel = _make_bwrap_selection(timeout_ms=100)
+
+    result = await tool.execute(
+        "sleep 999",
+        _event_emitter=_EventCollector(),
+        _turn_id="t-bwrap-clean-to",
+        _tool_call_id="tc-bwrap-clean-to",
+        _sandbox=sel,
+    )
+
+    assert "timed out" in result.lower()
+    assert handle.kill_called
+    assert handle.cleanup_called, (
+        "handle.cleanup() must be called even after timeout"
+    )
+
+
+@pytest.mark.asyncio
+async def test_bwrap_no_pending_tasks_on_cancel():
+    """Phase 33.2: after bwrap cancel, no internal asyncio tasks are
+    left pending."""
+    cancel_event = asyncio.Event()
+    handle = await _make_streaming_handle(sleep_forever=True)
+    sandbox = _make_mock_sandbox_streaming(handle)
+    mgr = _make_mock_sandbox_manager_streaming(sandbox)
+
+    tool = ExecTool(timeout=30, sandbox_manager=mgr)
+    sel = _make_bwrap_selection(timeout_ms=30_000)
+
+    async def cancel_soon():
+        await asyncio.sleep(0.1)
+        cancel_event.set()
+
+    cancel_task = asyncio.create_task(cancel_soon())
+
+    result = await tool.execute(
+        "sleep 999",
+        _event_emitter=_EventCollector(),
+        _turn_id="t-bwrap-clean-cancel",
+        _tool_call_id="tc-bwrap-clean-cancel",
+        _cancel_event=cancel_event,
+        _sandbox=sel,
+    )
+
+    await cancel_task
+
+    assert "cancelled" in result.lower()
+    assert handle.kill_called
+    assert handle.cleanup_called, (
+        "handle.cleanup() must be called even after cancel"
+    )
+
+
+# ── Phase 33.2: duration_ms / output_size accuracy ────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_bwrap_end_event_duration_ms_accurate():
+    """Phase 33.2: ExecCommandEndEvent.duration_ms must reflect real
+    wall-clock time for bwrap execution."""
+    emitter = _EventCollector()
+    handle = await _make_streaming_handle(
+        stdout_text="hi", sleep_before=0.15,
+    )
+    sandbox = _make_mock_sandbox_streaming(handle)
+    mgr = _make_mock_sandbox_manager_streaming(sandbox)
+
+    tool = ExecTool(timeout=10, sandbox_manager=mgr)
+    sel = _make_bwrap_selection()
+
+    await tool.execute(
+        "echo hi",
+        _event_emitter=emitter,
+        _turn_id="t-bwrap-dur",
+        _tool_call_id="tc-bwrap-dur",
+        _sandbox=sel,
+    )
+
+    end_events = [e for e in emitter.events
+                  if isinstance(e, ExecCommandEndEvent)]
+    assert len(end_events) == 1
+    assert end_events[0].duration_ms >= 100, (
+        f"duration_ms must be >=100ms for 150ms sleep, got {end_events[0].duration_ms}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_bwrap_end_event_output_size_accurate():
+    """Phase 33.2: ExecCommandEndEvent.output_size must match the
+    aggregated output length."""
+    emitter = _EventCollector()
+    handle = await _make_streaming_handle(
+        stdout_text="output-data", stderr_text="error-data",
+    )
+    sandbox = _make_mock_sandbox_streaming(handle)
+    mgr = _make_mock_sandbox_manager_streaming(sandbox)
+
+    tool = ExecTool(timeout=5, sandbox_manager=mgr)
+    sel = _make_bwrap_selection()
+
+    result = await tool.execute(
+        "echo data",
+        _event_emitter=emitter,
+        _turn_id="t-bwrap-size",
+        _tool_call_id="tc-bwrap-size",
+        _sandbox=sel,
+    )
+
+    end_events = [e for e in emitter.events
+                  if isinstance(e, ExecCommandEndEvent)]
+    assert len(end_events) == 1
+    assert end_events[0].output_size == len(result), (
+        f"output_size {end_events[0].output_size} must match len(result) {len(result)}"
+    )
+    assert end_events[0].output_size > 0
+
+
+# ── Phase 33.2: regression — legacy BWRAP unavailable, NONE direct ────────
+
+
+@pytest.mark.asyncio
+async def test_regression_bwrap_unavailable_fail_closed_unchanged():
+    """Phase 33.2 regression: BWRAP selection with no sandbox_manager
+    still fails closed (Phase 31 behaviour preserved)."""
+    tool = ExecTool(timeout=5, sandbox_manager=None)
+    sel = _make_bwrap_selection()
+
+    result = await tool.execute(
+        "echo should-not-run",
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "BWRAP sandbox" in result
+
+
+@pytest.mark.asyncio
+async def test_regression_direct_none_path_unaffected_by_bwrap_changes(tmp_path):
+    """Phase 33.2 regression: direct NONE execution path still works
+    (streaming + delta events + cancel unchanged from Phase 31.5/31.6)."""
+    emitter = _EventCollector()
+    tool = ExecTool(timeout=10, working_dir=str(tmp_path))
+
+    result = await tool.execute(
+        "python -c \"print('direct-still-works')\"",
+        _event_emitter=emitter,
+        _turn_id="t-reg-n",
+        _tool_call_id="tc-reg-n",
+    )
+
+    assert "direct-still-works" in result
+
+    # Verify streaming still works on NONE path
+    delta_events = [
+        e for e in emitter.events
+        if isinstance(e, ExecCommandOutputDeltaEvent) and e.stream == "stdout"
+    ]
+    assert len(delta_events) >= 1, "NONE path must still emit stdout deltas"
+
+
+# ── Phase 33.2: ledger / replay records bwrap sandbox_type and deltas ──────
+
+
+@pytest.mark.asyncio
+async def test_bwrap_ledger_records_sandbox_type_and_output_deltas():
+    """Phase 33.2: when executing via bwrap, the ledger must record
+    exec_started with sandbox_type='bwrap' and exec_output_delta items
+    for each stdout/stderr chunk."""
+    fake_ledger = _FakeLedger()
+    emitter = _EventCollector()
+
+    handle = await _make_streaming_handle(
+        stdout_text="ledger-line1\n", stderr_text="ledger-err1\n",
+    )
+    sandbox = _make_mock_sandbox_streaming(handle)
+    mgr = _make_mock_sandbox_manager_streaming(sandbox)
+
+    tool = ExecTool(timeout=5, sandbox_manager=mgr)
+    sel = _make_bwrap_selection()
+
+    result = await tool.execute(
+        "echo ledger-test",
+        _event_emitter=emitter,
+        _turn_id="turn-bwrap-ledger",
+        _tool_call_id="call-bwrap-ledger",
+        _sandbox=sel,
+        _ledger_runtime=fake_ledger,
+        _thread_id="thread-bwrap-ledger",
+    )
+
+    assert "ledger-line1" in result
+    assert "ledger-err1" in result
+
+    # Verify ledger items
+    item_types = [it["item_type"] for it in fake_ledger.items]
+    assert "exec_started" in item_types, f"Missing exec_started in {item_types}"
+    assert "exec_completed" in item_types, f"Missing exec_completed in {item_types}"
+
+    # exec_started must record sandbox_type='bwrap'
+    started = next(it for it in fake_ledger.items if it["item_type"] == "exec_started")
+    assert started["payload"]["sandbox_type"] == "bwrap", (
+        f"exec_started sandbox_type must be 'bwrap', got {started['payload']['sandbox_type']!r}"
+    )
+    assert started["thread_id"] == "thread-bwrap-ledger"
+    assert started["turn_id"] == "turn-bwrap-ledger"
+
+    # exec_output_delta items must exist
+    deltas = [it for it in fake_ledger.items if it["item_type"] == "exec_output_delta"]
+    assert len(deltas) >= 1, f"Expected at least 1 exec_output_delta, got {len(deltas)}"
+    for d in deltas:
+        assert d["payload"]["tool_call_id"] == "call-bwrap-ledger"
+        assert d["payload"]["stream"] in ("stdout", "stderr")
+
+    # exec_completed must be accurate
+    completed = next(it for it in fake_ledger.items if it["item_type"] == "exec_completed")
+    assert completed["payload"]["tool_call_id"] == "call-bwrap-ledger"
+    assert completed["payload"]["exit_code"] == 0
+    assert completed["payload"]["cancelled"] is False
+    assert completed["payload"]["timed_out"] is False
