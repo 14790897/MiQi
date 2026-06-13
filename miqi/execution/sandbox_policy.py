@@ -115,6 +115,20 @@ class SandboxPolicyEngine:
         fs_policy = self._filesystem_policy_for_tool(tool_name, ctx)
         net_policy = self._network_policy_for_tool(tool_name, ctx)
 
+        # Phase 33.3: RESTRICTED cannot enforce network isolation via
+        # direct host execution.  Default to BLOCK_ALL so
+        # _execute_restricted() fails closed — unless the permission
+        # profile explicitly sets network_allowed=True.
+        if selected == SandboxType.RESTRICTED and tool_name == "exec":
+            profile = getattr(ctx, "permission_profile", None)
+            network_allowed = (
+                getattr(profile, "network_allowed", False)
+                if profile is not None
+                else False
+            )
+            if not network_allowed:
+                net_policy = NetworkSandboxPolicy.BLOCK_ALL
+
         return SandboxSelection(
             sandbox_type=selected,
             filesystem_policy=fs_policy,

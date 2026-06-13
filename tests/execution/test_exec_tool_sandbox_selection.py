@@ -189,14 +189,16 @@ async def test_sandbox_selection_landlock_unsupported():
 
 
 @pytest.mark.asyncio
-async def test_sandbox_selection_restricted_allows_direct():
-    """RESTRICTED sandbox type allows direct execution with enforcement."""
-    tool = ExecTool(timeout=5)
+async def test_sandbox_selection_restricted_allows_direct(tmp_path):
+    """RESTRICTED sandbox type allows direct execution with enforcement
+    when cwd is within workspace."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
     sel = _make_selection(SandboxType.RESTRICTED)
 
     result = await tool.execute(
         "python -c \"print('restricted-ok')\"",
         _sandbox=sel,
+        working_dir=str(tmp_path),
     )
 
     assert "restricted-ok" in result
@@ -573,3 +575,527 @@ async def test_permission_profile_filesystem_mode_in_sandbox_selection():
     assert sel.sandbox_type is not None
     assert sel.filesystem_policy is not None
     assert sel.network_policy is not None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 33.3: RESTRICTED policy enforcement — cwd
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_restricted_cwd_enforced_even_without_restrict_config(tmp_path):
+    """RESTRICTED must reject cwd outside workspace even when
+    restrict_to_workspace=False."""
+    tool = ExecTool(
+        timeout=5,
+        working_dir=str(tmp_path),
+        restrict_to_workspace=False,  # ← disabled, but RESTRICTED ignores it
+    )
+    sel = _make_selection(SandboxType.RESTRICTED)
+    outside_dir = str(tmp_path.parent)
+
+    result = await tool.execute(
+        "echo should-not-run",
+        working_dir=outside_dir,
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "outside" in result.lower() or "workspace" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_restricted_cwd_inside_workspace_allows_safe_command(tmp_path):
+    """RESTRICTED with cwd inside workspace must allow a simple safe command."""
+    tool = ExecTool(
+        timeout=5,
+        working_dir=str(tmp_path),
+        restrict_to_workspace=True,
+    )
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    result = await tool.execute(
+        "python -c \"print('safe-command-ok')\"",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "safe-command-ok" in result
+
+
+@pytest.mark.asyncio
+async def test_restricted_no_working_dir_fails_closed():
+    """RESTRICTED without a configured working_dir must fail closed."""
+    tool = ExecTool(timeout=5, working_dir=None)
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    result = await tool.execute(
+        "echo should-not-run",
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "workspace" in result.lower()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 33.3: RESTRICTED policy enforcement — file paths
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_restricted_rejects_outside_windows_absolute_path(tmp_path):
+    """RESTRICTED must reject commands referencing Windows absolute paths
+    outside the workspace."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    outside = str(tmp_path.parent / "outside.txt")
+    result = await tool.execute(
+        f"type {outside}",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "outside workspace" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_restricted_rejects_outside_posix_absolute_path(tmp_path):
+    """RESTRICTED must reject commands with POSIX absolute paths
+    (/etc/passwd, /tmp/x) which are outside the workspace."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    result = await tool.execute(
+        "cat /etc/passwd",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "outside workspace" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_restricted_rejects_wsl_absolute_path(tmp_path):
+    """RESTRICTED must reject /mnt/c/... paths outside workspace."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    result = await tool.execute(
+        "cat /mnt/c/Windows/System32/drivers/etc/hosts",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "outside workspace" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_restricted_allows_workspace_relative_path(tmp_path):
+    """RESTRICTED must allow relative paths that stay inside workspace."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    # Create a test file inside workspace
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("hello-workspace")
+
+    result = await tool.execute(
+        "python -c \"print(open('test.txt').read())\"",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "hello-workspace" in result
+
+
+@pytest.mark.asyncio
+async def test_restricted_allows_inside_workspace_absolute_path(tmp_path):
+    """RESTRICTED must allow Windows absolute paths that stay inside
+    workspace."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    test_file = tmp_path / "inside.txt"
+    test_file.write_text("inside-workspace")
+
+    result = await tool.execute(
+        f"python -c \"print(open(r'{test_file}').read())\"",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "inside-workspace" in result
+
+
+@pytest.mark.asyncio
+async def test_restricted_rejects_traversal_path(tmp_path):
+    """RESTRICTED must reject commands using ../ traversal."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    result = await tool.execute(
+        "type ..\\..\\Windows\\System32\\drivers\\etc\\hosts",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "outside workspace" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_restricted_rejects_redirect_to_outside(tmp_path):
+    """RESTRICTED must reject redirect that writes outside workspace."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+    outside = str(tmp_path.parent / "out.txt")
+
+    result = await tool.execute(
+        f"echo data > {outside}",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "outside workspace" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_restricted_rejects_append_redirect_to_outside(tmp_path):
+    """RESTRICTED must reject append redirect outside workspace."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+    outside = str(tmp_path.parent / "append.txt")
+
+    result = await tool.execute(
+        f"echo more >> {outside}",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "outside workspace" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_restricted_rejects_input_redirect_from_outside(tmp_path):
+    """RESTRICTED must reject input redirect from outside workspace."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+    outside = str(tmp_path.parent / "input.txt")
+
+    result = await tool.execute(
+        f"sort < {outside}",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "outside workspace" in result.lower()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 33.3: RESTRICTED policy enforcement — network
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_restricted_network_block_all_fails_closed(tmp_path):
+    """RESTRICTED with BLOCK_ALL network policy must fail closed —
+    direct host execution cannot enforce network isolation."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    from miqi.protocol.permissions import NetworkSandboxPolicy as NSP
+
+    sel = _make_selection(SandboxType.RESTRICTED)
+    sel.network_policy = NSP.BLOCK_ALL  # type: ignore[assignment]
+
+    result = await tool.execute(
+        "python -c \"print('should-not-run')\"",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "network" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_restricted_network_allow_all_proceeds(tmp_path):
+    """RESTRICTED with ALLOW_ALL network policy must proceed."""
+    from miqi.protocol.permissions import NetworkSandboxPolicy as NSP
+
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+    sel.network_policy = NSP.ALLOW_ALL  # type: ignore[assignment]
+
+    result = await tool.execute(
+        "python -c \"print('network-allowed')\"",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "network-allowed" in result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 33.3: SandboxPolicyEngine RESTRICTED network default
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_engine_restricted_exec_defaults_to_block_all():
+    """SandboxPolicyEngine defaults RESTRICTED exec network_policy to
+    BLOCK_ALL when permission_profile has network_allowed=False."""
+    from miqi.execution.sandbox_policy import SandboxPolicyEngine
+    from miqi.runtime.permission_profile import PermissionProfile
+
+    engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=False)
+
+    profile = PermissionProfile(
+        workspace=None,  # type: ignore
+        network_allowed=False,
+    )
+
+    class FakeCtx:
+        tool_name = "exec"
+        arguments = {"command": "curl example.com"}
+        permission_profile = profile
+
+    sel = await engine.select(FakeCtx())
+    # Engine selected RESTRICTED (no bwrap, no landlock)
+    assert sel.sandbox_type == SandboxType.RESTRICTED
+    # Network should be BLOCK_ALL by default
+    assert sel.network_policy == "block_all"
+
+
+@pytest.mark.asyncio
+async def test_engine_restricted_exec_network_allowed_overrides_to_allow_all():
+    """When permission_profile.network_allowed=True, RESTRICTED exec
+    keeps ALLOW_ALL network policy."""
+    from miqi.execution.sandbox_policy import SandboxPolicyEngine
+    from miqi.runtime.permission_profile import PermissionProfile
+
+    engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=False)
+
+    profile = PermissionProfile(
+        workspace=None,  # type: ignore
+        network_allowed=True,
+    )
+
+    class FakeCtx:
+        tool_name = "exec"
+        arguments = {"command": "curl example.com"}
+        permission_profile = profile
+
+    sel = await engine.select(FakeCtx())
+    assert sel.sandbox_type == SandboxType.RESTRICTED
+    assert sel.network_policy == "allow_all"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 33.3: event integrity — RESTRICTED failure
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_restricted_fail_produces_no_output_delta_events(tmp_path):
+    """When RESTRICTED fails closed (e.g. cwd outside workspace), no
+    ExecCommandOutputDeltaEvent should be emitted — the command never
+    ran."""
+    from miqi.protocol.events import ExecCommandOutputDeltaEvent
+
+    emitter = _EventCollector()
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+    outside_dir = str(tmp_path.parent)
+
+    result = await tool.execute(
+        "echo should-not-run",
+        working_dir=outside_dir,
+        _event_emitter=emitter,
+        _turn_id="t-fail",
+        _tool_call_id="c-fail",
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    deltas = [
+        e for e in emitter.events
+        if isinstance(e, ExecCommandOutputDeltaEvent)
+    ]
+    assert len(deltas) == 0, (
+        f"Expected 0 output delta events for failed command, got {len(deltas)}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_restricted_fail_still_emits_begin_and_end_events(tmp_path):
+    """When RESTRICTED fails closed, begin + end events must still be
+    emitted so the frontend can see the command was attempted and
+    rejected."""
+    emitter = _EventCollector()
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+    outside_dir = str(tmp_path.parent)
+
+    await tool.execute(
+        "echo should-not-run",
+        working_dir=outside_dir,
+        _event_emitter=emitter,
+        _turn_id="t-fail2",
+        _tool_call_id="c-fail2",
+        _sandbox=sel,
+    )
+
+    begin_events = [e for e in emitter.events
+                    if isinstance(e, ExecCommandBeginEvent)]
+    end_events = [e for e in emitter.events
+                  if isinstance(e, ExecCommandEndEvent)]
+    assert len(begin_events) == 1
+    assert len(end_events) == 1
+    assert begin_events[0].sandbox_type == "restricted"
+    # Exit code must be non-zero on failure
+    assert end_events[0].exit_code != 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 33.3: regression — NONE / BWRAP / LANDLOCK unchanged
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_none_path_unaffected_by_restricted_changes(tmp_path):
+    """NONE sandbox type must still allow direct execution of any
+    command (Phase 33.3 changes should not affect NONE path)."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.NONE)
+    outside_dir = str(tmp_path.parent)
+
+    result = await tool.execute(
+        "python -c \"print('none-ok')\"",
+        working_dir=outside_dir,  # outside workspace — NONE allows it
+        _sandbox=sel,
+    )
+
+    assert "none-ok" in result
+
+
+@pytest.mark.asyncio
+async def test_bwrap_unavailable_fail_closed_unchanged():
+    """Regression: BWRAP selection with no active sandbox still fails
+    closed (Phase 31 test)."""
+    tool = ExecTool(timeout=5, sandbox_manager=None)
+    sel = _make_selection(SandboxType.BWRAP)
+
+    result = await tool.execute(
+        "echo should-not-run",
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "BWRAP sandbox" in result
+
+
+@pytest.mark.asyncio
+async def test_landlock_unsupported_fail_closed_unchanged():
+    """Regression: LANDLOCK selection still fails closed (Phase 31 test)."""
+    tool = ExecTool(timeout=5)
+    sel = _make_selection(SandboxType.LANDLOCK)
+
+    result = await tool.execute(
+        "echo should-not-run",
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "LANDLOCK" in result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 33.3-REVIEW: shell variable / tilde expansion bypass detection
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_restricted_rejects_shell_var_with_path(tmp_path):
+    """$VAR/path is statically unknowable — must be rejected as unsafe."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    result = await tool.execute(
+        "cat $HOME/.ssh/id_rsa",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "outside workspace" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_restricted_rejects_braced_shell_var_with_path(tmp_path):
+    """${VAR}/path is statically unknowable — must be rejected."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    result = await tool.execute(
+        "cat ${HOME}/.ssh/id_rsa",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "outside workspace" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_restricted_rejects_tilde_expansion(tmp_path):
+    """~/path expands to home dir outside workspace — must be rejected."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    result = await tool.execute(
+        "cat ~/outside_file.txt",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "outside workspace" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_restricted_rejects_tilde_user_expansion(tmp_path):
+    """~user/path expands to another user's home — must be rejected."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    result = await tool.execute(
+        "cat ~root/.bashrc",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "outside workspace" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_restricted_rejects_shell_var_with_traversal(tmp_path):
+    """$UNKNOWN_VAR/../../../etc/passwd — shell var + traversal, must reject."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    result = await tool.execute(
+        "cat $UNKNOWN_VAR/../../../etc/passwd",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "outside workspace" in result.lower()

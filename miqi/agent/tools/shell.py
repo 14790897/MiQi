@@ -17,6 +17,7 @@ from miqi.protocol.events import (
     ExecCommandOutputDeltaEvent,
     ExecCommandEndEvent,
 )
+from miqi.protocol.permissions import NetworkSandboxPolicy
 
 
 # ── Internal result carrier ────────────────────────────────────────────
@@ -500,29 +501,71 @@ class ExecTool(Tool):
     ) -> _ExecResult:
         """Execute with RESTRICTED sandbox policy enforcement.
 
-        Enforces:
-        - cwd must be within workspace (when restrict_to_workspace is set)
-        - timeout_ms from SandboxSelection
-        - env_passthrough from SandboxSelection
-        - filesystem/network policy are recorded but enforcement is limited
-          (full isolation requires bwrap/Landlock).
+        Phase 33.3 hardened enforcement:
+        - cwd MUST be within workspace (always, not config-gated)
+        - Command is scanned for file paths outside workspace
+        - Network policy: BLOCK_ALL → fail closed (cannot enforce
+          network isolation in direct host execution)
+        - timeout_ms and env_passthrough from SandboxSelection
         """
-        # Validate cwd is within workspace when restriction is enabled
-        if self.restrict_to_workspace or self.working_dir:
-            cwd_path = Path(cwd).resolve()
-            workspace_path = Path(self.working_dir or os.getcwd()).resolve()
-            try:
-                cwd_path.relative_to(workspace_path)
-            except ValueError:
-                return _ExecResult(
-                    output=(
-                        f"Error: RESTRICTED sandbox policy requires cwd to be "
-                        f"within the workspace.  cwd={cwd} is outside "
-                        f"workspace={workspace_path}.  Command was NOT executed."
-                    ),
-                    exit_code=1,
-                )
+        # 1. Resolve workspace — required for RESTRICTED enforcement.
+        if not self.working_dir:
+            return _ExecResult(
+                output=(
+                    "Error: RESTRICTED sandbox requires a workspace but "
+                    "none is configured.  Command was NOT executed."
+                ),
+                exit_code=1,
+            )
+        workspace = Path(self.working_dir).resolve()
 
+        # 2. cwd MUST be within workspace — always enforced for
+        #    RESTRICTED, regardless of restrict_to_workspace config.
+        try:
+            Path(cwd).resolve().relative_to(workspace)
+        except ValueError:
+            return _ExecResult(
+                output=(
+                    f"Error: RESTRICTED sandbox policy requires cwd to "
+                    f"be within the workspace.  cwd={cwd} is outside "
+                    f"workspace={workspace}.  Command was NOT executed."
+                ),
+                exit_code=1,
+            )
+
+        # 3. Scan command for file paths that reference locations
+        #    outside the workspace.  Conservative static scan — may
+        #    reject commands with path-like string literals.  The
+        #    model can adjust its command to use workspace paths.
+        unsafe = self._find_paths_outside_workspace(command, cwd, workspace)
+        if unsafe:
+            return _ExecResult(
+                output=(
+                    f"Error: RESTRICTED sandbox policy: command "
+                    f"references paths outside workspace: "
+                    f"{', '.join(unsafe[:5])}.  Command was NOT "
+                    f"executed."
+                ),
+                exit_code=1,
+            )
+
+        # 4. Network policy — BLOCK_ALL means we must fail closed.
+        #    Direct host execution cannot enforce network isolation.
+        if sandbox_selection.network_policy == NetworkSandboxPolicy.BLOCK_ALL:
+            return _ExecResult(
+                output=(
+                    "Error: RESTRICTED sandbox cannot enforce network "
+                    "isolation in direct host execution.  Set "
+                    "network_allowed=True in the permission profile to "
+                    "allow network access under RESTRICTED, or use "
+                    "BWRAP sandbox for full isolation.  Command was "
+                    "NOT executed."
+                ),
+                exit_code=1,
+            )
+
+        # 5. Proceed with direct host execution — timeout and
+        #    env_passthrough from SandboxSelection.
         return await self._execute_direct(
             command, cwd,
             timeout_ms=sandbox_selection.timeout_ms,
@@ -534,6 +577,122 @@ class ExecTool(Tool):
             ledger_runtime=ledger_runtime,
             thread_id=thread_id,
         )
+
+    # ── Path scanning (Phase 33.3 RESTRICTED enforcement) ─────────────
+
+    @staticmethod
+    def _find_paths_outside_workspace(
+        command: str, cwd: str, workspace: Path,
+    ) -> list[str]:
+        """Find file paths in *command* that resolve outside *workspace*.
+
+        Conservative static scan — does NOT parse shell syntax.
+        Detects:
+        - Windows absolute paths (C:\\..., D:\\...)
+        - POSIX absolute paths (/etc/..., /tmp/..., /mnt/c/...)
+        - Explicit traversal patterns (../, ..\\)
+        - Redirect targets (> path, >> path, < path)
+        - Shell variable expansion ($VAR, ${VAR}) — always unsafe
+        - Tilde expansion (~/path, ~user/path) — expanded then checked
+
+        Paths that appear inside string literals (e.g.
+        ``python -c "open('/etc/passwd')"``) ARE detected — this is a
+        real file access, even if wrapped in code.
+
+        Returns a list of unsafe path strings (empty if all safe).
+        """
+        cwd_path = Path(cwd).resolve()
+        ws = workspace.resolve()
+        candidates: set[str] = set()
+
+        # ── 1. Windows absolute paths: C:\\..., D:\\..., etc. ──────
+        for m in re.finditer(
+            r'\b([A-Za-z]:[\\/][^\s\"\'|&;<>`$()[\]]*)', command,
+        ):
+            candidates.add(m.group(1).rstrip('.,;:'))
+
+        # ── 2. POSIX absolute paths (/usr/..., /etc/..., /mnt/...) ─
+        #    Exclude paths after :// (URLs).
+        for m in re.finditer(
+            r'(?<!:/)(/[^\s\"\'|&;<>`$()[\]]{2,})', command,
+        ):
+            candidates.add(m.group(1).rstrip('.,;:'))
+
+        # ── 3. Explicit traversal: ../file or ..\\file ─────────────
+        for m in re.finditer(
+            r'\.\.[\\/][^\s\"\'|&;<>`$()[\]]*', command,
+        ):
+            candidates.add(m.group(0).rstrip('.,;:'))
+
+        # ── 4. Redirect targets: > path, >> path, 2> path, < path ─
+        for m in re.finditer(
+            r'[12]?[><]+\s*([^\s|&;<>]+)', command,
+        ):
+            target = m.group(1).strip('\'"')
+            if target:
+                candidates.add(target)
+
+        # ── 5. Shell variable expansion: $VAR/path, ${VAR}/path ────
+        #    Statically unresolvable — always treated as unsafe when
+        #    followed by a path separator (indicating file access).
+        for m in re.finditer(
+            r'\$[a-zA-Z_][a-zA-Z0-9_]*(?:/[^\s\"\'|&;<>`$()[\]]+)?',
+            command,
+        ):
+            candidates.add(m.group(0).rstrip('.,;:'))
+        for m in re.finditer(
+            r'\$\{[a-zA-Z_][a-zA-Z0-9_]*\}(?:/[^\s\"\'|&;<>`$()[\]]+)?',
+            command,
+        ):
+            candidates.add(m.group(0).rstrip('.,;:'))
+
+        # ── 6. Tilde expansion: ~/path, ~user/path ─────────────────
+        for m in re.finditer(
+            r'~[a-zA-Z0-9_-]*(?:/[^\s\"\'|&;<>`$()[\]]+)?', command,
+        ):
+            candidates.add(m.group(0).rstrip('.,;:'))
+
+        # ── Resolve and check each candidate ───────────────────────
+        unsafe: list[str] = []
+        for path_str in sorted(candidates):
+            # Skip empty, pure whitespace, or shell operators
+            if not path_str or not path_str.strip():
+                continue
+            if path_str in ('|', '||', '&&', '&', ';', '2>', '1>'):
+                continue
+            try:
+                # Phase 33.3-REVIEW: expand tilde (~/path, ~user/path)
+                # before resolving.  Shell variable references ($VAR,
+                # ${VAR}) are NEVER expanded — their runtime value is
+                # unknowable statically, so they are always unsafe.
+                expanded = path_str
+                if path_str.startswith('~'):
+                    expanded = os.path.expanduser(path_str)
+                    # If expanduser returned the original unchanged,
+                    # the tilde couldn't be resolved → unsafe.
+                    if expanded == path_str:
+                        unsafe.append(path_str)
+                        continue
+
+                # Reject any path containing an unresolved $ — shell
+                # variable expansion is unknowable statically.
+                if '$' in expanded:
+                    unsafe.append(path_str)
+                    continue
+
+                p = Path(expanded)
+                if not p.is_absolute():
+                    p = cwd_path / expanded
+                resolved = p.resolve()
+                try:
+                    resolved.relative_to(ws)
+                except ValueError:
+                    unsafe.append(path_str)
+            except (ValueError, OSError):
+                # Can't resolve — conservative: treat as unsafe.
+                unsafe.append(path_str)
+
+        return unsafe
 
     # ── Streaming helpers ────────────────────────────────────────────
 
