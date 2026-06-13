@@ -1505,3 +1505,166 @@ async def test_dangling_approval_request_without_resolution(tmp_path):
         assert ap.resolved_seq is None
     finally:
         await ledger.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 31.8 fix: No-duplicate replay guarantees
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_replay_produces_exactly_one_exec_command_per_id(tmp_path):
+    """When the ledger has exactly 1 exec_started → 1 exec_completed,
+    ReplayRuntime must produce exactly 1 ExecCommandReplay — no duplicates."""
+    from miqi.runtime.ledger_runtime import LedgerRuntime
+    from miqi.runtime.replay_runtime import ReplayRuntime
+
+    ledger = LedgerRuntime(tmp_path / "runtime.db", session_id="sess-1")
+    await ledger.initialize()
+    try:
+        await ledger.append_item(
+            thread_id="thread-1", turn_id="turn-one-exec",
+            item_type="turn_started", payload={},
+        )
+        await ledger.append_item(
+            thread_id="thread-1", turn_id="turn-one-exec",
+            item_type="exec_started",
+            payload={"tool_call_id": "tc-only", "command": "echo one",
+                     "cwd": "/tmp", "sandbox_type": "none"},
+        )
+        await ledger.append_item(
+            thread_id="thread-1", turn_id="turn-one-exec",
+            item_type="exec_output_delta", content="one",
+            payload={"tool_call_id": "tc-only", "stream": "stdout"},
+        )
+        await ledger.append_item(
+            thread_id="thread-1", turn_id="turn-one-exec",
+            item_type="exec_completed",
+            payload={"tool_call_id": "tc-only", "exit_code": 0,
+                     "duration_ms": 10, "output_size": 3,
+                     "cancelled": False, "timed_out": False},
+        )
+
+        replay = ReplayRuntime(ledger)
+        timeline = await replay.get_turn_timeline("thread-1", "turn-one-exec")
+
+        assert len(timeline.exec_commands) == 1, (
+            f"Expected exactly 1 ExecCommandReplay, "
+            f"got {len(timeline.exec_commands)}"
+        )
+        ex = timeline.exec_commands[0]
+        assert ex.tool_call_id == "tc-only"
+        assert ex.command == "echo one"
+        assert ex.output == "one"
+        assert ex.status == "completed"
+    finally:
+        await ledger.close()
+
+
+@pytest.mark.asyncio
+async def test_replay_produces_exactly_one_approval_event_per_id(tmp_path):
+    """When the ledger has exactly 1 approval_requested → 1 approval_resolved,
+    ReplayRuntime must produce exactly 1 ApprovalEventReplay — no duplicates."""
+    from miqi.runtime.ledger_runtime import LedgerRuntime
+    from miqi.runtime.replay_runtime import ReplayRuntime
+
+    ledger = LedgerRuntime(tmp_path / "runtime.db", session_id="sess-1")
+    await ledger.initialize()
+    try:
+        await ledger.append_item(
+            thread_id="thread-1", turn_id="turn-one-ap",
+            item_type="turn_started", payload={},
+        )
+        await ledger.append_item(
+            thread_id="thread-1", turn_id="turn-one-ap",
+            item_type="approval_requested",
+            payload={
+                "approval_id": "turn-one-ap:call-only",
+                "tool_call_id": "call-only",
+                "tool_name": "exec",
+                "category": "exec",
+                "description": "Run: only",
+            },
+        )
+        await ledger.append_item(
+            thread_id="thread-1", turn_id="turn-one-ap",
+            item_type="approval_resolved",
+            payload={
+                "approval_id": "turn-one-ap:call-only",
+                "tool_call_id": "call-only",
+                "decision": "once",
+                "tool_name": "exec",
+                "category": "exec",
+            },
+        )
+
+        replay = ReplayRuntime(ledger)
+        timeline = await replay.get_turn_timeline("thread-1", "turn-one-ap")
+
+        assert len(timeline.approval_events) == 1, (
+            f"Expected exactly 1 ApprovalEventReplay, "
+            f"got {len(timeline.approval_events)}"
+        )
+        ap = timeline.approval_events[0]
+        assert ap.approval_id == "turn-one-ap:call-only"
+        assert ap.decision == "once"
+        assert ap.tool_name == "exec"
+    finally:
+        await ledger.close()
+
+
+@pytest.mark.asyncio
+async def test_exec_output_deltas_not_duplicated_in_replay(tmp_path):
+    """When the ledger has N exec_output_delta items from a single execution,
+    ReplayRuntime must merge them exactly once into the output — no
+    duplicate content or duplicate ExecCommandReplay."""
+    from miqi.runtime.ledger_runtime import LedgerRuntime
+    from miqi.runtime.replay_runtime import ReplayRuntime
+
+    ledger = LedgerRuntime(tmp_path / "runtime.db", session_id="sess-1")
+    await ledger.initialize()
+    try:
+        await ledger.append_item(
+            thread_id="thread-1", turn_id="turn-delta-once",
+            item_type="exec_started",
+            payload={"tool_call_id": "tc-delta", "command": "seq 3",
+                     "cwd": "/", "sandbox_type": "none"},
+        )
+        # Write 3 deltas (one per output line)
+        await ledger.append_item(
+            thread_id="thread-1", turn_id="turn-delta-once",
+            item_type="exec_output_delta", content="1\n",
+            payload={"tool_call_id": "tc-delta", "stream": "stdout"},
+        )
+        await ledger.append_item(
+            thread_id="thread-1", turn_id="turn-delta-once",
+            item_type="exec_output_delta", content="2\n",
+            payload={"tool_call_id": "tc-delta", "stream": "stdout"},
+        )
+        await ledger.append_item(
+            thread_id="thread-1", turn_id="turn-delta-once",
+            item_type="exec_output_delta", content="3",
+            payload={"tool_call_id": "tc-delta", "stream": "stdout"},
+        )
+        await ledger.append_item(
+            thread_id="thread-1", turn_id="turn-delta-once",
+            item_type="exec_completed",
+            payload={"tool_call_id": "tc-delta", "exit_code": 0,
+                     "duration_ms": 10, "output_size": 6,
+                     "cancelled": False, "timed_out": False},
+        )
+
+        replay = ReplayRuntime(ledger)
+        timeline = await replay.get_turn_timeline("thread-1", "turn-delta-once")
+
+        # Exactly 1 ExecCommandReplay
+        assert len(timeline.exec_commands) == 1
+        ex = timeline.exec_commands[0]
+        # All 3 deltas merged exactly once
+        assert ex.output == "1\n2\n3", (
+            f"Deltas should be merged once, got {ex.output!r}"
+        )
+        assert ex.tool_call_id == "tc-delta"
+        assert ex.status == "completed"
+    finally:
+        await ledger.close()

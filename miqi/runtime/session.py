@@ -205,16 +205,19 @@ class RuntimeSession:
             thread_id = "session"
 
         event_type = getattr(event, "type", event.__class__.__name__)
+        # Phase 31.8 single-writer rule (fix):
+        #   - exec/approval lifecycle items are written at source
+        #     (ToolOrchestrator for approvals, ExecTool for exec events)
+        #   - RuntimeSession._mirror_event_to_ledger only handles events
+        #     that have NO source-level ledger writer:
+        #     command_rejected, error, warning, context_compacted.
+        #   - Mirroring exec_command_* and approval_* here would create
+        #     duplicates because the source already writes them.
         item_type = {
             "command_rejected": "command_rejected",
             "error": "error",
             "warning": "warning",
             "context_compacted": "context_compacted",
-            "approval_requested": "approval_requested",
-            "approval_resolved": "approval_resolved",
-            "exec_command_begin": "exec_started",
-            "exec_command_output_delta": "exec_output_delta",
-            "exec_command_end": "exec_completed",
         }.get(event_type)
         if item_type is None:
             return
