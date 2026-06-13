@@ -50,26 +50,35 @@ def _resolve_output_path(
 ) -> Path:
     """Resolve an output path and enforce workspace/directory bounds.
 
-    Rules (matches WriteFileTool / EditFileTool):
+    Office document write tools always write inside the workspace:
     - Relative paths are resolved against *workspace*.
-    - Absolute paths must resolve inside *allowed_dir* (if set).
-    - Path traversal ("..") is implicitly handled by .resolve()
-      and the relative_to check.
+    - If *allowed_dir* is ``None`` but *workspace* is set, *workspace*
+      is used as the effective boundary (defense-in-depth default).
+    - Absolute paths outside the effective boundary are rejected.
 
     Raises:
-        PermissionError: if the resolved path is outside allowed_dir.
+        PermissionError: if the resolved path is outside the effective boundary.
     """
     p = Path(file_path).expanduser()
     if not p.is_absolute() and workspace is not None:
         p = workspace / p
     resolved = p.resolve()
-    if allowed_dir is not None:
+
+    # Defense-in-depth: when no explicit allowed_dir is given, office
+    # write tools default to workspace as the boundary.  This is
+    # independent of the `restrict_to_workspace` config (which only
+    # controls WriteFileTool / EditFileTool).
+    effective_dir = allowed_dir
+    if effective_dir is None and workspace is not None:
+        effective_dir = workspace.resolve()
+
+    if effective_dir is not None:
         try:
-            resolved.relative_to(allowed_dir.resolve())
+            resolved.relative_to(effective_dir.resolve())
         except ValueError:
             raise PermissionError(
                 f"Path '{file_path}' resolves outside allowed directory "
-                f"'{allowed_dir}'"
+                f"'{effective_dir}'"
             )
     return resolved
 
