@@ -114,3 +114,122 @@ def test_tool_registry_factory_registration_order_is_stable(fake_config, tmp_pat
     )
 
     assert registry1.tool_names == registry2.tool_names
+
+
+# ── Phase 32: Office doc write tools enforce workspace boundary ──────────────
+#   even with the default restrict_to_workspace=False.
+
+
+@pytest.mark.asyncio
+async def test_factory_docx_write_rejects_outside_workspace_default_config(
+    fake_config, tmp_path,
+):
+    """With default config (restrict_to_workspace=False), docx_write
+    must still reject an absolute path outside workspace."""
+    from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
+
+    registry = create_runtime_tool_registry(
+        config=fake_config, workspace=tmp_path,
+    )
+    tool = registry.get("docx_write")
+    assert tool is not None
+
+    outside = tmp_path.parent / "outside_d.docx"
+    result = await tool.execute(file_path=str(outside), content="test")
+    assert "Permission denied" in result
+    assert not outside.exists()
+
+
+@pytest.mark.asyncio
+async def test_factory_pptx_write_rejects_outside_workspace_default_config(
+    fake_config, tmp_path,
+):
+    """Default config: pptx_write rejects absolute path outside workspace."""
+    from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
+
+    registry = create_runtime_tool_registry(
+        config=fake_config, workspace=tmp_path,
+    )
+    tool = registry.get("pptx_write")
+    assert tool is not None
+
+    outside = tmp_path.parent / "outside_p.pptx"
+    result = await tool.execute(file_path=str(outside), slides=[])
+    assert "Permission denied" in result
+    assert not outside.exists()
+
+
+@pytest.mark.asyncio
+async def test_factory_xlsx_write_rejects_outside_workspace_default_config(
+    fake_config, tmp_path,
+):
+    """Default config: xlsx_write rejects absolute path outside workspace."""
+    from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
+
+    registry = create_runtime_tool_registry(
+        config=fake_config, workspace=tmp_path,
+    )
+    tool = registry.get("xlsx_write")
+    assert tool is not None
+
+    outside = tmp_path.parent / "outside_x.xlsx"
+    result = await tool.execute(file_path=str(outside), sheets={})
+    assert "Permission denied" in result
+    assert not outside.exists()
+
+
+@pytest.mark.asyncio
+async def test_factory_docx_write_relative_path_inside_workspace_default_config(
+    fake_config, tmp_path,
+):
+    """Default config: docx_write relative path succeeds inside workspace."""
+    from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
+
+    registry = create_runtime_tool_registry(
+        config=fake_config, workspace=tmp_path,
+    )
+    tool = registry.get("docx_write")
+    assert tool is not None
+
+    result = await tool.execute(file_path="report.docx", content="# Hi\nTest")
+    assert "Created:" in result
+    assert (tmp_path / "report.docx").exists()
+
+
+@pytest.mark.asyncio
+async def test_factory_docx_write_path_traversal_rejected_default_config(
+    fake_config, tmp_path,
+):
+    """Default config: docx_write rejects ../ path traversal."""
+    from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
+
+    registry = create_runtime_tool_registry(
+        config=fake_config, workspace=tmp_path,
+    )
+    tool = registry.get("docx_write")
+    assert tool is not None
+
+    result = await tool.execute(file_path="../escape.docx", content="test")
+    assert "Permission denied" in result
+    assert not (tmp_path.parent / "escape.docx").exists()
+
+
+def test_write_file_semantics_unchanged(fake_config, tmp_path):
+    """write_file must NOT gain the office-write default-boundary behavior.
+
+    write_file's path enforcement is controlled by restrict_to_workspace
+    config, NOT hardcoded to workspace.  Phase 32 only changes office tools.
+    """
+    from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
+
+    registry = create_runtime_tool_registry(
+        config=fake_config, workspace=tmp_path,
+    )
+    tool = registry.get("write_file")
+    assert tool is not None
+
+    # write_file's allowed_dir is None by default (restrict_to_workspace=False)
+    assert tool._allowed_dir is None, (
+        "write_file._allowed_dir must be None by default — "
+        "restrict_to_workspace controls it, not Phase 32"
+    )
