@@ -1099,3 +1099,233 @@ async def test_restricted_rejects_shell_var_with_traversal(tmp_path):
 
     assert "NOT executed" in result
     assert "outside workspace" in result.lower()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 33.4: LANDLOCK / fallback hardening
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_landlock_explicit_selection_still_fail_closed():
+    """Phase 33.4: Even with LANDLOCK hardening in the policy engine,
+    explicit SandboxSelection(SandboxType.LANDLOCK) passed to ExecTool
+    must still fail closed (second line of defense)."""
+    tool = ExecTool(timeout=5)
+    sel = _make_selection(SandboxType.LANDLOCK)
+
+    result = await tool.execute(
+        "echo should-not-run",
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "LANDLOCK" in result
+    assert "not yet implemented" in result
+
+
+@pytest.mark.asyncio
+async def test_exec_escalation_exhausted_raises_not_none():
+    """Phase 33.4: When the SandboxPolicyEngine exhausts all sandbox types
+    for exec, it raises SandboxDeniedError — NEVER returns NONE."""
+    from miqi.execution.sandbox_policy import (
+        SandboxPolicyEngine,
+        SandboxDeniedError,
+    )
+
+    engine = SandboxPolicyEngine(
+        bwrap_available=True,
+        allow_fallback_to_none=True,
+    )
+
+    class FakeCtx:
+        tool_name = "exec"
+        arguments = {"command": "npm test"}
+
+    # BWRAP→LANDLOCK→RESTRICTED = 3 items. Attempt 3 is exhausted.
+    with pytest.raises(SandboxDeniedError) as exc_info:
+        await engine.select(FakeCtx(), attempt=3)
+    assert "NONE fallback is disabled for exec" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_allow_fallback_to_none_true_does_not_let_exec_become_none():
+    """Phase 33.4: allow_fallback_to_none=True must NOT make exec
+    fallback to NONE. Exec is always fail-closed on exhaustion."""
+    from miqi.execution.sandbox_policy import (
+        SandboxPolicyEngine,
+        SandboxDeniedError,
+    )
+
+    engine = SandboxPolicyEngine(
+        bwrap_available=False,
+        landlock_available=False,
+        allow_fallback_to_none=True,
+    )
+
+    class FakeCtx:
+        tool_name = "exec"
+        arguments = {"command": "npm test"}
+
+    # base=RESTRICTED, chain=[RESTRICTED]. attempt=0→RESTRICTED, attempt=1→exhausted
+    s0 = await engine.select(FakeCtx(), attempt=0)
+    assert s0.sandbox_type == SandboxType.RESTRICTED
+
+    with pytest.raises(SandboxDeniedError) as exc_info:
+        await engine.select(FakeCtx(), attempt=1)
+    assert "NONE fallback is disabled for exec" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_read_only_tools_still_none_with_exec_policy_unchanged():
+    """Phase 33.4: read-only tools are unaffected by exec fallback hardening.
+    They still get NONE even when allow_fallback_to_none=False."""
+    from miqi.execution.sandbox_policy import SandboxPolicyEngine
+
+    engine = SandboxPolicyEngine(allow_fallback_to_none=False)
+
+    class FakeCtx:
+        tool_name = "read_file"
+        arguments = {"path": "test.py"}
+
+    sel = await engine.select(FakeCtx())
+    assert sel.sandbox_type == SandboxType.NONE
+    assert "sandbox not required" in sel.reason
+
+
+@pytest.mark.asyncio
+async def test_sandbox_policy_reason_includes_landlock_unsupported():
+    """Phase 33.4: reason explains LANDLOCK configured but unsupported."""
+    from miqi.execution.sandbox_policy import SandboxPolicyEngine
+
+    engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=True)
+
+    class FakeCtx:
+        tool_name = "exec"
+        arguments = {"command": "npm test"}
+
+    sel = await engine.select(FakeCtx())
+    assert sel.sandbox_type == SandboxType.RESTRICTED
+    assert "landlock_supported=False" in sel.reason
+    assert "no Landlock adapter" in sel.reason
+
+
+@pytest.mark.asyncio
+async def test_sandbox_policy_reason_includes_fallback_info():
+    """Phase 33.4: reason for RESTRICTED exec explains why no stronger
+    sandbox is available."""
+    from miqi.execution.sandbox_policy import SandboxPolicyEngine
+
+    engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=False)
+
+    class FakeCtx:
+        tool_name = "exec"
+        arguments = {"command": "npm test"}
+
+    sel = await engine.select(FakeCtx())
+    assert "bwrap unavailable" in sel.reason
+    assert "no stronger sandbox" in sel.reason
+
+
+@pytest.mark.asyncio
+async def test_sandbox_policy_reason_for_bwrap_selection():
+    """Phase 33.4: reason for BWRAP selection is clean (no spurious
+    landlock-unsupported noise)."""
+    from miqi.execution.sandbox_policy import SandboxPolicyEngine
+
+    engine = SandboxPolicyEngine(bwrap_available=True)
+
+    class FakeCtx:
+        tool_name = "exec"
+        arguments = {"command": "npm test"}
+
+    sel = await engine.select(FakeCtx())
+    assert sel.sandbox_type == SandboxType.BWRAP
+    # BWRAP was selected as the strongest option — no landlock noise
+    assert "bwrap" in sel.reason
+    # Should NOT contain landlock_unsupported noise since landlock_available=False
+    assert "landlock_supported=False" not in sel.reason
+
+
+@pytest.mark.asyncio
+async def test_sandbox_denied_error_for_exec_is_clear():
+    """Phase 33.4: SandboxDeniedError for exec gives actionable message."""
+    from miqi.execution.sandbox_policy import (
+        SandboxPolicyEngine,
+        SandboxDeniedError,
+    )
+
+    engine = SandboxPolicyEngine(
+        bwrap_available=False,
+        landlock_available=False,
+        allow_fallback_to_none=True,
+    )
+
+    class FakeCtx:
+        tool_name = "exec"
+        arguments = {"command": "npm test"}
+
+    with pytest.raises(SandboxDeniedError) as exc_info:
+        await engine.select(FakeCtx(), attempt=1)
+
+    msg = str(exc_info.value)
+    assert "NONE fallback is disabled for exec" in msg
+    assert "bwrap_available=True" in msg
+    assert "network_allowed=True" in msg
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 33.4: regression — Phase 33.3 tests must still pass
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_regression_restricted_enforcement_unchanged(tmp_path):
+    """Phase 33.4 regression: RESTRICTED cwd enforcement still works."""
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    result = await tool.execute(
+        "python -c \"print('restricted-ok')\"",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "restricted-ok" in result
+
+
+@pytest.mark.asyncio
+async def test_regression_restricted_rejects_outside_workspace_unchanged(tmp_path):
+    """Phase 33.4 regression: RESTRICTED still rejects outside-workspace paths."""
+    outside = str(tmp_path) + "-outside"
+
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+
+    result = await tool.execute(
+        f"cat {outside}/secret.txt",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "outside workspace" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_regression_restricted_network_block_all_unchanged(tmp_path):
+    """Phase 33.4 regression: RESTRICTED with BLOCK_ALL still fails closed."""
+    from miqi.protocol.permissions import NetworkSandboxPolicy as NSP
+
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.RESTRICTED)
+    sel.network_policy = NSP.BLOCK_ALL  # type: ignore[assignment]
+
+    result = await tool.execute(
+        "python -c \"print('should-not-run')\"",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+
+    assert "NOT executed" in result
+    assert "network" in result.lower()
