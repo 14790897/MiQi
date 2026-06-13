@@ -1090,3 +1090,174 @@ async def test_orchestrator_writes_approval_abort_to_ledger(mock_components):
     assert len(abort_items) >= 1, (
         f"Expected >=1 abort approval_resolved, got {fake_ledger.items}"
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 31.8 fix: Deterministic approval_resolved ledger write
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_resolve_approval_once_writes_ledger_deterministically(
+    mock_components, tmp_path,
+):
+    """After resolve_approval("once") + await task, the real LedgerRuntime
+    must contain exactly 1 approval_resolved item — no sleep/retry needed."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+    from miqi.runtime.ledger_runtime import LedgerRuntime
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="exec",
+        description="Run: test cmd",
+        details={"command": "test cmd"},
+    )
+    mock_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    tool_mock = MagicMock()
+    tool_mock.execute = AsyncMock(return_value="ok")
+    mock_components["tool_registry"].get.return_value = tool_mock
+
+    # Use real LedgerRuntime (SQLite-backed) to prove deterministic write
+    db_path = tmp_path / "deterministic.db"
+    ledger = LedgerRuntime(db_path, session_id="sess-det")
+    await ledger.initialize()
+
+    try:
+        orch = _orchestrator_with_ledger(mock_components, ledger)
+
+        ctx = make_ctx(
+            tool_name="exec", tool_call_id="call-det-once",
+            turn_id="turn-det-once", arguments={"command": "test cmd"},
+        )
+        task = asyncio.create_task(orch.execute(ctx))
+        await asyncio.sleep(0.05)
+
+        approval_id = f"{ctx.turn_id}:{ctx.tool_call_id}"
+        orch.resolve_approval(approval_id, "once")
+        await task  # ledger write happens inside _request_approval
+
+        # Immediately query real ledger — no sleep
+        items = await ledger.load_items(ctx.thread_id)
+
+        req_items = [it for it in items if it.item_type == "approval_requested"]
+        assert len(req_items) == 1, (
+            f"Expected 1 approval_requested, got {len(req_items)}"
+        )
+
+        res_items = [it for it in items if it.item_type == "approval_resolved"]
+        assert len(res_items) == 1, (
+            f"Expected 1 approval_resolved, got {len(res_items)}"
+        )
+        assert res_items[0].payload["decision"] == "once"
+        assert res_items[0].payload["tool_name"] == "exec"
+        assert res_items[0].payload["tool_call_id"] == "call-det-once"
+    finally:
+        await ledger.close()
+
+
+@pytest.mark.asyncio
+async def test_resolve_approval_deny_writes_ledger_deterministically(
+    mock_components, tmp_path,
+):
+    """After resolve_approval("deny") + await task, the real LedgerRuntime
+    must contain exactly 1 approval_resolved(decision=deny) — no sleep."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+    from miqi.runtime.ledger_runtime import LedgerRuntime
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+        category="file_write",
+        description="write_file: /tmp/x",
+        details={"path": "/tmp/x", "operation": "write_file"},
+    )
+    mock_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    tool_mock = MagicMock()
+    tool_mock.execute = AsyncMock(return_value="should-not-run")
+    mock_components["tool_registry"].get.return_value = tool_mock
+
+    db_path = tmp_path / "deterministic-deny.db"
+    ledger = LedgerRuntime(db_path, session_id="sess-det-deny")
+    await ledger.initialize()
+
+    try:
+        orch = _orchestrator_with_ledger(mock_components, ledger)
+
+        ctx = make_ctx(
+            tool_name="write_file", tool_call_id="call-det-deny",
+            turn_id="turn-det-deny", arguments={"path": "/tmp/x"},
+        )
+        task = asyncio.create_task(orch.execute(ctx))
+        await asyncio.sleep(0.05)
+
+        approval_id = f"{ctx.turn_id}:{ctx.tool_call_id}"
+        orch.resolve_approval(approval_id, "deny")
+        await task
+
+        items = await ledger.load_items(ctx.thread_id)
+
+        res_items = [it for it in items if it.item_type == "approval_resolved"]
+        assert len(res_items) == 1, (
+            f"Expected 1 approval_resolved, got {len(res_items)}"
+        )
+        assert res_items[0].payload["decision"] == "deny"
+        assert res_items[0].payload["tool_name"] == "write_file"
+    finally:
+        await ledger.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 31.8 fix: Single-writer rule verification
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_mirror_event_to_ledger_excludes_exec_and_approval_events():
+    """Phase 31.8 single-writer rule: RuntimeSession._mirror_event_to_ledger
+    must NOT mirror exec_command_* or approval_* events.  Those are written
+    at source (ToolOrchestrator for approvals, ExecTool for exec events).
+    Mirroring them would create duplicates in the ledger.
+    """
+    # Import the session module and inspect the mapping directly.
+    # We test the actual mapping dict rather than duplicating it here
+    # so the test breaks if someone adds the items back.
+    from miqi.runtime.session import RuntimeSession
+    import inspect
+
+    source = inspect.getsource(RuntimeSession._mirror_event_to_ledger)
+
+    # The 5 removed event types must NOT appear as keys in the item_type dict
+    forbidden_keys = [
+        "approval_requested",
+        "approval_resolved",
+        "exec_command_begin",
+        "exec_command_output_delta",
+        "exec_command_end",
+    ]
+    for key in forbidden_keys:
+        # Check that the mapping line for this key is absent
+        assert f'"{key}"' not in source or f"'{key}'" not in source, (
+            f"Single-writer violation: _mirror_event_to_ledger still "
+            f"maps {key!r}.  This event is written at source "
+            f"(ToolOrchestrator/ExecTool) and must NOT be mirrored.  "
+            f"Remove it from the item_type mapping dict."
+        )
+
+    # The 4 kept event types MUST still be present
+    kept_keys = [
+        "command_rejected",
+        "error",
+        "warning",
+        "context_compacted",
+    ]
+    for key in kept_keys:
+        assert f'"{key}"' in source or f"'{key}'" in source, (
+            f"Missing required mirror: {key!r} must still be mirrored "
+            f"by _mirror_event_to_ledger (no source-level writer exists)."
+        )

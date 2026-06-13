@@ -311,6 +311,28 @@ class ToolOrchestrator:
             response = await asyncio.wait_for(
                 future, self.approval_timeout_ms / 1000
             )
+            # Phase 31.8 fix: write approval_resolved to ledger
+            # deterministically (awaited, not fire-and-forget).
+            # resolve_approval() stored the normalized decision in
+            # _approval_meta["resolved_decision"] before setting the
+            # future result.  We read it here — while meta is still
+            # alive (finally cleanup hasn't run yet).
+            if self._ledger is not None:
+                resolved_decision = self._approval_meta.get(
+                    approval_id, {},
+                ).get("resolved_decision", "deny")
+                await self._ledger.append_item(
+                    thread_id=ctx.thread_id,
+                    turn_id=ctx.turn_id,
+                    item_type="approval_resolved",
+                    payload={
+                        "approval_id": approval_id,
+                        "tool_call_id": ctx.tool_call_id,
+                        "decision": resolved_decision,
+                        "tool_name": ctx.tool_name,
+                        "category": decision.category,
+                    },
+                )
             return response
         except asyncio.TimeoutError:
             # Phase 31.4: emit terminal resolution event on timeout
@@ -391,25 +413,14 @@ class ToolOrchestrator:
         turn_id = meta.get("turn_id", "")
 
         if decision == "deny":
+            # Phase 31.8 fix: store resolved decision in meta so
+            # _request_approval() can write the ledger item with an
+            # awaited call (deterministic, not fire-and-forget).
+            meta["resolved_decision"] = "deny"
             future.set_result(PermissionDecision(
                 verdict=PermissionVerdict.DENY,
                 reason="User denied the request.",
             ))
-            # Phase 31.8: record denial in ledger for replay
-            if self._ledger is not None:
-                thread_id = meta.get("thread_id", "")
-                asyncio.ensure_future(self._ledger.append_item(
-                    thread_id=thread_id,
-                    turn_id=turn_id,
-                    item_type="approval_resolved",
-                    payload={
-                        "approval_id": approval_id,
-                        "tool_call_id": meta.get("tool_call_id", ""),
-                        "decision": "deny",
-                        "tool_name": meta.get("tool_name", ""),
-                        "category": meta.get("category", ""),
-                    },
-                ))
             return ApprovalResolveResult(
                 resolved=True,
                 approval_id=approval_id,
@@ -425,26 +436,16 @@ class ToolOrchestrator:
         if decision == "always":
             self._record_permanent_approval(meta)
 
+        # Phase 31.8 fix: store resolved decision in meta so
+        # _request_approval() can write the ledger item with an
+        # awaited call (deterministic, not fire-and-forget).
+        meta["resolved_decision"] = decision
+
         future.set_result(PermissionDecision(
             verdict=verdict,
             reason=reason,
             allow_permanent=(decision == "always"),
         ))
-        # Phase 31.8: record resolution in ledger for replay
-        if self._ledger is not None:
-            thread_id = meta.get("thread_id", "")
-            asyncio.ensure_future(self._ledger.append_item(
-                thread_id=thread_id,
-                turn_id=turn_id,
-                item_type="approval_resolved",
-                payload={
-                    "approval_id": approval_id,
-                    "tool_call_id": meta.get("tool_call_id", ""),
-                    "decision": decision,
-                    "tool_name": meta.get("tool_name", ""),
-                    "category": meta.get("category", ""),
-                },
-            ))
         return ApprovalResolveResult(
             resolved=True,
             approval_id=approval_id,

@@ -5,13 +5,18 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_mirror_maps_turn_id_to_real_thread_id(fake_config, fake_provider, tmp_path):
-    """Bug fix: events with only turn_id (e.g. ExecCommandBeginEvent)
+    """Bug fix: events with only turn_id (e.g. WarningEvent)
     must be written to the real thread, not to a ledger keyed by turn_id.
 
     The fix maintains a turn_id → thread_id map populated by events
-    that carry both fields (like TurnStartedEvent).
+    that carry both fields (like ContextCompactedEvent).
+
+    Phase 31.8: this test previously used ExecCommandBeginEvent, but
+    exec events are now written at source (ExecTool) rather than
+    mirrored.  Switched to WarningEvent which is still mirrored and
+    has turn_id without thread_id.
     """
-    from miqi.protocol.events import ContextCompactedEvent, ExecCommandBeginEvent
+    from miqi.protocol.events import ContextCompactedEvent, WarningEvent
     from miqi.runtime.session import RuntimeSession
 
     runtime = RuntimeSession.create(
@@ -33,14 +38,12 @@ async def test_mirror_maps_turn_id_to_real_thread_id(fake_config, fake_provider,
             tokens_saved=200,
         ))
 
-        # Step 2: mirror an ExecCommandBeginEvent — this has turn_id
-        # but NO thread_id. It should resolve thread_id from the map.
-        await runtime._mirror_event_to_ledger(ExecCommandBeginEvent(
+        # Step 2: mirror a WarningEvent — this has turn_id but NO
+        # thread_id. It should resolve thread_id from the map.
+        await runtime._mirror_event_to_ledger(WarningEvent(
             turn_id="turn-abc",
-            tool_call_id="tc-1",
-            command="echo hi",
-            cwd="/tmp",
-            sandbox_type="none",
+            message="test warning",
+            source="runtime",
         ))
 
         # Both items must be stored under "real-thread-42",
@@ -48,8 +51,8 @@ async def test_mirror_maps_turn_id_to_real_thread_id(fake_config, fake_provider,
         items = await runtime.services.ledger_runtime.load_items("real-thread-42")
         item_types = [item.item_type for item in items]
         assert "context_compacted" in item_types, f"Expected context_compacted, got {item_types}"
-        assert "exec_started" in item_types, (
-            f"Expected exec_started under real-thread-42, got {item_types}"
+        assert "warning" in item_types, (
+            f"Expected warning under real-thread-42, got {item_types}"
         )
 
         # Verify NOT stored under the turn_id as thread_id.
