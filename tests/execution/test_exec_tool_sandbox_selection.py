@@ -39,14 +39,65 @@ def _make_selection(
     )
 
 
-def _make_mock_sandbox(*, is_running: bool = True, run_result=None):
-    """Create a mock BwrapSandbox."""
+async def _make_mock_sandbox(*, is_running: bool = True, run_result=None):
+    """Create a mock BwrapSandbox with both legacy and streaming APIs."""
+    import asyncio as _asyncio
+
     sandbox = MagicMock()
     sandbox.is_running = is_running
     sandbox.get_sandbox_env = MagicMock(return_value={})
     if run_result is None:
         run_result = (0, "hello from sandbox", "")
+
+    # Legacy batch API (used by non-streaming code paths)
     sandbox.run_command = AsyncMock(return_value=run_result)
+
+    # Phase 33.2 streaming API — spawn a real subprocess so
+    # _read_stream() gets genuine asyncio.StreamReader objects.
+    exit_code, stdout_text, stderr_text = run_result
+    script_parts = ["import sys"]
+    if stdout_text:
+        script_parts.append(f"sys.stdout.write({stdout_text!r})")
+    if stderr_text:
+        script_parts.append(f"sys.stderr.write({stderr_text!r})")
+    script_parts.append(f"sys.exit({exit_code})")
+    script = "; ".join(script_parts)
+
+    process = await _asyncio.create_subprocess_exec(
+        "python", "-c", script,
+        stdout=_asyncio.subprocess.PIPE,
+        stderr=_asyncio.subprocess.PIPE,
+    )
+
+    # Inline minimal handle (same shape as BwrapCommandHandle)
+    handle = MagicMock()
+    handle.stdout = process.stdout
+    handle.stderr = process.stderr
+    handle.returncode = None
+    handle._process = process
+
+    async def _wait():
+        await process.wait()
+        return process.returncode or -1
+
+    async def _kill():
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            await _asyncio.wait_for(process.wait(), timeout=5.0)
+        except (_asyncio.TimeoutError, ProcessLookupError):
+            pass
+
+    async def _cleanup():
+        pass
+
+    handle.wait = _wait
+    handle.kill = _kill
+    handle.cleanup = _cleanup
+
+    sandbox.run_command_streaming = AsyncMock(return_value=handle)
     return sandbox
 
 
@@ -89,7 +140,7 @@ async def test_sandbox_selection_none_overrides_active_sandbox():
     ExecTool MUST do direct execution — even if an active sandbox_manager
     with a running sandbox exists.  The orchestrator's SandboxSelection
     is the single source of truth; ExecTool must not second-guess it."""
-    mock_sandbox = _make_mock_sandbox(is_running=True)
+    mock_sandbox = await _make_mock_sandbox(is_running=True)
     mock_mgr = _make_mock_sandbox_manager(active_sandbox=mock_sandbox)
 
     tool = ExecTool(timeout=5, sandbox_manager=mock_mgr)
@@ -103,12 +154,13 @@ async def test_sandbox_selection_none_overrides_active_sandbox():
     assert "direct-not-sandbox" in result
     # The sandbox must NOT have been used — orchestrator said NONE.
     mock_sandbox.run_command.assert_not_called()
+    mock_sandbox.run_command_streaming.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_sandbox_selection_bwrap_with_active_sandbox():
     """When _sandbox is BWRAP and sandbox is active, use sandbox execution."""
-    mock_sandbox = _make_mock_sandbox(is_running=True)
+    mock_sandbox = await _make_mock_sandbox(is_running=True)
     mock_mgr = _make_mock_sandbox_manager(active_sandbox=mock_sandbox)
 
     tool = ExecTool(timeout=5, sandbox_manager=mock_mgr)
@@ -120,7 +172,7 @@ async def test_sandbox_selection_bwrap_with_active_sandbox():
     )
 
     assert "hello from sandbox" in result
-    mock_sandbox.run_command.assert_called_once()
+    mock_sandbox.run_command_streaming.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -158,7 +210,7 @@ async def test_sandbox_selection_bwrap_no_active_sandbox_fails_closed():
 @pytest.mark.asyncio
 async def test_sandbox_selection_bwrap_sandbox_not_running_fails_closed():
     """BWRAP selected, sandbox exists but is_running=False → fail closed."""
-    mock_sandbox = _make_mock_sandbox(is_running=False)
+    mock_sandbox = await _make_mock_sandbox(is_running=False)
     mock_mgr = _make_mock_sandbox_manager(active_sandbox=mock_sandbox)
 
     tool = ExecTool(timeout=5, sandbox_manager=mock_mgr)
@@ -219,7 +271,7 @@ async def test_legacy_path_direct_execution():
 @pytest.mark.asyncio
 async def test_legacy_path_with_sandbox_manager():
     """Without _sandbox but with sandbox_manager and active sandbox → legacy sandbox path."""
-    mock_sandbox = _make_mock_sandbox(is_running=True)
+    mock_sandbox = await _make_mock_sandbox(is_running=True)
     mock_mgr = _make_mock_sandbox_manager(active_sandbox=mock_sandbox)
 
     tool = ExecTool(timeout=5, sandbox_manager=mock_mgr)
@@ -227,7 +279,7 @@ async def test_legacy_path_with_sandbox_manager():
     result = await tool.execute("echo hello")
 
     assert "hello from sandbox" in result
-    mock_sandbox.run_command.assert_called_once()
+    mock_sandbox.run_command_streaming.assert_called_once()
 
 
 # ── 31.2: Event correctness ────────────────────────────────────────────
@@ -257,7 +309,7 @@ async def test_begin_event_sandbox_type_from_selection():
 async def test_begin_event_sandbox_type_none_selection():
     """Begin event reflects NONE when SandboxSelection type is NONE."""
     emitter = _EventCollector()
-    mock_sandbox = _make_mock_sandbox(is_running=True)
+    mock_sandbox = await _make_mock_sandbox(is_running=True)
     mock_mgr = _make_mock_sandbox_manager(active_sandbox=mock_sandbox)
     tool = ExecTool(timeout=5, sandbox_manager=mock_mgr)
 
