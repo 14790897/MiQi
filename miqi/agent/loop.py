@@ -472,11 +472,11 @@ class AgentLoop:
         self.tools.register(PlanUpdateTool(tracker=self._plan_tracker))
         # Office document tools
         self.tools.register(DocxReadTool())
-        self.tools.register(DocxWriteTool())
+        self.tools.register(DocxWriteTool(workspace=_write_workspace, allowed_dir=allowed_dir))
         self.tools.register(PptxReadTool())
-        self.tools.register(PptxWriteTool())
+        self.tools.register(PptxWriteTool(workspace=_write_workspace, allowed_dir=allowed_dir))
         self.tools.register(XlsxReadTool())
-        self.tools.register(XlsxWriteTool())
+        self.tools.register(XlsxWriteTool(workspace=_write_workspace, allowed_dir=allowed_dir))
 
     def set_orchestrator(self, orchestrator: Any) -> None:
         """Set the ToolOrchestrator for all tool execution."""

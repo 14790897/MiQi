@@ -208,11 +208,11 @@ def create_runtime_tool_registry(
     from miqi.documents.xlsx_tool import XlsxReadTool, XlsxWriteTool
 
     registry.register(DocxReadTool())
-    registry.register(DocxWriteTool())
+    registry.register(DocxWriteTool(workspace=_write_workspace, allowed_dir=allowed_dir))
     registry.register(PptxReadTool())
-    registry.register(PptxWriteTool())
+    registry.register(PptxWriteTool(workspace=_write_workspace, allowed_dir=allowed_dir))
     registry.register(XlsxReadTool())
-    registry.register(XlsxWriteTool())
+    registry.register(XlsxWriteTool(workspace=_write_workspace, allowed_dir=allowed_dir))
 
     # ── Optional tools (require external dependencies) ─────────────────
 
