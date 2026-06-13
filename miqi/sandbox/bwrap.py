@@ -14,14 +14,30 @@ Each conversation gets its own mount namespace with:
 Usage:
     sandbox = BwrapSandbox(session_key="feishu:oc_123", workspace="/path/to/workspace")
     await sandbox.start()
+
+    # Batch (legacy) — returns everything at once:
     exit_code, stdout, stderr = await sandbox.run_command("ls -la")
+
+    # Streaming (Phase 33.2) — incremental stdout/stderr, cancel support:
+    handle = await sandbox.run_command_streaming("long-running-cmd")
+    while True:
+        chunk = await handle.stdout.read(4096)
+        if not chunk:
+            break
+        print(chunk.decode())
+    await handle.wait()
+    await handle.cleanup()
+
     await sandbox.stop()
 """
+
+from __future__ import annotations
 
 import asyncio
 import os
 import platform
 import shutil
+import signal
 import subprocess
 import tempfile
 import uuid
@@ -33,6 +49,119 @@ from loguru import logger
 
 class BwrapSandboxError(Exception):
     """Error raised when bwrap operations fail."""
+
+
+class BwrapCommandHandle:
+    """Handle to a running command inside the bwrap sandbox.
+
+    Provides incremental access to stdout/stderr via :class:`asyncio.StreamReader`
+    and lifecycle control (wait, kill, cleanup).
+
+    Created by :meth:`BwrapSandbox.run_command_streaming`.  The caller MUST call
+    :meth:`cleanup` after the process exits (or after calling :meth:`kill`) to
+    release temporary resources (e.g. the WSL script file).
+
+    Usage::
+
+        handle = await sandbox.run_command_streaming("ls -la")
+        # ... read handle.stdout, handle.stderr incrementally ...
+        exit_code = await handle.wait()
+        await handle.cleanup()
+    """
+
+    __slots__ = ("_process", "_pgid", "_use_wsl", "_script_path", "_sandbox_ref")
+
+    def __init__(
+        self,
+        process: asyncio.subprocess.Process,
+        *,
+        pgid: int | None = None,
+        use_wsl: bool = False,
+    ):
+        self._process = process
+        self._pgid: int | None = pgid
+        self._use_wsl: bool = use_wsl
+        self._script_path: str | None = None
+        self._sandbox_ref: BwrapSandbox | None = None
+
+    @property
+    def stdout(self) -> asyncio.StreamReader | None:
+        """stdout stream for incremental reading (4096-byte chunks)."""
+        return self._process.stdout
+
+    @property
+    def stderr(self) -> asyncio.StreamReader | None:
+        """stderr stream for incremental reading (4096-byte chunks)."""
+        return self._process.stderr
+
+    @property
+    def returncode(self) -> int | None:
+        """Process return code (None if still running)."""
+        return self._process.returncode
+
+    async def wait(self) -> int:
+        """Wait for the command to exit.  Returns the exit code."""
+        await self._process.wait()
+        return self._process.returncode or -1
+
+    async def kill(self) -> None:
+        """Kill the running command.
+
+        On native Linux, tries SIGTERM then SIGKILL against the process group
+        (bwrap creates a PID namespace but the outer bwrap process itself is
+        in the process group created with ``start_new_session=True``).
+
+        On WSL, terminates the wsl.exe wrapper — the inner bwrap processes
+        should be cleaned up via ``--die-with-parent`` when the wrapper bash
+        receives SIGHUP.
+
+        After calling this, call :meth:`cleanup` to release temporary resources.
+        """
+        if self._pgid is not None:
+            # Native Linux — kill the process group (bwrap + children)
+            try:
+                os.killpg(self._pgid, signal.SIGTERM)
+            except (ProcessLookupError, OSError):
+                pass
+        else:
+            try:
+                self._process.terminate()
+            except ProcessLookupError:
+                return
+
+        try:
+            await asyncio.wait_for(self._process.wait(), timeout=3.0)
+        except asyncio.TimeoutError:
+            # Force kill
+            try:
+                if self._pgid is not None:
+                    try:
+                        os.killpg(self._pgid, signal.SIGKILL)
+                    except (ProcessLookupError, OSError):
+                        pass
+                else:
+                    self._process.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                await asyncio.wait_for(self._process.wait(), timeout=5.0)
+            except (asyncio.TimeoutError, ProcessLookupError):
+                pass
+
+    async def cleanup(self) -> None:
+        """Release temporary resources (script file, etc.).
+
+        Must be called after the process exits — either naturally, via
+        :meth:`kill`, or after a timeout.
+        """
+        if self._script_path is not None and self._sandbox_ref is not None:
+            try:
+                await self._sandbox_ref._run_linux_command(
+                    f"rm -f '{self._script_path}'", timeout=5.0,
+                )
+            except Exception:
+                pass
+            self._script_path = None
 
 
 def _shell_quote(s: str) -> str:
@@ -440,6 +569,111 @@ class BwrapSandbox:
 
         except Exception as exc:
             return (-1, "", f"Failed to run bwrap: {exc}")
+
+    async def run_command_streaming(
+        self,
+        command: str,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+    ) -> BwrapCommandHandle:
+        """Run a command inside the bwrap sandbox with streaming I/O.
+
+        Unlike :meth:`run_command` which buffers all output and returns it
+        at once, this method returns a :class:`BwrapCommandHandle` that
+        provides incremental stdout/stderr access via
+        :class:`asyncio.StreamReader`.  The **caller** is responsible for:
+
+        * reading from ``handle.stdout`` / ``handle.stderr``,
+        * calling ``await handle.wait()`` to await the exit code, and
+        * calling ``await handle.cleanup()`` to release temporary resources.
+
+        The caller also owns timeout and cancellation — use
+        :meth:`BwrapCommandHandle.kill` to stop a running command.
+
+        Returns:
+            BwrapCommandHandle with .stdout, .stderr, .wait(), .kill(),
+            and .cleanup().
+
+        Raises:
+            BwrapSandboxError: if the sandbox is not started.
+        """
+        if not self._running or not self._bwrap_path:
+            raise BwrapSandboxError("Sandbox not started")
+
+        bwrap_args = self._build_bwrap_args(command, env=env, cwd=cwd)
+
+        if self._use_wsl:
+            return await self._run_bwrap_streaming_via_script(bwrap_args)
+        else:
+            return await self._run_bwrap_streaming_native(bwrap_args)
+
+    async def _run_bwrap_streaming_native(
+        self, bwrap_args: list[str],
+    ) -> BwrapCommandHandle:
+        """Launch bwrap natively with streaming stdout/stderr.
+
+        Uses ``start_new_session=True`` so that :meth:`BwrapCommandHandle.kill`
+        can target the entire process group (bwrap + children).
+        """
+        process = await asyncio.create_subprocess_exec(
+            *bwrap_args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+        try:
+            pgid = os.getpgid(process.pid)
+        except (ProcessLookupError, OSError):
+            pgid = None
+
+        return BwrapCommandHandle(
+            process, pgid=pgid, use_wsl=False,
+        )
+
+    async def _run_bwrap_streaming_via_script(
+        self, bwrap_args: list[str],
+    ) -> BwrapCommandHandle:
+        """Launch bwrap via WSL script with streaming stdout/stderr.
+
+        Writes a temp shell script inside WSL (via stdin pipe to avoid the
+        32 767-char command-line limit), then executes it with
+        ``wsl.exe -d distro -- bash script``.
+
+        The script path is stored on the handle so :meth:`BwrapCommandHandle.cleanup`
+        can remove it after the process exits.
+        """
+        script_id = uuid.uuid4().hex[:12]
+        script_path = f"{self._linux_base_dir}/_bwrap_{script_id}.sh"
+
+        escaped_args = " ".join(
+            _shell_quote(a) for a in bwrap_args
+        )
+        script_content = f"#!/bin/bash\n{escaped_args}\n"
+
+        write_rc, _, write_err = await self._write_wsl_file_via_stdin(
+            script_path, script_content,
+        )
+        if write_rc != 0:
+            raise BwrapSandboxError(
+                f"Failed to write bwrap streaming script: {write_err}"
+            )
+
+        await self._run_linux_command(f"chmod +x '{script_path}'")
+
+        full_args = self._wsl_prefix() + ["bash", script_path]
+
+        process = await asyncio.create_subprocess_exec(
+            *full_args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        handle = BwrapCommandHandle(
+            process, pgid=None, use_wsl=True,
+        )
+        handle._script_path = script_path
+        handle._sandbox_ref = self
+        return handle
 
     # ── WSL script-based execution ─────────────────────────────────────
 
