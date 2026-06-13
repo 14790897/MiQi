@@ -470,13 +470,15 @@ class AgentLoop:
         # Plan tools
         self.tools.register(PlanCreateTool(tracker=self._plan_tracker))
         self.tools.register(PlanUpdateTool(tracker=self._plan_tracker))
-        # Office document tools
+        # Office document tools — always write inside the workspace,
+        # independently of restrict_to_workspace (which only controls
+        # WriteFileTool / EditFileTool).
         self.tools.register(DocxReadTool())
-        self.tools.register(DocxWriteTool(workspace=_write_workspace, allowed_dir=allowed_dir))
+        self.tools.register(DocxWriteTool(workspace=_write_workspace, allowed_dir=_write_workspace))
         self.tools.register(PptxReadTool())
-        self.tools.register(PptxWriteTool(workspace=_write_workspace, allowed_dir=allowed_dir))
+        self.tools.register(PptxWriteTool(workspace=_write_workspace, allowed_dir=_write_workspace))
         self.tools.register(XlsxReadTool())
-        self.tools.register(XlsxWriteTool(workspace=_write_workspace, allowed_dir=allowed_dir))
+        self.tools.register(XlsxWriteTool(workspace=_write_workspace, allowed_dir=_write_workspace))
 
     def set_orchestrator(self, orchestrator: Any) -> None:
         """Set the ToolOrchestrator for all tool execution."""
