@@ -208,11 +208,14 @@ def create_runtime_tool_registry(
     from miqi.documents.xlsx_tool import XlsxReadTool, XlsxWriteTool
 
     registry.register(DocxReadTool())
-    registry.register(DocxWriteTool(workspace=_write_workspace, allowed_dir=allowed_dir))
+    # Office write tools always write inside the workspace, independently
+    # of the `restrict_to_workspace` config (which only controls
+    # WriteFileTool / EditFileTool).
+    registry.register(DocxWriteTool(workspace=_write_workspace, allowed_dir=_write_workspace))
     registry.register(PptxReadTool())
-    registry.register(PptxWriteTool(workspace=_write_workspace, allowed_dir=allowed_dir))
+    registry.register(PptxWriteTool(workspace=_write_workspace, allowed_dir=_write_workspace))
     registry.register(XlsxReadTool())
-    registry.register(XlsxWriteTool(workspace=_write_workspace, allowed_dir=allowed_dir))
+    registry.register(XlsxWriteTool(workspace=_write_workspace, allowed_dir=_write_workspace))
 
     # ── Optional tools (require external dependencies) ─────────────────
 
