@@ -8,6 +8,35 @@ from typing import Any
 from miqi.agent.tools.base import Tool
 
 
+def _resolve_output_path(
+    file_path: str,
+    workspace: Path | None,
+    allowed_dir: Path | None,
+) -> Path:
+    """Resolve an output path and enforce workspace/directory bounds.
+
+    Rules (matches WriteFileTool / EditFileTool):
+    - Relative paths are resolved against *workspace*.
+    - Absolute paths must resolve inside *allowed_dir* (if set).
+
+    Raises:
+        PermissionError: if the resolved path is outside allowed_dir.
+    """
+    p = Path(file_path).expanduser()
+    if not p.is_absolute() and workspace is not None:
+        p = workspace / p
+    resolved = p.resolve()
+    if allowed_dir is not None:
+        try:
+            resolved.relative_to(allowed_dir.resolve())
+        except ValueError:
+            raise PermissionError(
+                f"Path '{file_path}' resolves outside allowed directory "
+                f"'{allowed_dir}'"
+            )
+    return resolved
+
+
 class PptxReadTool(Tool):
     """Read the content of a PowerPoint (.pptx) presentation."""
 
@@ -58,6 +87,14 @@ class PptxWriteTool(Tool):
         "Provide 'slides' as [{title: str, content: str}, ...]."
     )
 
+    def __init__(
+        self,
+        workspace: Path | None = None,
+        allowed_dir: Path | None = None,
+    ):
+        self._workspace = workspace
+        self._allowed_dir = allowed_dir
+
     @property
     def parameters(self) -> dict[str, Any]:
         return {
@@ -85,10 +122,16 @@ class PptxWriteTool(Tool):
 
     async def execute(self, **kwargs: Any) -> str:
         from pptx import Presentation
-        from pptx.util import Inches
 
-        file_path = Path(kwargs["file_path"])
+        raw_path = kwargs["file_path"]
         slides = kwargs["slides"]
+
+        try:
+            file_path = _resolve_output_path(
+                raw_path, self._workspace, self._allowed_dir,
+            )
+        except PermissionError as e:
+            return f"Error: Permission denied: {e}"
 
         try:
             prs = Presentation()
@@ -107,4 +150,4 @@ class PptxWriteTool(Tool):
             prs.save(str(file_path))
             return f"Created: {file_path} ({len(slides)} slides)"
         except Exception as e:
-            return f"Error writing {file_path.name}: {e}"
+            return f"Error writing {raw_path}: {e}"
