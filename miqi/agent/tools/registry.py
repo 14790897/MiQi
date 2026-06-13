@@ -107,6 +107,16 @@ class ToolRegistry:
         """
         Execute a tool by name with given parameters.
 
+        .. warning::
+           This is an **internal** API.  Production runtime tool calls MUST
+           go through ``ToolRuntime`` → ``ToolOrchestrator``, not directly
+           through ``ToolRegistry.execute()``.  Direct calls bypass
+           permission checks, sandbox policy, approval lifecycle, hooks,
+           and ledger/replay mirroring.
+
+           The only internal caller is ``execute_concurrent()``, which is
+           itself deprecated (no production call sites as of Phase 32).
+
         Args:
             name: Tool name.
             params: Tool parameters.
@@ -194,6 +204,22 @@ class ToolRegistry:
         default_kwargs: dict[str, Any] | None = None,
     ) -> list[tuple[str, str]]:
         """Execute multiple tool calls concurrently using asyncio.gather.
+
+        .. deprecated::
+           This method has **no production call sites** (Phase 32 audit).
+           All concurrent tool dispatch goes through ``ToolRuntime.execute_many()``
+           → ``ToolOrchestrator.execute()`` so that permission checks,
+           sandbox policy, approval lifecycle, hooks, and ledger/replay
+           mirroring are uniformly applied.
+
+           This method is retained for:
+           - Legacy test code that constructs ad-hoc ``ToolRegistry`` instances.
+           - Documentation examples (docs/backend/tools.md).
+           - Emergency debugging / REPL exploration.
+
+           Do NOT add new production call sites in ``miqi/runtime``,
+           ``miqi/bridge``, ``miqi/cli``, ``miqi/tui``, ``miqi/channels``,
+           or ``miqi/cron``.
 
         Args:
             tool_calls: List of dicts with keys 'id', 'name', 'arguments'.
