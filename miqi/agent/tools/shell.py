@@ -259,17 +259,17 @@ class ExecTool(Tool):
         ledger_runtime=None,
         thread_id: str = "",
     ) -> _ExecResult:
-        """Execute a command inside the bwrap sandbox.
+        """Execute a command inside the bwrap sandbox with streaming I/O.
 
-        .. note::
-            The sandbox does not yet support incremental stdout/stderr
-            streaming (sandbox.run_command returns everything at once)
-            nor mid-execution cancellation.  Therefore no
-            ExecCommandOutputDeltaEvent is emitted for the bwrap path.
-            This is a known limitation tracked for a future phase.
+        Phase 33.2: Uses ``sandbox.run_command_streaming()`` for incremental
+        stdout/stderr, emits :class:`ExecCommandOutputDeltaEvent`, and
+        supports ``cancel_event`` and timeout with process-group kill.
+
+        Follows the same internal task pattern as :meth:`_execute_direct`
+        (proc_wait, cancel_wait, stdout_task, stderr_task) so cancel/timeout
+        behaviour is consistent across sandboxed and direct execution paths.
         """
-        _ = event_emitter, turn_id, tool_call_id  # unused in sandbox path
-        effective_timeout = timeout_ms / 1000 if timeout_ms else self.timeout
+        effective_timeout = (timeout_ms / 1000) if timeout_ms else self.timeout
         effective_env_passthrough: frozenset[str]
         if env_passthrough is not None:
             effective_env_passthrough = frozenset(env_passthrough)
@@ -284,59 +284,24 @@ class ExecTool(Tool):
             )
 
         start = time.monotonic()
+
+        # Build sandbox env and cwd
+        sandbox_cwd = self._resolve_sandbox_cwd(cwd)
+        sandbox_env = sandbox.get_sandbox_env()
+        if effective_env_passthrough:
+            safe_env = self._build_safe_env(extra_passthrough=list(effective_env_passthrough))
+            for k in effective_env_passthrough:
+                if k in safe_env and k not in sandbox_env:
+                    sandbox_env[k] = safe_env[k]
+
+        # Phase 33.2: use streaming API for incremental I/O + cancel support
         try:
-            # Build sandbox-relative working directory
-            sandbox_cwd = self._resolve_sandbox_cwd(cwd)
-
-            # Use only the sandbox's built-in environment variables.
-            # Do NOT merge the host's os.environ into the sandbox — the
-            # sandbox is an isolated Linux environment and does not need
-            # (or want) Windows host env vars like PATH, TEMP, PROGRAMFILES
-            # etc.  Passing all those via --setenv bloats the bwrap command
-            # line far beyond Windows' 32 767-char limit.
-            sandbox_env = sandbox.get_sandbox_env()
-
-            # Only pass through explicitly allowed env vars from the host
-            if effective_env_passthrough:
-                safe_env = self._build_safe_env(extra_passthrough=list(effective_env_passthrough))
-                for k in effective_env_passthrough:
-                    if k in safe_env and k not in sandbox_env:
-                        sandbox_env[k] = safe_env[k]
-
-            exit_code, stdout, stderr = await sandbox.run_command(
-                command,
-                timeout=effective_timeout,
-                env=sandbox_env,
-                cwd=sandbox_cwd,
+            handle = await sandbox.run_command_streaming(
+                command, env=sandbox_env, cwd=sandbox_cwd,
             )
-
-            duration_ms = int((time.monotonic() - start) * 1000)
-
-            output_parts = []
-            if stdout:
-                output_parts.append(stdout)
-            if stderr and stderr.strip():
-                output_parts.append(f"STDERR:\n{stderr}")
-            if exit_code != 0:
-                output_parts.append(f"\nExit code: {exit_code}")
-
-            result = "\n".join(output_parts) if output_parts else "(no output)"
-
-            # Truncate very long output
-            max_len = 10000
-            if len(result) > max_len:
-                result = result[:max_len] + f"\n... (truncated, {len(result) - max_len} more chars)"
-
-            return _ExecResult(
-                output=result, exit_code=exit_code, duration_ms=duration_ms,
-            )
-
         except Exception as e:
             duration_ms = int((time.monotonic() - start) * 1000)
             logger.error("Sandbox execution failed: {} — {}", type(e).__name__, e)
-            # Do NOT silently fall back to host execution.
-            # The model needs to know the sandbox failed so it can adjust
-            # its commands (e.g. use Linux paths instead of Windows paths).
             return _ExecResult(
                 output=(
                     f"Error: Sandbox execution failed — {type(e).__name__}: {e}\n"
@@ -346,6 +311,139 @@ class ExecTool(Tool):
                 exit_code=1,
                 duration_ms=duration_ms,
             )
+
+        # ── Launch all internal tasks (same pattern as _execute_direct) ──
+        stdout_task: asyncio.Task = asyncio.create_task(
+            self._read_stream(
+                handle.stdout, "stdout",
+                event_emitter=event_emitter,
+                turn_id=turn_id,
+                tool_call_id=tool_call_id,
+                ledger_runtime=ledger_runtime,
+                thread_id=thread_id,
+            ),
+        )
+        stderr_task: asyncio.Task = asyncio.create_task(
+            self._read_stream(
+                handle.stderr, "stderr",
+                event_emitter=event_emitter,
+                turn_id=turn_id,
+                tool_call_id=tool_call_id,
+                ledger_runtime=ledger_runtime,
+                thread_id=thread_id,
+            ),
+        )
+        proc_wait: asyncio.Task = asyncio.create_task(handle.wait())
+        cancel_wait: asyncio.Task | None = None
+        stdout_text = ""
+        stdout_trunc = False
+        stderr_text = ""
+        stderr_trunc = False
+
+        cancelled = False
+        timed_out = False
+
+        try:
+            if cancel_event is not None:
+                cancel_wait = asyncio.create_task(cancel_event.wait())
+                done, _ = await asyncio.wait(
+                    [proc_wait, cancel_wait],
+                    timeout=effective_timeout,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if cancel_wait in done:
+                    cancelled = True
+                elif not done:
+                    timed_out = True
+
+                # ── Normal completion: cancel_wait was *not* set — clean up ──
+                if cancel_wait is not None and not cancel_wait.done():
+                    cancel_wait.cancel()
+                    try:
+                        await cancel_wait
+                    except asyncio.CancelledError:
+                        pass
+            else:
+                try:
+                    await asyncio.wait_for(proc_wait, timeout=effective_timeout)
+                except asyncio.TimeoutError:
+                    timed_out = True
+
+            # ── Cancel / timeout: kill process group, then await proc_wait ──
+            if cancelled or timed_out:
+                await handle.kill()
+                if not proc_wait.done():
+                    try:
+                        await proc_wait
+                    except Exception:
+                        pass
+
+            # ── Wait for stream readers — they see EOF when pipes close ──
+            stdout_text, stdout_trunc = await stdout_task
+            stderr_text, stderr_trunc = await stderr_task
+
+        finally:
+            # ── Safety net — NO task survives this method ────────────
+            for task in (cancel_wait, proc_wait, stdout_task, stderr_task):
+                if task is not None and not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+
+        # ── Release sandbox temporary resources (WSL script file) ───────
+        try:
+            await handle.cleanup()
+        except Exception:
+            pass
+
+        duration_ms = int((time.monotonic() - start) * 1000)
+        exit_code = handle.returncode if handle.returncode is not None else -1
+
+        # ── Build result text ─────────────────────────────────────────
+        if cancelled:
+            return _ExecResult(
+                output="Error: Command cancelled by user.",
+                exit_code=exit_code, duration_ms=duration_ms,
+                cancelled=True,
+            )
+        if timed_out:
+            return _ExecResult(
+                output=(
+                    f"Error: Command timed out after "
+                    f"{effective_timeout:.0f} seconds"
+                ),
+                exit_code=exit_code, duration_ms=duration_ms,
+                timed_out=True,
+            )
+
+        trunc_note = ""
+        if stdout_trunc or stderr_trunc:
+            trunc_note = "\n[output truncated]"
+
+        output_parts: list[str] = []
+        if stdout_text:
+            output_parts.append(stdout_text)
+        if stderr_text and stderr_text.strip():
+            output_parts.append(f"STDERR:\n{stderr_text}")
+        if exit_code != 0:
+            output_parts.append(f"\nExit code: {exit_code}")
+        if trunc_note:
+            output_parts.append(trunc_note)
+
+        result = "\n".join(output_parts) if output_parts else "(no output)"
+
+        # Truncate aggregated result at a readable limit
+        max_len = 10_000
+        if len(result) > max_len:
+            result = result[:max_len] + (
+                f"\n... (truncated, {len(result) - max_len} more chars)"
+            )
+
+        return _ExecResult(
+            output=result, exit_code=exit_code, duration_ms=duration_ms,
+        )
 
     def _resolve_sandbox_cwd(self, cwd: str) -> str:
         """Map a working directory to its sandbox equivalent.
