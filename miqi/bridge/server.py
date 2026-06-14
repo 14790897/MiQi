@@ -1765,7 +1765,7 @@ _METHODS = {
     # experience:* are now AppServer methods (Phase 35.7)
     # skills.* are now AppServer methods (Phase 35.5)
     # mcp.* are now AppServer methods (Phase 35.4)
-    "python.check": handle_python_check,
+    # python.check is now an AppServer method (Phase 35.8)
     # plugins.* are now AppServer methods (Phase 35.3)
     # permissions.* are now AppServer methods (Phase 35.2)
     # agent.* are now AppServer methods (Phases 27.4 + 28.5)

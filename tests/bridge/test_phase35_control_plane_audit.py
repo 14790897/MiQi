@@ -92,7 +92,8 @@ def test_phase35_baseline_identifies_control_plane_legacy_methods():
         # Phase 35.5: skills.* migrated
         # Phase 35.6: cron.* migrated
         # Phase 35.7: memory.*, experience:* migrated
-        "diagnostics": ["python.check"],
+        # Phase 35.8: diagnostics (python.check) migrated
+        # Only "status" and "plan.get" remain in _METHODS
     }
 
     present_families: list[str] = []
