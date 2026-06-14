@@ -480,6 +480,36 @@ class AppServer:
                     event_type, client_id, exc,
                 )
 
+    async def emit_client_event(
+        self,
+        client_id: str,
+        event_type: str,
+        data: Any,
+        *,
+        request_id: str | None = None,
+    ) -> None:
+        """Emit an event directly to a specific client via its sink.
+
+        Unlike :meth:`emit_event`, this does not require the client to be
+        subscribed to a session. The client must have a registered event
+        sink via :meth:`set_event_sink`. Silently skipped if no sink exists.
+        """
+        sink = self._event_sinks.get(client_id)
+        if sink is None:
+            return
+        envelope: dict[str, Any] = {
+            "request_id": request_id,
+            "event": event_type,
+            "data": data,
+        }
+        try:
+            await sink(envelope)
+        except Exception as exc:
+            logger.warning(
+                "AppServer: failed to deliver event {} to client {}: {}",
+                event_type, client_id, exc,
+            )
+
 
 # ── Bridge context helpers (Phase 35 hardening) ──────────────────────────
 
