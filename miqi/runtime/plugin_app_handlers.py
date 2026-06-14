@@ -115,11 +115,17 @@ def register_plugin_app_handlers(server: AppServer) -> None:
 
     async def _plugin_skill_read(request_id, params, client_id, session_id, registry):
         catalog = _catalog(registry)
+        plugin_name = params.get("pluginName") or params.get("plugin_name")
+        skill_name = params.get("skillName") or params.get("skill_name")
+        if not plugin_name:
+            raise AppServerError("pluginName is required", code="INVALID_PARAMS")
+        if not skill_name:
+            raise AppServerError("skillName is required", code="INVALID_PARAMS")
         try:
             content = catalog.read_plugin_skill(
-                plugin_name=params.get("pluginName") or params.get("plugin_name"),
+                plugin_name=plugin_name,
                 marketplace_name=params.get("marketplaceName") or params.get("marketplace_name") or "local",
-                skill_name=params.get("skillName") or params.get("skill_name"),
+                skill_name=skill_name,
             )
         except (KeyError, ValueError) as exc:
             raise AppServerError("Plugin skill not found", code="NOT_FOUND") from exc
@@ -148,7 +154,10 @@ def register_plugin_app_handlers(server: AppServer) -> None:
         if not raw:
             raise AppServerError("pluginId is required", code="INVALID_PARAMS")
         name = str(raw).split("@")[0]
-        removed = pm.uninstall_plugin(name)
+        try:
+            removed = pm.uninstall_plugin(name)
+        except ValueError as exc:
+            raise AppServerError("Plugin uninstall rejected", code="INVALID_PARAMS") from exc
         registry.bridge_context.pop("plugin_catalog", None)
         return {"result": {"removed": bool(removed), "pluginId": raw}}
 
@@ -183,7 +192,9 @@ def register_plugin_app_handlers(server: AppServer) -> None:
     async def _marketplace_upgrade(request_id, params, client_id, session_id, registry):
         catalog = _catalog(registry)
         name = params.get("marketplaceName")
-        selected = [str(name)] if name else [m.name for m in catalog.list_marketplaces()]
+        if name is not None:
+            name = _validate_marketplace_name(str(name))
+        selected = [name] if name else [m.name for m in catalog.list_marketplaces()]
         return {"result": {"selectedMarketplaces": selected, "errors": []}}
 
     server.register_method("plugin/list", _plugin_list)

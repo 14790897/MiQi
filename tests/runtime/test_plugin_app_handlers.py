@@ -235,3 +235,89 @@ async def test_marketplace_remove_rejects_path_like_name(tmp_path):
             "1", "marketplace/remove", {"name": bad_name}, "client-1", None,
         )
         assert response.get("code") == "INVALID_PARAMS", f"'{bad_name}' should be rejected"
+
+
+# ---------------------------------------------------------------------------
+# Phase 37 Hardening: control-plane error-path hardening
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_plugin_skill_read_missing_skill_name_rejected(tmp_path):
+    """plugin/skill/read without skillName returns INVALID_PARAMS, not INTERNAL."""
+    pm = PluginManager(tmp_path / "plugins", tmp_path / "system")
+    registry = ClientSessionRegistry()
+    registry.bridge_context["plugin_manager"] = pm
+    registry.bridge_context["marketplaces_dir"] = tmp_path / "marketplaces"
+    server = AppServer(registry)
+    register_plugin_app_handlers(server)
+
+    response = await server.dispatch(
+        "1", "plugin/skill/read",
+        {"pluginName": "sample", "marketplaceName": "local"},
+        "client-1", None,
+    )
+    assert response.get("code") == "INVALID_PARAMS"
+    assert "skillName" in response.get("error", "")
+
+
+@pytest.mark.asyncio
+async def test_plugin_skill_read_missing_plugin_name_rejected(tmp_path):
+    """plugin/skill/read without pluginName returns INVALID_PARAMS, not INTERNAL."""
+    pm = PluginManager(tmp_path / "plugins", tmp_path / "system")
+    registry = ClientSessionRegistry()
+    registry.bridge_context["plugin_manager"] = pm
+    registry.bridge_context["marketplaces_dir"] = tmp_path / "marketplaces"
+    server = AppServer(registry)
+    register_plugin_app_handlers(server)
+
+    response = await server.dispatch(
+        "1", "plugin/skill/read",
+        {"skillName": "sample-skill", "marketplaceName": "local"},
+        "client-1", None,
+    )
+    assert response.get("code") == "INVALID_PARAMS"
+    assert "pluginName" in response.get("error", "")
+
+
+@pytest.mark.asyncio
+async def test_plugin_uninstall_invalid_name_rejected(tmp_path):
+    """plugin/uninstall with invalid pluginId (e.g. path traversal) returns
+    INVALID_PARAMS, not INTERNAL."""
+    pm = PluginManager(tmp_path / "plugins", tmp_path / "system")
+    registry = ClientSessionRegistry()
+    registry.bridge_context["plugin_manager"] = pm
+    server = AppServer(registry)
+    register_plugin_app_handlers(server)
+
+    response = await server.dispatch(
+        "1", "plugin/uninstall",
+        {"pluginId": "../bad"},
+        "client-1", None,
+    )
+    assert response.get("code") == "INVALID_PARAMS"
+    # The error message should be safe — not leaking the raw traversal string
+    # as the primary signal.
+    assert "INTERNAL" not in response.get("code", "")
+
+
+@pytest.mark.asyncio
+async def test_marketplace_upgrade_rejects_invalid_name(tmp_path):
+    """marketplace/upgrade with an invalid marketplaceName returns
+    INVALID_PARAMS, not success."""
+    pm = PluginManager(tmp_path / "plugins", tmp_path / "system")
+    registry = ClientSessionRegistry()
+    registry.bridge_context["plugin_manager"] = pm
+    registry.bridge_context["marketplaces_dir"] = tmp_path / "marketplaces"
+    server = AppServer(registry)
+    register_plugin_app_handlers(server)
+
+    for bad_name in ["../bad", "path/traversal", "-starts-dash"]:
+        response = await server.dispatch(
+            "1", "marketplace/upgrade",
+            {"marketplaceName": bad_name},
+            "client-1", None,
+        )
+        assert response.get("code") == "INVALID_PARAMS", (
+            f"marketplaceName '{bad_name}' should be rejected"
+        )
