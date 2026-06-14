@@ -147,17 +147,18 @@ async def test_read_only_tools_still_none_after_exhaustion():
 
 
 @pytest.mark.asyncio
-async def test_write_file_fallback_to_none_when_allowed():
-    """write_file base is RESTRICTED. If RESTRICTED is exhausted,
-    fallback to NONE only when allow_fallback_to_none=True."""
+async def test_write_file_fallback_to_none_blocked():
+    """Phase 34: write_file NEVER falls back to NONE, even when
+    allow_fallback_to_none=True."""
     engine = SandboxPolicyEngine(allow_fallback_to_none=True)
     ctx = FakeContext("write_file", {"path": "/tmp/test.txt"})
     # Attempt 0 → RESTRICTED
     s0 = await engine.select(ctx, attempt=0)
     assert s0.sandbox_type == SandboxType.RESTRICTED
-    # Attempt 1 → beyond chain → fallback to NONE (non-exec, allowed)
-    s1 = await engine.select(ctx, attempt=1)
-    assert s1.sandbox_type == SandboxType.NONE
+    # Attempt 1 → beyond chain → MUST raise, NOT return NONE
+    with pytest.raises(SandboxDeniedError) as exc_info:
+        await engine.select(ctx, attempt=1)
+    assert "NONE fallback is disabled for file mutation" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -165,8 +166,9 @@ async def test_write_file_fallback_blocked_when_disallowed():
     """write_file fallback to NONE blocked when allow_fallback_to_none=False."""
     engine = SandboxPolicyEngine(allow_fallback_to_none=False)
     ctx = FakeContext("write_file", {"path": "/tmp/test.txt"})
-    with pytest.raises(SandboxDeniedError):
+    with pytest.raises(SandboxDeniedError) as exc_info:
         await engine.select(ctx, attempt=1)
+    assert "NONE fallback is disabled for file mutation" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -254,3 +256,134 @@ async def test_filesystem_policy_for_write():
     selection = await engine.select(ctx)
     # Should have a write rule for the target path
     assert len(selection.filesystem_policy.rules) >= 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 34: File mutation sandbox policy hardening
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+_FILE_MUTATION_TOOL_NAMES = [
+    "write_file", "edit_file", "delete_file",
+    "docx_write", "pptx_write", "xlsx_write",
+]
+
+
+@pytest.mark.parametrize("tool_name", _FILE_MUTATION_TOOL_NAMES)
+@pytest.mark.asyncio
+async def test_file_mutation_tool_never_falls_back_to_none(tool_name):
+    """Phase 34: every file mutation tool must NEVER fall back to NONE,
+    even when allow_fallback_to_none=True."""
+    engine = SandboxPolicyEngine(allow_fallback_to_none=True)
+    ctx = FakeContext(tool_name, {"path": "/tmp/test.txt", "file_path": "/tmp/test.txt"})
+    # Attempt 0 → RESTRICTED
+    s0 = await engine.select(ctx, attempt=0)
+    assert s0.sandbox_type == SandboxType.RESTRICTED
+    # Attempt 1 → beyond chain → MUST raise
+    with pytest.raises(SandboxDeniedError) as exc_info:
+        await engine.select(ctx, attempt=1)
+    assert "NONE fallback is disabled for file mutation" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("tool_name", _FILE_MUTATION_TOOL_NAMES)
+@pytest.mark.asyncio
+async def test_file_mutation_fallback_blocked_allow_fallback_false(tool_name):
+    """Phase 34: allow_fallback_to_none=False → raises for all file mutation tools."""
+    engine = SandboxPolicyEngine(allow_fallback_to_none=False)
+    ctx = FakeContext(tool_name, {"path": "/tmp/test.txt", "file_path": "/tmp/test.txt"})
+    with pytest.raises(SandboxDeniedError) as exc_info:
+        await engine.select(ctx, attempt=99)
+    assert "NONE fallback is disabled for file mutation" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("tool_name", _FILE_MUTATION_TOOL_NAMES)
+@pytest.mark.asyncio
+async def test_file_mutation_tool_base_is_restricted(tool_name):
+    """Phase 34: every file mutation tool's base sandbox type is RESTRICTED."""
+    engine = SandboxPolicyEngine()
+    ctx = FakeContext(tool_name, {"path": "/tmp/test.txt", "file_path": "/tmp/test.txt"})
+    selection = await engine.select(ctx, attempt=0)
+    assert selection.sandbox_type == SandboxType.RESTRICTED
+
+
+_READ_ONLY_TOOLS = ["read_file", "list_dir", "docx_read", "pptx_read", "xlsx_read"]
+
+
+@pytest.mark.parametrize("tool_name", _READ_ONLY_TOOLS)
+@pytest.mark.asyncio
+async def test_read_only_tools_still_return_none(tool_name):
+    """Phase 34: read-only tools are unaffected — they still get NONE."""
+    engine = SandboxPolicyEngine()
+    ctx = FakeContext(tool_name, {"path": "test.txt", "file_path": "test.txt"})
+    selection = await engine.select(ctx, attempt=0)
+    assert selection.sandbox_type == SandboxType.NONE
+
+
+@pytest.mark.asyncio
+async def test_filesystem_policy_for_office_write_includes_write_rule():
+    """Phase 34: _filesystem_policy_for_tool() must include a WRITE rule
+    for office document write tools, using file_path."""
+    from miqi.protocol.permissions import FileSystemAccessMode
+
+    engine = SandboxPolicyEngine()
+    ctx = FakeContext("docx_write", {"file_path": "/tmp/report.docx"})
+    selection = await engine.select(ctx)
+    assert len(selection.filesystem_policy.rules) >= 1
+    rule = selection.filesystem_policy.rules[0]
+    assert rule.path == "/tmp/report.docx"
+    assert rule.mode == FileSystemAccessMode.WRITE
+
+
+@pytest.mark.asyncio
+async def test_filesystem_policy_for_pptx_write_includes_write_rule():
+    """Phase 34: pptx_write gets a WRITE rule for file_path."""
+    from miqi.protocol.permissions import FileSystemAccessMode
+
+    engine = SandboxPolicyEngine()
+    ctx = FakeContext("pptx_write", {"file_path": "/tmp/slides.pptx"})
+    selection = await engine.select(ctx)
+    assert len(selection.filesystem_policy.rules) >= 1
+    rule = selection.filesystem_policy.rules[0]
+    assert rule.path == "/tmp/slides.pptx"
+    assert rule.mode == FileSystemAccessMode.WRITE
+
+
+@pytest.mark.asyncio
+async def test_filesystem_policy_for_xlsx_write_includes_write_rule():
+    """Phase 34: xlsx_write gets a WRITE rule for file_path."""
+    from miqi.protocol.permissions import FileSystemAccessMode
+
+    engine = SandboxPolicyEngine()
+    ctx = FakeContext("xlsx_write", {"file_path": "/tmp/data.xlsx"})
+    selection = await engine.select(ctx)
+    assert len(selection.filesystem_policy.rules) >= 1
+    rule = selection.filesystem_policy.rules[0]
+    assert rule.path == "/tmp/data.xlsx"
+    assert rule.mode == FileSystemAccessMode.WRITE
+
+
+@pytest.mark.asyncio
+async def test_sandbox_denied_error_for_file_mutation_is_actionable():
+    """Phase 34: SandboxDeniedError for file mutation must list actionable info."""
+    engine = SandboxPolicyEngine(allow_fallback_to_none=True)
+    ctx = FakeContext("write_file", {"path": "/tmp/test.txt"})
+    with pytest.raises(SandboxDeniedError) as exc_info:
+        await engine.select(ctx, attempt=99)
+    msg = str(exc_info.value)
+    assert "workspace" in msg.lower() or "sandbox" in msg.lower()
+
+
+def test_file_mutation_tools_matches_policy_set():
+    """Phase 34: orchestrator and policy engine must agree on the set
+    of file mutation tools."""
+    from miqi.execution.sandbox_policy import SandboxPolicyEngine
+
+    # Reconstruct the orchestrator's local set
+    orch_set = frozenset({
+        "write_file", "edit_file", "delete_file",
+        "docx_write", "pptx_write", "xlsx_write",
+    })
+    assert orch_set == SandboxPolicyEngine.FILE_MUTATION_TOOLS, (
+        "Orchestrator's _FILE_MUTATION_TOOLS must match "
+        "SandboxPolicyEngine.FILE_MUTATION_TOOLS"
+    )

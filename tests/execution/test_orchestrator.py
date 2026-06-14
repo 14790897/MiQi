@@ -1261,3 +1261,147 @@ def test_mirror_event_to_ledger_excludes_exec_and_approval_events():
             f"Missing required mirror: {key!r} must still be mirrored "
             f"by _mirror_event_to_ledger (no source-level writer exists)."
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 34: File mutation sandbox injection by orchestrator
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+_ORCH_FILE_MUTATION_TOOLS = [
+    "write_file", "edit_file", "docx_write", "pptx_write", "xlsx_write",
+]
+
+
+@pytest.mark.parametrize("tool_name", _ORCH_FILE_MUTATION_TOOLS)
+@pytest.mark.asyncio
+async def test_file_mutation_tool_always_receives_sandbox(
+    orchestrator, mock_components, tool_name,
+):
+    """Phase 34: file mutation tools must always receive _sandbox kwarg,
+    even when sandbox_type is NONE."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+    from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
+    from miqi.protocol.permissions import (
+        FileSystemSandboxPolicy, NetworkSandboxPolicy,
+    )
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.ALLOW,
+    )
+
+    # Even with NONE, file mutation tools get _sandbox injected
+    none_selection = SandboxSelection(
+        sandbox_type=SandboxType.NONE,
+        filesystem_policy=FileSystemSandboxPolicy(),
+        network_policy=NetworkSandboxPolicy.ALLOW_ALL,
+        timeout_ms=30_000,
+        reason="test",
+    )
+    mock_components["sandbox_engine"].select.return_value = none_selection
+
+    mock_tool = MagicMock()
+    mock_tool.execute = AsyncMock(return_value="ok")
+    mock_components["tool_registry"].get.return_value = mock_tool
+
+    ctx = make_ctx(
+        tool_name=tool_name,
+        arguments={"path": "test.txt", "file_path": "test.txt"},
+    )
+    result = await orchestrator.execute(ctx)
+    assert result.result == "ok"
+
+    call_kwargs = mock_tool.execute.call_args.kwargs
+    assert "_sandbox" in call_kwargs, (
+        f"BUG: orchestrator did NOT inject _sandbox for {tool_name} "
+        f"when sandbox_type is NONE."
+    )
+    assert call_kwargs["_sandbox"] is none_selection
+
+
+@pytest.mark.asyncio
+async def test_file_mutation_tool_bwrap_sandbox_injected(
+    orchestrator, mock_components,
+):
+    """Phase 34: file mutation tools with BWRAP sandbox get _sandbox
+    injected (existing behavior preserved for non-NONE sandboxes)."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+    from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
+    from miqi.protocol.permissions import (
+        FileSystemSandboxPolicy, NetworkSandboxPolicy,
+    )
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.ALLOW,
+    )
+    mock_components["sandbox_engine"].select.return_value = SandboxSelection(
+        sandbox_type=SandboxType.BWRAP,
+        filesystem_policy=FileSystemSandboxPolicy(),
+        network_policy=NetworkSandboxPolicy.ALLOW_ALL,
+        reason="test",
+    )
+
+    mock_tool = MagicMock()
+    mock_tool.execute = AsyncMock(return_value="write-ok")
+    mock_components["tool_registry"].get.return_value = mock_tool
+
+    ctx = make_ctx(
+        tool_name="edit_file",
+        arguments={"path": "test.txt", "old_text": "a", "new_text": "b"},
+    )
+    result = await orchestrator.execute(ctx)
+    assert result.result == "write-ok"
+    call_kwargs = mock_tool.execute.call_args.kwargs
+    assert "_sandbox" in call_kwargs
+    assert call_kwargs["_sandbox"].sandbox_type == SandboxType.BWRAP
+
+
+@pytest.mark.asyncio
+async def test_file_mutation_restricted_sandbox_injected(
+    orchestrator, mock_components,
+):
+    """Phase 34: file mutation tools with RESTRICTED sandbox get _sandbox
+    injected — this is the normal policy path."""
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+    from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
+    from miqi.protocol.permissions import (
+        FileSystemSandboxPolicy, NetworkSandboxPolicy,
+    )
+
+    mock_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.ALLOW,
+    )
+    mock_components["sandbox_engine"].select.return_value = SandboxSelection(
+        sandbox_type=SandboxType.RESTRICTED,
+        filesystem_policy=FileSystemSandboxPolicy(),
+        network_policy=NetworkSandboxPolicy.ALLOW_ALL,
+        reason="test",
+    )
+
+    mock_tool = MagicMock()
+    mock_tool.execute = AsyncMock(return_value="restricted-ok")
+    mock_components["tool_registry"].get.return_value = mock_tool
+
+    ctx = make_ctx(
+        tool_name="write_file",
+        arguments={"path": "test.txt", "content": "hello"},
+    )
+    result = await orchestrator.execute(ctx)
+    assert result.result == "restricted-ok"
+    call_kwargs = mock_tool.execute.call_args.kwargs
+    assert "_sandbox" in call_kwargs
+    assert call_kwargs["_sandbox"].sandbox_type == SandboxType.RESTRICTED
+
+
+def test_orchestrator_file_mutation_set_matches_policy():
+    """Phase 34: orchestrator's local _FILE_MUTATION_TOOLS must match
+    SandboxPolicyEngine.FILE_MUTATION_TOOLS."""
+    from miqi.execution.sandbox_policy import SandboxPolicyEngine
+
+    local_set = frozenset({
+        "write_file", "edit_file", "delete_file",
+        "docx_write", "pptx_write", "xlsx_write",
+    })
+    assert local_set == SandboxPolicyEngine.FILE_MUTATION_TOOLS, (
+        "Orchestrator's local _FILE_MUTATION_TOOLS out of sync"
+    )
