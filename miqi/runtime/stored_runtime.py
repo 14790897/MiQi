@@ -2,6 +2,10 @@
 
 This module reads the runtime SQLite database without requiring a live
 RuntimeSession. All lookups are scoped by client_id.
+
+Phase 39 hardening: gracefully handles missing DB or tables so callers
+get empty lists / NOT_FOUND instead of INTERNAL errors. Provides
+_ensure_schema() for lazy DB initialisation (threads + ledger tables).
 """
 
 from __future__ import annotations
@@ -55,6 +59,79 @@ class StoredRuntimeReader:
         self.db_path = Path(db_path)
         self.client_id = client_id
 
+    # ── Schema helpers ────────────────────────────────────────────────────
+
+    async def _ensure_schema(self) -> None:
+        """Create the runtime database and all required tables if missing.
+
+        Creates the .miqi-runtime directory, runtime.db, and the
+        runtime_threads, runtime_ledger_items, and runtime_history_items
+        tables.  Idempotent — safe to call before every write operation.
+        Does NOT create a live RuntimeSession.
+        """
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        async with aiosqlite.connect(str(self.db_path)) as db:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS runtime_threads (
+                    thread_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    parent_thread_id TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    forked_from_id TEXT,
+                    ephemeral INTEGER NOT NULL DEFAULT 0,
+                    cwd TEXT,
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    PRIMARY KEY (session_id, thread_id)
+                )
+            """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS runtime_ledger_items (
+                    item_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    thread_id TEXT NOT NULL,
+                    turn_id TEXT,
+                    seq INTEGER NOT NULL,
+                    item_type TEXT NOT NULL,
+                    role TEXT,
+                    content TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                )
+            """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS runtime_history_items (
+                    item_id TEXT PRIMARY KEY,
+                    thread_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    turn_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                )
+            """)
+            await db.commit()
+
+    async def _table_missing(self, table_name: str) -> bool:
+        """Return True when the DB file or named table does not exist."""
+        if not self.db_path.exists():
+            return True
+        try:
+            async with aiosqlite.connect(str(self.db_path)) as db:
+                cursor = await db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                    (table_name,),
+                )
+                row = await cursor.fetchone()
+                return row is None
+        except aiosqlite.OperationalError:
+            return True
+
+    # ── Query methods ─────────────────────────────────────────────────────
+
     async def list_threads(
         self,
         *,
@@ -63,11 +140,13 @@ class StoredRuntimeReader:
         cwd: str | None = None,
         search_term: str | None = None,
     ) -> list[RuntimeThread]:
+        if await self._table_missing("runtime_threads"):
+            return []
         rows: list[RuntimeThread] = []
         async with aiosqlite.connect(str(self.db_path)) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
-                "SELECT * FROM runtime_threads ORDER BY updated_at DESC"
+                "SELECT * FROM runtime_threads ORDER BY updated_at ASC"
             )
             db_rows = await cursor.fetchall()
         for row in db_rows:
@@ -109,6 +188,8 @@ class StoredRuntimeReader:
         return matches[0]
 
     async def load_ledger_items(self, thread: RuntimeThread) -> list[LedgerItem]:
+        if await self._table_missing("runtime_ledger_items"):
+            return []
         async with aiosqlite.connect(str(self.db_path)) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
@@ -165,6 +246,7 @@ class StoredRuntimeReader:
 
         items = await self.load_ledger_items(source)
 
+        await self._ensure_schema()
         async with aiosqlite.connect(str(self.db_path)) as db:
             await db.execute(
                 """INSERT INTO runtime_threads
@@ -229,6 +311,7 @@ class StoredRuntimeReader:
         ordered = sorted(seen.keys(), key=lambda tid: seen[tid])
         removed = ordered[-drop_last_turns:] if drop_last_turns > 0 else []
 
+        await self._ensure_schema()
         async with aiosqlite.connect(str(self.db_path)) as db:
             seq_row = await db.execute(
                 """SELECT COALESCE(MAX(seq), 0) + 1
@@ -272,6 +355,7 @@ class StoredRuntimeReader:
         raw_thread = dict(doc["thread"])
         target_thread_id = thread_id or raw_thread["thread_id"]
 
+        await self._ensure_schema()
         async with aiosqlite.connect(str(self.db_path)) as db:
             db.row_factory = aiosqlite.Row
             existing = await db.execute(

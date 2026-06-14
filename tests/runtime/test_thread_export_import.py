@@ -93,3 +93,62 @@ async def test_thread_import_missing_document_rejected(tmp_path):
         "1", "thread/import", {}, "client-a", None,
     )
     assert response["code"] == "INVALID_PARAMS"
+
+
+# ── Clean workspace tests ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_thread_import_creates_db_and_table_on_clean_workspace(tmp_path):
+    """thread/import on clean workspace creates runtime.db and tables, then thread/read works."""
+    server = _server(tmp_path)
+    document = {
+        "version": 1,
+        "thread": {
+            "thread_id": "imported-clean",
+            "title": "From clean workspace",
+            "status": "active",
+            "created_at": 1000.0,
+            "updated_at": 1000.0,
+        },
+        "ledgerItems": [
+            {
+                "itemType": "turn_started",
+                "turnId": "turn-1",
+                "seq": 1,
+                "role": None,
+                "content": "",
+                "payload": {},
+                "createdAt": 1000.0,
+            },
+            {
+                "itemType": "message",
+                "turnId": "turn-1",
+                "seq": 2,
+                "role": "user",
+                "content": "hello from clean",
+                "payload": {},
+                "createdAt": 1000.1,
+            },
+        ],
+        "providerMessages": [],
+    }
+    # Import should create the DB and tables
+    imported = await server.dispatch(
+        "1", "thread/import",
+        {"document": document, "includeTurns": True},
+        "client-a",
+        None,
+    )
+    assert imported["result"]["thread"]["id"] == "imported-clean"
+    # Verify the DB file was created
+    db = tmp_path / ".miqi-runtime" / "runtime.db"
+    assert db.exists()
+    # thread/read should now find it
+    read = await server.dispatch(
+        "2", "thread/read",
+        {"threadId": "imported-clean", "includeTurns": True},
+        "client-a",
+        None,
+    )
+    assert read["result"]["thread"]["id"] == "imported-clean"
