@@ -130,22 +130,33 @@ class ReplayRuntime:
     # ── public API ───────────────────────────────────────────────────────
 
     async def list_turns(self, thread_id: str) -> list[str]:
-        """Return turn_ids in ledger sequence order for a thread.
+        """Return turn_ids in ledger sequence order for a thread."""
+        return self.list_turn_ids_from_items(await self._load_items(thread_id))
 
-        Uses the first occurrence (lowest seq) of each turn_id as the
-        ordering key, so turns appear in the order they started.
+    # ── public static helpers ─────────────────────────────────────────────
+
+    @staticmethod
+    def list_turn_ids_from_items(items: list[LedgerItem]) -> list[str]:
+        """Return turn ids ordered by first ledger sequence number."""
+        seen: dict[str, int] = {}
+        for item in items:
+            if item.turn_id and item.turn_id not in seen:
+                seen[item.turn_id] = item.seq
+        return sorted(seen.keys(), key=lambda tid: seen[tid])
+
+    @staticmethod
+    def build_timeline_from_items(
+        thread_id: str,
+        turn_id: str,
+        items: list[LedgerItem],
+    ) -> TurnTimeline:
+        """Build a turn timeline from already-loaded ledger items.
+
+        This is intentionally public so stored projections and debug tools do
+        not need to instantiate ReplayRuntime or call private methods.
         """
-        items = await self._load_items(thread_id)
-        seen: dict[str, int] = {}
-        for item in items:
-            if item.turn_id and item.turn_id not in seen:
-                seen[item.turn_id] = item.seq
-        return sorted(seen.keys(), key=lambda tid: seen[tid])
-        seen: dict[str, int] = {}
-        for item in items:
-            if item.turn_id and item.turn_id not in seen:
-                seen[item.turn_id] = item.seq
-        return sorted(seen.keys(), key=lambda tid: seen[tid])
+        runtime = ReplayRuntime.__new__(ReplayRuntime)
+        return runtime._build_timeline(thread_id, turn_id, items)
 
     async def get_turn_timeline(
         self, thread_id: str, turn_id: str,

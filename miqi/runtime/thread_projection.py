@@ -78,7 +78,8 @@ class ThreadProjectionRuntime:
             items_view=items_view,
         )
 
-    def _turn_view(self, timeline: TurnTimeline, *, items_view: ItemsView) -> TurnView:
+    @staticmethod
+    def _turn_view(timeline: TurnTimeline, *, items_view: ItemsView) -> TurnView:
         items: list[ThreadItemView] = []
         if items_view != "notLoaded":
             if timeline.user_input is not None:
@@ -155,22 +156,11 @@ def project_stored_turns(
     items_view: ItemsView = "summary",
 ) -> list[TurnView]:
     """Project ledger items into Codex TurnViews without a live ReplayRuntime."""
-    # Group items by turn_id and record first appearance seq
-    seen: dict[str, int] = {}
-    for item in ledger_items:
-        if item.turn_id and item.turn_id not in seen:
-            seen[item.turn_id] = item.seq
+    turn_ids = ReplayRuntime.list_turn_ids_from_items(ledger_items)
 
     turns: list[TurnView] = []
-    for turn_id in sorted(seen.keys(), key=lambda tid: seen[tid]):
+    for turn_id in turn_ids:
         items = [item for item in ledger_items if item.turn_id == turn_id]
-        # Use ReplayRuntime._build_timeline via __new__ — the method only
-        # references self for the @staticmethod _safe_payload, so an
-        # uninitialised instance is safe.
-        replay = ReplayRuntime.__new__(ReplayRuntime)
-        timeline = ReplayRuntime._build_timeline(replay, thread_id, turn_id, items)
-
-        # ThreadProjectionRuntime._turn_view does not reference self.
-        proj = ThreadProjectionRuntime.__new__(ThreadProjectionRuntime)
-        turns.append(ThreadProjectionRuntime._turn_view(proj, timeline, items_view=items_view))
+        timeline = ReplayRuntime.build_timeline_from_items(thread_id, turn_id, items)
+        turns.append(ThreadProjectionRuntime._turn_view(timeline, items_view=items_view))
     return turns
