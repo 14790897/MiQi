@@ -1777,12 +1777,7 @@ _METHODS = {
     "experience:delete": handle_experience_delete,
     "experience:toggle": handle_experience_toggle,
     "experience:search": handle_experience_search,
-    "skills.list": handle_skills_list,
-    "skills.get": handle_skills_get,
-    "skills.open_folder": handle_skills_open_folder,
-    "skills.create": handle_skills_create,
-    "skills.upload": handle_skills_upload,
-    "skills.delete": handle_skills_delete,
+    # skills.* are now AppServer methods (Phase 35.5)
     # mcp.* are now AppServer methods (Phase 35.4)
     "python.check": handle_python_check,
     # plugins.* are now AppServer methods (Phase 35.3)

@@ -285,6 +285,22 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("mcp.upsert", mcp_upsert_handler)
         self._app_server.register_method("mcp.delete", mcp_delete_handler)
 
+        # Register Phase 35.5: skills.* handlers
+        from miqi.runtime.skill_handlers import (
+            skills_list_handler,
+            skills_get_handler,
+            skills_open_folder_handler,
+            skills_create_handler,
+            skills_upload_handler,
+            skills_delete_handler,
+        )
+        self._app_server.register_method("skills.list", skills_list_handler)
+        self._app_server.register_method("skills.get", skills_get_handler)
+        self._app_server.register_method("skills.open_folder", skills_open_folder_handler)
+        self._app_server.register_method("skills.create", skills_create_handler)
+        self._app_server.register_method("skills.upload", skills_upload_handler)
+        self._app_server.register_method("skills.delete", skills_delete_handler)
+
         logger.info(
             "BridgeRuntimeLoop: AppServer initialized with {} methods",
             len(self._app_server._methods),

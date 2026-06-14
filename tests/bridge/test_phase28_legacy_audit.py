@@ -68,11 +68,11 @@ def test_remaining_legacy_handlers_present():
     assert "permissions.get" not in _METHODS
     assert "plugins.list" not in _METHODS
     assert "mcp.list" not in _METHODS
+    assert "skills.list" not in _METHODS
     # These are explicitly NOT yet migrated
     assert "cron.list" in _METHODS
     assert "memory.list" in _METHODS
     assert "plan.get" in _METHODS
-    assert "skills.list" in _METHODS
 
 
 def test_methods_dict_count():
@@ -87,7 +87,7 @@ def test_methods_dict_count():
     count = len(_METHODS)
     assert count < 50, f"Expected fewer than 50 legacy handlers, got {count}"
     # Should have a reasonable minimum (will shrink further in Phase 35)
-    assert count > 20, f"Too few handlers, got {count} — did we remove too many?"
+    assert count >= 20, f"Too few handlers, got {count} — did we remove too many?"
 
 
 # ── AppServer registration audit ───────────────────────────────────────────
