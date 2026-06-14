@@ -83,14 +83,10 @@ def test_phase35_baseline_identifies_control_plane_legacy_methods():
     legacy_keys: set[str] = parsed["method_keys"]
     count = parsed["count"]
 
-    # Families expected to be present BEFORE Phase 35 migration
+    # Families expected to be present in legacy _METHODS
+    # (updated after each Phase 35 task migration)
     expected_families = {
-        "providers": ["providers.list", "providers.test", "providers.update"],
-        "channels": ["channels.list", "channels.update"],
-        "permissions": [
-            "permissions.get", "permissions.update",
-            "permissions.permanent.add", "permissions.permanent.remove",
-        ],
+        # Phase 35.2: providers.*, channels.*, permissions.* migrated
         "plugins": ["plugins.list", "plugins.install", "plugins.uninstall", "plugins.toggle"],
         "mcp": ["mcp.list", "mcp.upsert", "mcp.delete"],
         "skills": [

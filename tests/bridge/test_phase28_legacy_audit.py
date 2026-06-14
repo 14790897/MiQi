@@ -60,13 +60,14 @@ def test_remaining_legacy_handlers_present():
     """Remaining legacy handlers that should NOT have been migrated are present."""
     from miqi.bridge.server import _METHODS
 
-    # These are explicitly NOT in scope for Phase 28+30
-    assert "providers.list" in _METHODS
-    assert "providers.test" in _METHODS
+    # providers.*, channels.*, permissions.* migrated in Phase 35.2
+    assert "providers.list" not in _METHODS
+    assert "providers.test" not in _METHODS
+    assert "channels.list" not in _METHODS
+    assert "permissions.get" not in _METHODS
+    # These are explicitly NOT yet migrated
     assert "cron.list" in _METHODS
     assert "memory.list" in _METHODS
-    # files.* were migrated to AppServer in Phase 30
-    assert "permissions.get" in _METHODS
     assert "plugins.list" in _METHODS
     assert "plan.get" in _METHODS
     assert "skills.list" in _METHODS
@@ -78,13 +79,14 @@ def test_methods_dict_count():
 
     Phase 28: removed ~17 (approvals, config, sessions, chat, agent)
     Phase 30: removed 7 (files.*)
+    Phase 35.2: removed 9 (providers 3, channels 2, permissions 4)
     """
     from miqi.bridge.server import _METHODS
 
     count = len(_METHODS)
     assert count < 50, f"Expected fewer than 50 legacy handlers, got {count}"
-    # Should have a reasonable minimum
-    assert count > 30, f"Too few handlers, got {count} — did we remove too many?"
+    # Should have a reasonable minimum (will shrink further in Phase 35)
+    assert count > 20, f"Too few handlers, got {count} — did we remove too many?"
 
 
 # ── AppServer registration audit ───────────────────────────────────────────

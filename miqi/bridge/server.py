@@ -1757,11 +1757,8 @@ _METHODS = {
     # chat.send and chat.abort are now AppServer methods (Phase 27.3)
     # sessions.* are now AppServer methods (Phase 28.4)
     # config.get/config.update are now AppServer methods (Phase 28.3)
-    "providers.list": handle_providers_list,
-    "providers.test": handle_providers_test,
-    "providers.update": handle_providers_update,
-    "channels.list": handle_channels_list,
-    "channels.update": handle_channels_update,
+    # providers.* are now AppServer methods (Phase 35.2)
+    # channels.* are now AppServer methods (Phase 35.2)
     # approvals.* are now AppServer methods (Phase 28.2)
     "cron.list": handle_cron_list,
     "cron.create": handle_cron_create,
@@ -1790,14 +1787,11 @@ _METHODS = {
     "mcp.upsert": handle_mcp_upsert,
     "mcp.delete": handle_mcp_delete,
     "python.check": handle_python_check,
-    "permissions.get": handle_permissions_get,
     "plugins.list": handle_plugins_list,
     "plugins.install": handle_plugins_install,
     "plugins.uninstall": handle_plugins_uninstall,
     "plugins.toggle": handle_plugins_toggle,
-    "permissions.update": handle_permissions_update,
-    "permissions.permanent.add": handle_permissions_permanent_add,
-    "permissions.permanent.remove": handle_permissions_permanent_remove,
+    # permissions.* are now AppServer methods (Phase 35.2)
     # agent.* are now AppServer methods (Phases 27.4 + 28.5)
     "plan.get": handle_plan_get,
 }

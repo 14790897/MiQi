@@ -233,6 +233,36 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("files.revert", files_revert_handler)
         self._app_server.register_method("files.accept", files_accept_handler)
 
+        # Register Phase 35.2: providers.* handlers
+        from miqi.runtime.provider_handlers import (
+            providers_list_handler,
+            providers_test_handler,
+            providers_update_handler,
+        )
+        self._app_server.register_method("providers.list", providers_list_handler)
+        self._app_server.register_method("providers.test", providers_test_handler)
+        self._app_server.register_method("providers.update", providers_update_handler)
+
+        # Register Phase 35.2: channels.* handlers
+        from miqi.runtime.channel_handlers import (
+            channels_list_handler,
+            channels_update_handler,
+        )
+        self._app_server.register_method("channels.list", channels_list_handler)
+        self._app_server.register_method("channels.update", channels_update_handler)
+
+        # Register Phase 35.2: permissions.* handlers
+        from miqi.runtime.permission_handlers import (
+            permissions_get_handler,
+            permissions_update_handler,
+            permissions_permanent_add_handler,
+            permissions_permanent_remove_handler,
+        )
+        self._app_server.register_method("permissions.get", permissions_get_handler)
+        self._app_server.register_method("permissions.update", permissions_update_handler)
+        self._app_server.register_method("permissions.permanent.add", permissions_permanent_add_handler)
+        self._app_server.register_method("permissions.permanent.remove", permissions_permanent_remove_handler)
+
         logger.info(
             "BridgeRuntimeLoop: AppServer initialized with {} methods",
             len(self._app_server._methods),
