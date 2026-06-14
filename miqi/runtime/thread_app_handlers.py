@@ -18,7 +18,11 @@ def register_codex_thread_handlers(server: AppServer) -> None:
     """Register all Codex-style thread methods on an AppServer instance."""
 
     async def _thread_start(request_id, params, client_id, session_id, registry):
-        session = await _get_or_create_session(registry, client_id, params)
+        # Respect dispatch session_id when provided; otherwise derive from params.
+        if session_id is not None:
+            session = await _require_session(registry, client_id, session_id)
+        else:
+            session = await _get_or_create_session(registry, client_id, params)
         threads = session.services.thread_runtime
         projection = _projection(session)
         thread = await threads.create_thread(
@@ -36,7 +40,11 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         return {"result": {"thread": view.to_dict()}}
 
     async def _thread_resume(request_id, params, client_id, session_id, registry):
-        session = await _get_or_create_session(registry, client_id, params)
+        # Respect dispatch session_id when provided; otherwise derive from params.
+        if session_id is not None:
+            session = await _require_session(registry, client_id, session_id)
+        else:
+            session = await _get_or_create_session(registry, client_id, params)
         projection = _projection(session)
         thread_id = params["threadId"]
         include_turns = not bool(params.get("excludeTurns", False))
@@ -52,7 +60,11 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         return {"result": {"thread": view.to_dict()}}
 
     async def _thread_fork(request_id, params, client_id, session_id, registry):
-        session = await _get_or_create_session(registry, client_id, params)
+        # Respect dispatch session_id when provided; otherwise derive from params.
+        if session_id is not None:
+            session = await _require_session(registry, client_id, session_id)
+        else:
+            session = await _get_or_create_session(registry, client_id, params)
         threads = session.services.thread_runtime
         ledger = session.services.ledger_runtime
         history = getattr(session.services, "history_runtime", None)
@@ -178,16 +190,36 @@ def _projection(session: Any) -> ThreadProjectionRuntime:
 
 
 async def _get_or_create_session(registry: Any, client_id: str, params: dict) -> Any:
-    """Get or create a RuntimeSession for session-creating handlers."""
-    session_key = params.get("sessionKey") or params.get("session_key") or "default"
-    session_id = params.get("sessionId") or params.get("session_id") or f"{client_id}:{session_key}"
+    """Get or create a RuntimeSession for session-creating handlers.
 
-    # Check if session already exists
-    session = await registry.get_session(client_id, session_id)
+    Uses the raw session_key (e.g. "default", "project-a") so that
+    ClientSessionRegistry.create_session produces the correctly namespaced
+    session_id ``f"{client_id}:{session_key}"`` (e.g. "client-1:default").
+    If params carries an explicit namespaced sessionId/session_id we check
+    for that session first; when it doesn't exist we still create from the
+    raw session_key so the registry owns the canonical id.
+    """
+    session_key = params.get("sessionKey") or params.get("session_key") or "default"
+    # Defend against already-namespaced session_key (e.g. "client-1:default").
+    # ClientSessionRegistry.create_session builds session_id as
+    #   f"{client_id}:{session_key}"
+    # so passing an already-namespaced value would produce a double-namespaced
+    # id like "client-1:client-1:default". Strip the prefix when present.
+    ns_prefix = f"{client_id}:"
+    if session_key.startswith(ns_prefix):
+        session_key = session_key[len(ns_prefix):]
+    # Build the canonical session_id that create_session would produce.
+    canonical_id = f"{client_id}:{session_key}"
+    # Also accept an explicit sessionId (already-namespaced or bare).
+    explicit_id = params.get("sessionId") or params.get("session_id")
+
+    # Prefer the explicit id for existence check, fall back to canonical.
+    lookup_id = explicit_id or canonical_id
+    session = await registry.get_session(client_id, lookup_id)
     if session is not None:
         return session
 
-    # Create new session using bridge context
+    # Create new session using bridge context.
     state = get_bridge_state(registry)
     config = state.load_config()
     from miqi.providers.factory import make_provider
@@ -196,7 +228,7 @@ async def _get_or_create_session(registry: Any, client_id: str, params: dict) ->
 
     return await registry.create_session(
         client_id=client_id,
-        session_key=session_id,
+        session_key=session_key,
         config=config,
         provider=provider,
         workspace=workspace,
