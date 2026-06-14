@@ -83,6 +83,27 @@ def test_phase38_runtime_handlers_do_not_import_bridge_server_directly():
     )
 
 
+def test_phase38_config_tests_must_not_write_real_config():
+    """Runtime test conftest must patch save_config so tests never touch
+    ~/.miqi/config.json."""
+    conftest = _ROOT / "tests" / "runtime" / "conftest.py"
+    text = conftest.read_text(encoding="utf-8")
+
+    # Must have an autouse fixture that patches save_config
+    assert "mock_save_config" in text, (
+        "conftest.py must define mock_save_config fixture"
+    )
+    assert "autouse=True" in text, (
+        "mock_save_config must be autouse to protect all runtime tests"
+    )
+    assert "save_config" in text, (
+        "mock_save_config must patch save_config"
+    )
+    assert "get_config_path" in text, (
+        "mock_save_config must patch get_config_path"
+    )
+
+
 def test_phase38_no_raw_secret_values_in_model_or_config_handlers():
     """New model/config handlers must not directly return raw API keys/tokens."""
     runtime_dir = _MIQI / "runtime"

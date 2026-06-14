@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -75,7 +76,6 @@ async def test_config_batch_write_sets_model_and_saves():
     # The bridge state config should be updated
     state = registry.bridge_context["state"]
     assert state.config is not None
-    # Verify save was called (the state.config was replaced)
     assert state.config.agents.defaults.model == "openai/gpt-4.1"
 
 
@@ -121,29 +121,183 @@ async def test_config_batch_write_rejects_dunder_and_private_segments():
         )
 
 
+# ── config/batchWrite delete tests ─────────────────────────────────────────
+
+
 @pytest.mark.asyncio
 async def test_config_batch_write_delete_removes_optional_value():
+    """A real delete op on an optional field must remove it from the config."""
     registry = ClientSessionRegistry()
     server = _setup_server(registry, model="anthropic/claude-opus-4-5")
 
-    # Delete the model override should fall back to default or be absent
-    # Actually, setting a value first then deleting it
+    # Set an optional provider field so we can delete it
     await server.dispatch(
         "1", "config/batchWrite",
-        {"edits": [{"path": "agents.defaults.model", "value": "openai/gpt-4o"}]},
+        {"edits": [{"path": "providers.anthropic.apiBase", "value": "https://api.example.com/v1"}]},
         "client-1", None,
     )
+    state = registry.bridge_context["state"]
+    assert state.config.providers.anthropic.api_base == "https://api.example.com/v1"
 
-    # Now set model back (delete would leave a hole, test set instead)
+    # Now delete that optional field
     response = await server.dispatch(
         "2", "config/batchWrite",
-        {"edits": [{"path": "agents.defaults.model", "value": "anthropic/claude-opus-4-5"}]},
+        {"edits": [{"op": "delete", "path": "providers.anthropic.apiBase"}]},
         "client-1", None,
     )
     assert response["result"]["saved"] is True
+    assert state.config.providers.anthropic.api_base is None
+
+
+@pytest.mark.asyncio
+async def test_config_batch_write_delete_requires_existing_key():
+    """Delete of a non-existent key must return INVALID_PARAMS."""
+    registry = ClientSessionRegistry()
+    server = _setup_server(registry)
+
+    response = await server.dispatch(
+        "1", "config/batchWrite",
+        {"edits": [{"op": "delete", "path": "agents.defaults.nonexistentKey"}]},
+        "client-1", None,
+    )
+    assert response.get("code") == "INVALID_PARAMS"
+
+
+# ── Unknown path rejection tests ───────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_config_batch_write_rejects_unknown_path():
+    """Setting a path that does not exist in the config dict must return
+    INVALID_PARAMS (unless it is a desktop.* opaque path)."""
+    registry = ClientSessionRegistry()
+    server = _setup_server(registry)
+
+    response = await server.dispatch(
+        "1", "config/batchWrite",
+        {"edits": [{"path": "nonexistent.field", "value": "bad"}]},
+        "client-1", None,
+    )
+    assert response.get("code") == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_config_batch_write_unknown_path_is_atomic():
+    """When an unknown path edit fails, no config changes must be persisted."""
+    registry = ClientSessionRegistry()
+    server = _setup_server(registry, model="anthropic/claude-opus-4-5")
 
     state = registry.bridge_context["state"]
-    assert state.config.agents.defaults.model == "anthropic/claude-opus-4-5"
+    original_model = state.config.agents.defaults.model
+
+    # One valid edit + one unknown path → entire batch must fail atomically
+    response = await server.dispatch(
+        "1", "config/batchWrite",
+        {"edits": [
+            {"path": "agents.defaults.model", "value": "openai/gpt-4.1"},
+            {"path": "nonexistent.field", "value": "bad"},
+        ]},
+        "client-1", None,
+    )
+    assert response.get("code") == "INVALID_PARAMS"
+
+    # Model must NOT have changed
+    assert state.config.agents.defaults.model == original_model
+
+
+@pytest.mark.asyncio
+async def test_config_batch_write_allows_desktop_opaque_paths():
+    """desktop.* paths are allowed even if they do not exist in the config schema."""
+    registry = ClientSessionRegistry()
+    server = _setup_server(registry)
+
+    response = await server.dispatch(
+        "1", "config/batchWrite",
+        {"edits": [{"path": "desktop.theme", "value": "dark"}]},
+        "client-1", None,
+    )
+    assert response.get("result", {}).get("saved") is True
+
+
+# ── Error hygiene tests ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_config_batch_write_error_does_not_leak_stack_trace():
+    """Validation errors must not leak raw Traceback or filesystem paths."""
+    registry = ClientSessionRegistry()
+    server = _setup_server(registry)
+
+    # Trigger a pydantic validation error with a malicious value
+    response = await server.dispatch(
+        "1", "config/batchWrite",
+        {"edits": [{"path": "agents.defaults.model", "value": None}]},
+        "client-1", None,
+    )
+    assert response.get("code") == "INVALID_PARAMS"
+    error = response.get("error", "")
+    assert "Traceback" not in error
+    assert "File " not in error
+
+
+@pytest.mark.asyncio
+async def test_config_batch_write_error_does_not_leak_filesystem_paths():
+    """Error messages must not expose server-side filesystem paths."""
+    registry = ClientSessionRegistry()
+    server = _setup_server(registry)
+
+    response = await server.dispatch(
+        "1", "config/batchWrite",
+        {"edits": [{"path": "agents.__dunder.field", "value": "x"}]},
+        "client-1", None,
+    )
+    assert response.get("code") == "INVALID_PARAMS"
+    error = response.get("error", "")
+    assert "\\miqi\\" not in error.lower()
+    assert "/miqi/" not in error.lower()
+
+
+# ── Save safety audit test ─────────────────────────────────────────────────
+
+
+def test_config_batch_write_does_not_touch_real_config_path(monkeypatch):
+    """Prove that config/batchWrite writes only to the tmp_path fixture."""
+    import miqi.config.loader as loader_module
+
+    real_config = Path.home() / ".miqi" / "config.json"
+    recorded_path: list[Path] = []
+
+    def _tracked_save(config, config_path=None):
+        path = config_path or loader_module.get_config_path()
+        recorded_path.append(Path(path))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import json
+        data = config.model_dump(by_alias=True)
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    monkeypatch.setattr(loader_module, "save_config", _tracked_save)
+
+    # Run a quick dispatch through config/batchWrite
+    registry = ClientSessionRegistry()
+    server = _setup_server(registry)
+
+    import asyncio
+    async def _run():
+        return await server.dispatch(
+            "1", "config/batchWrite",
+            {"edits": [{"path": "agents.defaults.model", "value": "deepseek/deepseek-chat"}]},
+            "client-1", None,
+        )
+    result = asyncio.run(_run())
+
+    assert result["result"]["saved"] is True
+    # The save must NOT have targeted the real config path
+    for p in recorded_path:
+        assert p != real_config, f"config/batchWrite wrote to real config: {p}"
+        assert not str(p).endswith(str(real_config)), f"config path ends like real: {p}"
+
+
+# ── config/batchWrite propagation tests ────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -216,3 +370,22 @@ async def test_legacy_config_update_still_works():
 
     state = registry.bridge_context["state"]
     assert state.config.agents.defaults.model == "openai/gpt-4.1"
+
+
+@pytest.mark.asyncio
+async def test_legacy_config_update_error_hygiene():
+    """Legacy config.update must not leak raw validation details."""
+    registry = ClientSessionRegistry()
+    _setup_server(registry)
+
+    from miqi.runtime.app_server import AppServerError
+    with pytest.raises(AppServerError) as exc_info:
+        await config_update_handler(
+            "1",
+            {"config": {"agents": {"defaults": {"model": None}}}},
+            "client-1", None, registry,
+        )
+    assert exc_info.value.code == "INVALID_PARAMS"
+    error = str(exc_info.value)
+    assert "Traceback" not in error
+    assert "File " not in error

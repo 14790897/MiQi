@@ -71,8 +71,9 @@ async def config_update_handler(
     try:
         new_config = Config.model_validate(merged)
     except Exception as exc:
+        logger.warning("config.update: validation failed: {}", exc)
         raise AppServerError(
-            f"Invalid config: {exc}",
+            "Invalid config",
             code="INVALID_PARAMS",
         ) from exc
 
@@ -80,8 +81,9 @@ async def config_update_handler(
     try:
         save_config(new_config)
     except Exception as exc:
+        logger.error("config.update: save failed: {}", exc)
         raise AppServerError(
-            f"Failed to save config: {exc}",
+            "Failed to save config",
             code="INTERNAL",
         ) from exc
 

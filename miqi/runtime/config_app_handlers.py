@@ -99,7 +99,11 @@ def _validate_dot_path(path: str) -> None:
 
 
 def _apply_edit(target: dict, edit: dict) -> None:
-    """Apply a single edit dict to *target* in-place."""
+    """Apply a single edit dict to *target* in-place.
+
+    Raises AppServerError(INVALID_PARAMS) when the path targets a key that
+    does not exist in *target*, unless it is a ``desktop.*`` opaque path.
+    """
     op = edit.get("op", "set")
     path = edit.get("path", "")
     _validate_dot_path(path)
@@ -111,6 +115,8 @@ def _apply_edit(target: dict, edit: dict) -> None:
             value = edit.get("value")  # allow explicit None for set
     elif op == "delete":
         value = _DELETE_SENTINEL
+        # delete must target an existing key
+        _ensure_path_exists(target, segments, path)
     else:
         raise AppServerError(
             f"Unsupported edit op: {op}", code="INVALID_PARAMS"
@@ -118,13 +124,18 @@ def _apply_edit(target: dict, edit: dict) -> None:
 
     # Navigate to the parent
     current: Any = target
+    is_opaque_desktop = path.startswith("desktop.")
     for seg in segments[:-1]:
         if isinstance(current, dict):
             if seg not in current:
-                current[seg] = {}
+                if is_opaque_desktop:
+                    current[seg] = {}
+                else:
+                    raise AppServerError(
+                        "Unknown config path", code="INVALID_PARAMS"
+                    )
             current = current[seg]
         elif isinstance(current, list):
-            # Allow numeric index access for lists
             try:
                 idx = int(seg)
                 while len(current) <= idx:
@@ -132,20 +143,49 @@ def _apply_edit(target: dict, edit: dict) -> None:
                 current = current[idx]
             except ValueError:
                 raise AppServerError(
-                    f"Invalid list index in path: {path}", code="INVALID_PARAMS"
+                    "Invalid config path", code="INVALID_PARAMS"
                 )
         else:
             raise AppServerError(
-                f"Cannot navigate into non-collection at path: {path}",
-                code="INVALID_PARAMS",
+                "Invalid config path", code="INVALID_PARAMS"
             )
 
     last = segments[-1]
     if value is _DELETE_SENTINEL:
         if isinstance(current, dict) and last in current:
             del current[last]
+            return
+        raise AppServerError("Unknown config path", code="INVALID_PARAMS")
     else:
+        # For set ops on non-opaque paths, the parent must exist (already
+        # checked during navigation).  The last segment itself can be new.
+        if not is_opaque_desktop and isinstance(current, dict) and last not in current:
+            raise AppServerError("Unknown config path", code="INVALID_PARAMS")
         current[last] = value
+
+
+def _ensure_path_exists(target: dict, segments: list[str], path: str) -> None:
+    """Verify every segment of *path* exists in *target*.
+
+    Used for delete ops to avoid silent no-ops on missing keys.
+    desktop.* paths are exempt.
+    """
+    if path.startswith("desktop."):
+        return
+    current: Any = target
+    for seg in segments:
+        if isinstance(current, dict):
+            if seg not in current:
+                raise AppServerError("Unknown config path", code="INVALID_PARAMS")
+            current = current[seg]
+        elif isinstance(current, list):
+            try:
+                idx = int(seg)
+                current = current[idx]
+            except (ValueError, IndexError):
+                raise AppServerError("Unknown config path", code="INVALID_PARAMS")
+        else:
+            raise AppServerError("Unknown config path", code="INVALID_PARAMS")
 
 
 class _DeleteSentinel:
@@ -209,8 +249,9 @@ def register_config_app_handlers(server: AppServer) -> None:
         try:
             new_config = Config.model_validate(current_dict)
         except Exception as exc:
+            logger.warning("config.batchWrite: validation failed: {}", exc)
             raise AppServerError(
-                f"Invalid config after applying edits: {exc}",
+                "Invalid config after applying edits",
                 code="INVALID_PARAMS",
             ) from exc
 
@@ -219,8 +260,9 @@ def register_config_app_handlers(server: AppServer) -> None:
         try:
             save_config(new_config)
         except Exception as exc:
+            logger.error("config.batchWrite: save failed: {}", exc)
             raise AppServerError(
-                f"Failed to save config: {exc}",
+                "Failed to save config",
                 code="INTERNAL",
             ) from exc
 

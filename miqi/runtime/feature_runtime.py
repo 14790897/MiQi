@@ -91,13 +91,18 @@ class FeatureRuntime:
         for key in page_keys:
             meta = DEFAULT_FEATURES[key]
             enabled = self._enablement.get(key, meta["default_enabled"])
+            stage = meta["stage"]
+            # Stable features: displayName/description/announcement all None.
+            # Beta / underDevelopment: may carry displayName/description.
+            is_stable = stage == "stable"
             data.append({
                 "key": key,
-                "stage": meta["stage"],
+                "stage": stage,
                 "enabled": enabled,
                 "defaultEnabled": meta["default_enabled"],
-                "displayName": meta.get("displayName"),
-                "description": meta.get("description"),
+                "displayName": None if is_stable else meta.get("displayName"),
+                "description": None if is_stable else meta.get("description"),
+                "announcement": meta.get("announcement"),
             })
         next_cursor = page_keys[-1] if page_keys and start + limit < len(all_keys) else None
         return {"data": data, "nextCursor": next_cursor}

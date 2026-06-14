@@ -26,6 +26,27 @@ async def test_experimental_feature_list_shape():
     assert "stage" in first
     assert "enabled" in first
     assert "defaultEnabled" in first
+    assert "displayName" in first
+    assert "description" in first
+    assert "announcement" in first
+
+
+@pytest.mark.asyncio
+async def test_experimental_feature_list_stable_metadata_null():
+    """Stable features must return None for displayName, description, announcement."""
+    registry = ClientSessionRegistry()
+    server = AppServer(registry)
+    register_feature_app_handlers(server)
+
+    response = await server.dispatch(
+        "1", "experimentalFeature/list", {}, "client-1", None,
+    )
+    stable = [f for f in response["result"]["data"] if f["stage"] == "stable"]
+    assert len(stable) > 0
+    for row in stable:
+        assert row["displayName"] is None, f"{row['key']} displayName must be None"
+        assert row["description"] is None, f"{row['key']} description must be None"
+        assert row["announcement"] is None, f"{row['key']} announcement must be None"
 
 
 @pytest.mark.asyncio
