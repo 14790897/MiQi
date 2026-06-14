@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ from miqi.runtime.replay_document import (
 from miqi.runtime.replay_protocol import ReplayIntegrityCheck, ReplayIntegrityReport
 from miqi.runtime.replay_runtime import ReplayRuntime
 from miqi.runtime.stored_runtime import StoredRuntimeReader, StoredThreadBundle
+from miqi.runtime.thread_runtime import RuntimeThread
 
 
 class ReplayInspector:
@@ -44,6 +46,24 @@ class ReplayInspector:
             return None
         return ReplayRuntime.build_timeline_from_items(thread_id, turn_id, items)
 
+    # ── actual history (no fallback) ──────────────────────────────────────
+
+    async def _actual_history_messages(self, thread: RuntimeThread) -> list[dict[str, Any]]:
+        """Return provider message dicts from runtime_history_items rows only.
+
+        Does NOT fall back to ledger reconstruction.  An empty history table
+        returns [] so integrity checks can detect the mismatch.
+        """
+        items = await self.reader.load_history_items(thread)
+        messages: list[dict[str, Any]] = []
+        for item in items:
+            msg: dict[str, Any] = {"role": item.role, "content": item.content}
+            msg.update(item.payload.get("message_fields", {}))
+            messages.append(msg)
+        return messages
+
+    # ── reports ───────────────────────────────────────────────────────────
+
     async def provider_messages_report(
         self,
         thread_id: str,
@@ -51,7 +71,7 @@ class ReplayInspector:
         session_id: str | None = None,
     ) -> dict[str, Any]:
         bundle = await self.load_bundle(thread_id, session_id=session_id)
-        history_messages = await self.reader.load_provider_messages(bundle.thread)
+        history_messages = await self._actual_history_messages(bundle.thread)
         ledger_messages = []
         for item in bundle.ledger_items:
             if item.item_type == "message" and item.role is not None:
@@ -161,6 +181,36 @@ class ReplayInspector:
             checks=checks,
         )
 
+    # ── turn response (used by debug/replay/turn handler) ────────────────
+
+    async def build_turn_response(
+        self,
+        thread_id: str,
+        turn_id: str,
+        *,
+        session_id: str | None = None,
+        include_raw_ledger: bool = False,
+    ) -> dict[str, Any]:
+        bundle = await self.load_bundle(thread_id, session_id=session_id)
+        timeline = await self.turn_timeline(thread_id, turn_id, session_id=session_id)
+        raw_items: list[dict[str, Any]] = []
+        if include_raw_ledger:
+            raw_items = [
+                ledger_item_to_dict(item)
+                for item in bundle.ledger_items
+                if item.turn_id == turn_id
+            ]
+        return {
+            "threadId": bundle.thread.thread_id,
+            "turnId": turn_id,
+            "sessionId": bundle.thread.session_id,
+            "source": "stored",
+            "timeline": asdict(timeline) if timeline is not None else None,
+            "rawLedgerItems": raw_items,
+        }
+
+    # ── full document ─────────────────────────────────────────────────────
+
     async def build_thread_document(
         self,
         thread_id: str,
@@ -178,7 +228,7 @@ class ReplayInspector:
             ))
             for turn_id in turn_ids
         ]
-        provider_messages = await self.reader.load_provider_messages(bundle.thread)
+        provider_messages = await self._actual_history_messages(bundle.thread)
         integrity = (await self.integrity_report(
             bundle.thread.thread_id, session_id=bundle.thread.session_id,
         )).to_dict()
