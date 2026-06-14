@@ -115,6 +115,18 @@ class ReplayRuntime:
     def __init__(self, ledger: LedgerRuntime) -> None:
         self._ledger = ledger
 
+    # ── internal: load items respecting rollback markers ──────────────────
+
+    async def _load_items(self, thread_id: str) -> list[LedgerItem]:
+        """Load ledger items, using effective-items when available.
+
+        Phase 36: rollback markers are respected via load_effective_items()
+        which filters out rolled-back turns.
+        """
+        if hasattr(self._ledger, "load_effective_items"):
+            return await self._ledger.load_effective_items(thread_id)
+        return await self._ledger.load_items(thread_id)
+
     # ── public API ───────────────────────────────────────────────────────
 
     async def list_turns(self, thread_id: str) -> list[str]:
@@ -123,7 +135,12 @@ class ReplayRuntime:
         Uses the first occurrence (lowest seq) of each turn_id as the
         ordering key, so turns appear in the order they started.
         """
-        items = await self._ledger.load_items(thread_id)
+        items = await self._load_items(thread_id)
+        seen: dict[str, int] = {}
+        for item in items:
+            if item.turn_id and item.turn_id not in seen:
+                seen[item.turn_id] = item.seq
+        return sorted(seen.keys(), key=lambda tid: seen[tid])
         seen: dict[str, int] = {}
         for item in items:
             if item.turn_id and item.turn_id not in seen:
@@ -137,7 +154,7 @@ class ReplayRuntime:
 
         Returns None if no items exist for this turn_id in this thread.
         """
-        items = await self._ledger.load_items(thread_id)
+        items = await self._load_items(thread_id)
         turn_items = [it for it in items if it.turn_id == turn_id]
         if not turn_items:
             return None

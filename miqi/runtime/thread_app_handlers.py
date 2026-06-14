@@ -119,6 +119,34 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         )
         return {"result": {"thread": view.to_dict()}}
 
+    async def _thread_rollback(request_id, params, client_id, session_id, registry):
+        session = await _require_session(registry, client_id, session_id)
+        thread_id = params["threadId"]
+        drop_last_turns = int(params.get("dropLastTurns", params.get("numTurns", 1)))
+        if drop_last_turns < 1:
+            raise AppServerError("dropLastTurns must be >= 1", code="INVALID_PARAMS")
+        marker = await session.services.ledger_runtime.append_rollback_marker(
+            thread_id,
+            drop_last_turns=drop_last_turns,
+        )
+        removed = list(marker.payload.get("removed_turn_ids", []))
+        history = getattr(session.services, "history_runtime", None)
+        if history is not None:
+            await history.delete_turn_items(thread_id, removed)
+        view = await _projection(session).read_thread(
+            thread_id,
+            include_turns=True,
+            items_view=params.get("itemsView", "summary"),
+        )
+        await server.emit_event(
+            session.session_id, "thread/rollback",
+            {
+                "threadId": thread_id,
+                "removedTurnIds": removed,
+            },
+        )
+        return {"result": {"thread": view.to_dict()}}
+
     async def _thread_loaded_list(request_id, params, client_id, session_id, registry):
         loaded = []
         for sid, clients in registry._session_clients.items():
@@ -137,6 +165,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
     server.register_method("thread/turns/list", _thread_turns_list)
     server.register_method("thread/turns/items/list", _thread_turns_items_list)
     server.register_method("thread/name/set", _thread_name_set)
+    server.register_method("thread/rollback", _thread_rollback)
     server.register_method("thread/loaded/list", _thread_loaded_list)
 
 
