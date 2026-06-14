@@ -229,5 +229,7 @@ def test_bridge_existing_dispatch_still_works(monkeypatch):
     assert "files.tree" not in _METHODS  # migrated to AppServer
     # providers.*, channels.*, permissions.* migrated to AppServer (Phase 35.2)
     assert "providers.list" not in _METHODS  # migrated to AppServer
+    # cron.* migrated to AppServer (Phase 35.6)
+    assert "cron.list" not in _METHODS  # migrated to AppServer
     # These legacy handlers should still be present
-    assert "cron.list" in _METHODS
+    assert "memory.list" in _METHODS

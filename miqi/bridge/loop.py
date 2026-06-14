@@ -301,6 +301,24 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("skills.upload", skills_upload_handler)
         self._app_server.register_method("skills.delete", skills_delete_handler)
 
+        # Register Phase 35.6: cron.* handlers
+        from miqi.runtime.cron_handlers import (
+            cron_list_handler,
+            cron_create_handler,
+            cron_update_handler,
+            cron_delete_handler,
+            cron_toggle_handler,
+            cron_run_handler,
+            cron_runs_handler,
+        )
+        self._app_server.register_method("cron.list", cron_list_handler)
+        self._app_server.register_method("cron.create", cron_create_handler)
+        self._app_server.register_method("cron.update", cron_update_handler)
+        self._app_server.register_method("cron.delete", cron_delete_handler)
+        self._app_server.register_method("cron.toggle", cron_toggle_handler)
+        self._app_server.register_method("cron.run", cron_run_handler)
+        self._app_server.register_method("cron.runs", cron_runs_handler)
+
         logger.info(
             "BridgeRuntimeLoop: AppServer initialized with {} methods",
             len(self._app_server._methods),
