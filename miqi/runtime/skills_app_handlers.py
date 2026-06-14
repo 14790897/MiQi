@@ -9,11 +9,27 @@ from typing import Any
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_context
 
 
+def _get_client_extra_roots(registry: Any, client_id: str) -> list[Path]:
+    """Get extra skills roots scoped to a specific client.
+
+    Falls back to legacy global ``skills_extra_roots`` when no client-scoped
+    value exists (read-only migration path). New writes always go to
+    ``skills_extra_roots_by_client``.
+    """
+    by_client = registry.bridge_context.setdefault("skills_extra_roots_by_client", {})
+    if client_id in by_client:
+        return list(by_client[client_id])
+    legacy = registry.bridge_context.get("skills_extra_roots")
+    if legacy is not None:
+        return [Path(p) for p in legacy]
+    return []
+
+
 def register_skills_app_handlers(server: AppServer) -> None:
     async def _skills_list(request_id, params, client_id, session_id, registry):
         from miqi.agent.skills import SkillsLoader
 
-        roots = [Path(p) for p in get_bridge_context(registry, "skills_extra_roots", [])]
+        roots = _get_client_extra_roots(registry, client_id)
         cwds = params.get("cwds") or params.get("cwd") or []
         if isinstance(cwds, str):
             cwds = [cwds]
@@ -59,7 +75,8 @@ def register_skills_app_handlers(server: AppServer) -> None:
 
     async def _extra_roots_set(request_id, params, client_id, session_id, registry):
         roots = [Path(str(root)).resolve() for root in params.get("roots", [])]
-        registry.bridge_context["skills_extra_roots"] = roots
+        by_client = registry.bridge_context.setdefault("skills_extra_roots_by_client", {})
+        by_client[client_id] = roots
         await server.emit_event(
             session_id or "process",
             "skills/changed",
