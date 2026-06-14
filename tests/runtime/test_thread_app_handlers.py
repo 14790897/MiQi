@@ -440,3 +440,425 @@ async def test_thread_rollback_emits_rollback_event(tmp_path):
     await session.services.ledger_runtime.close()
     await session.services.history_runtime.close()
     await registry.stop_all()
+
+
+# ── Phase 36 hardening: real registry integration tests ───────────────────
+
+
+@pytest.mark.asyncio
+async def test_real_create_session_no_double_namespace(tmp_path):
+    """_get_or_create_session must produce 'client-1:default', not 'client-1:client-1:default'."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    from miqi.config.schema import Config
+    config = Config()
+    config.agents.defaults.workspace = str(workspace)
+
+    mock_provider = AsyncMock()
+    mock_provider.chat = AsyncMock(return_value=MagicMock(content="ok"))
+
+    class _MockBridgeState:
+        def load_config(self):
+            return config
+
+    registry = ClientSessionRegistry()
+    registry.bridge_context = {"state": _MockBridgeState()}
+
+    with patch("miqi.providers.factory.make_provider", return_value=mock_provider):
+        server = AppServer(registry)
+        register_codex_thread_handlers(server)
+
+        response = await server.dispatch(
+            "req-1", "thread/start",
+            {"threadId": "t1", "title": "Hello"},
+            "client-1", None,
+        )
+
+    assert "result" in response, f"Expected result but got: {response}"
+    session_keys = list(registry._sessions.keys())
+    assert "client-1:default" in session_keys, (
+        f"Expected 'client-1:default' in sessions but got: {session_keys}"
+    )
+    assert "client-1:client-1:default" not in session_keys, (
+        f"Double namespace detected! sessions keys: {session_keys}"
+    )
+    assert response["result"]["thread"]["sessionId"] == "client-1:default"
+
+    await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_create_session_with_explicit_session_key(tmp_path):
+    """When params has sessionKey='project-a', registry key must be 'client-1:project-a'."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    from miqi.config.schema import Config
+    config = Config()
+    config.agents.defaults.workspace = str(workspace)
+
+    mock_provider = AsyncMock()
+    mock_provider.chat = AsyncMock(return_value=MagicMock(content="ok"))
+
+    class _MockBridgeState:
+        def load_config(self):
+            return config
+
+    registry = ClientSessionRegistry()
+    registry.bridge_context = {"state": _MockBridgeState()}
+
+    with patch("miqi.providers.factory.make_provider", return_value=mock_provider):
+        server = AppServer(registry)
+        register_codex_thread_handlers(server)
+
+        response = await server.dispatch(
+            "req-1", "thread/start",
+            {"threadId": "t2", "title": "Project A", "sessionKey": "project-a"},
+            "client-1", None,
+        )
+
+    assert "result" in response, f"Expected result but got: {response}"
+    session_keys = list(registry._sessions.keys())
+    assert "client-1:project-a" in session_keys, (
+        f"Expected 'client-1:project-a' in sessions but got: {session_keys}"
+    )
+    assert response["result"]["thread"]["sessionId"] == "client-1:project-a"
+
+    await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_create_session_with_namespaced_session_key_does_not_double_namespace(tmp_path):
+    """When params has sessionKey='client-1:project-a' (already namespaced),
+    _get_or_create_session must strip the client_id prefix and produce
+    'client-1:project-a', NOT 'client-1:client-1:project-a'."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    from miqi.config.schema import Config
+    config = Config()
+    config.agents.defaults.workspace = str(workspace)
+
+    mock_provider = AsyncMock()
+    mock_provider.chat = AsyncMock(return_value=MagicMock(content="ok"))
+
+    class _MockBridgeState:
+        def load_config(self):
+            return config
+
+    registry = ClientSessionRegistry()
+    registry.bridge_context = {"state": _MockBridgeState()}
+
+    with patch("miqi.providers.factory.make_provider", return_value=mock_provider):
+        server = AppServer(registry)
+        register_codex_thread_handlers(server)
+
+        # sessionKey is already namespaced — simulate a Codex client that
+        # sends the full session ID as the key
+        response = await server.dispatch(
+            "req-1", "thread/start",
+            {"threadId": "t3", "title": "Namespaced Key", "sessionKey": "client-1:project-a"},
+            "client-1", None,
+        )
+
+    assert "result" in response, f"Expected result but got: {response}"
+    session_keys = list(registry._sessions.keys())
+    # Must NOT produce double namespace
+    assert "client-1:client-1:project-a" not in session_keys, (
+        f"Double namespace detected! sessions keys: {session_keys}"
+    )
+    assert "client-1:project-a" in session_keys, (
+        f"Expected 'client-1:project-a' in sessions but got: {session_keys}"
+    )
+    assert response["result"]["thread"]["sessionId"] == "client-1:project-a"
+
+    await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_session_id_respected_over_params(tmp_path):
+    """When dispatch passes session_id='client-1:project-a', the handler
+    must use that session even when params has no sessionKey."""
+    session_id = "client-1:project-a"
+    session = _make_mock_session_with_real_runtimes(session_id, tmp_path / "test_dispatch_session_id_respected")
+    await session.services.thread_runtime.initialize()
+    await session.services.ledger_runtime.initialize()
+
+    registry = ClientSessionRegistry()
+    registry._sessions[session_id] = session
+    registry._client_sessions.setdefault("client-1", set()).add(session_id)
+    registry._session_clients.setdefault(session_id, set()).add("client-1")
+    registry._last_activity[session_id] = 0
+
+    server = AppServer(registry)
+    register_codex_thread_handlers(server)
+
+    # dispatch with explicit session_id; params do NOT carry sessionKey
+    response = await server.dispatch(
+        "req-1", "thread/start",
+        {"threadId": "thread-in-project-a", "title": "In Project A"},
+        "client-1", session_id,
+    )
+
+    assert "result" in response, f"Expected result but got: {response}"
+    # Must have used the existing session, not created a new one
+    assert response["result"]["thread"]["sessionId"] == "client-1:project-a"
+    assert len(registry._sessions) == 1, (
+        f"Expected 1 session, got {len(registry._sessions)}: {list(registry._sessions.keys())}"
+    )
+    assert "client-1:project-a" in registry._sessions
+
+    await session.services.thread_runtime.close()
+    await session.services.ledger_runtime.close()
+    await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_thread_start_then_read_with_session_id(tmp_path):
+    """After thread/start, thread/read using the returned sessionId must work."""
+    session_id = "client-1:default"
+    session = _make_mock_session_with_real_runtimes(session_id, tmp_path / "test_thread_start_then_read")
+    await session.services.thread_runtime.initialize()
+    await session.services.ledger_runtime.initialize()
+
+    registry = ClientSessionRegistry()
+    registry._sessions[session_id] = session
+    registry._client_sessions.setdefault("client-1", set()).add(session_id)
+    registry._session_clients.setdefault(session_id, set()).add("client-1")
+    registry._last_activity[session_id] = 0
+
+    server = AppServer(registry)
+    register_codex_thread_handlers(server)
+
+    # Step 1: create thread
+    start_resp = await server.dispatch(
+        "req-1", "thread/start",
+        {"threadId": "read-back", "title": "Read Back"},
+        "client-1", session_id,
+    )
+    assert "result" in start_resp
+    returned_session_id = start_resp["result"]["thread"]["sessionId"]
+    assert returned_session_id == session_id
+
+    # Step 2: read the same thread using the returned sessionId
+    read_resp = await server.dispatch(
+        "req-2", "thread/read",
+        {"threadId": "read-back"},
+        "client-1", returned_session_id,
+    )
+    assert "result" in read_resp, f"Expected result but got: {read_resp}"
+    assert read_resp["result"]["thread"]["id"] == "read-back"
+    assert read_resp["result"]["thread"]["name"] == "Read Back"
+
+    await session.services.thread_runtime.close()
+    await session.services.ledger_runtime.close()
+    await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_real_create_session_start_then_read_back(tmp_path):
+    """End-to-end: thread/start via real create_session (session_id=None),
+    then thread/read using the returned sessionId — no manual _sessions injection."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    from miqi.config.schema import Config
+    config = Config()
+    config.agents.defaults.workspace = str(workspace)
+
+    mock_provider = AsyncMock()
+    mock_provider.chat = AsyncMock(return_value=MagicMock(content="ok"))
+
+    class _MockBridgeState:
+        def load_config(self):
+            return config
+
+    registry = ClientSessionRegistry()
+    registry.bridge_context = {"state": _MockBridgeState()}
+
+    with patch("miqi.providers.factory.make_provider", return_value=mock_provider):
+        server = AppServer(registry)
+        register_codex_thread_handlers(server)
+
+        # Step 1: thread/start with session_id=None → real create_session path
+        start_resp = await server.dispatch(
+            "req-1", "thread/start",
+            {"threadId": "e2e-thread", "title": "E2E Test", "sessionKey": "e2e-project"},
+            "client-1", None,
+        )
+
+    assert "result" in start_resp, f"Expected result but got: {start_resp}"
+    returned_session_id = start_resp["result"]["thread"]["sessionId"]
+    assert returned_session_id == "client-1:e2e-project"
+    assert "client-1:e2e-project" in registry._sessions, (
+        f"Session not found in registry: {list(registry._sessions.keys())}"
+    )
+
+    # Step 2: thread/read using the returned sessionId
+    read_resp = await server.dispatch(
+        "req-2", "thread/read",
+        {"threadId": "e2e-thread"},
+        "client-1", returned_session_id,
+    )
+    assert "result" in read_resp, f"Expected result but got: {read_resp}"
+    assert read_resp["result"]["thread"]["id"] == "e2e-thread"
+    assert read_resp["result"]["thread"]["name"] == "E2E Test"
+    assert read_resp["result"]["thread"]["sessionId"] == "client-1:e2e-project"
+
+    await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_cross_client_cannot_read(tmp_path):
+    """client-2 must not read a thread owned by client-1."""
+    session_id = "client-1:default"
+    session = _make_mock_session_with_real_runtimes(session_id, tmp_path / "test_cross_client_read")
+    await session.services.thread_runtime.initialize()
+    await session.services.ledger_runtime.initialize()
+    await session.services.thread_runtime.create_thread(
+        title="Private", thread_id="private-thread",
+    )
+
+    registry = ClientSessionRegistry()
+    registry._sessions[session_id] = session
+    registry._client_sessions.setdefault("client-1", set()).add(session_id)
+    registry._session_clients.setdefault(session_id, set()).add("client-1")
+    registry._last_activity[session_id] = 0
+
+    server = AppServer(registry)
+    register_codex_thread_handlers(server)
+
+    # client-2 tries to read using client-1's session_id
+    response = await server.dispatch(
+        "req-1", "thread/read",
+        {"threadId": "private-thread"},
+        "client-2", session_id,
+    )
+    assert response["code"] == "UNAUTHORIZED", (
+        f"Expected UNAUTHORIZED for cross-client read, got: {response}"
+    )
+
+    await session.services.thread_runtime.close()
+    await session.services.ledger_runtime.close()
+    await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_cross_client_cannot_fork(tmp_path):
+    """client-2 must not fork a thread owned by client-1."""
+    session_id = "client-1:default"
+    session = _make_mock_session_with_real_runtimes(session_id, tmp_path / "test_cross_client_fork")
+    await session.services.thread_runtime.initialize()
+    await session.services.ledger_runtime.initialize()
+    await session.services.thread_runtime.create_thread(
+        title="Source", thread_id="source-thread",
+    )
+
+    registry = ClientSessionRegistry()
+    registry._sessions[session_id] = session
+    registry._client_sessions.setdefault("client-1", set()).add(session_id)
+    registry._session_clients.setdefault(session_id, set()).add("client-1")
+    registry._last_activity[session_id] = 0
+
+    server = AppServer(registry)
+    register_codex_thread_handlers(server)
+
+    response = await server.dispatch(
+        "req-1", "thread/fork",
+        {"threadId": "source-thread", "title": "Stolen"},
+        "client-2", session_id,
+    )
+    assert response["code"] == "UNAUTHORIZED", (
+        f"Expected UNAUTHORIZED for cross-client fork, got: {response}"
+    )
+
+    await session.services.thread_runtime.close()
+    await session.services.ledger_runtime.close()
+    await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_cross_client_cannot_rollback(tmp_path):
+    """client-2 must not rollback a thread owned by client-1."""
+    session_id = "client-1:default"
+    session = _make_mock_session_with_real_runtimes(session_id, tmp_path / "test_cross_client_rollback")
+    await session.services.thread_runtime.initialize()
+    await session.services.ledger_runtime.initialize()
+    await session.services.thread_runtime.create_thread(
+        title="Target", thread_id="target-thread",
+    )
+
+    registry = ClientSessionRegistry()
+    registry._sessions[session_id] = session
+    registry._client_sessions.setdefault("client-1", set()).add(session_id)
+    registry._session_clients.setdefault(session_id, set()).add("client-1")
+    registry._last_activity[session_id] = 0
+
+    server = AppServer(registry)
+    register_codex_thread_handlers(server)
+
+    response = await server.dispatch(
+        "req-1", "thread/rollback",
+        {"threadId": "target-thread", "dropLastTurns": 1},
+        "client-2", session_id,
+    )
+    assert response["code"] == "UNAUTHORIZED", (
+        f"Expected UNAUTHORIZED for cross-client rollback, got: {response}"
+    )
+
+    await session.services.thread_runtime.close()
+    await session.services.ledger_runtime.close()
+    await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_none_session_id_falls_back_to_params(tmp_path):
+    """When dispatch passes session_id=None, handler must derive from params.sessionKey."""
+    session_id = "client-1:default"
+    session = _make_mock_session_with_real_runtimes(session_id, tmp_path / "test_dispatch_none_fallback")
+    await session.services.thread_runtime.initialize()
+    await session.services.ledger_runtime.initialize()
+
+    registry = ClientSessionRegistry()
+    registry._sessions[session_id] = session
+    registry._client_sessions.setdefault("client-1", set()).add(session_id)
+    registry._session_clients.setdefault(session_id, set()).add("client-1")
+    registry._last_activity[session_id] = 0
+
+    # Also register a second session for the same client
+    session2_id = "client-1:project-b"
+    session2 = _make_mock_session_with_real_runtimes(session2_id, tmp_path / "test_dispatch_none_fallback_b")
+    await session2.services.thread_runtime.initialize()
+    await session2.services.ledger_runtime.initialize()
+    registry._sessions[session2_id] = session2
+    registry._client_sessions.setdefault("client-1", set()).add(session2_id)
+    registry._session_clients.setdefault(session2_id, set()).add("client-1")
+    registry._last_activity[session2_id] = 0
+
+    server = AppServer(registry)
+    register_codex_thread_handlers(server)
+
+    # dispatch with session_id=None, params.sessionKey="project-b" →
+    # handler must look up "client-1:project-b"
+    response = await server.dispatch(
+        "req-1", "thread/start",
+        {"threadId": "t-fallback", "title": "Fallback", "sessionKey": "project-b"},
+        "client-1", None,
+    )
+    assert "result" in response, f"Expected result but got: {response}"
+    assert response["result"]["thread"]["sessionId"] == "client-1:project-b"
+
+    await session.services.thread_runtime.close()
+    await session.services.ledger_runtime.close()
+    await session2.services.thread_runtime.close()
+    await session2.services.ledger_runtime.close()
+    await registry.stop_all()
