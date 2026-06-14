@@ -57,7 +57,11 @@ async def mcp_upsert_handler(
     try:
         server_cfg = MCPServerConfig(**cfg_params)
     except Exception as exc:
-        raise AppServerError(str(exc), code="INVALID_PARAMS") from exc
+        logger.warning("mcp.upsert: invalid config for name={}: {}", name, exc)
+        raise AppServerError(
+            "Invalid MCP server configuration — check required fields",
+            code="INVALID_PARAMS",
+        ) from exc
 
     import miqi.bridge.server as bridge_module
 

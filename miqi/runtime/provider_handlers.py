@@ -143,7 +143,7 @@ async def providers_test_handler(
             "providers.test: provider={} error: {}", provider_name, exc,
         )
         raise AppServerError(
-            f"Provider test failed: {exc}",
+            "Provider test failed — check API key and network",
             code="PROVIDER_ERROR",
         ) from exc
 
