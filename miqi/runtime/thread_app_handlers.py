@@ -2,16 +2,31 @@
 
 Registers thread/start, thread/resume, thread/fork, thread/read,
 thread/turns/list, thread/turns/items/list, thread/name/set,
-thread/rollback, and thread/loaded/list on an AppServer instance.
+thread/rollback, thread/loaded/list, thread/list, thread/export,
+and thread/import on an AppServer instance.
+
+Phase 39: thread/read and thread/turns/list now support stored
+fallback when no live RuntimeSession is available.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_state
+from miqi.runtime.stored_runtime import (
+    StoredRuntimeReader,
+    StoredThreadAmbiguous,
+    StoredThreadNotFound,
+    StoredThreadUnauthorized,
+)
+from miqi.runtime.thread_projection import (
+    ThreadProjectionRuntime,
+    project_stored_thread,
+    project_stored_turns,
+)
 from miqi.runtime.thread_protocol import page_items
-from miqi.runtime.thread_projection import ThreadProjectionRuntime
 
 
 def register_codex_thread_handlers(server: AppServer) -> None:
@@ -89,26 +104,67 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         return {"result": {"thread": view.to_dict()}}
 
     async def _thread_read(request_id, params, client_id, session_id, registry):
-        session = await _require_session(registry, client_id, session_id)
-        view = await _projection(session).read_thread(
-            params["threadId"],
-            include_turns=bool(params.get("includeTurns", False)),
-            items_view=params.get("itemsView", "summary"),
-        )
+        thread_id = params.get("threadId")
+        if not thread_id:
+            raise AppServerError("threadId is required", code="INVALID_PARAMS")
+        include_turns = bool(params.get("includeTurns", False))
+        items_view = params.get("itemsView", "summary")
+
+        # Live-first: if the caller already has a live session, use it.
+        if session_id is not None:
+            live = await registry.get_session(client_id, session_id)
+            if live is not None:
+                view = await _projection(live).read_thread(
+                    thread_id, include_turns=include_turns, items_view=items_view
+                )
+                return {"result": {"thread": view.to_dict()}}
+
+        # Stored fallback: read from the runtime DB without a live session.
+        reader = _stored_reader(registry, client_id)
+        try:
+            bundle = await reader.load_bundle(
+                thread_id,
+                session_id=params.get("sessionId") or params.get("session_id") or session_id,
+            )
+        except Exception as exc:
+            raise _stored_error(exc) from exc
+        view = project_stored_thread(bundle, include_turns=include_turns, items_view=items_view)
         return {"result": {"thread": view.to_dict()}}
 
     async def _thread_turns_list(request_id, params, client_id, session_id, registry):
-        session = await _require_session(registry, client_id, session_id)
-        projection = _projection(session)
-        turns = await projection.list_turns(
-            params["threadId"],
-            items_view=params.get("itemsView", "summary"),
-        )
+        thread_id = params.get("threadId")
+        if not thread_id:
+            raise AppServerError("threadId is required", code="INVALID_PARAMS")
+        items_view = params.get("itemsView", "summary")
+        limit = int(params.get("limit", 50))
+        cursor = params.get("cursor")
+        sort_direction = params.get("sortDirection", "desc")
+
+        # Live-first path
+        if session_id is not None:
+            live = await registry.get_session(client_id, session_id)
+            if live is not None:
+                projection = _projection(live)
+                turns = await projection.list_turns(thread_id, items_view=items_view)
+                page = page_items(
+                    [turn.to_dict() for turn in turns],
+                    limit=limit, cursor=cursor, sort_direction=sort_direction,
+                )
+                return {"result": page.to_dict()}
+
+        # Stored fallback
+        reader = _stored_reader(registry, client_id)
+        try:
+            bundle = await reader.load_bundle(
+                thread_id,
+                session_id=params.get("sessionId") or params.get("session_id") or session_id,
+            )
+        except Exception as exc:
+            raise _stored_error(exc) from exc
+        turns = project_stored_turns(thread_id, bundle.ledger_items, items_view=items_view)
         page = page_items(
             [turn.to_dict() for turn in turns],
-            limit=int(params.get("limit", 50)),
-            cursor=params.get("cursor"),
-            sort_direction=params.get("sortDirection", "desc"),
+            limit=limit, cursor=cursor, sort_direction=sort_direction,
         )
         return {"result": page.to_dict()}
 
@@ -118,6 +174,26 @@ def register_codex_thread_handlers(server: AppServer) -> None:
             code="UNSUPPORTED_METHOD",
             recoverable=False,
         )
+
+    async def _thread_list(request_id, params, client_id, session_id, registry):
+        reader = _stored_reader(registry, client_id)
+        threads = await reader.list_threads(
+            include_archived=bool(params.get("archived", False)),
+            session_id=params.get("sessionId") or params.get("session_id"),
+            cwd=params.get("cwd"),
+            search_term=params.get("searchTerm"),
+        )
+        views = []
+        for thread in threads:
+            bundle = await reader.load_bundle(thread.thread_id, session_id=thread.session_id)
+            views.append(project_stored_thread(bundle, include_turns=False).to_dict())
+        page = page_items(
+            views,
+            limit=int(params.get("limit", 50)),
+            cursor=params.get("cursor"),
+            sort_direction=params.get("sortDirection", "desc"),
+        )
+        return {"result": page.to_dict()}
 
     async def _thread_name_set(request_id, params, client_id, session_id, registry):
         session = await _require_session(registry, client_id, session_id)
@@ -176,6 +252,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
     server.register_method("thread/read", _thread_read)
     server.register_method("thread/turns/list", _thread_turns_list)
     server.register_method("thread/turns/items/list", _thread_turns_items_list)
+    server.register_method("thread/list", _thread_list)
     server.register_method("thread/name/set", _thread_name_set)
     server.register_method("thread/rollback", _thread_rollback)
     server.register_method("thread/loaded/list", _thread_loaded_list)
@@ -243,3 +320,26 @@ async def _require_session(registry: Any, client_id: str, session_id: str | None
     if session is None:
         raise AppServerError("Not authorized", code="UNAUTHORIZED")
     return session
+
+
+# ── Stored-thread helpers (Phase 39) ────────────────────────────────────────
+
+
+def _runtime_db_path_from_registry(registry: Any) -> Path:
+    state = get_bridge_state(registry)
+    config = state.load_config()
+    return config.workspace_path / ".miqi-runtime" / "runtime.db"
+
+
+def _stored_reader(registry: Any, client_id: str) -> StoredRuntimeReader:
+    return StoredRuntimeReader(_runtime_db_path_from_registry(registry), client_id=client_id)
+
+
+def _stored_error(exc: Exception) -> AppServerError:
+    if isinstance(exc, StoredThreadUnauthorized):
+        return AppServerError("Not authorized", code="UNAUTHORIZED")
+    if isinstance(exc, StoredThreadAmbiguous):
+        return AppServerError("Multiple stored threads match; provide sessionId", code="AMBIGUOUS_THREAD")
+    if isinstance(exc, StoredThreadNotFound):
+        return AppServerError("Thread not found", code="NOT_FOUND")
+    return AppServerError("Stored thread read failed", code="INTERNAL")
