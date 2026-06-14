@@ -1,23 +1,35 @@
-"""Tests for channel handlers — Phase 35.2.
+"""Tests for channel handlers — Phase 35.2 / hardening.
 
 Validates channels.list and channels.update migrated from bridge
 legacy to AppServer async handlers.
 """
+
+import tempfile
 
 import pytest
 
 from miqi.runtime.app_server import ClientSessionRegistry
 
 
+def _make_config_with_workspace():
+    from miqi.config.schema import Config
+    config = Config()
+    config.agents.defaults.workspace = tempfile.mkdtemp()
+    return config
+
+
 # ── channels.list ─────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_channels_list_returns_data():
+async def test_channels_list_returns_data(registry_with_state):
     """channels.list should return channels data dict."""
     from miqi.runtime.channel_handlers import channels_list_handler
 
-    registry = ClientSessionRegistry()
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    mock_state.load_config.return_value = config
+
     result = await channels_list_handler("req-1", {}, "client-1", None, registry)
 
     assert "channels" in result["result"]
@@ -26,11 +38,14 @@ async def test_channels_list_returns_data():
 
 
 @pytest.mark.asyncio
-async def test_channels_list_secrets_redacted():
+async def test_channels_list_secrets_redacted(registry_with_state):
     """channels.list should redact secret fields (token, api_key etc.)."""
     from miqi.runtime.channel_handlers import channels_list_handler
 
-    registry = ClientSessionRegistry()
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    mock_state.load_config.return_value = config
+
     result = await channels_list_handler("req-1", {}, "client-1", None, registry)
 
     channels = result["result"]["channels"]

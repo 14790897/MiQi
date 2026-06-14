@@ -250,6 +250,81 @@ def test_phase35_baseline_asyncio_run_in_bridge():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Bridge-state import audit (Phase 35 hardening)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_phase35_runtime_bridge_state_imports_audit():
+    """Audit: count and identify remaining bridge.server imports in runtime/.
+
+    Phase 35 hardening: provider, channel, mcp, skill, plugin, permission
+    handlers now use get_bridge_state(registry) DI instead of importing
+    miqi.bridge.server directly.
+
+    Remaining imports are documented here to prevent accidental growth.
+    If you add a new runtime handler that imports miqi.bridge.server,
+    UPDATE this test's expected count — and add a comment explaining why
+    registry DI is not yet viable for that handler.
+    """
+    import re
+
+    miqi_dir = Path(__file__).parent.parent.parent / "miqi"
+    runtime_dir = miqi_dir / "runtime"
+
+    imports: dict[str, int] = {}
+    for py_file in sorted(runtime_dir.glob("*.py")):
+        content = py_file.read_text(encoding="utf-8")
+        count = len(re.findall(
+            r'import miqi\.bridge\.server as bridge_module', content,
+        ))
+        if count > 0:
+            imports[py_file.name] = count
+
+    # Phase 35 hardened modules: ZERO imports (migrated to registry DI)
+    assert imports.get("provider_handlers.py", 0) == 0, (
+        "provider_handlers.py must use get_bridge_state(registry), "
+        "not import miqi.bridge.server"
+    )
+    assert imports.get("channel_handlers.py", 0) == 0, (
+        "channel_handlers.py must use get_bridge_state(registry)"
+    )
+    assert imports.get("mcp_handlers.py", 0) == 0, (
+        "mcp_handlers.py must use get_bridge_state(registry)"
+    )
+    assert imports.get("skill_handlers.py", 0) == 0, (
+        "skill_handlers.py must use get_bridge_state(registry)"
+    )
+    assert imports.get("plugin_handlers.py", 0) == 0, (
+        "plugin_handlers.py must use get_bridge_state(registry)"
+    )
+    assert imports.get("permission_handlers.py", 0) == 0, (
+        "permission_handlers.py must use get_bridge_context(registry)"
+    )
+
+    # Remaining imports (before Phase 36):
+    # - approval_handlers.py: needs orchestrator (Phase 28.2)
+    # - file_handlers.py: needs workspace/state for sandbox (Phase 30)
+    # - config_handlers.py: needs state for save_config (Phase 28.3)
+    # - session_handlers.py: needs state for data_dir (Phase 28.4)
+    # - experience_handlers.py: needs state + singleton store pattern (Phase 35.7)
+    # - memory_handlers.py: needs state for workspace/config (Phase 35.7)
+    # - cron_handlers.py: needs state for get_data_dir() (Phase 35.6)
+    expected_remaining = 7  # files with at least 1 import
+    assert len(imports) == expected_remaining, (
+        f"Expected {expected_remaining} runtime files with bridge.server imports, "
+        f"got {len(imports)}: {list(imports.keys())}. "
+        f"If you added a new import, update this test. "
+        f"If you migrated one, decrement the expected count."
+    )
+
+    total_imports = sum(imports.values())
+    assert total_imports == 13, (
+        f"Expected 13 total bridge.server imports in runtime/, "
+        f"got {total_imports}. Update this test if the count changed."
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Migration audit helpers — used by subsequent tasks to verify removals
 # ═══════════════════════════════════════════════════════════════════════════════
 

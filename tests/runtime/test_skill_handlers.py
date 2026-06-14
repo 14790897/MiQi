@@ -6,21 +6,33 @@ skills.upload, and skills.delete migrated from bridge legacy to AppServer.
 Hardening: Path traversal and name validation tests for create/upload/delete.
 """
 
-import pytest
+import tempfile
 from pathlib import Path
 
+import pytest
+
 from miqi.runtime.app_server import ClientSessionRegistry
+
+
+def _make_config_with_workspace():
+    """Create a Config with a temp workspace path for handler tests."""
+    from miqi.config.schema import Config
+    config = Config()
+    config.agents.defaults.workspace = tempfile.mkdtemp()
+    return config
 
 
 # ── skills.list ──────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_skills_list_returns_skills():
+async def test_skills_list_returns_skills(registry_with_state):
     """skills.list should return skills list."""
     from miqi.runtime.skill_handlers import skills_list_handler
 
-    registry = ClientSessionRegistry()
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    mock_state.load_config.return_value = config
     result = await skills_list_handler("req-1", {}, "client-1", None, registry)
     skills = result["result"]["skills"]
     assert isinstance(skills, list)
@@ -45,12 +57,14 @@ async def test_skills_get_requires_name():
 
 
 @pytest.mark.asyncio
-async def test_skills_get_not_found():
+async def test_skills_get_not_found(registry_with_state):
     """skills.get should raise NOT_FOUND for nonexistent skill."""
     from miqi.runtime.skill_handlers import skills_get_handler
     from miqi.runtime.app_server import AppServerError
 
-    registry = ClientSessionRegistry()
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    mock_state.load_config.return_value = config
     with pytest.raises(AppServerError, match="Skill not found"):
         await skills_get_handler(
             "req-1", {"name": "nonexistent-xyz-123"}, "client-1", None, registry,
@@ -72,13 +86,13 @@ async def test_skills_open_folder_requires_name():
 
 
 @pytest.mark.asyncio
-async def test_skills_open_folder_returns_path():
+async def test_skills_open_folder_returns_path(registry_with_state):
     """skills.open_folder should return a path without launching GUI."""
     from miqi.runtime.skill_handlers import skills_open_folder_handler
 
-    registry = ClientSessionRegistry()
-    # With a valid skill name from the builtin set, we should get a path
-    # Use a name that almost certainly doesn't exist to test error path
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    mock_state.load_config.return_value = config
     from miqi.runtime.app_server import AppServerError
     with pytest.raises(AppServerError, match="Skill not found"):
         await skills_open_folder_handler(

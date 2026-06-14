@@ -11,20 +11,15 @@ from typing import Any
 
 from loguru import logger
 
-from miqi.runtime.app_server import AppServerError
+from miqi.runtime.app_server import AppServerError, get_bridge_context, get_bridge_state
 
 
-def _get_plugin_manager() -> Any:
-    """Get the PluginManager from bridge state.
+def _get_plugin_manager(registry: Any) -> Any:
+    """Get the PluginManager from registry.bridge_context.
 
     Returns None if bridge state or plugin manager is not available.
     """
-    import miqi.bridge.server as bridge_module
-
-    state = getattr(bridge_module, "_state", None)
-    if state is None:
-        return None
-    return getattr(state, "_plugin_manager", None)
+    return get_bridge_context(registry, "plugin_manager", None)
 
 
 async def plugins_list_handler(
@@ -35,7 +30,7 @@ async def plugins_list_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """List installed plugins with status, MCP servers, skills, commands."""
-    pm = _get_plugin_manager()
+    pm = _get_plugin_manager(registry)
     if pm is None:
         return {"result": {"plugins": []}}
 
@@ -71,7 +66,7 @@ async def plugins_install_handler(
     """
     name = params.get("name", "")
     url = params.get("url", "")
-    pm = _get_plugin_manager()
+    pm = _get_plugin_manager(registry)
     if pm is None:
         raise AppServerError(
             "Plugin manager not initialized", code="INTERNAL",
@@ -87,12 +82,10 @@ async def plugins_install_handler(
         # Update MCP servers from newly installed plugin
         new_servers = pm.get_mcp_servers()
         if new_servers:
-            import miqi.bridge.server as bridge_module
-            state = getattr(bridge_module, "_state", None)
-            if state is not None:
-                existing = getattr(state, "_mcp_servers", None)
-                if existing is not None:
-                    existing.update({s.get("name", ""): s for s in new_servers})
+            state = get_bridge_state(registry)
+            existing = getattr(state, "_mcp_servers", None)
+            if existing is not None:
+                existing.update({s.get("name", ""): s for s in new_servers})
         return {"result": {"ok": True, "name": name}}
     except ValueError as exc:
         logger.warning("plugins.install: name={} validation error: {}", name, exc)
@@ -118,7 +111,7 @@ async def plugins_uninstall_handler(
     Delegates to PluginManager.uninstall_plugin().
     """
     name = params.get("name", "")
-    pm = _get_plugin_manager()
+    pm = _get_plugin_manager(registry)
     if pm is None:
         raise AppServerError(
             "Plugin manager not initialized", code="INTERNAL",
@@ -151,7 +144,7 @@ async def plugins_toggle_handler(
     """
     name = params.get("name", "")
     enabled = params.get("enabled", False)
-    pm = _get_plugin_manager()
+    pm = _get_plugin_manager(registry)
     if pm is None:
         raise AppServerError(
             "Plugin manager not initialized", code="INTERNAL",

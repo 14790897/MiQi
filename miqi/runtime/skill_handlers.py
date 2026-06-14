@@ -13,7 +13,7 @@ from typing import Any
 
 from loguru import logger
 
-from miqi.runtime.app_server import AppServerError
+from miqi.runtime.app_server import AppServerError, get_bridge_state
 
 _SKILL_NAME_RE = re.compile(r'^[a-z][a-z0-9-]*$')
 
@@ -61,13 +61,9 @@ def _validate_skill_path(name: str, workspace_path: Any) -> Path:
     return skill_dir
 
 
-def _get_skills_loader() -> Any:
-    """Get a SkillsLoader for the current workspace."""
-    import miqi.bridge.server as bridge_module
-
-    state = getattr(bridge_module, "_state", None)
-    if state is None:
-        raise AppServerError("Bridge state not available", code="INTERNAL")
+def _get_skills_loader(registry: Any) -> Any:
+    """Get a SkillsLoader for the current workspace via registry DI."""
+    state = get_bridge_state(registry)
     config = state.load_config()
     from miqi.agent.skills import SkillsLoader
     return SkillsLoader(workspace=config.workspace_path)
@@ -81,7 +77,7 @@ async def skills_list_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """List all skills with availability info and missing requirements."""
-    loader = _get_skills_loader()
+    loader = _get_skills_loader(registry)
     all_skills = loader.list_skills(filter_unavailable=False)
     result = []
     for s in all_skills:
@@ -113,7 +109,7 @@ async def skills_get_handler(
     if not name:
         raise AppServerError("name is required", code="INVALID_PARAMS")
 
-    loader = _get_skills_loader()
+    loader = _get_skills_loader(registry)
     content = loader.load_skill(name)
     if content is None:
         raise AppServerError(f"Skill not found: {name}", code="NOT_FOUND")
@@ -157,7 +153,7 @@ async def skills_open_folder_handler(
     if not name:
         raise AppServerError("name is required", code="INVALID_PARAMS")
 
-    loader = _get_skills_loader()
+    loader = _get_skills_loader(registry)
     skill_path = loader.get_skill_path(name)
     if skill_path is None:
         raise AppServerError(f"Skill not found: {name}", code="NOT_FOUND")
@@ -177,11 +173,7 @@ async def skills_create_handler(
     name = _validate_skill_name(str(params.get("name", "")))
     description = str(params.get("description", "")).strip()
 
-    import miqi.bridge.server as bridge_module
-
-    state = getattr(bridge_module, "_state", None)
-    if state is None:
-        raise AppServerError("Bridge state not available", code="INTERNAL")
+    state = get_bridge_state(registry)
     config = state.load_config()
 
     skill_dir = _validate_skill_path(name, config.workspace_path)
@@ -211,8 +203,6 @@ async def skills_upload_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Save uploaded YAML content as a new workspace skill."""
-    import miqi.bridge.server as bridge_module
-
     name = _validate_skill_name(str(params.get("name", "")))
     content = str(params.get("content", "")).strip()
     if not content:
@@ -220,9 +210,7 @@ async def skills_upload_handler(
             "content is required", code="INVALID_PARAMS",
         )
 
-    state = getattr(bridge_module, "_state", None)
-    if state is None:
-        raise AppServerError("Bridge state not available", code="INTERNAL")
+    state = get_bridge_state(registry)
     config = state.load_config()
 
     skill_dir = _validate_skill_path(name, config.workspace_path)
@@ -255,11 +243,7 @@ async def skills_delete_handler(
             "Builtin skills cannot be deleted", code="INVALID_PARAMS",
         )
 
-    import miqi.bridge.server as bridge_module
-
-    state = getattr(bridge_module, "_state", None)
-    if state is None:
-        raise AppServerError("Bridge state not available", code="INTERNAL")
+    state = get_bridge_state(registry)
     config = state.load_config()
 
     skill_dir = _validate_skill_path(name, config.workspace_path)

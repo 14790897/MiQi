@@ -64,6 +64,10 @@ class ClientSessionRegistry:
         self._sessions: dict[str, Any] = {}               # session_id → RuntimeSession
         self._last_activity: dict[str, float] = {}         # session_id → timestamp
         self._idle_timeout = idle_timeout_seconds
+        # Phase 35 hardening: bridge_context holds shared state for handler DI.
+        # Populated by BridgeRuntimeLoop during init. Handlers read from here
+        # instead of importing miqi.bridge.server directly.
+        self.bridge_context: dict[str, Any] = {}
 
     # ── client_id resolution ─────────────────────────────────────────────
 
@@ -475,6 +479,28 @@ class AppServer:
                     "AppServer: failed to deliver event {} to client {}: {}",
                     event_type, client_id, exc,
                 )
+
+
+# ── Bridge context helpers (Phase 35 hardening) ──────────────────────────
+
+
+def get_bridge_state(registry: Any) -> Any:
+    """Extract BridgeState from registry.bridge_context.
+
+    Handlers call this instead of importing miqi.bridge.server directly.
+    Returns the BridgeState object or raises AppServerError.
+    """
+    ctx = getattr(registry, "bridge_context", {})
+    state = ctx.get("state")
+    if state is None:
+        raise AppServerError("Bridge state not available", code="INTERNAL")
+    return state
+
+
+def get_bridge_context(registry: Any, key: str, default: Any = None) -> Any:
+    """Get an arbitrary value from registry.bridge_context."""
+    ctx = getattr(registry, "bridge_context", {})
+    return ctx.get(key, default)
 
 
 # ── Built-in handler registration ────────────────────────────────────────
