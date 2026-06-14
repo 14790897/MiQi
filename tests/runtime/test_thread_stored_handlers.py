@@ -214,3 +214,82 @@ async def test_thread_read_returns_not_found_on_clean_workspace(tmp_path):
         "1", "thread/read", {"threadId": "thread-1"}, "client-a", None,
     )
     assert response["code"] == "NOT_FOUND"
+
+
+# ── History (provider-visible messages) tests ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_stored_fork_copies_history_rows(tmp_path):
+    """Stored fork copies runtime_history_items so destination has provider messages."""
+    from miqi.runtime.stored_runtime import StoredRuntimeReader
+    from miqi.runtime.history_runtime import HistoryItem
+    import time
+
+    db = tmp_path / ".miqi-runtime" / "runtime.db"
+    await _seed_thread(db, thread_id="src-fork")
+    # Seed history for source thread
+    reader = StoredRuntimeReader(db, client_id="client-a")
+    await reader._write_history_items(
+        "client-a:default", "src-fork",
+        [HistoryItem(item_id="h1", thread_id="src-fork", turn_id="turn-1",
+                     role="user", content="fork-src",
+                     payload={}, created_at=time.time())],
+    )
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/fork",
+        {"threadId": "src-fork", "title": "Forked", "excludeTurns": False},
+        "client-a", None,
+    )
+    child_id = response["result"]["thread"]["id"]
+    msgs = await reader.load_provider_messages(
+        await reader.resolve_thread(child_id),
+    )
+    assert len(msgs) >= 1
+    assert msgs[0]["content"] == "fork-src"
+
+
+@pytest.mark.asyncio
+async def test_stored_rollback_deletes_history_for_removed_turns(tmp_path):
+    """Stored rollback removes history items belonging to dropped turns."""
+    from miqi.runtime.stored_runtime import StoredRuntimeReader
+    from miqi.runtime.history_runtime import HistoryItem
+    import time
+
+    db = tmp_path / ".miqi-runtime" / "runtime.db"
+    await _seed_thread(db, thread_id="rollback-hist")
+    reader = StoredRuntimeReader(db, client_id="client-a")
+    # Two turns worth of history
+    await reader._write_history_items(
+        "client-a:default", "rollback-hist",
+        [
+            HistoryItem(item_id="h1", thread_id="rollback-hist", turn_id="turn-1",
+                        role="user", content="keep", payload={}, created_at=time.time()),
+            HistoryItem(item_id="h2", thread_id="rollback-hist", turn_id="turn-2",
+                        role="user", content="drop", payload={}, created_at=time.time()),
+        ],
+    )
+    # Add a second turn to the ledger
+    from miqi.runtime.ledger_runtime import LedgerRuntime
+    ledger = LedgerRuntime(db, session_id="client-a:default")
+    await ledger.initialize()
+    try:
+        await ledger.append_item(thread_id="rollback-hist", turn_id="turn-2", item_type="turn_started")
+        await ledger.append_item(thread_id="rollback-hist", turn_id="turn-2", item_type="message", role="user", content="drop")
+        await ledger.append_item(thread_id="rollback-hist", turn_id="turn-2", item_type="turn_completed")
+    finally:
+        await ledger.close()
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/rollback",
+        {"threadId": "rollback-hist", "dropLastTurns": 1},
+        "client-a", None,
+    )
+    assert response["result"]["thread"]["turns"][0]["id"] == "turn-1"
+    # History for turn-2 should be gone
+    msgs = await reader.load_provider_messages(
+        await reader.resolve_thread("rollback-hist"),
+    )
+    assert len(msgs) == 1
+    assert msgs[0]["content"] == "keep"

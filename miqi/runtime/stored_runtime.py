@@ -19,6 +19,7 @@ import aiosqlite
 
 from miqi.runtime.ledger_runtime import LedgerItem
 from miqi.runtime.thread_runtime import RuntimeThread
+from miqi.runtime.history_runtime import HistoryItem
 
 
 class StoredThreadError(Exception):
@@ -210,6 +211,173 @@ class StoredRuntimeReader:
             and (item.turn_id is None or item.turn_id not in removed)
         ]
 
+    # ── History (provider-visible messages) helpers ──────────────────────
+
+    async def load_history_items(self, thread: RuntimeThread) -> list[HistoryItem]:
+        """Load provider-visible history items for a stored thread."""
+        if await self._table_missing("runtime_history_items"):
+            return []
+        async with aiosqlite.connect(str(self.db_path)) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                """SELECT * FROM runtime_history_items
+                   WHERE session_id = ? AND thread_id = ?
+                   ORDER BY created_at ASC, item_id ASC""",
+                (thread.session_id, thread.thread_id),
+            )
+            rows = await cursor.fetchall()
+        return [
+            HistoryItem(
+                item_id=row["item_id"],
+                thread_id=row["thread_id"],
+                turn_id=row["turn_id"],
+                role=row["role"],
+                content=row["content"],
+                payload=_safe_json_load(row["payload_json"]),
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+
+    async def load_provider_messages(self, thread: RuntimeThread) -> list[dict[str, Any]]:
+        """Return provider-compatible message dicts from stored history.
+
+        Falls back to reconstructing from ledger message items when the
+        runtime_history_items table has no rows for this thread.
+        """
+        items = await self.load_history_items(thread)
+        if items:
+            messages: list[dict[str, Any]] = []
+            for item in items:
+                msg: dict[str, Any] = {"role": item.role, "content": item.content}
+                msg.update(item.payload.get("message_fields", {}))
+                messages.append(msg)
+            return messages
+        # Fallback: reconstruct from ledger
+        return await self._reconstruct_provider_messages_from_ledger(thread)
+
+    async def _reconstruct_provider_messages_from_ledger(
+        self, thread: RuntimeThread
+    ) -> list[dict[str, Any]]:
+        """Build provider messages from ledger items with item_type='message'."""
+        ledger_items = await self.load_ledger_items(thread)
+        messages: list[dict[str, Any]] = []
+        for item in ledger_items:
+            if item.item_type != "message" or item.role is None:
+                continue
+            msg: dict[str, Any] = {"role": item.role, "content": item.content}
+            msg.update(item.payload.get("message_fields", {}))
+            messages.append(msg)
+        return messages
+
+    async def _write_history_items(
+        self,
+        session_id: str,
+        thread_id: str,
+        items: list[HistoryItem],
+    ) -> int:
+        """Write HistoryItem rows into runtime_history_items. Returns count."""
+        import uuid as _uuid
+        if not items:
+            return 0
+        await self._ensure_schema()
+        async with aiosqlite.connect(str(self.db_path)) as db:
+            for item in items:
+                await db.execute(
+                    """INSERT INTO runtime_history_items
+                       (item_id, thread_id, session_id, turn_id, role, content,
+                        payload_json, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        str(_uuid.uuid4()),  # regenerate to avoid conflicts
+                        thread_id,
+                        session_id,
+                        item.turn_id,
+                        item.role,
+                        item.content,
+                        json.dumps(item.payload),
+                        item.created_at,
+                    ),
+                )
+            await db.commit()
+        return len(items)
+
+    async def _delete_history_turn_items(
+        self, session_id: str, thread_id: str, turn_ids: list[str]
+    ) -> int:
+        """Delete history items for given turn_ids. Returns deleted count."""
+        if not turn_ids or await self._table_missing("runtime_history_items"):
+            return 0
+        placeholders = ",".join("?" for _ in turn_ids)
+        async with aiosqlite.connect(str(self.db_path)) as db:
+            cursor = await db.execute(
+                f"""DELETE FROM runtime_history_items
+                    WHERE session_id = ? AND thread_id = ?
+                    AND turn_id IN ({placeholders})""",
+                (session_id, thread_id, *turn_ids),
+            )
+            await db.commit()
+            return int(cursor.rowcount or 0)
+
+    async def _delete_history_thread(self, session_id: str, thread_id: str) -> int:
+        """Delete ALL history items for a thread (used during overwrite import)."""
+        if await self._table_missing("runtime_history_items"):
+            return 0
+        async with aiosqlite.connect(str(self.db_path)) as db:
+            cursor = await db.execute(
+                "DELETE FROM runtime_history_items WHERE session_id = ? AND thread_id = ?",
+                (session_id, thread_id),
+            )
+            await db.commit()
+            return int(cursor.rowcount or 0)
+
+    @staticmethod
+    def _history_items_from_ledger(
+        session_id: str,
+        thread_id: str,
+        ledger_items: list[LedgerItem],
+        *,
+        extra_messages: list[dict[str, Any]] | None = None,
+    ) -> list[HistoryItem]:
+        """Build HistoryItems from ledger message rows + optional provider messages."""
+        import uuid as _uuid
+        import time as _time
+        items: list[HistoryItem] = []
+        seen_turns: set[str] = set()
+        for li in ledger_items:
+            if li.item_type != "message" or li.role is None:
+                continue
+            items.append(HistoryItem(
+                item_id=str(_uuid.uuid4()),
+                thread_id=thread_id,
+                turn_id=li.turn_id or "",
+                role=li.role,
+                content=li.content,
+                payload=dict(li.payload),
+                created_at=li.created_at or _time.time(),
+            ))
+            if li.turn_id:
+                seen_turns.add(li.turn_id)
+        # Append extra provider messages that aren't already covered
+        if extra_messages:
+            for msg in extra_messages:
+                payload: dict[str, Any] = {
+                    "message_fields": {
+                        k: v for k, v in msg.items()
+                        if k not in {"role", "content"}
+                    },
+                }
+                items.append(HistoryItem(
+                    item_id=str(_uuid.uuid4()),
+                    thread_id=thread_id,
+                    turn_id="import",
+                    role=msg.get("role", "user"),
+                    content=msg.get("content", ""),
+                    payload=payload,
+                    created_at=_time.time(),
+                ))
+        return items
+
     async def load_bundle(
         self, thread_id: str, *, session_id: str | None = None
     ) -> StoredThreadBundle:
@@ -245,6 +413,7 @@ class StoredRuntimeReader:
         now = _time.time()
 
         items = await self.load_ledger_items(source)
+        history_items = await self.load_history_items(source)
 
         await self._ensure_schema()
         async with aiosqlite.connect(str(self.db_path)) as db:
@@ -289,6 +458,25 @@ class StoredRuntimeReader:
                             item.created_at,
                         ),
                     )
+                # Copy history items so provider-visible messages are preserved
+                if history_items:
+                    for hi in history_items:
+                        await db.execute(
+                            """INSERT INTO runtime_history_items
+                               (item_id, thread_id, session_id, turn_id, role, content,
+                                payload_json, created_at)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (
+                                str(_uuid.uuid4()),
+                                dest_thread_id,
+                                dest_session,
+                                hi.turn_id,
+                                hi.role,
+                                hi.content,
+                                json.dumps(hi.payload),
+                                hi.created_at,
+                            ),
+                        )
             await db.commit()
 
         return await self.load_bundle(dest_thread_id, session_id=dest_session)
@@ -296,7 +484,7 @@ class StoredRuntimeReader:
     async def rollback_stored_thread(
         self, thread_id: str, *, drop_last_turns: int, session_id: str | None = None
     ) -> StoredThreadBundle:
-        """Append a rollback marker to a stored thread and reload."""
+        """Append a rollback marker to a stored thread, prune history, and reload."""
         import time as _time
         import uuid as _uuid
 
@@ -335,6 +523,14 @@ class StoredRuntimeReader:
                     _time.time(),
                 ),
             )
+            # Delete history items for removed turns
+            if removed:
+                await db.execute(
+                    f"""DELETE FROM runtime_history_items
+                        WHERE session_id = ? AND thread_id = ?
+                        AND turn_id IN ({",".join("?" for _ in removed)})""",
+                    (thread.session_id, thread_id, *removed),
+                )
             await db.commit()
 
         return await self.load_bundle(thread_id, session_id=thread.session_id)
@@ -372,6 +568,10 @@ class StoredRuntimeReader:
                 )
                 await db.execute(
                     "DELETE FROM runtime_ledger_items WHERE session_id = ? AND thread_id = ?",
+                    (session_id, target_thread_id),
+                )
+                await db.execute(
+                    "DELETE FROM runtime_history_items WHERE session_id = ? AND thread_id = ?",
                     (session_id, target_thread_id),
                 )
 
@@ -420,6 +620,30 @@ class StoredRuntimeReader:
                     ),
                 )
             await db.commit()
+
+        # Reconstruct provider-visible history from ledger message items.
+        # Collect the imported ledger items, rebuild HistoryItems, and write them.
+        imported_ledger = await self.load_ledger_items(
+            RuntimeThread(
+                thread_id=target_thread_id,
+                session_id=session_id,
+                title=raw_thread.get("title") or "Imported thread",
+                status=raw_thread.get("status") or "active",
+                parent_thread_id=raw_thread.get("parent_thread_id"),
+                created_at=float(raw_thread.get("created_at") or 0.0),
+                updated_at=float(raw_thread.get("updated_at") or 0.0),
+            )
+        )
+        provider_messages = doc.get("providerMessages") or document.get("providerMessages") or []
+        history_items = self._history_items_from_ledger(
+            session_id,
+            target_thread_id,
+            imported_ledger,
+            extra_messages=provider_messages if isinstance(provider_messages, list) else None,
+        )
+        if history_items:
+            await self._write_history_items(session_id, target_thread_id, history_items)
+
         return target_thread_id
 
     @staticmethod
