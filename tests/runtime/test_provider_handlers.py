@@ -1,22 +1,35 @@
-"""Tests for provider handlers — Phase 35.2.
+"""Tests for provider handlers — Phase 35.2 / hardening.
 
 Validates providers.list, providers.test, and providers.update
 migrated from bridge legacy to AppServer async handlers.
 """
 
+import tempfile
+from unittest.mock import MagicMock
+
 import pytest
+
+
+def _make_config_with_workspace():
+    """Create a Config with a temp workspace path for handler tests."""
+    from miqi.config.schema import Config
+    config = Config()
+    config.agents.defaults.workspace = tempfile.mkdtemp()
+    return config
 
 
 # ── providers.list ────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_providers_list_returns_providers():
+async def test_providers_list_returns_providers(registry_with_state):
     """providers.list should return a list of provider entries with expected shape."""
     from miqi.runtime.provider_handlers import providers_list_handler
-    from miqi.runtime.app_server import ClientSessionRegistry
 
-    registry = ClientSessionRegistry()
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    mock_state.load_config.return_value = config
+
     result = await providers_list_handler("req-1", {}, "client-1", None, registry)
 
     providers = result["result"]["providers"]
@@ -34,12 +47,14 @@ async def test_providers_list_returns_providers():
 
 
 @pytest.mark.asyncio
-async def test_providers_list_api_key_hint_redacted():
+async def test_providers_list_api_key_hint_redacted(registry_with_state):
     """Providers list must not leak full API keys."""
     from miqi.runtime.provider_handlers import providers_list_handler
-    from miqi.runtime.app_server import ClientSessionRegistry
 
-    registry = ClientSessionRegistry()
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    mock_state.load_config.return_value = config
+
     result = await providers_list_handler("req-1", {}, "client-1", None, registry)
 
     for p in result["result"]["providers"]:
@@ -81,12 +96,15 @@ async def test_providers_test_unknown_provider():
 
 
 @pytest.mark.asyncio
-async def test_providers_test_no_api_key():
+async def test_providers_test_no_api_key(registry_with_state):
     """providers.test should reject missing API key (when not in config)."""
     from miqi.runtime.provider_handlers import providers_test_handler
-    from miqi.runtime.app_server import AppServerError, ClientSessionRegistry
+    from miqi.runtime.app_server import AppServerError
 
-    registry = ClientSessionRegistry()
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    mock_state.load_config.return_value = config
+
     with pytest.raises(AppServerError, match="No API key configured"):
         await providers_test_handler(
             "req-1",
@@ -125,12 +143,15 @@ async def test_providers_update_unknown_provider():
 
 
 @pytest.mark.asyncio
-async def test_providers_update_no_fields():
+async def test_providers_update_no_fields(registry_with_state):
     """providers.update should reject request with no update fields."""
     from miqi.runtime.provider_handlers import providers_update_handler
-    from miqi.runtime.app_server import AppServerError, ClientSessionRegistry
+    from miqi.runtime.app_server import AppServerError
 
-    registry = ClientSessionRegistry()
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    mock_state.load_config.return_value = config
+
     with pytest.raises(AppServerError, match="No fields to update"):
         await providers_update_handler(
             "req-1",

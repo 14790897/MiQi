@@ -70,27 +70,21 @@ async def test_plugins_install_requires_url():
 
 
 @pytest.mark.asyncio
-async def test_plugins_install_no_url():
+async def test_plugins_install_no_url(registry_with_state):
     """plugins.install should reject request without url."""
-    import miqi.bridge.server as bridge_module
-    from unittest.mock import MagicMock
-
     pm = _make_fake_plugin_manager(with_plugins=True)
-    # Inject fake plugin manager into bridge state
-    orig = getattr(bridge_module._state, "_plugin_manager", None)
-    bridge_module._state._plugin_manager = pm
 
-    try:
-        from miqi.runtime.plugin_handlers import plugins_install_handler
-        from miqi.runtime.app_server import AppServerError
+    from miqi.runtime.plugin_handlers import plugins_install_handler
+    from miqi.runtime.app_server import AppServerError
 
-        registry = ClientSessionRegistry()
-        with pytest.raises(AppServerError, match="url is required"):
-            await plugins_install_handler(
-                "req-1", {"name": "test"}, "client-1", None, registry,
-            )
-    finally:
-        bridge_module._state._plugin_manager = orig
+    registry, mock_state = registry_with_state
+    # Inject plugin manager via bridge_context (Phase 35 hardening DI)
+    registry.bridge_context["plugin_manager"] = pm
+
+    with pytest.raises(AppServerError, match="url is required"):
+        await plugins_install_handler(
+            "req-1", {"name": "test"}, "client-1", None, registry,
+        )
 
 
 # ── plugins.uninstall ────────────────────────────────────────────────────────

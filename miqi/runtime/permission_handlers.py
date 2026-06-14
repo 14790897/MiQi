@@ -35,21 +35,16 @@ from typing import Any
 
 from loguru import logger
 
-from miqi.runtime.app_server import AppServerError
+from miqi.runtime.app_server import AppServerError, get_bridge_context
 
 
-def _get_orchestrator() -> Any:
-    """Get the global ToolOrchestrator from bridge state.
+def _get_orchestrator(registry: Any) -> Any:
+    """Get the global ToolOrchestrator from registry.bridge_context.
 
     Returns the process-level singleton orchestrator. All clients
     share this instance — see module docstring for rationale.
     """
-    import miqi.bridge.server as bridge_module
-
-    state = getattr(bridge_module, "_state", None)
-    if state is None:
-        return None
-    return getattr(state, "_orchestrator", None)
+    return get_bridge_context(registry, "orchestrator", None)
 
 
 async def permissions_get_handler(
@@ -64,7 +59,7 @@ async def permissions_get_handler(
     Returns filesystem rules, network policy, exec approval mode,
     permanent allowlist, and deny patterns.
     """
-    orch = _get_orchestrator()
+    orch = _get_orchestrator(registry)
     if orch is not None:
         pe = orch.permissions
         return {"result": {
@@ -97,7 +92,7 @@ async def permissions_update_handler(
     Converted to sets internally for efficient lookup.
     """
     cfg = params.get("config", {})
-    orch = _get_orchestrator()
+    orch = _get_orchestrator(registry)
     if orch is not None:
         pe = orch.permissions
         if "permanent_allowlist" in cfg:
@@ -117,7 +112,7 @@ async def permissions_permanent_add_handler(
 ) -> dict[str, Any]:
     """Add a pattern to the permanent allowlist."""
     pattern = params.get("pattern", "")
-    orch = _get_orchestrator()
+    orch = _get_orchestrator(registry)
     if orch is not None and pattern:
         orch.permissions.permanent_allowlist.add(pattern)
 
@@ -133,7 +128,7 @@ async def permissions_permanent_remove_handler(
 ) -> dict[str, Any]:
     """Remove a pattern from the permanent allowlist."""
     pattern = params.get("pattern", "")
-    orch = _get_orchestrator()
+    orch = _get_orchestrator(registry)
     if orch is not None and pattern:
         orch.permissions.permanent_allowlist.discard(pattern)
 

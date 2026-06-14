@@ -1,8 +1,26 @@
 """Fixtures specific to runtime tests."""
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+
+@pytest.fixture
+def registry_with_state():
+    """ClientSessionRegistry with a mock BridgeState in bridge_context.
+
+    Phase 35 hardening: Handlers now read bridge state from
+    registry.bridge_context instead of importing miqi.bridge.server.
+
+    Returns (registry, mock_state) tuple.
+    """
+    from miqi.runtime.app_server import ClientSessionRegistry
+
+    mock_state = MagicMock()
+    registry = ClientSessionRegistry()
+    registry.bridge_context = {"state": mock_state}
+    return registry, mock_state
 
 
 @pytest.fixture

@@ -3,6 +3,9 @@
 Phase 35.2: Migrates providers.list, providers.test, and providers.update
 from bridge legacy handlers to AppServer async handlers. provider.test
 uses the persistent event loop instead of asyncio.run().
+
+Phase 35 hardening: Uses get_bridge_state(registry) for DI instead of
+importing miqi.bridge.server directly.
 """
 
 from __future__ import annotations
@@ -11,7 +14,7 @@ from typing import Any
 
 from loguru import logger
 
-from miqi.runtime.app_server import AppServerError
+from miqi.runtime.app_server import AppServerError, get_bridge_state
 
 
 async def providers_list_handler(
@@ -28,12 +31,7 @@ async def providers_list_handler(
     """
     from miqi.providers.registry import PROVIDERS
 
-    import miqi.bridge.server as bridge_module
-
-    state = getattr(bridge_module, "_state", None)
-    if state is None:
-        raise AppServerError("Bridge state not available", code="INTERNAL")
-
+    state = get_bridge_state(registry)
     config = state.load_config()
     model = config.agents.defaults.model
     model_provider = config.get_provider_name(model)
@@ -85,12 +83,7 @@ async def providers_test_handler(
 
     # If no API key provided, read from current saved config
     if not api_key:
-        import miqi.bridge.server as bridge_module
-
-        state = getattr(bridge_module, "_state", None)
-        if state is None:
-            raise AppServerError("Bridge state not available", code="INTERNAL")
-        config = state.load_config()
+        config = get_bridge_state(registry).load_config()
         pc = getattr(config.providers, provider_name, None)
         if pc is not None:
             api_key = pc.api_key or ""
@@ -169,12 +162,7 @@ async def providers_update_handler(
             f"Unknown provider: {provider_name}", code="INVALID_PARAMS",
         )
 
-    import miqi.bridge.server as bridge_module
-
-    state = getattr(bridge_module, "_state", None)
-    if state is None:
-        raise AppServerError("Bridge state not available", code="INTERNAL")
-
+    state = get_bridge_state(registry)
     config = state.load_config()
     pc = getattr(config.providers, provider_name, None)
     if pc is None:

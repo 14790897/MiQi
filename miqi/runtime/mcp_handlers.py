@@ -2,6 +2,9 @@
 
 Phase 35.4: Migrates mcp.list, mcp.upsert, and mcp.delete from bridge
 legacy handlers to AppServer async handlers.
+
+Phase 35 hardening: Uses get_bridge_state(registry) for DI instead of
+importing miqi.bridge.server directly.
 """
 
 from __future__ import annotations
@@ -10,7 +13,7 @@ from typing import Any
 
 from loguru import logger
 
-from miqi.runtime.app_server import AppServerError
+from miqi.runtime.app_server import AppServerError, get_bridge_state
 
 
 async def mcp_list_handler(
@@ -21,12 +24,7 @@ async def mcp_list_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """List all configured MCP servers."""
-    import miqi.bridge.server as bridge_module
-
-    state = getattr(bridge_module, "_state", None)
-    if state is None:
-        raise AppServerError("Bridge state not available", code="INTERNAL")
-
+    state = get_bridge_state(registry)
     config = state.load_config()
     servers = config.tools.mcp_servers or {}
     return {"result": {
@@ -63,12 +61,7 @@ async def mcp_upsert_handler(
             code="INVALID_PARAMS",
         ) from exc
 
-    import miqi.bridge.server as bridge_module
-
-    state = getattr(bridge_module, "_state", None)
-    if state is None:
-        raise AppServerError("Bridge state not available", code="INTERNAL")
-
+    state = get_bridge_state(registry)
     config = state.load_config()
     if config.tools.mcp_servers is None:
         config.tools.mcp_servers = {}
@@ -91,12 +84,7 @@ async def mcp_delete_handler(
 
     name = str(params.get("name", "")).strip()
 
-    import miqi.bridge.server as bridge_module
-
-    state = getattr(bridge_module, "_state", None)
-    if state is None:
-        raise AppServerError("Bridge state not available", code="INTERNAL")
-
+    state = get_bridge_state(registry)
     config = state.load_config()
     if config.tools.mcp_servers and name in config.tools.mcp_servers:
         del config.tools.mcp_servers[name]

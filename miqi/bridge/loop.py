@@ -144,6 +144,21 @@ class BridgeRuntimeLoop:
         )
 
         registry = ClientSessionRegistry()
+        # Phase 35 hardening: populate bridge_context so runtime handlers
+        # can access shared state through the registry instead of importing
+        # miqi.bridge.server directly.
+        registry.bridge_context = {
+            "state": self._bridge_state,
+            "plugin_manager": (
+                getattr(self._bridge_state, "_plugin_manager", None)
+                if self._bridge_state else None
+            ),
+            "orchestrator": (
+                getattr(self._bridge_state, "_orchestrator", None)
+                if self._bridge_state else None
+            ),
+            "experience_store": None,  # lazily set by experience_handlers
+        }
         self._app_server = AppServer(registry)
         await self._app_server.start()
 
