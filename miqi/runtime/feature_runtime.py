@@ -99,7 +99,7 @@ class FeatureRuntime:
                 "displayName": meta.get("displayName"),
                 "description": meta.get("description"),
             })
-        next_cursor = all_keys[start + limit] if start + limit < len(all_keys) else None
+        next_cursor = page_keys[-1] if page_keys and start + limit < len(all_keys) else None
         return {"data": data, "nextCursor": next_cursor}
 
     def is_enabled(self, key: str) -> bool:
