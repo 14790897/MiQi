@@ -1760,13 +1760,7 @@ _METHODS = {
     # providers.* are now AppServer methods (Phase 35.2)
     # channels.* are now AppServer methods (Phase 35.2)
     # approvals.* are now AppServer methods (Phase 28.2)
-    "cron.list": handle_cron_list,
-    "cron.create": handle_cron_create,
-    "cron.update": handle_cron_update,
-    "cron.delete": handle_cron_delete,
-    "cron.toggle": handle_cron_toggle,
-    "cron.run": handle_cron_run,
-    "cron.runs": handle_cron_runs,
+    # cron.* are now AppServer methods (Phase 35.6)
     "memory.list": handle_memory_list,
     "memory.get": handle_memory_get,
     "memory.update": handle_memory_update,
