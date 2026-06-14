@@ -263,6 +263,18 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("permissions.permanent.add", permissions_permanent_add_handler)
         self._app_server.register_method("permissions.permanent.remove", permissions_permanent_remove_handler)
 
+        # Register Phase 35.3: plugins.* handlers
+        from miqi.runtime.plugin_handlers import (
+            plugins_list_handler,
+            plugins_install_handler,
+            plugins_uninstall_handler,
+            plugins_toggle_handler,
+        )
+        self._app_server.register_method("plugins.list", plugins_list_handler)
+        self._app_server.register_method("plugins.install", plugins_install_handler)
+        self._app_server.register_method("plugins.uninstall", plugins_uninstall_handler)
+        self._app_server.register_method("plugins.toggle", plugins_toggle_handler)
+
         logger.info(
             "BridgeRuntimeLoop: AppServer initialized with {} methods",
             len(self._app_server._methods),

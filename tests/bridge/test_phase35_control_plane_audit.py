@@ -87,7 +87,7 @@ def test_phase35_baseline_identifies_control_plane_legacy_methods():
     # (updated after each Phase 35 task migration)
     expected_families = {
         # Phase 35.2: providers.*, channels.*, permissions.* migrated
-        "plugins": ["plugins.list", "plugins.install", "plugins.uninstall", "plugins.toggle"],
+        # Phase 35.3: plugins.* migrated
         "mcp": ["mcp.list", "mcp.upsert", "mcp.delete"],
         "skills": [
             "skills.list", "skills.get", "skills.open_folder",
@@ -130,7 +130,7 @@ def test_phase35_baseline_identifies_control_plane_legacy_methods():
     print(f"Target families present: {present_families}")
 
     # Store count for before/after comparison in subsequent tests
-    assert count >= 30, f"Expected at least 30 legacy _METHODS entries, got {count}"
+    assert count >= 20, f"Expected at least 20 legacy _METHODS entries, got {count}"
 
 
 def test_phase35_baseline_appserver_registrations():

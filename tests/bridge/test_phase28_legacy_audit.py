@@ -61,14 +61,15 @@ def test_remaining_legacy_handlers_present():
     from miqi.bridge.server import _METHODS
 
     # providers.*, channels.*, permissions.* migrated in Phase 35.2
+    # plugins.* migrated in Phase 35.3
     assert "providers.list" not in _METHODS
     assert "providers.test" not in _METHODS
     assert "channels.list" not in _METHODS
     assert "permissions.get" not in _METHODS
+    assert "plugins.list" not in _METHODS
     # These are explicitly NOT yet migrated
     assert "cron.list" in _METHODS
     assert "memory.list" in _METHODS
-    assert "plugins.list" in _METHODS
     assert "plan.get" in _METHODS
     assert "skills.list" in _METHODS
     assert "mcp.list" in _METHODS
