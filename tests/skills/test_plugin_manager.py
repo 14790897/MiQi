@@ -263,3 +263,37 @@ def test_await_discover_in_async_context_no_warning():
             f"RuntimeWarning: {[str(x.message) for x in runtime_warnings]}"
         )
         assert isinstance(result, list)
+
+
+# ---------------------------------------------------------------------------
+# Test: install_plugin is deterministic — no background ensure_future
+# ---------------------------------------------------------------------------
+
+def test_install_plugin_does_not_schedule_background_discover(tmp_path, monkeypatch):
+    import subprocess
+
+    from miqi.skills.plugin_manager import PluginManager
+
+    user_dir = tmp_path / "user"
+    system_dir = tmp_path / "system"
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "plugin.json").write_text(
+        '{"name":"sample","version":"1.0.0","description":"Sample"}',
+        encoding="utf-8",
+    )
+    pm = PluginManager(user_dir, system_dir)
+
+    def fake_run(cmd, check, capture_output, text, timeout):
+        target = Path(cmd[-1])
+        target.mkdir(parents=True)
+        (target / "plugin.json").write_text(
+            '{"name":"sample","version":"1.0.0","description":"Sample"}',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    plugin = pm.install_plugin("sample", "https://github.com/org/sample.git")
+    assert plugin.manifest.name == "sample"
+    assert pm.get_plugin("sample") is plugin
