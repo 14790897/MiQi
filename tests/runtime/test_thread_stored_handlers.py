@@ -216,7 +216,83 @@ async def test_thread_read_returns_not_found_on_clean_workspace(tmp_path):
     assert response["code"] == "NOT_FOUND"
 
 
-# ── History (provider-visible messages) tests ────────────────────────────
+# ── Sort order tests ─────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_thread_list_default_desc_returns_newest_first(tmp_path):
+    """thread/list default sortDirection=desc returns newest thread first."""
+    import aiosqlite
+    db = tmp_path / ".miqi-runtime" / "runtime.db"
+    # Seed two threads with different updated_at
+    await _seed_thread(db, thread_id="old")
+    await _seed_thread(db, thread_id="new")
+    # Manually set updated_at so ordering is deterministic
+    async with aiosqlite.connect(str(db)) as conn:
+        await conn.execute(
+            "UPDATE runtime_threads SET updated_at = 1000.0 WHERE thread_id = 'old'")
+        await conn.execute(
+            "UPDATE runtime_threads SET updated_at = 2000.0 WHERE thread_id = 'new'")
+        await conn.commit()
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/list", {}, "client-a", None,
+    )
+    data = response["result"]["data"]
+    assert len(data) == 2
+    assert data[0]["id"] == "new"
+    assert data[1]["id"] == "old"
+
+
+@pytest.mark.asyncio
+async def test_thread_list_asc_returns_oldest_first(tmp_path):
+    """thread/list with sortDirection=asc returns oldest thread first."""
+    import aiosqlite
+    db = tmp_path / ".miqi-runtime" / "runtime.db"
+    await _seed_thread(db, thread_id="old")
+    await _seed_thread(db, thread_id="new")
+    async with aiosqlite.connect(str(db)) as conn:
+        await conn.execute(
+            "UPDATE runtime_threads SET updated_at = 1000.0 WHERE thread_id = 'old'")
+        await conn.execute(
+            "UPDATE runtime_threads SET updated_at = 2000.0 WHERE thread_id = 'new'")
+        await conn.commit()
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/list", {"sortDirection": "asc"}, "client-a", None,
+    )
+    data = response["result"]["data"]
+    assert data[0]["id"] == "old"
+    assert data[1]["id"] == "new"
+
+
+@pytest.mark.asyncio
+async def test_thread_list_pagination_cursor_stable_with_desc(tmp_path):
+    """Cursor-based pagination is stable in desc order."""
+    import aiosqlite
+    db = tmp_path / ".miqi-runtime" / "runtime.db"
+    for tid in ["t1", "t2", "t3"]:
+        await _seed_thread(db, thread_id=tid)
+    async with aiosqlite.connect(str(db)) as conn:
+        for i, tid in enumerate(["t1", "t2", "t3"], start=1):
+            await conn.execute(
+                "UPDATE runtime_threads SET updated_at = ? WHERE thread_id = ?",
+                (float(i * 1000), tid))
+        await conn.commit()
+    server = _server(tmp_path)
+    # Page 1 (desc → newest first = t3)
+    p1 = await server.dispatch(
+        "1", "thread/list", {"limit": 2}, "client-a", None,
+    )
+    assert [x["id"] for x in p1["result"]["data"]] == ["t3", "t2"]
+    assert p1["result"]["nextCursor"] is not None
+    # Page 2
+    p2 = await server.dispatch(
+        "2", "thread/list", {"limit": 2, "cursor": p1["result"]["nextCursor"]},
+        "client-a", None,
+    )
+    assert [x["id"] for x in p2["result"]["data"]] == ["t1"]
+    assert p2["result"]["nextCursor"] is None
 
 
 @pytest.mark.asyncio
