@@ -192,20 +192,9 @@ class PluginManager:
                 shutil.rmtree(target_dir, ignore_errors=True)
             raise
 
-        # Reload plugins to pick up the new one
-        import asyncio
-        try:
-            loop = asyncio.get_running_loop()
-            if loop.is_running():
-                asyncio.ensure_future(self.discover())
-            else:
-                asyncio.run(self.discover())
-        except RuntimeError:
-            asyncio.run(self.discover())
-
-        plugin = self._plugins.get(name)
-        if plugin is None:
-            raise ValueError(f"Plugin '{name}' installed but not discovered")
+        # Load the newly-installed plugin synchronously.
+        # No background discovery — deterministic and immediate.
+        plugin = self.load_plugin_from_dir(target_dir, "user")
         return plugin
 
     def uninstall_plugin(self, name: str) -> bool:
@@ -234,6 +223,30 @@ class PluginManager:
                     del self._plugins[name]
                 return True
         return False
+
+    def discover_sync(self) -> list[LoadedPlugin]:
+        """Synchronous discovery used after install/uninstall in AppServer handlers."""
+        import asyncio
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.discover())
+
+        # In a running event loop, direct sync discovery is unsafe.
+        # AppServer async handlers should call discover() themselves.
+        raise RuntimeError("discover_sync cannot run inside an active event loop")
+
+    def load_plugin_from_dir(self, plugin_dir: Path, scope: str) -> LoadedPlugin:
+        """Load one plugin directory synchronously after install."""
+        import json
+
+        manifest_path = plugin_dir / "plugin.json"
+        manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = PluginManifest(**manifest_data)
+        plugin = LoadedPlugin(manifest=manifest, path=plugin_dir, scope=scope)
+        self._plugins[plugin.manifest.name] = plugin
+        return plugin
 
     def toggle_plugin(self, name: str, enabled: bool) -> LoadedPlugin:
         """Toggle a plugin enabled/disabled.
