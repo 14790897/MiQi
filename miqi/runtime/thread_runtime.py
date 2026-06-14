@@ -10,9 +10,10 @@ when the event loop shuts down.
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import aiosqlite
@@ -29,6 +30,11 @@ class RuntimeThread:
     parent_thread_id: str | None
     created_at: float
     updated_at: float
+    # Phase 36: Codex-style metadata fields
+    forked_from_id: str | None = None
+    ephemeral: bool = False
+    cwd: str | None = None
+    metadata: dict[str, object] = field(default_factory=dict)
 
 
 class ThreadRuntime:
@@ -63,9 +69,25 @@ class ThreadRuntime:
                 parent_thread_id TEXT,
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL,
+                forked_from_id TEXT,
+                ephemeral INTEGER NOT NULL DEFAULT 0,
+                cwd TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
                 PRIMARY KEY (session_id, thread_id)
             )
         """)
+        # Phase 36: migrate existing tables to add new columns
+        for statement in [
+            "ALTER TABLE runtime_threads ADD COLUMN forked_from_id TEXT",
+            "ALTER TABLE runtime_threads ADD COLUMN ephemeral INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE runtime_threads ADD COLUMN cwd TEXT",
+            "ALTER TABLE runtime_threads ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'",
+        ]:
+            try:
+                await self._db.execute(statement)
+            except aiosqlite.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
         await self._db.commit()
 
     async def close(self) -> None:
@@ -95,16 +117,24 @@ class ThreadRuntime:
         title: str,
         thread_id: str | None = None,
         parent_thread_id: str | None = None,
+        # Phase 36: Codex-style metadata fields
+        forked_from_id: str | None = None,
+        ephemeral: bool = False,
+        cwd: str | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> RuntimeThread:
         now = time.time()
         tid = thread_id or f"thread-{str(uuid.uuid4())[:12]}"
+        metadata_json = json.dumps(metadata or {})
         db = self._conn
         await db.execute(
             """INSERT INTO runtime_threads
                (thread_id, session_id, title, status, parent_thread_id,
-                created_at, updated_at)
-               VALUES (?, ?, ?, 'active', ?, ?, ?)""",
-            (tid, self.session_id, title, parent_thread_id, now, now),
+                created_at, updated_at,
+                forked_from_id, ephemeral, cwd, metadata_json)
+               VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)""",
+            (tid, self.session_id, title, parent_thread_id, now, now,
+             forked_from_id, int(ephemeral), cwd, metadata_json),
         )
         await db.commit()
         thread = await self.get_thread(tid)
@@ -121,6 +151,11 @@ class ThreadRuntime:
         row = await cursor.fetchone()
         if row is None:
             return None
+        metadata = {}
+        try:
+            metadata = json.loads(row["metadata_json"] or "{}")
+        except (json.JSONDecodeError, TypeError, KeyError):
+            pass
         return RuntimeThread(
             thread_id=row["thread_id"],
             session_id=row["session_id"],
@@ -129,6 +164,10 @@ class ThreadRuntime:
             parent_thread_id=row["parent_thread_id"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            forked_from_id=row["forked_from_id"] if "forked_from_id" in row.keys() else None,
+            ephemeral=bool(row["ephemeral"]) if "ephemeral" in row.keys() else False,
+            cwd=row["cwd"] if "cwd" in row.keys() else None,
+            metadata=metadata,
         )
 
     async def rename_thread(self, thread_id: str, title: str) -> RuntimeThread:
@@ -161,7 +200,11 @@ class ThreadRuntime:
         if parent is None:
             raise KeyError(parent_thread_id)
         return await self.create_thread(
-            title=title, parent_thread_id=parent_thread_id,
+            title=title,
+            parent_thread_id=parent_thread_id,
+            forked_from_id=parent_thread_id,
+            cwd=parent.cwd,
+            metadata=dict(parent.metadata),
         )
 
     async def list_threads(
@@ -184,9 +227,20 @@ class ThreadRuntime:
                 parent_thread_id=row["parent_thread_id"],
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
+                forked_from_id=row["forked_from_id"] if "forked_from_id" in row.keys() else None,
+                ephemeral=bool(row["ephemeral"]) if "ephemeral" in row.keys() else False,
+                cwd=row["cwd"] if "cwd" in row.keys() else None,
+                metadata=ThreadRuntime._safe_json_load(row["metadata_json"] if "metadata_json" in row.keys() else "{}"),
             )
             for row in rows
         ]
+
+    @staticmethod
+    def _safe_json_load(raw: str) -> dict[str, object]:
+        try:
+            return json.loads(raw or "{}")
+        except (json.JSONDecodeError, TypeError):
+            return {}
 
     async def _update(
         self,
