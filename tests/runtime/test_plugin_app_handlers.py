@@ -92,3 +92,20 @@ async def test_marketplace_add_remove_upgrade_return_stable_shapes(tmp_path):
     assert added["result"]["marketplace"]["name"] == "local-debug"
     assert "selectedMarketplaces" in upgraded["result"]
     assert removed["result"]["removed"] is True
+
+
+@pytest.mark.asyncio
+async def test_plugin_read_not_found_is_sanitized(tmp_path):
+    pm = PluginManager(tmp_path / "plugins", tmp_path / "system")
+    registry = ClientSessionRegistry()
+    registry.bridge_context["plugin_manager"] = pm
+    registry.bridge_context["marketplaces_dir"] = tmp_path / "marketplaces"
+    server = AppServer(registry)
+    register_plugin_app_handlers(server)
+    response = await server.dispatch(
+        "1", "plugin/read",
+        {"pluginName": "../secret", "marketplaceName": "local"},
+        "client-1", None,
+    )
+    assert response["code"] == "NOT_FOUND"
+    assert "../secret" not in response["error"]
