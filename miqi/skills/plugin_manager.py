@@ -9,11 +9,27 @@ Plugins are the top-level packaging format. A plugin can contain:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+
+# ── shared plugin-name validator ──────────────────────────────────────────
+
+_PLUGIN_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$")
+
+
+def validate_plugin_name(name: str) -> None:
+    """Validate a plugin name for safe filesystem and registry use.
+
+    Raises ValueError if the name is invalid.
+    """
+    if not _PLUGIN_NAME_RE.match(name):
+        raise ValueError("Invalid plugin manifest name")
+    if ".." in name:
+        raise ValueError("Invalid plugin manifest name")
 
 
 @dataclass
@@ -148,16 +164,12 @@ class PluginManager:
         and returns the loaded plugin. Raises ValueError on invalid input
         or subprocess.CalledProcessError on clone failure.
         """
-        import re
         import subprocess
         import shutil
         from urllib.parse import urlparse
 
         # Validate plugin name
-        if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', name):
-            raise ValueError("Invalid plugin name")
-        if ".." in name:
-            raise ValueError("Invalid plugin name")
+        validate_plugin_name(name)
 
         target_dir = (self.user_dir / name).resolve()
         try:
@@ -194,7 +206,12 @@ class PluginManager:
 
         # Load the newly-installed plugin synchronously.
         # No background discovery — deterministic and immediate.
-        plugin = self.load_plugin_from_dir(target_dir, "user")
+        try:
+            plugin = self.load_plugin_from_dir(target_dir, "user", expected_name=name)
+        except Exception:
+            if target_dir.exists():
+                shutil.rmtree(target_dir, ignore_errors=True)
+            raise
         return plugin
 
     def uninstall_plugin(self, name: str) -> bool:
@@ -203,13 +220,9 @@ class PluginManager:
         Removes the plugin directory from user/system dirs and unloads
         the plugin. Returns True if the plugin was found and removed.
         """
-        import re
         import shutil
 
-        if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', name):
-            raise ValueError("Invalid plugin name")
-        if ".." in name:
-            raise ValueError("Invalid plugin name")
+        validate_plugin_name(name)
 
         for base in [self.user_dir, self.system_dir]:
             target = (base / name).resolve()
@@ -237,12 +250,34 @@ class PluginManager:
         # AppServer async handlers should call discover() themselves.
         raise RuntimeError("discover_sync cannot run inside an active event loop")
 
-    def load_plugin_from_dir(self, plugin_dir: Path, scope: str) -> LoadedPlugin:
-        """Load one plugin directory synchronously after install."""
+    def load_plugin_from_dir(
+        self,
+        plugin_dir: Path,
+        scope: str,
+        *,
+        expected_name: str | None = None,
+    ) -> LoadedPlugin:
+        """Load one plugin directory synchronously after install.
+
+        Validates the manifest name and optionally confirms it matches an
+        expected name (used by install_plugin to prevent name divergence).
+        """
         import json
 
         manifest_path = plugin_dir / "plugin.json"
-        manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not manifest_path.exists():
+            raise ValueError(f"Missing plugin.json in {plugin_dir.name}")
+        try:
+            manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            raise ValueError(f"Invalid plugin.json in {plugin_dir.name}")
+        manifest_name = manifest_data.get("name", "")
+        validate_plugin_name(manifest_name)
+        if expected_name is not None and manifest_name != expected_name:
+            raise ValueError(
+                f"Plugin manifest name '{manifest_name}' does not match "
+                f"requested name '{expected_name}'"
+            )
         manifest = PluginManifest(**manifest_data)
         plugin = LoadedPlugin(manifest=manifest, path=plugin_dir, scope=scope)
         self._plugins[plugin.manifest.name] = plugin
@@ -253,12 +288,8 @@ class PluginManager:
 
         Raises ValueError if the plugin is not found.
         """
-        import re
 
-        if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', name):
-            raise ValueError("Invalid plugin name")
-        if ".." in name:
-            raise ValueError("Invalid plugin name")
+        validate_plugin_name(name)
 
         plugin = self._plugins.get(name)
         if plugin is None:

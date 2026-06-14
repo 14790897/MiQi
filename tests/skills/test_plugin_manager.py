@@ -297,3 +297,139 @@ def test_install_plugin_does_not_schedule_background_discover(tmp_path, monkeypa
     plugin = pm.install_plugin("sample", "https://github.com/org/sample.git")
     assert plugin.manifest.name == "sample"
     assert pm.get_plugin("sample") is plugin
+
+
+# ---------------------------------------------------------------------------
+# Phase 37 Hardening: manifest name validation and install cleanup
+# ---------------------------------------------------------------------------
+
+
+def test_install_plugin_rejects_manifest_name_mismatch_and_cleans_directory(tmp_path, monkeypatch):
+    """Install must reject a plugin.json whose name differs from the requested name,
+    and the cloned directory must be removed."""
+    import subprocess
+    import pytest
+
+    from miqi.skills.plugin_manager import PluginManager
+
+    user_dir = tmp_path / "user"
+    system_dir = tmp_path / "system"
+    user_dir.mkdir()
+    system_dir.mkdir()
+
+    pm = PluginManager(user_dir, system_dir)
+
+    def fake_clone(cmd, check, capture_output, text, timeout):
+        target = Path(cmd[-1])
+        target.mkdir(parents=True)
+        (target / "plugin.json").write_text(
+            '{"name":"evil-name","version":"1.0.0","description":"mismatch"}',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_clone)
+
+    with pytest.raises(ValueError, match="does not match requested name"):
+        pm.install_plugin("requested-name", "https://github.com/org/sample.git")
+
+    # The conflicting directory must be cleaned up.
+    target_dir = user_dir / "requested-name"
+    assert not target_dir.exists(), (
+        f"target_dir {target_dir} should have been removed after manifest mismatch"
+    )
+    # Nothing registered under either name.
+    assert pm.get_plugin("requested-name") is None
+    assert pm.get_plugin("evil-name") is None
+
+
+def test_install_plugin_rejects_invalid_manifest_name_and_cleans_directory(tmp_path, monkeypatch):
+    """Install must reject a plugin.json with a name that fails validation,
+    and the cloned directory must be removed."""
+    import subprocess
+    import pytest
+
+    from miqi.skills.plugin_manager import PluginManager
+
+    user_dir = tmp_path / "user"
+    system_dir = tmp_path / "system"
+    user_dir.mkdir()
+    system_dir.mkdir()
+
+    pm = PluginManager(user_dir, system_dir)
+
+    def fake_clone(cmd, check, capture_output, text, timeout):
+        target = Path(cmd[-1])
+        target.mkdir(parents=True)
+        (target / "plugin.json").write_text(
+            '{"name":"../escape","version":"1.0.0","description":"bad"}',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_clone)
+
+    with pytest.raises(ValueError, match="Invalid plugin manifest name"):
+        pm.install_plugin("ok-name", "https://github.com/org/sample.git")
+
+    target_dir = user_dir / "ok-name"
+    assert not target_dir.exists(), "target_dir should have been removed after manifest validation failure"
+    assert pm.get_plugin("ok-name") is None
+
+
+def test_load_plugin_from_dir_rejects_invalid_manifest_name(tmp_path):
+    """load_plugin_from_dir must reject manifest names that fail validation."""
+    import pytest
+
+    from miqi.skills.plugin_manager import PluginManager
+
+    user_dir = tmp_path / "user"
+    system_dir = tmp_path / "system"
+    user_dir.mkdir()
+    system_dir.mkdir()
+
+    pm = PluginManager(user_dir, system_dir)
+
+    for bad_name in ["../escape", "bad/name", "", "a" * 65, "-starts-dash"]:
+        plugin_dir = user_dir / f"test-bad-{bad_name[:10].replace('/', '_') or 'empty'}"
+        plugin_dir.mkdir(parents=True)
+        (plugin_dir / "plugin.json").write_text(
+            '{{"name":"{}","version":"1.0.0","description":""}}'.format(bad_name),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="Invalid plugin manifest name"):
+            pm.load_plugin_from_dir(plugin_dir, "user")
+        # Should not be registered under bad name
+        assert pm.get_plugin(bad_name) is None
+
+
+def test_install_plugin_registers_under_requested_name_only(tmp_path, monkeypatch):
+    """When expected_name matches manifest name, the plugin is registered
+    under the manifest name and is accessible via get_plugin."""
+    import subprocess
+
+    from miqi.skills.plugin_manager import PluginManager
+
+    user_dir = tmp_path / "user"
+    system_dir = tmp_path / "system"
+    user_dir.mkdir()
+    system_dir.mkdir()
+
+    pm = PluginManager(user_dir, system_dir)
+
+    def fake_clone(cmd, check, capture_output, text, timeout):
+        target = Path(cmd[-1])
+        target.mkdir(parents=True)
+        (target / "plugin.json").write_text(
+            '{"name":"my-plugin","version":"2.0.0","description":"ok"}',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_clone)
+
+    plugin = pm.install_plugin("my-plugin", "https://github.com/org/repo.git")
+    assert plugin.manifest.name == "my-plugin"
+    assert pm.get_plugin("my-plugin") is plugin
+    # Registration key equals manifest name.
+    assert "my-plugin" in pm._plugins
