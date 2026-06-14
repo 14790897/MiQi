@@ -62,6 +62,20 @@ def test_phase37_legacy_miqi_ecology_methods_still_registered():
         assert method in registered
 
 
+def test_phase37_codex_and_legacy_method_names_coexist():
+    registered = _registered_methods()
+    pairs = [
+        ("plugins.list", "plugin/list"),
+        ("plugins.install", "plugin/install"),
+        ("plugins.uninstall", "plugin/uninstall"),
+        ("mcp.list", "mcpServerStatus/list"),
+        ("skills.list", "skills/list"),
+    ]
+    for legacy, codex in pairs:
+        assert legacy in registered
+        assert codex in registered
+
+
 def test_phase37_no_ecology_handler_imports_bridge_server_directly():
     runtime_dir = _MIQI / "runtime"
     forbidden = "import miqi.bridge.server"
