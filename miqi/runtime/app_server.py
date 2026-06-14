@@ -537,46 +537,10 @@ def get_bridge_context(registry: Any, key: str, default: Any = None) -> Any:
 
 
 def register_replay_handlers(server: "AppServer") -> None:
-    """Register replay/debug API handlers on an AppServer instance.
+    """Register replay/debug API handlers on an AppServer instance."""
+    from miqi.runtime.replay_app_handlers import register_replay_handlers as _register
 
-    These handlers delegate to RuntimeSession replay methods
-    (list_turns, get_turn_replay, get_provider_messages) with
-    session authorization enforced by the AppServer dispatch layer.
-
-    Called by transport adapters (bridge, CLI, TUI) during init.
-    """
-    from dataclasses import asdict
-
-    async def _replay_turns(request_id, params, client_id, session_id, registry):
-        session = await registry.get_session(client_id, session_id)
-        if session is None:
-            raise AppServerError("Not authorized", code="UNAUTHORIZED")
-        thread_id = params["thread_id"]
-        turns = await session.list_turns(thread_id)
-        return {"result": {"turns": turns}}
-
-    async def _replay_timeline(request_id, params, client_id, session_id, registry):
-        session = await registry.get_session(client_id, session_id)
-        if session is None:
-            raise AppServerError("Not authorized", code="UNAUTHORIZED")
-        timeline = await session.get_turn_replay(
-            params["thread_id"], params["turn_id"],
-        )
-        if timeline is None:
-            return {"result": {"timeline": None}}
-        return {"result": {"timeline": asdict(timeline)}}
-
-    async def _replay_messages(request_id, params, client_id, session_id, registry):
-        session = await registry.get_session(client_id, session_id)
-        if session is None:
-            raise AppServerError("Not authorized", code="UNAUTHORIZED")
-        msgs = await session.get_provider_messages(params["thread_id"])
-        return {"result": {"messages": msgs}}
-
-    server.register_method("replay.turns", _replay_turns)
-    server.register_method("replay.timeline", _replay_timeline)
-    server.register_method("replay.messages", _replay_messages)
-    logger.info("AppServer: registered replay API handlers")
+    _register(server)
 
 
 def register_command_handlers(server: "AppServer") -> None:
