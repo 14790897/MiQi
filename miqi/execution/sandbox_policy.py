@@ -71,6 +71,20 @@ class SandboxPolicyEngine:
         "exec",
     })
 
+    # Phase 34: file mutation tools that must never fall back to NONE.
+    # Includes future tools (delete_file) so policy is stable even before
+    # the agent tool exists.  Office document write tools are included so
+    # approval, sandbox policy, and Phase 32 workspace enforcement are
+    # aligned.
+    FILE_MUTATION_TOOLS: frozenset[str] = frozenset({
+        "write_file",
+        "edit_file",
+        "delete_file",
+        "docx_write",
+        "pptx_write",
+        "xlsx_write",
+    })
+
     def __init__(
         self,
         bwrap_available: bool = False,
@@ -192,8 +206,8 @@ class SandboxPolicyEngine:
                 return SandboxType.LANDLOCK
             return SandboxType.RESTRICTED
 
-        # File write tools: moderate isolation
-        if tool_name in frozenset({"write_file", "edit_file", "delete_file"}):
+        # File mutation tools: moderate isolation
+        if tool_name in self.FILE_MUTATION_TOOLS:
             return SandboxType.RESTRICTED
 
         return SandboxType.NONE
@@ -228,8 +242,10 @@ class SandboxPolicyEngine:
         Rules:
           - Read-only tools (NO_SANDBOX_TOOLS) always get NONE.
           - Exec NEVER falls back to NONE — fail closed.
-          - Other tools (write_file, etc.) fall back to NONE only if
-            allow_fallback_to_none is True.
+          - File mutation tools NEVER fall back to NONE — fail closed.
+            allow_fallback_to_none does not affect file mutation tools.
+          - Other tools fall back to NONE only if allow_fallback_to_none
+            is True.
         """
         if tool_name in self.NO_SANDBOX_TOOLS:
             return SandboxType.NONE
@@ -242,6 +258,15 @@ class SandboxPolicyEngine:
                 "any isolation. Configure bwrap_available=True or "
                 "set network_allowed=True on the permission profile "
                 "to allow RESTRICTED execution."
+            )
+
+        if tool_name in self.FILE_MUTATION_TOOLS:
+            raise SandboxDeniedError(
+                f"No sandbox available for {tool_name} — "
+                "NONE fallback is disabled for file mutation tools "
+                "because they modify the workspace. "
+                "Use the tool's workspace-bound path enforcement "
+                "or configure a supported sandbox."
             )
 
         if self.allow_fallback_to_none:
@@ -265,7 +290,10 @@ class SandboxPolicyEngine:
                 deny_hidden=False,
             )
 
-        if tool_name in frozenset({"write_file", "edit_file", "delete_file"}):
+        # Phase 34: all file mutation tools get a WRITE rule for the
+        # target path.  write_file / edit_file / delete_file use "path";
+        # office document write tools use "file_path".
+        if tool_name in SandboxPolicyEngine.FILE_MUTATION_TOOLS:
             path = ctx.arguments.get("path") or ctx.arguments.get("file_path", "")
             rules = []
             if path:
