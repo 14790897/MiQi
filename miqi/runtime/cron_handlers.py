@@ -137,7 +137,10 @@ async def cron_create_handler(
         )
         return {"result": {"job": _job_to_dict(job)}}
     except ValueError as exc:
-        raise AppServerError(str(exc), code="INVALID_PARAMS") from exc
+        logger.warning("cron.create: validation error: {}", exc)
+        raise AppServerError(
+            "Invalid cron job configuration", code="INVALID_PARAMS",
+        ) from exc
 
 
 # ── cron.update ──────────────────────────────────────────────────────────────
@@ -209,7 +212,10 @@ async def cron_update_handler(
         try:
             _validate_schedule_for_add(target.schedule)
         except ValueError as exc:
-            raise AppServerError(str(exc), code="INVALID_PARAMS") from exc
+            logger.warning("cron.update: schedule validation error: {}", exc)
+            raise AppServerError(
+                "Invalid schedule configuration", code="INVALID_PARAMS",
+            ) from exc
 
         # Recompute next run
         from miqi.cron.service import _compute_next_run, _now_ms

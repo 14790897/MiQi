@@ -135,8 +135,9 @@ async def experience_search_handler(
         entries = store.search_entries(query, type=entry_type, limit=limit)
         return {"result": {"entries": entries}}
     except Exception as exc:
-        # Sanitize search errors
+        # Sanitize: log full details, return fixed message
         logger.warning("experience.search error: {}", exc)
         raise AppServerError(
-            f"Search failed: {exc}", code="INTERNAL",
+            "Search failed — try a different query or check the index",
+            code="INTERNAL",
         ) from exc

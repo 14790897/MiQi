@@ -95,10 +95,15 @@ async def plugins_install_handler(
                     existing.update({s.get("name", ""): s for s in new_servers})
         return {"result": {"ok": True, "name": name}}
     except ValueError as exc:
-        raise AppServerError(str(exc), code="INVALID_PARAMS") from exc
+        logger.warning("plugins.install: name={} validation error: {}", name, exc)
+        raise AppServerError(
+            "Invalid plugin name or URL", code="INVALID_PARAMS",
+        ) from exc
     except Exception as exc:
         logger.warning("plugins.install: name={} error: {}", name, exc)
-        raise AppServerError(str(exc), code="INTERNAL") from exc
+        raise AppServerError(
+            "Plugin installation failed", code="INTERNAL",
+        ) from exc
 
 
 async def plugins_uninstall_handler(
@@ -127,7 +132,10 @@ async def plugins_uninstall_handler(
             )
         return {"result": {"ok": True, "name": name}}
     except ValueError as exc:
-        raise AppServerError(str(exc), code="INVALID_PARAMS") from exc
+        logger.warning("plugins.uninstall: name={} error: {}", name, exc)
+        raise AppServerError(
+            "Invalid plugin name", code="INVALID_PARAMS",
+        ) from exc
 
 
 async def plugins_toggle_handler(
@@ -157,4 +165,7 @@ async def plugins_toggle_handler(
             "enabled": plugin.status == "active",
         }}
     except ValueError as exc:
-        raise AppServerError(str(exc), code="NOT_FOUND") from exc
+        logger.warning("plugins.toggle: name={} error: {}", name, exc)
+        raise AppServerError(
+            "Plugin not found or invalid state", code="NOT_FOUND",
+        ) from exc
