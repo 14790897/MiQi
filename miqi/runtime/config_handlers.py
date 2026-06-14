@@ -3,6 +3,10 @@
 Phase 28.3: Migrates config.get and config.update from bridge legacy
 handlers to AppServer async handlers. config.update propagates changes
 to active RuntimeSessions by updating their SessionState.config_snapshot.
+
+Phase 38.5: Removed direct import of miqi.bridge.server. Uses
+get_bridge_state(registry) for DI and shared helpers from
+config_app_handlers for redaction and deep merge.
 """
 
 from __future__ import annotations
@@ -11,7 +15,7 @@ from typing import Any
 
 from loguru import logger
 
-from miqi.runtime.app_server import AppServerError
+from miqi.runtime.app_server import AppServerError, get_bridge_state
 
 
 async def config_get_handler(
@@ -26,19 +30,12 @@ async def config_get_handler(
     Returns the full config dict with API key values replaced by hints
     (e.g., "sk-a…b123").
     """
-    import miqi.bridge.server as bridge_module
+    from miqi.runtime.config_app_handlers import _redact_secrets
 
-    state = getattr(bridge_module, "_state", None)
-    if state is None:
-        raise AppServerError("Bridge state not available", code="INTERNAL")
-
+    state = get_bridge_state(registry)
     config = state.load_config()
     data = config.model_dump(by_alias=True)
-
-    # Redact secrets using the bridge's helper
-    from miqi.bridge.server import _redact_secrets
     _redact_secrets(data)
-
     return {"result": data}
 
 
@@ -60,13 +57,9 @@ async def config_update_handler(
     from miqi.config.schema import Config
     from miqi.config.loader import save_config
 
-    import miqi.bridge.server as bridge_module
-    from miqi.bridge.server import _deep_merge
+    from miqi.runtime.config_app_handlers import _deep_merge
 
-    state = getattr(bridge_module, "_state", None)
-    if state is None:
-        raise AppServerError("Bridge state not available", code="INTERNAL")
-
+    state = get_bridge_state(registry)
     updates = params.get("config", {})
     if not updates:
         raise AppServerError("config is required", code="INVALID_PARAMS")
