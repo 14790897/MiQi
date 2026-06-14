@@ -392,11 +392,11 @@ class ExecTool(Tool):
                     except (asyncio.CancelledError, Exception):
                         pass
 
-        # ── Release sandbox temporary resources (WSL script file) ───────
-        try:
-            await handle.cleanup()
-        except Exception:
-            pass
+            # ── Release sandbox temporary resources (WSL script file) ───────
+            try:
+                await handle.cleanup()
+            except Exception:
+                pass
 
         duration_ms = int((time.monotonic() - start) * 1000)
         exit_code = handle.returncode if handle.returncode is not None else -1

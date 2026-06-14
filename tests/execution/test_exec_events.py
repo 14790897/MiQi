@@ -637,7 +637,7 @@ class _FakeBwrapHandle:
 
     async def wait(self) -> int:
         await self._process.wait()
-        return self._process.returncode or -1
+        return self._process.returncode if self._process.returncode is not None else -1
 
     async def kill(self) -> None:
         self.kill_called = True
@@ -1193,3 +1193,52 @@ async def test_bwrap_ledger_records_sandbox_type_and_output_deltas():
     assert completed["payload"]["exit_code"] == 0
     assert completed["payload"]["cancelled"] is False
     assert completed["payload"]["timed_out"] is False
+
+
+# ── Phase 33.2: BwrapCommandHandle.wait() exit code regression tests ──────
+
+
+@pytest.mark.asyncio
+async def test_bwrap_handle_wait_exit_code_zero():
+    """BwrapCommandHandle.wait() MUST return 0 for successful exit (not -1)."""
+    from miqi.sandbox.bwrap import BwrapCommandHandle
+
+    proc = await asyncio.create_subprocess_exec(
+        "python", "-c", "pass",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    handle = BwrapCommandHandle(proc)
+    exit_code = await handle.wait()
+    assert exit_code == 0, f"Expected 0 for successful exit, got {exit_code}"
+
+
+@pytest.mark.asyncio
+async def test_bwrap_handle_wait_exit_code_nonzero():
+    """BwrapCommandHandle.wait() MUST return the real non-zero exit code."""
+    from miqi.sandbox.bwrap import BwrapCommandHandle
+
+    proc = await asyncio.create_subprocess_exec(
+        "python", "-c", "import sys; sys.exit(42)",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    handle = BwrapCommandHandle(proc)
+    exit_code = await handle.wait()
+    assert exit_code == 42, f"Expected 42, got {exit_code}"
+
+
+@pytest.mark.asyncio
+async def test_fake_handle_wait_exit_code_zero():
+    """_FakeBwrapHandle.wait() MUST also return 0 for successful exit."""
+    handle = await _make_streaming_handle(stdout_text="ok", exit_code=0)
+    exit_code = await handle.wait()
+    assert exit_code == 0, f"Expected 0 for successful exit, got {exit_code}"
+
+
+@pytest.mark.asyncio
+async def test_fake_handle_wait_exit_code_nonzero():
+    """_FakeBwrapHandle.wait() MUST also return the real non-zero exit code."""
+    handle = await _make_streaming_handle(stdout_text="err", exit_code=7)
+    exit_code = await handle.wait()
+    assert exit_code == 7, f"Expected 7, got {exit_code}"

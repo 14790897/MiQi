@@ -102,7 +102,7 @@ class BwrapCommandHandle:
     async def wait(self) -> int:
         """Wait for the command to exit.  Returns the exit code."""
         await self._process.wait()
-        return self._process.returncode or -1
+        return self._process.returncode if self._process.returncode is not None else -1
 
     async def kill(self) -> None:
         """Kill the running command.
