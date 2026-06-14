@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from miqi.runtime.ledger_runtime import LedgerRuntime
+from miqi.runtime.ledger_runtime import LedgerItem, LedgerRuntime
 from miqi.runtime.replay_runtime import ReplayRuntime, TurnTimeline
+from miqi.runtime.stored_runtime import StoredThreadBundle
 from miqi.runtime.thread_protocol import (
     ItemsView,
     ThreadItemView,
@@ -113,3 +114,63 @@ class ThreadProjectionRuntime:
             started_at=timeline.started_at,
             completed_at=timeline.completed_at,
         )
+
+
+# ── Stored-record projection (no live RuntimeSession needed) ──────────────
+
+
+def project_stored_thread(
+    bundle: StoredThreadBundle,
+    *,
+    include_turns: bool,
+    items_view: ItemsView = "summary",
+) -> ThreadView:
+    """Project a stored thread bundle into a Codex ThreadView."""
+    turns = (
+        project_stored_turns(bundle.thread.thread_id, bundle.ledger_items, items_view=items_view)
+        if include_turns
+        else []
+    )
+    status = "archived" if bundle.thread.status == "archived" else "notLoaded"
+    return ThreadView(
+        id=bundle.thread.thread_id,
+        session_id=bundle.thread.session_id,
+        status=ThreadStatusView(status),
+        name=bundle.thread.title,
+        parent_thread_id=bundle.thread.parent_thread_id,
+        forked_from_id=getattr(bundle.thread, "forked_from_id", None),
+        archived=bundle.thread.status == "archived",
+        ephemeral=bool(getattr(bundle.thread, "ephemeral", False)),
+        turns=turns,
+        created_at=bundle.thread.created_at,
+        updated_at=bundle.thread.updated_at,
+        items_view=items_view if include_turns else "notLoaded",
+    )
+
+
+def project_stored_turns(
+    thread_id: str,
+    ledger_items: list[LedgerItem],
+    *,
+    items_view: ItemsView = "summary",
+) -> list[TurnView]:
+    """Project ledger items into Codex TurnViews without a live ReplayRuntime."""
+    # Group items by turn_id and record first appearance seq
+    seen: dict[str, int] = {}
+    for item in ledger_items:
+        if item.turn_id and item.turn_id not in seen:
+            seen[item.turn_id] = item.seq
+
+    turns: list[TurnView] = []
+    for turn_id in sorted(seen.keys(), key=lambda tid: seen[tid]):
+        items = [item for item in ledger_items if item.turn_id == turn_id]
+        # Use ReplayRuntime._build_timeline via __new__ — the method only
+        # references self for the @staticmethod _safe_payload, so an
+        # uninitialised instance is safe.
+        replay = ReplayRuntime.__new__(ReplayRuntime)
+        timeline = ReplayRuntime._build_timeline(replay, thread_id, turn_id, items)
+
+        # ThreadProjectionRuntime._turn_view does not reference self.
+        proj = ThreadProjectionRuntime.__new__(ThreadProjectionRuntime)
+        turns.append(ThreadProjectionRuntime._turn_view(proj, timeline, items_view=items_view))
+    return turns
