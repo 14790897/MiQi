@@ -138,6 +138,124 @@ class StoredRuntimeReader:
             ledger_items=await self.load_ledger_items(thread),
         )
 
+    async def fork_stored_thread(
+        self,
+        source_thread_id: str,
+        *,
+        title: str = "Fork",
+        target_session_id: str | None = None,
+        new_thread_id: str | None = None,
+        exclude_turns: bool = False,
+    ) -> StoredThreadBundle:
+        """Fork a stored thread by copying it and its ledger items.
+
+        If *target_session_id* is provided, the fork is created in that
+        session (must be owned by client_id).  Otherwise it stays in the
+        source thread's session.
+        """
+        import time as _time
+        import uuid as _uuid
+
+        source = await self.resolve_thread(source_thread_id)
+        dest_session = target_session_id or source.session_id
+        if not session_belongs_to_client(dest_session, self.client_id):
+            raise StoredThreadUnauthorized(dest_session)
+        dest_thread_id = new_thread_id or f"thread-{str(_uuid.uuid4())[:12]}"
+        now = _time.time()
+
+        items = await self.load_ledger_items(source)
+
+        async with aiosqlite.connect(str(self.db_path)) as db:
+            await db.execute(
+                """INSERT INTO runtime_threads
+                   (thread_id, session_id, title, status, parent_thread_id,
+                    created_at, updated_at, forked_from_id, ephemeral, cwd, metadata_json)
+                   VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    dest_thread_id,
+                    dest_session,
+                    title,
+                    source.thread_id,   # parent_thread_id
+                    now, now,
+                    source.thread_id,   # forked_from_id
+                    int(bool(getattr(source, "ephemeral", False))),
+                    getattr(source, "cwd", None),
+                    json.dumps(dict(getattr(source, "metadata", {}))),
+                ),
+            )
+
+            if not exclude_turns:
+                for item in items:
+                    payload = dict(item.payload)
+                    payload["copied_from_thread_id"] = source_thread_id
+                    payload["copied_from_item_id"] = item.item_id
+                    await db.execute(
+                        """INSERT INTO runtime_ledger_items
+                           (item_id, session_id, thread_id, turn_id, seq, item_type,
+                            role, content, payload_json, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            str(_uuid.uuid4()),
+                            dest_session,
+                            dest_thread_id,
+                            item.turn_id,
+                            item.seq,
+                            item.item_type,
+                            item.role,
+                            item.content,
+                            json.dumps(payload),
+                            item.created_at,
+                        ),
+                    )
+            await db.commit()
+
+        return await self.load_bundle(dest_thread_id, session_id=dest_session)
+
+    async def rollback_stored_thread(
+        self, thread_id: str, *, drop_last_turns: int, session_id: str | None = None
+    ) -> StoredThreadBundle:
+        """Append a rollback marker to a stored thread and reload."""
+        import time as _time
+        import uuid as _uuid
+
+        thread = await self.resolve_thread(thread_id, session_id=session_id)
+        items = await self.load_ledger_items(thread)
+
+        # Identify the last N turn IDs
+        seen: dict[str, int] = {}
+        for item in items:
+            if item.turn_id and item.turn_id not in seen:
+                seen[item.turn_id] = item.seq
+        ordered = sorted(seen.keys(), key=lambda tid: seen[tid])
+        removed = ordered[-drop_last_turns:] if drop_last_turns > 0 else []
+
+        async with aiosqlite.connect(str(self.db_path)) as db:
+            seq_row = await db.execute(
+                """SELECT COALESCE(MAX(seq), 0) + 1
+                   FROM runtime_ledger_items
+                   WHERE session_id = ? AND thread_id = ?""",
+                (thread.session_id, thread_id),
+            )
+            seq_fetched = await seq_row.fetchone()
+            next_seq = int(seq_fetched[0]) if seq_fetched else 1
+            await db.execute(
+                """INSERT INTO runtime_ledger_items
+                   (item_id, session_id, thread_id, turn_id, seq, item_type,
+                    role, content, payload_json, created_at)
+                   VALUES (?, ?, ?, NULL, ?, 'thread_rollback', NULL, '', ?, ?)""",
+                (
+                    str(_uuid.uuid4()),
+                    thread.session_id,
+                    thread_id,
+                    next_seq,
+                    json.dumps({"drop_last_turns": drop_last_turns, "removed_turn_ids": removed}),
+                    _time.time(),
+                ),
+            )
+            await db.commit()
+
+        return await self.load_bundle(thread_id, session_id=thread.session_id)
+
     async def import_document(
         self,
         document: dict[str, Any],
