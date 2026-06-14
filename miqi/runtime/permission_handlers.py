@@ -3,6 +3,30 @@
 Phase 35.2: Migrates permissions.get, permissions.update,
 permissions.permanent.add, and permissions.permanent.remove from bridge
 legacy handlers to AppServer async handlers.
+
+IMPORTANT — Global control-plane semantics:
+  These handlers operate on the SINGLE global ToolOrchestrator.permissions
+  instance accessed via _state._orchestrator. All clients share the same
+  permission state — this is a GLOBAL control plane, not per-client or
+  per-session.
+
+  Design rationale (Phase 35 hardening):
+  - The ToolOrchestrator is a process-level singleton by design (one
+    approval engine per bridge process).
+  - Permission rules (allowlist, deny patterns) are workspace-level
+    policy, NOT per-user or per-session settings.
+  - Changing to per-client isolation would require a PermissionEngine
+    per RuntimeSession, which is a Phase 36+ concern.
+
+  Residual risk:
+  - Two Desktop clients connected to the same bridge share one permission
+    state. Adding a pattern on client-A immediately affects client-B.
+  - No audit log of which client made which permission change.
+  - Mitigation: Desktop is typically single-user. Multi-user gateways
+    should use a per-session orchestrator (future work).
+
+  Modifying this module: do NOT switch to per-client permission state
+  without updating cross-client tests and acceptance docs.
 """
 
 from __future__ import annotations
@@ -15,7 +39,11 @@ from miqi.runtime.app_server import AppServerError
 
 
 def _get_orchestrator() -> Any:
-    """Get the global ToolOrchestrator from bridge state."""
+    """Get the global ToolOrchestrator from bridge state.
+
+    Returns the process-level singleton orchestrator. All clients
+    share this instance — see module docstring for rationale.
+    """
     import miqi.bridge.server as bridge_module
 
     state = getattr(bridge_module, "_state", None)
