@@ -132,15 +132,19 @@ def register_skills_app_handlers(server: AppServer) -> None:
             validated.append(_resolve_allowed_extra_root(str(raw), workspace))
         by_client = registry.bridge_context.setdefault("skills_extra_roots_by_client", {})
         by_client[client_id] = validated
+        roots_payload = {"roots": [str(root) for root in validated]}
         await server.emit_event(
             session_id or "process",
             "skills/changed",
-            {"roots": [str(root) for root in validated]},
+            roots_payload,
             request_id=request_id,
         )
-        sink = server._event_sinks.get(client_id)
-        if sink is not None:
-            await sink({"request_id": request_id, "event": "skills/changed", "data": {"roots": [str(root) for root in validated]}})
+        await server.emit_client_event(
+            client_id,
+            "skills/changed",
+            roots_payload,
+            request_id=request_id,
+        )
         return {"result": {}}
 
     async def _hooks_list(request_id, params, client_id, session_id, registry):
