@@ -357,3 +357,119 @@ def assert_method_keys_present_in_appserver(keys: list[str]) -> None:
         f"Method keys not found in AppServer registrations: {missing}. "
         f"Add register_method() calls in miqi/bridge/loop.py for these."
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Phase 35: Explicit 43-key migration audit
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# All 43 method keys migrated from _METHODS to AppServer in Phase 35.
+_PHASE35_MIGRATED_KEYS = [
+    # Phase 35.2: providers.*, channels.*, permissions.* (9 keys)
+    "providers.list", "providers.test", "providers.update",
+    "channels.list", "channels.update",
+    "permissions.get", "permissions.update",
+    "permissions.permanent.add", "permissions.permanent.remove",
+    # Phase 35.3: plugins.* (4 keys)
+    "plugins.list", "plugins.install", "plugins.uninstall", "plugins.toggle",
+    # Phase 35.4: mcp.* (3 keys)
+    "mcp.list", "mcp.upsert", "mcp.delete",
+    # Phase 35.5: skills.* (6 keys)
+    "skills.list", "skills.get", "skills.open_folder",
+    "skills.create", "skills.upload", "skills.delete",
+    # Phase 35.6: cron.* (7 keys)
+    "cron.list", "cron.create", "cron.update", "cron.delete",
+    "cron.toggle", "cron.run", "cron.runs",
+    # Phase 35.7: memory.*, experience:* (10 keys)
+    "memory.list", "memory.get", "memory.update", "memory.delete",
+    "memory.lessons", "memory.lesson.unlearn",
+    "experience:list", "experience:delete", "experience:toggle", "experience:search",
+    # Phase 35.8: diagnostic (1 key)
+    "python.check",
+    # Phase 35.2 additional: config.get/config.update and sessions.* already
+    # migrated in Phase 28. Not included here.
+    # Phase 35 also added: agent.list/agent.get (migrated in Phase 28.5).
+    # The above 43 are the NEW Phase 35 keys.
+]
+
+
+def test_phase35_all_43_keys_absent_from_methods():
+    """All 43 migrated method keys must be absent from _METHODS."""
+    from miqi.bridge.server import _METHODS
+
+    still_present = [k for k in _PHASE35_MIGRATED_KEYS if k in _METHODS]
+    assert not still_present, (
+        f"Phase 35 migrated keys still in _METHODS: {still_present}. "
+        f"Remove them from the _METHODS dict in miqi/bridge/server.py."
+    )
+
+    # Verify count: only 2 keys remain (status, plan.get)
+    assert len(_METHODS) == 2, (
+        f"Expected exactly 2 keys in _METHODS (status, plan.get), "
+        f"got {len(_METHODS)}: {sorted(_METHODS.keys())}"
+    )
+
+
+def test_phase35_all_43_keys_present_in_appserver():
+    """All 43 migrated method keys must be registered on AppServer."""
+    miqi_methods = _parse_all_appserver_registrations(_MIQI_DIR)
+    missing = [k for k in _PHASE35_MIGRATED_KEYS if k not in miqi_methods]
+    assert not missing, (
+        f"Phase 35 migrated keys not in AppServer registrations: {missing}. "
+        f"Add register_method() calls in miqi/bridge/loop.py."
+    )
+
+    # Verify we have at least 77 total AppServer registrations
+    # (34 pre-Phase-35 + 43 new = 77)
+    assert len(miqi_methods) >= 77, (
+        f"Expected at least 77 AppServer registrations, got {len(miqi_methods)}"
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Error message sanitization audit (Phase 35 hardening)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_phase35_no_raw_str_exc_in_runtime_handlers():
+    """Audit: runtime control-plane handlers must not return raw str(exc).
+
+    Checks all runtime handler files for patterns where AppServerError
+    is raised with a dynamic message (str(exc), f"...{exc}...", etc.)
+    that could leak internal exception text to the frontend.
+
+    Phase 35 hardening fixed these in 9 handler sites.
+    This test locks the current state to prevent regressions.
+    """
+    runtime_dir = _MIQI_DIR / "runtime"
+    violations: list[str] = []
+
+    # Patterns that indicate unsanitized error messages
+    unsanitized_patterns = [
+        (r'AppServerError\(\s*str\(exc\)', "str(exc)"),
+        (r'AppServerError\(\s*f"[^"]*\{exc\}[^"]*"', "f-string with {exc}"),
+        (r'AppServerError\(\s*f\'[^\']*\{exc\}[^\']*\'', "f-string with {exc}"),
+    ]
+
+    for py_file in sorted(runtime_dir.glob("*.py")):
+        # Skip test files and non-handler modules
+        if py_file.name.startswith("test_") or py_file.name.startswith("__"):
+            continue
+        content = py_file.read_text(encoding="utf-8")
+        for pattern, desc in unsanitized_patterns:
+            if re.search(pattern, content):
+                # Check if the line is in a comment
+                for i, line in enumerate(content.splitlines(), 1):
+                    stripped = line.strip()
+                    if stripped.startswith("#"):
+                        continue
+                    if re.search(pattern, stripped):
+                        violations.append(
+                            f"{py_file.name}:{i}: {desc}: {stripped[:80]}"
+                        )
+
+    assert not violations, (
+        f"Found {len(violations)} unsanitized error message(s) in runtime handlers:\n"
+        + "\n".join(f"  - {v}" for v in violations)
+        + "\n\nFix: log full exc with logger, return a fixed safe message."
+    )

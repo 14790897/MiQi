@@ -302,7 +302,10 @@ async def files_read_handler(
     except AppServerError:
         raise
     except ValueError as exc:
-        raise AppServerError(str(exc), code="INVALID_PARAMS") from exc
+        logger.warning("[files:read] invalid path {}: {}", file_path, exc)
+        raise AppServerError(
+            "Invalid file path", code="INVALID_PARAMS",
+        ) from exc
 
     if not resolved.exists():
         raise AppServerError(f"File not found: {file_path}", code="NOT_FOUND")
@@ -318,7 +321,10 @@ async def files_read_handler(
             "File is not valid UTF-8 text", code="INVALID_PARAMS",
         ) from None
     except Exception as exc:
-        raise AppServerError(str(exc), code="INTERNAL") from exc
+        logger.warning("[files:read] read error {}: {}", file_path, exc)
+        raise AppServerError(
+            "Failed to read file", code="INTERNAL",
+        ) from exc
 
     logger.info("[files:read] ok path={} size={}", file_path, len(content))
     return {
@@ -363,7 +369,10 @@ async def files_write_handler(
     except AppServerError:
         raise
     except ValueError as exc:
-        raise AppServerError(str(exc), code="INVALID_PARAMS") from exc
+        logger.warning("[files:write] invalid path {}: {}", file_path, exc)
+        raise AppServerError(
+            "Invalid file path", code="INVALID_PARAMS",
+        ) from exc
 
     _check_text_file_type(resolved)
 
@@ -377,7 +386,10 @@ async def files_write_handler(
     try:
         resolved.write_text(content, encoding="utf-8")
     except Exception as exc:
-        raise AppServerError(str(exc), code="INTERNAL") from exc
+        logger.warning("[files:write] write error {}: {}", file_path, exc)
+        raise AppServerError(
+            "Failed to write file", code="INTERNAL",
+        ) from exc
 
     # Update tracked_files with client_id ownership check (BUG FIX A.3)
     if session_key:
@@ -423,7 +435,10 @@ async def files_delete_handler(
     except AppServerError:
         raise
     except ValueError as exc:
-        raise AppServerError(str(exc), code="INVALID_PARAMS") from exc
+        logger.warning("[files] invalid path {}: {}", file_path, exc)
+        raise AppServerError(
+            "Invalid file path", code="INVALID_PARAMS",
+        ) from exc
 
     if not resolved.exists():
         raise AppServerError(f"Not found: {file_path}", code="NOT_FOUND")
@@ -473,7 +488,10 @@ async def files_diff_handler(
     except AppServerError:
         raise
     except ValueError as exc:
-        raise AppServerError(str(exc), code="INVALID_PARAMS") from exc
+        logger.warning("[files] invalid path {}: {}", file_path, exc)
+        raise AppServerError(
+            "Invalid file path", code="INVALID_PARAMS",
+        ) from exc
 
     snapshot_key = str(resolved)
 
@@ -590,7 +608,10 @@ async def files_revert_handler(
     except AppServerError:
         raise
     except ValueError as exc:
-        raise AppServerError(str(exc), code="INVALID_PARAMS") from exc
+        logger.warning("[files] invalid path {}: {}", file_path, exc)
+        raise AppServerError(
+            "Invalid file path", code="INVALID_PARAMS",
+        ) from exc
 
     snapshot_key = str(resolved)
 
