@@ -2,12 +2,76 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_context
 from miqi.runtime.plugin_catalog import PluginCatalogRuntime
 from miqi.runtime.plugin_protocol import MarketplaceView
+
+# ── marketplace validation helpers ────────────────────────────────────────
+
+# Same safe-name pattern as plugins.
+_MARKETPLACE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$")
+# Hosts allowed for HTTPS marketplace sources.
+_ALLOWED_SOURCE_HOSTS = {"github.com", "gitlab.com", "bitbucket.org"}
+# GitHub shorthand: owner/repo with both parts matching safe slug rules.
+_SHORTHAND_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}/[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$")
+
+
+def _validate_marketplace_name(name: str) -> str:
+    """Validate a marketplace name. Returns the trimmed name on success,
+    raises AppServerError on invalid input."""
+    trimmed = name.strip()
+    if not trimmed:
+        raise AppServerError("Marketplace name is required", code="INVALID_PARAMS")
+    if not _MARKETPLACE_NAME_RE.match(trimmed):
+        raise AppServerError(
+            f"Invalid marketplace name: {trimmed}", code="INVALID_PARAMS"
+        )
+    if ".." in trimmed:
+        raise AppServerError(
+            f"Invalid marketplace name: {trimmed}", code="INVALID_PARAMS"
+        )
+    return trimmed
+
+
+def _validate_marketplace_source(source: str) -> None:
+    """Raise AppServerError if source is not an allowed path, URL, or shorthand."""
+    trimmed = source.strip()
+    if not trimmed:
+        raise AppServerError("Marketplace source is required", code="INVALID_PARAMS")
+
+    # 1) Existing local directory path, resolved safely.
+    path = Path(trimmed).resolve()
+    if path.is_dir():
+        return
+
+    # 2) HTTPS URL with allowed host and no credentials.
+    parsed = urlparse(trimmed)
+    if parsed.scheme == "https":
+        if parsed.hostname not in _ALLOWED_SOURCE_HOSTS:
+            raise AppServerError(
+                f"Unsupported marketplace host: {parsed.hostname}",
+                code="INVALID_PARAMS",
+            )
+        if "@" in parsed.netloc:
+            raise AppServerError(
+                "Credentials in marketplace URL are not allowed",
+                code="INVALID_PARAMS",
+            )
+        return
+
+    # 3) GitHub shorthand owner/repo.
+    if _SHORTHAND_RE.match(trimmed):
+        # owner/repo is valid shorthand; currently no-op (Phase 37 only validates).
+        return
+
+    raise AppServerError(
+        f"Unsupported marketplace source: {trimmed}", code="INVALID_PARAMS"
+    )
 
 
 def _catalog(registry: Any) -> PluginCatalogRuntime:
@@ -90,14 +154,14 @@ def register_plugin_app_handlers(server: AppServer) -> None:
 
     async def _marketplace_add(request_id, params, client_id, session_id, registry):
         catalog = _catalog(registry)
-        name = str(params.get("name") or "").strip()
-        source = str(params.get("source") or "").strip()
-        if not name or not source:
-            raise AppServerError("name and source are required", code="INVALID_PARAMS")
+        raw_name = params.get("name") or params.get("marketplaceName") or ""
+        raw_source = params.get("source") or ""
+        name = _validate_marketplace_name(str(raw_name))
+        _validate_marketplace_source(str(raw_source))
         view = MarketplaceView(
             name=name,
             display_name=name.replace("-", " ").title(),
-            source=source,
+            source=raw_source,
             path=None,
             load_errors=[],
         )
@@ -106,10 +170,14 @@ def register_plugin_app_handlers(server: AppServer) -> None:
 
     async def _marketplace_remove(request_id, params, client_id, session_id, registry):
         catalog = _catalog(registry)
-        name = str(params.get("name") or params.get("marketplaceName") or "").strip()
+        raw_name = params.get("name") or params.get("marketplaceName") or ""
+        name = _validate_marketplace_name(str(raw_name))
+        if name == "local":
+            raise AppServerError(
+                "The 'local' marketplace cannot be removed", code="INVALID_PARAMS"
+            )
         removed = name in catalog._marketplaces
-        if name != "local":
-            catalog._marketplaces.pop(name, None)
+        catalog._marketplaces.pop(name, None)
         return {"result": {"removed": removed, "marketplaceName": name}}
 
     async def _marketplace_upgrade(request_id, params, client_id, session_id, registry):

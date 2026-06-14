@@ -80,9 +80,11 @@ async def test_marketplace_add_remove_upgrade_return_stable_shapes(tmp_path):
     server = AppServer(registry)
     register_plugin_app_handlers(server)
 
+    source_dir = tmp_path / "marketplace-source"
+    source_dir.mkdir()
     added = await server.dispatch(
         "1", "marketplace/add",
-        {"name": "local-debug", "source": str(tmp_path / "marketplace-source")},
+        {"name": "local-debug", "source": str(source_dir)},
         "client-1", None,
     )
     upgraded = await server.dispatch("2", "marketplace/upgrade", {}, "client-1", None)
@@ -109,3 +111,127 @@ async def test_plugin_read_not_found_is_sanitized(tmp_path):
     )
     assert response["code"] == "NOT_FOUND"
     assert "../secret" not in response["error"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 37 Hardening: marketplace validation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_marketplace_add_rejects_invalid_name(tmp_path):
+    pm = PluginManager(tmp_path / "plugins", tmp_path / "system")
+    registry = ClientSessionRegistry()
+    registry.bridge_context["plugin_manager"] = pm
+    registry.bridge_context["marketplaces_dir"] = tmp_path / "marketplaces"
+    server = AppServer(registry)
+    register_plugin_app_handlers(server)
+
+    for bad_name in ["../escape", "bad/name", "-starts-dash", ""]:
+        response = await server.dispatch(
+            "1", "marketplace/add",
+            {"name": bad_name, "source": "owner/repo"},
+            "client-1", None,
+        )
+        assert response.get("code") == "INVALID_PARAMS", f"'{bad_name}' should be rejected"
+        assert "invalid" in response.get("error", "").lower() or "is required" in response.get("error", "")
+
+
+@pytest.mark.asyncio
+async def test_marketplace_add_rejects_unsupported_source(tmp_path):
+    pm = PluginManager(tmp_path / "plugins", tmp_path / "system")
+    registry = ClientSessionRegistry()
+    registry.bridge_context["plugin_manager"] = pm
+    registry.bridge_context["marketplaces_dir"] = tmp_path / "marketplaces"
+    server = AppServer(registry)
+    register_plugin_app_handlers(server)
+
+    bad_sources = [
+        ("http://github.com/org/repo.git", "http"),
+        ("https://evil.com/repo.git", "unsupported host"),
+        ("https://user:pass@github.com/org/repo.git", "credentials"),
+    ]
+    for source, _label in bad_sources:
+        response = await server.dispatch(
+            "1", "marketplace/add",
+            {"name": "test-mp", "source": source},
+            "client-1", None,
+        )
+        assert response.get("code") == "INVALID_PARAMS", f"'{source}' should be rejected"
+
+
+@pytest.mark.asyncio
+async def test_marketplace_add_accepts_https_allowed_host(tmp_path):
+    pm = PluginManager(tmp_path / "plugins", tmp_path / "system")
+    registry = ClientSessionRegistry()
+    registry.bridge_context["plugin_manager"] = pm
+    registry.bridge_context["marketplaces_dir"] = tmp_path / "marketplaces"
+    server = AppServer(registry)
+    register_plugin_app_handlers(server)
+
+    for source in [
+        "https://github.com/org/repo.git",
+        "https://gitlab.com/user/project",
+        "https://bitbucket.org/team/repo",
+    ]:
+        mp_name = f"test-{source.split('://')[1].split('/')[0][:8]}"
+        response = await server.dispatch(
+            "1", "marketplace/add",
+            {"name": mp_name, "source": source},
+            "client-1", None,
+        )
+        assert "result" in response, f"HTTPS source '{source}' should be accepted"
+        assert response["result"]["marketplace"]["name"] == mp_name
+
+
+@pytest.mark.asyncio
+async def test_marketplace_add_accepts_existing_local_dir(tmp_path):
+    pm = PluginManager(tmp_path / "plugins", tmp_path / "system")
+    registry = ClientSessionRegistry()
+    registry.bridge_context["plugin_manager"] = pm
+    registry.bridge_context["marketplaces_dir"] = tmp_path / "marketplaces"
+    server = AppServer(registry)
+    register_plugin_app_handlers(server)
+
+    # Local dir must exist and be within cwd-relative scope for test.
+    local_marketplace = tmp_path / "my-marketplace"
+    local_marketplace.mkdir()
+    response = await server.dispatch(
+        "1", "marketplace/add",
+        {"name": "test-local-mp", "source": str(local_marketplace.resolve())},
+        "client-1", None,
+    )
+    assert "result" in response
+    assert response["result"]["marketplace"]["name"] == "test-local-mp"
+
+
+@pytest.mark.asyncio
+async def test_marketplace_remove_cannot_remove_local(tmp_path):
+    pm = PluginManager(tmp_path / "plugins", tmp_path / "system")
+    registry = ClientSessionRegistry()
+    registry.bridge_context["plugin_manager"] = pm
+    registry.bridge_context["marketplaces_dir"] = tmp_path / "marketplaces"
+    server = AppServer(registry)
+    register_plugin_app_handlers(server)
+
+    response = await server.dispatch(
+        "1", "marketplace/remove", {"name": "local"}, "client-1", None,
+    )
+    assert response.get("code") == "INVALID_PARAMS"
+    assert "local" in response.get("error", "").lower()
+
+
+@pytest.mark.asyncio
+async def test_marketplace_remove_rejects_path_like_name(tmp_path):
+    pm = PluginManager(tmp_path / "plugins", tmp_path / "system")
+    registry = ClientSessionRegistry()
+    registry.bridge_context["plugin_manager"] = pm
+    registry.bridge_context["marketplaces_dir"] = tmp_path / "marketplaces"
+    server = AppServer(registry)
+    register_plugin_app_handlers(server)
+
+    for bad_name in ["../escape", "path/traversal"]:
+        response = await server.dispatch(
+            "1", "marketplace/remove", {"name": bad_name}, "client-1", None,
+        )
+        assert response.get("code") == "INVALID_PARAMS", f"'{bad_name}' should be rejected"
