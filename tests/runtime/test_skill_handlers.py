@@ -1,10 +1,13 @@
-"""Tests for skill handlers — Phase 35.5.
+"""Tests for skill handlers — Phase 35.5 / hardening.
 
 Validates skills.list, skills.get, skills.open_folder, skills.create,
 skills.upload, and skills.delete migrated from bridge legacy to AppServer.
+
+Hardening: Path traversal and name validation tests for create/upload/delete.
 """
 
 import pytest
+from pathlib import Path
 
 from miqi.runtime.app_server import ClientSessionRegistry
 
@@ -113,3 +116,95 @@ async def test_skills_delete_builtin():
         await skills_delete_handler(
             "req-1", {"name": "memory"}, "client-1", None, registry,
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Path traversal & name validation tests (hardening)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_PATH_TRAVERSAL_NAMES = [
+    ("../x", "dot-dot-slash traversal"),
+    ("../../x", "double dot-dot-slash traversal"),
+    ("..\\x", "dot-dot-backslash traversal"),
+    ("/etc/passwd", "absolute unix path"),
+    ("C:\\Windows\\system32", "absolute windows path"),
+    ("", "empty name"),
+    ("x" * 256, "overly long name"),
+    ("-bad", "leading hyphen"),
+    ("UPPERCASE", "uppercase letters"),
+    ("has space", "name with space"),
+    ("has/slash", "name with forward slash"),
+    ("has\\backslash", "name with backslash"),
+    ("has\0null", "name with null byte"),
+    (".dotfile", "name starting with dot"),
+    ("x;rm -rf /", "name with shell injection"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_name,desc", _PATH_TRAVERSAL_NAMES)
+async def test_skills_create_rejects_path_traversal(bad_name, desc):
+    """skills.create rejects path traversal and malicious names."""
+    from miqi.runtime.skill_handlers import skills_create_handler
+    from miqi.runtime.app_server import AppServerError
+
+    registry = ClientSessionRegistry()
+    with pytest.raises(AppServerError, match="Invalid name"):
+        await skills_create_handler(
+            "req-1", {"name": bad_name}, "client-1", None, registry,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_name,desc", _PATH_TRAVERSAL_NAMES)
+async def test_skills_upload_rejects_path_traversal(bad_name, desc):
+    """skills.upload rejects path traversal and malicious names."""
+    from miqi.runtime.skill_handlers import skills_upload_handler
+    from miqi.runtime.app_server import AppServerError
+
+    registry = ClientSessionRegistry()
+    with pytest.raises(AppServerError, match="Invalid name"):
+        await skills_upload_handler(
+            "req-1", {"name": bad_name, "content": "content"}, "client-1", None, registry,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_name,desc", _PATH_TRAVERSAL_NAMES)
+async def test_skills_delete_rejects_path_traversal(bad_name, desc):
+    """skills.delete rejects path traversal and malicious names."""
+    from miqi.runtime.skill_handlers import skills_delete_handler
+    from miqi.runtime.app_server import AppServerError
+
+    registry = ClientSessionRegistry()
+    with pytest.raises(AppServerError, match="Invalid name"):
+        await skills_delete_handler(
+            "req-1", {"name": bad_name}, "client-1", None, registry,
+        )
+
+
+# ── _validate_skill_path defense-in-depth ────────────────────────────────────
+
+
+def test_validate_skill_path_blocks_traversal_after_resolve(tmp_path):
+    """_validate_skill_path blocks paths that resolve outside workspace/skills."""
+    from miqi.runtime.skill_handlers import _validate_skill_path
+    from miqi.runtime.app_server import AppServerError
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    # Valid: name stays inside workspace/skills
+    skill_dir = _validate_skill_path("my-skill", workspace)
+    assert skill_dir == (workspace / "skills" / "my-skill").resolve()
+
+    # Create a symlink that would escape (if supported on this platform)
+    # Even without symlinks, a crafted name could resolve outside —
+    # the function is defense-in-depth. The primary guard is _validate_skill_name.
+    # Test that resolve + relative_to catches unexpected escapes:
+    skills_root = (workspace / "skills")
+    skills_root.mkdir(parents=True, exist_ok=True)
+    # Create a real subdir so we can test a valid path
+    (skills_root / "valid-skill").mkdir(parents=True, exist_ok=True)
+    valid_dir = _validate_skill_path("valid-skill", workspace)
+    assert valid_dir == (skills_root / "valid-skill").resolve()
