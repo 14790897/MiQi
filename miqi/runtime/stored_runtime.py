@@ -339,11 +339,18 @@ class StoredRuntimeReader:
         *,
         extra_messages: list[dict[str, Any]] | None = None,
     ) -> list[HistoryItem]:
-        """Build HistoryItems from ledger message rows + optional provider messages."""
+        """Build HistoryItems from ledger message rows.
+
+        Ledger message items are the **primary** source because they retain
+        turn_id, which rollback and fork depend on.  *extra_messages* is
+        only used as a fallback when the ledger contains zero message-type
+        items — this prevents duplicate history on export→import round-trips
+        where the export document carries both ledgerItems and the
+        previously-exported providerMessages.
+        """
         import uuid as _uuid
         import time as _time
         items: list[HistoryItem] = []
-        seen_turns: set[str] = set()
         for li in ledger_items:
             if li.item_type != "message" or li.role is None:
                 continue
@@ -356,9 +363,10 @@ class StoredRuntimeReader:
                 payload=dict(li.payload),
                 created_at=li.created_at or _time.time(),
             ))
-            if li.turn_id:
-                seen_turns.add(li.turn_id)
-        # Append extra provider messages that aren't already covered
+        if items:
+            return items  # primary source was sufficient — no fallback needed
+
+        # Fallback: no message-type ledger items → use providerMessages only
         if extra_messages:
             for msg in extra_messages:
                 payload: dict[str, Any] = {
