@@ -18,6 +18,49 @@ from miqi.runtime.app_server import AppServerError
 _SKILL_NAME_RE = re.compile(r'^[a-z][a-z0-9-]*$')
 
 
+_SKILL_NAME_MAX_LENGTH = 64
+
+
+def _validate_skill_name(name: str) -> str:
+    """Validate and normalize a skill name for create/upload/delete.
+
+    Returns the stripped name if valid, raises AppServerError otherwise.
+    This guards against path traversal (../, absolute paths) and illegal
+    characters in skill names.
+    """
+    name = name.strip()
+    if not name or not _SKILL_NAME_RE.match(name) or len(name) > _SKILL_NAME_MAX_LENGTH:
+        raise AppServerError(
+            "Invalid name — use lowercase letters, digits, hyphens",
+            code="INVALID_PARAMS",
+        )
+    return name
+
+
+def _validate_skill_path(name: str, workspace_path: Any) -> Path:
+    """Resolve a skill directory path and enforce it stays within workspace/skills.
+
+    Args:
+        name: Validated skill name (must pass _validate_skill_name first).
+        workspace_path: The workspace root path.
+
+    Returns:
+        Resolved Path to the skill directory.
+
+    Raises:
+        AppServerError: If the resolved path escapes workspace/skills.
+    """
+    skills_root = (workspace_path / "skills").resolve()
+    skill_dir = (skills_root / name).resolve()
+    try:
+        skill_dir.relative_to(skills_root)
+    except ValueError:
+        raise AppServerError(
+            "Skill path escapes workspace", code="INVALID_PARAMS",
+        )
+    return skill_dir
+
+
 def _get_skills_loader() -> Any:
     """Get a SkillsLoader for the current workspace."""
     import miqi.bridge.server as bridge_module
@@ -131,13 +174,8 @@ async def skills_create_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Create a blank workspace skill."""
-    name = str(params.get("name", "")).strip()
+    name = _validate_skill_name(str(params.get("name", "")))
     description = str(params.get("description", "")).strip()
-    if not name or not _SKILL_NAME_RE.match(name):
-        raise AppServerError(
-            "Invalid name — use lowercase letters, digits, hyphens",
-            code="INVALID_PARAMS",
-        )
 
     import miqi.bridge.server as bridge_module
 
@@ -146,7 +184,7 @@ async def skills_create_handler(
         raise AppServerError("Bridge state not available", code="INTERNAL")
     config = state.load_config()
 
-    skill_dir = config.workspace_path / "skills" / name
+    skill_dir = _validate_skill_path(name, config.workspace_path)
     if skill_dir.exists():
         raise AppServerError(
             f"Skill '{name}' already exists", code="INVALID_PARAMS",
@@ -173,21 +211,21 @@ async def skills_upload_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Save uploaded YAML content as a new workspace skill."""
-    name = str(params.get("name", "")).strip()
-    content = str(params.get("content", "")).strip()
-    if not name or not content:
-        raise AppServerError(
-            "name and content are required", code="INVALID_PARAMS",
-        )
-
     import miqi.bridge.server as bridge_module
+
+    name = _validate_skill_name(str(params.get("name", "")))
+    content = str(params.get("content", "")).strip()
+    if not content:
+        raise AppServerError(
+            "content is required", code="INVALID_PARAMS",
+        )
 
     state = getattr(bridge_module, "_state", None)
     if state is None:
         raise AppServerError("Bridge state not available", code="INTERNAL")
     config = state.load_config()
 
-    skill_dir = config.workspace_path / "skills" / name
+    skill_dir = _validate_skill_path(name, config.workspace_path)
     if skill_dir.exists():
         raise AppServerError(
             f"Skill '{name}' already exists", code="INVALID_PARAMS",
@@ -208,8 +246,9 @@ async def skills_delete_handler(
     """Delete a workspace skill. Builtin skills cannot be deleted."""
     import shutil as _shutil
 
-    name = str(params.get("name", "")).strip()
+    name = _validate_skill_name(str(params.get("name", "")))
 
+    # Check builtin first (before path validation since builtins live elsewhere)
     builtin_dir = Path(__file__).parent.parent / "skills"
     if (builtin_dir / name).exists():
         raise AppServerError(
@@ -223,7 +262,7 @@ async def skills_delete_handler(
         raise AppServerError("Bridge state not available", code="INTERNAL")
     config = state.load_config()
 
-    skill_dir = config.workspace_path / "skills" / name
+    skill_dir = _validate_skill_path(name, config.workspace_path)
     if not skill_dir.exists():
         raise AppServerError(
             f"Skill '{name}' not found in workspace", code="NOT_FOUND",
