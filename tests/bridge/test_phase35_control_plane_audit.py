@@ -91,14 +91,7 @@ def test_phase35_baseline_identifies_control_plane_legacy_methods():
         # Phase 35.4: mcp.* migrated
         # Phase 35.5: skills.* migrated
         # Phase 35.6: cron.* migrated
-        "memory": [
-            "memory.list", "memory.get", "memory.update", "memory.delete",
-            "memory.lessons", "memory.lesson.unlearn",
-        ],
-        "experience": [
-            "experience:list", "experience:delete",
-            "experience:toggle", "experience:search",
-        ],
+        # Phase 35.7: memory.*, experience:* migrated
         "diagnostics": ["python.check"],
     }
 
@@ -124,7 +117,7 @@ def test_phase35_baseline_identifies_control_plane_legacy_methods():
     print(f"Target families present: {present_families}")
 
     # Store count for before/after comparison in subsequent tests
-    assert count >= 10, f"Expected at least 10 legacy _METHODS entries, got {count}"
+    assert count <= 10, f"Expected at most 10 legacy _METHODS entries, got {count}"
 
 
 def test_phase35_baseline_appserver_registrations():

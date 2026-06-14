@@ -319,6 +319,34 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("cron.run", cron_run_handler)
         self._app_server.register_method("cron.runs", cron_runs_handler)
 
+        # Register Phase 35.7: memory.* handlers
+        from miqi.runtime.memory_handlers import (
+            memory_list_handler,
+            memory_get_handler,
+            memory_update_handler,
+            memory_delete_handler,
+            memory_lessons_handler,
+            memory_lesson_unlearn_handler,
+        )
+        self._app_server.register_method("memory.list", memory_list_handler)
+        self._app_server.register_method("memory.get", memory_get_handler)
+        self._app_server.register_method("memory.update", memory_update_handler)
+        self._app_server.register_method("memory.delete", memory_delete_handler)
+        self._app_server.register_method("memory.lessons", memory_lessons_handler)
+        self._app_server.register_method("memory.lesson.unlearn", memory_lesson_unlearn_handler)
+
+        # Register Phase 35.7: experience.* handlers (colon-style names)
+        from miqi.runtime.experience_handlers import (
+            experience_list_handler,
+            experience_delete_handler,
+            experience_toggle_handler,
+            experience_search_handler,
+        )
+        self._app_server.register_method("experience:list", experience_list_handler)
+        self._app_server.register_method("experience:delete", experience_delete_handler)
+        self._app_server.register_method("experience:toggle", experience_toggle_handler)
+        self._app_server.register_method("experience:search", experience_search_handler)
+
         logger.info(
             "BridgeRuntimeLoop: AppServer initialized with {} methods",
             len(self._app_server._methods),
