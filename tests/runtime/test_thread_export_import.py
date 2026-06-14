@@ -37,3 +37,59 @@ async def test_thread_export_missing_thread_id_rejected(tmp_path):
         "1", "thread/export", {}, "client-a", None,
     )
     assert response["code"] == "INVALID_PARAMS"
+
+
+# ── Import tests ────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_thread_import_round_trips_exported_document(tmp_path):
+    db = tmp_path / ".miqi-runtime" / "runtime.db"
+    await _seed_thread(db, thread_id="source")
+    server = _server(tmp_path)
+    exported = await server.dispatch(
+        "1", "thread/export", {"threadId": "source"}, "client-a", None,
+    )
+    doc = exported["result"]["document"]
+    imported = await server.dispatch(
+        "2", "thread/import",
+        {"document": doc, "threadId": "imported", "includeTurns": True},
+        "client-a",
+        None,
+    )
+    thread = imported["result"]["thread"]
+    assert thread["id"] == "imported"
+    assert thread["turns"][0]["id"] == "turn-1"
+
+
+@pytest.mark.asyncio
+async def test_thread_import_rejects_foreign_session_id(tmp_path):
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/import",
+        {"sessionId": "client-b:default", "document": {"version": 1, "thread": {"thread_id": "x"}, "ledgerItems": []}},
+        "client-a",
+        None,
+    )
+    assert response["code"] == "UNAUTHORIZED"
+
+
+@pytest.mark.asyncio
+async def test_thread_import_rejects_bad_version(tmp_path):
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/import",
+        {"document": {"version": 999, "thread": {"thread_id": "x"}, "ledgerItems": []}},
+        "client-a",
+        None,
+    )
+    assert response["code"] == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_thread_import_missing_document_rejected(tmp_path):
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/import", {}, "client-a", None,
+    )
+    assert response["code"] == "INVALID_PARAMS"

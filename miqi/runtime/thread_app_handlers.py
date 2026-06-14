@@ -18,6 +18,7 @@ from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_state
 from miqi.runtime.stored_runtime import (
     StoredRuntimeReader,
     StoredThreadAmbiguous,
+    StoredThreadError,
     StoredThreadNotFound,
     StoredThreadUnauthorized,
 )
@@ -215,6 +216,34 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         )
         return {"result": {"document": document.to_dict()}}
 
+    async def _thread_import(request_id, params, client_id, session_id, registry):
+        document = params.get("document")
+        if not isinstance(document, dict):
+            raise AppServerError("document is required", code="INVALID_PARAMS")
+        target_session_id = params.get("sessionId") or params.get("session_id") or session_id
+        if target_session_id is None:
+            session_key = params.get("sessionKey") or params.get("session_key") or "default"
+            if str(session_key).startswith(f"{client_id}:"):
+                session_key = str(session_key)[len(f"{client_id}:"):]
+            target_session_id = f"{client_id}:{session_key}"
+        reader = _stored_reader(registry, client_id)
+        try:
+            imported_thread_id = await reader.import_document(
+                document,
+                session_id=target_session_id,
+                thread_id=params.get("threadId") or params.get("thread_id"),
+                overwrite=bool(params.get("overwrite", False)),
+            )
+            bundle = await reader.load_bundle(imported_thread_id, session_id=target_session_id)
+        except (StoredThreadError, StoredThreadUnauthorized) as exc:
+            raise _stored_error(exc) from exc
+        except Exception as exc:
+            from loguru import logger
+            logger.warning("thread/import failed: {}", exc)
+            raise AppServerError("Thread import rejected", code="INVALID_PARAMS") from exc
+        view = project_stored_thread(bundle, include_turns=bool(params.get("includeTurns", False)))
+        return {"result": {"thread": view.to_dict()}}
+
     async def _thread_name_set(request_id, params, client_id, session_id, registry):
         session = await _require_session(registry, client_id, session_id)
         thread = await session.services.thread_runtime.rename_thread(
@@ -274,6 +303,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
     server.register_method("thread/turns/items/list", _thread_turns_items_list)
     server.register_method("thread/list", _thread_list)
     server.register_method("thread/export", _thread_export)
+    server.register_method("thread/import", _thread_import)
     server.register_method("thread/name/set", _thread_name_set)
     server.register_method("thread/rollback", _thread_rollback)
     server.register_method("thread/loaded/list", _thread_loaded_list)
@@ -363,4 +393,6 @@ def _stored_error(exc: Exception) -> AppServerError:
         return AppServerError("Multiple stored threads match; provide sessionId", code="AMBIGUOUS_THREAD")
     if isinstance(exc, StoredThreadNotFound):
         return AppServerError("Thread not found", code="NOT_FOUND")
+    if isinstance(exc, StoredThreadError):
+        return AppServerError("Stored thread read failed", code="INTERNAL")
     return AppServerError("Stored thread read failed", code="INTERNAL")
