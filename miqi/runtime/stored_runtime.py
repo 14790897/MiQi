@@ -194,14 +194,18 @@ class StoredRuntimeReader:
             )
 
             for row in doc.get("ledgerItems", []):
+                import uuid
                 payload = row.get("payload") or {}
+                # Regenerate item_id to avoid UNIQUE conflicts when
+                # importing into the same database.
+                new_item_id = str(uuid.uuid4())
                 await db.execute(
                     """INSERT INTO runtime_ledger_items
                        (item_id, session_id, thread_id, turn_id, seq, item_type,
                         role, content, payload_json, created_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        row.get("itemId") or row.get("item_id"),
+                        new_item_id,
                         session_id,
                         target_thread_id,
                         row.get("turnId") or row.get("turn_id"),
