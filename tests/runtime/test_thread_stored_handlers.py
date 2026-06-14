@@ -190,3 +190,27 @@ async def test_thread_fork_missing_thread_id_rejected(tmp_path):
         "1", "thread/fork", {}, "client-a", None,
     )
     assert response["code"] == "INVALID_PARAMS"
+
+
+# ── Clean workspace (missing DB) tests ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_thread_list_returns_empty_on_clean_workspace(tmp_path):
+    """thread/list on a workspace with no runtime.db returns []."""
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/list", {}, "client-a", None,
+    )
+    assert response["result"]["data"] == []
+    assert response["result"]["nextCursor"] is None
+
+
+@pytest.mark.asyncio
+async def test_thread_read_returns_not_found_on_clean_workspace(tmp_path):
+    """thread/read on a workspace with no runtime.db returns NOT_FOUND."""
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/read", {"threadId": "thread-1"}, "client-a", None,
+    )
+    assert response["code"] == "NOT_FOUND"
