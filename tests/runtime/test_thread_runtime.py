@@ -94,3 +94,44 @@ async def test_thread_runtime_cross_session_same_thread_id(tmp_path):
     assert await rt_b.get_thread("same-thread") is not None
     await rt_a.close()
     await rt_b.close()
+
+
+# ── Phase 36: Codex-style metadata fields ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_thread_runtime_persists_codex_metadata(tmp_path):
+    runtime = ThreadRuntime(tmp_path / "runtime.db", session_id="s1")
+    await runtime.initialize()
+    try:
+        thread = await runtime.create_thread(
+            title="Named",
+            thread_id="thread-meta",
+            parent_thread_id="parent-1",
+            forked_from_id="source-1",
+            ephemeral=True,
+            cwd="/workspace",
+            metadata={"source": "user"},
+        )
+        loaded = await runtime.get_thread(thread.thread_id)
+        assert loaded is not None
+        assert loaded.forked_from_id == "source-1"
+        assert loaded.ephemeral is True
+        assert loaded.cwd == "/workspace"
+        assert loaded.metadata["source"] == "user"
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_thread_runtime_name_and_status_updates(tmp_path):
+    runtime = ThreadRuntime(tmp_path / "runtime.db", session_id="s1")
+    await runtime.initialize()
+    try:
+        thread = await runtime.create_thread(title="Old", thread_id="thread-1")
+        renamed = await runtime.rename_thread(thread.thread_id, "New")
+        assert renamed.title == "New"
+        archived = await runtime.archive_thread(thread.thread_id)
+        assert archived.status == "archived"
+    finally:
+        await runtime.close()
