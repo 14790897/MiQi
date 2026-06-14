@@ -13,6 +13,35 @@ def test_feature_runtime_lists_default_features():
     assert "runtime.session" in keys
     assert "desktop.next" in keys
 
+    # Every row must include the announcement key
+    for row in page["data"]:
+        assert "announcement" in row
+
+
+def test_feature_runtime_stable_features_have_null_display_metadata():
+    """Stable features: displayName, description, announcement are all None."""
+    fr = FeatureRuntime()
+    page = fr.list_features()
+    stable_rows = [f for f in page["data"] if f["stage"] == "stable"]
+    assert len(stable_rows) > 0
+    for row in stable_rows:
+        assert row["displayName"] is None, f"{row['key']} displayName must be None"
+        assert row["description"] is None, f"{row['key']} description must be None"
+        assert row["announcement"] is None, f"{row['key']} announcement must be None"
+
+
+def test_feature_runtime_beta_features_may_have_display_metadata():
+    """Beta/underDevelopment features may carry displayName/description."""
+    fr = FeatureRuntime()
+    page = fr.list_features()
+    non_stable = [f for f in page["data"] if f["stage"] != "stable"]
+    assert len(non_stable) > 0
+    # At least some non-stable features have display metadata
+    display_names = [f["displayName"] for f in non_stable]
+    assert any(d is not None for d in display_names), (
+        "Expected at least one beta/underDevelopment feature to have a displayName"
+    )
+
 
 def test_feature_runtime_override_changes_enabled():
     fr = FeatureRuntime()

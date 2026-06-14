@@ -428,6 +428,9 @@ class Config(BaseSettings):
     heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
     cron: CronConfig = Field(default_factory=CronConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    # Opaque Desktop-owned settings (e.g. theme, layout).  Not validated —
+    # the Desktop UI reads/writes this via config/batchWrite desktop.* paths.
+    desktop: dict[str, object] = Field(default_factory=dict)
 
     @property
     def workspace_path(self) -> Path:

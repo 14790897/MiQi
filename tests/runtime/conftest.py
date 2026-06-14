@@ -1,9 +1,39 @@
 """Fixtures specific to runtime tests."""
 
-from pathlib import Path
+from __future__ import annotations
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def mock_save_config(monkeypatch, tmp_path):
+    """Prevent config tests from writing to real ~/.miqi/config.json.
+
+    All tests that trigger config/batchWrite or config.update must go
+    through this fixture, which redirects save_config to a tmp_path and
+    patches the real loader's save_config to be a no-op.
+
+    This fixture is autouse so every runtime test is protected.
+    """
+    import miqi.config.loader as loader_module
+
+    # Redirect get_config_path to a temp location
+    monkeypatch.setattr(loader_module, "get_config_path", lambda: tmp_path / "miqi" / "config.json")
+
+    # Replace save_config with a safe wrapper that writes to tmp_path
+    def _safe_save_config(config, config_path=None):
+        path = config_path or (tmp_path / "miqi" / "config.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import json
+        data = config.model_dump(by_alias=True)
+        with open(str(path), "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+    monkeypatch.setattr(loader_module, "save_config", _safe_save_config)
+    yield
+    # Restore happens automatically via monkeypatch
 
 
 @pytest.fixture
