@@ -81,14 +81,15 @@ def register_replay_handlers(server: AppServer) -> None:
     async def _debug_turn(request_id, params, client_id, session_id, registry):
         inspector = _inspector(registry, client_id)
         try:
-            timeline = await inspector.turn_timeline(
+            response = await inspector.build_turn_response(
                 _thread_id(params),
                 _turn_id(params),
                 session_id=_param_session_id(params, session_id),
+                include_raw_ledger=bool(params.get("includeRawLedger", False)),
             )
         except Exception as exc:
             raise _stored_error(exc) from exc
-        return {"result": {"timeline": asdict(timeline) if timeline is not None else None}}
+        return {"result": response}
 
     async def _debug_messages(request_id, params, client_id, session_id, registry):
         inspector = _inspector(registry, client_id)
