@@ -67,12 +67,12 @@ def test_remaining_legacy_handlers_present():
     assert "channels.list" not in _METHODS
     assert "permissions.get" not in _METHODS
     assert "plugins.list" not in _METHODS
+    assert "mcp.list" not in _METHODS
     # These are explicitly NOT yet migrated
     assert "cron.list" in _METHODS
     assert "memory.list" in _METHODS
     assert "plan.get" in _METHODS
     assert "skills.list" in _METHODS
-    assert "mcp.list" in _METHODS
 
 
 def test_methods_dict_count():
