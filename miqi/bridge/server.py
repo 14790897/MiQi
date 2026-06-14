@@ -1761,16 +1761,8 @@ _METHODS = {
     # channels.* are now AppServer methods (Phase 35.2)
     # approvals.* are now AppServer methods (Phase 28.2)
     # cron.* are now AppServer methods (Phase 35.6)
-    "memory.list": handle_memory_list,
-    "memory.get": handle_memory_get,
-    "memory.update": handle_memory_update,
-    "memory.delete": handle_memory_delete,
-    "memory.lessons": handle_memory_lessons,
-    "memory.lesson.unlearn": handle_memory_lesson_unlearn,
-    "experience:list":   handle_experience_list,
-    "experience:delete": handle_experience_delete,
-    "experience:toggle": handle_experience_toggle,
-    "experience:search": handle_experience_search,
+    # memory.* are now AppServer methods (Phase 35.7)
+    # experience:* are now AppServer methods (Phase 35.7)
     # skills.* are now AppServer methods (Phase 35.5)
     # mcp.* are now AppServer methods (Phase 35.4)
     "python.check": handle_python_check,
