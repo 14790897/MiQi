@@ -229,10 +229,11 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         except Exception as exc:
             raise _stored_error(exc) from exc
         from miqi.runtime.thread_export import build_export_document
+        provider_messages = await reader.load_provider_messages(bundle.thread)
         document = build_export_document(
             thread=bundle.thread,
             ledger_items=bundle.ledger_items,
-            provider_messages=[],
+            provider_messages=provider_messages,
         )
         return {"result": {"document": document.to_dict()}}
 
