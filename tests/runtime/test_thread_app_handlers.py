@@ -267,3 +267,51 @@ async def test_thread_read_unauthorized():
     )
     assert response["code"] == "UNAUTHORIZED"
     await registry.stop_all()
+
+
+# ── Phase 36.8: fork copies provider history ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_thread_fork_copies_provider_messages(tmp_path):
+    session_id = "client-1:default"
+    session = _make_mock_session_with_real_runtimes(session_id, tmp_path / "test_thread_fork_copies_provider_messages")
+    await session.services.thread_runtime.initialize()
+    await session.services.ledger_runtime.initialize()
+    await session.services.history_runtime.initialize()
+
+    await session.services.thread_runtime.create_thread(
+        title="Source", thread_id="source",
+    )
+    # Add history (provider-visible) messages
+    await session.services.history_runtime.append_message(
+        thread_id="source", turn_id="turn-1", role="user", content="hello"
+    )
+    # Add ledger items
+    await session.services.ledger_runtime.append_item(
+        thread_id="source", turn_id="turn-1",
+        item_type="message", role="user", content="hello",
+    )
+
+    registry = ClientSessionRegistry()
+    registry._sessions[session_id] = session
+    registry._client_sessions.setdefault("client-1", set()).add(session_id)
+    registry._session_clients.setdefault(session_id, set()).add("client-1")
+    registry._last_activity[session_id] = 0
+
+    server = AppServer(registry)
+    register_codex_thread_handlers(server)
+
+    forked = await server.dispatch(
+        "req-1", "thread/fork",
+        {"threadId": "source", "title": "Child"},
+        "client-1", session_id,
+    )
+    child_id = forked["result"]["thread"]["id"]
+    messages = await session.services.history_runtime.load_messages(child_id)
+    assert messages == [{"role": "user", "content": "hello"}]
+
+    await session.services.thread_runtime.close()
+    await session.services.ledger_runtime.close()
+    await session.services.history_runtime.close()
+    await registry.stop_all()

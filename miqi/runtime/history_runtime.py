@@ -287,6 +287,26 @@ class HistoryRuntime:
         await db.commit()
         return int(cursor.rowcount or 0)
 
+    async def copy_thread_items(self, source_thread_id: str, dest_thread_id: str) -> int:
+        """Copy all history items from source to destination thread.
+
+        Returns the number of copied items.
+        """
+        source_items = await self.load_items(source_thread_id)
+        copied = 0
+        for item in source_items:
+            await self.append_item(HistoryItem(
+                item_id=str(uuid.uuid4()),
+                thread_id=dest_thread_id,
+                turn_id=item.turn_id,
+                role=item.role,
+                content=item.content,
+                payload=dict(item.payload),
+                created_at=item.created_at,
+            ))
+            copied += 1
+        return copied
+
     # ── Phase 19: compaction persistence ───────────────────────────────
 
     async def replace_messages_with_compaction(
