@@ -202,6 +202,16 @@ class BridgeRuntimeLoop:
         from miqi.runtime.skills_app_handlers import register_skills_app_handlers
         register_skills_app_handlers(self._app_server)
 
+        # Register Phase 38: Codex-style model, feature, permission, config handlers
+        from miqi.runtime.model_app_handlers import register_model_app_handlers
+        register_model_app_handlers(self._app_server)
+        from miqi.runtime.feature_app_handlers import register_feature_app_handlers
+        register_feature_app_handlers(self._app_server)
+        from miqi.runtime.permission_profile_app_handlers import register_permission_profile_app_handlers
+        register_permission_profile_app_handlers(self._app_server)
+        from miqi.runtime.config_app_handlers import register_config_app_handlers
+        register_config_app_handlers(self._app_server)
+
         # Register Phase 28.2: approvals.* handlers (session-scoped)
         from miqi.runtime.approval_handlers import (
             approvals_list_handler,
