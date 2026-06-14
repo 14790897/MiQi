@@ -6,7 +6,58 @@ import json
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_context
+
+
+def _workspace_root(registry: Any) -> Path | None:
+    """Return the configured workspace root, or None if unavailable."""
+    state = get_bridge_context(registry, "state", None)
+    if state is None:
+        return None
+    try:
+        return Path(state.load_config().workspace_path).resolve()
+    except Exception:
+        return None
+
+
+def _resolve_allowed_cwd(raw: str, workspace: Path | None) -> Path:
+    """Resolve and validate a cwd path.
+
+    Raises AppServerError if the workspace is configured and the resolved
+    path falls outside it.
+    """
+    resolved = Path(raw).resolve()
+    if workspace is not None:
+        try:
+            resolved.relative_to(workspace)
+        except ValueError:
+            raise AppServerError(
+                f"CWD outside workspace: {raw}", code="INVALID_PARAMS"
+            )
+    return resolved
+
+
+def _resolve_allowed_extra_root(raw: str, workspace: Path | None) -> Path:
+    """Resolve and validate an extra root path.
+
+    Raises AppServerError if the path does not exist on disk or falls
+    outside a configured workspace.
+    """
+    resolved = Path(raw).resolve()
+    if not resolved.exists():
+        raise AppServerError(
+            f"Extra root does not exist: {raw}", code="INVALID_PARAMS"
+        )
+    if workspace is not None:
+        try:
+            resolved.relative_to(workspace)
+        except ValueError:
+            raise AppServerError(
+                f"Extra root outside workspace: {raw}", code="INVALID_PARAMS"
+            )
+    return resolved
 
 
 def _get_client_extra_roots(registry: Any, client_id: str) -> list[Path]:
@@ -29,6 +80,7 @@ def register_skills_app_handlers(server: AppServer) -> None:
     async def _skills_list(request_id, params, client_id, session_id, registry):
         from miqi.agent.skills import SkillsLoader
 
+        workspace = _workspace_root(registry)
         roots = _get_client_extra_roots(registry, client_id)
         cwds = params.get("cwds") or params.get("cwd") or []
         if isinstance(cwds, str):
@@ -40,7 +92,7 @@ def register_skills_app_handlers(server: AppServer) -> None:
         result = []
         seen: set[str] = set()
         for cwd_raw in cwds:
-            cwd = Path(cwd_raw)
+            cwd = _resolve_allowed_cwd(str(cwd_raw), workspace)
             loader = SkillsLoader(workspace=cwd)
             for skill in loader.list_skills(filter_unavailable=False):
                 if skill["name"] in seen:
@@ -74,34 +126,45 @@ def register_skills_app_handlers(server: AppServer) -> None:
         return {"result": {"skills": result}}
 
     async def _extra_roots_set(request_id, params, client_id, session_id, registry):
-        roots = [Path(str(root)).resolve() for root in params.get("roots", [])]
+        workspace = _workspace_root(registry)
+        validated: list[Path] = []
+        for raw in params.get("roots", []):
+            validated.append(_resolve_allowed_extra_root(str(raw), workspace))
         by_client = registry.bridge_context.setdefault("skills_extra_roots_by_client", {})
-        by_client[client_id] = roots
+        by_client[client_id] = validated
         await server.emit_event(
             session_id or "process",
             "skills/changed",
-            {"roots": [str(root) for root in roots]},
+            {"roots": [str(root) for root in validated]},
             request_id=request_id,
         )
         sink = server._event_sinks.get(client_id)
         if sink is not None:
-            await sink({"request_id": request_id, "event": "skills/changed", "data": {"roots": [str(root) for root in roots]}})
+            await sink({"request_id": request_id, "event": "skills/changed", "data": {"roots": [str(root) for root in validated]}})
         return {"result": {}}
 
     async def _hooks_list(request_id, params, client_id, session_id, registry):
+        workspace = _workspace_root(registry)
         cwds = params.get("cwds") or []
         if isinstance(cwds, str):
             cwds = [cwds]
         hooks = []
         for cwd_raw in cwds:
-            path = Path(cwd_raw) / ".miqi" / "hooks" / "hooks.json"
+            cwd = _resolve_allowed_cwd(str(cwd_raw), workspace)
+            path = cwd / ".miqi" / "hooks" / "hooks.json"
             if not path.exists():
                 continue
-            data = json.loads(path.read_text(encoding="utf-8"))
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.warning(
+                    "hooks/list: skipping invalid hooks file {}: {}", path, exc
+                )
+                continue
             entries = data.get("hooks", []) if isinstance(data, dict) else data
             for entry in entries:
                 if isinstance(entry, dict):
-                    hooks.append({"cwd": str(cwd_raw), **entry})
+                    hooks.append({"cwd": str(cwd), **entry})
         return {"result": {"hooks": hooks}}
 
     server.register_method("skills/list", _skills_list)
