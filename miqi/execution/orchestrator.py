@@ -607,8 +607,16 @@ class ToolOrchestrator:
         # must be communicated explicitly — otherwise ExecTool falls back
         # to the legacy path and may use an active sandbox against the
         # orchestrator's decision.
+        # Phase 34: File mutation tools also always receive _sandbox —
+        # the policy engine never returns NONE for them, so this is
+        # normally RESTRICTED.  Injecting even NONE is future-proofing
+        # for tool-body sandbox enforcement and auditing.
+        _FILE_MUTATION_TOOLS = frozenset({
+            "write_file", "edit_file", "delete_file",
+            "docx_write", "pptx_write", "xlsx_write",
+        })
         kwargs = {**ctx.arguments}
-        if ctx.tool_name == "exec":
+        if ctx.tool_name == "exec" or ctx.tool_name in _FILE_MUTATION_TOOLS:
             kwargs["_sandbox"] = sandbox
         elif sandbox.sandbox_type != SandboxType.NONE:
             kwargs["_sandbox"] = sandbox
