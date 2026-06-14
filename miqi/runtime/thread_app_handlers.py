@@ -195,6 +195,26 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         )
         return {"result": page.to_dict()}
 
+    async def _thread_export(request_id, params, client_id, session_id, registry):
+        thread_id = params.get("threadId")
+        if not thread_id:
+            raise AppServerError("threadId is required", code="INVALID_PARAMS")
+        reader = _stored_reader(registry, client_id)
+        try:
+            bundle = await reader.load_bundle(
+                thread_id,
+                session_id=params.get("sessionId") or params.get("session_id") or session_id,
+            )
+        except Exception as exc:
+            raise _stored_error(exc) from exc
+        from miqi.runtime.thread_export import build_export_document
+        document = build_export_document(
+            thread=bundle.thread,
+            ledger_items=bundle.ledger_items,
+            provider_messages=[],
+        )
+        return {"result": {"document": document.to_dict()}}
+
     async def _thread_name_set(request_id, params, client_id, session_id, registry):
         session = await _require_session(registry, client_id, session_id)
         thread = await session.services.thread_runtime.rename_thread(
@@ -253,6 +273,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
     server.register_method("thread/turns/list", _thread_turns_list)
     server.register_method("thread/turns/items/list", _thread_turns_items_list)
     server.register_method("thread/list", _thread_list)
+    server.register_method("thread/export", _thread_export)
     server.register_method("thread/name/set", _thread_name_set)
     server.register_method("thread/rollback", _thread_rollback)
     server.register_method("thread/loaded/list", _thread_loaded_list)
