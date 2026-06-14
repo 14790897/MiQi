@@ -93,12 +93,18 @@ def test_phase38_no_raw_secret_values_in_model_or_config_handlers():
         if not path.exists():
             continue
         text = path.read_text(encoding="utf-8")
-        # Look for lines that return or yield with api_key without redaction
         for line in text.splitlines():
             stripped = line.strip()
-            if "return" in stripped and "api_key" in stripped.lower():
-                if "hint" not in stripped.lower() and "redact" not in stripped.lower():
-                    offenders.append(f"{module_name}: {stripped[:80]}")
+            # Only flag lines that return actual values (not boolean helpers)
+            if not ("return" in stripped and "api_key" in stripped.lower()):
+                continue
+            # Exclude lines that are part of the redaction/detection machinery
+            if any(token in stripped for token in (
+                "hint", "redact", "_is_secret", "_secret_hint",
+                "_SECRET_FIELDS", "_redact_secrets", "any(", "all(",
+            )):
+                continue
+            offenders.append(f"{module_name}: {stripped[:80]}")
 
     assert not offenders, (
         f"Potential raw secret exposure in Phase 38 handlers: {offenders}"

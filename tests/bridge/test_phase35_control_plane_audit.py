@@ -301,15 +301,15 @@ def test_phase35_runtime_bridge_state_imports_audit():
         "permission_handlers.py must use get_bridge_context(registry)"
     )
 
-    # Remaining imports (before Phase 36):
+    # Remaining imports (before Phase 38):
     # - approval_handlers.py: needs orchestrator (Phase 28.2)
     # - file_handlers.py: needs workspace/state for sandbox (Phase 30)
-    # - config_handlers.py: needs state for save_config (Phase 28.3)
     # - session_handlers.py: needs state for data_dir (Phase 28.4)
     # - experience_handlers.py: needs state + singleton store pattern (Phase 35.7)
     # - memory_handlers.py: needs state for workspace/config (Phase 35.7)
     # - cron_handlers.py: needs state for get_data_dir() (Phase 35.6)
-    expected_remaining = 7  # files with at least 1 import
+    # Phase 38.5: config_handlers.py migrated to get_bridge_state(registry) + shared helpers.
+    expected_remaining = 6  # files with at least 1 import
     assert len(imports) == expected_remaining, (
         f"Expected {expected_remaining} runtime files with bridge.server imports, "
         f"got {len(imports)}: {list(imports.keys())}. "
@@ -318,8 +318,8 @@ def test_phase35_runtime_bridge_state_imports_audit():
     )
 
     total_imports = sum(imports.values())
-    assert total_imports == 13, (
-        f"Expected 13 total bridge.server imports in runtime/, "
+    assert total_imports == 11, (
+        f"Expected 11 total bridge.server imports in runtime/, "
         f"got {total_imports}. Update this test if the count changed."
     )
 
