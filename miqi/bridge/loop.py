@@ -198,6 +198,10 @@ class BridgeRuntimeLoop:
         from miqi.runtime.mcp_app_handlers import register_mcp_app_handlers
         register_mcp_app_handlers(self._app_server)
 
+        # Register Phase 37: Codex-style skills and hooks handlers
+        from miqi.runtime.skills_app_handlers import register_skills_app_handlers
+        register_skills_app_handlers(self._app_server)
+
         # Register Phase 28.2: approvals.* handlers (session-scoped)
         from miqi.runtime.approval_handlers import (
             approvals_list_handler,
