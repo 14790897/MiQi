@@ -78,7 +78,7 @@ async def _make_mock_sandbox(*, is_running: bool = True, run_result=None):
 
     async def _wait():
         await process.wait()
-        return process.returncode or -1
+        return process.returncode if process.returncode is not None else -1
 
     async def _kill():
         try:
