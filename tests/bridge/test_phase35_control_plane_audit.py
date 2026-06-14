@@ -88,7 +88,7 @@ def test_phase35_baseline_identifies_control_plane_legacy_methods():
     expected_families = {
         # Phase 35.2: providers.*, channels.*, permissions.* migrated
         # Phase 35.3: plugins.* migrated
-        "mcp": ["mcp.list", "mcp.upsert", "mcp.delete"],
+        # Phase 35.4: mcp.* migrated
         "skills": [
             "skills.list", "skills.get", "skills.open_folder",
             "skills.create", "skills.upload", "skills.delete",

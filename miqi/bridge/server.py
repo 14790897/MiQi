@@ -1783,9 +1783,7 @@ _METHODS = {
     "skills.create": handle_skills_create,
     "skills.upload": handle_skills_upload,
     "skills.delete": handle_skills_delete,
-    "mcp.list": handle_mcp_list,
-    "mcp.upsert": handle_mcp_upsert,
-    "mcp.delete": handle_mcp_delete,
+    # mcp.* are now AppServer methods (Phase 35.4)
     "python.check": handle_python_check,
     # plugins.* are now AppServer methods (Phase 35.3)
     # permissions.* are now AppServer methods (Phase 35.2)

@@ -275,6 +275,16 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("plugins.uninstall", plugins_uninstall_handler)
         self._app_server.register_method("plugins.toggle", plugins_toggle_handler)
 
+        # Register Phase 35.4: mcp.* handlers
+        from miqi.runtime.mcp_handlers import (
+            mcp_list_handler,
+            mcp_upsert_handler,
+            mcp_delete_handler,
+        )
+        self._app_server.register_method("mcp.list", mcp_list_handler)
+        self._app_server.register_method("mcp.upsert", mcp_upsert_handler)
+        self._app_server.register_method("mcp.delete", mcp_delete_handler)
+
         logger.info(
             "BridgeRuntimeLoop: AppServer initialized with {} methods",
             len(self._app_server._methods),
