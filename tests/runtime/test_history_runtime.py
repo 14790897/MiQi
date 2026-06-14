@@ -155,3 +155,25 @@ async def test_compaction_record_stores_audit_metadata(tmp_path):
     assert row["tokens_saved"] == 50
     assert json.loads(row["replacement_json"]) == [{"role": "system", "content": "[summary]"}]
     await runtime.close()
+
+
+# ── Phase 36: history deletion for rollback ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_history_delete_turn_messages(tmp_path):
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="s1")
+    await runtime.initialize()
+    try:
+        await runtime.append_message(
+            thread_id="t1", turn_id="turn-1", role="user", content="one"
+        )
+        await runtime.append_message(
+            thread_id="t1", turn_id="turn-2", role="user", content="two"
+        )
+        removed = await runtime.delete_turn_items("t1", ["turn-2"])
+        assert removed == 1
+        messages = await runtime.load_messages("t1")
+        assert [m["content"] for m in messages] == ["one"]
+    finally:
+        await runtime.close()

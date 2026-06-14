@@ -267,6 +267,26 @@ class HistoryRuntime:
             messages.append(msg)
         return messages
 
+    # ── Phase 36: delete turn items for rollback ───────────────────────
+
+    async def delete_turn_items(self, thread_id: str, turn_ids: list[str]) -> int:
+        """Delete all history items for given turn_ids in a thread.
+
+        Returns the number of deleted rows.
+        """
+        if not turn_ids:
+            return 0
+        placeholders = ",".join("?" for _ in turn_ids)
+        db = self._conn
+        cursor = await db.execute(
+            f"""DELETE FROM runtime_history_items
+                WHERE session_id = ? AND thread_id = ?
+                AND turn_id IN ({placeholders})""",
+            (self.session_id, thread_id, *turn_ids),
+        )
+        await db.commit()
+        return int(cursor.rowcount or 0)
+
     # ── Phase 19: compaction persistence ───────────────────────────────
 
     async def replace_messages_with_compaction(
