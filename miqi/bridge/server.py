@@ -1787,10 +1787,7 @@ _METHODS = {
     "mcp.upsert": handle_mcp_upsert,
     "mcp.delete": handle_mcp_delete,
     "python.check": handle_python_check,
-    "plugins.list": handle_plugins_list,
-    "plugins.install": handle_plugins_install,
-    "plugins.uninstall": handle_plugins_uninstall,
-    "plugins.toggle": handle_plugins_toggle,
+    # plugins.* are now AppServer methods (Phase 35.3)
     # permissions.* are now AppServer methods (Phase 35.2)
     # agent.* are now AppServer methods (Phases 27.4 + 28.5)
     "plan.get": handle_plan_get,

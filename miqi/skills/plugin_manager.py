@@ -136,3 +136,119 @@ class PluginManager:
     def list_plugins(self) -> list[LoadedPlugin]:
         """List all loaded plugins."""
         return list(self._plugins.values())
+
+    def get_plugin(self, name: str) -> LoadedPlugin | None:
+        """Get a loaded plugin by name."""
+        return self._plugins.get(name)
+
+    def install_plugin(self, name: str, url: str) -> LoadedPlugin:
+        """Install a plugin from a GitHub URL.
+
+        Validates plugin name, clones from URL, discovers the new plugin,
+        and returns the loaded plugin. Raises ValueError on invalid input
+        or subprocess.CalledProcessError on clone failure.
+        """
+        import re
+        import subprocess
+        import shutil
+        from urllib.parse import urlparse
+
+        # Validate plugin name
+        if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', name):
+            raise ValueError("Invalid plugin name")
+        if ".." in name:
+            raise ValueError("Invalid plugin name")
+
+        target_dir = (self.user_dir / name).resolve()
+        try:
+            target_dir.relative_to(self.user_dir.resolve())
+        except ValueError:
+            raise ValueError("Invalid plugin path")
+
+        if target_dir.exists():
+            raise ValueError(f"Plugin '{name}' already installed")
+
+        # Validate URL
+        parsed = urlparse(url)
+        ALLOWED_HOSTS = {"github.com", "gitlab.com", "bitbucket.org"}
+        if parsed.scheme != "https":
+            raise ValueError("Only HTTPS URLs are supported")
+        if parsed.hostname not in ALLOWED_HOSTS:
+            raise ValueError(f"Unsupported host: {parsed.hostname}")
+        if "@" in parsed.netloc:
+            raise ValueError("Credentials in URL are not allowed")
+
+        try:
+            subprocess.run(
+                ["git", "clone", "--depth=1", "--", url, str(target_dir)],
+                check=True, capture_output=True, text=True, timeout=60,
+            )
+        except subprocess.CalledProcessError as e:
+            if target_dir.exists():
+                shutil.rmtree(target_dir, ignore_errors=True)
+            raise ValueError(f"Clone failed: {e.stderr}") from e
+        except Exception:
+            if target_dir.exists():
+                shutil.rmtree(target_dir, ignore_errors=True)
+            raise
+
+        # Reload plugins to pick up the new one
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                asyncio.ensure_future(self.discover())
+            else:
+                asyncio.run(self.discover())
+        except RuntimeError:
+            asyncio.run(self.discover())
+
+        plugin = self._plugins.get(name)
+        if plugin is None:
+            raise ValueError(f"Plugin '{name}' installed but not discovered")
+        return plugin
+
+    def uninstall_plugin(self, name: str) -> bool:
+        """Uninstall a plugin by name.
+
+        Removes the plugin directory from user/system dirs and unloads
+        the plugin. Returns True if the plugin was found and removed.
+        """
+        import re
+        import shutil
+
+        if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', name):
+            raise ValueError("Invalid plugin name")
+        if ".." in name:
+            raise ValueError("Invalid plugin name")
+
+        for base in [self.user_dir, self.system_dir]:
+            target = (base / name).resolve()
+            try:
+                target.relative_to(base.resolve())
+            except ValueError:
+                continue
+            if target.exists():
+                shutil.rmtree(target, ignore_errors=True)
+                if name in self._plugins:
+                    del self._plugins[name]
+                return True
+        return False
+
+    def toggle_plugin(self, name: str, enabled: bool) -> LoadedPlugin:
+        """Toggle a plugin enabled/disabled.
+
+        Raises ValueError if the plugin is not found.
+        """
+        import re
+
+        if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', name):
+            raise ValueError("Invalid plugin name")
+        if ".." in name:
+            raise ValueError("Invalid plugin name")
+
+        plugin = self._plugins.get(name)
+        if plugin is None:
+            raise ValueError(f"Plugin '{name}' not found")
+        plugin.status = "active" if enabled else "disabled"
+        return plugin
