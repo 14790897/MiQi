@@ -71,7 +71,9 @@ def test_remaining_legacy_handlers_present():
     assert "skills.list" not in _METHODS
     assert "cron.list" not in _METHODS
     assert "memory.list" not in _METHODS
-    # These are explicitly NOT yet migrated
+    assert "python.check" not in _METHODS
+    # These are explicitly NOT yet migrated (transport-only bridge methods)
+    assert "status" in _METHODS
     assert "plan.get" in _METHODS
 
 

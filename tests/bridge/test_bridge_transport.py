@@ -233,5 +233,8 @@ def test_bridge_existing_dispatch_still_works(monkeypatch):
     assert "cron.list" not in _METHODS  # migrated to AppServer
     # memory.* migrated to AppServer (Phase 35.7)
     assert "memory.list" not in _METHODS  # migrated to AppServer
+    # python.check migrated to AppServer (Phase 35.8)
+    assert "python.check" not in _METHODS  # migrated to AppServer
     # These legacy handlers should still be present
+    assert "status" in _METHODS
     assert "plan.get" in _METHODS

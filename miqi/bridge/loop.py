@@ -347,6 +347,10 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("experience:toggle", experience_toggle_handler)
         self._app_server.register_method("experience:search", experience_search_handler)
 
+        # Register Phase 35.8: diagnostic handlers
+        from miqi.runtime.diagnostic_handlers import python_check_handler
+        self._app_server.register_method("python.check", python_check_handler)
+
         logger.info(
             "BridgeRuntimeLoop: AppServer initialized with {} methods",
             len(self._app_server._methods),
