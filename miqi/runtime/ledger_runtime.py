@@ -217,3 +217,71 @@ class LedgerRuntime:
             message.update(item.payload.get("message_fields", {}))
             messages.append(message)
         return messages
+
+    # ── Phase 36: turn listing, fork copy, rollback ───────────────────────
+
+    async def list_turn_ids(self, thread_id: str) -> list[str]:
+        """Return turn_ids in ledger sequence order for a thread."""
+        seen: dict[str, int] = {}
+        for item in await self.load_effective_items(thread_id):
+            if item.turn_id and item.turn_id not in seen:
+                seen[item.turn_id] = item.seq
+        return sorted(seen.keys(), key=lambda turn_id: seen[turn_id])
+
+    async def load_turn_items(self, thread_id: str, turn_id: str) -> list[LedgerItem]:
+        """Return ledger items for a specific turn in a thread."""
+        return [
+            item for item in await self.load_effective_items(thread_id)
+            if item.turn_id == turn_id
+        ]
+
+    async def copy_thread_items(self, source_thread_id: str, dest_thread_id: str) -> int:
+        """Copy all effective ledger items from source to destination thread."""
+        copied = 0
+        for item in await self.load_effective_items(source_thread_id):
+            payload = dict(item.payload)
+            payload["copied_from_thread_id"] = source_thread_id
+            payload["copied_from_item_id"] = item.item_id
+            await self.append_item(
+                thread_id=dest_thread_id,
+                turn_id=item.turn_id,
+                item_type=item.item_type,
+                role=item.role,
+                content=item.content,
+                payload=payload,
+            )
+            copied += 1
+        return copied
+
+    async def append_rollback_marker(
+        self, thread_id: str, *, drop_last_turns: int
+    ) -> LedgerItem:
+        """Append a rollback marker removing the last N turns."""
+        turn_ids = await self.list_turn_ids(thread_id)
+        removed = turn_ids[-drop_last_turns:] if drop_last_turns > 0 else []
+        return await self.append_item(
+            thread_id=thread_id,
+            item_type="thread_rollback",
+            content="",
+            payload={
+                "drop_last_turns": drop_last_turns,
+                "removed_turn_ids": removed,
+            },
+        )
+
+    async def load_effective_items(self, thread_id: str) -> list[LedgerItem]:
+        """Load ledger items filtered through rollback markers.
+
+        Items from turns removed by rollback markers are excluded.
+        Rollback marker items themselves are also excluded.
+        """
+        items = await self.load_items(thread_id)
+        removed: set[str] = set()
+        for item in items:
+            if item.item_type == "thread_rollback":
+                removed.update(item.payload.get("removed_turn_ids", []))
+        return [
+            item for item in items
+            if item.item_type != "thread_rollback"
+            and (item.turn_id is None or item.turn_id not in removed)
+        ]

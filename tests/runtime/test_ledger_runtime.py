@@ -146,3 +146,56 @@ async def test_ledger_concurrent_appends_sequential_no_duplicate_seqs(tmp_path):
         assert [item.seq for item in loaded] == list(range(1, N + 1))
     finally:
         await runtime.close()
+
+
+# ── Phase 36: turn listing, fork copy, rollback ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_ledger_lists_turns_in_sequence(tmp_path):
+    from miqi.runtime.ledger_runtime import LedgerRuntime
+
+    ledger = LedgerRuntime(tmp_path / "runtime.db", session_id="s1")
+    await ledger.initialize()
+    try:
+        await ledger.append_item(thread_id="t1", turn_id="turn-1", item_type="turn_started")
+        await ledger.append_item(thread_id="t1", turn_id="turn-1", item_type="message", role="user", content="a")
+        await ledger.append_item(thread_id="t1", turn_id="turn-2", item_type="turn_started")
+        assert await ledger.list_turn_ids("t1") == ["turn-1", "turn-2"]
+    finally:
+        await ledger.close()
+
+
+@pytest.mark.asyncio
+async def test_ledger_copy_thread_items_to_fork(tmp_path):
+    from miqi.runtime.ledger_runtime import LedgerRuntime
+
+    ledger = LedgerRuntime(tmp_path / "runtime.db", session_id="s1")
+    await ledger.initialize()
+    try:
+        await ledger.append_item(thread_id="source", turn_id="turn-1", item_type="message", role="user", content="hi")
+        copied = await ledger.copy_thread_items("source", "fork")
+        assert copied == 1
+        fork_items = await ledger.load_items("fork")
+        assert len(fork_items) == 1
+        assert fork_items[0].content == "hi"
+        assert fork_items[0].payload["copied_from_thread_id"] == "source"
+    finally:
+        await ledger.close()
+
+
+@pytest.mark.asyncio
+async def test_ledger_rollback_marker_hides_last_turn(tmp_path):
+    from miqi.runtime.ledger_runtime import LedgerRuntime
+
+    ledger = LedgerRuntime(tmp_path / "runtime.db", session_id="s1")
+    await ledger.initialize()
+    try:
+        await ledger.append_item(thread_id="t1", turn_id="turn-1", item_type="message", role="user", content="one")
+        await ledger.append_item(thread_id="t1", turn_id="turn-2", item_type="message", role="user", content="two")
+        marker = await ledger.append_rollback_marker("t1", drop_last_turns=1)
+        assert marker.payload["removed_turn_ids"] == ["turn-2"]
+        visible = await ledger.load_effective_items("t1")
+        assert [item.turn_id for item in visible if item.turn_id] == ["turn-1"]
+    finally:
+        await ledger.close()
