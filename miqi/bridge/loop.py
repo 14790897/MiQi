@@ -186,6 +186,10 @@ class BridgeRuntimeLoop:
         # Register Phase 26.6 command handlers (thread.*, chat.abort)
         register_command_handlers(self._app_server)
 
+        # Register Phase 36: Codex-style thread handlers
+        from miqi.runtime.thread_app_handlers import register_codex_thread_handlers
+        register_codex_thread_handlers(self._app_server)
+
         # Register Phase 28.2: approvals.* handlers (session-scoped)
         from miqi.runtime.approval_handlers import (
             approvals_list_handler,
