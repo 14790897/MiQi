@@ -315,3 +315,128 @@ async def test_thread_fork_copies_provider_messages(tmp_path):
     await session.services.ledger_runtime.close()
     await session.services.history_runtime.close()
     await registry.stop_all()
+
+
+# ── Phase 36.9: thread notifications ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_thread_start_emits_thread_started(tmp_path):
+    session_id = "client-1:default"
+    session = _make_mock_session_with_real_runtimes(session_id, tmp_path / "test_thread_start_emits_thread_started")
+    await session.services.thread_runtime.initialize()
+    await session.services.ledger_runtime.initialize()
+
+    registry = ClientSessionRegistry()
+    registry._sessions[session_id] = session
+    registry._client_sessions.setdefault("client-1", set()).add(session_id)
+    registry._session_clients.setdefault(session_id, set()).add("client-1")
+    registry._last_activity[session_id] = 0
+
+    server = AppServer(registry)
+    register_codex_thread_handlers(server)
+
+    events = []
+    async def event_sink(envelope):
+        events.append(envelope)
+    server.set_event_sink("client-1", event_sink)
+
+    await server.dispatch(
+        "req-1", "thread/start",
+        {"threadId": "notify-1", "title": "Notify"},
+        "client-1", session_id,
+    )
+    assert any(e.get("event") == "thread/started" for e in events), (
+        f"Expected thread/started event in {events}"
+    )
+
+    await session.services.thread_runtime.close()
+    await session.services.ledger_runtime.close()
+    await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_thread_name_set_emits_name_updated(tmp_path):
+    session_id = "client-1:default"
+    session = _make_mock_session_with_real_runtimes(session_id, tmp_path / "test_thread_name_set_emits_name_updated")
+    await session.services.thread_runtime.initialize()
+    await session.services.ledger_runtime.initialize()
+    await session.services.thread_runtime.create_thread(
+        title="Old", thread_id="t1",
+    )
+
+    registry = ClientSessionRegistry()
+    registry._sessions[session_id] = session
+    registry._client_sessions.setdefault("client-1", set()).add(session_id)
+    registry._session_clients.setdefault(session_id, set()).add("client-1")
+    registry._last_activity[session_id] = 0
+
+    server = AppServer(registry)
+    register_codex_thread_handlers(server)
+
+    events = []
+    async def event_sink(envelope):
+        events.append(envelope)
+    server.set_event_sink("client-1", event_sink)
+    server.subscribe("client-1", session_id)  # ensure client is subscribed
+
+    await server.dispatch(
+        "req-1", "thread/name/set",
+        {"threadId": "t1", "name": "New"},
+        "client-1", session_id,
+    )
+    assert any(e.get("event") == "thread/name/updated" for e in events), (
+        f"Expected thread/name/updated event in {events}"
+    )
+
+    await session.services.thread_runtime.close()
+    await session.services.ledger_runtime.close()
+    await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_thread_rollback_emits_rollback_event(tmp_path):
+    session_id = "client-1:default"
+    session = _make_mock_session_with_real_runtimes(session_id, tmp_path / "test_thread_rollback_emits")
+    await session.services.thread_runtime.initialize()
+    await session.services.ledger_runtime.initialize()
+    await session.services.history_runtime.initialize()
+
+    await session.services.thread_runtime.create_thread(title="RB", thread_id="thread-rb")
+    await session.services.ledger_runtime.append_item(
+        thread_id="thread-rb", turn_id="turn-1",
+        item_type="turn_started",
+    )
+    await session.services.ledger_runtime.append_item(
+        thread_id="thread-rb", turn_id="turn-1",
+        item_type="turn_completed",
+    )
+
+    registry = ClientSessionRegistry()
+    registry._sessions[session_id] = session
+    registry._client_sessions.setdefault("client-1", set()).add(session_id)
+    registry._session_clients.setdefault(session_id, set()).add("client-1")
+    registry._last_activity[session_id] = 0
+
+    server = AppServer(registry)
+    register_codex_thread_handlers(server)
+
+    events = []
+    async def event_sink(envelope):
+        events.append(envelope)
+    server.set_event_sink("client-1", event_sink)
+    server.subscribe("client-1", session_id)
+
+    await server.dispatch(
+        "req-1", "thread/rollback",
+        {"threadId": "thread-rb", "dropLastTurns": 1},
+        "client-1", session_id,
+    )
+    assert any(e.get("event") == "thread/rollback" for e in events), (
+        f"Expected thread/rollback event in {events}"
+    )
+
+    await session.services.thread_runtime.close()
+    await session.services.ledger_runtime.close()
+    await session.services.history_runtime.close()
+    await registry.stop_all()
