@@ -129,3 +129,64 @@ async def test_thread_turns_items_list_still_unsupported(tmp_path):
         "1", "thread/turns/items/list", {"threadId": "x"}, "client-a", None,
     )
     assert response["code"] == "UNSUPPORTED_METHOD"
+
+
+# ── Stored rollback and fork tests ──────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_thread_rollback_works_on_stored_thread_without_live_session(tmp_path):
+    db = tmp_path / ".miqi-runtime" / "runtime.db"
+    await _seed_thread(db)
+    # Add a second turn directly
+    ledger = LedgerRuntime(db, session_id="client-a:default")
+    await ledger.initialize()
+    try:
+        await ledger.append_item(thread_id="thread-1", turn_id="turn-2", item_type="turn_started")
+        await ledger.append_item(thread_id="thread-1", turn_id="turn-2", item_type="message", role="user", content="drop")
+        await ledger.append_item(thread_id="thread-1", turn_id="turn-2", item_type="turn_completed")
+    finally:
+        await ledger.close()
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/rollback",
+        {"threadId": "thread-1", "dropLastTurns": 1},
+        "client-a",
+        None,
+    )
+    turns = response["result"]["thread"]["turns"]
+    assert [turn["id"] for turn in turns] == ["turn-1"]
+
+
+@pytest.mark.asyncio
+async def test_thread_fork_copies_stored_thread_without_live_session(tmp_path):
+    db = tmp_path / ".miqi-runtime" / "runtime.db"
+    await _seed_thread(db, thread_id="source")
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/fork",
+        {"threadId": "source", "title": "Forked", "excludeTurns": False},
+        "client-a",
+        None,
+    )
+    thread = response["result"]["thread"]
+    assert thread["forkedFromId"] == "source"
+    assert thread["turns"][0]["id"] == "turn-1"
+
+
+@pytest.mark.asyncio
+async def test_thread_rollback_missing_thread_id_rejected(tmp_path):
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/rollback", {"dropLastTurns": 1}, "client-a", None,
+    )
+    assert response["code"] == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_thread_fork_missing_thread_id_rejected(tmp_path):
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/fork", {}, "client-a", None,
+    )
+    assert response["code"] == "INVALID_PARAMS"

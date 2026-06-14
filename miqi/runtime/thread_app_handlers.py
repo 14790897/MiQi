@@ -76,32 +76,52 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         return {"result": {"thread": view.to_dict()}}
 
     async def _thread_fork(request_id, params, client_id, session_id, registry):
-        # Respect dispatch session_id when provided; otherwise derive from params.
+        source_id = params.get("threadId")
+        if not source_id:
+            raise AppServerError("threadId is required", code="INVALID_PARAMS")
+        include_turns = not bool(params.get("excludeTurns", False))
+        items_view = params.get("itemsView", "summary")
+
+        # Live-first: use existing session if available.
         if session_id is not None:
-            session = await _require_session(registry, client_id, session_id)
-        else:
-            session = await _get_or_create_session(registry, client_id, params)
-        threads = session.services.thread_runtime
-        ledger = session.services.ledger_runtime
-        history = getattr(session.services, "history_runtime", None)
-        projection = _projection(session)
-        source_id = params["threadId"]
-        child = await threads.fork_thread(
-            source_id,
-            title=params.get("title", "Fork"),
-        )
-        if ledger is not None:
-            await ledger.copy_thread_items(source_id, child.thread_id)
-        if history is not None and hasattr(history, "copy_thread_items"):
-            await history.copy_thread_items(source_id, child.thread_id)
-        view = await projection.read_thread(
-            child.thread_id,
-            include_turns=not bool(params.get("excludeTurns", False)),
-            items_view=params.get("itemsView", "summary"),
-        )
-        await server.emit_event(
-            session.session_id, "thread/started", {"thread": view.to_dict()},
-        )
+            live = await registry.get_session(client_id, session_id)
+            if live is not None:
+                threads = live.services.thread_runtime
+                ledger = live.services.ledger_runtime
+                history = getattr(live.services, "history_runtime", None)
+                projection = _projection(live)
+                child = await threads.fork_thread(
+                    source_id,
+                    title=params.get("title", "Fork"),
+                )
+                if ledger is not None:
+                    await ledger.copy_thread_items(source_id, child.thread_id)
+                if history is not None and hasattr(history, "copy_thread_items"):
+                    await history.copy_thread_items(source_id, child.thread_id)
+                view = await projection.read_thread(
+                    child.thread_id,
+                    include_turns=include_turns,
+                    items_view=items_view,
+                )
+                await server.emit_event(
+                    live.session_id, "thread/started", {"thread": view.to_dict()},
+                )
+                return {"result": {"thread": view.to_dict()}}
+
+        # Stored fallback: fork without a live session.
+        reader = _stored_reader(registry, client_id)
+        target_session_id = params.get("sessionId") or params.get("session_id") or session_id
+        try:
+            bundle = await reader.fork_stored_thread(
+                source_id,
+                title=params.get("title", "Fork"),
+                target_session_id=target_session_id,
+                new_thread_id=None,  # Always auto-generate to avoid UNIQUE conflicts
+                exclude_turns=not include_turns,
+            )
+        except Exception as exc:
+            raise _stored_error(exc) from exc
+        view = project_stored_thread(bundle, include_turns=include_turns, items_view=items_view)
         return {"result": {"thread": view.to_dict()}}
 
     async def _thread_read(request_id, params, client_id, session_id, registry):
@@ -257,30 +277,46 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         return {"result": {"thread": view.to_dict()}}
 
     async def _thread_rollback(request_id, params, client_id, session_id, registry):
-        session = await _require_session(registry, client_id, session_id)
-        thread_id = params["threadId"]
+        thread_id = params.get("threadId")
+        if not thread_id:
+            raise AppServerError("threadId is required", code="INVALID_PARAMS")
         drop_last_turns = int(params.get("dropLastTurns", params.get("numTurns", 1)))
         if drop_last_turns < 1:
             raise AppServerError("dropLastTurns must be >= 1", code="INVALID_PARAMS")
-        marker = await session.services.ledger_runtime.append_rollback_marker(
-            thread_id,
-            drop_last_turns=drop_last_turns,
-        )
-        removed = list(marker.payload.get("removed_turn_ids", []))
-        history = getattr(session.services, "history_runtime", None)
-        if history is not None:
-            await history.delete_turn_items(thread_id, removed)
-        view = await _projection(session).read_thread(
-            thread_id,
-            include_turns=True,
-            items_view=params.get("itemsView", "summary"),
-        )
-        await server.emit_event(
-            session.session_id, "thread/rollback",
-            {
-                "threadId": thread_id,
-                "removedTurnIds": removed,
-            },
+
+        # Live-first path
+        if session_id is not None:
+            live = await registry.get_session(client_id, session_id)
+            if live is not None:
+                marker = await live.services.ledger_runtime.append_rollback_marker(
+                    thread_id, drop_last_turns=drop_last_turns,
+                )
+                removed = list(marker.payload.get("removed_turn_ids", []))
+                history = getattr(live.services, "history_runtime", None)
+                if history is not None:
+                    await history.delete_turn_items(thread_id, removed)
+                view = await _projection(live).read_thread(
+                    thread_id, include_turns=True,
+                    items_view=params.get("itemsView", "summary"),
+                )
+                await server.emit_event(
+                    live.session_id, "thread/rollback",
+                    {"threadId": thread_id, "removedTurnIds": removed},
+                )
+                return {"result": {"thread": view.to_dict()}}
+
+        # Stored fallback
+        reader = _stored_reader(registry, client_id)
+        try:
+            bundle = await reader.rollback_stored_thread(
+                thread_id,
+                drop_last_turns=drop_last_turns,
+                session_id=params.get("sessionId") or params.get("session_id") or session_id,
+            )
+        except Exception as exc:
+            raise _stored_error(exc) from exc
+        view = project_stored_thread(
+            bundle, include_turns=True, items_view=params.get("itemsView", "summary"),
         )
         return {"result": {"thread": view.to_dict()}}
 
