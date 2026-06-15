@@ -84,7 +84,10 @@ async def _drain_turn_events(
             )
 
         event_type = getattr(event, "type", "")
-        if event_type in {"turn_complete", "turn_aborted", "error"}:
+        if event_type in {"turn_complete", "turn_aborted"}:
+            return
+        # Phase 41 hardening: only terminate drain on non-recoverable errors
+        if event_type == "error" and not getattr(event, "recoverable", True):
             return
 
 
@@ -101,6 +104,21 @@ def register_codex_turn_handlers(server: AppServer) -> None:
         thread_id = params.get("threadId") or params.get("thread_id")
         if not thread_id:
             raise AppServerError("threadId is required", code="INVALID_PARAMS")
+
+        # Phase 41 hardening: reject second turn/start while a turn is running
+        if session.active_turn_id(thread_id) is not None:
+            raise AppServerError(
+                "A turn is already running for this thread",
+                code="INVALID_REQUEST",
+            )
+
+        # Phase 41 hardening: validate thread exists before starting a turn
+        thread_runtime = getattr(session.services, "thread_runtime", None)
+        if thread_runtime is not None:
+            thread = await thread_runtime.get_thread(thread_id)
+            if thread is None:
+                raise AppServerError("Thread not found", code="NOT_FOUND")
+
         try:
             input_items = normalize_turn_input(params.get("input"))
         except TurnProtocolError as exc:

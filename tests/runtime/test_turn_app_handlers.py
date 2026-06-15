@@ -19,7 +19,7 @@ class _FakeRuntime:
         self.services.thread_runtime.get_thread = AsyncMock(return_value=MagicMock(thread_id="thread-1"))
         self.submit = AsyncMock(side_effect=self._submit)
         self.next_event = AsyncMock()
-        self.active_turn_id = MagicMock(return_value="turn-1")
+        self.active_turn_id = MagicMock(return_value=None)
         self.interrupt_turn = AsyncMock(return_value=True)
         self.steer_turn = AsyncMock(return_value=True)
 
@@ -269,4 +269,60 @@ async def test_thread_compact_start_returns_immediately_and_owns_background_task
     assert response["result"] == {}
     assert server._background_tasks
 
+    await server.stop()
+
+
+# ── Phase 41 hardening: active-turn gate ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_turn_start_rejects_when_active_turn_exists_for_thread():
+    """Fix 1: turn/start must return INVALID_REQUEST when a turn is already running."""
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+    runtime.active_turn_id = MagicMock(return_value="turn-running")
+    _register_runtime(registry, runtime)
+
+    from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+    server = AppServer(registry)
+    register_codex_turn_handlers(server)
+
+    response = await server.dispatch(
+        "req-1",
+        "turn/start",
+        {"threadId": "thread-1", "input": [{"type": "text", "text": "hello"}]},
+        "client-1",
+        runtime.session_id,
+    )
+
+    assert response["code"] == "INVALID_REQUEST"
+    assert not runtime.submissions  # No UserMessage submitted
+    await server.stop()
+
+
+# ── Phase 41 hardening: thread existence validation ──────────────────────
+
+
+@pytest.mark.asyncio
+async def test_turn_start_rejects_unknown_thread_id():
+    """Fix 2: turn/start must return NOT_FOUND for unknown threadId."""
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+    runtime.services.thread_runtime.get_thread = AsyncMock(return_value=None)
+    _register_runtime(registry, runtime)
+
+    from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+    server = AppServer(registry)
+    register_codex_turn_handlers(server)
+
+    response = await server.dispatch(
+        "req-1",
+        "turn/start",
+        {"threadId": "thread-nonexistent", "input": [{"type": "text", "text": "hello"}]},
+        "client-1",
+        runtime.session_id,
+    )
+
+    assert response["code"] == "NOT_FOUND"
+    assert not runtime.submissions  # No UserMessage submitted
     await server.stop()
