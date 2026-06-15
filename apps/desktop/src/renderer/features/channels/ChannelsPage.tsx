@@ -4,6 +4,14 @@ import { cn } from '../../lib/utils'
 import { useRestartRequired } from '../../contexts/RestartRequiredContext'
 import type { ChannelsConfig } from '../../../shared/ipc'
 
+// ─── Feature flags ───────────────────────────────────────────────────────────
+// Toggle frontend exposure of experimental / deprecated features.
+// Code modules are kept for future re-enabling or backend use.
+const FEATURES = {
+  /** Feishu/Lark gateway — frontend UI hidden (backend module retained) */
+  FEISHU_ENABLED: false,
+} as const
+
 // ─── Toggle row ──────────────────────────────────────────────────────────────
 function ToggleRow({
   label,
@@ -326,11 +334,13 @@ export function ChannelsPage() {
               />
             </div>
 
-            {/* Feishu */}
-            <FeishuSection
-              config={config.feishu}
-              onChange={(feishu) => setConfig({ ...config, feishu })}
-            />
+            {/* Feishu — frontend hidden, backend module retained */}
+            {FEATURES.FEISHU_ENABLED && (
+              <FeishuSection
+                config={config.feishu}
+                onChange={(feishu) => setConfig({ ...config, feishu })}
+              />
+            )}
           </>
         )}
       </div>
