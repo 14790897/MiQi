@@ -104,7 +104,9 @@ def register_codex_turn_handlers(server: AppServer) -> None:
         try:
             input_items = normalize_turn_input(params.get("input"))
         except TurnProtocolError as exc:
-            raise AppServerError(str(exc), code="INVALID_PARAMS") from exc
+            from loguru import logger
+            logger.warning("turn/start invalid input: {}", exc)
+            raise AppServerError("Invalid turn input", code="INVALID_PARAMS") from exc
 
         content = input_text(input_items)
         if not content:
@@ -176,7 +178,7 @@ def register_codex_turn_handlers(server: AppServer) -> None:
         try:
             input_items = normalize_turn_input(params.get("input"))
         except TurnProtocolError as exc:
-            raise AppServerError(str(exc), code="INVALID_PARAMS") from exc
+            raise AppServerError("Invalid turn input", code="INVALID_PARAMS") from exc
         content = input_text(input_items)
         if not content:
             raise AppServerError(
@@ -215,7 +217,7 @@ def register_codex_turn_handlers(server: AppServer) -> None:
             try:
                 message = injected_message_to_provider_message(item)
             except TurnProtocolError as exc:
-                raise AppServerError(str(exc), code="INVALID_PARAMS") from exc
+                raise AppServerError("Invalid turn input", code="INVALID_PARAMS") from exc
             role = message["role"]
             content = message["content"]
             fields = message.get("message_fields", {})
