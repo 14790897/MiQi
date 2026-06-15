@@ -349,3 +349,28 @@ def test_registry_explicit_client_id_accepted():
     registry = ClientSessionRegistry()
     cid = registry.resolve_client_id("explicit-client")
     assert cid == "explicit-client"
+
+
+# ── Phase 41: background task ownership ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_app_server_cancels_owned_background_tasks_on_stop():
+    import asyncio
+
+    from miqi.runtime.app_server import AppServer, ClientSessionRegistry
+
+    server = AppServer(ClientSessionRegistry())
+    await server.start()
+
+    async def _forever():
+        while True:
+            await asyncio.sleep(1)
+
+    task = server.create_background_task(_forever(), name="phase41-test")
+    assert not task.done()
+
+    await server.stop()
+
+    assert task.done()
+    assert task.cancelled() or task.exception() is not None

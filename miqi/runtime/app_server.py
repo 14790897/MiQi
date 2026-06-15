@@ -232,6 +232,8 @@ class AppServer:
         self._subscriptions: dict[str, set[str]] = {}
         # client_id → async callable(event_dict)
         self._event_sinks: dict[str, Any] = {}
+        # Phase 41: background tasks owned by AppServer shutdown
+        self._background_tasks: set[asyncio.Task] = set()
 
     # ── method registration ──────────────────────────────────────────────
 
@@ -371,6 +373,13 @@ class AppServer:
         self._ttl_task = asyncio.create_task(self._run_ttl_loop())
         logger.info("AppServer started (TTL interval={}s)", self._ttl_interval)
 
+    def create_background_task(self, coro: Any, *, name: str | None = None) -> asyncio.Task:
+        """Create a background task owned by AppServer shutdown."""
+        task = asyncio.create_task(coro, name=name)
+        self._background_tasks.add(task)
+        task.add_done_callback(lambda t: self._background_tasks.discard(t))
+        return task
+
     async def stop(self) -> None:
         """Stop the AppServer, cancel TTL task, and stop all sessions."""
         self._running = False
@@ -381,6 +390,14 @@ class AppServer:
             except asyncio.CancelledError:
                 pass
             self._ttl_task = None
+        # Phase 41: cancel owned background tasks
+        if self._background_tasks:
+            tasks = list(self._background_tasks)
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            self._background_tasks.clear()
         await self.registry.stop_all()
         logger.info("AppServer stopped")
 
