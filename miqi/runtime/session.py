@@ -345,13 +345,16 @@ class RuntimeSession:
                     # New submission arrived while turn was running
                     submission = d.result()
                     if isinstance(submission, AbortTurn):
+                        had_active = False
                         async with self._lock:
                             if self._active_turn_task is not None:
                                 self._active_turn_task.cancel()
                                 self._active_turn_task = None
+                                had_active = True
                         if not get_task.done():
                             get_task.cancel()
-                        await self._runner.handle(submission)
+                        if not had_active:
+                            await self._runner.handle(submission)
                     elif isinstance(submission, SteerTurn):
                         # Handle steering inline during active turn
                         await self._runner.handle(submission)
