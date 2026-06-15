@@ -58,37 +58,44 @@ async def _drain_turn_events(
         input_items=input_items,
         client_user_message_id=client_user_message_id,
     )
-    while True:
-        event = await session.next_event(timeout=300)
-        if event is None:
-            await server.emit_event(
-                session.session_id,
-                "error",
-                {"error": {"message": "Turn timed out after 300s"}},
-                request_id=request_id,
-            )
-            await server.emit_event(
-                session.session_id,
-                "turn/completed",
-                {"turn": turn_view(turn_id, thread_id, "failed", error_message="Turn timed out after 300s")},
-                request_id=request_id,
-            )
-            return
+    try:
+        while True:
+            event = await session.next_event(timeout=300)
+            if event is None:
+                await server.emit_event(
+                    session.session_id,
+                    "error",
+                    {"error": {"message": "Turn timed out after 300s"}},
+                    request_id=request_id,
+                )
+                await server.emit_event(
+                    session.session_id,
+                    "turn/completed",
+                    {"turn": turn_view(turn_id, thread_id, "failed", error_message="Turn timed out after 300s")},
+                    request_id=request_id,
+                )
+                return
 
-        for projected in adapter.project(event):
-            await server.emit_event(
-                session.session_id,
-                projected["event"],
-                projected["data"],
-                request_id=request_id,
-            )
+            for projected in adapter.project(event):
+                await server.emit_event(
+                    session.session_id,
+                    projected["event"],
+                    projected["data"],
+                    request_id=request_id,
+                )
 
-        event_type = getattr(event, "type", "")
-        if event_type in {"turn_complete", "turn_aborted"}:
-            return
-        # Phase 41 hardening: only terminate drain on non-recoverable errors
-        if event_type == "error" and not getattr(event, "recoverable", True):
-            return
+            event_type = getattr(event, "type", "")
+            if event_type in {"turn_complete", "turn_aborted"}:
+                return
+            # Phase 41 hardening: only terminate drain on non-recoverable errors
+            if event_type == "error" and not getattr(event, "recoverable", True):
+                return
+    finally:
+        # Phase 41 hardening v2: release the turn reservation so the
+        # next turn/start for this thread can proceed.
+        release = getattr(session, "release_turn_reservation", None)
+        if callable(release):
+            await release(thread_id)
 
 
 # ── registration ───────────────────────────────────────────────────────────
@@ -105,56 +112,64 @@ def register_codex_turn_handlers(server: AppServer) -> None:
         if not thread_id:
             raise AppServerError("threadId is required", code="INVALID_PARAMS")
 
-        # Phase 41 hardening: reject second turn/start while a turn is running
-        if session.active_turn_id(thread_id) is not None:
+        # Phase 41 hardening v2: atomically check-and-reserve a turn slot.
+        # This closes the race window between the previous active_turn_id
+        # check and the subsequent session.submit(UserMessage).
+        turn_id = _turn_id()
+        if not await session.try_reserve_turn(thread_id, turn_id):
             raise AppServerError(
                 "A turn is already running for this thread",
                 code="INVALID_REQUEST",
             )
 
-        # Phase 41 hardening: validate thread exists before starting a turn
-        thread_runtime = getattr(session.services, "thread_runtime", None)
-        if thread_runtime is not None:
-            thread = await thread_runtime.get_thread(thread_id)
-            if thread is None:
-                raise AppServerError("Thread not found", code="NOT_FOUND")
-
         try:
-            input_items = normalize_turn_input(params.get("input"))
-        except TurnProtocolError as exc:
-            from loguru import logger
-            logger.warning("turn/start invalid input: {}", exc)
-            raise AppServerError("Invalid turn input", code="INVALID_PARAMS") from exc
+            # Phase 41 hardening: validate thread exists before starting a turn
+            thread_runtime = getattr(session.services, "thread_runtime", None)
+            if thread_runtime is not None:
+                thread = await thread_runtime.get_thread(thread_id)
+                if thread is None:
+                    raise AppServerError("Thread not found", code="NOT_FOUND")
 
-        content = input_text(input_items)
-        if not content:
-            raise AppServerError(
-                "turn/start requires at least one text input item in Phase 41",
-                code="INVALID_PARAMS",
-            )
+            try:
+                input_items = normalize_turn_input(params.get("input"))
+            except TurnProtocolError as exc:
+                from loguru import logger
+                logger.warning("turn/start invalid input: {}", exc)
+                raise AppServerError("Invalid turn input", code="INVALID_PARAMS") from exc
 
-        turn_id = _turn_id()
-        client_msg_id = params.get("clientUserMessageId")
-
-        server.subscribe(client_id, session.session_id)
-
-        await session.submit(UserMessage(
-            content=content,
-            thread_id=thread_id,
-            media=input_media(input_items),
-            attachments=input_attachments(input_items),
-            turn_id=turn_id,
-            input_items=input_items,
-            client_user_message_id=client_msg_id,
-            settings_overrides={
-                key: params[key]
-                for key in (
-                    "model", "effort", "summary", "personality", "outputSchema",
-                    "environments",
+            content = input_text(input_items)
+            if not content:
+                raise AppServerError(
+                    "turn/start requires at least one text input item in Phase 41",
+                    code="INVALID_PARAMS",
                 )
-                if key in params
-            },
-        ))
+
+            client_msg_id = params.get("clientUserMessageId")
+            server.subscribe(client_id, session.session_id)
+
+            await session.submit(UserMessage(
+                content=content,
+                thread_id=thread_id,
+                media=input_media(input_items),
+                attachments=input_attachments(input_items),
+                turn_id=turn_id,
+                input_items=input_items,
+                client_user_message_id=client_msg_id,
+                settings_overrides={
+                    key: params[key]
+                    for key in (
+                        "model", "effort", "summary", "personality", "outputSchema",
+                        "environments",
+                    )
+                    if key in params
+                },
+            ))
+        except AppServerError:
+            await session.release_turn_reservation(thread_id)
+            raise
+        except Exception:
+            await session.release_turn_reservation(thread_id)
+            raise
 
         server.create_background_task(
             _drain_turn_events(
