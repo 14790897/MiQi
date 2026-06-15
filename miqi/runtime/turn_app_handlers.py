@@ -17,6 +17,7 @@ from miqi.runtime.turn_protocol import (
     input_attachments,
     input_media,
     input_text,
+    injected_message_to_provider_message,
     normalize_turn_input,
     turn_view,
 )
@@ -193,8 +194,151 @@ def register_codex_turn_handlers(server: AppServer) -> None:
             raise AppServerError("Active turn not steerable", code="INVALID_REQUEST")
         return {"result": {"turnId": expected_turn_id}}
 
+    # ── thread/inject_items ───────────────────────────────────────────────
+
+    async def _thread_inject_items(request_id, params, client_id, session_id, registry):
+        session = await _require_session(registry, client_id, session_id)
+        thread_id = params.get("threadId") or params.get("thread_id")
+        items = params.get("items")
+        if not thread_id:
+            raise AppServerError("threadId is required", code="INVALID_PARAMS")
+        if not isinstance(items, list) or not items:
+            raise AppServerError("items must be a non-empty list", code="INVALID_PARAMS")
+
+        history = getattr(session.services, "history_runtime", None)
+        ledger = getattr(session.services, "ledger_runtime", None)
+        if history is None or ledger is None:
+            raise AppServerError("Runtime history is not available", code="INTERNAL")
+
+        turn_id = f"inject-{str(uuid.uuid4())[:12]}"
+        for item in items:
+            try:
+                message = injected_message_to_provider_message(item)
+            except TurnProtocolError as exc:
+                raise AppServerError(str(exc), code="INVALID_PARAMS") from exc
+            role = message["role"]
+            content = message["content"]
+            fields = message.get("message_fields", {})
+            await history.append_message(
+                thread_id=thread_id,
+                turn_id=turn_id,
+                role=role,
+                content=content,
+                payload={"message_fields": fields},
+            )
+            await ledger.append_item(
+                thread_id=thread_id,
+                turn_id=turn_id,
+                item_type="message",
+                role=role,
+                content=content,
+                payload={"message_fields": fields},
+            )
+        return {"result": {}}
+
+    # ── thread/compact/start ──────────────────────────────────────────────
+
+    async def _thread_compact_start(request_id, params, client_id, session_id, registry):
+        session = await _require_session(registry, client_id, session_id)
+        thread_id = params.get("threadId") or params.get("thread_id")
+        if not thread_id:
+            raise AppServerError("threadId is required", code="INVALID_PARAMS")
+        turn_id = f"compact-{str(uuid.uuid4())[:12]}"
+        server.subscribe(client_id, session.session_id)
+        server.create_background_task(
+            _run_thread_compaction(
+                server=server,
+                session=session,
+                request_id=request_id,
+                thread_id=thread_id,
+                turn_id=turn_id,
+            ),
+            name=f"compact:{session.session_id}:{thread_id}",
+        )
+        return {"result": {}}
+
     # ── register ──────────────────────────────────────────────────────────
 
     server.register_method("turn/start", _turn_start)
     server.register_method("turn/interrupt", _turn_interrupt)
     server.register_method("turn/steer", _turn_steer)
+    server.register_method("thread/compact/start", _thread_compact_start)
+    server.register_method("thread/inject_items", _thread_inject_items)
+
+
+# ── background compaction ──────────────────────────────────────────────────
+
+
+async def _run_thread_compaction(
+    *,
+    server: AppServer,
+    session: Any,
+    request_id: str,
+    thread_id: str,
+    turn_id: str,
+) -> None:
+    from miqi.runtime.turn_protocol import context_compaction_item, turn_view as _turn_view
+
+    await server.emit_event(
+        session.session_id,
+        "turn/started",
+        {"turn": _turn_view(turn_id, thread_id, "inProgress")},
+        request_id=request_id,
+    )
+    started = context_compaction_item(turn_id, status="inProgress")
+    await server.emit_event(
+        session.session_id,
+        "item/started",
+        {"threadId": thread_id, "turnId": turn_id, "item": started},
+        request_id=request_id,
+    )
+    try:
+        ctx_runtime = getattr(session.services, "context_runtime", None)
+        history = getattr(session.services, "history_runtime", None)
+        if ctx_runtime is None or history is None:
+            raise RuntimeError("Context runtime is not available")
+        await ctx_runtime.compact_thread(
+            history_runtime=history,
+            thread_id=thread_id,
+            turn_id=turn_id,
+            model=getattr(session.services.agent_loop, "model", "default"),
+        )
+        completed = context_compaction_item(turn_id, status="completed")
+        await server.emit_event(
+            session.session_id,
+            "item/completed",
+            {"threadId": thread_id, "turnId": turn_id, "item": completed},
+            request_id=request_id,
+        )
+        await server.emit_event(
+            session.session_id,
+            "turn/completed",
+            {"turn": _turn_view(turn_id, thread_id, "completed")},
+            request_id=request_id,
+        )
+    except Exception:
+        from loguru import logger
+        logger.exception("thread/compact/start failed for thread {}", thread_id)
+        await server.emit_event(
+            session.session_id,
+            "item/completed",
+            {
+                "threadId": thread_id,
+                "turnId": turn_id,
+                "item": context_compaction_item(turn_id, status="failed"),
+            },
+            request_id=request_id,
+        )
+        await server.emit_event(
+            session.session_id,
+            "turn/completed",
+            {
+                "turn": _turn_view(
+                    turn_id,
+                    thread_id,
+                    "failed",
+                    error_message="Context compaction failed",
+                )
+            },
+            request_id=request_id,
+        )

@@ -181,3 +181,92 @@ async def test_turn_steer_delegates_to_runtime_steer_turn():
     assert args["content"] == "steer"
     assert args["client_user_message_id"] == "client-msg-2"
     await server.stop()
+
+
+# ── thread/inject_items ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_thread_inject_items_persists_history_and_ledger(tmp_path):
+    from miqi.runtime.history_runtime import HistoryRuntime
+    from miqi.runtime.ledger_runtime import LedgerRuntime
+
+    db_path = tmp_path / "runtime.db"
+    history = HistoryRuntime(db_path, session_id="client-1:default")
+    ledger = LedgerRuntime(db_path, session_id="client-1:default")
+    await history.initialize()
+    await ledger.initialize()
+
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+    runtime.services.history_runtime = history
+    runtime.services.ledger_runtime = ledger
+    _register_runtime(registry, runtime)
+
+    from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+    server = AppServer(registry)
+    register_codex_turn_handlers(server)
+
+    response = await server.dispatch(
+        "req-1",
+        "thread/inject_items",
+        {
+            "threadId": "thread-1",
+            "items": [
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "context"}],
+                }
+            ],
+        },
+        "client-1",
+        runtime.session_id,
+    )
+
+    assert response["result"] == {}
+    messages = await history.load_messages("thread-1")
+    assert messages == [{"role": "assistant", "content": "context", "raw_item": {
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": "context"}],
+    }}]
+    ledger_messages = await ledger.load_provider_messages("thread-1")
+    assert ledger_messages[0]["role"] == "assistant"
+    assert ledger_messages[0]["content"] == "context"
+
+    await history.close()
+    await ledger.close()
+    await server.stop()
+
+
+# ── thread/compact/start ────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_thread_compact_start_returns_immediately_and_owns_background_task():
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+    runtime.services.context_runtime = MagicMock()
+    runtime.services.context_runtime.compact_thread = AsyncMock()
+    runtime.services.history_runtime = MagicMock()
+    runtime.services.agent_loop = MagicMock()
+    runtime.services.agent_loop.model = "test-model"
+    _register_runtime(registry, runtime)
+
+    from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+    server = AppServer(registry)
+    register_codex_turn_handlers(server)
+
+    response = await server.dispatch(
+        "req-1",
+        "thread/compact/start",
+        {"threadId": "thread-1"},
+        "client-1",
+        runtime.session_id,
+    )
+
+    assert response["result"] == {}
+    assert server._background_tasks
+
+    await server.stop()
