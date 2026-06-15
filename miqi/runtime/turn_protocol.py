@@ -29,27 +29,34 @@ def normalize_turn_input(raw_input: Any) -> list[dict[str, Any]]:
         item_type = item.get("type")
         if item_type not in _ALLOWED_INPUT_TYPES:
             raise TurnProtocolError(f"input[{index}].type is unsupported")
-        copied = dict(item)
+
         if item_type == "text":
-            text = copied.get("text")
+            text = item.get("text")
             if not isinstance(text, str) or not text:
                 raise TurnProtocolError(f"input[{index}].text must be a non-empty string")
-        if item_type == "image":
-            url = copied.get("url")
+            items.append({"type": "text", "text": text})
+        elif item_type == "image":
+            url = item.get("url")
             if not isinstance(url, str) or not url:
                 raise TurnProtocolError(f"input[{index}].url must be a non-empty string")
-        if item_type == "localImage":
-            path = copied.get("path")
+            if not url.startswith("https://") and not url.startswith("http://"):
+                raise TurnProtocolError(f"input[{index}].url must use https:// or http:// scheme")
+            items.append({"type": "image", "url": url})
+        elif item_type == "localImage":
+            path = item.get("path")
             if not isinstance(path, str) or not path:
                 raise TurnProtocolError(f"input[{index}].path must be a non-empty string")
-        if item_type in {"skill", "mention"}:
-            name = copied.get("name")
-            path = copied.get("path")
+            if ".." in path or path.startswith("/") or path.startswith("\\"):
+                raise TurnProtocolError(f"input[{index}].path must not contain .. or be absolute")
+            items.append({"type": "localImage", "path": path})
+        elif item_type in {"skill", "mention"}:
+            name = item.get("name")
+            path = item.get("path")
             if not isinstance(name, str) or not name:
                 raise TurnProtocolError(f"input[{index}].name must be a non-empty string")
             if not isinstance(path, str) or not path:
                 raise TurnProtocolError(f"input[{index}].path must be a non-empty string")
-        items.append(copied)
+            items.append({"type": item_type, "name": name, "path": path})
     return items
 
 
