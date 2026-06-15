@@ -131,9 +131,8 @@ def register_codex_turn_handlers(server: AppServer) -> None:
             settings_overrides={
                 key: params[key]
                 for key in (
-                    "cwd", "model", "approvalPolicy", "sandboxPolicy", "permissions",
-                    "effort", "summary", "personality", "outputSchema",
-                    "runtimeWorkspaceRoots", "environments",
+                    "model", "effort", "summary", "personality", "outputSchema",
+                    "environments",
                 )
                 if key in params
             },
