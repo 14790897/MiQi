@@ -138,13 +138,17 @@ def _terminal_event(req_id: str, event_type: str, data: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 class BridgeState:
-    """Holds cached config, active agent, abort state, and shared sandbox manager."""
+    """Holds cached config, per-request active agents, abort state, and shared sandbox manager.
+
+    Each in-flight chat request gets its own entry in ``_active_agents`` keyed by
+    ``req_id``, so multiple concurrent conversations no longer overwrite each other.
+    """
 
     def __init__(self) -> None:
         self.config = None  # lazy-loaded
         self._lock = threading.Lock()
-        self._active_agent: Any = None
-        self._active_req_id: str | None = None
+        # req_id -> agent  (supports multiple concurrent conversations)
+        self._active_agents: dict[str, Any] = {}
         self._terminated: set[str] = set()
         self._pending_approvals: dict[str, threading.Event] = {}
         self._approval_decisions: dict[str, str] = {}
@@ -246,9 +250,14 @@ class BridgeState:
         return agent
 
     def set_active(self, agent: Any, req_id: str) -> None:
+        """Register *agent* as the active agent for *req_id*."""
         with self._lock:
-            self._active_agent = agent
-            self._active_req_id = req_id
+            self._active_agents[req_id] = agent
+
+    def clear_active(self, req_id: str) -> None:
+        """Remove the active agent entry for *req_id* (called on completion/abort)."""
+        with self._lock:
+            self._active_agents.pop(req_id, None)
 
     def destroy_sandbox(self, session_key: str) -> bool:
         """Destroy the sandbox for a session (called on delete/archive)."""
@@ -266,23 +275,47 @@ class BridgeState:
             _log(f"destroy_sandbox error: {exc}")
             return False
 
-    def abort_active(self) -> dict:
+    def abort_request(self, target_req_id: str) -> dict:
+        """Abort a specific in-flight request by *target_req_id*.
+
+        Returns ``{"aborted": True, "req_id": target_req_id}`` on success,
+        or ``{"aborted": False}`` if no such request is active.
+        """
         with self._lock:
-            agent = self._active_agent
-            req_id = self._active_req_id
-            self._active_agent = None
-            self._active_req_id = None
+            agent = self._active_agents.get(target_req_id)
+            if agent is None:
+                return {"aborted": False}
+            # Remove before aborting so clear_active in finally won't double-remove
+            self._active_agents.pop(target_req_id, None)
         # Wake all pending approvals so the blocked chat daemon thread can exit.
-        # Without this, a thread waiting on evt.wait() in _desktop_approval_callback
-        # would remain stuck until the approval timeout expires.
         pending_ids = self.list_pending_approval_ids()
         for aid in pending_ids:
             self.resolve_approval(aid, "deny")
-        if agent is not None:
-            agent._abort_event.set()
-            agent.stop()
-            return {"aborted": True, "req_id": req_id}
-        return {"aborted": False}
+        agent._abort_event.set()
+        agent.stop()
+        return {"aborted": True, "req_id": target_req_id}
+
+    def abort_active(self) -> dict:
+        """Legacy: abort the *most recently registered* active agent.
+
+        Kept for backward-compatibility with older frontends that don't send
+        ``req_id``.  New frontends should use ``chat.abort`` with an explicit
+        ``req_id`` instead.
+        """
+        with self._lock:
+            if not self._active_agents:
+                return {"aborted": False}
+            # Pick the last (most recent) req_id
+            target_req_id = next(reversed(self._active_agents))
+            agent = self._active_agents.pop(target_req_id, None)
+        if agent is None:
+            return {"aborted": False}
+        pending_ids = self.list_pending_approval_ids()
+        for aid in pending_ids:
+            self.resolve_approval(aid, "deny")
+        agent._abort_event.set()
+        agent.stop()
+        return {"aborted": True, "req_id": target_req_id}
 
     def mark_terminated(self, req_id: str) -> bool:
         """Atomically check-and-mark a request as terminated.
@@ -427,8 +460,15 @@ def handle_status(req_id: str, params: dict) -> None:
 
 
 def handle_chat_send(req_id: str, params: dict) -> None:
+    """Handle chat.send.
+    The frontend may include its own ``req_id`` so it can later abort
+    exactly this request.  We return ``req_id`` in the result so the frontend
+    can track it.
+    """
     content = params["content"]
     session_key = params.get("session_key", "desktop:default")
+    # Use client-provided req_id if available (for abort support)
+    client_req_id = params.get("req_id", req_id)
 
     def _run_in_thread() -> None:
         async def _run() -> None:
@@ -446,7 +486,7 @@ def handle_chat_send(req_id: str, params: dict) -> None:
                     "description": description,
                     "allow_permanent": allow_permanent,
                 })
-                _event(req_id, "approval_request", {
+                _event(client_req_id, "approval_request", {
                     "approval_id": approval_id,
                     "command": command,
                     "description": description,
@@ -458,10 +498,10 @@ def handle_chat_send(req_id: str, params: dict) -> None:
                 return _state.get_approval_decision(approval_id)
 
             agent = _state.build_agent(session_key, approval_callback=_desktop_approval_callback)
-            _state.set_active(agent, req_id)
+            _state.set_active(agent, client_req_id)
 
             async def on_progress(text: str, tool_hint: bool = False) -> None:
-                _event(req_id, "progress", {"text": text, "tool_hint": tool_hint})
+                _event(client_req_id, "progress", {"text": text, "tool_hint": tool_hint})
 
             try:
                 result = await agent.process_direct(
@@ -472,12 +512,12 @@ def handle_chat_send(req_id: str, params: dict) -> None:
                     on_progress=on_progress,
                 )
                 aborted = agent._abort_event.is_set()
-                _terminal_event(req_id, "final", {"content": result, "aborted": aborted})
+                _terminal_event(client_req_id, "final", {"content": result, "aborted": aborted})
             except Exception as exc:
                 _log(f"chat.send error: {exc}")
-                _terminal_event(req_id, "error", {"message": str(exc)})
+                _terminal_event(client_req_id, "error", {"message": str(exc)})
             finally:
-                _state.set_active(None, "")
+                _state.clear_active(client_req_id)
                 # Stop the agent to clean up sandbox resources
                 try:
                     agent.stop()
@@ -488,11 +528,21 @@ def handle_chat_send(req_id: str, params: dict) -> None:
 
     t = threading.Thread(target=_run_in_thread, daemon=True)
     t.start()
-    _result(req_id, {"accepted": True})
+    _result(req_id, {"accepted": True, "req_id": client_req_id})
 
 
 def handle_chat_abort(req_id: str, params: dict) -> None:
-    result = _state.abort_active()
+    """Abort a specific in-flight chat request.
+
+    The frontend may send ``target_req_id`` to identify which conversation to
+    abort.  If omitted the legacy behaviour (abort the most recent request) is
+    used so older frontends keep working.
+    """
+    target_req_id = params.get("target_req_id", "")
+    if target_req_id:
+        result = _state.abort_request(target_req_id)
+    else:
+        result = _state.abort_active()  # legacy fallback
     aborted = result["aborted"]
     active_req_id = result.get("req_id")
     if aborted and active_req_id:

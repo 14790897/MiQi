@@ -252,6 +252,8 @@ export function ChatConsole({
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [historyLoaded, setHistoryLoaded] = useState(false)
   const [panelOpen, setPanelOpen] = useState(true)
+  /** Current in-flight request ID (for abort) */
+  const [currentReqId, setCurrentReqId] = useState<string | null>(null)
   /** files touched by the agent during this session */
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([])
   /** preview modal */
@@ -358,13 +360,19 @@ export function ChatConsole({
 
   const handleAbort = useCallback(async () => {
     cleanupListeners()
-    await window.miqi.chat.abort()
+    // Abort the specific request if we have its req_id
+    if (currentReqId) {
+      await window.miqi.chat.abort(currentReqId)
+    } else {
+      await window.miqi.chat.abort()
+    }
     setStreaming(false)
+    setCurrentReqId(null)
     setMessages((prev) => [
       ...prev,
       { role: 'progress', content: 'Aborted.', timestamp: Date.now() },
     ])
-  }, [cleanupListeners])
+  }, [cleanupListeners, currentReqId])
 
   const handleNewSession = useCallback(async () => {
     if (streaming) return
@@ -384,6 +392,10 @@ export function ChatConsole({
   const handleSend = useCallback(async () => {
     const text = input.trim()
     if ((!text && attachments.length === 0) || streaming) return
+
+    // Generate a client-side req_id so we can abort this specific request
+    const reqId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    setCurrentReqId(reqId)
 
     let content = text
     for (const att of attachments) {
@@ -453,6 +465,7 @@ export function ChatConsole({
         ...prev,
         { role: 'assistant', content: '', timestamp: userMsg.timestamp + 1 },
       ])
+      setCurrentReqId(null)
       animId = requestAnimationFrame(revealNext)
     })
 
@@ -463,12 +476,14 @@ export function ChatConsole({
         { role: 'error', content: data.message, timestamp: Date.now() },
       ])
       setStreaming(false)
+      setCurrentReqId(null)
       cleanupListeners()
     })
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
       if (animId !== null) cancelAnimationFrame(animId)
       setStreaming(false)
+      setCurrentReqId(null)
       setMessages((prev) => [
         ...prev,
         { role: 'progress', content: 'Aborted.', timestamp: Date.now() },
@@ -479,7 +494,9 @@ export function ChatConsole({
     unsubsRef.current = [unsubProgress, unsubFinal, unsubError, unsubAborted]
 
     try {
-      await window.miqi.chat.send(content, currentSessionRef.current)
+      const result = await window.miqi.chat.send(content, currentSessionRef.current, reqId) as { req_id?: string }
+      // Update reqId with the server-confirmed one (should match)
+      if (result?.req_id) setCurrentReqId(result.req_id)
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId)
       setMessages((prev) => [
@@ -488,6 +505,7 @@ export function ChatConsole({
       ])
       setStreaming(false)
       cleanupListeners()
+      setCurrentReqId(null)
     }
   }, [input, attachments, streaming, cleanupListeners, onChatFinished])
 
