@@ -168,6 +168,37 @@ class RuntimeSession:
             return None
         return await replay.get_turn_timeline(thread_id, turn_id)
 
+    # ── Phase 41: active turn and steering wrappers ──────────────────────
+
+    def active_turn_id(self, thread_id: str) -> str | None:
+        return self._runner.active_turn_id(thread_id)
+
+    async def steer_turn(
+        self,
+        *,
+        thread_id: str,
+        expected_turn_id: str,
+        content: str,
+        input_items: list[dict[str, Any]],
+        client_user_message_id: str | None,
+    ) -> bool:
+        return await self._runner.steer_turn(
+            thread_id=thread_id,
+            expected_turn_id=expected_turn_id,
+            content=content,
+            input_items=input_items,
+            client_user_message_id=client_user_message_id,
+        )
+
+    async def interrupt_turn(self, *, thread_id: str, turn_id: str) -> bool:
+        from miqi.protocol.commands import AbortTurn
+
+        active = self.active_turn_id(thread_id)
+        if active != turn_id:
+            return False
+        await self.submit(AbortTurn(thread_id=thread_id))
+        return True
+
     async def get_provider_messages(self, thread_id: str) -> list[dict[str, Any]]:
         """Return provider-compatible message dicts from ledger."""
         replay = getattr(self.services, "replay_runtime", None)
@@ -248,7 +279,7 @@ class RuntimeSession:
         during an active turn are queued in _pending and processed after the
         current turn completes (FIFO, no silent drops).
         """
-        from miqi.protocol.commands import AbortTurn
+        from miqi.protocol.commands import AbortTurn, SteerTurn
 
         while not self._stopped.is_set():
             # If no turn is running, dequeue next submission (pending first)
@@ -273,6 +304,10 @@ class RuntimeSession:
                         continue
 
                     if isinstance(submission, AbortTurn):
+                        await self._runner.handle(submission)
+                        continue
+
+                    if isinstance(submission, SteerTurn):
                         await self._runner.handle(submission)
                         continue
 
@@ -317,8 +352,11 @@ class RuntimeSession:
                         if not get_task.done():
                             get_task.cancel()
                         await self._runner.handle(submission)
+                    elif isinstance(submission, SteerTurn):
+                        # Handle steering inline during active turn
+                        await self._runner.handle(submission)
                     else:
-                        # Queue non-AbortTurn for processing after this turn
+                        # Queue non-AbortTurn/non-SteerTurn for processing after this turn
                         async with self._lock:
                             self._pending.append(submission)
                 else:

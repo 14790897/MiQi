@@ -16,6 +16,7 @@ from miqi.protocol.commands import (
     CompactCommand,
     ConfigUpdate,
     RunUserShellCommand,
+    SteerTurn,
     ThreadCommand,
     UserInputAnswer,
     UserMessage,
@@ -45,11 +46,58 @@ class TaskRunner:
         self._events = event_queue
         # Phase 14 follow-up: per-thread active turn cancellation event
         self._turn_cancel_events: dict[str, asyncio.Event] = {}
+        # Phase 41: active turn tracking
+        self._active_turn_ids: dict[str, str] = {}
+        self._turn_steer_queues: dict[str, asyncio.Queue] = {}
+
+    # ── Phase 41: active turn and steering ────────────────────────────────
+
+    def active_turn_id(self, thread_id: str) -> str | None:
+        return self._active_turn_ids.get(thread_id)
+
+    async def steer_turn(
+        self,
+        *,
+        thread_id: str,
+        expected_turn_id: str,
+        content: str,
+        input_items: list[dict[str, Any]],
+        client_user_message_id: str | None,
+    ) -> bool:
+        active = self._active_turn_ids.get(thread_id)
+        if active != expected_turn_id:
+            return False
+        queue = self._turn_steer_queues.get(expected_turn_id)
+        if queue is None:
+            return False
+        await queue.put({
+            "content": content,
+            "input_items": input_items,
+            "client_user_message_id": client_user_message_id,
+        })
+        return True
+
+    # ── dispatch ──────────────────────────────────────────────────────────
 
     async def handle(self, submission: Any) -> None:
         """Route a submission to the correct handler."""
         if isinstance(submission, UserMessage):
             await self._handle_user_message(submission)
+            return
+        if isinstance(submission, SteerTurn):
+            accepted = await self.steer_turn(
+                thread_id=submission.thread_id,
+                expected_turn_id=submission.expected_turn_id,
+                content=submission.content,
+                input_items=submission.input_items,
+                client_user_message_id=submission.client_user_message_id,
+            )
+            if not accepted:
+                await self._events.put(CommandRejectedEvent(
+                    command_type="SteerTurn",
+                    reason="Active turn not steerable",
+                    recoverable=False,
+                ))
             return
         if isinstance(submission, AbortTurn):
             # Phase 14 follow-up: signal cancellation to the active turn
@@ -180,13 +228,18 @@ class TaskRunner:
         ))
 
     async def _handle_user_message(self, msg: UserMessage) -> None:
-        turn_id = str(uuid.uuid4())[:12]
+        turn_id = msg.turn_id or str(uuid.uuid4())[:12]
         thread_id = msg.thread_id or "cli:default"
 
         # Phase 14 follow-up: register a cancel event so AbortTurn can
         # signal this specific turn to stop.
         cancel_evt = asyncio.Event()
         self._turn_cancel_events[thread_id] = cancel_evt
+
+        # Phase 41: register steer queue and active turn id
+        steer_queue: asyncio.Queue = asyncio.Queue()
+        self._active_turn_ids[thread_id] = turn_id
+        self._turn_steer_queues[turn_id] = steer_queue
 
         # Phase 17: get history runtime for persistence and loading
         history_runtime = getattr(self.services, "history_runtime", None)
@@ -297,12 +350,18 @@ class TaskRunner:
             ))
 
             # Persist the user message
+            payload_fields: dict[str, Any] = {}
+            if msg.input_items:
+                payload_fields["input_items"] = msg.input_items
+            if msg.client_user_message_id:
+                payload_fields["client_user_message_id"] = msg.client_user_message_id
             if history_runtime is not None:
                 await history_runtime.append_message(
                     thread_id=thread_id,
                     turn_id=turn_id,
                     role="user",
                     content=msg.content,
+                    payload={"message_fields": payload_fields},
                 )
             # Phase 24: record user message in ledger
             if ledger is not None:
@@ -312,7 +371,7 @@ class TaskRunner:
                     item_type="message",
                     role="user",
                     content=msg.content,
-                    payload={"message_fields": {}},
+                    payload={"message_fields": payload_fields},
                 )
 
             # Check for abort before starting turn
@@ -345,6 +404,7 @@ class TaskRunner:
                 tools=tools,
                 history=history,
                 cancel_event=cancel_evt,
+                steer_queue=steer_queue,
             )
 
             # Phase 17: persist assistant messages and complete turn
@@ -453,6 +513,8 @@ class TaskRunner:
             ))
         finally:
             self._turn_cancel_events.pop(thread_id, None)
+            self._active_turn_ids.pop(thread_id, None)
+            self._turn_steer_queues.pop(turn_id, None)
 
     async def _handle_thread_command(self, cmd: ThreadCommand) -> None:
         """Phase 18: dispatch thread lifecycle actions to ThreadRuntime.

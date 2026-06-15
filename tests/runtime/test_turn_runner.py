@@ -297,3 +297,89 @@ async def test_turn_runner_emits_content_deltas():
     deltas = [e for e in events.events if isinstance(e, AgentMessageDeltaEvent)]
     assert [e.delta for e in deltas] == ["hel", "lo"]
     assert [e.index for e in deltas] == [0, 1]
+
+
+# ---------------------------------------------------------------------------
+# Phase 41: Steering queue consumption
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_turn_runner_consumes_steer_queue_before_completing_final_response():
+    import asyncio as _asyncio
+    from miqi.providers.base import LLMResponse, LLMStreamEvent
+    from miqi.runtime.turn_runner import TurnRunner
+
+    class FakeProvider:
+        def __init__(self):
+            self.calls = 0
+
+        async def stream_chat(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                yield LLMStreamEvent(kind="completed", response=LLMResponse(
+                    content="first",
+                    finish_reason="stop",
+                ))
+            else:
+                yield LLMStreamEvent(kind="completed", response=LLMResponse(
+                    content="second",
+                    finish_reason="stop",
+                ))
+
+    class FakeContext:
+        def build_initial_messages(self, **kwargs):
+            return [{"role": "user", "content": kwargs["user_content"]}]
+
+        def add_assistant_message(self, messages, content, tool_calls=None):
+            return [*messages, {"role": "assistant", "content": content}]
+
+        def add_tool_result(self, messages, tool_call_id, name, content):
+            return [*messages, {"role": "tool", "content": content}]
+
+    class FakeTools:
+        async def execute_many(self, turn, tool_calls):
+            return []
+
+    class FakeEvents:
+        async def emit(self, event):
+            pass
+
+    turn = type("Turn", (), {})()
+    turn.turn_id = "turn-steer"
+    turn.thread_id = "thread-steer"
+    turn.model = "test-model"
+    turn.temperature = 0
+    turn.max_tokens = 100
+
+    steer_queue = _asyncio.Queue()
+    await steer_queue.put({
+        "content": "steer me",
+        "input_items": [{"type": "text", "text": "steer me"}],
+        "client_user_message_id": "client-steer",
+    })
+
+    runner = TurnRunner(
+        provider=FakeProvider(),
+        tool_runtime=FakeTools(),
+        context_runtime=FakeContext(),
+        event_emitter=FakeEvents(),
+        max_iterations=3,
+    )
+
+    result = await runner.run(
+        turn=turn,
+        user_content="hello",
+        system_prompt="system",
+        tools=[],
+        history=[],
+        steer_queue=steer_queue,
+    )
+
+    assert result.final_content == "second"
+    steer_delta = next(
+        d for d in result.messages_delta
+        if d.get("role") == "user" and d.get("content") == "steer me"
+    )
+    assert steer_delta is not None
+    assert steer_delta["client_user_message_id"] == "client-steer"

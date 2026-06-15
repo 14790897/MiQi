@@ -16,6 +16,10 @@ class UserMessage:
     media: list[dict[str, Any]] = field(default_factory=list)
     attachments: list[str] = field(default_factory=list)
     timestamp: float = field(default_factory=time.time)
+    turn_id: str | None = None
+    input_items: list[dict[str, Any]] = field(default_factory=list)
+    client_user_message_id: str | None = None
+    settings_overrides: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -74,9 +78,21 @@ class RunUserShellCommand:
     thread_id: str | None = None
 
 
+@dataclass
+class SteerTurn:
+    """Append user input to an active turn."""
+    type: str = field(default="steer_turn", init=False)
+    thread_id: str
+    expected_turn_id: str
+    content: str
+    input_items: list[dict[str, Any]] = field(default_factory=list)
+    client_user_message_id: str | None = None
+
+
 # ── Union type ──────────────────────────────────────────────
 
 Submission = (
     UserMessage | ApprovalResponse | AbortTurn | ConfigUpdate |
-    ThreadCommand | CompactCommand | UserInputAnswer | RunUserShellCommand
+    ThreadCommand | CompactCommand | UserInputAnswer | RunUserShellCommand |
+    SteerTurn
 )
