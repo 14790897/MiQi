@@ -216,8 +216,9 @@ function AppShell() {
                       : 'hidden'
                   }
                 >
-                  <ChatConsole
-                    sessionKey={sessionKey}
+                <ChatConsole
+                  key={sessionKey}
+                  sessionKey={sessionKey}
                     loadTrigger={runtimeReadyKey}
                     onNewSession={(newKey) => {
                       setSessionKey(newKey)

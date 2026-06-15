@@ -77,10 +77,12 @@ const api = {
 
   // -- Chat -------------------------------------------------------------------
   chat: {
-    send: (content: string, sessionKey?: string): Promise<unknown> =>
-      ipcRenderer.invoke(IPC.CHAT_SEND, { content, session_key: sessionKey }),
-    abort: (): Promise<unknown> =>
-      ipcRenderer.invoke(IPC.CHAT_ABORT),
+    /** Send a message.  Returns ``{ accepted: true, req_id: string }``. */
+    send: (content: string, sessionKey?: string, reqId?: string): Promise<{ accepted: boolean; req_id: string }> =>
+      ipcRenderer.invoke(IPC.CHAT_SEND, { content, session_key: sessionKey, req_id: reqId }),
+    /** Abort a specific in-flight request by req_id. */
+    abort: (targetReqId?: string): Promise<{ aborted: boolean }> =>
+      ipcRenderer.invoke(IPC.CHAT_ABORT, { target_req_id: targetReqId }),
     onProgress: (callback: (data: ChatProgress) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: ChatProgress) => callback(data)
       ipcRenderer.on(IPC_EVENTS.CHAT_PROGRESS, handler)
