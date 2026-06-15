@@ -635,3 +635,68 @@ async def test_task_runner_attaches_capabilities_and_permission_profile(fake_ser
             event = ev
             break
     assert event.content == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Phase 41: Preallocated turn IDs and active turn tracking
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_user_message_can_preallocate_turn_id(fake_services):
+    import asyncio as _asyncio
+
+    from miqi.protocol.commands import UserMessage
+    from miqi.protocol.events import TurnStartedEvent
+    from miqi.runtime.task_runner import TaskRunner
+
+    events = _asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(UserMessage(
+        content="hello",
+        thread_id="thread-1",
+        turn_id="turn-preallocated",
+        input_items=[{"type": "text", "text": "hello"}],
+        client_user_message_id="client-msg-1",
+    ))
+
+    event = await events.get()
+    assert isinstance(event, TurnStartedEvent)
+    assert event.turn_id == "turn-preallocated"
+
+
+@pytest.mark.asyncio
+async def test_task_runner_active_turn_id_visible_while_turn_running(fake_services):
+    import asyncio as _asyncio
+
+    from miqi.protocol.commands import UserMessage
+    from miqi.runtime.task_runner import TaskRunner
+
+    events = _asyncio.Queue()
+    gate = _asyncio.Event()
+
+    async def _blocking_run(**kwargs):
+        await gate.wait()
+        result = type("Result", (), {})()
+        result.final_content = "done"
+        result.tools_used = []
+        result.token_usage = {}
+        result.messages_delta = [{"role": "assistant", "content": "done"}]
+        return result
+
+    fake_services.turn_runner.run.side_effect = _blocking_run
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    task = _asyncio.create_task(runner.handle(UserMessage(
+        content="hello",
+        thread_id="thread-active",
+        turn_id="turn-active",
+    )))
+    await events.get()
+
+    assert runner.active_turn_id("thread-active") == "turn-active"
+
+    gate.set()
+    await task
+    assert runner.active_turn_id("thread-active") is None

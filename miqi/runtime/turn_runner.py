@@ -60,11 +60,14 @@ class TurnRunner:
         tools: list[dict[str, Any]] | None,
         history: list[dict[str, Any]] | None = None,
         cancel_event: Any | None = None,
+        steer_queue: Any | None = None,
     ) -> TurnResult:
         """Execute a full turn: model calls until final response or max iters.
 
         Phase 14 follow-up: checks cancel_event (asyncio.Event) at each
         iteration and yields with CancelledError when set.
+        Phase 41: drains steer_queue at safe boundaries and continues
+        the same turn instead of completing immediately.
         """
         messages = self._context.build_initial_messages(
             turn=turn,
@@ -76,6 +79,17 @@ class TurnRunner:
         # Phase 17: accumulate messages added during this turn for persistence.
         # Each entry is a provider-compatible {role, content, ...} dict.
         messages_delta: list[dict[str, Any]] = []
+
+        async def _drain_steer_messages() -> list[dict[str, Any]]:
+            if steer_queue is None:
+                return []
+            drained: list[dict[str, Any]] = []
+            while True:
+                try:
+                    drained.append(steer_queue.get_nowait())
+                except asyncio.QueueEmpty:
+                    break
+            return drained
 
         for _iteration in range(self._max_iterations):
             # Phase 14 follow-up: check cancellation before expensive work
@@ -137,6 +151,24 @@ class TurnRunner:
                 )
 
             if not response.has_tool_calls:
+                # Phase 41: drain steering messages before completing
+                steers = await _drain_steer_messages()
+                if steers:
+                    for steer in steers:
+                        content = steer["content"]
+                        messages.append({"role": "user", "content": content})
+                        delta: dict[str, Any] = {
+                            "role": "user",
+                            "content": content,
+                        }
+                        cid = steer.get("client_user_message_id")
+                        if cid is not None:
+                            delta["client_user_message_id"] = cid
+                        if steer.get("input_items"):
+                            delta["input_items"] = steer["input_items"]
+                        messages_delta.append(delta)
+                    continue
+
                 content = response.content or ""
                 messages = self._context.add_assistant_message(
                     messages=messages,
