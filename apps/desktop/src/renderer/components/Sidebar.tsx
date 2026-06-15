@@ -10,6 +10,7 @@ import {
   Plus,
   Plug,
   Archive,
+  Cpu,
   type LucideIcon,
 } from 'lucide-react'
 import type { SessionInfo } from '../../shared/ipc'
@@ -27,6 +28,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'memory', label: '记忆', icon: BookOpen },
   { id: 'experience', label: '经验', icon: BookOpen },
   { id: 'skills', label: '技能', icon: Wrench },
+  { id: 'wsl', label: 'WSL', icon: Cpu },
   { id: 'settings', label: '设置', icon: Settings },
 ]
 

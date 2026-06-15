@@ -28,6 +28,7 @@ import type {
   SkillSummary,
   WslExportDistroResult,
   WslImportDistroResult,
+  WslStatsResult,
   SkillsListResult,
   SkillDetail,
   McpServerConfig,
@@ -290,6 +291,8 @@ const api = {
       ipcRenderer.invoke(IPC.WSL_EXPORT_DISTRO, distroName),
     importDistro: (options: { tarPath: string; distroName: string }): Promise<WslImportDistroResult> =>
       ipcRenderer.invoke(IPC.WSL_IMPORT_DISTRO, options),
+    getStats: (distroName?: string): Promise<WslStatsResult> =>
+      ipcRenderer.invoke(IPC.WSL_GET_STATS, distroName ?? undefined),
   },
 
   // -- Initial config write (no bridge needed) --------------------------------

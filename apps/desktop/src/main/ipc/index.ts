@@ -5,7 +5,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import type { BridgeManager } from '../bridge'
 import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, ConfigUpdateInput, ProviderTestInput, ProviderUpdateInput, ChannelsUpdateInput, CronCreateInput, CronUpdateInput, CronToggleInput, CronDeleteInput, CronRunInput, CronRunsInput, MemoryGetInput, MemoryUpdateInput, MemoryLessonUnlearnInput, SkillsGetInput, FilesReadInput, FilesWriteInput, McpUpsertInput, McpDeleteInput } from '../../shared/ipc'
-import type { WslCheckResult } from '../../shared/ipc'
+import type { WslCheckResult, WslStatsResult } from '../../shared/ipc'
 
 const { ipcMain, dialog } = electron
 
@@ -409,6 +409,245 @@ for m in ("pydantic", "httpx", "loguru"):
     } catch (e: any) {
       return { launched: false, error: e?.message ?? String(e) }
     }
+  })
+
+  // -----------------------------------------------------------------------
+  // WSL stats — memory / CPU / disk usage (Windows only)
+  // Optimized: fast stats in one WSL call; CPU via two-sample /proc/stat
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.WSL_GET_STATS, (_event, distroName?: string) => {
+    if (process.platform !== 'win32') {
+      return {
+        ok: false, error: 'Not on Windows', distro: '',
+        memory: { total_mb: 0, used_mb: 0, free_mb: 0, used_pct: 0 },
+        cpu: { usage_pct: 0, cores: 0 },
+        disk: { total_gb: 0, used_gb: 0, free_gb: 0, used_pct: 0 },
+        uptime_sec: 0,
+      }
+    }
+
+    // Determine target distro
+    let targetDistro = distroName ?? ''
+    if (!targetDistro) {
+      try {
+        const st = spawnSync('wsl', ['--status'], { timeout: 5000, encoding: 'buffer', windowsHide: true })
+        if (st.status === 0) {
+          const buf = st.stdout as Buffer | null
+          let out = ''
+          if (buf && buf.length > 1) {
+            const hasBOM = buf[0] === 0xff && buf[1] === 0xfe
+            out = (hasBOM || buf.reduce((a: number, b: number, i: number) => i % 2 === 1 && b === 0 ? a + 1 : a, 0) / Math.floor(buf.length / 2) > 0.3)
+              ? buf.toString('utf16le').replace(/^\uFEFF/, '').replace(/\0/g, '')
+              : buf.toString('utf8').replace(/\0/g, '')
+          }
+          const m = out.match(/(?:默认分发|Default Distr?ibution)\s*[:：]\s*(.+)/i)
+          if (m) targetDistro = m[1].trim()
+        }
+      } catch { /* ignore */ }
+
+      if (!targetDistro) {
+        try {
+          const lr = spawnSync('wsl', ['--list', '--running', '--quiet'], { timeout: 5000, encoding: 'buffer', windowsHide: true })
+          if (lr.status === 0) {
+            const buf = lr.stdout as Buffer | null
+            let out = ''
+            if (buf && buf.length > 1) {
+              const hasBOM = buf[0] === 0xff && buf[1] === 0xfe
+              out = (hasBOM || buf.reduce((a: number, b: number, i: number) => i % 2 === 1 && b === 0 ? a + 1 : a, 0) / Math.floor(buf.length / 2) > 0.3)
+                ? buf.toString('utf16le').replace(/^\uFEFF/, '').replace(/\0/g, '')
+                : buf.toString('utf8').replace(/\0/g, '')
+            }
+            const lines = out.split(/\r?\n/).map((l: string) => l.trim()).filter(Boolean)
+            if (lines.length > 1) targetDistro = lines[1]
+          }
+        } catch { /* ignore */ }
+      }
+
+      if (!targetDistro) {
+        return {
+          ok: false, error: 'No WSL distro found. Install a distro first.', distro: '',
+          memory: { total_mb: 0, used_mb: 0, free_mb: 0, used_pct: 0 },
+          cpu: { usage_pct: 0, cores: 0 },
+          disk: { total_gb: 0, used_gb: 0, free_gb: 0, used_pct: 0 },
+          uptime_sec: 0,
+        }
+      }
+    }
+
+    // Helper: run command in WSL (15s timeout, auto-detect UTF-8 vs UTF-16LE)
+    const runInWsl = (cmd: string): { stdout: string; stderr: string; status: number | null } => {
+      const r = spawnSync('wsl.exe', ['-d', targetDistro, '--', 'bash', '-c', cmd], {
+        timeout: 15000,
+        encoding: 'buffer',          // read as buffer to auto-detect encoding
+        windowsHide: true,
+      })
+      const decodeBuf = (buf: Buffer | string | null): string => {
+        if (!buf || buf.length === 0) return ''
+        if (typeof buf === 'string') return buf.trim()
+        // Auto-detect: UTF-16LE BOM or high ratio of null bytes in odd positions → UTF-16LE
+        if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
+          return buf.toString('utf16le').replace(/^\uFEFF/, '').replace(/\0/g, '').trim()
+        }
+        const nullRatio = buf.reduce((a, b, i) => i % 2 === 1 && b === 0 ? a + 1 : a, 0) / Math.floor(buf.length / 2)
+        if (nullRatio > 0.3) {
+          return buf.toString('utf16le').replace(/\0/g, '').trim()
+        }
+        return buf.toString('utf8').replace(/\0/g, '').trim()
+      }
+      return {
+        stdout: decodeBuf(r.stdout as Buffer | null),
+        stderr: decodeBuf(r.stderr as Buffer | null),
+        status: r.status,
+      }
+    }
+
+    // --- Fast stats: memory + disk + cores + uptime in ONE WSL call ---
+    // Each command outputs a prefixed line; awk ensures precise field extraction.
+    const fastScript = [
+      'free -m 2>/dev/null | awk \'/^Mem:/ {print "MEM:" $2 ":" $3 ":" $4 ":" $7}\'',
+      'nproc 2>/dev/null | awk \'{print "CORES:" $1}\'',
+      // Use --output for reliable column order: size, used, avail (in MB)
+      "df --output=size,used,avail --block-size=1M / 2>/dev/null | awk 'NR==2 {printf \"DISK:%d:%d:%d\\n\", $1, $2, $3}'",
+      'awk \'{print "UPTIME:" $1}\' /proc/uptime 2>/dev/null',
+    ].join('; ')
+    const fastResult = runInWsl(fastScript)
+    console.log('[wsl:stats] fastScript status:', fastResult.status, 'stdout:', JSON.stringify(fastResult.stdout))
+
+    // Parse results (each metric independent)
+    let memory = { total_mb: 0, used_mb: 0, free_mb: 0, used_pct: 0 }
+    let cores = 0
+    let disk = { total_gb: 0, used_gb: 0, free_gb: 0, used_pct: 0 }
+    let uptimeSec = 0
+
+    if (fastResult.stdout) {
+      const lines = fastResult.stdout.split('\n')
+
+      // Memory: MEM:total:used:free:available
+      const memLine = lines.find(l => l.startsWith('MEM:'))
+      if (memLine) {
+        const parts = memLine.substring(4).split(':')
+        const total = parseInt(parts[0], 10)
+        const used = parseInt(parts[1], 10)
+        if (!Number.isNaN(total) && total > 0) {
+          memory = {
+            total_mb: total,
+            used_mb: Number.isNaN(parseInt(parts[1], 10)) ? 0 : parseInt(parts[1], 10),
+            free_mb: Number.isNaN(parseInt(parts[2], 10)) ? 0 : parseInt(parts[2], 10),
+            used_pct: Math.round((used / total) * 100),
+          }
+        }
+      }
+
+      // Cores
+      const coresLine = lines.find(l => l.startsWith('CORES:'))
+      if (coresLine) {
+        cores = parseInt(coresLine.substring(7), 10) || 0
+      }
+
+      // Disk: DISK:total_MB:used_MB:free_MB (from --output --block-size=1M)
+      const diskLine = lines.find(l => l.startsWith('DISK:'))
+      if (diskLine) {
+        const parts = diskLine.substring(5).split(':')
+        const totalMb = parseInt(parts[0] || '0', 10)
+        const usedMb = parseInt(parts[1] || '0', 10)
+        const freeMb = parseInt(parts[2] || '0', 10)
+        if (!Number.isNaN(totalMb) && totalMb > 0 && usedMb <= totalMb) {
+          disk = {
+            total_gb: Math.round(totalMb / 1024 * 10) / 10,
+            used_gb: Math.round(usedMb / 1024 * 10) / 10,
+            free_gb: Math.round(freeMb / 1024 * 10) / 10,
+            used_pct: Math.round((usedMb / totalMb) * 100),
+          }
+        }
+      }
+
+      // Uptime
+      const uptimeLine = lines.find(l => l.startsWith('UPTIME:'))
+      if (uptimeLine) {
+        uptimeSec = parseFloat(uptimeLine.substring(8)) || 0
+      }
+    }
+
+    // --- Fallback: if combined script failed, try individual commands ---
+    if (memory.total_mb === 0) {
+      console.log('[wsl:stats] memory from fastScript empty, trying fallback')
+      const memRaw = runInWsl('cat /proc/meminfo')
+      if (memRaw.stdout) {
+        const mt = memRaw.stdout.match(/MemTotal:\s*(\d+)/)
+        const mu = memRaw.stdout.match(/MemAvailable:\s*(\d+)/)
+        if (mt?.[1]) {
+          const totalKb = parseInt(mt[1], 10)
+          const availKb = mu?.[1] ? parseInt(mu[1], 10) : totalKb
+          memory = {
+            total_mb: Math.round(totalKb / 1024),
+            used_mb: Math.round((totalKb - availKb) / 1024),
+            free_mb: Math.round(availKb / 1024),
+            used_pct: Math.round(((totalKb - availKb) / totalKb) * 100),
+          }
+        }
+      }
+    }
+
+    if (cores === 0) {
+      const cpuInfo = runInWsl('grep -c ^processor /proc/cpuinfo 2>/dev/null')
+      if (cpuInfo.stdout) cores = parseInt(cpuInfo.stdout, 10) || 0
+    }
+
+    if (disk.total_gb === 0) {
+      // Fallback: use df --output for reliable column order (in MB)
+      const dfRaw = runInWsl("df --output=size,used,avail --block-size=1M / 2>/dev/null")
+      console.log('[wsl:stats] disk fallback raw:', JSON.stringify(dfRaw.stdout))
+      if (dfRaw.stdout) {
+        const lines2 = dfRaw.stdout.split('\n').filter(Boolean)
+        if (lines2.length >= 2) {
+          const vals = lines2[1].trim().split(/\s+/).map(Number)
+          const t = vals[0], u = vals[1], f = vals[2]
+          if (!Number.isNaN(t) && t > 0 && !Number.isNaN(u) && u <= t) {
+            disk = {
+              total_gb: Math.round(t / 1024 * 10) / 10,
+              used_gb: Math.round(u / 1024 * 10) / 10,
+              free_gb: Math.round((f || 0) / 1024 * 10) / 10,
+              used_pct: Math.round((u / t) * 100),
+            }
+          }
+        }
+      }
+    }
+
+    if (uptimeSec === 0) {
+      const upRaw = runInWsl('cat /proc/uptime')
+      if (upRaw.stdout) uptimeSec = parseFloat(upRaw.stdout.split()[0]) || 0
+    }
+
+    // --- CPU usage: two /proc/stat samples with 0.5s delay ---
+    // Uses bash built-ins + awk; no external dependencies beyond bash.
+    let cpuUsagePct = 0
+    const cpuScript = [
+      'S1=$(awk \'NR==1 {print $2, $3, $4, $5, $6, $7, $8}\' /proc/stat)',
+      'sleep 0.5',
+      'S2=$(awk \'NR==1 {print $2, $3, $4, $5, $6, $7, $8}\' /proc/stat)',
+      '# Compute total and idle diff',
+      'set -- $S1; T1=$(( $2 + $3 + $4 + $5 + $6 + $7 + $8 )); I1=$5',
+      'set -- $S2; T2=$(( $2 + $3 + $4 + $5 + $6 + $7 + $8 )); I2=$5',
+      'TD=$(( T2 - T1 )); ID=$(( I2 - I1 ))',
+      'if [ $TD -gt 0 ]; then echo $(( 100 * (TD - ID) / TD )); else echo "0"; fi',
+    ].join('; ')
+    const cpuResult = runInWsl(cpuScript)
+    if (cpuResult.status === 0 && cpuResult.stdout) {
+      const pct = parseInt(cpuResult.stdout.trim(), 10)
+      if (!Number.isNaN(pct)) {
+        cpuUsagePct = Math.min(Math.max(pct, 0), 100)
+      }
+    }
+
+    return {
+      ok: true,
+      distro: targetDistro,
+      memory,
+      cpu: { usage_pct: cpuUsagePct, cores: Math.max(cores, 0) },
+      disk,
+      uptime_sec: Math.round(uptimeSec),
+    } satisfies WslStatsResult
   })
 
   // Export default WSL distro to a tar file for sandbox use.

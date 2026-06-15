@@ -14,6 +14,7 @@ import { CronPage } from './features/cron/CronPage'
 import { MemoryPage } from './features/memory/MemoryPage'
 import { ExperiencePage } from './features/experience/ExperiencePage'
 import { SkillsPage } from './features/skills/SkillsPage'
+import WslStatusPage from './features/wsl/WslStatusPage'
 
 type NavId =
   | 'chat'
@@ -22,6 +23,7 @@ type NavId =
   | 'memory'
   | 'experience'
   | 'skills'
+  | 'wsl'
   | 'settings'
 
 const PRELOAD_OK = typeof window !== 'undefined' && !!(window as any).miqi
@@ -229,6 +231,7 @@ function AppShell() {
                 {activeNav === 'memory' && <MemoryPage />}
                 {activeNav === 'experience' && <ExperiencePage />}
                 {activeNav === 'skills' && <SkillsPage />}
+                {activeNav === 'wsl' && <WslStatusPage />}
                 {activeNav === 'settings' && <SettingsPage onReopenSetup={() => { setCanSkipSetup(true); setNeedsSetup(true) }} />}
               </main>
             </div>
