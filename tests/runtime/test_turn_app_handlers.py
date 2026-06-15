@@ -2,29 +2,57 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from miqi.runtime.app_server import AppServer, ClientSessionRegistry
+from miqi.protocol.events import TurnCompleteEvent
 
 
 class _FakeRuntime:
     def __init__(self, session_id: str):
         self.session_id = session_id
         self.submissions = []
-        self.events = AsyncMock()
         self.services = MagicMock()
         self.services.thread_runtime = MagicMock()
         self.services.thread_runtime.get_thread = AsyncMock(return_value=MagicMock(thread_id="thread-1"))
         self.submit = AsyncMock(side_effect=self._submit)
-        self.next_event = AsyncMock()
-        self.active_turn_id = MagicMock(return_value=None)
         self.interrupt_turn = AsyncMock(return_value=True)
         self.steer_turn = AsyncMock(return_value=True)
+        # Phase 41 hardening v2: per-thread turn reservation
+        self._reservations: dict[str, str] = {}
+        # Controlled event queue — drain tasks block here instead of hot-looping.
+        # A bare AsyncMock for next_event causes infinite hot loops because
+        # _drain_turn_events is `while True: await next_event(...)` and an
+        # AsyncMock without return_value/side_effect returns a non-terminal
+        # mock immediately.  The queue makes next_event block until a test
+        # feeds a terminal event or the task is cancelled.
+        self._drain_events: asyncio.Queue = asyncio.Queue()
 
     async def _submit(self, submission):
         self.submissions.append(submission)
+
+    def active_turn_id(self, thread_id: str) -> str | None:
+        return self._reservations.get(thread_id)
+
+    async def try_reserve_turn(self, thread_id: str, turn_id: str) -> bool:
+        if thread_id in self._reservations:
+            return False
+        self._reservations[thread_id] = turn_id
+        return True
+
+    async def release_turn_reservation(self, thread_id: str) -> None:
+        self._reservations.pop(thread_id, None)
+
+    async def next_event(self, timeout=None):
+        """Block until a test feeds an event, or CancelledError on shutdown."""
+        return await self._drain_events.get()
+
+    def feed_event(self, event):
+        """Feed a typed event into the drain loop (non-blocking)."""
+        self._drain_events.put_nowait(event)
 
 
 def _register_runtime(registry, runtime):
@@ -280,7 +308,8 @@ async def test_turn_start_rejects_when_active_turn_exists_for_thread():
     """Fix 1: turn/start must return INVALID_REQUEST when a turn is already running."""
     registry = ClientSessionRegistry()
     runtime = _FakeRuntime("client-1:default")
-    runtime.active_turn_id = MagicMock(return_value="turn-running")
+    # Pre-reserve the thread to simulate an active turn
+    runtime._reservations["thread-1"] = "turn-running"
     _register_runtime(registry, runtime)
 
     from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
@@ -325,4 +354,216 @@ async def test_turn_start_rejects_unknown_thread_id():
 
     assert response["code"] == "NOT_FOUND"
     assert not runtime.submissions  # No UserMessage submitted
+    # Phase 41 hardening v2: reservation must be released on validation failure
+    assert "thread-nonexistent" not in runtime._reservations
     await server.stop()
+
+
+# ── Phase 41 hardening v2: per-thread reservation race-condition fix ─────
+
+
+@pytest.mark.asyncio
+async def test_concurrent_turn_start_same_thread_only_one_succeeds():
+    """Two concurrent turn/start for the same threadId — exactly one wins."""
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+    _register_runtime(registry, runtime)
+
+    from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+    server = AppServer(registry)
+    register_codex_turn_handlers(server)
+
+    async def do_turn_start(req_id: str) -> dict:
+        return await server.dispatch(
+            req_id,
+            "turn/start",
+            {"threadId": "thread-1", "input": [{"type": "text", "text": "concurrent"}]},
+            "client-1",
+            runtime.session_id,
+        )
+
+    r1, r2 = await asyncio.gather(do_turn_start("req-1"), do_turn_start("req-2"))
+
+    # Exactly one success
+    success = [r for r in (r1, r2) if "result" in r]
+    rejected = [r for r in (r1, r2) if r.get("code") == "INVALID_REQUEST"]
+    assert len(success) == 1, f"Expected 1 success, got {len(success)}: {r1}, {r2}"
+    assert len(rejected) == 1, f"Expected 1 INVALID_REQUEST, got {len(rejected)}: {r1}, {r2}"
+
+    # Exactly one UserMessage submitted
+    assert len(runtime.submissions) == 1
+    assert runtime.submissions[0].content == "concurrent"
+
+    # Only one drain background task created
+    assert len(server._background_tasks) == 1, (
+        f"Expected 1 drain task, got {len(server._background_tasks)}"
+    )
+
+    await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_sequential_immediate_second_turn_start_rejected():
+    """Second sequential turn/start (without waiting) must be rejected."""
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+    _register_runtime(registry, runtime)
+
+    from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+    server = AppServer(registry)
+    register_codex_turn_handlers(server)
+
+    # First turn/start — succeeds, sets reservation
+    r1 = await server.dispatch(
+        "req-1",
+        "turn/start",
+        {"threadId": "thread-1", "input": [{"type": "text", "text": "first"}]},
+        "client-1",
+        runtime.session_id,
+    )
+    assert "result" in r1
+    assert r1["result"]["turn"]["status"] == "inProgress"
+    assert len(runtime.submissions) == 1
+
+    # Second turn/start immediately — rejected by reservation
+    r2 = await server.dispatch(
+        "req-2",
+        "turn/start",
+        {"threadId": "thread-1", "input": [{"type": "text", "text": "second"}]},
+        "client-1",
+        runtime.session_id,
+    )
+    assert r2.get("code") == "INVALID_REQUEST", f"Expected INVALID_REQUEST, got {r2}"
+    # Second request must NOT submit a UserMessage
+    assert len(runtime.submissions) == 1
+    # No second drain task
+    assert len(server._background_tasks) == 1
+
+    await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_turn_start_succeeds_after_reservation_released():
+    """After drain ends (releases reservation), a new turn/start succeeds."""
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+    _register_runtime(registry, runtime)
+
+    from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+    server = AppServer(registry)
+    register_codex_turn_handlers(server)
+
+    # First turn/start — succeeds, drain task blocks on empty queue
+    r1 = await server.dispatch(
+        "req-1",
+        "turn/start",
+        {"threadId": "thread-1", "input": [{"type": "text", "text": "first"}]},
+        "client-1",
+        runtime.session_id,
+    )
+    assert "result" in r1
+    assert len(runtime.submissions) == 1
+
+    # Feed TurnCompleteEvent so the drain loop terminates naturally.
+    # The drain's finally block will call release_turn_reservation.
+    r1_turn_id = r1["result"]["turn"]["id"]
+    runtime.feed_event(TurnCompleteEvent(
+        turn_id=r1_turn_id,
+        thread_id="thread-1",
+        outcome="success",
+    ))
+
+    # Wait for the drain task to finish (it removes itself via done callback)
+    for _ in range(100):
+        if not server._background_tasks:
+            break
+        await asyncio.sleep(0.01)
+    assert not server._background_tasks, "Drain task should have finished"
+
+    # Reservation must be released now
+    assert runtime.active_turn_id("thread-1") is None
+    assert "thread-1" not in runtime._reservations
+
+    # Second turn/start — must succeed because reservation was released
+    r2 = await server.dispatch(
+        "req-2",
+        "turn/start",
+        {"threadId": "thread-1", "input": [{"type": "text", "text": "second"}]},
+        "client-1",
+        runtime.session_id,
+    )
+    assert "result" in r2, f"Expected success, got {r2}"
+    assert r2["result"]["turn"]["status"] == "inProgress"
+    assert len(runtime.submissions) == 2
+
+    await server.stop()
+
+
+# ── Phase 41 hardening v2: regression — no hot loop ──────────────────────
+
+
+@pytest.mark.asyncio
+async def test_drain_task_blocks_not_hot_loops():
+    """Regression: _FakeRuntime.next_event must block, not return bare mocks.
+
+    A bare AsyncMock for next_event causes _drain_turn_events to never
+    block and loop infinitely.  This test verifies that the drain task
+    actually blocks on the event queue and that server.stop() safely
+    cancels it without leaving orphan tasks.
+    """
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+    _register_runtime(registry, runtime)
+
+    from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+    server = AppServer(registry)
+    register_codex_turn_handlers(server)
+
+    # Start a turn — creates a drain background task
+    response = await server.dispatch(
+        "req-1",
+        "turn/start",
+        {"threadId": "thread-1", "input": [{"type": "text", "text": "regression"}]},
+        "client-1",
+        runtime.session_id,
+    )
+    assert "result" in response
+
+    # The drain task should exist and be alive (blocked on queue)
+    assert len(server._background_tasks) == 1
+    drain_task = next(iter(server._background_tasks))
+    assert not drain_task.done(), "Drain task should be blocked, not completed"
+
+    # Verify we can feed an event without blocking
+    runtime.feed_event(TurnCompleteEvent(
+        turn_id=response["result"]["turn"]["id"],
+        thread_id="thread-1",
+        outcome="success",
+    ))
+
+    # Drain should finish after consuming the event
+    for _ in range(100):
+        if drain_task.done():
+            break
+        await asyncio.sleep(0.01)
+    assert drain_task.done(), "Drain task should have completed"
+    # background_tasks should be empty (auto-removed via done callback)
+    assert not server._background_tasks
+
+    # Reservation must be released after drain finishes
+    assert runtime.active_turn_id("thread-1") is None
+
+    # We should be able to start a second turn
+    r2 = await server.dispatch(
+        "req-2",
+        "turn/start",
+        {"threadId": "thread-1", "input": [{"type": "text", "text": "second"}]},
+        "client-1",
+        runtime.session_id,
+    )
+    assert "result" in r2
+
+    # server.stop() must clean up the second drain task without hanging
+    assert len(server._background_tasks) == 1
+    await server.stop()
+    assert not server._background_tasks, "All background tasks should be cleaned up"

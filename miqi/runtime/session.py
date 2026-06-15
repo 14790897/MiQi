@@ -49,6 +49,10 @@ class RuntimeSession:
         # carry only turn_id (ExecCommandBeginEvent etc.) can resolve
         # the correct ledger thread.
         self._turn_thread_map: dict[str, str] = {}
+        # Phase 41 hardening v2: per-thread turn reservation to close
+        # the race window between turn/start check and UserMessage submit.
+        self._turn_reservations: dict[str, str] = {}
+        self._reservation_lock = asyncio.Lock()
 
     @classmethod
     def create(
@@ -107,6 +111,9 @@ class RuntimeSession:
     async def stop(self) -> None:
         """Stop the dispatch loop and tear down agent resources."""
         self._stopped.set()
+        # Phase 41 hardening v2: release all turn reservations
+        async with self._reservation_lock:
+            self._turn_reservations.clear()
         if self._task is not None:
             self._task.cancel()
             # Cancel active turn task if still running
@@ -168,10 +175,42 @@ class RuntimeSession:
             return None
         return await replay.get_turn_timeline(thread_id, turn_id)
 
-    # ── Phase 41: active turn and steering wrappers ──────────────────────
+    # ── Phase 41: active turn reservation and steering wrappers ──────────
 
     def active_turn_id(self, thread_id: str) -> str | None:
-        return self._runner.active_turn_id(thread_id)
+        """Return the turn ID that is actively running or reserved for *thread_id*.
+
+        Checks TaskRunner first (turn is actually executing), then falls back
+        to the session-level reservation (turn/start has reserved the slot but
+        the UserMessage hasn't been picked up by the dispatch loop yet).
+        """
+        runner_active = self._runner.active_turn_id(thread_id)
+        if runner_active is not None:
+            return runner_active
+        return self._turn_reservations.get(thread_id)
+
+    async def try_reserve_turn(self, thread_id: str, turn_id: str) -> bool:
+        """Atomically check-and-reserve a turn slot for *thread_id*.
+
+        Returns True if the reservation was successful (no active turn and
+        no prior reservation for this thread), False otherwise.
+
+        The caller MUST release the reservation via
+        :meth:`release_turn_reservation` when the turn finishes, errors, or
+        is aborted.  Reservations are also cleared on :meth:`stop`.
+        """
+        async with self._reservation_lock:
+            if self._runner.active_turn_id(thread_id) is not None:
+                return False
+            if thread_id in self._turn_reservations:
+                return False
+            self._turn_reservations[thread_id] = turn_id
+            return True
+
+    async def release_turn_reservation(self, thread_id: str) -> None:
+        """Release a turn reservation so a new turn/start can proceed."""
+        async with self._reservation_lock:
+            self._turn_reservations.pop(thread_id, None)
 
     async def steer_turn(
         self,
