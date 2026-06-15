@@ -6,6 +6,7 @@ Pure helpers only: no RuntimeSession, no AppServer, no bridge imports.
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 
 class TurnProtocolError(ValueError):
@@ -41,6 +42,22 @@ def normalize_turn_input(raw_input: Any) -> list[dict[str, Any]]:
                 raise TurnProtocolError(f"input[{index}].url must be a non-empty string")
             if not url.startswith("https://") and not url.startswith("http://"):
                 raise TurnProtocolError(f"input[{index}].url must use https:// or http:// scheme")
+            parsed = urlparse(url)
+            if not parsed.hostname:
+                raise TurnProtocolError(f"input[{index}].url must contain a valid hostname")
+            # Reject raw IP literals that could bypass DNS-based SSRF protection
+            # at the fetch layer. Actual DNS resolution and private-network
+            # enforcement is the responsibility of the fetching code.
+            host = parsed.hostname.rstrip(".").lower()
+            try:
+                from ipaddress import ip_address
+                addr = ip_address(host)
+                if addr.is_loopback or addr.is_private or addr.is_link_local:
+                    raise TurnProtocolError(
+                        f"input[{index}].url must not target loopback, private, or link-local addresses"
+                    )
+            except ValueError:
+                pass  # Not an IP literal — DNS resolution deferred to fetch layer
             items.append({"type": "image", "url": url})
         elif item_type == "localImage":
             path = item.get("path")
