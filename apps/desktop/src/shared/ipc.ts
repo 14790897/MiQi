@@ -86,6 +86,7 @@ export const IPC = {
   WSL_INSTALL: 'wsl:install',
   WSL_EXPORT_DISTRO: 'wsl:export_distro',
   WSL_IMPORT_DISTRO: 'wsl:import_distro',
+  WSL_GET_STATS: 'wsl:getStats',
 
   // Write initial config (no bridge needed — used by Setup Wizard)
   CONFIG_WRITE_INITIAL: 'config:write_initial',
@@ -648,4 +649,31 @@ export interface WslImportDistroResult {
   distro: string | null      // imported distro name
   installLocation: string | null // where the distro was installed
   error: string | null
+}
+
+// ---------------------------------------------------------------------------
+// WSL runtime stats (memory / CPU / disk)
+// ---------------------------------------------------------------------------
+
+export interface WslStatsResult {
+  ok: boolean
+  error?: string
+  distro: string              // which distro was queried
+  memory: {
+    total_mb: number
+    used_mb: number
+    free_mb: number
+    used_pct: number          // 0-100
+  }
+  cpu: {
+    usage_pct: number        // 0-100, instantaneous snapshot
+    cores: number
+  }
+  disk: {
+    total_gb: number
+    used_gb: number
+    free_gb: number
+    used_pct: number
+  }
+  uptime_sec: number
 }
