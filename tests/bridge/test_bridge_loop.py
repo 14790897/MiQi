@@ -300,3 +300,30 @@ async def test_shutdown_cancels_pending_tasks():
     # AppServer should be stopped
     assert loop.app_server._running is False
 
+
+# ── Phase 41: Codex turn handler registration ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_phase41_turn_handlers_registered_on_bridge_app_server():
+    from miqi.bridge.loop import BridgeRuntimeLoop
+
+    capturer = _CaptureSend()
+    loop = BridgeRuntimeLoop(
+        send_func=capturer.send,
+        dispatch_legacy_func=_dispatch_legacy,
+    )
+    await loop._init_app_server()
+
+    methods = loop.app_server._methods
+    for method in [
+        "turn/start",
+        "turn/interrupt",
+        "turn/steer",
+        "thread/compact/start",
+        "thread/inject_items",
+    ]:
+        assert method in methods
+
+    await loop.app_server.stop()
+

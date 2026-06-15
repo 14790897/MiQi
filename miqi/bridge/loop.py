@@ -392,6 +392,10 @@ class BridgeRuntimeLoop:
         from miqi.runtime.diagnostic_handlers import python_check_handler
         self._app_server.register_method("python.check", python_check_handler)
 
+        # Register Phase 41: Codex-style active turn handlers
+        from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+        register_codex_turn_handlers(self._app_server)
+
         logger.info(
             "BridgeRuntimeLoop: AppServer initialized with {} methods",
             len(self._app_server._methods),
