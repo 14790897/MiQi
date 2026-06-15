@@ -346,14 +346,35 @@ class RuntimeSession:
                     submission = d.result()
                     if isinstance(submission, AbortTurn):
                         had_active = False
+                        cancelled_task = None
                         async with self._lock:
                             if self._active_turn_task is not None:
+                                cancelled_task = self._active_turn_task
                                 self._active_turn_task.cancel()
                                 self._active_turn_task = None
                                 had_active = True
                         if not get_task.done():
                             get_task.cancel()
-                        if not had_active:
+                        if had_active:
+                            # Phase 41 hardening: cancel approvals even when
+                            # bypassing TaskRunner.handle(AbortTurn) to avoid
+                            # leaving orphan approvals in the pending set.
+                            thread_id = getattr(submission, "thread_id", None) or "default"
+                            orchestrator = getattr(self._runner.services, "orchestrator", None)
+                            cancel_fn = getattr(orchestrator, "cancel_approvals_for_thread", None)
+                            if callable(cancel_fn) and asyncio.iscoroutinefunction(cancel_fn):
+                                await cancel_fn(thread_id, reason="Turn aborted by user.")
+                            # Await the cancelled task to guarantee cleanup
+                            # (history completion, ledger append, event emission)
+                            # completes before the next loop iteration.
+                            if cancelled_task is not None:
+                                try:
+                                    await cancelled_task
+                                except asyncio.CancelledError:
+                                    pass
+                                except Exception:
+                                    pass
+                        else:
                             await self._runner.handle(submission)
                     elif isinstance(submission, SteerTurn):
                         # Handle steering inline during active turn

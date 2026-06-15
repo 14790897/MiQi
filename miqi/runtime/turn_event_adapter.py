@@ -355,12 +355,14 @@ class CodexTurnEventAdapter:
     # ── ErrorEvent ────────────────────────────────────────────────────────
 
     def _on_ErrorEvent(self, event: ErrorEvent) -> list[dict[str, Any]]:
-        return [
+        result: list[dict[str, Any]] = [
             self._notification(
                 "error",
-                {"error": {"message": event.message}},
+                {"error": {"message": event.message, "recoverable": event.recoverable}},
             ),
-            self._notification(
+        ]
+        if not event.recoverable:
+            result.append(self._notification(
                 "turn/completed",
                 self._with_location({
                     "turn": turn_view(
@@ -370,5 +372,5 @@ class CodexTurnEventAdapter:
                         error_message=event.message,
                     ),
                 }),
-            ),
-        ]
+            ))
+        return result

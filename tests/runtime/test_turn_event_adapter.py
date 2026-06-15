@@ -127,3 +127,55 @@ def test_adapter_projects_turn_complete_after_agent_item():
     assert events[-2]["event"] == "thread/tokenUsage/updated"
     assert events[-1]["event"] == "turn/completed"
     assert events[-1]["data"]["turn"]["status"] == "completed"
+
+
+# ── Phase 41 hardening: recoverable ErrorEvent ────────────────────────────
+
+
+def test_recoverable_error_emits_warning_but_not_turn_completed():
+    """Fix 3: recoverable ErrorEvent emits error notification only, not turn/completed."""
+    from miqi.protocol.events import ErrorEvent, EventSeverity
+    from miqi.runtime.turn_event_adapter import CodexTurnEventAdapter
+
+    adapter = CodexTurnEventAdapter(
+        thread_id="thread-1",
+        turn_id="turn-1",
+        input_items=[{"type": "text", "text": "hello"}],
+        client_user_message_id=None,
+    )
+
+    events = adapter.project(ErrorEvent(
+        turn_id="turn-1",
+        severity=EventSeverity.WARNING,
+        message="Recoverable hiccup",
+        recoverable=True,
+    ))
+
+    event_names = [e["event"] for e in events]
+    assert "error" in event_names or "warning" in event_names or "error/warning" in event_names
+    assert "turn/completed" not in event_names
+
+
+def test_nonrecoverable_error_emits_turn_completed_failed():
+    """Fix 3: non-recoverable ErrorEvent still terminates the turn stream."""
+    from miqi.protocol.events import ErrorEvent, EventSeverity
+    from miqi.runtime.turn_event_adapter import CodexTurnEventAdapter
+
+    adapter = CodexTurnEventAdapter(
+        thread_id="thread-1",
+        turn_id="turn-1",
+        input_items=[{"type": "text", "text": "hello"}],
+        client_user_message_id=None,
+    )
+
+    events = adapter.project(ErrorEvent(
+        turn_id="turn-1",
+        severity=EventSeverity.ERROR,
+        message="Fatal error",
+        recoverable=False,
+    ))
+
+    event_names = [e["event"] for e in events]
+    assert "turn/completed" in event_names
+    completed = events[event_names.index("turn/completed")]
+    assert completed["data"]["turn"]["status"] == "failed"
