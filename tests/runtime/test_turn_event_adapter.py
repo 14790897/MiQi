@@ -205,3 +205,53 @@ def test_adapter_projects_user_shell_command_source():
     item = events[0]["data"]["item"]
     assert item["type"] == "commandExecution"
     assert item["source"] == "userShell"
+
+
+def test_adapter_skips_user_message_when_emit_user_message_item_is_false():
+    """Phase 42 fix: standalone shell commands should not emit empty userMessage items."""
+    from miqi.protocol.events import TurnStartedEvent
+    from miqi.runtime.turn_event_adapter import CodexTurnEventAdapter
+
+    adapter = CodexTurnEventAdapter(
+        thread_id="thread-1",
+        turn_id="turn-shell-1",
+        input_items=[],
+        client_user_message_id=None,
+        emit_user_message_item=False,
+    )
+
+    events = adapter.project(TurnStartedEvent(
+        turn_id="turn-shell-1",
+        thread_id="thread-1",
+        agent_name="main",
+    ))
+
+    # Should emit turn/started but NOT user message item/started or item/completed
+    assert [e["event"] for e in events] == ["turn/started"]
+    assert events[0]["data"]["turn"]["status"] == "inProgress"
+
+
+def test_adapter_still_emits_user_message_when_emit_user_message_item_is_true():
+    """Phase 42 fix: default behavior (emit_user_message_item=True) is unchanged."""
+    from miqi.protocol.events import TurnStartedEvent
+    from miqi.runtime.turn_event_adapter import CodexTurnEventAdapter
+
+    adapter = CodexTurnEventAdapter(
+        thread_id="thread-1",
+        turn_id="turn-1",
+        input_items=[{"type": "text", "text": "hello"}],
+        client_user_message_id="client-msg-1",
+        emit_user_message_item=True,
+    )
+
+    events = adapter.project(TurnStartedEvent(
+        turn_id="turn-1",
+        thread_id="thread-1",
+        agent_name="main",
+    ))
+
+    assert [e["event"] for e in events] == [
+        "turn/started",
+        "item/started",
+        "item/completed",
+    ]

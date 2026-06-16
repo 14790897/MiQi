@@ -90,6 +90,7 @@ def register_shell_command_handlers(server: AppServer) -> None:
                 turn_id=turn_id,
                 input_items=[],
                 client_user_message_id=None,
+                emit_user_message_item=False,
             ),
             name=f"shell-drain:{session.session_id}:{turn_id}",
         )

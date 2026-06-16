@@ -273,15 +273,30 @@ class TaskRunner:
         )
         turn.permission_profile = PermissionProfile(workspace=self.services.workspace)
 
-        if cmd.standalone:
-            self._active_turn_ids[thread_id] = turn_id
-            await self._events.put(TurnStartedEvent(
-                turn_id=turn_id,
-                agent_name=metadata.name,
-                thread_id=thread_id,
-            ))
+        # Phase 42 fix: connect to thread cancel event so AbortTurn can cancel exec
+        cancel_evt = self._turn_cancel_events.get(thread_id)
+        if cancel_evt is not None:
+            turn.cancel_event = cancel_evt
+
+        ledger = getattr(self.services, "ledger_runtime", None)
 
         try:
+            if cmd.standalone:
+                self._active_turn_ids[thread_id] = turn_id
+                # Ledger: record turn start
+                if ledger is not None:
+                    await ledger.append_item(
+                        thread_id=thread_id,
+                        turn_id=turn_id,
+                        item_type="turn_started",
+                        payload={"agent_name": metadata.name, "source": "userShell"},
+                    )
+                await self._events.put(TurnStartedEvent(
+                    turn_id=turn_id,
+                    agent_name=metadata.name,
+                    thread_id=thread_id,
+                ))
+
             call = SimpleNamespace(
                 id=f"user-shell-{turn_id}",
                 name="exec",
@@ -293,24 +308,74 @@ class TaskRunner:
             )
             tool_runtime = getattr(self.services, "tool_runtime", None)
             if tool_runtime is None:
-                await self._events.put(CommandRejectedEvent(
-                    command_type="RunUserShellCommand",
-                    reason="Runtime has no tool runtime",
-                    recoverable=False,
-                ))
+                err_msg = "Runtime has no tool runtime"
+                if cmd.standalone:
+                    if ledger is not None:
+                        await ledger.append_item(
+                            thread_id=thread_id,
+                            turn_id=turn_id,
+                            item_type="error",
+                            payload={"recoverable": False, "source": "task_runner"},
+                        )
+                    await self._events.put(TurnCompleteEvent(
+                        turn_id=turn_id,
+                        thread_id=thread_id,
+                        outcome="error",
+                        tools_used=[],
+                        token_usage={},
+                    ))
+                else:
+                    await self._events.put(CommandRejectedEvent(
+                        command_type="RunUserShellCommand",
+                        reason=err_msg,
+                        recoverable=False,
+                    ))
                 return
+
             ctx = await tool_runtime.execute_one(turn, call)
             if cmd.standalone:
+                outcome = "success" if not str(ctx.result or "").startswith("Error:") else "error"
+                if ledger is not None:
+                    await ledger.append_item(
+                        thread_id=thread_id,
+                        turn_id=turn_id,
+                        item_type="turn_completed",
+                        payload={"outcome": outcome, "tools_used": ["exec"]},
+                    )
                 await self._events.put(TurnCompleteEvent(
                     turn_id=turn_id,
                     thread_id=thread_id,
-                    outcome="success" if not str(ctx.result or "").startswith("Error:") else "error",
+                    outcome=outcome,
                     tools_used=["exec"],
                     token_usage={},
                 ))
+        except asyncio.CancelledError:
+            if cmd.standalone and ledger is not None:
+                await ledger.append_item(
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    item_type="turn_aborted",
+                    payload={"reason": "Shell command was cancelled."},
+                )
+            raise
         except Exception:
             from loguru import logger
             logger.exception("User shell command failed for turn {}", turn_id)
+            if cmd.standalone:
+                if ledger is not None:
+                    await ledger.append_item(
+                        thread_id=thread_id,
+                        turn_id=turn_id,
+                        item_type="error",
+                        payload={"recoverable": False, "source": "task_runner"},
+                    )
+                await self._events.put(TurnCompleteEvent(
+                    turn_id=turn_id,
+                    thread_id=thread_id,
+                    outcome="error",
+                    tools_used=["exec"],
+                    token_usage={},
+                ))
             await self._events.put(ErrorEvent(
                 turn_id=turn_id,
                 severity=EventSeverity.ERROR,

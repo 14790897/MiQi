@@ -42,3 +42,4 @@ class TurnContext:
     # Phase 13: resolved capabilities and permission profile
     capabilities: Any | None = None
     permission_profile: Any | None = None
+    cancel_event: Any | None = None  # asyncio.Event for turn abort signalling

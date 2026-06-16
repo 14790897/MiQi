@@ -51,12 +51,14 @@ async def drain_turn_events(
     turn_id: str,
     input_items: list[dict[str, Any]],
     client_user_message_id: str | None,
+    emit_user_message_item: bool = True,
 ) -> None:
     adapter = CodexTurnEventAdapter(
         thread_id=thread_id,
         turn_id=turn_id,
         input_items=input_items,
         client_user_message_id=client_user_message_id,
+        emit_user_message_item=emit_user_message_item,
     )
     try:
         while True:

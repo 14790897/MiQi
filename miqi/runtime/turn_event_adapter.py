@@ -46,11 +46,13 @@ class CodexTurnEventAdapter:
         turn_id: str,
         input_items: list[dict[str, Any]],
         client_user_message_id: str | None,
+        emit_user_message_item: bool = True,
     ):
         self.thread_id = thread_id
         self.turn_id = turn_id
         self.input_items = input_items
         self.client_user_message_id = client_user_message_id
+        self._emit_user_message_item = emit_user_message_item
         self._user_item_emitted = False
         self._agent_started = False
         self._agent_completed = False
@@ -93,7 +95,7 @@ class CodexTurnEventAdapter:
         ))
 
         # Emit user message item start + complete
-        if not self._user_item_emitted:
+        if self._emit_user_message_item and not self._user_item_emitted:
             self._user_item_emitted = True
             user_item = user_message_item(
                 turn_id=self.turn_id,
