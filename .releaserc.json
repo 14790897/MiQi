@@ -1,0 +1,15 @@
+{
+  "branches": ["main", "master"],
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    "@semantic-release/changelog",
+    ["@semantic-release/exec", {
+      "prepareCmd": "bash scripts/update-version.sh ${nextRelease.version}"
+    }],
+    ["@semantic-release/git", {
+      "assets": ["CHANGELOG.md", "package.json", "pyproject.toml", "apps/desktop/package.json"]
+    }],
+    "@semantic-release/github"
+  ]
+}
