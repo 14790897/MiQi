@@ -1242,3 +1242,58 @@ async def test_fake_handle_wait_exit_code_nonzero():
     handle = await _make_streaming_handle(stdout_text="err", exit_code=7)
     exit_code = await handle.wait()
     assert exit_code == 7, f"Expected 7, got {exit_code}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 42: user shell command source tagging
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_exec_begin_event_includes_user_shell_source(tmp_path):
+    from miqi.agent.tools.shell import ExecTool
+    from miqi.protocol.events import ExecCommandBeginEvent
+
+    emitted = []
+
+    class Emitter:
+        async def emit(self, event):
+            emitted.append(event)
+
+    tool = ExecTool(working_dir=str(tmp_path))
+    await tool.execute(
+        "echo hello",
+        _event_emitter=Emitter(),
+        _turn_id="turn-1",
+        _tool_call_id="exec-1",
+        _exec_source="userShell",
+    )
+
+    begin = next(e for e in emitted if isinstance(e, ExecCommandBeginEvent))
+    assert begin.source == "userShell"
+
+
+@pytest.mark.asyncio
+async def test_exec_started_ledger_includes_user_shell_source(tmp_path):
+    from miqi.agent.tools.shell import ExecTool
+    from miqi.runtime.ledger_runtime import LedgerRuntime
+
+    ledger = LedgerRuntime(tmp_path / "runtime.db", session_id="client-1:default")
+    await ledger.initialize()
+    try:
+        tool = ExecTool(working_dir=str(tmp_path))
+        await tool.execute(
+            "echo hello",
+            _turn_id="turn-1",
+            _tool_call_id="exec-1",
+            _ledger_runtime=ledger,
+            _thread_id="thread-1",
+            _exec_source="userShell",
+        )
+
+        items = await ledger.load_items("thread-1")
+        exec_started = [i for i in items if i.item_type == "exec_started"]
+        assert exec_started
+        assert exec_started[0].payload["source"] == "userShell"
+    finally:
+        await ledger.close()
