@@ -143,7 +143,8 @@ class ExecCommandBeginEvent:
     tool_call_id: str
     command: str
     cwd: str
-    sandbox_type: str  # "bwrap" | "landlock" | "none"
+    sandbox_type: str  # "bwrap" | "landlock" | "restricted" | "none"
+    source: str = "shell"  # "shell" | "userShell"
 
 
 @dataclass

@@ -75,3 +75,22 @@ def test_json_roundtrip():
     from dataclasses import asdict
     data = json.loads(json.dumps(asdict(msg)))
     assert data["content"] == "Test"
+
+
+def test_run_user_shell_command_carries_turn_metadata():
+    from miqi.protocol.commands import RunUserShellCommand
+
+    cmd = RunUserShellCommand(
+        command="git status --short",
+        thread_id="thread-1",
+        turn_id="turn-shell-1",
+        cwd="/workspace",
+        standalone=True,
+    )
+
+    assert cmd.type == "run_user_shell_command"
+    assert cmd.command == "git status --short"
+    assert cmd.thread_id == "thread-1"
+    assert cmd.turn_id == "turn-shell-1"
+    assert cmd.cwd == "/workspace"
+    assert cmd.standalone is True
