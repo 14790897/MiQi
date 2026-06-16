@@ -42,7 +42,7 @@ def _turn_id() -> str:
 # ── event drain ────────────────────────────────────────────────────────────
 
 
-async def _drain_turn_events(
+async def drain_turn_events(
     *,
     server: AppServer,
     session: Any,
@@ -172,7 +172,7 @@ def register_codex_turn_handlers(server: AppServer) -> None:
             raise
 
         server.create_background_task(
-            _drain_turn_events(
+            drain_turn_events(
                 server=server,
                 session=session,
                 request_id=request_id,
