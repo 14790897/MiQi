@@ -108,6 +108,9 @@ class ExecTool(Tool):
         tool_call_id = kwargs.pop("_tool_call_id", "")
         cancel_event = kwargs.pop("_cancel_event", None)
 
+        # Phase 42: extract exec source tag (shell vs userShell)
+        exec_source = kwargs.pop("_exec_source", "shell")
+
         # Phase 31.8: consume ledger runtime and thread_id injected by
         # ToolOrchestrator for replay-persistent event recording.
         ledger_runtime = kwargs.pop("_ledger_runtime", None)
@@ -135,6 +138,7 @@ class ExecTool(Tool):
                 command=command,
                 cwd=cwd,
                 sandbox_type=sandbox_type,
+                source=exec_source,
             ))
 
         # Phase 31.8: record exec start in ledger for replay
@@ -148,6 +152,7 @@ class ExecTool(Tool):
                     "command": command,
                     "cwd": cwd,
                     "sandbox_type": sandbox_type,
+                    "source": exec_source,
                 },
             )
 
