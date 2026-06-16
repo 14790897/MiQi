@@ -214,7 +214,10 @@ class TaskRunner:
                 tokens_saved=result.tokens_saved,
             ))
             return
-        if isinstance(submission, (UserInputAnswer, RunUserShellCommand)):
+        if isinstance(submission, RunUserShellCommand):
+            await self._handle_user_shell_command(submission)
+            return
+        if isinstance(submission, UserInputAnswer):
             await self._events.put(CommandRejectedEvent(
                 command_type=type(submission).__name__,
                 reason=f"{type(submission).__name__} is reserved for future use",
@@ -226,6 +229,97 @@ class TaskRunner:
             reason=f"Unknown submission type: {type(submission).__name__}",
             recoverable=False,
         ))
+
+    async def _handle_user_shell_command(self, cmd: RunUserShellCommand) -> None:
+        command = (cmd.command or "").strip()
+        thread_id = cmd.thread_id
+        turn_id = cmd.turn_id
+
+        if not command:
+            await self._events.put(CommandRejectedEvent(
+                command_type="RunUserShellCommand",
+                reason="command is required",
+                recoverable=False,
+            ))
+            return
+
+        if not thread_id or not turn_id:
+            await self._events.put(CommandRejectedEvent(
+                command_type="RunUserShellCommand",
+                reason="thread_id and turn_id are required",
+                recoverable=False,
+            ))
+            return
+
+        from types import SimpleNamespace
+        from miqi.runtime.agent_registry import AgentRegistry
+        from miqi.runtime.permission_profile import PermissionProfile
+        from miqi.runtime.turn_context import TurnContext
+
+        metadata = AgentRegistry().resolve("main")
+        session_id = getattr(self.services, "session_id", "")
+        client_id = session_id.split(":")[0] if ":" in session_id else ""
+        turn = TurnContext(
+            turn_id=turn_id,
+            agent_metadata=metadata,
+            thread_id=thread_id,
+            workspace=self.services.workspace,
+            model=self.services.agent_loop.model,
+            provider=self.services.provider,
+            temperature=self.services.agent_loop.temperature,
+            max_tokens=self.services.agent_loop.max_tokens,
+            client_id=client_id,
+            session_id=session_id,
+        )
+        turn.permission_profile = PermissionProfile(workspace=self.services.workspace)
+
+        if cmd.standalone:
+            self._active_turn_ids[thread_id] = turn_id
+            await self._events.put(TurnStartedEvent(
+                turn_id=turn_id,
+                agent_name=metadata.name,
+                thread_id=thread_id,
+            ))
+
+        try:
+            call = SimpleNamespace(
+                id=f"user-shell-{turn_id}",
+                name="exec",
+                arguments={
+                    "command": command,
+                    **({"working_dir": cmd.cwd} if cmd.cwd else {}),
+                    "_exec_source": "userShell",
+                },
+            )
+            tool_runtime = getattr(self.services, "tool_runtime", None)
+            if tool_runtime is None:
+                await self._events.put(CommandRejectedEvent(
+                    command_type="RunUserShellCommand",
+                    reason="Runtime has no tool runtime",
+                    recoverable=False,
+                ))
+                return
+            ctx = await tool_runtime.execute_one(turn, call)
+            if cmd.standalone:
+                await self._events.put(TurnCompleteEvent(
+                    turn_id=turn_id,
+                    thread_id=thread_id,
+                    outcome="success" if not str(ctx.result or "").startswith("Error:") else "error",
+                    tools_used=["exec"],
+                    token_usage={},
+                ))
+        except Exception:
+            from loguru import logger
+            logger.exception("User shell command failed for turn {}", turn_id)
+            await self._events.put(ErrorEvent(
+                turn_id=turn_id,
+                severity=EventSeverity.ERROR,
+                message="An internal error occurred while running the shell command.",
+                recoverable=False,
+            ))
+        finally:
+            if cmd.standalone:
+                self._active_turn_ids.pop(thread_id, None)
 
     async def _handle_user_message(self, msg: UserMessage) -> None:
         turn_id = msg.turn_id or str(uuid.uuid4())[:12]
