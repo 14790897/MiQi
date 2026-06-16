@@ -188,6 +188,7 @@ class CodexTurnEventAdapter:
             command=event.command,
             cwd=event.cwd,
             status="inProgress",
+            source=getattr(event, "source", None),
         )
         self._commands[event.tool_call_id] = cmd_item
         self._command_output[event.tool_call_id] = []
@@ -223,10 +224,11 @@ class CodexTurnEventAdapter:
             item_id=item_id,
             command=cmd_item.get("command", ""),
             cwd=cmd_item.get("cwd", ""),
-            status="completed",
+            status="completed" if event.exit_code == 0 else "failed",
             aggregated_output=aggregated,
             exit_code=event.exit_code,
             duration_ms=event.duration_ms,
+            source=cmd_item.get("source"),
         )
         return [self._notification(
             "item/completed",

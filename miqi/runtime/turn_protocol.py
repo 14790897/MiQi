@@ -156,6 +156,7 @@ def command_execution_item(
     aggregated_output: str = "",
     exit_code: int | None = None,
     duration_ms: int | None = None,
+    source: str | None = None,
 ) -> dict[str, Any]:
     item: dict[str, Any] = {
         "type": "commandExecution",
@@ -165,6 +166,8 @@ def command_execution_item(
         "status": status,
         "commandActions": [],
     }
+    if source is not None:
+        item["source"] = source
     if aggregated_output:
         item["aggregatedOutput"] = aggregated_output
     if exit_code is not None:

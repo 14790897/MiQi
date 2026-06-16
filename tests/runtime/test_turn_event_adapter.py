@@ -179,3 +179,29 @@ def test_nonrecoverable_error_emits_turn_completed_failed():
     assert "turn/completed" in event_names
     completed = events[event_names.index("turn/completed")]
     assert completed["data"]["turn"]["status"] == "failed"
+
+
+def test_adapter_projects_user_shell_command_source():
+    from miqi.protocol.events import ExecCommandBeginEvent
+    from miqi.runtime.turn_event_adapter import CodexTurnEventAdapter
+
+    adapter = CodexTurnEventAdapter(
+        thread_id="thread-1",
+        turn_id="turn-1",
+        input_items=[],
+        client_user_message_id=None,
+    )
+
+    events = adapter.project(ExecCommandBeginEvent(
+        turn_id="turn-1",
+        tool_call_id="exec-user-1",
+        command="git status --short",
+        cwd="/workspace",
+        sandbox_type="restricted",
+        source="userShell",
+    ))
+
+    assert events[0]["event"] == "item/started"
+    item = events[0]["data"]["item"]
+    assert item["type"] == "commandExecution"
+    assert item["source"] == "userShell"
