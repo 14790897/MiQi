@@ -1,4 +1,4 @@
-name: Build and Release
+name: Build
 
 on:
   push:
@@ -41,16 +41,6 @@ jobs:
       - name: Build miqi-bridge.exe
         run: uv run pyinstaller miqi.spec
 
-      - name: Set version from tag
-        if: startsWith(github.ref, 'refs/tags/v')
-        working-directory: apps/desktop
-        run: |
-          $version = "${{ github.ref_name }}".Substring(1)
-          $version = $version -replace '\.post(\d+)', '-post.$1'
-          $content = Get-Content package.json -Raw | ConvertFrom-Json
-          $content.version = $version
-          $content | ConvertTo-Json -Depth 100 | Set-Content package.json
-
       - name: Install Electron dependencies
         working-directory: apps/desktop
         run: npm ci
@@ -71,7 +61,8 @@ jobs:
           name: miqi-desktop-build
           path: dist-new/
 
-      - name: Create Release
+      # Upload binaries to the release that semantic-release already created
+      - name: Upload release assets
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
@@ -79,15 +70,5 @@ jobs:
             dist-new/*.exe
             dist-new/*.msi
             dist-new/*.zip
-          name: Release ${{ github.ref_name }}
-          body: |
-            ## MiQi Desktop ${{ github.ref_name }}
-
-            Automated release from GitHub Actions pipeline.
-
-            **Downloads:**
-            - Windows Installer: `MiQi Desktop Setup *.exe`
-            - Windows Portable: `MiQi Desktop *.exe`
-            - Windows Zip: `MiQi Desktop *.zip`
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

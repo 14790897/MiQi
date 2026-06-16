@@ -1,0 +1,33 @@
+{
+  "name": "miqi-desktop-release",
+  "version": "0.1.19",
+  "private": true,
+  "description": "Release tooling for MiQi Desktop",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/miqroera/miqi-desktop.git"
+  },
+  "scripts": {
+    "commit": "cz",
+    "release": "semantic-release",
+    "release:dry": "semantic-release --dry-run",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.6.0",
+    "@commitlint/config-conventional": "^19.6.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/exec": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^11.0.0",
+    "commitizen": "^4.3.1",
+    "cz-conventional-changelog": "^3.3.0",
+    "husky": "^9.1.0",
+    "semantic-release": "^24.2.0"
+  },
+  "config": {
+    "commitizen": {
+      "path": "./node_modules/cz-conventional-changelog"
+    }
+  }
+}
