@@ -361,3 +361,63 @@ async def test_runtime_session_start_initializes_history_stores(
     finally:
         await runtime.stop()
 
+
+@pytest.mark.asyncio
+async def test_runtime_session_handles_user_shell_command_during_active_turn(fake_config):
+    """RunUserShellCommand arriving during an active turn must not be queued behind it."""
+    import asyncio as _asyncio
+    from miqi.protocol.commands import RunUserShellCommand, UserMessage
+    from miqi.providers.base import LLMResponse, LLMStreamEvent
+    from miqi.runtime.session import RuntimeSession
+
+    shell_handled = _asyncio.Event()
+
+    class Provider:
+        def get_default_model(self):
+            return "test-model"
+
+        async def stream_chat(self, **kwargs):
+            await _asyncio.sleep(0.3)
+            yield LLMStreamEvent(kind="completed", response=LLMResponse(
+                content="done",
+                finish_reason="stop",
+            ))
+
+    runtime = RuntimeSession.create(
+        config=fake_config,
+        provider=Provider(),
+        session_id="client-1:default",
+        workspace=fake_config.workspace_path,
+    )
+    await runtime.start()
+
+    original_handle = runtime._runner.handle
+
+    async def handle_spy(submission):
+        if isinstance(submission, RunUserShellCommand):
+            shell_handled.set()
+        await original_handle(submission)
+
+    runtime._runner.handle = handle_spy
+
+    await runtime.submit(UserMessage(
+        content="wait",
+        thread_id="default",
+        turn_id="turn-active",
+    ))
+
+    for _ in range(100):
+        if runtime.active_turn_id("default") == "turn-active":
+            break
+        await _asyncio.sleep(0.01)
+
+    await runtime.submit(RunUserShellCommand(
+        command="echo inline",
+        thread_id="default",
+        turn_id="turn-active",
+        standalone=False,
+    ))
+
+    await _asyncio.wait_for(shell_handled.wait(), timeout=5)
+    await runtime.stop()
+

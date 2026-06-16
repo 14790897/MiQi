@@ -318,7 +318,7 @@ class RuntimeSession:
         during an active turn are queued in _pending and processed after the
         current turn completes (FIFO, no silent drops).
         """
-        from miqi.protocol.commands import AbortTurn, SteerTurn
+        from miqi.protocol.commands import AbortTurn, RunUserShellCommand, SteerTurn
 
         while not self._stopped.is_set():
             # If no turn is running, dequeue next submission (pending first)
@@ -415,11 +415,12 @@ class RuntimeSession:
                                     pass
                         else:
                             await self._runner.handle(submission)
-                    elif isinstance(submission, SteerTurn):
-                        # Handle steering inline during active turn
+                    elif isinstance(submission, (SteerTurn, RunUserShellCommand)):
+                        # Handle steering and user shell commands inline during active turn
                         await self._runner.handle(submission)
                     else:
-                        # Queue non-AbortTurn/non-SteerTurn for processing after this turn
+                        # Queue non-AbortTurn/non-SteerTurn/non-RunUserShellCommand
+                        # for processing after this turn
                         async with self._lock:
                             self._pending.append(submission)
                 else:
