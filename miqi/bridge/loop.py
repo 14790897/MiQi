@@ -396,6 +396,10 @@ class BridgeRuntimeLoop:
         from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
         register_codex_turn_handlers(self._app_server)
 
+        # Register Phase 42: Codex-style thread/shellCommand handler
+        from miqi.runtime.shell_command_app_handlers import register_shell_command_handlers
+        register_shell_command_handlers(self._app_server)
+
         logger.info(
             "BridgeRuntimeLoop: AppServer initialized with {} methods",
             len(self._app_server._methods),
