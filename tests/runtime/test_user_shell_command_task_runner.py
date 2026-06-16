@@ -107,3 +107,109 @@ async def test_run_user_shell_command_empty_command_rejected():
     assert events
     assert events[0].type == "command_rejected"
     assert events[0].command_type == "RunUserShellCommand"
+
+
+@pytest.mark.asyncio
+async def test_standalone_shell_command_writes_ledger_lifecycle():
+    """Phase 42 fix: standalone shell command must write turn_started and
+    turn_completed to the ledger for replay/debug integrity."""
+    events_queue = asyncio.Queue()
+    services = _services()
+    ledger = MagicMock()
+    ledger.append_item = AsyncMock()
+    services.ledger_runtime = ledger
+
+    runner = TaskRunner(services=services, event_queue=events_queue)
+
+    await runner.handle(RunUserShellCommand(
+        command="echo hello",
+        thread_id="thread-1",
+        turn_id="turn-shell-1",
+        standalone=True,
+    ))
+
+    calls = [c.kwargs for c in ledger.append_item.call_args_list]
+    item_types = [c["item_type"] for c in calls]
+    assert "turn_started" in item_types
+    assert "turn_completed" in item_types
+    # Verify turn_started comes before turn_completed
+    ts_idx = item_types.index("turn_started")
+    tc_idx = item_types.index("turn_completed")
+    assert ts_idx < tc_idx
+    # Verify the completion has the right outcome
+    tc_call = calls[tc_idx]
+    assert tc_call["thread_id"] == "thread-1"
+    assert tc_call["turn_id"] == "turn-shell-1"
+    assert tc_call["payload"]["tools_used"] == ["exec"]
+
+
+@pytest.mark.asyncio
+async def test_standalone_shell_command_writes_ledger_on_error():
+    """Phase 42 fix: standalone shell command with no tool runtime must write
+    a terminal ledger item."""
+    events_queue = asyncio.Queue()
+    services = _services()
+    services.tool_runtime = None  # trigger error path
+    ledger = MagicMock()
+    ledger.append_item = AsyncMock()
+    services.ledger_runtime = ledger
+
+    runner = TaskRunner(services=services, event_queue=events_queue)
+
+    await runner.handle(RunUserShellCommand(
+        command="echo hello",
+        thread_id="thread-1",
+        turn_id="turn-shell-1",
+        standalone=True,
+    ))
+
+    calls = [c.kwargs for c in ledger.append_item.call_args_list]
+    item_types = [c["item_type"] for c in calls]
+    # Must have turn_started + error (terminal) — not left incomplete
+    assert "turn_started" in item_types
+    assert "error" in item_types
+
+
+@pytest.mark.asyncio
+async def test_active_turn_shell_command_receives_cancel_event():
+    """Phase 42 fix: active-turn shell command TurnContext must receive
+    the thread's cancel_event so AbortTurn can cancel a running exec."""
+    events_queue = asyncio.Queue()
+    services = _services()
+
+    # Simulate what _handle_user_message does: create a cancel_event for the thread
+    cancel_evt = asyncio.Event()
+    runner = TaskRunner(services=services, event_queue=events_queue)
+    runner._turn_cancel_events["thread-1"] = cancel_evt
+
+    await runner.handle(RunUserShellCommand(
+        command="echo hello",
+        thread_id="thread-1",
+        turn_id="turn-active",
+        standalone=False,
+    ))
+
+    # The TurnContext passed to execute_one should carry the cancel_event
+    turn, _ = services.tool_runtime.calls[0]
+    assert getattr(turn, "cancel_event", None) is cancel_evt
+
+
+@pytest.mark.asyncio
+async def test_active_turn_shell_command_without_cancel_event_is_graceful():
+    """No cancel_event on the thread → TurnContext.cancel_event stays None. No crash."""
+    events_queue = asyncio.Queue()
+    services = _services()
+
+    runner = TaskRunner(services=services, event_queue=events_queue)
+    # No _turn_cancel_events entry for this thread
+
+    await runner.handle(RunUserShellCommand(
+        command="echo hello",
+        thread_id="thread-2",
+        turn_id="turn-active-2",
+        standalone=False,
+    ))
+
+    turn, _ = services.tool_runtime.calls[0]
+    # Should not blow up — cancel_event is just None
+    assert getattr(turn, "cancel_event", None) is None

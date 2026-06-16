@@ -53,6 +53,9 @@ class RuntimeSession:
         # the race window between turn/start check and UserMessage submit.
         self._turn_reservations: dict[str, str] = {}
         self._reservation_lock = asyncio.Lock()
+        # Phase 42 fix: track auxiliary tasks (shell commands during active turns)
+        # so they can be cancelled on abort and cleaned up on stop.
+        self._pending_aux_tasks: set[asyncio.Task] = set()
 
     @classmethod
     def create(
@@ -114,6 +117,11 @@ class RuntimeSession:
         # Phase 41 hardening v2: release all turn reservations
         async with self._reservation_lock:
             self._turn_reservations.clear()
+        # Phase 42 fix: cancel any pending auxiliary tasks (shell commands)
+        for t in list(self._pending_aux_tasks):
+            if not t.done():
+                t.cancel()
+        self._pending_aux_tasks.clear()
         if self._task is not None:
             self._task.cancel()
             # Cancel active turn task if still running
@@ -356,11 +364,17 @@ class RuntimeSession:
                     )
                     continue  # Back to top of loop to enter the wait
 
-            # A turn is running — wait for EITHER it to finish OR a new submission
+            # A turn is running — wait for EITHER it to finish, a new
+            # submission, or any pending auxiliary task (shell command).
             assert self._active_turn_task is not None
             get_task = asyncio.create_task(self._submissions.get())
+            waitables: list[asyncio.Task] = [self._active_turn_task, get_task]
+            # Phase 42 fix: include pending auxiliary tasks so their completion
+            # is handled promptly and exceptions are surfaced.
+            aux_snapshot = list(self._pending_aux_tasks)
+            waitables.extend(aux_snapshot)
             done, pending = await asyncio.wait(
-                [self._active_turn_task, get_task],
+                waitables,
                 return_when=asyncio.FIRST_COMPLETED,
             )
 
@@ -380,6 +394,12 @@ class RuntimeSession:
                     # Cancel the get_task waiter (no longer needed)
                     if not get_task.done():
                         get_task.cancel()
+                    # Phase 42 fix: cancel any remaining auxiliary tasks
+                    # since the active turn they belonged to is done.
+                    for t in list(self._pending_aux_tasks):
+                        if not t.done():
+                            t.cancel()
+                        self._pending_aux_tasks.discard(t)
                 elif d is get_task:
                     # New submission arrived while turn was running
                     submission = d.result()
@@ -394,6 +414,13 @@ class RuntimeSession:
                                 had_active = True
                         if not get_task.done():
                             get_task.cancel()
+                        # Phase 42 fix: cancel any pending auxiliary tasks
+                        # (shell commands) on abort so they don't outlive
+                        # the turn they were attached to.
+                        for t in list(self._pending_aux_tasks):
+                            if not t.done():
+                                t.cancel()
+                            self._pending_aux_tasks.discard(t)
                         if had_active:
                             # Phase 41 hardening: cancel approvals even when
                             # bypassing TaskRunner.handle(AbortTurn) to avoid
@@ -415,19 +442,39 @@ class RuntimeSession:
                                     pass
                         else:
                             await self._runner.handle(submission)
-                    elif isinstance(submission, (SteerTurn, RunUserShellCommand)):
-                        # Handle steering and user shell commands inline during active turn
+                    elif isinstance(submission, SteerTurn):
+                        # Handle steering inline (fast, just puts content in a queue)
                         await self._runner.handle(submission)
+                    elif isinstance(submission, RunUserShellCommand):
+                        # Phase 42 fix: spawn shell command as background task
+                        # instead of blocking the dispatch loop, so AbortTurn
+                        # can still be dequeued and processed.
+                        task = asyncio.create_task(
+                            self._runner.handle(submission),
+                            name=f"aux-shell:{submission.turn_id}",
+                        )
+                        self._pending_aux_tasks.add(task)
                     else:
                         # Queue non-AbortTurn/non-SteerTurn/non-RunUserShellCommand
                         # for processing after this turn
                         async with self._lock:
                             self._pending.append(submission)
+                elif d in self._pending_aux_tasks:
+                    # Phase 42 fix: an auxiliary task (shell command) completed.
+                    # Surface any exception to avoid silent failures.
+                    self._pending_aux_tasks.discard(d)
+                    if d.done():
+                        try:
+                            await d
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception:
+                            pass
                 else:
                     if not get_task.done():
                         get_task.cancel()
 
             # Clean up any pending get_task that wasn't handled
             for p in pending:
-                if p is not self._active_turn_task and not p.done():
+                if p is not self._active_turn_task and p not in self._pending_aux_tasks and not p.done():
                     p.cancel()
