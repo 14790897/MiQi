@@ -305,3 +305,32 @@ def test_session_configured_event():
         sandbox_enforcement="strict",
     )
     assert event.model == "claude-sonnet-4-6"
+
+
+def test_exec_command_begin_event_has_source_default():
+    from miqi.protocol.events import ExecCommandBeginEvent
+
+    event = ExecCommandBeginEvent(
+        turn_id="turn-1",
+        tool_call_id="exec-1",
+        command="echo hi",
+        cwd="/workspace",
+        sandbox_type="restricted",
+    )
+
+    assert event.source == "shell"
+
+
+def test_exec_command_begin_event_accepts_user_shell_source():
+    from miqi.protocol.events import ExecCommandBeginEvent
+
+    event = ExecCommandBeginEvent(
+        turn_id="turn-1",
+        tool_call_id="exec-1",
+        command="git status --short",
+        cwd="/workspace",
+        sandbox_type="restricted",
+        source="userShell",
+    )
+
+    assert event.source == "userShell"

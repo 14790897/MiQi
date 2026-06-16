@@ -72,10 +72,14 @@ class UserInputAnswer:
 
 @dataclass
 class RunUserShellCommand:
-    """Execute a shell command requested by the user (not the agent)."""
+    """Execute a shell command requested by the user, scoped to a thread."""
     type: str = field(default="run_user_shell_command", init=False)
     command: str
-    thread_id: str | None = None
+    thread_id: str
+    turn_id: str
+    cwd: str | None = None
+    client_user_message_id: str | None = None
+    standalone: bool = False
 
 
 @dataclass
