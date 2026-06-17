@@ -112,9 +112,21 @@ def register_workbench_process_handlers(server: AppServer) -> None:
 
         env = _validate_env(params.get("env"))
 
+        # ── output cap / disableOutputCap ──────────────────────────────
+        disable_output_cap = params.get("disableOutputCap", False)
+        if not isinstance(disable_output_cap, bool):
+            raise AppServerError(
+                "disableOutputCap must be a boolean",
+                code="INVALID_PARAMS",
+            )
         output_cap = params.get("outputBytesCap")
         if "outputBytesCap" not in params:
-            output_cap_int: int = DEFAULT_OUTPUT_BYTES_CAP
+            output_cap_int: int | None = DEFAULT_OUTPUT_BYTES_CAP
+        elif disable_output_cap:
+            raise AppServerError(
+                "disableOutputCap and outputBytesCap are mutually exclusive",
+                code="INVALID_PARAMS",
+            )
         elif output_cap is None:
             raise AppServerError(
                 "outputBytesCap must not be null",
@@ -132,13 +144,27 @@ def register_workbench_process_handlers(server: AppServer) -> None:
                     "outputBytesCap must be >= 0",
                     code="INVALID_PARAMS",
                 )
+        if disable_output_cap:
+            output_cap_int = None
 
+        # ── timeout / disableTimeout ──────────────────────────────────
+        disable_timeout = params.get("disableTimeout", False)
+        if not isinstance(disable_timeout, bool):
+            raise AppServerError(
+                "disableTimeout must be a boolean",
+                code="INVALID_PARAMS",
+            )
         timeout_ms = params.get("timeoutMs")
         if "timeoutMs" not in params:
             timeout_ms_int: int | None = DEFAULT_TIMEOUT_MS
         elif timeout_ms is None:
             # null disables timeout for process/spawn (long-running servers)
             timeout_ms_int = None
+        elif disable_timeout:
+            raise AppServerError(
+                "disableTimeout and timeoutMs are mutually exclusive",
+                code="INVALID_PARAMS",
+            )
         elif not isinstance(timeout_ms, (int, float)):
             raise AppServerError(
                 "timeoutMs must be a number",
@@ -151,6 +177,8 @@ def register_workbench_process_handlers(server: AppServer) -> None:
                     "timeoutMs must be >= 0",
                     code="INVALID_PARAMS",
                 )
+        if disable_timeout:
+            timeout_ms_int = None
 
         stream_stdout_stderr = params.get("streamStdoutStderr", True)
         stdin_enabled = bool(stream_stdout_stderr)  # default true for spawn
@@ -179,9 +207,11 @@ def register_workbench_process_handlers(server: AppServer) -> None:
                     "processHandle": exit_result.handle_id,
                     "exitCode": exit_result.exit_code,
                     "stdout": exit_result.stdout,
-                    "stdoutCapReached": exit_result.stdout_cap_reached,
                     "stderr": exit_result.stderr,
+                    "stdoutCapReached": exit_result.stdout_cap_reached,
                     "stderrCapReached": exit_result.stderr_cap_reached,
+                    "durationMs": exit_result.duration_ms,
+                    "terminationReason": exit_result.termination_reason,
                 },
                 request_id=request_id,
             )
