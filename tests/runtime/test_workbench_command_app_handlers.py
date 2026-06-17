@@ -314,3 +314,46 @@ async def test_command_exec_process_id_rejects_double_dot(server_and_registry):
         "processId": "../escape",
     })
     assert "error" in resp
+
+
+# ── Env validation (security hardening) ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_env_rejects_ld_preload(server_and_registry):
+    """LD_PRELOAD is blocked for security."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "print('hi')"],
+        "processId": "env-ld",
+        "env": {"LD_PRELOAD": "/tmp/evil.so"},
+    })
+    assert "error" in resp, f"LD_PRELOAD should be rejected, got: {resp}"
+
+
+@pytest.mark.asyncio
+async def test_env_rejects_pythonpath(server_and_registry):
+    """PYTHONPATH is blocked for security."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "print('hi')"],
+        "processId": "env-py",
+        "env": {"PYTHONPATH": "/tmp/evil"},
+    })
+    assert "error" in resp, f"PYTHONPATH should be rejected, got: {resp}"
+
+
+@pytest.mark.asyncio
+async def test_env_allows_safe_vars(server_and_registry):
+    """Safe env vars like custom vars are allowed."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "import os; print(os.environ.get('MY_VAR',''))"],
+        "processId": "env-safe",
+        "env": {"MY_VAR": "hello"},
+    })
+    assert "result" in resp, f"Safe env var should be allowed, got: {resp}"
+    assert "hello" in resp["result"]["stdout"]
