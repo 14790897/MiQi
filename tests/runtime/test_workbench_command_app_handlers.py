@@ -447,6 +447,38 @@ async def test_env_none_value_unsets_inherited_var(server_and_registry):
         del _os.environ["MIQI_TEST_DELETE_ME"]
 
 
+@pytest.mark.asyncio
+async def test_inherited_env_blocked_keys_are_sanitized(server_and_registry):
+    """Blocked env vars from parent environment are stripped before child spawns.
+
+    Even when no ``env`` parameter is provided, the inherited environment
+    must not leak dangerous variables like JAVA_TOOL_OPTIONS to the child.
+    """
+    import os as _os
+
+    server, registry = server_and_registry
+
+    # Set a blocked key in the parent environment
+    _os.environ["JAVA_TOOL_OPTIONS"] = "-Djava.security.manager"
+    try:
+        # Spawn WITHOUT any env overrides — inherited env should be sanitized
+        resp = await _dispatch(server, registry, "command/exec", {
+            "command": ["python", "-c", (
+                "import os; "
+                "print('GOT:' + os.environ.get('JAVA_TOOL_OPTIONS','SANITIZED'))"
+            )],
+            "processId": "inherit-blocked",
+        })
+        assert "result" in resp, f"Expected result, got: {resp}"
+        stdout = resp["result"]["stdout"]
+        assert "GOT:SANITIZED" in stdout, (
+            f"JAVA_TOOL_OPTIONS should be sanitized from inherited env, "
+            f"got stdout: {stdout}"
+        )
+    finally:
+        del _os.environ["JAVA_TOOL_OPTIONS"]
+
+
 # ── Output cap streaming (Phase 43 hardening) ───────────────────────────
 
 
