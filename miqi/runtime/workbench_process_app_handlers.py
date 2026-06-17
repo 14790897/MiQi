@@ -28,6 +28,8 @@ from miqi.runtime.workbench_command_app_handlers import (
     _validate_env,
 )
 from miqi.runtime.workbench_process_runtime import (
+    DEFAULT_OUTPUT_BYTES_CAP,
+    DEFAULT_TIMEOUT_MS,
     HandleNotFoundError,
     OutputChunk,
     ProcessExit,
@@ -111,20 +113,44 @@ def register_workbench_process_handlers(server: AppServer) -> None:
         env = _validate_env(params.get("env"))
 
         output_cap = params.get("outputBytesCap")
-        if output_cap is not None and not isinstance(output_cap, (int, float)):
+        if "outputBytesCap" not in params:
+            output_cap_int: int = DEFAULT_OUTPUT_BYTES_CAP
+        elif output_cap is None:
+            raise AppServerError(
+                "outputBytesCap must not be null",
+                code="INVALID_PARAMS",
+            )
+        elif not isinstance(output_cap, (int, float)):
             raise AppServerError(
                 "outputBytesCap must be a number",
                 code="INVALID_PARAMS",
             )
-        output_cap_int = int(output_cap) if output_cap is not None else None
+        else:
+            output_cap_int = int(output_cap)
+            if output_cap_int < 0:
+                raise AppServerError(
+                    "outputBytesCap must be >= 0",
+                    code="INVALID_PARAMS",
+                )
 
         timeout_ms = params.get("timeoutMs")
-        if timeout_ms is not None and not isinstance(timeout_ms, (int, float)):
+        if "timeoutMs" not in params:
+            timeout_ms_int: int | None = DEFAULT_TIMEOUT_MS
+        elif timeout_ms is None:
+            # null disables timeout for process/spawn (long-running servers)
+            timeout_ms_int = None
+        elif not isinstance(timeout_ms, (int, float)):
             raise AppServerError(
                 "timeoutMs must be a number",
                 code="INVALID_PARAMS",
             )
-        timeout_ms_int = int(timeout_ms) if timeout_ms is not None else None
+        else:
+            timeout_ms_int = int(timeout_ms)
+            if timeout_ms_int < 0:
+                raise AppServerError(
+                    "timeoutMs must be >= 0",
+                    code="INVALID_PARAMS",
+                )
 
         stream_stdout_stderr = params.get("streamStdoutStderr", True)
         stdin_enabled = bool(stream_stdout_stderr)  # default true for spawn

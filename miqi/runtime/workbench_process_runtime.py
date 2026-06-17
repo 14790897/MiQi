@@ -21,6 +21,19 @@ from typing import Any, Callable
 from loguru import logger
 
 
+# ── Defaults ──────────────────────────────────────────────────────────────
+
+# Default timeout for command/exec and process/spawn when timeoutMs is
+# omitted.  5 minutes prevents runaway processes without requiring every
+# caller to remember to set a timeout.
+DEFAULT_TIMEOUT_MS: int = 300_000  # 5 minutes
+
+# Default per-stream output cap (1 MiB).  Prevents memory exhaustion from
+# verbose or infinite-output processes.  Applied independently to stdout
+# and stderr.
+DEFAULT_OUTPUT_BYTES_CAP: int = 1_048_576  # 1 MiB = 1024 * 1024
+
+
 # ── Environment variable blocklist ───────────────────────────────────────
 
 
@@ -452,7 +465,22 @@ class WorkbenchProcessRuntime:
                                         "for handle %s", handle.handle_id,
                                     )
                         else:
+                            # Buffer already exactly at cap — emit an
+                            # empty capReached delta so the client sees
+                            # exactly one capReached=true notification.
                             cap_reached = True
+                            if on_chunk is not None:
+                                try:
+                                    await on_chunk(handle.handle_id, OutputChunk(
+                                        stream=stream_name,
+                                        data=b"",
+                                        cap_reached=True,
+                                    ))
+                                except Exception:
+                                    logger.exception(
+                                        "WorkbenchProcessRuntime: on_chunk failed "
+                                        "for handle %s", handle.handle_id,
+                                    )
                         continue
                     # Chunk fits entirely — emit normally
                     buffer.extend(chunk)

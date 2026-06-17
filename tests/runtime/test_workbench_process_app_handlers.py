@@ -579,3 +579,285 @@ async def test_process_spawn_output_cap_streaming_cap_reached(server_and_registr
     assert exit_data.get("stdoutCapReached") is True, (
         f"process/exited stdoutCapReached should be True, got: {exit_data}"
     )
+
+
+# ── Default timeout (Phase 43 hardening) ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_process_spawn_uses_default_timeout_when_omitted(server_and_registry):
+    """When timeoutMs is omitted, DEFAULT_TIMEOUT_MS is passed to runtime."""
+    from unittest.mock import patch
+
+    from miqi.runtime.workbench_process_runtime import DEFAULT_TIMEOUT_MS
+
+    server, registry = server_and_registry
+    wpr = registry.bridge_context["workbench_process_runtime"]
+
+    with patch.object(wpr, "spawn_background", wraps=wpr.spawn_background) as mock_spawn:
+        resp = await _dispatch(server, registry, "process/spawn", {
+            "experimentalApi": True,
+            "command": ["python", "-c", "pass"],
+            "processHandle": "spawn-default-timeout",
+            "cwd": str(Path.cwd()),
+        })
+
+    assert "result" in resp, f"Expected result, got: {resp}"
+    call_kwargs = mock_spawn.call_args.kwargs
+    assert call_kwargs["timeout_ms"] == DEFAULT_TIMEOUT_MS, (
+        f"Expected timeout_ms={DEFAULT_TIMEOUT_MS}, got {call_kwargs['timeout_ms']}"
+    )
+
+    # Cleanup: wait for background process to exit
+    import asyncio as _asyncio
+    await _asyncio.sleep(0.3)
+
+
+@pytest.mark.asyncio
+async def test_process_spawn_null_timeout_disables_timeout(server_and_registry):
+    """timeoutMs=null passes None to the runtime, disabling timeout."""
+    from unittest.mock import patch
+
+    server, registry = server_and_registry
+    wpr = registry.bridge_context["workbench_process_runtime"]
+
+    with patch.object(wpr, "spawn_background", wraps=wpr.spawn_background) as mock_spawn:
+        resp = await _dispatch(server, registry, "process/spawn", {
+            "experimentalApi": True,
+            "command": ["python", "-c", "pass"],
+            "processHandle": "spawn-null-timeout",
+            "cwd": str(Path.cwd()),
+            "timeoutMs": None,
+        })
+
+    assert "result" in resp, f"Expected result, got: {resp}"
+    call_kwargs = mock_spawn.call_args.kwargs
+    assert call_kwargs["timeout_ms"] is None, (
+        f"Expected timeout_ms=None for null timeoutMs, got {call_kwargs['timeout_ms']}"
+    )
+
+    # Cleanup
+    import asyncio as _asyncio
+    await _asyncio.sleep(0.3)
+
+
+@pytest.mark.asyncio
+async def test_process_spawn_rejects_negative_timeout(server_and_registry):
+    """timeoutMs < 0 returns INVALID_PARAMS."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "process/spawn", {
+        "experimentalApi": True,
+        "command": ["python", "-c", "pass"],
+        "processHandle": "spawn-neg-timeout",
+        "cwd": str(Path.cwd()),
+        "timeoutMs": -1,
+    })
+    assert "error" in resp, f"Expected error for negative timeoutMs, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS", (
+        f"Expected INVALID_PARAMS, got: {resp.get('code')}"
+    )
+
+
+# ── Default output cap (Phase 43 hardening) ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_process_spawn_uses_default_output_cap_when_omitted(server_and_registry):
+    """When outputBytesCap is omitted, DEFAULT_OUTPUT_BYTES_CAP is passed to runtime."""
+    from unittest.mock import patch
+
+    from miqi.runtime.workbench_process_runtime import DEFAULT_OUTPUT_BYTES_CAP
+
+    server, registry = server_and_registry
+    wpr = registry.bridge_context["workbench_process_runtime"]
+
+    with patch.object(wpr, "spawn_background", wraps=wpr.spawn_background) as mock_spawn:
+        resp = await _dispatch(server, registry, "process/spawn", {
+            "experimentalApi": True,
+            "command": ["python", "-c", "pass"],
+            "processHandle": "spawn-default-cap",
+            "cwd": str(Path.cwd()),
+        })
+
+    assert "result" in resp, f"Expected result, got: {resp}"
+    call_kwargs = mock_spawn.call_args.kwargs
+    assert call_kwargs["output_cap"] == DEFAULT_OUTPUT_BYTES_CAP, (
+        f"Expected output_cap={DEFAULT_OUTPUT_BYTES_CAP}, got {call_kwargs['output_cap']}"
+    )
+
+    # Cleanup
+    import asyncio as _asyncio
+    await _asyncio.sleep(0.3)
+
+
+@pytest.mark.asyncio
+async def test_process_spawn_rejects_null_output_cap(server_and_registry):
+    """outputBytesCap=null returns INVALID_PARAMS."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "process/spawn", {
+        "experimentalApi": True,
+        "command": ["python", "-c", "pass"],
+        "processHandle": "spawn-null-cap",
+        "cwd": str(Path.cwd()),
+        "outputBytesCap": None,
+    })
+    assert "error" in resp, f"Expected error for null outputBytesCap, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS", (
+        f"Expected INVALID_PARAMS, got: {resp.get('code')}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_process_spawn_rejects_negative_output_cap(server_and_registry):
+    """outputBytesCap < 0 returns INVALID_PARAMS."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "process/spawn", {
+        "experimentalApi": True,
+        "command": ["python", "-c", "pass"],
+        "processHandle": "spawn-neg-cap",
+        "cwd": str(Path.cwd()),
+        "outputBytesCap": -1,
+    })
+    assert "error" in resp, f"Expected error for negative outputBytesCap, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS", (
+        f"Expected INVALID_PARAMS, got: {resp.get('code')}"
+    )
+
+
+# ── Zero output cap & capReached boundary (Phase 43 hardening) ──────────
+
+
+@pytest.mark.asyncio
+async def test_process_spawn_zero_output_cap_immediate_cap_reached(server_and_registry):
+    """process/spawn with outputBytesCap=0 immediately triggers capReached.
+
+    Verifies the capReached boundary fix in _read_stream: when buffer is
+    already at cap (0 bytes) and the next chunk arrives, an empty
+    capReached delta is emitted so the client sees exactly one notification.
+    """
+    import asyncio as _asyncio
+
+    server, registry = server_and_registry
+    events_received: list = []
+
+    async def fake_sink(envelope):
+        events_received.append(envelope)
+
+    server.set_event_sink("test-client", fake_sink)
+
+    await _dispatch(server, registry, "process/spawn", {
+        "experimentalApi": True,
+        "command": ["python", "-c",
+                    "import sys; sys.stdout.buffer.write(b'A' * 100); sys.stdout.flush()"],
+        "processHandle": "spawn-cap-zero",
+        "cwd": str(Path.cwd()),
+        "outputBytesCap": 0,
+    })
+
+    # Wait for exit
+    for _ in range(20):
+        await _asyncio.sleep(0.1)
+        exit_events = [
+            e for e in events_received
+            if e.get("event") == "process/exited"
+        ]
+        if exit_events:
+            break
+
+    output_deltas = [
+        e for e in events_received
+        if e.get("event") == "process/outputDelta"
+    ]
+    stdout_cap_deltas = [
+        d for d in output_deltas
+        if d.get("data", {}).get("stream") == "stdout"
+        and d.get("data", {}).get("capReached")
+    ]
+    assert len(stdout_cap_deltas) == 1, (
+        f"Expected exactly 1 stdout capReached delta with cap=0, "
+        f"got {len(stdout_cap_deltas)}: {stdout_cap_deltas}"
+    )
+    # With cap=0 the capReached delta carries empty data
+    assert stdout_cap_deltas[0]["data"]["deltaBase64"] == "", (
+        f"Expected empty deltaBase64 for cap=0 capReached, "
+        f"got: {stdout_cap_deltas[0]['data']['deltaBase64']!r}"
+    )
+
+    exit_events = [
+        e for e in events_received
+        if e.get("event") == "process/exited"
+    ]
+    assert len(exit_events) > 0, "Expected process/exited event"
+    exit_data = exit_events[0]["data"]
+    assert exit_data.get("stdoutCapReached") is True, (
+        f"process/exited stdoutCapReached should be True with outputBytesCap=0, "
+        f"got: {exit_data}"
+    )
+    assert exit_data.get("stdout", "") == "", (
+        f"stdout should be empty with outputBytesCap=0, "
+        f"got: {exit_data.get('stdout', '')!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_process_spawn_output_cap_boundary_fill_then_overflow(server_and_registry):
+    """process/spawn: exactly filling cap then overflowing emits exactly one capReached."""
+    import asyncio as _asyncio
+
+    server, registry = server_and_registry
+    events_received: list = []
+
+    async def fake_sink(envelope):
+        events_received.append(envelope)
+
+    server.set_event_sink("test-client", fake_sink)
+
+    await _dispatch(server, registry, "process/spawn", {
+        "experimentalApi": True,
+        "command": ["python", "-c", (
+            "import sys; "
+            "sys.stdout.buffer.write(b'A' * 20); sys.stdout.flush(); "
+            "sys.stdout.buffer.write(b'B' * 50); sys.stdout.flush()"
+        )],
+        "processHandle": "spawn-cap-boundary",
+        "cwd": str(Path.cwd()),
+        "outputBytesCap": 20,
+    })
+
+    # Wait for exit
+    for _ in range(20):
+        await _asyncio.sleep(0.1)
+        exit_events = [
+            e for e in events_received
+            if e.get("event") == "process/exited"
+        ]
+        if exit_events:
+            break
+
+    output_deltas = [
+        e for e in events_received
+        if e.get("event") == "process/outputDelta"
+    ]
+    stdout_cap_deltas = [
+        d for d in output_deltas
+        if d.get("data", {}).get("stream") == "stdout"
+        and d.get("data", {}).get("capReached")
+    ]
+    assert len(stdout_cap_deltas) == 1, (
+        f"Expected exactly 1 stdout capReached delta (boundary fill+overflow), "
+        f"got {len(stdout_cap_deltas)}: {stdout_cap_deltas}"
+    )
+
+    exit_events = [
+        e for e in events_received
+        if e.get("event") == "process/exited"
+    ]
+    assert len(exit_events) > 0, "Expected process/exited event"
+    exit_data = exit_events[0]["data"]
+    assert exit_data.get("stdoutCapReached") is True, (
+        f"process/exited stdoutCapReached should be True when output exceeds cap, "
+        f"got: {exit_data}"
+    )
