@@ -135,7 +135,7 @@ async def test_bridge_init_app_server_registers_handlers():
     assert "thread.list" in methods
     assert "chat.abort" in methods
 
-    await loop.app_server.stop()
+    await loop._shutdown()
 
 
 # ── Event sink translation ───────────────────────────────────────────────
@@ -209,7 +209,8 @@ async def test_shutdown_stops_app_server():
 # ── Phase 27 acceptance tests ────────────────────────────────────────────
 
 
-def test_chat_send_handler_registered_on_app_server():
+@pytest.mark.asyncio
+async def test_chat_send_handler_registered_on_app_server():
     """chat.send is registered as an AppServer method."""
     from miqi.bridge.loop import BridgeRuntimeLoop
 
@@ -218,7 +219,7 @@ def test_chat_send_handler_registered_on_app_server():
         send_func=capturer.send,
         dispatch_legacy_func=_dispatch_legacy,
     )
-    asyncio.run(loop._init_app_server())
+    await loop._init_app_server()
 
     methods = loop.app_server._methods
     assert "chat.send" in methods
@@ -226,7 +227,7 @@ def test_chat_send_handler_registered_on_app_server():
     assert "agent.spawn" in methods
     assert "agent.kill" in methods
 
-    asyncio.run(loop.app_server.stop())
+    await loop._shutdown()
 
 
 def test_missing_client_id_rejected_in_production():
@@ -325,5 +326,5 @@ async def test_phase41_turn_handlers_registered_on_bridge_app_server():
     ]:
         assert method in methods
 
-    await loop.app_server.stop()
+    await loop._shutdown()
 
