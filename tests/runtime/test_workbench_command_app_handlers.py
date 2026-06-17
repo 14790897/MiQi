@@ -346,6 +346,19 @@ async def test_env_rejects_pythonpath(server_and_registry):
 
 
 @pytest.mark.asyncio
+async def test_env_rejects_java_tool_options(server_and_registry):
+    """JAVA_TOOL_OPTIONS is blocked for security."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "print('hi')"],
+        "processId": "env-java",
+        "env": {"JAVA_TOOL_OPTIONS": "-Djava.security.manager"},
+    })
+    assert "error" in resp, f"JAVA_TOOL_OPTIONS should be rejected, got: {resp}"
+
+
+@pytest.mark.asyncio
 async def test_env_allows_safe_vars(server_and_registry):
     """Safe env vars like custom vars are allowed."""
     server, registry = server_and_registry
