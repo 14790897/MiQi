@@ -425,14 +425,41 @@ async def test_runtime_session_handles_user_shell_command_during_active_turn(fak
 @pytest.mark.asyncio
 async def test_shell_command_during_active_turn_does_not_block_abort(fake_config):
     """Phase 42 fix: shell command during active turn must not block the dispatch
-    loop, so AbortTurn can still be dequeued and processed without hanging."""
+    loop, so AbortTurn can still be dequeued and processed.
+
+    Uses a blocking fake ToolRuntime to simulate a long-running exec.  Verifies:
+      - the shell command is spawned as a background aux task
+      - AbortTurn is dequeued without hanging
+      - the aux task is cancelled and properly cleaned up
+      - no aux tasks leak after stop
+    """
     import asyncio as _asyncio
     from miqi.protocol.commands import AbortTurn, RunUserShellCommand, UserMessage
     from miqi.providers.base import LLMResponse, LLMStreamEvent
     from miqi.runtime.session import RuntimeSession
 
+    exec_blocked = _asyncio.Event()
+    exec_cancelled = _asyncio.Event()
+
+    class BlockingExec:
+        """Fake ToolRuntime whose execute_one blocks until cancelled."""
+
+        def __init__(self):
+            self.call_count = 0
+            self.cancel_event_value = None
+
+        async def execute_one(self, turn, tool_call):
+            self.call_count += 1
+            self.cancel_event_value = getattr(turn, "cancel_event", None)
+            exec_blocked.set()
+            # Block until the task is cancelled by the dispatch loop
+            try:
+                await _asyncio.sleep(30)
+            except _asyncio.CancelledError:
+                exec_cancelled.set()
+                raise
+
     provider_entered = _asyncio.Event()
-    abort_processed = _asyncio.Event()
 
     class Provider:
         def get_default_model(self):
@@ -440,7 +467,6 @@ async def test_shell_command_during_active_turn_does_not_block_abort(fake_config
 
         async def stream_chat(self, **kwargs):
             provider_entered.set()
-            # Block until cancelled by abort
             await _asyncio.sleep(30)
             yield LLMStreamEvent(kind="completed", response=LLMResponse(
                 content="done", finish_reason="stop",
@@ -454,6 +480,8 @@ async def test_shell_command_during_active_turn_does_not_block_abort(fake_config
     )
 
     await runtime.start()
+    blocking_exec = BlockingExec()
+    runtime.services.tool_runtime = blocking_exec
 
     # Start a blocking turn
     await runtime.submit(UserMessage(
@@ -461,50 +489,35 @@ async def test_shell_command_during_active_turn_does_not_block_abort(fake_config
         thread_id="cli:default",
         turn_id="turn-block",
     ))
-
-    # Wait for the turn to actually start (provider.chat entered)
     await _asyncio.wait_for(provider_entered.wait(), timeout=5)
 
-    # Submit a shell command as an auxiliary action during the active turn.
-    # Use a command that runs quickly — the key property we are testing is
-    # that the dispatch loop spawns it as a background task instead of
-    # blocking on it, allowing AbortTurn to be dequeued.
+    # Submit a shell command during the active turn — execute_one will block
     await runtime.submit(RunUserShellCommand(
-        command="echo hello",
+        command="sleep 999",
         thread_id="cli:default",
         turn_id="turn-block",
         standalone=False,
     ))
 
-    # Submit abort — must be dequeued and processed quickly.
-    # If the fix is broken, the dispatch loop is stuck awaiting the shell
-    # command and AbortTurn never reaches the handler.
+    # Wait until the shell command has entered execute_one
+    await _asyncio.wait_for(exec_blocked.wait(), timeout=5)
+    assert blocking_exec.call_count == 1
+
+    # Verify the shell command was spawned as a background aux task
+    assert len(runtime._pending_aux_tasks) == 1, (
+        f"Expected 1 aux task, got {len(runtime._pending_aux_tasks)}"
+    )
+
+    # Submit abort — must be dequeued and processed, NOT hang
     await runtime.submit(AbortTurn(thread_id="cli:default"))
 
-    # Drain events until we see the abort signal or timeout
-    abort_detected = False
-    try:
-        for _ in range(200):
-            try:
-                event = await _asyncio.wait_for(runtime.next_event(), timeout=0.3)
-                event_type = getattr(event, "type", event.__class__.__name__)
-                if event_type in ("turn_aborted", "error") or (
-                    hasattr(event, "message") and "abort" in str(getattr(event, "message", "")).lower()
-                ):
-                    abort_detected = True
-                    break
-            except _asyncio.TimeoutError:
-                continue
-    except Exception:
-        pass
+    # Wait for the exec to be cancelled (cleanup has run)
+    await _asyncio.wait_for(exec_cancelled.wait(), timeout=5)
 
     await runtime.stop()
 
-    # After stop, verify no lingering aux tasks
+    # After stop(), no aux tasks should remain
     assert len(runtime._pending_aux_tasks) == 0, (
         f"Expected 0 pending aux tasks after stop, got {len(runtime._pending_aux_tasks)}"
     )
-    # The abort should have been processed — either abort detected in events
-    # or no pending aux tasks remain (cleanup happened)
-    assert abort_detected or True  # structural verification: no hang
 

@@ -117,11 +117,9 @@ class RuntimeSession:
         # Phase 41 hardening v2: release all turn reservations
         async with self._reservation_lock:
             self._turn_reservations.clear()
-        # Phase 42 fix: cancel any pending auxiliary tasks (shell commands)
-        for t in list(self._pending_aux_tasks):
-            if not t.done():
-                t.cancel()
-        self._pending_aux_tasks.clear()
+        # Phase 42 fix: cancel and await all pending auxiliary tasks (shell commands)
+        # so subprocess cleanup runs before the task references are discarded.
+        await self._cancel_aux_tasks()
         if self._task is not None:
             self._task.cancel()
             # Cancel active turn task if still running
@@ -318,6 +316,24 @@ class RuntimeSession:
             payload=payload,
         )
 
+    async def _cancel_aux_tasks(self) -> None:
+        """Cancel all pending auxiliary tasks with proper cleanup lifecycle.
+
+        Snapshot → cancel unfinished → await gather (return_exceptions=True)
+        → discard from the set.  This gives subprocess cleanup a chance to
+        execute before the task references are discarded.
+        """
+        if not self._pending_aux_tasks:
+            return
+        snapshot = list(self._pending_aux_tasks)
+        for t in snapshot:
+            if not t.done():
+                t.cancel()
+        if snapshot:
+            await asyncio.gather(*snapshot, return_exceptions=True)
+        for t in snapshot:
+            self._pending_aux_tasks.discard(t)
+
     async def _run(self) -> None:
         """Main dispatch loop: dequeue submissions → TaskRunner.handle().
 
@@ -394,12 +410,9 @@ class RuntimeSession:
                     # Cancel the get_task waiter (no longer needed)
                     if not get_task.done():
                         get_task.cancel()
-                    # Phase 42 fix: cancel any remaining auxiliary tasks
-                    # since the active turn they belonged to is done.
-                    for t in list(self._pending_aux_tasks):
-                        if not t.done():
-                            t.cancel()
-                        self._pending_aux_tasks.discard(t)
+                    # Phase 42 fix: cancel and await pending auxiliary tasks
+                    # so subprocess cleanup completes before discarding.
+                    await self._cancel_aux_tasks()
                 elif d is get_task:
                     # New submission arrived while turn was running
                     submission = d.result()
@@ -414,13 +427,10 @@ class RuntimeSession:
                                 had_active = True
                         if not get_task.done():
                             get_task.cancel()
-                        # Phase 42 fix: cancel any pending auxiliary tasks
-                        # (shell commands) on abort so they don't outlive
-                        # the turn they were attached to.
-                        for t in list(self._pending_aux_tasks):
-                            if not t.done():
-                                t.cancel()
-                            self._pending_aux_tasks.discard(t)
+                        # Phase 42 fix: cancel and await auxiliary tasks
+                        # (shell commands) so subprocess cleanup runs before
+                        # we await the cancelled active-turn task.
+                        await self._cancel_aux_tasks()
                         if had_active:
                             # Phase 41 hardening: cancel approvals even when
                             # bypassing TaskRunner.handle(AbortTurn) to avoid

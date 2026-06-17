@@ -15,7 +15,7 @@ async def test_task_runner_persists_history_across_turns(
     captured_histories: list[list[dict]] = []
 
     async def fake_run(
-        *, turn, user_content, system_prompt, tools, history=None, cancel_event=None,
+        *, turn, user_content, system_prompt, tools, history=None, cancel_event=None, steer_queue=None,
     ):
         from miqi.runtime.turn_runner import TurnResult
 
@@ -114,7 +114,7 @@ async def test_task_runner_persists_tool_call_messages(
     from miqi.runtime.turn_runner import TurnResult
 
     async def fake_run_with_tools(
-        *, turn, user_content, system_prompt, tools, history=None, cancel_event=None,
+        *, turn, user_content, system_prompt, tools, history=None, cancel_event=None, steer_queue=None,
     ):
         return TurnResult(
             final_content="done after tools",
