@@ -251,12 +251,15 @@ class WorkbenchProcessRuntime:
 
     def _require_handle(
         self, client_id: str, handle_id: str,
+        *, require_client_visible: bool = False,
     ) -> WorkbenchProcessHandle:
         handle = self._handles.get((client_id, handle_id))
         if handle is None:
             raise HandleNotFoundError(handle_id)
         if handle.client_id != client_id:
             raise ClientMismatchError(handle_id)
+        if require_client_visible and not handle.client_visible:
+            raise HandleNotFoundError(handle_id)
         return handle
 
     def _check_duplicate(self, client_id: str, handle_id: str) -> None:
@@ -389,6 +392,7 @@ class WorkbenchProcessRuntime:
         output_cap: int | None = None,
         timeout_ms: int | None = None,
         on_chunk: OnChunkCallback | None = None,
+        client_visible: bool = True,
     ) -> ProcessExit:
         """Spawn a process and wait for it to exit.
 
@@ -439,6 +443,7 @@ class WorkbenchProcessRuntime:
                 command=list(command),
                 stdin_enabled=stdin_enabled,
                 output_cap=output_cap,
+                client_visible=client_visible,
             )
             self._handles[(client_id, handle_id)] = handle
 
@@ -476,6 +481,7 @@ class WorkbenchProcessRuntime:
         timeout_ms: int | None = None,
         on_chunk: OnChunkCallback | None = None,
         on_exit: Callable[[ProcessExit], Any] | None = None,
+        client_visible: bool = True,
     ) -> WorkbenchProcessHandle:
         """Spawn a process in the background and return immediately.
 
@@ -527,6 +533,7 @@ class WorkbenchProcessRuntime:
                 command=list(command),
                 stdin_enabled=stdin_enabled,
                 output_cap=output_cap,
+                client_visible=client_visible,
             )
             self._handles[(client_id, handle_id)] = handle
 
@@ -781,9 +788,12 @@ class WorkbenchProcessRuntime:
 
     async def write_stdin(
         self, client_id: str, handle_id: str, data: bytes,
+        *, require_client_visible: bool = False,
     ) -> None:
         """Write bytes to the process stdin and drain."""
-        handle = self._require_handle(client_id, handle_id)
+        handle = self._require_handle(
+            client_id, handle_id, require_client_visible=require_client_visible,
+        )
         if not handle.stdin_enabled or handle.process.stdin is None:
             raise StdinNotAvailableError(handle_id)
         try:
@@ -795,9 +805,14 @@ class WorkbenchProcessRuntime:
                 code="INVALID_REQUEST",
             )
 
-    async def close_stdin(self, client_id: str, handle_id: str) -> None:
+    async def close_stdin(
+        self, client_id: str, handle_id: str,
+        *, require_client_visible: bool = False,
+    ) -> None:
         """Close the process stdin pipe."""
-        handle = self._require_handle(client_id, handle_id)
+        handle = self._require_handle(
+            client_id, handle_id, require_client_visible=require_client_visible,
+        )
         if handle.process.stdin is not None:
             handle.process.stdin.close()
             try:
@@ -807,13 +822,18 @@ class WorkbenchProcessRuntime:
 
     # ── kill ───────────────────────────────────────────────────────────
 
-    async def kill(self, client_id: str, handle_id: str) -> ProcessExit:
+    async def kill(
+        self, client_id: str, handle_id: str,
+        *, require_client_visible: bool = False,
+    ) -> ProcessExit:
         """Kill a specific process by handle.
 
         Returns a ProcessExit with the final output state.  Raises
         HandleNotFoundError if no such handle exists.
         """
-        handle = self._require_handle(client_id, handle_id)
+        handle = self._require_handle(
+            client_id, handle_id, require_client_visible=require_client_visible,
+        )
         handle.termination_reason = "killed"
         await self._kill_process(handle.process)
         # Wait briefly for readers to flush
