@@ -177,7 +177,8 @@ async def test_transport_explicit_client_id_no_warning():
 # ── Bridge main() integration ────────────────────────────────────────────
 
 
-def test_bridge_app_server_created_in_main(monkeypatch, tmp_path):
+@pytest.mark.asyncio
+async def test_bridge_app_server_created_in_main(monkeypatch, tmp_path):
     """Verify that the bridge creates an AppServer during initialization.
 
     Phase 27.2: AppServer is created by BridgeRuntimeLoop._init_app_server(),
@@ -194,9 +195,7 @@ def test_bridge_app_server_created_in_main(monkeypatch, tmp_path):
         send_func=capturer.send,
         dispatch_legacy_func=bridge_module._dispatch,
     )
-    # Simulate what happens during startup
-    import asyncio
-    asyncio.run(loop._init_app_server())
+    await loop._init_app_server()
 
     app_server = loop.app_server
     assert isinstance(app_server, AppServer)
@@ -205,7 +204,7 @@ def test_bridge_app_server_created_in_main(monkeypatch, tmp_path):
     assert "replay.turns" in app_server._methods
     assert "chat.abort" in app_server._methods
 
-    asyncio.run(loop.app_server.stop())
+    await loop._shutdown()
 
 
 # ── Existing dispatch compatibility ──────────────────────────────────────
