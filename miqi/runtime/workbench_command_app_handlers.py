@@ -344,6 +344,7 @@ def register_workbench_command_handlers(server: AppServer) -> None:
                 output_cap=output_cap_int,
                 timeout_ms=timeout_ms_int,
                 on_chunk=on_chunk,
+                client_visible=process_id is not None,
             )
         except WorkbenchProcessError as exc:
             raise AppServerError(exc.args[0], code=exc.code)
@@ -378,13 +379,17 @@ def register_workbench_command_handlers(server: AppServer) -> None:
         if delta_b64:
             data = _decode_base64(delta_b64)
             try:
-                await wpr.write_stdin(client_id, process_id, data)
+                await wpr.write_stdin(
+                    client_id, process_id, data, require_client_visible=True,
+                )
             except WorkbenchProcessError as exc:
                 raise AppServerError(exc.args[0], code=exc.code)
 
         if close_stdin:
             try:
-                await wpr.close_stdin(client_id, process_id)
+                await wpr.close_stdin(
+                    client_id, process_id, require_client_visible=True,
+                )
             except WorkbenchProcessError as exc:
                 raise AppServerError(exc.args[0], code=exc.code)
 
@@ -405,7 +410,7 @@ def register_workbench_command_handlers(server: AppServer) -> None:
         process_id = _safe_handle_id(params.get("processId"), param_name="processId")
 
         try:
-            await wpr.kill(client_id, process_id)
+            await wpr.kill(client_id, process_id, require_client_visible=True)
         except HandleNotFoundError:
             raise AppServerError(
                 f"Process not found: {process_id}",
