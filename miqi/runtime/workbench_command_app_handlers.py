@@ -93,26 +93,47 @@ def _validate_argv(raw: Any) -> list[str]:
 # These can be used to inject code or alter process behaviour in
 # dangerous ways when spawning subprocesses with user-supplied env.
 _BLOCKED_ENV_PREFIXES: tuple[str, ...] = (
-    "LD_",          # dynamic linker injection (LD_PRELOAD, LD_LIBRARY_PATH)
-    "DYLD_",        # macOS dynamic linker injection
-    "NODE_OPTIONS", # Node.js options injection
-    "NODE_PATH",    # Node.js module path injection
-    "PYTHONSTARTUP",# Python startup script
-    "PYTHONPATH",   # Python import path injection
-    "PYTHONHOME",   # Python home override
-    "PYTHONOPTIONS",# Python options
-    "PERL5LIB",     # Perl library path injection
-    "PERL5OPT",     # Perl options injection
-    "RUBYOPT",      # Ruby options injection
-    "RUBYLIB",      # Ruby library path injection
-    "GEM_PATH",     # Ruby gem path injection
-    "BASH_ENV",     # Bash startup script
-    "BASH_FUNC_",   # Bash function export
-    "ENV",          # POSIX sh startup file
-    "IFS",          # shell word splitting manipulation
-    "GCONV_PATH",   # glibc charset conversion module injection
-    "GLIBC_TUNABLES",# glibc tunables injection
-    "TMPDIR",       # temp dir redirect (can be used for TOCTOU)
+    # Dynamic linker / loader injection
+    "LD_",              # Linux dynamic linker (LD_PRELOAD, LD_LIBRARY_PATH)
+    "DYLD_",            # macOS dynamic linker injection
+    # Language runtime injection
+    "NODE_OPTIONS",     # Node.js options injection
+    "NODE_PATH",        # Node.js module path injection
+    "PYTHONSTARTUP",    # Python startup script
+    "PYTHONPATH",       # Python import path injection
+    "PYTHONHOME",       # Python home override
+    "PYTHONOPTIONS",    # Python options injection
+    "PYTHONINSPECT",    # Python interactive inspect after script
+    "PIP_",             # pip env vars (PIP_REQUIRE_VIRTUALENV bypass, etc.)
+    "PERL5LIB",         # Perl library path injection
+    "PERL5OPT",         # Perl options injection
+    "RUBYOPT",          # Ruby options injection
+    "RUBYLIB",          # Ruby library path injection
+    "GEM_PATH",         # Ruby gem path injection
+    # JVM injection
+    "JAVA_TOOL_OPTIONS",# JVM tool options injection
+    "_JAVA_OPTIONS",    # JVM options (undocumented but widely supported)
+    "JDK_JAVA_OPTIONS", # JDK-specific JVM options
+    # Build tool injection
+    "MAVEN_OPTS",       # Maven JVM options injection
+    "GRADLE_OPTS",      # Gradle JVM options injection
+    "SBT_OPTS",         # SBT JVM options injection
+    # Shell injection
+    "BASH_ENV",         # Bash startup script
+    "BASH_FUNC_",       # Bash function export
+    "BASHOPTS",         # Bash options
+    "SHELLOPTS",        # Shell options
+    "ENV",              # POSIX sh startup file
+    "IFS",              # Shell word splitting manipulation
+    # System / libc injection
+    "GCONV_PATH",       # glibc charset conversion module injection
+    "GLIBC_TUNABLES",   # glibc tunables injection
+    "TMPDIR",           # temp dir redirect (TOCTOU attack surface)
+    # Git injection (config files can trigger command execution)
+    "GIT_CONFIG_",      # Git config injection
+    "GIT_DIR",          # Git directory override
+    "GIT_WORK_TREE",    # Git work tree override
+    "GIT_INDEX_FILE",   # Git index file override
 )
 
 
