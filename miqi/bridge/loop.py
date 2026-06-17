@@ -406,6 +406,12 @@ class BridgeRuntimeLoop:
         register_workbench_command_handlers(self._app_server)
         register_workbench_process_handlers(self._app_server)
 
+        # Phase 44: register workbench process state handlers (list/read/history)
+        from miqi.runtime.workbench_process_state_app_handlers import (
+            register_workbench_process_state_handlers,
+        )
+        register_workbench_process_state_handlers(self._app_server)
+
         # Phase 43: register client cleanup hook so workbench processes
         # are killed when a client disconnects or AppServer stops.
         async def _kill_client_processes(client_id: str) -> None:
