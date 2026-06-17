@@ -529,3 +529,233 @@ async def test_command_exec_output_cap_streaming_cap_reached(server_and_registry
     assert resp["result"].get("stdoutCapReached") is True, (
         f"Final response stdoutCapReached should be True, got: {resp['result']}"
     )
+
+
+# ── Default timeout (Phase 43 hardening) ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_command_exec_uses_default_timeout_when_omitted(server_and_registry):
+    """When timeoutMs is omitted, DEFAULT_TIMEOUT_MS is passed to the runtime."""
+    from unittest.mock import patch
+
+    from miqi.runtime.workbench_process_runtime import DEFAULT_TIMEOUT_MS
+
+    server, registry = server_and_registry
+    wpr = registry.bridge_context["workbench_process_runtime"]
+
+    with patch.object(wpr, "spawn", wraps=wpr.spawn) as mock_spawn:
+        resp = await _dispatch(server, registry, "command/exec", {
+            "command": ["python", "-c", "pass"],
+            "processId": "cmd-default-timeout",
+        })
+
+    assert "result" in resp, f"Expected result, got: {resp}"
+    call_kwargs = mock_spawn.call_args.kwargs
+    assert call_kwargs["timeout_ms"] == DEFAULT_TIMEOUT_MS, (
+        f"Expected timeout_ms={DEFAULT_TIMEOUT_MS}, got {call_kwargs['timeout_ms']}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_command_exec_uses_default_timeout_when_null(server_and_registry):
+    """When timeoutMs is null, DEFAULT_TIMEOUT_MS is used (command/exec has no null-disable)."""
+    from unittest.mock import patch
+
+    from miqi.runtime.workbench_process_runtime import DEFAULT_TIMEOUT_MS
+
+    server, registry = server_and_registry
+    wpr = registry.bridge_context["workbench_process_runtime"]
+
+    with patch.object(wpr, "spawn", wraps=wpr.spawn) as mock_spawn:
+        resp = await _dispatch(server, registry, "command/exec", {
+            "command": ["python", "-c", "pass"],
+            "processId": "cmd-null-timeout",
+            "timeoutMs": None,
+        })
+
+    assert "result" in resp, f"Expected result, got: {resp}"
+    call_kwargs = mock_spawn.call_args.kwargs
+    assert call_kwargs["timeout_ms"] == DEFAULT_TIMEOUT_MS, (
+        f"Expected timeout_ms={DEFAULT_TIMEOUT_MS} for null timeoutMs, "
+        f"got {call_kwargs['timeout_ms']}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_command_exec_rejects_negative_timeout(server_and_registry):
+    """timeoutMs < 0 returns INVALID_PARAMS."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "pass"],
+        "processId": "cmd-neg-timeout",
+        "timeoutMs": -1,
+    })
+    assert "error" in resp, f"Expected error for negative timeoutMs, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS", (
+        f"Expected INVALID_PARAMS, got: {resp.get('code')}"
+    )
+
+
+# ── Default output cap (Phase 43 hardening) ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_command_exec_uses_default_output_cap_when_omitted(server_and_registry):
+    """When outputBytesCap is omitted, DEFAULT_OUTPUT_BYTES_CAP is passed to the runtime."""
+    from unittest.mock import patch
+
+    from miqi.runtime.workbench_process_runtime import DEFAULT_OUTPUT_BYTES_CAP
+
+    server, registry = server_and_registry
+    wpr = registry.bridge_context["workbench_process_runtime"]
+
+    with patch.object(wpr, "spawn", wraps=wpr.spawn) as mock_spawn:
+        resp = await _dispatch(server, registry, "command/exec", {
+            "command": ["python", "-c", "pass"],
+            "processId": "cmd-default-cap",
+        })
+
+    assert "result" in resp, f"Expected result, got: {resp}"
+    call_kwargs = mock_spawn.call_args.kwargs
+    assert call_kwargs["output_cap"] == DEFAULT_OUTPUT_BYTES_CAP, (
+        f"Expected output_cap={DEFAULT_OUTPUT_BYTES_CAP}, got {call_kwargs['output_cap']}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_command_exec_rejects_null_output_cap(server_and_registry):
+    """outputBytesCap=null returns INVALID_PARAMS."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "pass"],
+        "processId": "cmd-null-cap",
+        "outputBytesCap": None,
+    })
+    assert "error" in resp, f"Expected error for null outputBytesCap, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS", (
+        f"Expected INVALID_PARAMS, got: {resp.get('code')}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_command_exec_rejects_negative_output_cap(server_and_registry):
+    """outputBytesCap < 0 returns INVALID_PARAMS."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "pass"],
+        "processId": "cmd-neg-cap",
+        "outputBytesCap": -1,
+    })
+    assert "error" in resp, f"Expected error for negative outputBytesCap, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS", (
+        f"Expected INVALID_PARAMS, got: {resp.get('code')}"
+    )
+
+
+# ── Zero output cap & capReached boundary (Phase 43 hardening) ──────────
+
+
+@pytest.mark.asyncio
+async def test_command_exec_zero_output_cap_immediate_cap_reached(server_and_registry):
+    """outputBytesCap=0 allows execution but immediately triggers capReached for any output.
+
+    This also verifies the capReached boundary fix: when buffer is already
+    at cap (0 bytes) and the next chunk arrives, an empty capReached delta
+    is emitted so the client sees exactly one notification.
+    """
+    server, registry = server_and_registry
+
+    events_received: list = []
+
+    async def fake_sink(envelope):
+        events_received.append(envelope)
+
+    server.set_event_sink("test-client", fake_sink)
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c",
+                    "import sys; sys.stdout.buffer.write(b'A' * 100); sys.stdout.flush()"],
+        "processId": "cmd-cap-zero",
+        "streamStdoutStderr": True,
+        "outputBytesCap": 0,
+    })
+
+    output_deltas = [
+        e for e in events_received
+        if e.get("event") == "command/exec/outputDelta"
+    ]
+    stdout_cap_deltas = [
+        d for d in output_deltas
+        if d.get("data", {}).get("stream") == "stdout"
+        and d.get("data", {}).get("capReached")
+    ]
+    assert len(stdout_cap_deltas) == 1, (
+        f"Expected exactly 1 stdout capReached delta with cap=0, "
+        f"got {len(stdout_cap_deltas)}: {stdout_cap_deltas}"
+    )
+    # With cap=0 the capReached delta carries empty data (buffer was at cap)
+    assert stdout_cap_deltas[0]["data"]["deltaBase64"] == "", (
+        f"Expected empty deltaBase64 for cap=0 capReached, "
+        f"got: {stdout_cap_deltas[0]['data']['deltaBase64']!r}"
+    )
+
+    assert "result" in resp, f"Expected result, got: {resp}"
+    assert resp["result"].get("stdoutCapReached") is True, (
+        f"stdoutCapReached should be True with outputBytesCap=0, got: {resp['result']}"
+    )
+    assert resp["result"]["stdout"] == "", (
+        f"stdout should be empty with outputBytesCap=0, got: {resp['result']['stdout']!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_command_exec_output_cap_boundary_fill_then_overflow(server_and_registry):
+    """When output exactly fills the cap then more arrives, exactly one capReached delta.
+
+    Writes exactly 20 bytes (filling cap), flushes, then writes 50 more bytes.
+    Regardless of whether the OS delivers them as one read or two, the client
+    must receive exactly one capReached=true notification on stdout.
+    """
+    server, registry = server_and_registry
+
+    events_received: list = []
+
+    async def fake_sink(envelope):
+        events_received.append(envelope)
+
+    server.set_event_sink("test-client", fake_sink)
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", (
+            "import sys; "
+            "sys.stdout.buffer.write(b'A' * 20); sys.stdout.flush(); "
+            "sys.stdout.buffer.write(b'B' * 50); sys.stdout.flush()"
+        )],
+        "processId": "cmd-cap-boundary",
+        "streamStdoutStderr": True,
+        "outputBytesCap": 20,
+    })
+
+    output_deltas = [
+        e for e in events_received
+        if e.get("event") == "command/exec/outputDelta"
+    ]
+    stdout_cap_deltas = [
+        d for d in output_deltas
+        if d.get("data", {}).get("stream") == "stdout"
+        and d.get("data", {}).get("capReached")
+    ]
+    assert len(stdout_cap_deltas) == 1, (
+        f"Expected exactly 1 stdout capReached delta (boundary fill+overflow), "
+        f"got {len(stdout_cap_deltas)}: {stdout_cap_deltas}"
+    )
+
+    assert "result" in resp, f"Expected result, got: {resp}"
+    assert resp["result"].get("stdoutCapReached") is True, (
+        f"stdoutCapReached should be True when output exceeds cap, "
+        f"got: {resp['result']}"
+    )
