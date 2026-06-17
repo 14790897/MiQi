@@ -118,6 +118,34 @@ class ProcessExit:
     stderr: str
     stdout_cap_reached: bool = False
     stderr_cap_reached: bool = False
+    duration_ms: int = 0
+    termination_reason: str | None = None  # "exited" | "timeout" | "killed" | ...
+
+
+@dataclass
+class WorkbenchProcessSnapshot:
+    """Public read-only snapshot of a process (live or completed).
+
+    Built from a ``WorkbenchProcessHandle`` and optional ``ProcessExit``.
+    Used by workbench/process/list, read, and history.
+    """
+    client_id: str
+    handle_id: str
+    kind: str               # "commandExec" | "process"
+    command: list[str]
+    cwd: str
+    running: bool
+    exit_code: int | None
+    started_at: float
+    ended_at: float | None
+    duration_ms: int
+    stdin_enabled: bool
+    stdout_bytes: int
+    stderr_bytes: int
+    stdout_cap_reached: bool
+    stderr_cap_reached: bool
+    termination_reason: str | None  # "exited" | "timeout" | "killed" | ...
+    client_visible: bool = True
 
 
 @dataclass
@@ -133,6 +161,8 @@ class WorkbenchProcessHandle:
     output_cap: int | None = None
     stdout_cap_reached: bool = False
     stderr_cap_reached: bool = False
+    client_visible: bool = True
+    termination_reason: str | None = None
     _stdout_buffer: bytearray = field(default_factory=bytearray)
     _stderr_buffer: bytearray = field(default_factory=bytearray)
     _started_at: float = field(default_factory=time.monotonic)
@@ -204,10 +234,13 @@ class WorkbenchProcessRuntime:
     access.
     """
 
-    def __init__(self, *, workspace: Path):
+    def __init__(self, *, workspace: Path, history_max: int = 200):
         self.workspace = workspace
         self._handles: dict[tuple[str, str], WorkbenchProcessHandle] = {}
         self._lock = asyncio.Lock()
+        # Bounded per-client completed-process history
+        self._history: dict[str, list[dict[str, object]]] = {}
+        self._history_max = history_max
 
     # ── handle lookup ─────────────────────────────────────────────────
 
@@ -230,7 +263,118 @@ class WorkbenchProcessRuntime:
         if (client_id, handle_id) in self._handles:
             raise HandleActiveError(handle_id)
 
-    # ── spawn (blocking — waits for exit) ──────────────────────────────
+    # ── snapshot / history ───────────────────────────────────────────────
+
+    @staticmethod
+    def _build_snapshot(
+        handle: WorkbenchProcessHandle,
+        *,
+        exit_result: ProcessExit | None = None,
+    ) -> dict[str, object]:
+        """Build a public snapshot dict from a handle and optional exit result."""
+        now = time.monotonic()
+        if exit_result is not None:
+            running = False
+            exit_code: int | None = exit_result.exit_code
+            ended_at: float | None = now
+            duration_ms = exit_result.duration_ms
+            termination_reason = exit_result.termination_reason
+        else:
+            running = handle.process.returncode is None
+            exit_code = handle.process.returncode
+            ended_at = None if running else now
+            duration_ms = int((now - handle._started_at) * 1000)
+            termination_reason = handle.termination_reason
+
+        return {
+            "clientId": handle.client_id,
+            "handleId": handle.handle_id,
+            "kind": handle.kind,
+            "command": list(handle.command),
+            "cwd": str(handle.cwd),
+            "running": running,
+            "exitCode": exit_code,
+            "startedAt": handle._started_at,
+            "endedAt": ended_at,
+            "durationMs": duration_ms,
+            "stdinEnabled": handle.stdin_enabled,
+            "stdoutBytes": len(handle._stdout_buffer),
+            "stderrBytes": len(handle._stderr_buffer),
+            "stdoutCapReached": handle.stdout_cap_reached,
+            "stderrCapReached": handle.stderr_cap_reached,
+            "terminationReason": termination_reason,
+            "clientVisible": handle.client_visible,
+        }
+
+    def _record_history(self, client_id: str, snapshot: dict[str, object]) -> None:
+        """Append a completed process snapshot to the client's bounded history."""
+        if client_id not in self._history:
+            self._history[client_id] = []
+        history = self._history[client_id]
+        history.append(snapshot)
+        # Enforce max bound
+        while len(history) > self._history_max:
+            history.pop(0)
+
+    # ── query: list / read / history ─────────────────────────────────────
+
+    def list_live(
+        self, client_id: str, *, kind: str | None = None,
+    ) -> list[dict[str, object]]:
+        """List live processes for a client, optionally filtered by kind.
+
+        Only returns client-visible handles.  Internal (non-client-visible)
+        handles are excluded.
+        """
+        result: list[dict[str, object]] = []
+        for (cid, _), handle in self._handles.items():
+            if cid != client_id:
+                continue
+            if not handle.client_visible:
+                continue
+            if kind is not None and handle.kind != kind:
+                continue
+            result.append(self._build_snapshot(handle))
+        return result
+
+    def read_live(
+        self, client_id: str, handle_id: str, *, include_output: bool = False,
+    ) -> dict[str, object]:
+        """Read a single live process snapshot for the calling client.
+
+        Returns ``NOT_FOUND``-shaped error dict if the handle doesn't exist
+        or belongs to another client.
+        """
+        handle = self._handles.get((client_id, handle_id))
+        if handle is None or handle.client_id != client_id:
+            raise HandleNotFoundError(handle_id)
+        snapshot = self._build_snapshot(handle)
+        if include_output:
+            snapshot["stdout"] = handle.stdout_str
+            snapshot["stderr"] = handle.stderr_str
+        return snapshot
+
+    def history(
+        self, client_id: str, *, kind: str | None = None, limit: int = 50,
+    ) -> dict[str, object]:
+        """Return bounded completed-process history for the calling client.
+
+        Returns ``{"processes": [...], "truncated": bool}``.
+        """
+        entries = self._history.get(client_id, [])
+        if kind is not None:
+            entries = [e for e in entries if e.get("kind") == kind]
+        if limit < 1:
+            limit = 1
+        if limit > 200:
+            limit = 200
+        truncated = len(entries) > limit
+        return {
+            "processes": list(entries[-limit:]),
+            "truncated": truncated,
+        }
+
+    # ── cleanup hooks for history recording ───────────────────────────
 
     async def spawn(
         self,
@@ -308,6 +452,11 @@ class WorkbenchProcessRuntime:
         finally:
             async with self._lock:
                 self._handles.pop((client_id, handle_id), None)
+
+        # Record to history (client-visible processes only)
+        if handle.client_visible:
+            snapshot = self._build_snapshot(handle, exit_result=exit_result)
+            self._record_history(client_id, snapshot)
 
         return exit_result
 
@@ -388,6 +537,10 @@ class WorkbenchProcessRuntime:
                     timeout_ms=timeout_ms,
                     on_chunk=on_chunk,
                 )
+                # Record to history (client-visible processes only)
+                if handle.client_visible:
+                    snapshot = self._build_snapshot(handle, exit_result=exit_result)
+                    self._record_history(client_id, snapshot)
                 if on_exit is not None:
                     try:
                         await on_exit(exit_result)
@@ -525,6 +678,7 @@ class WorkbenchProcessRuntime:
                             "WorkbenchProcessRuntime: timeout %dms reached for %s, killing",
                             timeout_ms, handle.handle_id,
                         )
+                        handle.termination_reason = "timeout"
                         await self._kill_process(proc)
 
                 timeout_task = asyncio.create_task(
@@ -537,6 +691,8 @@ class WorkbenchProcessRuntime:
 
         except asyncio.CancelledError:
             cancelled = True
+            if handle.termination_reason is None:
+                handle.termination_reason = "killed"
             await self._kill_process(proc)
         finally:
             # Cancel timeout if still pending
@@ -576,6 +732,12 @@ class WorkbenchProcessRuntime:
         if cancelled:
             exit_code = -1
 
+        # Default termination reason
+        if handle.termination_reason is None:
+            handle.termination_reason = "exited"
+
+        duration_ms = int((time.monotonic() - handle._started_at) * 1000)
+
         return ProcessExit(
             handle_id=handle.handle_id,
             exit_code=exit_code,
@@ -583,6 +745,8 @@ class WorkbenchProcessRuntime:
             stderr=handle.stderr_str,
             stdout_cap_reached=handle.stdout_cap_reached,
             stderr_cap_reached=handle.stderr_cap_reached,
+            duration_ms=duration_ms,
+            termination_reason=handle.termination_reason,
         )
 
     async def _kill_process(self, proc: asyncio.subprocess.Process) -> None:
@@ -650,17 +814,26 @@ class WorkbenchProcessRuntime:
         HandleNotFoundError if no such handle exists.
         """
         handle = self._require_handle(client_id, handle_id)
+        handle.termination_reason = "killed"
         await self._kill_process(handle.process)
         # Wait briefly for readers to flush
         await asyncio.sleep(0.05)
-        return ProcessExit(
+        duration_ms = int((time.monotonic() - handle._started_at) * 1000)
+        exit_result = ProcessExit(
             handle_id=handle.handle_id,
             exit_code=handle.process.returncode if handle.process.returncode is not None else -1,
             stdout=handle.stdout_str,
             stderr=handle.stderr_str,
             stdout_cap_reached=handle.stdout_cap_reached,
             stderr_cap_reached=handle.stderr_cap_reached,
+            duration_ms=duration_ms,
+            termination_reason=handle.termination_reason,
         )
+        # Record to history
+        if handle.client_visible:
+            snapshot = self._build_snapshot(handle, exit_result=exit_result)
+            self._record_history(client_id, snapshot)
+        return exit_result
 
     # ── cleanup ────────────────────────────────────────────────────────
 
@@ -672,10 +845,13 @@ class WorkbenchProcessRuntime:
                 if cid == client_id
             ]
         for handle in handles:
+            handle.termination_reason = "client_disconnected"
             try:
                 await self._kill_process(handle.process)
             except Exception:
                 pass
+        # Note: handles are NOT popped here — the background runners
+        # or spawn() finally blocks will pop them and record history.
         async with self._lock:
             keys_to_remove = [
                 k for k in self._handles if k[0] == client_id
@@ -688,6 +864,7 @@ class WorkbenchProcessRuntime:
         async with self._lock:
             handles = list(self._handles.values())
         for handle in handles:
+            handle.termination_reason = "server_shutdown"
             try:
                 await self._kill_process(handle.process)
             except Exception:
