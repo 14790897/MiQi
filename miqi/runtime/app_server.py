@@ -234,6 +234,9 @@ class AppServer:
         self._event_sinks: dict[str, Any] = {}
         # Phase 41: background tasks owned by AppServer shutdown
         self._background_tasks: set[asyncio.Task] = set()
+        # Phase 43: client cleanup hooks — called when a client disconnects
+        # or when stop() cleans up all clients.
+        self._client_cleanup_hooks: list[Callable[[str], Any]] = []
 
     # ── method registration ──────────────────────────────────────────────
 
@@ -390,6 +393,12 @@ class AppServer:
             except asyncio.CancelledError:
                 pass
             self._ttl_task = None
+        # Phase 43: run cleanup hooks for all known clients before tearing
+        # down sessions. This ensures workbench processes, file watchers,
+        # and other client-owned resources are cleaned up.
+        known_clients = list(self._event_sinks.keys())
+        for client_id in known_clients:
+            await self._run_client_cleanup_hooks(client_id)
         # Phase 41: cancel owned background tasks
         if self._background_tasks:
             tasks = list(self._background_tasks)
@@ -448,6 +457,33 @@ class AppServer:
                 del self._subscriptions[session_id]
         logger.debug("AppServer: client {} unsubscribed from session {}", client_id, session_id)
 
+    def add_client_cleanup_hook(self, hook: Callable[[str], Any]) -> None:
+        """Register a cleanup hook called when a client disconnects.
+
+        *hook* receives the client_id.  It may be sync or async —
+        AppServer will ``await`` the result if it is a coroutine.
+
+        Hooks are called in registration order.  Exceptions are logged
+        and do not prevent remaining hooks from running.
+        """
+        self._client_cleanup_hooks.append(hook)
+
+    async def _run_client_cleanup_hooks(self, client_id: str) -> None:
+        """Run all registered cleanup hooks for *client_id*.
+
+        Hook exceptions are logged server-side and never propagate.
+        """
+        for hook in self._client_cleanup_hooks:
+            try:
+                result = hook(client_id)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as exc:
+                logger.warning(
+                    "AppServer: cleanup hook failed for client {}: {}",
+                    client_id, exc,
+                )
+
     def set_event_sink(self, client_id: str, sink: Any) -> None:
         """Register an async callable that receives event dicts for a client.
 
@@ -456,8 +492,14 @@ class AppServer:
         """
         self._event_sinks[client_id] = sink
 
-    def remove_event_sink(self, client_id: str) -> None:
-        """Remove the event sink for a client (e.g., on disconnect)."""
+    async def remove_event_sink(self, client_id: str) -> None:
+        """Remove the event sink for a client (e.g., on disconnect).
+
+        Runs client cleanup hooks before removing subscriptions.
+        """
+        # Phase 43: run cleanup hooks first so process handles are
+        # killed before the event sink is removed.
+        await self._run_client_cleanup_hooks(client_id)
         self._event_sinks.pop(client_id, None)
         # Also unsubscribe from all sessions
         for subs in list(self._subscriptions.values()):
