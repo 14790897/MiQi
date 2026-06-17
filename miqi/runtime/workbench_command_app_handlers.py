@@ -10,6 +10,7 @@ stored in registry.bridge_context["workbench_process_runtime"].
 from __future__ import annotations
 
 import base64
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -278,28 +279,32 @@ def register_workbench_command_handlers(server: AppServer) -> None:
                 "disableTimeout must be a boolean",
                 code="INVALID_PARAMS",
             )
-        timeout_ms = params.get("timeoutMs")
-        if "timeoutMs" not in params or timeout_ms is None:
-            timeout_ms_int: int | None = DEFAULT_TIMEOUT_MS
-        elif disable_timeout:
-            raise AppServerError(
-                "disableTimeout and timeoutMs are mutually exclusive",
-                code="INVALID_PARAMS",
-            )
-        elif not isinstance(timeout_ms, (int, float)):
-            raise AppServerError(
-                "timeoutMs must be a number",
-                code="INVALID_PARAMS",
-            )
-        else:
-            timeout_ms_int = int(timeout_ms)
-            if timeout_ms_int < 0:
+        if "timeoutMs" in params:
+            # timeoutMs is present (regardless of value type — null or number)
+            if disable_timeout:
                 raise AppServerError(
-                    "timeoutMs must be >= 0",
+                    "disableTimeout and timeoutMs are mutually exclusive",
                     code="INVALID_PARAMS",
                 )
-        if disable_timeout:
-            timeout_ms_int = None
+            timeout_ms_raw = params["timeoutMs"]
+            if timeout_ms_raw is None:
+                timeout_ms_int: int | None = DEFAULT_TIMEOUT_MS
+            elif not isinstance(timeout_ms_raw, (int, float)):
+                raise AppServerError(
+                    "timeoutMs must be a number",
+                    code="INVALID_PARAMS",
+                )
+            else:
+                timeout_ms_int = int(timeout_ms_raw)
+                if timeout_ms_int < 0:
+                    raise AppServerError(
+                        "timeoutMs must be >= 0",
+                        code="INVALID_PARAMS",
+                    )
+        else:
+            timeout_ms_int: int | None = (
+                None if disable_timeout else DEFAULT_TIMEOUT_MS
+            )
 
         stream_stdout_stderr = params.get("streamStdoutStderr", False)
         stream_stdin = params.get("streamStdin", False)
@@ -335,7 +340,7 @@ def register_workbench_command_handlers(server: AppServer) -> None:
         try:
             exit_result = await wpr.spawn(
                 client_id=client_id,
-                handle_id=process_id or f"cmd-{id(command)}",
+                handle_id=process_id or f"cmd-internal-{uuid.uuid4().hex}",
                 kind="commandExec",
                 command=command,
                 cwd=cwd,
