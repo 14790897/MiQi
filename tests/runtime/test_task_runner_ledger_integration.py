@@ -45,7 +45,7 @@ async def test_history_passed_when_ledger_is_none(fake_config, fake_provider, tm
         original_run = runtime.services.turn_runner.run
         captured_history: list = []
 
-        async def spy_run(turn, user_content, system_prompt, tools, history, cancel_event):
+        async def spy_run(turn, user_content, system_prompt, tools, history, cancel_event, steer_queue=None):
             captured_history.append(history)
             return await original_run(
                 turn=turn,
@@ -54,6 +54,7 @@ async def test_history_passed_when_ledger_is_none(fake_config, fake_provider, tm
                 tools=tools,
                 history=history,
                 cancel_event=cancel_event,
+                steer_queue=steer_queue,
             )
 
         runtime.services.turn_runner.run = spy_run
