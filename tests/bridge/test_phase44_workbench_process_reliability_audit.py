@@ -137,6 +137,26 @@ async def test_command_exec_disable_timeout_conflict_with_timeout_ms():
 
 
 @pytest.mark.asyncio
+async def test_command_exec_disable_timeout_conflict_with_timeout_ms_null():
+    """disableTimeout=true with timeoutMs=null returns INVALID_PARAMS.
+
+    Per plan/44: timeoutMs present (even as null) + disableTimeout=true → INVALID_PARAMS.
+    """
+    server, registry = _make_server_with_handlers()
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "pass"],
+        "processId": "conflict-timeout-null",
+        "disableTimeout": True,
+        "timeoutMs": None,
+    })
+    assert "error" in resp, (
+        f"disableTimeout=true + timeoutMs=null should be INVALID_PARAMS, got: {resp}"
+    )
+    assert resp.get("code") == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
 async def test_command_exec_disable_output_cap_conflict_with_output_bytes_cap():
     """disableOutputCap=true with outputBytesCap present returns INVALID_PARAMS."""
     server, registry = _make_server_with_handlers()
@@ -217,6 +237,28 @@ async def test_process_spawn_disable_timeout_conflict():
 
 
 @pytest.mark.asyncio
+async def test_process_spawn_disable_timeout_conflict_with_timeout_ms_null():
+    """process/spawn disableTimeout=true with timeoutMs=null returns INVALID_PARAMS.
+
+    Per plan/44: timeoutMs present (even as null) + disableTimeout=true → INVALID_PARAMS.
+    """
+    server, registry = _make_server_with_handlers()
+
+    resp = await _dispatch(server, registry, "process/spawn", {
+        "experimentalApi": True,
+        "command": ["python", "-c", "pass"],
+        "processHandle": "spawn-conflict-timeout-null",
+        "cwd": str(Path.cwd()),
+        "disableTimeout": True,
+        "timeoutMs": None,
+    })
+    assert "error" in resp, (
+        f"disableTimeout=true + timeoutMs=null should be INVALID_PARAMS, got: {resp}"
+    )
+    assert resp.get("code") == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
 async def test_process_spawn_disable_output_cap_conflict():
     """process/spawn disableOutputCap=true with outputBytesCap present returns INVALID_PARAMS."""
     server, registry = _make_server_with_handlers()
@@ -285,6 +327,75 @@ async def test_command_exec_without_process_id_cannot_be_written():
     })
     assert "error" in resp, (
         f"Write on guessed/absent ID should fail, got: {resp}"
+    )
+
+    await task
+
+
+@pytest.mark.asyncio
+async def test_command_exec_without_process_id_uses_uuid_style_internal_handle():
+    """command/exec without processId generates UUID-style internal handle.
+
+    The internal handle ID must use format cmd-internal-<uuid-hex> and
+    be rejected by write/terminate (require_client_visible=True gate).
+    Internal IDs must NOT appear in workbench/process/list.
+    """
+    server, registry = _make_server_with_handlers()
+    from miqi.runtime.workbench_process_state_app_handlers import (
+        register_workbench_process_state_handlers,
+    )
+    register_workbench_process_state_handlers(server)
+    wpr = registry.bridge_context["workbench_process_runtime"]
+
+    import asyncio as _asyncio
+
+    task = _asyncio.create_task(
+        _dispatch(server, registry, "command/exec", {
+            "command": ["python", "-c", "import time; time.sleep(3)"],
+        })
+    )
+    await _asyncio.sleep(0.2)
+
+    # Find the internal handle in the runtime
+    internal_handles = [
+        (k, h) for k, h in wpr._handles.items()
+        if k[0] == "test-client" and not h.client_visible
+    ]
+    assert len(internal_handles) >= 1, (
+        f"Expected at least 1 internal handle, got handles: "
+        f"{[(k, h.handle_id, h.client_visible) for k, h in wpr._handles.items()]}"
+    )
+    _, internal_handle = internal_handles[0]
+    hid = internal_handle.handle_id
+
+    # Must be UUID-style (cmd-internal-<32 hex chars>)
+    assert hid.startswith("cmd-internal-"), (
+        f"Internal handle ID must start with 'cmd-internal-', got: {hid!r}"
+    )
+    hex_part = hid[len("cmd-internal-"):]
+    assert len(hex_part) == 32, (
+        f"UUID hex part must be 32 chars, got {len(hex_part)}: {hex_part!r}"
+    )
+    assert all(c in "0123456789abcdef" for c in hex_part), (
+        f"UUID hex part must be lowercase hex, got: {hex_part!r}"
+    )
+
+    # The actual internal ID must not be usable for terminate
+    resp_term = await _dispatch(server, registry, "command/exec/terminate", {
+        "processId": hid,
+    })
+    assert "error" in resp_term, (
+        f"Terminate with actual internal ID must fail (client_visible=False), "
+        f"got: {resp_term}"
+    )
+    assert resp_term.get("code") == "NOT_FOUND"
+
+    # Internal handle must not show up in list
+    resp_list = await _dispatch(server, registry, "workbench/process/list", {})
+    assert "result" in resp_list, f"Expected result, got: {resp_list}"
+    listed_ids = [p.get("handleId") for p in resp_list["result"]["processes"]]
+    assert hid not in listed_ids, (
+        f"Internal handle {hid!r} must not appear in list, got: {listed_ids}"
     )
 
     await task
@@ -746,6 +857,25 @@ async def test_history_kind_filter_works():
 
 
 # ── 44.1.10 Command exec without processId: emit event uses internal ID ─
+
+
+@pytest.mark.asyncio
+async def test_command_exec_streaming_without_process_id_is_invalid_params():
+    """command/exec with streamStdoutStderr=true without processId must be INVALID_PARAMS.
+
+    Without processId, the internal handle would leak via outputDelta events.
+    The handler must reject this combination to prevent internal ID exposure.
+    """
+    server, registry = _make_server_with_handlers()
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "print('should-not-work')"],
+        "streamStdoutStderr": True,
+    })
+    assert "error" in resp, (
+        f"streamStdoutStderr without processId must be INVALID_PARAMS, got: {resp}"
+    )
+    assert resp.get("code") == "INVALID_PARAMS"
 
 
 @pytest.mark.asyncio
