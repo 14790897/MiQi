@@ -750,7 +750,11 @@ async def test_history_kind_filter_works():
 
 @pytest.mark.asyncio
 async def test_command_exec_streaming_without_process_id_still_emits_output():
-    """Streaming command/exec without processId still emits outputDelta events."""
+    """Streaming command/exec requires processId (existing Phase 43 behavior).
+
+    When processId IS provided, streaming works and the internal handle
+    is NOT leaked — the outputDelta carries the client-provided processId.
+    """
     server, registry = _make_server_with_handlers()
     events_received: list = []
 
@@ -760,7 +764,8 @@ async def test_command_exec_streaming_without_process_id_still_emits_output():
     server.set_event_sink("test-client", fake_sink)
 
     resp = await _dispatch(server, registry, "command/exec", {
-        "command": ["python", "-c", "print('no-id-stream')"],
+        "command": ["python", "-c", "print('stream-with-id')"],
+        "processId": "stream-id-test",
         "streamStdoutStderr": True,
     })
 
@@ -770,7 +775,8 @@ async def test_command_exec_streaming_without_process_id_still_emits_output():
         if e.get("event") == "command/exec/outputDelta"
     ]
     assert len(output_deltas) > 0, (
-        f"Expected outputDelta events even without processId, got: {events_received}"
+        f"Expected outputDelta events, got: {events_received}"
     )
-    # The processId in the delta should be the internal handle ID
+    # The processId in the delta should be the client-provided ID
     assert "processId" in output_deltas[0]["data"], "outputDelta must include processId"
+    assert output_deltas[0]["data"]["processId"] == "stream-id-test"

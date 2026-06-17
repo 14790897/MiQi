@@ -163,6 +163,7 @@ class WorkbenchProcessHandle:
     stderr_cap_reached: bool = False
     client_visible: bool = True
     termination_reason: str | None = None
+    _history_recorded: bool = False
     _stdout_buffer: bytearray = field(default_factory=bytearray)
     _stderr_buffer: bytearray = field(default_factory=bytearray)
     _started_at: float = field(default_factory=time.monotonic)
@@ -458,8 +459,9 @@ class WorkbenchProcessRuntime:
             async with self._lock:
                 self._handles.pop((client_id, handle_id), None)
 
-        # Record to history (client-visible processes only)
-        if handle.client_visible:
+        # Record to history (client-visible processes, once only)
+        if handle.client_visible and not handle._history_recorded:
+            handle._history_recorded = True
             snapshot = self._build_snapshot(handle, exit_result=exit_result)
             self._record_history(client_id, snapshot)
 
@@ -544,8 +546,9 @@ class WorkbenchProcessRuntime:
                     timeout_ms=timeout_ms,
                     on_chunk=on_chunk,
                 )
-                # Record to history (client-visible processes only)
-                if handle.client_visible:
+                # Record to history (client-visible processes, once only)
+                if handle.client_visible and not handle._history_recorded:
+                    handle._history_recorded = True
                     snapshot = self._build_snapshot(handle, exit_result=exit_result)
                     self._record_history(client_id, snapshot)
                 if on_exit is not None:
@@ -849,8 +852,9 @@ class WorkbenchProcessRuntime:
             duration_ms=duration_ms,
             termination_reason=handle.termination_reason,
         )
-        # Record to history
-        if handle.client_visible:
+        # Record to history (once only)
+        if handle.client_visible and not handle._history_recorded:
+            handle._history_recorded = True
             snapshot = self._build_snapshot(handle, exit_result=exit_result)
             self._record_history(client_id, snapshot)
         return exit_result
