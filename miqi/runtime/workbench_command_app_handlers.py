@@ -89,8 +89,41 @@ def _validate_argv(raw: Any) -> list[str]:
     return raw
 
 
+# Environment variable prefixes that are blocked for security.
+# These can be used to inject code or alter process behaviour in
+# dangerous ways when spawning subprocesses with user-supplied env.
+_BLOCKED_ENV_PREFIXES: tuple[str, ...] = (
+    "LD_",          # dynamic linker injection (LD_PRELOAD, LD_LIBRARY_PATH)
+    "DYLD_",        # macOS dynamic linker injection
+    "NODE_OPTIONS", # Node.js options injection
+    "NODE_PATH",    # Node.js module path injection
+    "PYTHONSTARTUP",# Python startup script
+    "PYTHONPATH",   # Python import path injection
+    "PYTHONHOME",   # Python home override
+    "PYTHONOPTIONS",# Python options
+    "PERL5LIB",     # Perl library path injection
+    "PERL5OPT",     # Perl options injection
+    "RUBYOPT",      # Ruby options injection
+    "RUBYLIB",      # Ruby library path injection
+    "GEM_PATH",     # Ruby gem path injection
+    "BASH_ENV",     # Bash startup script
+    "BASH_FUNC_",   # Bash function export
+    "ENV",          # POSIX sh startup file
+    "IFS",          # shell word splitting manipulation
+    "GCONV_PATH",   # glibc charset conversion module injection
+    "GLIBC_TUNABLES",# glibc tunables injection
+    "TMPDIR",       # temp dir redirect (can be used for TOCTOU)
+)
+
+
 def _validate_env(raw: Any) -> dict[str, str | None] | None:
-    """Validate optional env dict."""
+    """Validate optional env dict.
+
+    Only allows environment variables that do not start with
+    known-dangerous prefixes (dynamic linker, language runtime
+    injection vectors).  Unknown/blocked keys are rejected with
+    INVALID_PARAMS.
+    """
     if raw is None:
         return None
     if not isinstance(raw, dict):
@@ -109,6 +142,13 @@ def _validate_env(raw: Any) -> dict[str, str | None] | None:
                 f"env['{key}'] must be a string or null",
                 code="INVALID_PARAMS",
             )
+        # Security: reject dangerous environment variable prefixes
+        for prefix in _BLOCKED_ENV_PREFIXES:
+            if key.upper().startswith(prefix.upper()):
+                raise AppServerError(
+                    f"env key {key!r} is not allowed for security reasons",
+                    code="INVALID_PARAMS",
+                )
     return raw
 
 
