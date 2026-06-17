@@ -405,3 +405,95 @@ async def test_unknown_handle_kill_raises(process_runtime):
     """Killing unknown handle raises NOT_FOUND."""
     with pytest.raises(Exception):
         await process_runtime.kill("test-client", "nonexistent")
+
+
+# ── Kill returncode correctness (Phase 43 hardening) ──────────────────────
+
+
+@pytest.mark.asyncio
+async def test_kill_returncode_zero_preserved(process_runtime):
+    """Kill() on a process that exited 0 returns exit_code=0, not -1.
+
+    Regression: ``handle.process.returncode or -1`` evaluates 0 as falsy
+    and incorrectly returns -1.
+
+    Uses an on_exit callback that blocks cleanup so the handle stays
+    registered long enough for kill() to observe the real returncode.
+    """
+    import asyncio as _asyncio
+
+    exit_seen = _asyncio.Event()
+    ok_to_cleanup = _asyncio.Event()
+    exit_result_ref: list = []
+
+    async def _on_exit(exit_result):
+        exit_result_ref.append(exit_result)
+        exit_seen.set()
+        # Block until the test is done inspecting
+        await ok_to_cleanup.wait()
+
+    handle = await process_runtime.spawn_background(
+        client_id="test-client",
+        handle_id="kill-returncode-zero",
+        kind="process",
+        command=["python", "-c", "pass"],  # exits 0 immediately
+        cwd=process_runtime.workspace,
+        on_exit=_on_exit,
+    )
+
+    # Wait for process to exit and on_exit to fire
+    await exit_seen.wait()
+
+    # Handle must still be registered (on_exit holds cleanup)
+    assert process_runtime.get_handle("test-client", "kill-returncode-zero") is not None
+
+    # on_exit saw correct exit_code
+    assert exit_result_ref[0].exit_code == 0
+
+    # kill() on an already-exited process — must return 0, not -1
+    result = await process_runtime.kill("test-client", "kill-returncode-zero")
+    assert result.exit_code == 0, (
+        f"exit_code should be 0 for process that exited 0, got {result.exit_code}. "
+        f"The old ``returncode or -1`` bug would coerce 0 → -1."
+    )
+
+    # Allow cleanup to proceed
+    ok_to_cleanup.set()
+    await _asyncio.sleep(0.2)
+
+
+@pytest.mark.asyncio
+async def test_kill_returncode_nonzero_preserved(process_runtime):
+    """Kill() on a process that exited 1 returns exit_code=1, not 0."""
+    import asyncio as _asyncio
+
+    exit_seen = _asyncio.Event()
+    ok_to_cleanup = _asyncio.Event()
+    exit_result_ref: list = []
+
+    async def _on_exit(exit_result):
+        exit_result_ref.append(exit_result)
+        exit_seen.set()
+        await ok_to_cleanup.wait()
+
+    handle = await process_runtime.spawn_background(
+        client_id="test-client",
+        handle_id="kill-returncode-one",
+        kind="process",
+        command=["python", "-c", "import sys; sys.exit(1)"],
+        cwd=process_runtime.workspace,
+        on_exit=_on_exit,
+    )
+
+    await exit_seen.wait()
+
+    assert process_runtime.get_handle("test-client", "kill-returncode-one") is not None
+    assert exit_result_ref[0].exit_code == 1
+
+    result = await process_runtime.kill("test-client", "kill-returncode-one")
+    assert result.exit_code == 1, (
+        f"exit_code should be 1 for process that exited 1, got {result.exit_code}"
+    )
+
+    ok_to_cleanup.set()
+    await _asyncio.sleep(0.2)
