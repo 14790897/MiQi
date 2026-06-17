@@ -1,0 +1,316 @@
+"""Tests for workbench command/exec* AppServer handlers (Phase 43.4)."""
+
+import asyncio
+
+import pytest
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────
+
+
+def _make_server():
+    """Create an AppServer with WorkbenchProcessRuntime in bridge_context."""
+    from unittest.mock import MagicMock
+    from pathlib import Path
+
+    from miqi.runtime.app_server import AppServer, ClientSessionRegistry
+    from miqi.runtime.workbench_process_runtime import WorkbenchProcessRuntime
+
+    registry = ClientSessionRegistry()
+    registry.bridge_context = {
+        "state": MagicMock(),
+        "workbench_process_runtime": WorkbenchProcessRuntime(workspace=Path.cwd()),
+    }
+    server = AppServer(registry)
+    return server, registry
+
+
+async def _dispatch(server, registry, method, params, client_id="test-client", session_id=None):
+    """Dispatch a request and return the response dict."""
+    resp = await server.dispatch(
+        request_id="req-1",
+        method=method,
+        params=params,
+        client_id=client_id,
+        session_id=session_id,
+    )
+    return resp
+
+
+@pytest.fixture
+def server_and_registry():
+    """Fixture providing AppServer with workbench handlers registered."""
+    from miqi.runtime.workbench_command_app_handlers import (
+        register_workbench_command_handlers,
+    )
+
+    server, registry = _make_server()
+    register_workbench_command_handlers(server)
+    return server, registry
+
+
+# ── command/exec ─────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_command_exec_buffered_returns_stdout_stderr_exit_code(server_and_registry):
+    """Buffered command/exec returns {exitCode, stdout, stderr}."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "print('hello')"],
+        "processId": "cmd-buffered",
+    })
+
+    assert "result" in resp, f"Expected result, got: {resp}"
+    result = resp["result"]
+    assert result["exitCode"] == 0
+    assert "hello" in result["stdout"]
+    assert result.get("stderr", "") == ""
+
+
+@pytest.mark.asyncio
+async def test_command_exec_streaming_emits_output_delta(server_and_registry):
+    """Streaming command/exec emits command/exec/outputDelta before response."""
+    import asyncio as _asyncio
+
+    server, registry = server_and_registry
+
+    events_received: list = []
+
+    async def fake_sink(envelope):
+        events_received.append(envelope)
+
+    server.set_event_sink("test-client", fake_sink)
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "print('streamed')"],
+        "processId": "cmd-stream",
+        "streamStdoutStderr": True,
+    })
+
+    assert "result" in resp, f"Expected result, got: {resp}"
+    output_deltas = [
+        e for e in events_received
+        if e.get("event") == "command/exec/outputDelta"
+    ]
+    assert len(output_deltas) > 0, (
+        f"Expected outputDelta events, got events: {events_received}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_command_exec_duplicate_process_id_rejected(server_and_registry):
+    """Duplicate active processId is rejected."""
+    import asyncio as _asyncio
+
+    server, registry = server_and_registry
+
+    # Start a long-running command
+    task = _asyncio.create_task(
+        _dispatch(server, registry, "command/exec", {
+            "command": ["python", "-c", "import time; time.sleep(5)"],
+            "processId": "dup-cmd",
+        })
+    )
+    await _asyncio.sleep(0.1)
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "print('hi')"],
+        "processId": "dup-cmd",
+    })
+    assert "error" in resp, f"Expected error for duplicate processId, got: {resp}"
+
+    await task
+
+
+@pytest.mark.asyncio
+async def test_command_exec_unknown_process_id_returns_not_found(server_and_registry):
+    """Writing to unknown processId returns NOT_FOUND."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec/write", {
+        "processId": "no-such-process",
+        "deltaBase64": "aGVsbG8=",
+    })
+    assert "error" in resp
+    assert resp.get("code") in ("NOT_FOUND", "INVALID_REQUEST")
+
+
+@pytest.mark.asyncio
+async def test_command_exec_tty_true_rejected(server_and_registry):
+    """tty: true returns UNSUPPORTED_FEATURE."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "print('hi')"],
+        "processId": "tty-test",
+        "tty": True,
+    })
+    assert "error" in resp, f"Expected error for tty:true, got: {resp}"
+    assert resp.get("code") == "UNSUPPORTED_FEATURE", (
+        f"Expected UNSUPPORTED_FEATURE, got: {resp.get('code')}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_command_exec_size_without_tty_rejected(server_and_registry):
+    """size without tty:true returns INVALID_PARAMS."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "print('hi')"],
+        "processId": "size-test",
+        "size": {"rows": 24, "cols": 80},
+    })
+    assert "error" in resp, f"Expected error for size without tty, got: {resp}"
+
+
+# ── command/exec/resize ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_command_exec_resize_returns_unsupported_feature(server_and_registry):
+    """command/exec/resize returns UNSUPPORTED_FEATURE in Phase 43."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec/resize", {
+        "processId": "any-process",
+        "size": {"rows": 24, "cols": 80},
+    })
+    assert "error" in resp
+    assert resp.get("code") == "UNSUPPORTED_FEATURE", (
+        f"Expected UNSUPPORTED_FEATURE, got: {resp.get('code')}"
+    )
+
+
+# ── command/exec/write ───────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_command_exec_write_writes_to_stdin(server_and_registry):
+    """command/exec/write writes data to the process stdin."""
+    import asyncio as _asyncio
+
+    server, registry = server_and_registry
+
+    # Start a process that reads from stdin
+    task = _asyncio.create_task(
+        _dispatch(server, registry, "command/exec", {
+            "command": ["python", "-c",
+                        "import sys; data=sys.stdin.read(); print('READ:'+data)"],
+            "processId": "cmd-stdin-write",
+            "streamStdin": True,
+        })
+    )
+    await _asyncio.sleep(0.1)
+
+    # Write to stdin
+    import base64
+    resp = await _dispatch(server, registry, "command/exec/write", {
+        "processId": "cmd-stdin-write",
+        "deltaBase64": base64.b64encode(b"hello-stdin").decode(),
+    })
+    assert "result" in resp, f"Expected result from write, got: {resp}"
+
+    # Close stdin
+    await _dispatch(server, registry, "command/exec/write", {
+        "processId": "cmd-stdin-write",
+        "closeStdin": True,
+    })
+
+    result_resp = await task
+    assert "result" in result_resp, f"Expected result, got: {result_resp}"
+    assert "READ:hello-stdin" in result_resp["result"]["stdout"]
+
+
+@pytest.mark.asyncio
+async def test_command_exec_write_invalid_base64_rejected(server_and_registry):
+    """Invalid base64 in deltaBase64 returns error."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec/write", {
+        "processId": "any",
+        "deltaBase64": "!!!not-base64!!!",
+    })
+    assert "error" in resp
+
+
+# ── command/exec/terminate ───────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_command_exec_terminate_kills_running_process(server_and_registry):
+    """command/exec/terminate kills a long-running process."""
+    import asyncio as _asyncio
+
+    server, registry = server_and_registry
+
+    task = _asyncio.create_task(
+        _dispatch(server, registry, "command/exec", {
+            "command": ["python", "-c", "import time; time.sleep(30)"],
+            "processId": "cmd-kill-me",
+        })
+    )
+    await _asyncio.sleep(0.2)
+
+    resp = await _dispatch(server, registry, "command/exec/terminate", {
+        "processId": "cmd-kill-me",
+    })
+    assert "result" in resp, f"Expected result from terminate, got: {resp}"
+
+    result_resp = await task
+    # Either the main response returned an error (killed), or exitCode != 0
+    if "result" in result_resp:
+        assert result_resp["result"]["exitCode"] != 0
+
+
+# ── Validation ───────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_command_exec_rejects_empty_argv(server_and_registry):
+    """Empty command list is rejected."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": [],
+        "processId": "empty-cmd",
+    })
+    assert "error" in resp
+
+
+@pytest.mark.asyncio
+async def test_command_exec_rejects_empty_string_arg(server_and_registry):
+    """Command with empty string arg is rejected."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", ""],
+        "processId": "empty-arg",
+    })
+    assert "error" in resp
+
+
+@pytest.mark.asyncio
+async def test_command_exec_process_id_rejects_slashes(server_and_registry):
+    """processId with slashes is rejected."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "print('hi')"],
+        "processId": "bad/id",
+    })
+    assert "error" in resp
+
+
+@pytest.mark.asyncio
+async def test_command_exec_process_id_rejects_double_dot(server_and_registry):
+    """processId with '..' is rejected."""
+    server, registry = server_and_registry
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "print('hi')"],
+        "processId": "../escape",
+    })
+    assert "error" in resp
