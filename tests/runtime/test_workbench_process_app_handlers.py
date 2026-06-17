@@ -502,3 +502,80 @@ async def test_process_handle_rejects_double_dot(server_and_registry):
         "cwd": str(Path.cwd()),
     })
     assert "error" in resp
+
+
+# ── Output cap streaming (Phase 43 hardening) ───────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_process_spawn_output_cap_streaming_cap_reached(server_and_registry):
+    """process/spawn with small outputBytesCap emits process/outputDelta capReached=true
+    and process/exited stdoutCapReached=true."""
+    import asyncio as _asyncio
+
+    server, registry = server_and_registry
+    events_received: list = []
+
+    async def fake_sink(envelope):
+        events_received.append(envelope)
+
+    server.set_event_sink("test-client", fake_sink)
+
+    resp = await _dispatch(server, registry, "process/spawn", {
+        "experimentalApi": True,
+        "command": ["python", "-c", "print('A' * 500)"],
+        "processHandle": "spawn-cap-stream",
+        "cwd": str(Path.cwd()),
+        "outputBytesCap": 20,
+    })
+    assert "result" in resp, f"Expected result, got: {resp}"
+
+    # Wait for output and exit
+    for _ in range(20):
+        await _asyncio.sleep(0.1)
+        exit_events = [
+            e for e in events_received
+            if e.get("event") == "process/exited"
+        ]
+        if exit_events:
+            break
+
+    output_deltas = [
+        e for e in events_received
+        if e.get("event") == "process/outputDelta"
+    ]
+    assert len(output_deltas) > 0, (
+        f"Expected process/outputDelta events, got: {events_received}"
+    )
+
+    # At least one delta must have capReached=true
+    cap_reached_deltas = [
+        d for d in output_deltas
+        if d.get("data", {}).get("capReached")
+    ]
+    assert len(cap_reached_deltas) > 0, (
+        f"Expected at least one delta with capReached=true, "
+        f"got deltas: {output_deltas}"
+    )
+
+    # stdout capReached must appear exactly once
+    stdout_cap_deltas = [
+        d for d in output_deltas
+        if d.get("data", {}).get("stream") == "stdout"
+        and d.get("data", {}).get("capReached")
+    ]
+    assert len(stdout_cap_deltas) == 1, (
+        f"Expected exactly 1 stdout capReached delta, "
+        f"got {len(stdout_cap_deltas)}: {stdout_cap_deltas}"
+    )
+
+    # process/exited must have stdoutCapReached=true
+    exit_events = [
+        e for e in events_received
+        if e.get("event") == "process/exited"
+    ]
+    assert len(exit_events) > 0, "Expected process/exited event"
+    exit_data = exit_events[0]["data"]
+    assert exit_data.get("stdoutCapReached") is True, (
+        f"process/exited stdoutCapReached should be True, got: {exit_data}"
+    )

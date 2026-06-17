@@ -330,6 +330,10 @@ async def test_env_rejects_ld_preload(server_and_registry):
         "env": {"LD_PRELOAD": "/tmp/evil.so"},
     })
     assert "error" in resp, f"LD_PRELOAD should be rejected, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS", (
+        f"LD_PRELOAD rejection must be INVALID_PARAMS (blocklist), "
+        f"not {resp.get('code')}"
+    )
 
 
 @pytest.mark.asyncio
@@ -343,6 +347,10 @@ async def test_env_rejects_pythonpath(server_and_registry):
         "env": {"PYTHONPATH": "/tmp/evil"},
     })
     assert "error" in resp, f"PYTHONPATH should be rejected, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS", (
+        f"PYTHONPATH rejection must be INVALID_PARAMS (blocklist), "
+        f"not {resp.get('code')}"
+    )
 
 
 @pytest.mark.asyncio
@@ -356,6 +364,10 @@ async def test_env_rejects_java_tool_options(server_and_registry):
         "env": {"JAVA_TOOL_OPTIONS": "-Djava.security.manager"},
     })
     assert "error" in resp, f"JAVA_TOOL_OPTIONS should be rejected, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS", (
+        f"JAVA_TOOL_OPTIONS rejection must be INVALID_PARAMS (blocklist), "
+        f"not {resp.get('code')}"
+    )
 
 
 @pytest.mark.asyncio
@@ -370,3 +382,118 @@ async def test_env_allows_safe_vars(server_and_registry):
     })
     assert "result" in resp, f"Safe env var should be allowed, got: {resp}"
     assert "hello" in resp["result"]["stdout"]
+
+
+# ── Env merge / unset (Phase 43 hardening) ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_env_preserves_inherited_environment(server_and_registry):
+    """env={"MY_VAR":"hello"} preserves inherited PATH, SystemRoot, etc."""
+    server, registry = server_and_registry
+
+    # The command checks that a custom env var is set AND that basic
+    # inherited vars (PATH, SystemRoot) are not cleared.
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", (
+            "import os; "
+            "print('MY_VAR=' + os.environ.get('MIQI_TEST_43_VAR','MISSING')); "
+            "print('HAS_PATH=' + str('PATH' in os.environ)); "
+            "print('HAS_SYSTEM=' + str("
+            "    'SystemRoot' in os.environ or 'SYSTEMROOT' in os.environ"
+            "))"
+        )],
+        "processId": "env-inherit",
+        "env": {"MIQI_TEST_43_VAR": "hello_from_43"},
+    })
+
+    assert "result" in resp, f"Expected result, got: {resp}"
+    stdout = resp["result"]["stdout"]
+    assert "MY_VAR=hello_from_43" in stdout, (
+        f"Custom env var not set, stdout: {stdout}"
+    )
+    assert "HAS_PATH=True" in stdout, (
+        f"Inherited PATH was cleared, stdout: {stdout}"
+    )
+    assert "HAS_SYSTEM=True" in stdout, (
+        f"Inherited SystemRoot was cleared, stdout: {stdout}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_env_none_value_unsets_inherited_var(server_and_registry):
+    """env={"KEY": None} removes an inherited environment variable."""
+    import os as _os
+
+    server, registry = server_and_registry
+
+    # Set a marker in the parent process so the child would inherit it
+    _os.environ["MIQI_TEST_DELETE_ME"] = "should_be_gone"
+    try:
+        resp = await _dispatch(server, registry, "command/exec", {
+            "command": ["python", "-c", (
+                "import os; "
+                "print('GOT:' + os.environ.get('MIQI_TEST_DELETE_ME','DELETED'))"
+            )],
+            "processId": "env-unset",
+            "env": {"MIQI_TEST_DELETE_ME": None},
+        })
+        assert "result" in resp, f"Expected result, got: {resp}"
+        stdout = resp["result"]["stdout"]
+        assert "GOT:DELETED" in stdout, (
+            f"None should have unset MIQI_TEST_DELETE_ME, got stdout: {stdout}"
+        )
+    finally:
+        del _os.environ["MIQI_TEST_DELETE_ME"]
+
+
+# ── Output cap streaming (Phase 43 hardening) ───────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_command_exec_output_cap_streaming_cap_reached(server_and_registry):
+    """Streaming command/exec with small outputBytesCap emits capReached=true."""
+    server, registry = server_and_registry
+
+    events_received: list = []
+
+    async def fake_sink(envelope):
+        events_received.append(envelope)
+
+    server.set_event_sink("test-client", fake_sink)
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": ["python", "-c", "print('A' * 500)"],
+        "processId": "cmd-cap-stream",
+        "streamStdoutStderr": True,
+        "outputBytesCap": 20,
+    })
+
+    output_deltas = [
+        e for e in events_received
+        if e.get("event") == "command/exec/outputDelta"
+    ]
+    assert len(output_deltas) > 0, (
+        f"Expected outputDelta events, got: {events_received}"
+    )
+
+    # At least one delta must have capReached=true
+    cap_reached_deltas = [d for d in output_deltas if d.get("data", {}).get("capReached")]
+    assert len(cap_reached_deltas) > 0, (
+        f"Expected at least one delta with capReached=true, got deltas: {output_deltas}"
+    )
+
+    # capReached must not repeat — at most 2 (one per stream: stdout, stderr)
+    stdout_cap_deltas = [
+        d for d in output_deltas
+        if d.get("data", {}).get("stream") == "stdout" and d.get("data", {}).get("capReached")
+    ]
+    assert len(stdout_cap_deltas) == 1, (
+        f"Expected exactly 1 stdout capReached delta, got {len(stdout_cap_deltas)}: {stdout_cap_deltas}"
+    )
+
+    # Final response must have stdoutCapReached
+    assert "result" in resp, f"Expected result, got: {resp}"
+    assert resp["result"].get("stdoutCapReached") is True, (
+        f"Final response stdoutCapReached should be True, got: {resp['result']}"
+    )

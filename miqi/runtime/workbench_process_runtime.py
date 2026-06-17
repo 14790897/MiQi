@@ -12,6 +12,7 @@ UNSUPPORTED_FEATURE at the handler layer.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -176,20 +177,22 @@ class WorkbenchProcessRuntime:
         async with self._lock:
             self._check_duplicate(client_id, handle_id)
 
-            # Build environment
-            process_env: dict[str, str] = {}
+            # Build environment — start from inherited env, apply user
+            # overrides: string values override inherited keys, None values
+            # remove inherited keys.
+            process_env = os.environ.copy()
             if env is not None:
                 for key, value in env.items():
-                    if value is None:
-                        process_env.pop(key, None)
-                    else:
+                    if value is not None:
                         process_env[key] = value
+                    else:
+                        process_env.pop(key, None)
 
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *command,
                     cwd=str(cwd),
-                    env=process_env if process_env else None,
+                    env=process_env,
                     stdin=asyncio.subprocess.PIPE if stdin_enabled else asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
@@ -256,19 +259,22 @@ class WorkbenchProcessRuntime:
         async with self._lock:
             self._check_duplicate(client_id, handle_id)
 
-            process_env: dict[str, str] = {}
+            # Build environment — start from inherited env, apply user
+            # overrides: string values override inherited keys, None values
+            # remove inherited keys.
+            process_env = os.environ.copy()
             if env is not None:
                 for key, value in env.items():
-                    if value is None:
-                        process_env.pop(key, None)
-                    else:
+                    if value is not None:
                         process_env[key] = value
+                    else:
+                        process_env.pop(key, None)
 
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *command,
                     cwd=str(cwd),
-                    env=process_env if process_env else None,
+                    env=process_env,
                     stdin=asyncio.subprocess.PIPE if stdin_enabled else asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
@@ -340,7 +346,13 @@ class WorkbenchProcessRuntime:
             stream: asyncio.StreamReader | None,
             buffer: bytearray,
         ) -> bool:
-            """Read a stream until EOF. Returns True if cap was reached."""
+            """Read a stream until EOF. Returns True if cap was reached.
+
+            When the accumulated output reaches *output_cap* mid-chunk,
+            the last accepted bytes are emitted with ``capReached=True``
+            so the streaming client sees the transition.  Subsequent
+            bytes are drained silently — no duplicate capReached events.
+            """
             if stream is None:
                 return False
             cap = handle.output_cap
@@ -350,24 +362,40 @@ class WorkbenchProcessRuntime:
                     chunk = await stream.read(4096)
                     if not chunk:
                         break
-                    if cap is not None and len(buffer) >= cap:
-                        cap_reached = True
-                        # Drain remaining but don't accumulate
+                    if cap_reached:
+                        # Already at cap — drain remaining silently
                         continue
                     if cap is not None and len(buffer) + len(chunk) > cap:
-                        # Partial chunk to fill up to cap
+                        # This chunk would exceed the cap — accept up to
+                        # the cap boundary and emit with capReached=true.
                         remaining = cap - len(buffer)
-                        buffer.extend(chunk[:remaining])
-                        cap_reached = True
-                        # Drain rest
+                        if remaining > 0:
+                            accepted = chunk[:remaining]
+                            buffer.extend(accepted)
+                            cap_reached = True
+                            if on_chunk is not None:
+                                try:
+                                    await on_chunk(handle.handle_id, OutputChunk(
+                                        stream=stream_name,
+                                        data=accepted,
+                                        cap_reached=True,
+                                    ))
+                                except Exception:
+                                    logger.exception(
+                                        "WorkbenchProcessRuntime: on_chunk failed "
+                                        "for handle %s", handle.handle_id,
+                                    )
+                        else:
+                            cap_reached = True
                         continue
+                    # Chunk fits entirely — emit normally
                     buffer.extend(chunk)
                     if on_chunk is not None:
                         try:
                             await on_chunk(handle.handle_id, OutputChunk(
                                 stream=stream_name,
                                 data=chunk,
-                                cap_reached=cap_reached,
+                                cap_reached=False,
                             ))
                         except Exception:
                             logger.exception(
@@ -533,7 +561,7 @@ class WorkbenchProcessRuntime:
         await asyncio.sleep(0.05)
         return ProcessExit(
             handle_id=handle.handle_id,
-            exit_code=handle.process.returncode or -1,
+            exit_code=handle.process.returncode if handle.process.returncode is not None else -1,
             stdout=handle.stdout_str,
             stderr=handle.stderr_str,
             stdout_cap_reached=handle.stdout_cap_reached,

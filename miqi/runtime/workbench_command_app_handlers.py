@@ -348,6 +348,8 @@ def register_workbench_command_handlers(server: AppServer) -> None:
                 "exitCode": exit_result.exit_code,
                 "stdout": exit_result.stdout,
                 "stderr": exit_result.stderr,
+                "stdoutCapReached": exit_result.stdout_cap_reached,
+                "stderrCapReached": exit_result.stderr_cap_reached,
             },
         }
 
