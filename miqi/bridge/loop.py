@@ -848,7 +848,16 @@ class BridgeRuntimeLoop:
                     "BridgeRuntimeLoop: error stopping AppServer: {}", exc,
                 )
 
-        # 3. Clean up terminal tracking
+        # 3. Clean up experience store singleton (closes TraceStore SQLite)
+        try:
+            from miqi.runtime.experience_handlers import _cleanup_experience_store
+            _cleanup_experience_store()
+        except Exception as exc:
+            logger.warning(
+                "BridgeRuntimeLoop: error cleaning up experience store: {}", exc,
+            )
+
+        # 4. Clean up terminal tracking
         self._terminal_sent.clear()
 
         # 4. Signal shutdown complete

@@ -60,6 +60,21 @@ def _get_experience_store() -> Any:
     return store
 
 
+def _cleanup_experience_store() -> None:
+    """Close the cached ExperienceStore singleton and release resources.
+
+    Safe to call when no store has been created (no-op).
+    Called during bridge shutdown to ensure TraceStore SQLite
+    connections are properly closed.
+    """
+    import miqi.bridge.server as bridge_module
+
+    store = getattr(bridge_module, "_experience_store", None)
+    if store is not None and hasattr(store, "close"):
+        store.close()
+    bridge_module._experience_store = None
+
+
 async def experience_list_handler(
     request_id: str,
     params: dict[str, Any],
