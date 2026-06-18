@@ -294,9 +294,17 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         # History
         messages.extend(history)
 
-        # Current message (with optional image attachments)
+        # Current message (with optional image attachments).
+        # De-dup: if the current_message is identical to the last history
+        # entry, the caller (typically the desktop bridge) has already
+        # persisted it. Emitting it twice would cause the LLM to see the
+        # same user turn back-to-back and the session-saver to duplicate it.
         user_content = self._build_user_content(current_message, media)
-        messages.append({"role": "user", "content": user_content})
+        if not history or not (
+            history[-1].get("role") == "user"
+            and history[-1].get("content") == user_content
+        ):
+            messages.append({"role": "user", "content": user_content})
 
         return messages
 
