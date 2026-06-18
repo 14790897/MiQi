@@ -481,6 +481,20 @@ def handle_chat_send(req_id: str, params: dict) -> None:
 
     def _run_in_thread() -> None:
         async def _run() -> None:
+            # Persist user message to session IMMEDIATELY so it survives
+            # a frontend switch before the agent finishes processing.
+            # Without this, switching conversations while the agent is still
+            # running causes the user's message to disappear on reload.
+            # The agent's _save_turn is idempotent against this pre-save
+            # (it detects already-persisted messages and skips them).
+            try:
+                sm = _get_session_manager()
+                user_session = sm.get_or_create(session_key)
+                user_session.add_message("user", content)
+                sm.save(user_session)
+            except Exception as exc:
+                _log(f"Failed to persist user message eagerly: {exc}")
+
             # Build desktop approval callback (blocks thread, sends event to renderer)
             config = _state.load_config()
             approval_timeout = config.agents.command_approval.timeout
