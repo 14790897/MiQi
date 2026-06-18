@@ -47,14 +47,12 @@ async def fuzzy_file_search_handler(
 
     roots: list[Path] = []
     for raw in raw_roots:
-        try:
-            resolved = resolve_workspace_absolute_path(
-                registry, raw, field_name="root",
-            )
-            roots.append(resolved)
-        except AppServerError:
-            # Escaping roots return INVALID_PARAMS, missing roots are skipped
-            continue
+        resolved = resolve_workspace_absolute_path(
+            registry, raw, field_name="root",
+        )
+        if not resolved.exists():
+            continue  # Skip missing roots inside workspace
+        roots.append(resolved)
 
     if not roots:
         # No valid roots → empty result
@@ -91,14 +89,12 @@ async def fuzzy_session_start_handler(
 
     roots: list[Path] = []
     for raw in raw_roots:
-        try:
-            resolved = resolve_workspace_absolute_path(
-                registry, raw, field_name="root",
-            )
-            roots.append(resolved)
-        except AppServerError:
-            # Escaping roots return INVALID_PARAMS, missing roots are skipped
-            continue
+        resolved = resolve_workspace_absolute_path(
+            registry, raw, field_name="root",
+        )
+        if not resolved.exists():
+            continue  # Skip missing roots inside workspace
+        roots.append(resolved)
 
     runtime.session_start(client_id, sid, roots)
     return {"result": {}}

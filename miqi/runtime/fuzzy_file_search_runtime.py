@@ -11,6 +11,7 @@ client-scoped and emit ``fuzzyFileSearch/sessionUpdated`` and
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -92,7 +93,8 @@ def _collect_candidates(roots: list[Path]) -> list[tuple[Path, str, str]]:
         if not root.exists():
             continue
         try:
-            for dirpath, dirnames, filenames in root.walk(top_down=True):
+            for dirpath_str, dirnames, filenames in os.walk(str(root), topdown=True):
+                dirpath = Path(dirpath_str)
                 # Skip noise directories in-place
                 dirnames[:] = [
                     d for d in dirnames if d not in SKIPPED_DIR_NAMES

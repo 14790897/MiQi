@@ -107,4 +107,38 @@ graph TB
 | Electron Main | Node.js 主进程 | 窗口管理、IPC 路由、Bridge 生命周期 |
 | Electron Renderer | Chromium 渲染进程 | React UI 渲染、用户交互 |
 | Bridge Server | Python 子进程 | 协议解析、请求分发、Agent 执行 |
+| AppServer (Codex 协议) | Python 子进程 (Bridge 内) | 工作区文件操作、文件监听、模糊搜索、进程管理 |
 | MCP Servers | 独立子进程 | 外部工具服务，通过 MCP 协议通信 |
+
+### AppServer Codex 协议 API
+
+Bridge Server 内置 AppServer 层，实现 Codex 风格的应用服务器协议，
+提供以下方法族：
+
+**文件系统 API (fs/\*)**
+
+| 方法 | 说明 |
+|------|------|
+| `fs/readFile` | 读取文件，返回 base64 编码字节 |
+| `fs/writeFile` | 写入 base64 编码字节到文件 |
+| `fs/createDirectory` | 创建目录（支持递归） |
+| `fs/getMetadata` | 获取路径元数据（isFile/isDirectory/isSymlink/时间戳） |
+| `fs/readDirectory` | 列出目录直接子项（按名称排序） |
+| `fs/remove` | 删除文件或目录（支持递归和 force 模式） |
+| `fs/copy` | 复制文件或目录 |
+
+所有 fs/\* 操作均通过工作区根路径进行容器化隔离，
+并解析符号链接以防止逃逸。
+
+**文件监听 API (fs/watch, fs/unwatch)**
+
+轮询式文件系统监听，按 `(client_id, watchId)` 作用域隔离。
+变化通过 `fs/changed` 通知事件推送。
+
+**模糊搜索 API (fuzzyFileSearch\*)**
+
+确定性的文件名模糊搜索，采用两层评分策略
+（子串匹配 ≥1000，子序列匹配 ≥500）。会话式方法
+(`sessionStart/sessionUpdate/sessionStop`) 通过
+`experimentalApi` 门控。搜索结果通过
+`fuzzyFileSearch/sessionUpdated` 和 `fuzzyFileSearch/sessionCompleted` 事件推送。

@@ -31,6 +31,7 @@ def resolve_workspace_absolute_path(
     raw_path: Any,
     *,
     field_name: str = "path",
+    resolve_symlinks: bool = True,
 ) -> Path:
     """Validate and resolve an absolute path inside the configured workspace.
 
@@ -38,6 +39,12 @@ def resolve_workspace_absolute_path(
     The resolved real path must fall under the workspace root returned
     by :func:`workspace_root`.  Symlinks are resolved before the
     containment check.
+
+    When *resolve_symlinks* is ``False`` the containment check is still
+    performed against the resolved target, but the returned path is the
+    **original** unresolved absolute path.  This lets callers such as
+    ``fs/getMetadata`` use :func:`Path.lstat` to inspect the symlink
+    itself rather than its target.
 
     Raises:
         AppServerError(INVALID_PARAMS) on validation failure.
@@ -64,7 +71,10 @@ def resolve_workspace_absolute_path(
             f"{field_name} must be inside workspace",
             code="INVALID_PARAMS",
         ) from exc
-    return resolved
+
+    if resolve_symlinks:
+        return resolved
+    return candidate
 
 
 # ── Base64 helpers ───────────────────────────────────────────────────────────

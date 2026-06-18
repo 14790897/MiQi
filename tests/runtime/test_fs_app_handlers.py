@@ -356,6 +356,41 @@ class TestFsGetMetadata:
                 link.unlink()
 
     @pytest.mark.asyncio
+    async def test_symlink_inside_workspace_reports_isSymlink_true(self, tmp_path):
+        """Regression: fs/getMetadata on a symlink inside workspace returns isSymlink=True.
+
+        resolve_workspace_absolute_path with resolve_symlinks=False must
+        return the original (unresolved) path so that Path.lstat() can
+        report symlink metadata, not the target's metadata.
+        """
+        target = tmp_path / "target.txt"
+        target.write_text("target content")
+
+        link = tmp_path / "link.txt"
+        try:
+            if sys.platform == "win32":
+                os.symlink(str(target), str(link))
+            else:
+                link.symlink_to(target)
+        except OSError:
+            pytest.skip("Symlink creation not available")
+
+        try:
+            server, registry = _make_server_and_registry(tmp_path)
+            resp = await _dispatch(server, registry, "fs/getMetadata", {
+                "path": str(link),
+            })
+
+            assert "result" in resp, f"Expected result, got: {resp}"
+            result = resp["result"]
+            assert result["isSymlink"] is True, (
+                f"isSymlink must be True for symlink path, got: {result}"
+            )
+        finally:
+            if link.exists():
+                link.unlink()
+
+    @pytest.mark.asyncio
     async def test_camelcase_response_keys(self, tmp_path):
         """Response keys are camelCase."""
         test_file = tmp_path / "test.txt"

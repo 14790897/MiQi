@@ -228,6 +228,26 @@ class TestFuzzySearch:
         assert isinstance(result["indices"], list)
         assert len(result["indices"]) == 4  # "READ" is 4 chars
 
+    def test_nested_directory_traversal_python311_compatible(self, tmp_path):
+        """Regression: candidate traversal uses os.walk (Python 3.11-compatible).
+
+        Creates deeply nested files and verifies they are all found,
+        exercising the _collect_candidates path end-to-end.
+        """
+        # Create nested structure
+        (tmp_path / "src" / "lib" / "utils").mkdir(parents=True)
+        (tmp_path / "src" / "main.py").write_text("main")
+        (tmp_path / "src" / "lib" / "utils" / "helper.py").write_text("helper")
+        (tmp_path / "docs" / "guide").mkdir(parents=True)
+        (tmp_path / "docs" / "guide" / "intro.md").write_text("intro")
+
+        runtime = FuzzyFileSearchRuntime(app_server=MagicMock())
+        results = runtime.search("py", [tmp_path])
+
+        paths = [r["path"] for r in results]
+        assert "src/main.py" in paths
+        assert "src/lib/utils/helper.py" in paths
+
 
 # ── Session methods ──────────────────────────────────────────────────────────
 
@@ -437,6 +457,69 @@ class TestFuzzyHandlers:
         })
 
         assert resp.get("code") == "INVALID_PARAMS"
+
+    @pytest.mark.asyncio
+    async def test_one_shot_outside_workspace_root_returns_invalid_params(self, tmp_path):
+        """Regression: fuzzyFileSearch with outside-workspace root returns INVALID_PARAMS."""
+        server, registry, runtime = _make_runtime_and_registry(workspace=tmp_path)
+        register_fuzzy_file_search_handlers(server)
+
+        outside = tmp_path.parent / "outside_for_fuzzy_test"
+        outside.mkdir(exist_ok=True)
+        try:
+            resp = await _dispatch(server, "fuzzyFileSearch", {
+                "query": "test",
+                "roots": [str(outside)],
+            })
+
+            assert resp.get("code") == "INVALID_PARAMS", (
+                f"Expected INVALID_PARAMS for outside-workspace root, got: {resp}"
+            )
+        finally:
+            if outside.exists() and not any(outside.iterdir()):
+                outside.rmdir()
+
+    @pytest.mark.asyncio
+    async def test_session_start_outside_workspace_root_returns_invalid_params(self, tmp_path):
+        """Regression: fuzzyFileSearch/sessionStart with outside-workspace root returns INVALID_PARAMS."""
+        server, registry, runtime = _make_runtime_and_registry(workspace=tmp_path)
+        register_fuzzy_file_search_handlers(server)
+
+        outside = tmp_path.parent / "outside_for_session_test"
+        outside.mkdir(exist_ok=True)
+        try:
+            resp = await _dispatch(server, "fuzzyFileSearch/sessionStart", {
+                "sessionId": "search-1",
+                "roots": [str(outside)],
+                "experimentalApi": True,
+            })
+
+            assert resp.get("code") == "INVALID_PARAMS", (
+                f"Expected INVALID_PARAMS for outside-workspace root, got: {resp}"
+            )
+        finally:
+            if outside.exists() and not any(outside.iterdir()):
+                outside.rmdir()
+
+    @pytest.mark.asyncio
+    async def test_missing_root_inside_workspace_is_skipped(self, tmp_path):
+        """Missing roots inside workspace are skipped (not an error)."""
+        (tmp_path / "README.md").write_text("readme")
+
+        server, registry, runtime = _make_runtime_and_registry(workspace=tmp_path)
+        register_fuzzy_file_search_handlers(server)
+
+        missing = tmp_path / "nonexistent_subdir"
+        # This path is inside workspace but doesn't exist — should be skipped
+        resp = await _dispatch(server, "fuzzyFileSearch", {
+            "query": "readme",
+            "roots": [str(missing), str(tmp_path)],
+        })
+
+        assert "result" in resp, f"Expected result, got: {resp}"
+        # Should find README.md from the second (valid) root
+        files = resp["result"]["files"]
+        assert len(files) > 0
 
 
 # ── Notification opt-out ─────────────────────────────────────────────────────
