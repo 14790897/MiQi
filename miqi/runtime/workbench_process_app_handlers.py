@@ -41,18 +41,33 @@ from miqi.runtime.workbench_process_runtime import (
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
-def _require_experimental_api(params: dict[str, Any], registry: Any) -> None:
+def _require_experimental_api(
+    params: dict[str, Any],
+    registry: Any,
+    client_id: str,
+) -> None:
     """Gate process/spawn behind experimentalApi flag.
 
-    Until MiQi has Codex-style initialize capability negotiation, require
-    params.experimentalApi == True OR
-    registry.bridge_context["experimental_api_enabled"] == True.
+    Phase 45: Checks in priority order:
+    1. AppServer client capabilities (from initialize handshake)
+    2. params.experimentalApi == True (backwards compatible)
+    3. bridge_context["experimental_api_enabled"] == True (test/dev fallback)
     """
+    # 1. Connection capabilities from initialize
+    app_server = get_bridge_context(registry, "app_server")
+    if app_server is not None and hasattr(app_server, "is_experimental_enabled"):
+        if app_server.is_experimental_enabled(client_id):
+            return
+
+    # 2. Per-request params flag (backwards compatible)
     if params.get("experimentalApi") is True:
         return
+
+    # 3. Bridge context flag (test/dev fallback)
     ctx_enabled = get_bridge_context(registry, "experimental_api_enabled")
     if ctx_enabled is True:
         return
+
     raise AppServerError(
         "process/spawn requires experimentalApi: true",
         code="EXPERIMENTAL_API_REQUIRED",
@@ -88,7 +103,7 @@ def register_workbench_process_handlers(server: AppServer) -> None:
         wpr = _get_wpr(registry)
 
         # Experimental gate
-        _require_experimental_api(params, registry)
+        _require_experimental_api(params, registry, client_id)
 
         # Reject tty early
         if params.get("tty") is True:

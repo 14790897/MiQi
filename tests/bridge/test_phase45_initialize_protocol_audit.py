@@ -350,6 +350,8 @@ async def test_experimental_api_from_initialize_grants_process_spawn():
     from miqi.runtime.workbench_process_runtime import WorkbenchProcessRuntime
     registry.bridge_context["state"] = MagicMock()
     registry.bridge_context["workbench_process_runtime"] = WorkbenchProcessRuntime(workspace=Path.cwd())
+    # Phase 45: expose AppServer so handlers can check client capabilities
+    registry.bridge_context["app_server"] = server
 
     from miqi.runtime.workbench_process_app_handlers import register_workbench_process_handlers
     register_workbench_process_handlers(server)
