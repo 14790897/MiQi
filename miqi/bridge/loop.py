@@ -773,10 +773,17 @@ class BridgeRuntimeLoop:
                 # ── Phase 45: initialize handshake gate ──────────────────
 
                 if method == "initialize":
-                    # Allow initialize before or after (AppServer handler
-                    # returns the result; bridge does NOT enforce
-                    # ALREADY_INITIALIZED here — that's deferred to
-                    # a future stricter mode).
+                    # Phase 45 hardening: reject repeated initialize
+                    # at the transport level before calling AppServer.
+                    if conn_state is not None and conn_state.initialized:
+                        send({
+                            "id": req_id,
+                            "error": "Already initialized",
+                            "code": "ALREADY_INITIALIZED",
+                            "recoverable": False,
+                        })
+                        continue
+
                     response = await app_server.dispatch(
                         request_id=req_id,
                         method=method,

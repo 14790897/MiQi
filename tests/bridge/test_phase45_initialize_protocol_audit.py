@@ -603,3 +603,519 @@ async def test_initialize_registers_event_sink_under_client_id():
     await server.emit_client_event(client_id, "process/exited", {"code": 0})
     assert len(delivered) == 1
     assert delivered[0]["event"] == "process/exited"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 45 Hardening: real _drain_loop integration tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_drain_loop_rejects_repeated_initialize_with_already_initialized():
+    """Real _drain_loop: second initialize returns ALREADY_INITIALIZED.
+
+    This test pushes JSON lines through BridgeRuntimeLoop's real stdin
+    queue and captures send() output — no local helper gate simulation.
+    """
+    import json as _json
+
+    from miqi.bridge.loop import BridgeRuntimeLoop
+
+    capturer = _CaptureSend()
+    loop = BridgeRuntimeLoop(
+        send_func=capturer.send,
+        dispatch_legacy_func=None,
+    )
+    await loop._init_app_server()
+
+    # Set up the stdin queue that _drain_loop consumes
+    loop._stdin_queue = asyncio.Queue()
+
+    # Push first initialize
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-1",
+        "method": "initialize",
+        "params": {
+            "clientInfo": {"name": "miqi_desktop", "title": "Desktop", "version": "0.1.0"},
+        },
+    }))
+
+    # Push second initialize (must be rejected by bridge, not AppServer)
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-2",
+        "method": "initialize",
+        "params": {
+            "clientInfo": {"name": "miqi_desktop", "title": "Desktop", "version": "0.1.0"},
+        },
+    }))
+
+    # Push EOF sentinel so _drain_loop exits
+    await loop._stdin_queue.put(None)
+
+    await loop._drain_loop()
+
+    assert len(capturer.messages) >= 2, (
+        f"Expected at least 2 messages, got {len(capturer.messages)}: {capturer.messages}"
+    )
+
+    # First message: initialize success
+    first = capturer.messages[0]
+    assert "result" in first, f"First message should be initialize success, got: {first}"
+    assert "clientId" in first["result"]
+
+    # Second message: ALREADY_INITIALIZED (rejected at bridge level)
+    second = capturer.messages[1]
+    assert second.get("code") == "ALREADY_INITIALIZED", (
+        f"Second message should be ALREADY_INITIALIZED, got: {second}"
+    )
+    assert second.get("error") == "Already initialized"
+    assert second.get("recoverable") is False
+
+    await loop._shutdown()
+
+
+@pytest.mark.asyncio
+async def test_drain_loop_preserves_client_id_after_repeated_initialize():
+    """Real _drain_loop: client_id unchanged after repeated initialize rejection."""
+    import json as _json
+
+    from miqi.bridge.loop import BridgeRuntimeLoop
+
+    capturer = _CaptureSend()
+    loop = BridgeRuntimeLoop(
+        send_func=capturer.send,
+        dispatch_legacy_func=None,
+    )
+    await loop._init_app_server()
+    loop._stdin_queue = asyncio.Queue()
+
+    # First initialize with explicit clientId
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-1",
+        "method": "initialize",
+        "params": {
+            "clientInfo": {"name": "test"},
+            "clientId": "my-stable-client",
+        },
+    }))
+
+    # Second initialize tries to use a different clientId
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-2",
+        "method": "initialize",
+        "params": {
+            "clientInfo": {"name": "test"},
+            "clientId": "attacker-client",
+        },
+    }))
+
+    await loop._stdin_queue.put(None)
+    await loop._drain_loop()
+
+    # Verify first initialize succeeded with original client_id
+    first = capturer.messages[0]
+    assert "result" in first
+    assert first["result"]["clientId"] == "my-stable-client"
+
+    # Verify second was rejected
+    second = capturer.messages[1]
+    assert second.get("code") == "ALREADY_INITIALIZED"
+
+    # Connection state must still hold the first client_id
+    assert loop._connection_state is not None
+    assert loop._connection_state.client_id == "my-stable-client"
+
+    await loop._shutdown()
+
+
+@pytest.mark.asyncio
+async def test_drain_loop_preserves_capabilities_after_repeated_initialize():
+    """Real _drain_loop: capabilities not overwritten by second initialize."""
+    import json as _json
+
+    from miqi.bridge.loop import BridgeRuntimeLoop
+
+    capturer = _CaptureSend()
+    loop = BridgeRuntimeLoop(
+        send_func=capturer.send,
+        dispatch_legacy_func=None,
+    )
+    await loop._init_app_server()
+    loop._stdin_queue = asyncio.Queue()
+
+    # First initialize with experimentalApi=true and some opt-out
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-1",
+        "method": "initialize",
+        "params": {
+            "clientInfo": {"name": "test"},
+            "clientId": "cap-test-client",
+            "capabilities": {
+                "experimentalApi": True,
+                "optOutNotificationMethods": ["process/outputDelta"],
+            },
+        },
+    }))
+
+    # Second initialize with experimentalApi=false (should be rejected)
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-2",
+        "method": "initialize",
+        "params": {
+            "clientInfo": {"name": "test"},
+            "clientId": "cap-test-client",
+            "capabilities": {
+                "experimentalApi": False,
+            },
+        },
+    }))
+
+    await loop._stdin_queue.put(None)
+    await loop._drain_loop()
+
+    first = capturer.messages[0]
+    assert "result" in first
+    cid = first["result"]["clientId"]
+
+    second = capturer.messages[1]
+    assert second.get("code") == "ALREADY_INITIALIZED"
+
+    # Capabilities on AppServer must still reflect first initialize
+    caps = loop.app_server.get_client_capabilities(cid)
+    assert caps is not None
+    assert caps.experimental_api is True, (
+        f"experimentalApi should still be True from first initialize, got {caps.experimental_api}"
+    )
+    assert "process/outputDelta" in caps.opt_out_notification_methods
+
+    await loop._shutdown()
+
+
+@pytest.mark.asyncio
+async def test_drain_loop_does_not_re_migrate_event_sink():
+    """Real _drain_loop: event sink not re-migrated on repeated initialize."""
+    import json as _json
+
+    from miqi.bridge.loop import BridgeRuntimeLoop
+
+    capturer = _CaptureSend()
+    loop = BridgeRuntimeLoop(
+        send_func=capturer.send,
+        dispatch_legacy_func=None,
+    )
+    # Set up event sink before init (simulates _setup_event_sink)
+    await loop._init_app_server()
+
+    # Register a desktop sink (what _setup_event_sink normally does)
+    desktop_hits: list[int] = [0]
+
+    async def _desktop_sink(envelope):
+        desktop_hits[0] += 1
+
+    loop.app_server.set_event_sink("desktop", _desktop_sink)
+
+    loop._stdin_queue = asyncio.Queue()
+
+    # First initialize
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-1",
+        "method": "initialize",
+        "params": {
+            "clientInfo": {"name": "test"},
+            "clientId": "sink-test-client",
+        },
+    }))
+
+    # Count event sinks after first initialize (before second)
+    # Second initialize (rejected)
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-2",
+        "method": "initialize",
+        "params": {
+            "clientInfo": {"name": "test"},
+            "clientId": "sink-test-client",
+        },
+    }))
+
+    await loop._stdin_queue.put(None)
+    await loop._drain_loop()
+
+    first = capturer.messages[0]
+    assert "result" in first
+    cid = first["result"]["clientId"]
+
+    second = capturer.messages[1]
+    assert second.get("code") == "ALREADY_INITIALIZED"
+
+    # Event sink should be registered under the client_id (from first initialize)
+    # and still present (not cleaned up)
+    assert cid in loop.app_server._event_sinks
+    assert "desktop" in loop.app_server._event_sinks
+
+    await loop._shutdown()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 45 Hardening: experimentalApi must be actual bool
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_experimental_api_string_false_rejected():
+    """String "false" is not bool → INVALID_PARAMS, not silently truthy."""
+    server, registry = _make_server_with_caps()
+
+    from miqi.runtime.initialize_protocol import register_initialize_handler
+    register_initialize_handler(server)
+
+    resp = await _dispatch(server, registry, "initialize", {
+        "clientInfo": {"name": "test"},
+        "capabilities": {"experimentalApi": "false"},
+    })
+
+    assert "error" in resp, f"String 'false' should be rejected, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_experimental_api_string_true_rejected():
+    """String "true" is not bool → INVALID_PARAMS."""
+    server, registry = _make_server_with_caps()
+
+    from miqi.runtime.initialize_protocol import register_initialize_handler
+    register_initialize_handler(server)
+
+    resp = await _dispatch(server, registry, "initialize", {
+        "clientInfo": {"name": "test"},
+        "capabilities": {"experimentalApi": "true"},
+    })
+
+    assert "error" in resp, f"String 'true' should be rejected, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_experimental_api_int_rejected():
+    """Integer 1 is not bool → INVALID_PARAMS."""
+    server, registry = _make_server_with_caps()
+
+    from miqi.runtime.initialize_protocol import register_initialize_handler
+    register_initialize_handler(server)
+
+    resp = await _dispatch(server, registry, "initialize", {
+        "clientInfo": {"name": "test"},
+        "capabilities": {"experimentalApi": 1},
+    })
+
+    assert "error" in resp, f"Integer 1 should be rejected, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_experimental_api_int_zero_rejected():
+    """Integer 0 is not bool → INVALID_PARAMS."""
+    server, registry = _make_server_with_caps()
+
+    from miqi.runtime.initialize_protocol import register_initialize_handler
+    register_initialize_handler(server)
+
+    resp = await _dispatch(server, registry, "initialize", {
+        "clientInfo": {"name": "test"},
+        "capabilities": {"experimentalApi": 0},
+    })
+
+    assert "error" in resp, f"Integer 0 should be rejected, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_experimental_api_null_rejected():
+    """null is not bool → INVALID_PARAMS."""
+    server, registry = _make_server_with_caps()
+
+    from miqi.runtime.initialize_protocol import register_initialize_handler
+    register_initialize_handler(server)
+
+    resp = await _dispatch(server, registry, "initialize", {
+        "clientInfo": {"name": "test"},
+        "capabilities": {"experimentalApi": None},
+    })
+
+    assert "error" in resp, f"null should be rejected, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_experimental_api_true_accepted():
+    """bool True is accepted."""
+    server, registry = _make_server_with_caps()
+
+    from miqi.runtime.initialize_protocol import register_initialize_handler
+    register_initialize_handler(server)
+
+    resp = await _dispatch(server, registry, "initialize", {
+        "clientInfo": {"name": "test"},
+        "capabilities": {"experimentalApi": True},
+    })
+
+    assert "result" in resp, f"bool True should be accepted, got: {resp}"
+
+
+@pytest.mark.asyncio
+async def test_experimental_api_false_accepted():
+    """bool False is accepted."""
+    server, registry = _make_server_with_caps()
+
+    from miqi.runtime.initialize_protocol import register_initialize_handler
+    register_initialize_handler(server)
+
+    resp = await _dispatch(server, registry, "initialize", {
+        "clientInfo": {"name": "test"},
+        "capabilities": {"experimentalApi": False},
+    })
+
+    assert "result" in resp, f"bool False should be accepted, got: {resp}"
+
+
+@pytest.mark.asyncio
+async def test_experimental_api_absent_defaults_false():
+    """When experimentalApi is absent, capabilities default to False."""
+    server, registry = _make_server_with_caps()
+
+    from miqi.runtime.initialize_protocol import register_initialize_handler
+    register_initialize_handler(server)
+
+    resp = await _dispatch(server, registry, "initialize", {
+        "clientInfo": {"name": "test"},
+        "capabilities": {},
+    })
+
+    assert "result" in resp
+    cid = resp["result"]["clientId"]
+    caps = server.get_client_capabilities(cid)
+    assert caps is not None
+    assert caps.experimental_api is False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 45 Hardening: explicit clientId validation
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_explicit_client_id_rejects_forward_slash():
+    """Explicit clientId with '/' returns INVALID_PARAMS."""
+    server, registry = _make_server_with_caps()
+
+    from miqi.runtime.initialize_protocol import register_initialize_handler
+    register_initialize_handler(server)
+
+    resp = await _dispatch(server, registry, "initialize", {
+        "clientInfo": {"name": "test"},
+        "clientId": "evil/../../../etc",
+    })
+
+    assert "error" in resp, f"Path char should be rejected, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_explicit_client_id_rejects_backslash():
+    """Explicit clientId with backslash returns INVALID_PARAMS."""
+    server, registry = _make_server_with_caps()
+
+    from miqi.runtime.initialize_protocol import register_initialize_handler
+    register_initialize_handler(server)
+
+    resp = await _dispatch(server, registry, "initialize", {
+        "clientInfo": {"name": "test"},
+        "clientId": "evil\\..\\..\\windows",
+    })
+
+    assert "error" in resp, f"Backslash should be rejected, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_explicit_client_id_rejects_dot_dot():
+    """Explicit clientId with '..' returns INVALID_PARAMS."""
+    server, registry = _make_server_with_caps()
+
+    from miqi.runtime.initialize_protocol import register_initialize_handler
+    register_initialize_handler(server)
+
+    resp = await _dispatch(server, registry, "initialize", {
+        "clientInfo": {"name": "test"},
+        "clientId": "client-..-etc",
+    })
+
+    assert "error" in resp, f"'..' should be rejected, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_explicit_client_id_rejects_control_chars():
+    """Explicit clientId with control characters returns INVALID_PARAMS."""
+    server, registry = _make_server_with_caps()
+
+    from miqi.runtime.initialize_protocol import register_initialize_handler
+    register_initialize_handler(server)
+
+    for bad in ["\x00", "\x01", "\x1F", "\x7F", "hello\x00world", "\n", "\t"]:
+        resp = await _dispatch(server, registry, "initialize", {
+            "clientInfo": {"name": "test"},
+            "clientId": bad,
+        })
+        assert "error" in resp, f"Control char {repr(bad)} should be rejected, got: {resp}"
+        assert resp.get("code") == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_explicit_client_id_rejects_too_long():
+    """Explicit clientId > 128 chars returns INVALID_PARAMS."""
+    server, registry = _make_server_with_caps()
+
+    from miqi.runtime.initialize_protocol import register_initialize_handler
+    register_initialize_handler(server)
+
+    resp = await _dispatch(server, registry, "initialize", {
+        "clientInfo": {"name": "test"},
+        "clientId": "x" * 129,
+    })
+
+    assert "error" in resp, f"Too-long clientId should be rejected, got: {resp}"
+    assert resp.get("code") == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_explicit_client_id_rejects_blank():
+    """Explicit clientId empty or whitespace-only returns INVALID_PARAMS."""
+    server, registry = _make_server_with_caps()
+
+    from miqi.runtime.initialize_protocol import register_initialize_handler
+    register_initialize_handler(server)
+
+    for bad in ["", "   ", "\t  \n"]:
+        resp = await _dispatch(server, registry, "initialize", {
+            "clientInfo": {"name": "test"},
+            "clientId": bad,
+        })
+        assert "error" in resp, f"Blank clientId {repr(bad)} should be rejected, got: {resp}"
+        assert resp.get("code") == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_explicit_client_id_accepts_valid():
+    """Valid explicit clientId is accepted."""
+    server, registry = _make_server_with_caps()
+
+    from miqi.runtime.initialize_protocol import register_initialize_handler
+    register_initialize_handler(server)
+
+    for good in ["my-client", "client_123", "valid.client-id", "a" * 128]:
+        resp = await _dispatch(server, registry, "initialize", {
+            "clientInfo": {"name": "test"},
+            "clientId": good,
+        })
+        assert "result" in resp, f"Valid clientId {repr(good)} should be accepted, got: {resp}"
+        assert resp["result"]["clientId"] == good.strip()
