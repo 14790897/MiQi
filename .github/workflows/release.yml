@@ -1,8 +1,8 @@
-name: Semantic Release
+name: Release and Build
 
 on:
   push:
-    branches: [main, master,develop]
+    branches: [main, master, develop]
 
 permissions:
   contents: write
@@ -10,9 +10,13 @@ permissions:
   pull-requests: write
 
 jobs:
+  # ── Job 1: Semantic Release ────────────────────────────────────────
   release:
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    outputs:
+      new_release: ${{ steps.check.outputs.new_release }}
+      tag_name: ${{ steps.check.outputs.tag_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,7 +33,88 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Snapshot latest release tag (before)
+        id: before
+        run: |
+          TAG=$(gh release list --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null || echo "")
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Run semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
+
+      - name: Detect new release
+        id: check
+        run: |
+          TAG=$(gh release list --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null || echo "")
+          BEFORE="${{ steps.before.outputs.tag }}"
+          if [ "$TAG" != "$BEFORE" ] && [ -n "$TAG" ]; then
+            echo "new_release=true" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$TAG" >> "$GITHUB_OUTPUT"
+            echo "::notice::New release created: $TAG (was: $BEFORE)"
+          else
+            echo "new_release=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No new release (latest: $TAG)"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Job 2: Build Desktop App (only when a new release exists) ──────
+  build:
+    needs: release
+    if: needs.release.outputs.new_release == 'true'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install Python dependencies
+        run: uv sync --all-extras
+
+      - name: Build miqi-bridge.exe
+        run: uv run pyinstaller miqi.spec
+
+      - name: Install Electron dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Build Electron app
+        working-directory: apps/desktop
+        run: npm run build
+
+      - name: Package Electron app
+        working-directory: apps/desktop
+        run: npx electron-builder --win --publish never
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.release.outputs.tag_name }}
+          files: |
+            dist-new/*.exe
+            dist-new/*.msi
+            dist-new/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
