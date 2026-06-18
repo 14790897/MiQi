@@ -110,7 +110,7 @@ async def fs_get_metadata_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Handle fs/getMetadata — return filesystem metadata for a path."""
-    path = resolve_workspace_absolute_path(registry, params.get("path"))
+    path = resolve_workspace_absolute_path(registry, params.get("path"), resolve_symlinks=False)
 
     if not path.exists():
         raise AppServerError(
