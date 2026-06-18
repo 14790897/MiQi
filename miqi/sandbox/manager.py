@@ -33,6 +33,7 @@ import asyncio
 import json
 import os
 import tempfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -76,7 +77,14 @@ class SandboxManager:
 
         self._sandboxes: dict[str, BwrapSandbox] = {}
         self._active_key: str | None = None
-        self._lock = asyncio.Lock()
+        # threading.Lock for cross-thread safety.  The desktop bridge spawns
+        # a new thread (with its own asyncio event loop) for every chat
+        # request, so an asyncio.Lock (bound to one loop) would raise
+        # "Lock object ... is bound to a different event loop" when accessed
+        # from another thread's loop.  A threading.Lock has no loop affinity.
+        self._lock = threading.Lock()
+        # Keys currently being created (prevents duplicate concurrent creation)
+        self._creating: set[str] = set()
         self._initialized = False
 
         # ── State persistence ─────────────────────────────────────────
@@ -223,8 +231,7 @@ class SandboxManager:
         Returns True if sandboxing is available, False otherwise.
         """
         if self._initialized:
-            # Already initialized, check current state
-            return self._lock is not None
+            return self.enabled
 
         if not self.enabled:
             logger.info("Sandbox disabled by configuration")
@@ -238,12 +245,9 @@ class SandboxManager:
                 "Install bubblewrap: apt install bubblewrap"
             )
             self._initialized = True
+            self.enabled = False
             return False
 
-        # Only create lock if not already created (handles re-initialization)
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-        
         self._initialized = True
 
         # Clean up sandboxes left from a previous bridge run
@@ -263,6 +267,8 @@ class SandboxManager:
         """Get an existing sandbox for the session, or create a new one.
 
         Returns None if sandboxing is not available or disabled.
+        Thread-safe: uses threading.Lock for dict access, releases it during
+        the slow sandbox.start() call so other threads are not blocked.
         """
         if not self.enabled or not self._initialized:
             return None
@@ -271,11 +277,8 @@ class SandboxManager:
         if not await BwrapSandbox.is_available(wsl_distro=self.wsl_distro):
             return None
 
-        if self._lock is None:
-            logger.error("Sandbox manager lock not initialized")
-            return None
-
-        async with self._lock:
+        # ── Fast path: sandbox already exists ──
+        with self._lock:
             if session_key in self._sandboxes:
                 sandbox = self._sandboxes[session_key]
                 if sandbox.is_running:
@@ -283,29 +286,46 @@ class SandboxManager:
                 # Sandbox was stopped, remove and recreate
                 del self._sandboxes[session_key]
 
-            # Enforce max sandboxes limit
-            if len(self._sandboxes) >= self.max_sandboxes:
-                await self._evict_oldest()
-
-            sandbox = BwrapSandbox(
-                session_key=session_key,
-                workspace=self.workspace,
-                sandbox_base_dir=self.sandbox_base_dir if not self.wsl_distro else None,
-                share_net=self.share_net,
-                wsl_distro=self.wsl_distro,
-                wsl_base_dir=self.wsl_base_dir,
-                sandbox_distro_name=self.sandbox_distro_name,
-            )
-
-            try:
-                await sandbox.start()
-                self._sandboxes[session_key] = sandbox
-                self._save_state()
-                logger.info("Created sandbox for session: {}", session_key)
-                return sandbox
-            except BwrapSandboxError as exc:
-                logger.error("Failed to create sandbox for {}: {}", session_key, exc)
+            # Another thread is already creating this session's sandbox
+            if session_key in self._creating:
                 return None
+
+            # Mark as creating to prevent duplicate work
+            self._creating.add(session_key)
+
+            # Enforce max sandboxes limit (eviction is sync-safe: just pops)
+            evict_key = None
+            if len(self._sandboxes) >= self.max_sandboxes:
+                evict_key = self._pick_eviction_candidate()
+
+        # ── Slow path: create sandbox outside the lock ──
+        # Evict if needed
+        if evict_key:
+            await self._evict_key(evict_key)
+
+        sandbox = BwrapSandbox(
+            session_key=session_key,
+            workspace=self.workspace,
+            sandbox_base_dir=self.sandbox_base_dir if not self.wsl_distro else None,
+            share_net=self.share_net,
+            wsl_distro=self.wsl_distro,
+            wsl_base_dir=self.wsl_base_dir,
+            sandbox_distro_name=self.sandbox_distro_name,
+        )
+
+        try:
+            await sandbox.start()
+            with self._lock:
+                self._sandboxes[session_key] = sandbox
+                self._creating.discard(session_key)
+            self._save_state()
+            logger.info("Created sandbox for session: {}", session_key)
+            return sandbox
+        except BwrapSandboxError as exc:
+            with self._lock:
+                self._creating.discard(session_key)
+            logger.error("Failed to create sandbox for {}: {}", session_key, exc)
+            return None
 
     async def activate(self, session_key: str) -> BwrapSandbox | None:
         """Set the active sandbox for the given session.
@@ -319,14 +339,7 @@ class SandboxManager:
 
     async def destroy(self, session_key: str) -> bool:
         """Stop and remove a sandbox for the given session."""
-        sandbox = None
-        if self._lock is not None:
-            try:
-                async with self._lock:
-                    sandbox = self._sandboxes.pop(session_key, None)
-            except RuntimeError:
-                sandbox = self._sandboxes.pop(session_key, None)
-        else:
+        with self._lock:
             sandbox = self._sandboxes.pop(session_key, None)
 
         if sandbox is None:
@@ -343,28 +356,16 @@ class SandboxManager:
 
     async def destroy_all(self) -> int:
         """Stop and remove all sandboxes. Returns count destroyed."""
-        count = 0
-        sandboxes = []
-        
-        if self._lock is not None:
-            try:
-                async with self._lock:
-                    sandboxes = list(self._sandboxes.items())
-                    self._sandboxes.clear()
-                    self._active_key = None
-            except RuntimeError:
-                sandboxes = list(self._sandboxes.items())
-                self._sandboxes.clear()
-                self._active_key = None
-        else:
+        with self._lock:
             sandboxes = list(self._sandboxes.items())
             self._sandboxes.clear()
             self._active_key = None
 
+        count = 0
         for key, sandbox in sandboxes:
             await sandbox.stop()
             count += 1
-        
+
         # Save empty state after destroying all
         self._save_state()
         return count
@@ -404,23 +405,32 @@ class SandboxManager:
 
     # ── Internal ───────────────────────────────────────────────────────
 
-    async def _evict_oldest(self) -> None:
-        """Evict the oldest (FIFO - first in, first out) sandbox."""
+    def _pick_eviction_candidate(self) -> str | None:
+        """Pick a sandbox key to evict (FIFO, prefer non-active). Must hold _lock."""
         if not self._sandboxes:
-            return
-        # FIFO: evict the first key that isn't active
+            return None
         for key in list(self._sandboxes.keys()):
             if key != self._active_key:
-                sandbox = self._sandboxes.pop(key)
-                await sandbox.stop()
-                self._save_state()
-                logger.info("Evicted sandbox for session: {}", key)
-                return
-        # All are active? Evict the first one anyway
-        key = next(iter(self._sandboxes))
-        sandbox = self._sandboxes.pop(key)
+                return key
+        # All are active? Pick the first one
+        return next(iter(self._sandboxes), None)
+
+    async def _evict_key(self, key: str) -> None:
+        """Evict a specific sandbox by key. Called outside the lock."""
+        with self._lock:
+            sandbox = self._sandboxes.pop(key, None)
+        if sandbox is None:
+            return
         await sandbox.stop()
         self._save_state()
         if self._active_key == key:
             self._active_key = None
-        logger.info("Force-evicted sandbox for session: {}", key)
+        logger.info("Evicted sandbox for session: {}", key)
+
+    async def _evict_oldest(self) -> None:
+        """Evict the oldest (FIFO) sandbox. Legacy helper."""
+        key = None
+        with self._lock:
+            key = self._pick_eviction_candidate()
+        if key:
+            await self._evict_key(key)
