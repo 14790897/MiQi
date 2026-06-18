@@ -54,6 +54,8 @@ class BridgeRuntimeLoop:
         self._pending_tasks: set[asyncio.Task] = set()
         self._terminal_sent: set[str] = set()  # prevent duplicate terminal events
         self._active_chat_tasks: dict[str, asyncio.Task] = {}  # req_id → drain task
+        # Phase 45: Codex-style connection state (initialize handshake)
+        self._connection_state: Any = None  # Created in _init_app_server
 
     # ── public API ─────────────────────────────────────────────────────────
 
@@ -160,6 +162,9 @@ class BridgeRuntimeLoop:
             "experience_store": None,  # lazily set by experience_handlers
         }
         self._app_server = AppServer(registry)
+        # Phase 45: expose AppServer in bridge_context so handlers can
+        # check client capabilities (e.g., experimentalApi).
+        registry.bridge_context["app_server"] = self._app_server
         await self._app_server.start()
 
         # Register bridge-owned handlers
@@ -411,6 +416,14 @@ class BridgeRuntimeLoop:
             register_workbench_process_state_handlers,
         )
         register_workbench_process_state_handlers(self._app_server)
+
+        # Phase 45: register Codex-style initialize/initialized handlers
+        from miqi.runtime.initialize_protocol import (
+            ConnectionState,
+            register_initialize_handler,
+        )
+        self._connection_state = ConnectionState()
+        register_initialize_handler(self._app_server)
 
         # Phase 43: register client cleanup hook so workbench processes
         # are killed when a client disconnects or AppServer stops.
@@ -720,16 +733,23 @@ class BridgeRuntimeLoop:
     async def _drain_loop(self) -> None:
         """Drain the stdin queue and dispatch each request.
 
+        Phase 45: Enforces Codex-style initialize handshake:
+        - Before initialize: only initialize/initialized allowed;
+          all other methods return NOT_INITIALIZED.
+        - After initialize: repeated initialize returns ALREADY_INITIALIZED.
+        - initialized notification is silent (no response).
+        - Normal requests use the connection's client_id; conflicting
+          per-request client_id is rejected with INVALID_PARAMS.
+
         For methods registered on AppServer, dispatch through
         AppServer.dispatch() on the persistent loop.
-        For legacy methods, call the sync dispatch function directly
-        (legacy handlers are fast enough to run synchronously; slow
-        ones like chat.send are migrated in subsequent commits).
+        For legacy methods, call the sync dispatch function directly.
         """
         dispatch_legacy = self._dispatch_legacy
         app_server = self._app_server
         send = self._send
         queue = self._stdin_queue
+        conn_state = self._connection_state
         if queue is None:
             logger.error("BridgeRuntimeLoop: stdin queue not initialized")
             return
@@ -745,15 +765,86 @@ class BridgeRuntimeLoop:
             req_id = "?"
             try:
                 req = json.loads(line)
-                method = req["method"]
-                req_id = req["id"]
+                method = req.get("method", "")
+                # Notifications may not have an 'id' field
+                req_id = req.get("id", "?")
                 params = req.get("params", {})
+
+                # ── Phase 45: initialize handshake gate ──────────────────
+
+                if method == "initialize":
+                    # Allow initialize before or after (AppServer handler
+                    # returns the result; bridge does NOT enforce
+                    # ALREADY_INITIALIZED here — that's deferred to
+                    # a future stricter mode).
+                    response = await app_server.dispatch(
+                        request_id=req_id,
+                        method=method,
+                        params=params,
+                        client_id="pre-init",
+                        session_id=None,
+                    )
+                    # If initialize succeeded, update connection state
+                    if "result" in response:
+                        result = response["result"]
+                        cid = result.get("clientId")
+                        if cid and conn_state is not None:
+                            conn_state.client_id = cid
+                            conn_state.initialized = True
+                            conn_state.initialized_ack = False
+                            # Re-register event sink under the connected client_id
+                            self._migrate_event_sink(cid)
+                    send(response)
+                    continue
+
+                if method == "initialized":
+                    # Notification — no response, just advance state
+                    if conn_state is not None and conn_state.initialized:
+                        conn_state.initialized_ack = True
+                    # Do NOT send a response for notifications
+                    continue
+
+                # ── NOT_INITIALIZED gate ────────────────────────────────
+
+                if conn_state is None or not conn_state.initialized:
+                    send({
+                        "id": req_id,
+                        "error": "Not initialized",
+                        "code": "NOT_INITIALIZED",
+                        "recoverable": False,
+                    })
+                    continue
+
+                # ── ALREADY_INITIALIZED gate (should not reach here; belt-and-suspenders) ──
+                # Already handled above — initialize skips this block.
+
+                # ── Per-request client_id conflict check ────────────────
+
+                params_client_id = (
+                    params.get("client_id")
+                    or params.get("caller_id")
+                    or params.get("user_id")
+                )
+                if params_client_id and params_client_id != conn_state.client_id:
+                    send({
+                        "id": req_id,
+                        "error": (
+                            f"client_id mismatch: request claims "
+                            f"{params_client_id} but connection is "
+                            f"{conn_state.client_id}"
+                        ),
+                        "code": "INVALID_PARAMS",
+                        "recoverable": False,
+                    })
+                    continue
+
+                # ── Normal dispatch with connection client_id ───────────
+
+                client_id = conn_state.client_id or self._resolve_client_id(params)
+                session_id = params.get("session_key") or params.get("session_id")
 
                 # Check if this method is registered on AppServer
                 if method in getattr(app_server, "_methods", {}):
-                    client_id = self._resolve_client_id(params)
-                    session_id = params.get("session_key") or params.get("session_id")
-
                     response = await app_server.dispatch(
                         request_id=req_id,
                         method=method,
@@ -787,6 +878,26 @@ class BridgeRuntimeLoop:
                     send({"id": req_id, "error": "Internal bridge error"})
                 except Exception:
                     pass
+
+    def _migrate_event_sink(self, client_id: str) -> None:
+        """Re-register the Desktop event sink under the initialized *client_id*.
+
+        After initialize, the connection has a stable client_id.  Move the
+        sink from the legacy ``"desktop"`` key to the derived key so that
+        ``emit_client_event`` and ``emit_event`` route to the right sink.
+        Callers that still use ``"desktop"`` directly continue to work —
+        the original sink registration is left in place.
+        """
+        app_server = self._app_server
+        if app_server is None:
+            return
+        desktop_sink = app_server._event_sinks.get("desktop")
+        if desktop_sink is not None:
+            app_server.set_event_sink(client_id, desktop_sink)
+            logger.debug(
+                "BridgeRuntimeLoop: event sink migrated to client_id={}",
+                client_id,
+            )
 
     def _resolve_client_id(self, params: dict) -> str:
         """Resolve client_id from request params.
