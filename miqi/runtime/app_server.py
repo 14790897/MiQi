@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Coroutine
 
@@ -206,6 +207,24 @@ class ClientSessionRegistry:
         return len(self._client_sessions)
 
 
+# ── ClientCapabilities (Phase 45) ─────────────────────────────────────────
+
+
+@dataclass
+class ClientCapabilities:
+    """Per-client capabilities negotiated during initialize.
+
+    Fields mirror Codex app-server InitializeRequest.capabilities.
+    Experimental APIs are gated behind ``experimental_api``.
+    ``opt_out_notification_methods`` is an exact-match set of method
+    names the client does not wish to receive as notifications.
+    """
+
+    experimental_api: bool = False
+    opt_out_notification_methods: set[str] = field(default_factory=set)
+    client_info: dict[str, Any] = field(default_factory=dict)
+
+
 # ── AppServer ────────────────────────────────────────────────────────────
 
 
@@ -237,6 +256,8 @@ class AppServer:
         # Phase 43: client cleanup hooks — called when a client disconnects
         # or when stop() cleans up all clients.
         self._client_cleanup_hooks: list[Callable[[str], Any]] = []
+        # Phase 45: per-client capabilities negotiated during initialize
+        self._client_capabilities: dict[str, ClientCapabilities] = {}
 
     # ── method registration ──────────────────────────────────────────────
 
@@ -516,6 +537,7 @@ class AppServer:
         """Emit an event to all clients subscribed to a session.
 
         Clients without a registered sink are silently skipped.
+        Respects per-client notification opt-out (Phase 45).
         """
         subs = self._subscriptions.get(session_id, set())
         if not subs:
@@ -528,16 +550,7 @@ class AppServer:
         }
 
         for client_id in list(subs):
-            sink = self._event_sinks.get(client_id)
-            if sink is None:
-                continue
-            try:
-                await sink(envelope)
-            except Exception as exc:
-                logger.warning(
-                    "AppServer: failed to deliver event {} to client {}: {}",
-                    event_type, client_id, exc,
-                )
+            await self._deliver_to_client(client_id, event_type, envelope)
 
     async def emit_client_event(
         self,
@@ -552,15 +565,61 @@ class AppServer:
         Unlike :meth:`emit_event`, this does not require the client to be
         subscribed to a session. The client must have a registered event
         sink via :meth:`set_event_sink`. Silently skipped if no sink exists.
+        Respects per-client notification opt-out (Phase 45).
         """
-        sink = self._event_sinks.get(client_id)
-        if sink is None:
-            return
         envelope: dict[str, Any] = {
             "request_id": request_id,
             "event": event_type,
             "data": data,
         }
+        await self._deliver_to_client(client_id, event_type, envelope)
+
+    # ── client capabilities (Phase 45) ───────────────────────────────────
+
+    def set_client_capabilities(
+        self, client_id: str, capabilities: ClientCapabilities,
+    ) -> None:
+        """Store per-connection capabilities for *client_id*."""
+        self._client_capabilities[client_id] = capabilities
+
+    def get_client_capabilities(self, client_id: str) -> ClientCapabilities | None:
+        """Return capabilities for *client_id* or None."""
+        return self._client_capabilities.get(client_id)
+
+    def is_experimental_enabled(self, client_id: str) -> bool:
+        """Return True if the client has negotiated experimentalApi."""
+        caps = self._client_capabilities.get(client_id)
+        if caps is None:
+            return False
+        return caps.experimental_api
+
+    def should_deliver_notification(
+        self, client_id: str, event_type: str,
+    ) -> bool:
+        """Return False if *event_type* is in the client's opt-out set.
+
+        Only exact-match suppresses. Unknown opt-out names are silently
+        accepted — they match nothing except themselves.
+        """
+        caps = self._client_capabilities.get(client_id)
+        if caps is None:
+            return True  # no capabilities → deliver everything
+        return event_type not in caps.opt_out_notification_methods
+
+    # ── event emission with opt-out (Phase 45) ───────────────────────────
+
+    async def _deliver_to_client(
+        self,
+        client_id: str,
+        event_type: str,
+        envelope: dict[str, Any],
+    ) -> None:
+        """Deliver event envelope to *client_id* if not opted out."""
+        if not self.should_deliver_notification(client_id, event_type):
+            return
+        sink = self._event_sinks.get(client_id)
+        if sink is None:
+            return
         try:
             await sink(envelope)
         except Exception as exc:

@@ -11,9 +11,8 @@ use direct AppServer dispatch.
 """
 
 import asyncio
-import json
-import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
