@@ -4,7 +4,9 @@ import { createInterface, Interface } from 'readline'
 import { existsSync, watch } from 'fs'
 import { join, extname } from 'path'
 import { randomUUID } from 'crypto'
+import { BrowserWindow } from 'electron'
 import type { RuntimeState, RuntimeStatus } from '../shared/ipc'
+import { IPC_EVENTS } from '../shared/ipc'
 
 export interface BridgeRequest {
   id: string
@@ -218,14 +220,28 @@ export class BridgeManager extends EventEmitter {
         try {
           const resp: BridgeResponse = JSON.parse(line)
           const pending = this.pending.get(resp.id)
-          if (!pending) return
 
-          if (resp.type) {
-            pending.onEvent?.(resp.type, resp.data)
-          } else if (resp.error) {
-            pending.reject(new Error(resp.error))
-          } else {
-            pending.resolve(resp.result)
+          if (pending) {
+            if (resp.type) {
+              pending.onEvent?.(resp.type, resp.data)
+            } else if (resp.error) {
+              pending.reject(new Error(resp.error))
+            } else {
+              pending.resolve(resp.result)
+            }
+          } else if (resp.type && resp.data) {
+            // Orphan event (e.g. subagent_result after main agent finished)
+            // Forward to all renderer windows so late events are not dropped.
+            const eventKey = `CHAT_${resp.type.toUpperCase()}`
+            const channel = IPC_EVENTS[eventKey as keyof typeof IPC_EVENTS]
+            if (channel) {
+              const allWindows = BrowserWindow.getAllWindows()
+              for (const win of allWindows) {
+                if (!win.isDestroyed()) {
+                  win.webContents.send(channel, resp.data)
+                }
+              }
+            }
           }
         } catch {
           // Non-JSON line from bridge (shouldn't happen — logs go to stderr)

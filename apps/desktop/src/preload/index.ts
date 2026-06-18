@@ -44,6 +44,7 @@ import type {
   ChatFinal,
   ChatError,
   ChatAborted,
+  ChatSubagentResult,
   PythonCheckResult,
   WslCheckResult,
 } from '../shared/ipc'
@@ -102,6 +103,11 @@ const api = {
       const handler = (_event: Electron.IpcRendererEvent, data: ChatAborted) => callback(data)
       ipcRenderer.on(IPC_EVENTS.CHAT_ABORTED, handler)
       return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_ABORTED, handler)
+    },
+    onSubagentResult: (callback: (data: ChatSubagentResult) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: ChatSubagentResult) => callback(data)
+      ipcRenderer.on(IPC_EVENTS.CHAT_SUBAGENT_RESULT, handler)
+      return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_SUBAGENT_RESULT, handler)
     },
   },
 

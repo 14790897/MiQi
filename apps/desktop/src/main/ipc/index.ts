@@ -59,6 +59,8 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         safeSend('approval:request', data)
       } else if (type === 'approval_cleared') {
         safeSend('approval:cleared', data)
+      } else if (type === 'subagent_result') {
+        safeSend('chat:subagent_result', data)
       }
     })
 

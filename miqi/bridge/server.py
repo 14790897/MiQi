@@ -154,6 +154,7 @@ class BridgeState:
         self._approval_decisions: dict[str, str] = {}
         self._approval_meta: dict[str, dict] = {}
         self._sandbox_manager: Any = None  # shared SandboxManager across agents
+        self._bg_executor: Any = None  # BackgroundExecutor for subagent tasks
         self.runtime_mode = "legacy"  # "legacy" or "kun"
 
     def load_config(self):
@@ -184,6 +185,14 @@ class BridgeState:
             wsl_base_dir=getattr(sb_cfg, "wsl_base_dir", "/tmp/miqi-sandboxes"),
             sandbox_distro_name=getattr(sb_cfg, "sandbox_distro_name", "AIShadowSandbox"),
         )
+
+    def get_executor(self):
+        """Lazy-init and return the persistent BackgroundExecutor for subagent tasks."""
+        if self._bg_executor is None:
+            from miqi.bridge.executor import BackgroundExecutor
+            self._bg_executor = BackgroundExecutor()
+            self._bg_executor.start()
+        return self._bg_executor
 
     def build_agent(self, session_key: str, approval_callback=None):
         """Create an AgentLoop (or GatewayKunRuntime) for the given session."""
@@ -498,6 +507,24 @@ def handle_chat_send(req_id: str, params: dict) -> None:
                 return _state.get_approval_decision(approval_id)
 
             agent = _state.build_agent(session_key, approval_callback=_desktop_approval_callback)
+
+            # Wire up BackgroundExecutor for subagent survival in Desktop mode
+            if hasattr(agent, "subagents") and agent.subagents is not None:
+                agent.subagents._executor = _state.get_executor()
+
+                def _subagent_result_cb(task_id, label, task_desc, result, status, channel, chat_id):
+                    _log(f"_subagent_result_cb: task_id={task_id} status={status} session={session_key}")
+                    _event(client_req_id, "subagent_result", {
+                        "task_id": task_id,
+                        "label": label,
+                        "task": task_desc,
+                        "result": result,
+                        "status": status,
+                        "session_key": session_key,
+                    })
+
+                agent.subagents._result_callback = _subagent_result_cb
+
             _state.set_active(agent, client_req_id)
 
             async def on_progress(text: str, tool_hint: bool = False) -> None:
