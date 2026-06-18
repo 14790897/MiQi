@@ -158,6 +158,13 @@ function sessionMsgsToUi(rawMsgs: any[]): Message[] {
           timestamp: ts,
         })
       }
+    } else if (m.role === 'subagent') {
+      // Subagent result messages — render with the subagent style
+      result.push({
+        role: 'subagent',
+        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+        timestamp: ts,
+      })
     } else if (m.role === 'tool') {
       // Tool result messages → show as collapsed progress with toolHint
       const toolName = m.name || 'tool'
@@ -1536,7 +1543,7 @@ function MessageBubble({ msg, isLast, onCopy, isCopied, onRetry }: {
       <div className="flex items-start gap-3">
         <GitMerge size={18} style={{ color: 'var(--accent)', marginTop: 6 }} />
         <div
-          className="text-sm rounded-2xl px-4 py-3 whitespace-pre-wrap break-all"
+          className="text-sm rounded-2xl px-4 py-3 prose prose-sm max-w-none break-words"
           style={{
             background: 'var(--surface-muted)',
             color: 'var(--text)',
@@ -1544,7 +1551,7 @@ function MessageBubble({ msg, isLast, onCopy, isCopied, onRetry }: {
             maxWidth: '82%',
           }}
         >
-          {msg.content}
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
         </div>
       </div>
     )

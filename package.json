@@ -5,7 +5,7 @@
   "description": "Release tooling for MiQi Desktop",
   "repository": {
     "type": "git",
-    "url": "https://github.com/miqroera/miqi-desktop.git"
+    "url": "https://github.com/14790897/MiQi.git"
   },
   "scripts": {
     "commit": "cz",

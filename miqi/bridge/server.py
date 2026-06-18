@@ -513,7 +513,6 @@ def handle_chat_send(req_id: str, params: dict) -> None:
                 agent.subagents._executor = _state.get_executor()
 
                 def _subagent_result_cb(task_id, label, task_desc, result, status, channel, chat_id):
-                    _log(f"_subagent_result_cb: task_id={task_id} status={status} session={session_key}")
                     _event(client_req_id, "subagent_result", {
                         "task_id": task_id,
                         "label": label,
@@ -522,6 +521,18 @@ def handle_chat_send(req_id: str, params: dict) -> None:
                         "status": status,
                         "session_key": session_key,
                     })
+                    # Persist subagent result to session history so it survives page reload
+                    try:
+                        sm = _get_session_manager()
+                        session = sm.get_or_create(session_key)
+                        status_icon = "✅" if status == "ok" else "❌"
+                        display_label = label or task_id
+                        status_text = "completed" if status == "ok" else "failed"
+                        content = f'{status_icon} Subagent "{display_label}" {status_text}:\n\n{result}'
+                        session.add_message("subagent", content)
+                        sm.save(session)
+                    except Exception as exc:
+                        _log(f"Failed to persist subagent result: {exc}")
 
                 agent.subagents._result_callback = _subagent_result_cb
 
