@@ -425,6 +425,16 @@ class BridgeRuntimeLoop:
         self._connection_state = ConnectionState()
         register_initialize_handler(self._app_server)
 
+        # Phase 46: register Codex-style fs/* handlers
+        from miqi.runtime.fs_app_handlers import register_fs_handlers
+        from miqi.runtime.fs_watch_app_handlers import register_fs_watch_handlers
+        from miqi.runtime.fuzzy_file_search_app_handlers import (
+            register_fuzzy_file_search_handlers,
+        )
+        register_fs_handlers(self._app_server)
+        register_fs_watch_handlers(self._app_server)
+        register_fuzzy_file_search_handlers(self._app_server)
+
         # Phase 43: register client cleanup hook so workbench processes
         # are killed when a client disconnects or AppServer stops.
         async def _kill_client_processes(client_id: str) -> None:
@@ -432,7 +442,20 @@ class BridgeRuntimeLoop:
             if wpr is not None:
                 await wpr.kill_client(client_id)
 
+        # Phase 46: cleanup hook for fs watch and fuzzy search runtimes
+        async def _cleanup_phase46_client_resources(client_id: str) -> None:
+            fs_watch_runtime = registry.bridge_context.get("fs_watch_runtime")
+            if fs_watch_runtime is not None:
+                await fs_watch_runtime.cleanup_client(client_id)
+
+            fuzzy_runtime = registry.bridge_context.get(
+                "fuzzy_file_search_runtime",
+            )
+            if fuzzy_runtime is not None:
+                fuzzy_runtime.cleanup_client(client_id)
+
         self._app_server.add_client_cleanup_hook(_kill_client_processes)
+        self._app_server.add_client_cleanup_hook(_cleanup_phase46_client_resources)
 
         logger.info(
             "BridgeRuntimeLoop: AppServer initialized with {} methods",
