@@ -33,6 +33,7 @@ import type {
   ChatFinal,
   ChatError,
   ChatAborted,
+  ChatSubagentResult,
 } from '../../../shared/ipc'
 
 interface Attachment {
@@ -44,7 +45,7 @@ interface Attachment {
 }
 
 interface Message {
-  role: 'user' | 'assistant' | 'progress' | 'error'
+  role: 'user' | 'assistant' | 'progress' | 'error' | 'subagent'
   content: string
   attachments?: Attachment[]
   toolHint?: boolean
@@ -324,6 +325,22 @@ export function ChatConsole({
     if (scrollRef.current)
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
   }, [messages])
+
+  // Persistent listener for subagent results — must NOT be cleaned up
+  // when the main chat completes, because subagents finish asynchronously.
+  useEffect(() => {
+    const unsub = window.miqi.chat.onSubagentResult((data: ChatSubagentResult) => {
+      if (data.session_key && data.session_key !== currentSessionRef.current) return
+      const statusIcon = data.status === 'ok' ? '✅' : '❌'
+      const label = data.label || data.task_id
+      const content = `${statusIcon} Subagent "${label}" ${data.status === 'ok' ? 'completed' : 'failed'}:\n\n${data.result}`
+      setMessages((prev) => [
+        ...prev,
+        { role: 'subagent', content, timestamp: Date.now() },
+      ])
+    })
+    return unsub
+  }, [])
 
   const cleanupListeners = useCallback(() => {
     for (const unsub of unsubsRef.current) unsub()
@@ -1506,6 +1523,25 @@ function MessageBubble({ msg, isLast, onCopy, isCopied, onRetry }: {
             background: 'var(--danger-bg)',
             color: 'var(--danger)',
             border: '1px solid var(--danger)',
+          }}
+        >
+          {msg.content}
+        </div>
+      </div>
+    )
+  }
+
+  if (msg.role === 'subagent') {
+    return (
+      <div className="flex items-start gap-3">
+        <GitMerge size={18} style={{ color: 'var(--accent)', marginTop: 6 }} />
+        <div
+          className="text-sm rounded-2xl px-4 py-3 whitespace-pre-wrap break-all"
+          style={{
+            background: 'var(--surface-muted)',
+            color: 'var(--text)',
+            border: '1px solid var(--border-subtle)',
+            maxWidth: '82%',
           }}
         >
           {msg.content}

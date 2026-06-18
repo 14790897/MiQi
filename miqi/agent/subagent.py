@@ -1,10 +1,14 @@
 """Subagent manager for background task execution."""
 
+from __future__ import annotations
+
 import asyncio
 import json
+import threading
 import uuid
+from concurrent.futures import Future
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from loguru import logger
 
@@ -46,6 +50,11 @@ class SubagentManager:
         brave_api_key: str | None = None,
         exec_config: ExecToolConfig | None = None,
         restrict_to_workspace: bool = False,
+        max_concurrent: int = 3,
+        max_tool_result_chars: int = 8000,
+        context_limit_chars: int = 200000,
+        executor: Any | None = None,
+        result_callback: Callable[..., None] | None = None,
     ):
         self.provider = provider
         self.workspace = workspace
@@ -58,7 +67,13 @@ class SubagentManager:
         self.paper_config = paper_config or PapersToolConfig()
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
-        self._running_tasks: dict[str, asyncio.Task[None]] = {}
+        self.max_concurrent = max_concurrent
+        self.max_tool_result_chars = max_tool_result_chars
+        self.context_limit_chars = context_limit_chars
+        self._executor = executor  # BackgroundExecutor for Desktop mode
+        self._result_callback = result_callback  # Desktop mode: send stdout event
+        self._running_tasks: dict[str, asyncio.Task[None] | Future] = {}
+        self._abort_events: dict[str, threading.Event] = {}
 
     async def spawn(
         self,
@@ -79,6 +94,13 @@ class SubagentManager:
         Returns:
             Status message indicating the subagent was started.
         """
+        # Concurrency limit
+        if len(self._running_tasks) >= self.max_concurrent:
+            return (
+                f"Cannot spawn: {self.max_concurrent} subagents already running. "
+                "Wait for one to finish before starting another."
+            )
+
         task_id = str(uuid.uuid4())[:8]
         display_label = label or task[:30] + ("..." if len(task) > 30 else "")
 
@@ -87,14 +109,21 @@ class SubagentManager:
             "chat_id": origin_chat_id,
         }
 
-        # Create background task
-        bg_task = asyncio.create_task(
-            self._run_subagent(task_id, task, display_label, origin)
-        )
-        self._running_tasks[task_id] = bg_task
-
-        # Cleanup when done
-        bg_task.add_done_callback(lambda _: self._running_tasks.pop(task_id, None))
+        # Create background task — use executor (Desktop) or create_task (Gateway)
+        if self._executor is not None and self._executor.is_running:
+            # Desktop mode: submit to persistent background event loop
+            future = self._executor.submit(
+                self._run_subagent(task_id, task, display_label, origin)
+            )
+            self._running_tasks[task_id] = future
+            future.add_done_callback(lambda _: self._running_tasks.pop(task_id, None))
+        else:
+            # Gateway mode: create task on current (persistent) event loop
+            bg_task = asyncio.create_task(
+                self._run_subagent(task_id, task, display_label, origin)
+            )
+            self._running_tasks[task_id] = bg_task
+            bg_task.add_done_callback(lambda _: self._running_tasks.pop(task_id, None))
 
         logger.info("Spawned subagent [{}]: {}", task_id, display_label)
         return f"Subagent [{display_label}] started (id: {task_id}). I'll notify you when it completes."
@@ -108,6 +137,10 @@ class SubagentManager:
     ) -> None:
         """Execute the subagent task and announce the result."""
         logger.info("Subagent [{}] starting task: {}", task_id, label)
+
+        # Create abort event for this task (threading.Event for cross-thread safety)
+        abort_event = threading.Event()
+        self._abort_events[task_id] = abort_event
 
         try:
             # Build subagent tools (no message tool, no spawn tool)
@@ -167,7 +200,20 @@ class SubagentManager:
             final_result: str | None = None
 
             while iteration < max_iterations:
+                if abort_event.is_set():
+                    final_result = "Task was cancelled."
+                    break
                 iteration += 1
+
+                # Context size management: trim if too large
+                if self.context_limit_chars > 0:
+                    est = self._estimate_chars(messages)
+                    if est > self.context_limit_chars:
+                        logger.warning(
+                            "Subagent [{}] context too large (~{} chars, limit {}); trimming",
+                            task_id, est, self.context_limit_chars,
+                        )
+                        messages = self._trim_context(messages, self.context_limit_chars, est)
 
                 response = await self.provider.chat(
                     messages=messages,
@@ -200,7 +246,22 @@ class SubagentManager:
                     for tool_call in response.tool_calls:
                         args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                         logger.debug("Subagent [{}] executing: {} with arguments: {}", task_id, tool_call.name, args_str)
-                        result = await tools.execute(tool_call.name, tool_call.arguments)
+                        try:
+                            result = await tools.execute(tool_call.name, tool_call.arguments)
+                        except Exception as exc:
+                            result = f"[Tool Error] {tool_call.name} failed: {type(exc).__name__}: {exc}"
+                            logger.warning("Subagent [{}] tool {} failed: {}", task_id, tool_call.name, exc)
+                        # Ensure string + truncate large results
+                        if not isinstance(result, str):
+                            result = str(result)
+                        if (
+                            self.max_tool_result_chars > 0
+                            and len(result) > self.max_tool_result_chars
+                        ):
+                            result = (
+                                result[: self.max_tool_result_chars]
+                                + f"\n... [truncated: original {len(result)} chars]"
+                            )
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tool_call.id,
@@ -221,6 +282,8 @@ class SubagentManager:
             error_msg = f"Error: {str(e)}"
             logger.error("Subagent [{}] failed: {}", task_id, e)
             await self._announce_result(task_id, label, task, error_msg, origin, "error")
+        finally:
+            self._abort_events.pop(task_id, None)
 
     async def _announce_result(
         self,
@@ -231,9 +294,22 @@ class SubagentManager:
         origin: dict[str, str],
         status: str,
     ) -> None:
-        """Announce the subagent result to the main agent via the message bus."""
+        """Announce the subagent result."""
         status_text = "completed successfully" if status == "ok" else "failed"
+        logger.info("Subagent [{}] _announce_result: status={} _result_callback={}", task_id, status, self._result_callback)
 
+        if self._result_callback is not None:
+            # Desktop mode: send result via stdout event callback
+            try:
+                self._result_callback(
+                    task_id, label, task, result, status,
+                    origin.get("channel", "cli"), origin.get("chat_id", "direct"),
+                )
+            except Exception as exc:
+                logger.warning("Subagent [{}] result_callback failed: {}", task_id, exc)
+            return
+
+        # Gateway mode: inject as system message to trigger main agent
         announce_content = f"""[Subagent '{label}' {status_text}]
 
 Task: {task}
@@ -243,7 +319,6 @@ Result:
 
 Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not mention technical details like "subagent" or task IDs."""
 
-        # Inject as system message to trigger main agent
         msg = InboundMessage(
             channel="system",
             sender_id="subagent",
@@ -253,6 +328,53 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
 
         await self.bus.publish_inbound(msg)
         logger.debug("Subagent [{}] announced result to {}:{}", task_id, origin['channel'], origin['chat_id'])
+
+    @staticmethod
+    def _estimate_chars(messages: list[dict]) -> int:
+        """Rough character count of all message content."""
+        total = 0
+        for m in messages:
+            c = m.get("content")
+            if isinstance(c, str):
+                total += len(c)
+        return total
+
+    @staticmethod
+    def _trim_context(
+        messages: list[dict], limit_chars: int, current_chars: int
+    ) -> list[dict]:
+        """Drop oldest assistant+tool pairs until under limit.
+
+        Always keeps the system prompt (index 0) and the last user message.
+        """
+        if limit_chars <= 0 or current_chars <= limit_chars:
+            return messages
+
+        work = list(messages)
+        while current_chars > limit_chars and len(work) > 2:
+            # Find the first assistant message after system prompt
+            cut_start = None
+            for i in range(1, len(work) - 1):
+                if work[i].get("role") == "assistant":
+                    cut_start = i
+                    break
+            if cut_start is None:
+                break
+
+            # Collect consecutive assistant + tool messages to drop together
+            cut_end = cut_start + 1
+            while cut_end < len(work) - 1 and work[cut_end].get("role") == "tool":
+                cut_end += 1
+
+            removed = work[cut_start:cut_end]
+            removed_chars = sum(
+                len(m.get("content", "")) if isinstance(m.get("content"), str) else 0
+                for m in removed
+            )
+            work = work[:cut_start] + work[cut_end:]
+            current_chars -= removed_chars
+
+        return work
 
     def _build_subagent_prompt(self, task: str) -> str:
         """Build a focused system prompt for the subagent."""
@@ -290,6 +412,25 @@ Your workspace is at: {self.workspace}
 Skills are available at: {self.workspace}/skills/ (read SKILL.md files as needed)
 
 When you have completed the task, provide a clear summary of your findings or actions."""
+
+    def cancel_task(self, task_id: str) -> bool:
+        """Cancel a running subagent by task_id."""
+        event = self._abort_events.get(task_id)
+        if event is not None:
+            event.set()
+            logger.info("Subagent [{}] cancel requested", task_id)
+            return True
+        return False
+
+    def cancel_all(self) -> int:
+        """Cancel all running subagents. Returns count cancelled."""
+        count = 0
+        for task_id, event in self._abort_events.items():
+            event.set()
+            count += 1
+        if count:
+            logger.info("Cancelled {} running subagent(s)", count)
+        return count
 
     def get_running_count(self) -> int:
         """Return the number of currently running subagents."""

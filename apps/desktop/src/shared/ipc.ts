@@ -107,6 +107,7 @@ export const IPC_EVENTS = {
   CHAT_FINAL: 'chat:final',
   CHAT_ERROR: 'chat:error',
   CHAT_ABORTED: 'chat:aborted',
+  CHAT_SUBAGENT_RESULT: 'chat:subagent_result',
   APPROVAL_REQUEST: 'approval:request',
   APPROVAL_CLEARED: 'approval:cleared',
 } as const
@@ -613,6 +614,15 @@ export interface ChatError {
 
 export interface ChatAborted {
   message: string
+}
+
+export interface ChatSubagentResult {
+  task_id: string
+  label: string
+  task: string
+  result: string
+  status: string   // "ok" | "error"
+  session_key: string
 }
 
 // ---------------------------------------------------------------------------

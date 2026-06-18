@@ -1131,6 +1131,11 @@ class AgentLoop:
         for task in list(self._consolidation_tasks):
             task.cancel()
         self._consolidation_tasks.clear()
+        # Cancel subagents only on explicit abort or in Gateway mode (no executor).
+        # In Desktop mode (executor), subagents outlive the parent request intentionally.
+        if hasattr(self, "subagents") and self.subagents is not None:
+            if self._abort_event.is_set() or self.subagents._executor is None:
+                self.subagents.cancel_all()
         for sess_key, _open in list(self.trace_store._open_tasks.items()):
             self.trace_store.end_task(
                 session_id=sess_key,
