@@ -48,8 +48,15 @@ class Session:
 
         out: list[dict[str, Any]] = []
         for item in sliced:
+            # Map MiQi-internal pseudo roles to LLM-accepted roles.  Subagent
+            # results are rendered into the conversation as `subagent` for UI
+            # purposes, but LLM providers only accept
+            # system/user/assistant/tool — passing `subagent` raises a 400.
+            role = item["role"]
+            if role == "subagent":
+                role = "assistant"
             entry: dict[str, Any] = {
-                "role": item["role"],
+                "role": role,
                 "content": item.get("content", ""),
             }
             for key in ("tool_calls", "tool_call_id", "name"):
