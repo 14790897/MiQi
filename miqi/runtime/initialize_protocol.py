@@ -57,7 +57,16 @@ class InitializeCapabilities:
                 code="INVALID_PARAMS",
             )
 
-        experimental = bool(caps.get("experimentalApi", False))
+        if "experimentalApi" in caps:
+            exp = caps["experimentalApi"]
+            if not isinstance(exp, bool):
+                raise AppServerError(
+                    f"experimentalApi must be a boolean, got {type(exp).__name__}",
+                    code="INVALID_PARAMS",
+                )
+            experimental = exp
+        else:
+            experimental = False
 
         opt_out_raw = caps.get("optOutNotificationMethods")
         opt_out: set[str] = set()
@@ -166,18 +175,69 @@ def safe_client_id_segment(value: str) -> str:
     return cleaned[:32]
 
 
+_EXPLICIT_CLIENT_ID_MAX_LEN = 128
+
+
+def validate_explicit_client_id(raw: str) -> str:
+    """Validate an explicit clientId from initialize params.
+
+    Returns the stripped, validated client_id.
+
+    Raises:
+        AppServerError(INVALID_PARAMS) if the value is unsafe.
+    """
+    if not isinstance(raw, str):
+        raise AppServerError(
+            "clientId must be a string",
+            code="INVALID_PARAMS",
+        )
+    stripped = raw.strip()
+    if not stripped:
+        raise AppServerError(
+            "clientId must not be empty",
+            code="INVALID_PARAMS",
+        )
+    if len(stripped) > _EXPLICIT_CLIENT_ID_MAX_LEN:
+        raise AppServerError(
+            f"clientId must not exceed {_EXPLICIT_CLIENT_ID_MAX_LEN} characters",
+            code="INVALID_PARAMS",
+        )
+    # Reject path characters, parent-directory traversal, control chars
+    if ".." in stripped:
+        raise AppServerError(
+            "clientId must not contain '..'",
+            code="INVALID_PARAMS",
+        )
+    if "/" in stripped or "\\" in stripped:
+        raise AppServerError(
+            "clientId must not contain path separators",
+            code="INVALID_PARAMS",
+        )
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in stripped):
+        raise AppServerError(
+            "clientId must not contain control characters",
+            code="INVALID_PARAMS",
+        )
+    return stripped
+
+
 def derive_client_id(
     params: dict[str, Any],
     client_info: ClientInfo,
 ) -> str:
     """Derive a stable client_id for the connection.
 
-    If params.clientId is provided and non-empty, use it directly.
-    Otherwise, derive from clientInfo.name: ``client-{safe(name)}-{uuid_hex[:8]}``
+    If params.clientId is provided, it is validated via
+    :func:`validate_explicit_client_id` before use.  Dangerous values
+    (blank, path chars, ``..``, control chars, overly long) are
+    rejected with INVALID_PARAMS instead of being silently replaced.
+
+    When no explicit clientId is given, the id is derived from
+    clientInfo.name: ``client-{safe(name)}-{uuid_hex[:8]}``
     """
     explicit = params.get("clientId")
-    if explicit and isinstance(explicit, str) and explicit.strip():
-        return explicit.strip()
+    if explicit is not None:
+        return validate_explicit_client_id(explicit)
 
     safe_name = safe_client_id_segment(client_info.name)
     short_id = uuid.uuid4().hex[:8]
