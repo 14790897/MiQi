@@ -25,6 +25,12 @@
     "husky": "^9.1.0",
     "semantic-release": "^24.2.0"
   },
+  "release": {
+    "branches": [
+      "main",
+      {"name": "develop", "prerelease": "dev"}
+    ]
+  },
   "config": {
     "commitizen": {
       "path": "./node_modules/cz-conventional-changelog"
