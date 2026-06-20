@@ -17,6 +17,7 @@ from miqi.agent.tools.registry import ToolRegistry
 from miqi.documents.docx_tool import DocxWriteTool
 from miqi.documents.pptx_tool import PptxWriteTool
 from miqi.documents.xlsx_tool import XlsxWriteTool
+from miqi.execution.hook_runtime import HookOutcome
 
 
 # ── Path enforcement: relative path inside workspace succeeds ────────────────
@@ -332,6 +333,9 @@ async def test_tool_runtime_routes_through_orchestrator():
     registry = ToolRegistry()
     registry.register(ReadFileTool())
 
+    hook_runtime = MagicMock()
+    hook_runtime.run_with_outcome = AsyncMock(return_value=HookOutcome.continue_())
+
     orch = ToolOrchestrator(
         permission_engine=MagicMock(),
         sandbox_engine=SandboxPolicyEngine(
@@ -339,7 +343,7 @@ async def test_tool_runtime_routes_through_orchestrator():
             landlock_available=False,
             allow_fallback_to_none=True,
         ),
-        hook_runtime=MagicMock(),
+        hook_runtime=hook_runtime,
         tool_registry=registry,
         event_emitter=MagicMock(),
     )
