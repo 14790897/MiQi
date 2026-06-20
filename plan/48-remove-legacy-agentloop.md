@@ -538,12 +538,14 @@ Phase 48 is complete only when all conditions are true:
 
 ## Acceptance evidence
 
-Status: COMPLETE with 1 pre-existing failure.
+Status: COMPLETE with 1 pre-existing failure (zero新增失败). Phase 48 did not introduce this failure — it reproduces on the Phase 48 baseline commit with identical signature.
 
-### Commits (Phase 48 + 第五次修正)
+### Commits (Phase 48 + 第五次修正 + 第六次修正)
 
-- (fifth-revision-1) fix(phase48): address Codex review — restore plan, correct docs/changelog, fix frozen test, clean EOF
-- (fifth-revision-2) docs(plan): record phase48 acceptance evidence v5
+- (sixth-revision-1) fix(phase48): correct agent.md facts and document pre-existing failure
+- (sixth-revision-2) docs(plan): record phase48 acceptance evidence v6
+- 074aaa0 fix(phase48): address Codex review — restore plan, correct docs/changelog, fix frozen test, clean EOF
+- 775e874 docs(plan): record phase48 acceptance evidence v5
 - b4311ca docs(plan): record phase48 acceptance at canonical path
 - cf08671 docs(plan): record phase48 acceptance
 - 2c6f1b6 docs(architecture): describe runtime-owned execution
@@ -553,29 +555,37 @@ Status: COMPLETE with 1 pre-existing failure.
 - 1da9462 refactor(runtime): replace agent loop compatibility settings
 - a8ef0ab test(runtime): define legacy agent loop removal contract
 
-### Fifth revision changes
+### Failure diagnosis: test_agent_list_requires_authorized_session
 
-- plan/48-remove-legacy-agentloop.md: restored full execution plan (543 lines) from a8ef0ab; acceptance evidence appended
-- apps/desktop/plan/48-remove-legacy-agentloop.md: DELETED (duplicate)
-- docs/backend/agent.md: removed false claims about automatic task_begin/end, TraceStore auto-instrumentation, Memory/Trace/Nudge auto-injection, auto memory/skill persistence; added Phase 48 retirement notes
-- CHANGELOG.md: corrected `miqi/runtime/factory.py` → `miqi/execution/factory.py`; corrected `flush_if_needed` description from "now owned by runtime nudge mechanism" to "retired without direct replacement"
-- tests/runtime/test_runtime_ownership_audit.py: replaced `except Exception: pass` with proper `from dataclasses import FrozenInstanceError` + `pytest.raises(FrozenInstanceError)`
-- EOF whitespace cleaned: miqi/execution/factory.py, tests/execution/test_orchestrator_factory.py, tests/test_consolidate_offset.py, tests/test_tui_runtime.py
+- Test: `tests/runtime/test_agent_handlers.py::test_agent_list_requires_authorized_session`
+- HEAD result (after fifth revision):
+  `Failed: DID NOT RAISE <class 'miqi.runtime.app_server.AppServerError'>`
+- Baseline result (Phase 48 start, commit a8ef0ab^ = d0ffc4a):
+  `Failed: DID NOT RAISE <class 'miqi.runtime.app_server.AppServerError'>`
+- Root cause: `agent_list_handler` returns `{"result": {"agents": []}}` when the registry returns no session, instead of raising `AppServerError(code="UNAUTHORIZED")`. This behavior is present in both HEAD and baseline — `miqi/runtime/agent_handlers.py` is identical at `a8ef0ab^` and HEAD for this code path.
+- Commands used for verification:
+  - HEAD: `uv run pytest tests/runtime/test_agent_handlers.py::test_agent_list_requires_authorized_session -q -vv`
+  - Baseline: `git show a8ef0ab^:miqi/runtime/agent_handlers.py` and `uv run pytest tests/runtime/test_agent_handlers.py::test_agent_list_requires_authorized_session -q -vv` at detached a8ef0ab^
+- Conclusion: This failure is pre-existing and unrelated to Phase 48. It is not skipped, xfailed, or assertion-widened to manufacture a pass.
 
-### Gate results (fifth revision)
+### Sixth revision changes
+
+- docs/backend/agent.md: corrected ContextRuntime scope (only assembles passed system_prompt/history/user input + compaction); removed SOUL.md injection claim; clarified Memory/Skills/Trace/Nudge injection was ContextBuilder-driven, not ContextRuntime; corrected subagent path to SpawnTool → AgentControl → AgentJobRuntime and noted legacy SubagentManager is disabled
+- plan/48-remove-legacy-agentloop.md: replaced placeholder revision hashes with real commits 074aaa0 and 775e874; recorded post-commit git status; documented pre-existing failure diagnosis with baseline vs HEAD evidence; acceptance criterion explicitly stated as "zero新增失败"
+
+### Gate results (sixth revision)
 
 | Gate | Result |
 |------|--------|
+| `uv run pytest tests/runtime/test_agent_handlers.py::test_agent_list_requires_authorized_session -q -vv` | 1 failed (pre-existing) |
 | `uv run pytest tests/runtime/test_agentloop_removed.py tests/runtime/test_runtime_ownership_audit.py -q -W error` | 8 passed |
-| `uv run pytest -q` | 1635 passed, 5 skipped, 1 pre-existing failure (`test_agent_list_requires_authorized_session`) |
+| `uv run pytest -q` | 1635 passed, 5 skipped, 1 pre-existing failure |
 | `uv run ruff check miqi tests` | zero new Phase 48 findings |
-| `git diff --check` | clean (CRLF conversion warnings only, no whitespace errors) |
+| `git diff --check` | clean |
 | Desktop `npm run typecheck` | passed |
 | Desktop `npm run test` | 15 passed, 0 failed |
 | Desktop `npm run build` | successful |
 
-### git status
+### git status (committed working tree)
 
-Modified: CHANGELOG.md, docs/backend/agent.md, miqi/execution/factory.py, plan/48-remove-legacy-agentloop.md, tests/execution/test_orchestrator_factory.py, tests/runtime/test_runtime_ownership_audit.py, tests/test_consolidate_offset.py, tests/test_tui_runtime.py
-Deleted: apps/desktop/plan/48-remove-legacy-agentloop.md
 Untracked: only pre-existing .claude/
