@@ -3,7 +3,8 @@
 Handles building initial messages, adding assistant messages, adding
 tool result messages, and compacting long conversation history.
 Centralizes message manipulation that was previously scattered across
-AgentLoop and ContextBuilder.
+the legacy AgentLoop and ContextBuilder.
+(Historical: AgentLoop removed in Phase 48.)
 
 Phase 19: adds CompactionResult, estimate_tokens, compress_messages,
 compact_thread, and should_auto_compact for runtime-owned context

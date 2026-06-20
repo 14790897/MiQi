@@ -129,7 +129,7 @@ class SessionManager:
         - EXISTING, UNOWNED (legacy): raises OwnershipError(REQUIRES_CLAIM) —
           auto-claim is NOT performed. The caller must use claim_session().
 
-        When client_id is None (backward compat, CLI/AgentLoop only):
+        When client_id is None (Historical: backward compat, CLI/AgentLoop only):
         - No ownership checks are performed.
         - New sessions are created without owner_client_id.
         """

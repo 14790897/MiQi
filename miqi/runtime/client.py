@@ -1,8 +1,8 @@
 """Runtime client — frontend-facing helper around RuntimeSession.
 
-Frontends use RuntimeClient.ask() instead of directly calling AgentLoop
-or duplicating event-drain loops. The client submits a UserMessage,
-consumes typed events from the runtime, and returns the final content.
+Historical: Frontends now use RuntimeClient.ask() instead of directly
+calling the legacy AgentLoop. The client submits a UserMessage, consumes
+typed events from the runtime, and returns the final content.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ EventCallback = Callable[[Any], Any | Awaitable[Any]]
 class RuntimeClient:
     """Small frontend-facing helper around RuntimeSession.
 
-    Frontends use this instead of directly calling AgentLoop or
-    duplicating event-drain loops.
+    Historical: Frontends use this instead of directly calling the legacy
+    AgentLoop or duplicating event-drain loops.
 
     Phase 14 follow-up v2: ask() serialization uses the runtime-owned
     _ask_lock (not a per-client lock) so multiple RuntimeClient instances

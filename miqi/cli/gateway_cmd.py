@@ -66,7 +66,7 @@ def register_gateway_command(
         cron_store_path = get_data_dir() / "cron" / "jobs.json"
         cron = CronService(cron_store_path, job_timeout=config.cron.job_timeout_seconds)
 
-        # Phase 14 follow-up: RuntimeSession owns ALL gateway processing.
+        # Historical (Phase 14 follow-up): RuntimeSession owns ALL gateway processing.
         # No more AgentLoop — channels route through GatewayRuntimeDispatcher.
         from miqi.runtime.client import RuntimeClient
         from miqi.runtime.gateway_dispatcher import GatewayRuntimeDispatcher
@@ -137,7 +137,7 @@ def register_gateway_command(
             enabled=config.heartbeat.enabled,
         )
 
-        # Channel dispatch: GatewayRuntimeDispatcher replaces AgentLoop.run()
+        # Channel dispatch: GatewayRuntimeDispatcher (Historical: replaces AgentLoop.run())
         channel_dispatcher = GatewayRuntimeDispatcher(
             bus=bus,
             channel_manager=channels,

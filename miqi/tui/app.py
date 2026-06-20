@@ -56,7 +56,7 @@ class MiQiTui(App):
     ) -> None:
         """Connect to MiQi runtime via RuntimeSession (Phase 14).
 
-        Does NOT construct AgentLoop directly. Uses RuntimeSession
+        Historical: Does NOT construct AgentLoop directly. Uses RuntimeSession
         which owns the full service graph internally.
         """
         from miqi.config.loader import load_config

@@ -40,7 +40,7 @@ graph TB
     BS --> R
 
     subgraph AgentEngine [Agent 引擎]
-        AL[AgentLoop - LLM调用循环]
+        TR[TurnRunner - LLM调用循环]
         CTX[ContextBuilder - 注入上下文]
     end
 

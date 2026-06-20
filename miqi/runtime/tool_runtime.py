@@ -2,7 +2,8 @@
 
 All tool calls (single and concurrent batches) go through this adapter,
 which creates ToolExecutionContext and routes through ToolOrchestrator.
-No tool context construction is scattered across AgentLoop or other layers.
+Historical: No tool context construction is scattered across the legacy
+AgentLoop or other layers.
 """
 
 from __future__ import annotations

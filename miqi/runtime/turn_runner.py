@@ -1,8 +1,8 @@
 """Turn runner — the runtime-owned provider.chat + tool loop.
 
-Extracted from AgentLoop._run_agent_loop. Executes a single turn:
-calls the provider, routes tool calls through ToolRuntime, builds
-messages through ContextRuntime, and returns TurnResult.
+Historical: Extracted from the legacy AgentLoop._run_agent_loop. Executes a
+single turn: calls the provider, routes tool calls through ToolRuntime,
+builds messages through ContextRuntime, and returns TurnResult.
 
 Also provides run_agent_job() for AgentJobRuntime — a simplified
 single-turn execution path for sub-agent jobs.
