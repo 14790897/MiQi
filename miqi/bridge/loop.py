@@ -606,7 +606,9 @@ class BridgeRuntimeLoop:
                         "content": event.content,
                         "aborted": False,
                     })
-                    break
+                    # Do NOT break — consume the TurnCompleteEvent that
+                    # follows so the next drain task starts with a clean queue.
+                    continue
 
                 if isinstance(event, ErrorEvent):
                     await _emit_terminal("error", {
@@ -615,11 +617,14 @@ class BridgeRuntimeLoop:
                     break
 
                 if isinstance(event, TurnCompleteEvent):
-                    await _emit_terminal("final", {
-                        "content": "",
-                        "aborted": False,
-                        "status": "completed",
-                    })
+                    # If we already sent final (AgentMessageEvent above),
+                    # don't send another — just exit cleanly.
+                    if request_id not in self._terminal_sent:
+                        await _emit_terminal("final", {
+                            "content": "",
+                            "aborted": False,
+                            "status": "completed",
+                        })
                     break
 
                 # Forward all other events as progress
