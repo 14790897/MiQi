@@ -116,5 +116,3 @@ def test_tui_connect_runtime_creates_runtime_session():
             assert rtc[0]["session_id"] == "tui:default"
 
     asyncio.run(_test())
-
-

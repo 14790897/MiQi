@@ -3,6 +3,8 @@ runtime or any production frontend (Phase 22)."""
 
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -79,9 +81,7 @@ def test_runtime_services_has_model_settings_not_agent_loop():
     assert ms.model == "test"
     assert ms.temperature == 0.1
     assert ms.max_tokens == 4096
-    # RuntimeModelSettings is a frozen dataclass — mutation should fail
-    try:
+    # RuntimeModelSettings is a frozen dataclass — mutation must raise FrozenInstanceError
+    from dataclasses import FrozenInstanceError
+    with pytest.raises(FrozenInstanceError):
         ms.model = "other"  # type: ignore[misc]
-        assert False, "RuntimeModelSettings must be frozen"
-    except Exception:
-        pass

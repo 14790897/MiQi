@@ -54,5 +54,3 @@ def create_default_orchestrator(
         event_emitter=emitter,
         ledger_runtime=ledger_runtime,
     )
-
-
