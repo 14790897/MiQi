@@ -13,11 +13,84 @@ export interface BridgeRequest {
 }
 
 interface BridgeResponse {
-  id: string
+  id?: string | null
+  request_id?: string | null
   result?: unknown
   error?: string
+  code?: string
+  recoverable?: boolean
   type?: string
+  event?: string
   data?: unknown
+}
+
+interface SendOptions {
+  allowStarting?: boolean
+  timeoutMs?: number
+}
+
+export interface NormalizedBridgeMessage {
+  requestId: string | null
+  result?: unknown
+  error?: string
+  code?: string
+  recoverable?: boolean
+  eventType?: string
+  data?: unknown
+}
+
+export interface InitializeParams {
+  clientId: string
+  clientInfo: {
+    name: string
+    title: string
+    version: string
+  }
+  capabilities: {
+    experimentalApi: boolean
+    optOutNotificationMethods: string[]
+  }
+}
+
+export function normalizeBridgeMessage(resp: BridgeResponse): NormalizedBridgeMessage {
+  const requestId =
+    typeof resp.id === 'string'
+      ? resp.id
+      : typeof resp.request_id === 'string'
+        ? resp.request_id
+        : null
+
+  const eventType =
+    typeof resp.type === 'string'
+      ? resp.type
+      : typeof resp.event === 'string'
+        ? resp.event
+        : undefined
+
+  return {
+    requestId,
+    result: resp.result,
+    error: resp.error,
+    code: resp.code,
+    recoverable: resp.recoverable,
+    eventType,
+    data: resp.data,
+  }
+}
+
+export function buildInitializeParams(version: string): InitializeParams {
+  return {
+    clientId: 'miqi-desktop',
+    clientInfo: {
+      name: 'miqi_desktop',
+      title: 'MiQi Desktop',
+      version,
+    },
+    capabilities: {
+      experimentalApi: true,
+      optOutNotificationMethods: [],
+    },
+  }
 }
 
 function findBridgeExecutable(projectRoot: string): {
@@ -85,6 +158,8 @@ export class BridgeManager extends EventEmitter {
   private hotReloadEnabled: boolean = false
   private lastReloadTime: number = 0
   private reloadCooldown: number = 1000 // 1 second cooldown between reloads
+  private initialized: boolean = false
+  private clientId: string = 'miqi-desktop'
 
   constructor(projectRoot?: string) {
     super()
@@ -143,19 +218,47 @@ export class BridgeManager extends EventEmitter {
 
       this.rl.on('line', (line: string) => {
         try {
-          const resp: BridgeResponse = JSON.parse(line)
-          const pending = this.pending.get(resp.id)
-          if (!pending) return
+          const raw: BridgeResponse = JSON.parse(line)
+          const resp = normalizeBridgeMessage(raw)
 
-          if (resp.type) {
-            pending.onEvent?.(resp.type, resp.data)
-          } else if (resp.error) {
-            pending.reject(new Error(resp.error))
+          if (resp.eventType) {
+            if (resp.requestId) {
+              const pending = this.pending.get(resp.requestId)
+              pending?.onEvent?.(resp.eventType, resp.data)
+            }
+            this.emit('bridge-event', {
+              requestId: resp.requestId,
+              type: resp.eventType,
+              data: resp.data,
+            })
+            return
+          }
+
+          if (!resp.requestId) {
+            this.addLog(`[Bridge] Ignoring response without id/request_id: ${line}`)
+            return
+          }
+
+          const pending = this.pending.get(resp.requestId)
+          if (!pending) {
+            this.addLog(`[Bridge] No pending request for response ${resp.requestId}`)
+            return
+          }
+
+          if (resp.error) {
+            const err = new Error(resp.code ? `${resp.error} (${resp.code})` : resp.error)
+            ;(err as Error & { code?: string; recoverable?: boolean }).code = resp.code
+            ;(err as Error & { code?: string; recoverable?: boolean }).recoverable = resp.recoverable
+            this.addLog(
+              `[Bridge] ${resp.requestId} failed: ${resp.error}` +
+                (resp.code ? ` (${resp.code})` : ''),
+            )
+            pending.reject(err)
           } else {
             pending.resolve(resp.result)
           }
         } catch {
-          // Non-JSON line from bridge (shouldn't happen — logs go to stderr)
+          this.addLog(`[Bridge] Ignoring non-JSON stdout line: ${line}`)
         }
       })
 
@@ -172,6 +275,8 @@ export class BridgeManager extends EventEmitter {
         this.state = code === 0 ? 'stopped' : 'error'
         this.process = null
         this.rl = null
+        this.initialized = false
+        this.clientId = 'miqi-desktop'
         this.emitState()
         // Reject all pending requests
         for (const [id, pending] of this.pending) {
@@ -184,6 +289,8 @@ export class BridgeManager extends EventEmitter {
         this.addLog(`Bridge process error: ${err.message}`)
         this.state = 'error'
         this.process = null
+        this.initialized = false
+        this.clientId = 'miqi-desktop'
         this.emitState()
       })
 
@@ -200,12 +307,14 @@ export class BridgeManager extends EventEmitter {
               ),
             )
           } else {
-            this.state = 'running'
-            this.emitState()
             resolve()
           }
-        }, 1500)
+        }, 250)
       })
+
+      await this.initializeConnection()
+      this.state = 'running'
+      this.emitState()
     } catch (err) {
       this.state = 'error'
       this.addLog(`Failed to start bridge: ${err}`)
@@ -222,6 +331,9 @@ export class BridgeManager extends EventEmitter {
 
     // Stop file watcher
     this.stopFileWatcher()
+
+    this.initialized = false
+    this.clientId = 'miqi-desktop'
 
     this.process.stdin?.end()
     this.process.kill('SIGTERM')
@@ -252,7 +364,7 @@ export class BridgeManager extends EventEmitter {
     this.fileWatcher = watch(
       miqiDir,
       { recursive: true },
-      (eventType, filename) => {
+      (_fileEventType, filename) => {
         if (!filename) return
 
         // Only watch Python files
@@ -296,8 +408,6 @@ export class BridgeManager extends EventEmitter {
 
     this.addLog('[Hot Reload] Restarting bridge due to code changes...')
 
-    // Store pending requests to retry after restart
-    const pendingRequests = [...this.pending.entries()]
     this.pending.clear()
 
     // Stop current process
@@ -340,41 +450,75 @@ export class BridgeManager extends EventEmitter {
     params?: Record<string, unknown>,
     onEvent?: (type: string, data: unknown) => void,
   ): Promise<unknown> {
-    if (!this.isRunning()) {
+    return this.sendRequest(method, params, onEvent)
+  }
+
+  private async sendRequest(
+    method: string,
+    params?: Record<string, unknown>,
+    onEvent?: (type: string, data: unknown) => void,
+    options: SendOptions = {},
+  ): Promise<unknown> {
+    const canSend =
+      this.isRunning() ||
+      (options.allowStarting === true && this.process !== null && this.state === 'starting')
+
+    if (!canSend) {
       throw new Error('Bridge not running')
     }
 
     const id = randomUUID()
     const request: BridgeRequest = { id, method, params }
+    const timeoutMs =
+      options.timeoutMs ??
+      (method === 'chat.send' ? 300_000 : 30_000)
 
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject, onEvent })
-
-      const timeout = setTimeout(
-        () => {
-          this.pending.delete(id)
-          reject(new Error(`Request ${method} timed out`))
-        },
-        method === 'chat.send' ? 300_000 : 30_000,
-      ) // 5 min for chat, 30s for others
-
-      const origResolve = resolve
-      const origReject = reject
+      const timeout = setTimeout(() => {
+        this.pending.delete(id)
+        reject(new Error(`Request ${method} timed out`))
+      }, timeoutMs)
 
       this.pending.set(id, {
         resolve: (value: unknown) => {
           clearTimeout(timeout)
-          origResolve(value)
+          this.pending.delete(id)
+          resolve(value)
         },
         reject: (err: Error) => {
           clearTimeout(timeout)
-          origReject(err)
+          this.pending.delete(id)
+          reject(err)
         },
         onEvent,
       })
 
       this.process!.stdin!.write(JSON.stringify(request) + '\n')
     })
+  }
+
+  private writeNotification(method: string, params: Record<string, unknown> = {}): void {
+    if (!this.process?.stdin) return
+    this.process.stdin.write(JSON.stringify({ method, params }) + '\n')
+  }
+
+  private async initializeConnection(): Promise<void> {
+    const version = '0.1.0'
+    const result = await this.sendRequest(
+      'initialize',
+      buildInitializeParams(version) as unknown as Record<string, unknown>,
+      undefined,
+      { allowStarting: true, timeoutMs: 15_000 },
+    )
+
+    const init = result as { clientId?: string; serverInfo?: { version?: string } } | null
+    this.clientId = init?.clientId ?? 'miqi-desktop'
+    this.initialized = true
+    this.addLog(
+      `Bridge initialized as ${this.clientId}` +
+        (init?.serverInfo?.version ? ` against server ${init.serverInfo.version}` : ''),
+    )
+    this.writeNotification('initialized')
   }
 
   private addLog(message: string): void {
