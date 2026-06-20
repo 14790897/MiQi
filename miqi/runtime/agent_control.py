@@ -10,6 +10,11 @@ from typing import Any
 
 from loguru import logger
 
+from miqi.execution.hook_runtime import (
+    HookPoint,
+    HookRuntime,
+    LifecycleHookContext,
+)
 from miqi.protocol.events import (
     AgentStatus,
     SubAgentSpawnedEvent,
@@ -60,6 +65,7 @@ class AgentControl:
         orchestrator: Any = None,  # ToolOrchestrator
         tool_registry: Any = None,  # ToolRegistry — for role-filtered tool definitions
         agent_jobs: Any = None,  # AgentJobRuntime — Phase 13
+        hooks: HookRuntime | None = None,
     ):
         self.session_id = session_id
         self.registry = registry
@@ -69,6 +75,7 @@ class AgentControl:
         self._orchestrator = orchestrator
         self._tool_registry = tool_registry
         self._agent_jobs = agent_jobs
+        self._hooks = hooks
         self._agents: dict[str, LiveAgent] = {}  # agent_id → LiveAgent
         self._thread_agents: dict[str, str] = {}  # thread_id → agent_id
         self._lock = asyncio.Lock()
@@ -133,6 +140,22 @@ class AgentControl:
             agent_type=agent_type,
             task_label=label or task[:40],
         ))
+
+        # Phase 51.3: fire sub-agent lifecycle start hook.
+        if self._hooks is not None:
+            await self._hooks.run(
+                HookPoint.SUBAGENT_START,
+                LifecycleHookContext(
+                    hook_point=HookPoint.SUBAGENT_START,
+                    data={
+                        "agent_id": agent_id,
+                        "thread_id": thread_id,
+                        "agent_type": agent_type,
+                        "task": task,
+                        "parent_agent_id": parent_agent_id,
+                    },
+                ),
+            )
 
         if self._agent_jobs is not None:
             # Job already started above — just transition and return
@@ -556,6 +579,20 @@ class AgentControl:
                 message=str(e),
                 recoverable=False,
             ))
+        finally:
+            # Phase 51.3: fire sub-agent lifecycle end hook on every completion path.
+            if self._hooks is not None:
+                await self._hooks.run(
+                    HookPoint.SUBAGENT_END,
+                    LifecycleHookContext(
+                        hook_point=HookPoint.SUBAGENT_END,
+                        data={
+                            "agent_id": agent.agent_id,
+                            "thread_id": agent.thread_id,
+                            "status": agent.state.current.value,
+                        },
+                    ),
+                )
 
     @staticmethod
     def _format_tool_hint(name: str, args: dict) -> str:

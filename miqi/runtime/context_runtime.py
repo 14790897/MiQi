@@ -20,6 +20,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Awaitable
 
+from miqi.execution.hook_runtime import (
+    HookPoint,
+    HookRuntime,
+    LifecycleHookContext,
+)
+
 
 @dataclass(frozen=True)
 class CompactionResult:
@@ -54,9 +60,11 @@ class ContextRuntime:
         ] | None = None,
         context_limit_chars: int = 0,
         compression_threshold_chars: int = 0,
+        hooks: HookRuntime | None = None,
     ):
         self._compressor: Any = None
         self._compression_threshold_chars = compression_threshold_chars
+        self._hooks = hooks
         if llm_call_fn is not None:
             from miqi.agent.context_compressor import ContextCompressor
             self._compressor = ContextCompressor(
@@ -143,17 +151,66 @@ class ContextRuntime:
         messages unchanged as an explicit no-op.
         When _compressor is set, delegates to the 5-phase compression
         algorithm from miqi.agent.context_compressor.
+
+        Phase 51.3: fires PRE_COMPACT and POST_COMPACT lifecycle hooks. A
+        PRE_COMPACT block outcome skips the actual compression but still
+        fires POST_COMPACT.
         """
+        if self._hooks is not None:
+            pre_ctx = LifecycleHookContext(
+                hook_point=HookPoint.PRE_COMPACT,
+                data={
+                    "session_id": session_id,
+                    "model": model,
+                    "message_count": len(messages),
+                },
+            )
+            outcome = await self._hooks.run_with_outcome(
+                HookPoint.PRE_COMPACT, pre_ctx
+            )
+            if outcome.action == "block":
+                await self._hooks.run(
+                    HookPoint.POST_COMPACT,
+                    LifecycleHookContext(
+                        hook_point=HookPoint.POST_COMPACT,
+                        data={
+                            "session_id": session_id,
+                            "model": model,
+                            "message_count": len(messages),
+                            "blocked": True,
+                        },
+                    ),
+                )
+                return messages
+
         if self._compressor is None:
-            return messages
-        # Short-circuit when messages are below the threshold
-        if self._compression_threshold_chars > 0:
+            result = messages
+        elif self._compression_threshold_chars > 0:
             total_chars = sum(len(str(m.get("content") or "")) for m in messages)
             if total_chars < self._compression_threshold_chars:
-                return messages
-        return await self._compressor.compress(
-            messages, model=model, session_id=session_id,
-        )
+                result = messages
+            else:
+                result = await self._compressor.compress(
+                    messages, model=model, session_id=session_id,
+                )
+        else:
+            result = await self._compressor.compress(
+                messages, model=model, session_id=session_id,
+            )
+
+        if self._hooks is not None:
+            await self._hooks.run(
+                HookPoint.POST_COMPACT,
+                LifecycleHookContext(
+                    hook_point=HookPoint.POST_COMPACT,
+                    data={
+                        "session_id": session_id,
+                        "model": model,
+                        "message_count": len(result),
+                    },
+                ),
+            )
+        return result
 
     async def compact_thread(
         self,

@@ -35,7 +35,7 @@ from miqi.execution.permission_engine import (
     PermissionDecision,
     PermissionVerdict,
 )
-from miqi.execution.hook_runtime import HookRuntime, HookPoint
+from miqi.execution.hook_runtime import HookRuntime, HookPoint, HookOutcome
 from miqi.protocol.events import (
     ApprovalRequestedEvent,
     ApprovalResolvedEvent,
@@ -142,7 +142,18 @@ class ToolOrchestrator:
 
         try:
             # 1. Pre-tool-use hooks
-            await self.hooks.run(HookPoint.PRE_TOOL_USE, ctx)
+            outcome = await self.hooks.run_with_outcome(HookPoint.PRE_TOOL_USE, ctx)
+            if outcome.action == "block":
+                ctx.permission_decision = PermissionDecision(
+                    verdict=PermissionVerdict.DENY,
+                    reason=f"Blocked by hook: {outcome.reason}",
+                )
+                ctx.result = f"Permission denied: {outcome.reason}"
+                ctx.duration_ms = int((time.monotonic() - start) * 1000)
+                return ctx
+            if outcome.action == "modify" and outcome.patch:
+                if "arguments" in outcome.patch:
+                    ctx.arguments.update(outcome.patch["arguments"])
 
             # Phase 13: apply per-turn permission profile overrides
             permission_profile = getattr(ctx, "permission_profile", None)
@@ -161,6 +172,16 @@ class ToolOrchestrator:
                 return ctx
 
             if decision.verdict == PermissionVerdict.APPROVAL_REQUIRED:
+                pr_outcome = await self.hooks.run_with_outcome(
+                    HookPoint.PERMISSION_REQUEST, ctx
+                )
+                if pr_outcome.action == "block":
+                    ctx.permission_decision = PermissionDecision(
+                        verdict=PermissionVerdict.DENY,
+                        reason=f"Blocked by hook: {pr_outcome.reason}",
+                    )
+                    ctx.result = f"Permission denied: {pr_outcome.reason}"
+                    return ctx
                 decision = await self._request_approval(ctx, decision)
                 if decision.verdict != PermissionVerdict.ALLOW:
                     ctx.result = f"User denied: {decision.reason or 'no reason given'}"
@@ -195,7 +216,7 @@ class ToolOrchestrator:
                     return ctx
 
             # 4. Post-tool-use hooks
-            await self.hooks.run(HookPoint.POST_TOOL_USE, ctx)
+            await self.hooks.run_with_outcome(HookPoint.POST_TOOL_USE, ctx)
 
         except asyncio.CancelledError:
             ctx.result = "Tool execution cancelled"

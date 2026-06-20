@@ -14,6 +14,12 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
+from miqi.execution.hook_runtime import (
+    HookPoint,
+    HookRuntime,
+    LifecycleHookContext,
+)
+
 
 @dataclass
 class TurnResult:
@@ -42,6 +48,7 @@ class TurnRunner:
         max_iterations: int,
         capability_resolver: Any | None = None,
         ledger_runtime: Any | None = None,
+        hooks: HookRuntime | None = None,
     ):
         self._provider = provider
         self._tools = tool_runtime
@@ -50,6 +57,7 @@ class TurnRunner:
         self._max_iterations = max_iterations
         self._capability_resolver = capability_resolver
         self._ledger = ledger_runtime
+        self._hooks = hooks
 
     async def run(
         self,
@@ -68,7 +76,56 @@ class TurnRunner:
         iteration and yields with CancelledError when set.
         Phase 41: drains steer_queue at safe boundaries and continues
         the same turn instead of completing immediately.
+
+        Phase 51.3: fires PROMPT_SUBMIT, TURN_START, and TURN_END lifecycle hooks.
         """
+        lifecycle_ctx = LifecycleHookContext(
+            hook_point=HookPoint.PROMPT_SUBMIT,
+            data={
+                "turn_id": turn.turn_id,
+                "thread_id": turn.thread_id,
+                "user_content": user_content,
+            },
+        )
+        if self._hooks is not None:
+            await self._hooks.run(HookPoint.PROMPT_SUBMIT, lifecycle_ctx)
+            lifecycle_ctx.hook_point = HookPoint.TURN_START
+            await self._hooks.run(HookPoint.TURN_START, lifecycle_ctx)
+
+        try:
+            return await self._run_impl(
+                turn=turn,
+                user_content=user_content,
+                system_prompt=system_prompt,
+                tools=tools,
+                history=history,
+                cancel_event=cancel_event,
+                steer_queue=steer_queue,
+            )
+        finally:
+            if self._hooks is not None:
+                end_ctx = LifecycleHookContext(
+                    hook_point=HookPoint.TURN_END,
+                    data={
+                        "turn_id": turn.turn_id,
+                        "thread_id": turn.thread_id,
+                        "user_content": user_content,
+                    },
+                )
+                await self._hooks.run(HookPoint.TURN_END, end_ctx)
+
+    async def _run_impl(
+        self,
+        *,
+        turn: Any,
+        user_content: str,
+        system_prompt: str,
+        tools: list[dict[str, Any]] | None,
+        history: list[dict[str, Any]] | None = None,
+        cancel_event: Any | None = None,
+        steer_queue: Any | None = None,
+    ) -> TurnResult:
+        """Core turn loop implementation."""
         messages = self._context.build_initial_messages(
             turn=turn,
             user_content=user_content,

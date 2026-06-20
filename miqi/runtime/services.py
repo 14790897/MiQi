@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from miqi.execution.hook_runtime import HookRuntime
+
 
 class RuntimeEventEmitter:
     """Event emitter that routes typed protocol events to a configurable sink."""
@@ -76,6 +78,8 @@ class RuntimeServices:
     ledger_runtime: Any | None = None
     # Phase 25: replay/debug runtime
     replay_runtime: Any | None = None
+    # Phase 51.3: shared lifecycle hook runtime
+    hooks: HookRuntime | None = None
 
     @classmethod
     def from_config(
@@ -124,6 +128,7 @@ class RuntimeServices:
         )
 
         emitter = RuntimeEventEmitter(event_sink)
+        hook_runtime = HookRuntime()
 
         orchestrator = create_default_orchestrator(
             tool_registry=tool_registry,
@@ -139,6 +144,7 @@ class RuntimeServices:
             provider=provider,
             orchestrator=orchestrator,
             tool_registry=tool_registry,
+            hooks=hook_runtime,
         )
 
         # Wire SpawnTool into AgentControl
@@ -170,6 +176,7 @@ class RuntimeServices:
         context_runtime = ContextRuntime(
             llm_call_fn=_summarize_for_compaction,
             context_limit_chars=defaults.context_limit_chars,
+            hooks=hook_runtime,
         )
 
         # Phase 13: capability resolver (requires PluginManager and ToolRegistry)
@@ -181,6 +188,7 @@ class RuntimeServices:
             user_plugins_dir=_Path.home() / ".miqi" / "plugins",
             system_plugins_dir=_Path(__file__).parent.parent / "plugins",
             workspace=workspace,
+            hook_runtime=hook_runtime,
         )
 
         capability_resolver = CapabilityResolver(
@@ -215,6 +223,7 @@ class RuntimeServices:
             max_iterations=defaults.max_tool_iterations,
             capability_resolver=capability_resolver,
             ledger_runtime=ledger_runtime,
+            hooks=hook_runtime,
         )
 
         # Phase 13: AgentJobRuntime (depends on TurnRunner)
@@ -258,6 +267,7 @@ class RuntimeServices:
             mcp_runtime=mcp_runtime,
             ledger_runtime=ledger_runtime,
             replay_runtime=replay_runtime,
+            hooks=hook_runtime,
         )
 
         agent_jobs = AgentJobRuntime(services=services)

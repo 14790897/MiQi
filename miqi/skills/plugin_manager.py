@@ -9,12 +9,22 @@ Plugins are the top-level packaging format. A plugin can contain:
 
 from __future__ import annotations
 
+import asyncio
+import importlib
+import inspect
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+
+from miqi.execution.hook_runtime import (
+    HookOutcome,
+    HookPoint,
+    HookRegistration,
+    HookRuntime,
+)
 
 # ── shared plugin-name validator ──────────────────────────────────────────
 
@@ -43,6 +53,7 @@ class PluginManifest:
     skills: list[str] = field(default_factory=list)
     slash_commands: list[dict[str, str]] = field(default_factory=list)
     dependencies: list[str] = field(default_factory=list)
+    hooks: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -69,11 +80,108 @@ class PluginManager:
         user_plugins_dir: Path,
         system_plugins_dir: Path,
         workspace: Path | None = None,
+        hook_runtime: HookRuntime | None = None,
     ):
         self.user_dir = Path(user_plugins_dir)
         self.system_dir = Path(system_plugins_dir)
         self.workspace = workspace
+        self._hook_runtime = hook_runtime
         self._plugins: dict[str, LoadedPlugin] = {}
+
+    def _make_command_callback(self, target: str):
+        """Build an async callback that runs ``target`` through a shell."""
+
+        async def _callback(ctx) -> HookOutcome:
+            proc = await asyncio.create_subprocess_shell(
+                target,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                err = stderr.decode(errors="replace").strip() or "command hook failed"
+                return HookOutcome.block(err)
+            return HookOutcome.continue_()
+
+        return _callback
+
+    def _make_module_callback(self, plugin_path: Path, target: str):
+        """Build an async callback that imports ``pkg.mod:func`` from the plugin path."""
+        if ":" not in target:
+            raise ValueError(
+                f"Module hook target must be 'module.path:func', got: {target}"
+            )
+        module_path, func_name = target.rsplit(":", 1)
+
+        async def _callback(ctx):
+            import sys
+
+            p = str(plugin_path)
+            if p not in sys.path:
+                sys.path.insert(0, p)
+            module = importlib.import_module(module_path)
+            func = getattr(module, func_name)
+            result = func(ctx)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
+
+        return _callback
+
+    def _build_hook_registration(
+        self,
+        source: str,
+        plugin_path: Path,
+        spec: dict,
+    ):
+        """Convert a manifest hook spec into a HookRegistration."""
+        point = spec["point"].replace("-", "_")
+        hook_point = HookPoint[point.upper()]
+        tool_pattern = spec.get("match", "*")
+        priority = spec.get("priority", 0)
+        hook_type = spec["type"]
+        target = spec["target"]
+
+        if hook_type == "command":
+            callback = self._make_command_callback(target)
+        elif hook_type == "module":
+            callback = self._make_module_callback(plugin_path, target)
+        else:
+            raise ValueError(f"Unsupported hook type: {hook_type}")
+
+        return HookRegistration(
+            hook_point=hook_point,
+            tool_pattern=tool_pattern,
+            callback=callback,
+            priority=priority,
+            source=source,
+        )
+
+    def _register_plugin_hooks(self, plugin) -> None:
+        """Register all hooks declared by a plugin."""
+        if self._hook_runtime is None:
+            return
+        for spec in plugin.manifest.hooks:
+            try:
+                reg = self._build_hook_registration(
+                    plugin.manifest.name,
+                    plugin.path,
+                    spec,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to register hook for plugin {}: {}",
+                    plugin.manifest.name,
+                    spec,
+                )
+                continue
+            self._hook_runtime.register(reg)
+
+    def _unregister_plugin_hooks(self, name: str) -> None:
+        """Remove all hook registrations sourced from ``name``."""
+        if self._hook_runtime is None:
+            return
+        self._hook_runtime.unregister_source(name)
 
     async def discover(self) -> list[LoadedPlugin]:
         """Discover all plugins across all search paths."""
@@ -122,9 +230,11 @@ class PluginManager:
         import json
         manifest_data = json.loads(manifest_path.read_text())
         manifest = PluginManifest(**manifest_data)
-        return LoadedPlugin(
+        plugin = LoadedPlugin(
             manifest=manifest, path=plugin_dir, scope=scope
         )
+        self._register_plugin_hooks(plugin)
+        return plugin
 
     def get_mcp_servers(self) -> list[dict[str, Any]]:
         """Collect all MCP server configs from active plugins."""
@@ -231,6 +341,7 @@ class PluginManager:
             except ValueError:
                 continue
             if target.exists():
+                self._unregister_plugin_hooks(name)
                 shutil.rmtree(target, ignore_errors=True)
                 if name in self._plugins:
                     del self._plugins[name]
@@ -281,6 +392,7 @@ class PluginManager:
         manifest = PluginManifest(**manifest_data)
         plugin = LoadedPlugin(manifest=manifest, path=plugin_dir, scope=scope)
         self._plugins[plugin.manifest.name] = plugin
+        self._register_plugin_hooks(plugin)
         return plugin
 
     def toggle_plugin(self, name: str, enabled: bool) -> LoadedPlugin:
@@ -294,5 +406,12 @@ class PluginManager:
         plugin = self._plugins.get(name)
         if plugin is None:
             raise ValueError(f"Plugin '{name}' not found")
-        plugin.status = "active" if enabled else "disabled"
+
+        if enabled:
+            plugin.status = "active"
+            self._unregister_plugin_hooks(name)
+            self._register_plugin_hooks(plugin)
+        else:
+            plugin.status = "disabled"
+            self._unregister_plugin_hooks(name)
         return plugin

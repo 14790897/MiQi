@@ -22,6 +22,7 @@ from miqi.execution.permission_engine import (
     PermissionDecision,
     PermissionVerdict,
 )
+from miqi.execution.hook_runtime import HookOutcome
 from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
 
 
@@ -204,6 +205,7 @@ def mock_orch_components():
     se.select = AsyncMock()
     hr = MagicMock()
     hr.run = AsyncMock()
+    hr.run_with_outcome = AsyncMock(return_value=HookOutcome.continue_())
     tr = MagicMock()
     ev = MagicMock()
     ev.emit = AsyncMock()
@@ -470,6 +472,7 @@ async def test_real_write_file_tool_goes_through_tool_orchestrator(tmp_path):
     # Mock hook runtime and event emitter
     hook_runtime = MagicMock()
     hook_runtime.run = AsyncMock()
+    hook_runtime.run_with_outcome = AsyncMock(return_value=HookOutcome.continue_())
     event_emitter = MagicMock()
     event_emitter.emit = AsyncMock()
 
@@ -526,6 +529,7 @@ async def test_real_edit_file_tool_goes_through_tool_orchestrator(tmp_path):
 
     hook_runtime = MagicMock()
     hook_runtime.run = AsyncMock()
+    hook_runtime.run_with_outcome = AsyncMock(return_value=HookOutcome.continue_())
     event_emitter = MagicMock()
     event_emitter.emit = AsyncMock()
 
@@ -583,6 +587,7 @@ async def test_write_file_deny_by_orchestrator_does_not_mutate_disk(tmp_path):
 
     hook_runtime = MagicMock()
     hook_runtime.run = AsyncMock()
+    hook_runtime.run_with_outcome = AsyncMock(return_value=HookOutcome.continue_())
     event_emitter = MagicMock()
     event_emitter.emit = AsyncMock()
 

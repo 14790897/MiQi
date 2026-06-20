@@ -10,6 +10,11 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+from miqi.execution.hook_runtime import (
+    HookPoint,
+    HookRuntime,
+    LifecycleHookContext,
+)
 from miqi.protocol.commands import Submission
 from miqi.runtime.services import RuntimeServices
 from miqi.runtime.task_runner import TaskRunner
@@ -30,9 +35,16 @@ class RuntimeSession:
         await runtime.stop()
     """
 
-    def __init__(self, *, services: RuntimeServices, event_queue: asyncio.Queue | None = None):
+    def __init__(
+        self,
+        *,
+        services: RuntimeServices,
+        event_queue: asyncio.Queue | None = None,
+        hooks: HookRuntime | None = None,
+    ):
         self.services = services
         self.session_id = services.session_id
+        self._hooks = hooks
         self._submissions: asyncio.Queue[Any] = asyncio.Queue()
         self._events: asyncio.Queue[Any] = event_queue or asyncio.Queue()
         self._runner = TaskRunner(services=services, event_queue=self._events)
@@ -83,7 +95,11 @@ class RuntimeSession:
             workspace=workspace,
             event_sink=events.put,  # asyncio.Queue.put is a coroutine sink
         )
-        runtime = cls(services=services, event_queue=events)
+        runtime = cls(
+            services=services,
+            event_queue=events,
+            hooks=getattr(services, "hooks", None),
+        )
         return runtime
 
     async def start(self) -> None:
@@ -111,8 +127,31 @@ class RuntimeSession:
             self._stopped.clear()
             self._task = asyncio.create_task(self._run())
 
+        # Phase 51.3: lifecycle hook for session start.
+        if self._hooks is not None:
+            await self._hooks.run(
+                HookPoint.SESSION_START,
+                LifecycleHookContext(
+                    hook_point=HookPoint.SESSION_START,
+                    data={"session_id": self.session_id},
+                ),
+            )
+
     async def stop(self) -> None:
         """Stop the dispatch loop and tear down agent resources."""
+        # Phase 51.3: lifecycle hooks for session end and stop.
+        if self._hooks is not None:
+            end_ctx = LifecycleHookContext(
+                hook_point=HookPoint.SESSION_END,
+                data={"session_id": self.session_id},
+            )
+            await self._hooks.run(HookPoint.SESSION_END, end_ctx)
+            stop_ctx = LifecycleHookContext(
+                hook_point=HookPoint.STOP,
+                data={"session_id": self.session_id},
+            )
+            await self._hooks.run(HookPoint.STOP, stop_ctx)
+
         self._stopped.set()
         # Phase 41 hardening v2: release all turn reservations
         async with self._reservation_lock:
