@@ -54,6 +54,7 @@ class BridgeRuntimeLoop:
         self._pending_tasks: set[asyncio.Task] = set()
         self._terminal_sent: set[str] = set()  # prevent duplicate terminal events
         self._active_chat_tasks: dict[str, asyncio.Task] = {}  # req_id → drain task
+        self._session_drain_tasks: dict[str, asyncio.Task] = {}  # session_id → drain
         # Phase 45: Codex-style connection state (initialize handshake)
         self._connection_state: Any = None  # Created in _init_app_server
 
@@ -528,6 +529,12 @@ class BridgeRuntimeLoop:
         # Subscribe client to session events so emit_event delivers to the sink
         self._app_server.subscribe(client_id, runtime_id)
 
+        # Cancel any still-running drain for this session so the new one
+        # doesn't compete for events on the shared _events queue.
+        old = self._session_drain_tasks.pop(runtime_id, None)
+        if old is not None and not old.done():
+            old.cancel()
+
         # Spawn background drain task
         app_server = self._app_server
         task = asyncio.create_task(
@@ -540,8 +547,15 @@ class BridgeRuntimeLoop:
             )
         )
         self._active_chat_tasks[request_id] = task
+        self._session_drain_tasks[runtime_id] = task
         # Clean up task reference when done
-        task.add_done_callback(lambda t: self._active_chat_tasks.pop(request_id, None))
+        task.add_done_callback(
+            lambda t: self._active_chat_tasks.pop(request_id, None)
+        )
+        task.add_done_callback(
+            lambda t: self._session_drain_tasks.pop(runtime_id, None)
+            if self._session_drain_tasks.get(runtime_id) is t else None
+        )
 
         logger.info(
             "chat.send: submitted turn for client={} session={} thread={}",
@@ -994,6 +1008,7 @@ class BridgeRuntimeLoop:
                 return_exceptions=True,
             )
         self._active_chat_tasks.clear()
+        self._session_drain_tasks.clear()
 
         # 2. Stop AppServer (stops RuntimeSessions, cancels TTL, etc.)
         if self._app_server is not None:
