@@ -517,9 +517,10 @@ export function ChatConsole({
         })
         return
       }
-      // Skip progress events with no displayable content (e.g. raw bridge
-      // events with {event, data} shape that lack a .text field).
-      const progressText = data.text ?? data.event ?? null
+      // Skip progress events with no displayable content.
+      // Many runtime events ({event: "AgentReasoningEvent", data: {...}})
+      // contain no text — silence them to avoid blank lines.
+      const progressText = data.text ?? null
       if (!progressText && !data.tool_hint && !data.stream) return
       setMessages((prev) => [
         ...prev,
