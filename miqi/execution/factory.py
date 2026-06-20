@@ -1,7 +1,7 @@
-"""Shared orchestrator factory — avoids duplicating ToolOrchestrator setup.
+"""Shared orchestrator factory — creates a default ToolOrchestrator.
 
-Used by CLI agent/gateway/cron, TUI, bridge, and any other entry point
-that creates an AgentLoop and needs a configured orchestrator.
+The single public entry point is create_default_orchestrator, used by
+RuntimeServices and runtime-owned execution.
 """
 
 from __future__ import annotations
@@ -56,26 +56,3 @@ def create_default_orchestrator(
     )
 
 
-def configure_agent_orchestrator(
-    agent_loop: Any,
-    event_emitter: Any | None = None,
-    *,
-    bwrap_available: bool = False,
-) -> None:
-    """Create and wire a default orchestrator onto an AgentLoop.
-
-    After this call, agent_loop._orchestrator is guaranteed non-None
-    and agent_loop._orchestrator.tools == agent_loop.tools.
-
-    Args:
-        agent_loop: AgentLoop instance (after construction, before first turn).
-        event_emitter: EventEmitter or None (NoopEmitter used when None).
-        bwrap_available: Whether bwrap sandboxing is available.
-    """
-    orchestrator = create_default_orchestrator(
-        tool_registry=None,  # Will be set below
-        event_emitter=event_emitter,
-        bwrap_available=bwrap_available,
-    )
-    orchestrator.tools = agent_loop.tools
-    agent_loop.set_orchestrator(orchestrator)
