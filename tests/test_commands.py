@@ -137,17 +137,6 @@ def test_agent_command_passes_runtime_configs(monkeypatch, tmp_path):
         def __init__(self, _store_path, **kwargs):
             self.on_job = None
 
-    class FakeAgentLoop:
-        def __init__(self, **kwargs):
-            captured.update(kwargs)
-            self.channels_config = kwargs.get("channels_config")
-
-        async def process_direct(self, *_args, **_kwargs):
-            return "ok"
-
-        async def close_mcp(self):
-            return None
-
     # One-shot now goes through RuntimeSession; mock it to verify config flow
     runtime_captured: dict = {}
 
@@ -162,8 +151,6 @@ def test_agent_command_passes_runtime_configs(monkeypatch, tmp_path):
     monkeypatch.setattr("miqi.config.loader.get_data_dir", lambda: tmp_path)
     monkeypatch.setattr("miqi.cli.commands._make_provider", lambda _cfg: object())
     monkeypatch.setattr("miqi.cron.service.CronService", FakeCronService)
-    monkeypatch.setattr("miqi.agent.loop.AgentLoop", FakeAgentLoop)
-    monkeypatch.setattr("miqi.execution.factory.configure_agent_orchestrator", lambda _loop: None)
     monkeypatch.setattr(
         "miqi.cli.agent_cmd._run_agent_once_via_runtime",
         _fake_runtime,
