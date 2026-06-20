@@ -1,5 +1,4 @@
-"""Phase 2: AgentLoop auto-begins a trace and records steps without agent cooperation."""
-import asyncio, time
+"""Tests for TraceStore lifecycle — independent of AgentLoop (Phase 48)."""
 from pathlib import Path
 from miqi.agent.trace.store import TraceStore
 
@@ -56,28 +55,6 @@ def test_begin_task_resets_steps(tmp_path):
     steps = task.get("steps", [])
     assert len(steps) == 1
     assert steps[0]["tool_name"] == "tool_b"
-
-
-# ---------------------------------------------------------------------------
-# Spec I — new tests for _make_trace_slug and per-turn lifecycle
-# ---------------------------------------------------------------------------
-
-def test_make_trace_slug_ascii():
-    from miqi.agent.loop import AgentLoop
-    assert AgentLoop._make_trace_slug("help me write a python script") == "help-me-write-a-python"
-    assert AgentLoop._make_trace_slug("") == "session"
-    assert AgentLoop._make_trace_slug("   ") == "session"
-    slug = AgentLoop._make_trace_slug("analyze the data file carefully")
-    assert "-" in slug
-    assert len(slug) <= 40
-
-
-def test_make_trace_slug_cjk():
-    from miqi.agent.loop import AgentLoop
-    result = AgentLoop._make_trace_slug("帮我分析一下这个分子结构")
-    assert len(result) <= 20
-    assert result != "session"
-    assert "帮我" in result
 
 
 def test_per_turn_two_turns(tmp_path):

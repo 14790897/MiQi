@@ -106,7 +106,7 @@ def test_tui_connect_runtime_creates_runtime_session():
                  patch("miqi.runtime.session.RuntimeSession.create", _fake_create):
                 await app.connect_runtime(provider, workspace)
 
-            # Phase 14: RuntimeSession was created, not AgentLoop
+            # Phase 48: RuntimeSession owns execution, not AgentLoop
             assert len(rtc) == 1, "RuntimeSession.create should be called once"
             assert app._runtime is not None, "RuntimeSession should be stored"
             assert app._client is not None, "RuntimeClient should be stored"
@@ -118,25 +118,3 @@ def test_tui_connect_runtime_creates_runtime_session():
     asyncio.run(_test())
 
 
-def test_tui_connect_runtime_agent_loop_would_fail_fast_without_orchestrator():
-    """Without orchestrator, AgentLoop._run_agent_loop raises RuntimeError."""
-    from miqi.agent.loop import AgentLoop
-    from miqi.bus.queue import MessageBus
-
-    bus = MessageBus()
-    provider = MagicMock()
-    provider.get_default_model.return_value = "test-model"
-    provider.chat = AsyncMock()
-
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
-        workspace = Path(tmp)
-        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace, model="test-model")
-        # No orchestrator — should fail fast
-        loop._orchestrator = None
-
-        import pytest
-        with pytest.raises(RuntimeError, match="ToolOrchestrator must be configured"):
-            asyncio.run(loop._run_agent_loop(
-                [{"role": "user", "content": "test"}],
-                session_key="test:fail-fast",
-            ))
