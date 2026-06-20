@@ -349,8 +349,9 @@ class AppServer:
                 "recoverable": False,
             }
 
-        # 2. Check session authorization (if session-scoped)
-        if session_id is not None:
+        # 2. Check session authorization (if session-scoped).
+        #    Skip for chat.send — its handler auto-creates sessions on first use.
+        if session_id is not None and method != "chat.send":
             session = await self.registry.get_session(client_id, session_id)
             if session is None:
                 return {
