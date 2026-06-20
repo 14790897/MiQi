@@ -65,17 +65,23 @@ def test_runtime_services_do_not_import_agent_loop():
     assert "AgentLoop(" not in text
 
 
-def test_runtime_agent_loop_compat_has_no_process_direct():
-    """RuntimeAgentLoopCompat must not expose process_direct."""
-    from miqi.runtime.services import RuntimeAgentLoopCompat
+def test_runtime_services_has_model_settings_not_agent_loop():
+    """RuntimeServices must expose model_settings and have no agent_loop field."""
+    from miqi.runtime.services import RuntimeModelSettings
 
-    compat = RuntimeAgentLoopCompat(
+    ms = RuntimeModelSettings(
         model="test",
         temperature=0.1,
         max_tokens=4096,
         max_tool_result_chars=16000,
         context_limit_chars=600000,
     )
-    assert not hasattr(compat, "process_direct"), (
-        "RuntimeAgentLoopCompat must not have process_direct"
-    )
+    assert ms.model == "test"
+    assert ms.temperature == 0.1
+    assert ms.max_tokens == 4096
+    # RuntimeModelSettings is a frozen dataclass — mutation should fail
+    try:
+        ms.model = "other"  # type: ignore[misc]
+        assert False, "RuntimeModelSettings must be frozen"
+    except Exception:
+        pass

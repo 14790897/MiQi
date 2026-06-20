@@ -278,8 +278,14 @@ async def test_thread_compact_start_returns_immediately_and_owns_background_task
     runtime.services.context_runtime = MagicMock()
     runtime.services.context_runtime.compact_thread = AsyncMock()
     runtime.services.history_runtime = MagicMock()
-    runtime.services.agent_loop = MagicMock()
-    runtime.services.agent_loop.model = "test-model"
+    from miqi.runtime.services import RuntimeModelSettings
+    runtime.services.model_settings = RuntimeModelSettings(
+        model="test-model",
+        temperature=0.0,
+        max_tokens=100,
+        max_tool_result_chars=12000,
+        context_limit_chars=600000,
+    )
     _register_runtime(registry, runtime)
 
     from miqi.runtime.turn_app_handlers import register_codex_turn_handlers

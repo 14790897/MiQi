@@ -56,19 +56,20 @@ def registry_with_state():
 @pytest.fixture
 def fake_services(fake_config, fake_provider):
     """Fake RuntimeServices for TaskRunner / TurnRunner tests."""
-    from miqi.runtime.services import RuntimeEventEmitter
+    from miqi.runtime.services import RuntimeEventEmitter, RuntimeModelSettings
 
     services = MagicMock()
     services.session_id = "test:session"
     services.workspace = fake_config.workspace_path
     services.provider = fake_provider
     services.event_emitter = RuntimeEventEmitter()
-    services.agent_loop = MagicMock()
-    services.agent_loop.model = "test-model"
-    services.agent_loop.temperature = 0.1
-    services.agent_loop.max_tokens = 4096
-    services.agent_loop.stop = MagicMock()
-    services.agent_loop.close_mcp = AsyncMock()
+    services.model_settings = RuntimeModelSettings(
+        model="test-model",
+        temperature=0.1,
+        max_tokens=4096,
+        max_tool_result_chars=12000,
+        context_limit_chars=600000,
+    )
     services.tool_registry = MagicMock()
     services.tool_registry.get_definitions.return_value = []
     services.orchestrator = MagicMock()

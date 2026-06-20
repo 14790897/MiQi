@@ -32,10 +32,14 @@ def _services():
     services.session_id = "client-1:default"
     services.workspace = None
     services.provider = MagicMock()
-    services.agent_loop = MagicMock()
-    services.agent_loop.model = "test-model"
-    services.agent_loop.temperature = 0.0
-    services.agent_loop.max_tokens = 100
+    from miqi.runtime.services import RuntimeModelSettings
+    services.model_settings = RuntimeModelSettings(
+        model="test-model",
+        temperature=0.0,
+        max_tokens=100,
+        max_tool_result_chars=12000,
+        context_limit_chars=600000,
+    )
     services.tool_runtime = _FakeToolRuntime()
     services.history_runtime = None
     services.ledger_runtime = None

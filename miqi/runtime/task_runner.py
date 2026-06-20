@@ -101,7 +101,6 @@ class TaskRunner:
             return
         if isinstance(submission, AbortTurn):
             # Phase 14 follow-up: signal cancellation to the active turn
-            # instead of calling agent_loop.stop()
             thread_id = getattr(submission, "thread_id", None) or "default"
             cancel_evt = self._turn_cancel_events.get(thread_id)
             if cancel_evt is not None:
@@ -197,7 +196,7 @@ class TaskRunner:
                     history_runtime=history_runtime,
                     thread_id=submission.thread_id,
                     turn_id=compact_turn_id,
-                    model=getattr(self.services.agent_loop, "model", "default"),
+                    model=getattr(self.services.model_settings, "model", "default"),
                 )
             except Exception as exc:
                 await self._events.put(CommandRejectedEvent(
@@ -264,10 +263,10 @@ class TaskRunner:
             agent_metadata=metadata,
             thread_id=thread_id,
             workspace=self.services.workspace,
-            model=self.services.agent_loop.model,
+            model=self.services.model_settings.model,
             provider=self.services.provider,
-            temperature=self.services.agent_loop.temperature,
-            max_tokens=self.services.agent_loop.max_tokens,
+            temperature=self.services.model_settings.temperature,
+            max_tokens=self.services.model_settings.max_tokens,
             client_id=client_id,
             session_id=session_id,
         )
@@ -420,10 +419,10 @@ class TaskRunner:
             agent_metadata=metadata,
             thread_id=thread_id,
             workspace=self.services.workspace,
-            model=self.services.agent_loop.model,
+            model=self.services.model_settings.model,
             provider=self.services.provider,
-            temperature=self.services.agent_loop.temperature,
-            max_tokens=self.services.agent_loop.max_tokens,
+            temperature=self.services.model_settings.temperature,
+            max_tokens=self.services.model_settings.max_tokens,
             client_id=client_id,
             session_id=session_id,
         )
@@ -463,7 +462,7 @@ class TaskRunner:
 
             # Phase 19: auto-compact before turn if history exceeds budget
             ctx_runtime = getattr(self.services, "context_runtime", None)
-            auto_limit = getattr(self.services.agent_loop, "context_limit_chars", 0)
+            auto_limit = getattr(self.services.model_settings, "context_limit_chars", 0)
             if history_runtime is not None and ctx_runtime is not None and auto_limit:
                 token_limit = max(1, int(auto_limit) // 4)
                 if ctx_runtime.should_auto_compact(history, token_limit):

@@ -5,11 +5,8 @@ ToolOrchestrator, AgentControl, TurnRunner, PluginManager, CapabilityResolver,
 McpRuntime, etc.) for one session. Frontends should use RuntimeSession instead
 of building services directly.
 
-Phase 22: RuntimeServices no longer constructs or depends on AgentLoop.
-The former agent_loop field is now a RuntimeAgentLoopCompat shim that
-provides only config-level attributes (model, temperature, max_tokens,
-context_limit_chars) for callers that haven't been fully migrated yet.
-All heavy imports are lazy to avoid circular imports.
+Phase 48: RuntimeServices owns the service graph directly. Model configuration
+is carried by the immutable RuntimeModelSettings value object.
 """
 
 from __future__ import annotations
@@ -31,39 +28,15 @@ class RuntimeEventEmitter:
         await self._sink(event)
 
 
-class RuntimeAgentLoopCompat:
-    """Temporary compatibility shim — NOT a real AgentLoop.
+@dataclass(frozen=True)
+class RuntimeModelSettings:
+    """Model configuration consumed by runtime-owned execution."""
 
-    This exists solely so callers (TaskRunner, RuntimeSession) that still
-    read model/temperature/max_tokens/context_limit_chars from
-    ``services.agent_loop`` don't break while they are migrated to read
-    config directly. It does NOT construct, wrap, or delegate to the
-    real AgentLoop class. The stop() and close_mcp() methods are no-ops.
-
-    Once all callers read config from RuntimeServices directly, this
-    class and the ``agent_loop`` field on RuntimeServices can be removed.
-    """
-
-    def __init__(
-        self,
-        *,
-        model: str,
-        temperature: float,
-        max_tokens: int,
-        max_tool_result_chars: int,
-        context_limit_chars: int,
-    ):
-        self.model = model
-        self.temperature = temperature
-        self.max_tokens = max_tokens
-        self.max_tool_result_chars = max_tool_result_chars
-        self.context_limit_chars = context_limit_chars
-
-    def stop(self) -> None:
-        return None
-
-    async def close_mcp(self) -> None:
-        return None
+    model: str
+    temperature: float
+    max_tokens: int
+    max_tool_result_chars: int
+    context_limit_chars: int
 
 
 @dataclass
@@ -74,8 +47,6 @@ class RuntimeServices:
     ToolOrchestrator, AgentControl, TurnRunner, PluginManager,
     CapabilityResolver, McpRuntime, and all related wiring.
     Created once per session via from_config().
-
-    Phase 22: no longer depends on or constructs AgentLoop.
     """
 
     session_id: str
@@ -83,7 +54,7 @@ class RuntimeServices:
     bus: Any  # MessageBus
     provider: Any
     event_emitter: RuntimeEventEmitter
-    agent_loop: Any  # RuntimeAgentLoopCompat (temporary compat shim; NOT a real AgentLoop)
+    model_settings: RuntimeModelSettings  # immutable model config from config.agents.defaults
     tool_registry: Any
     orchestrator: Any
     agent_registry: Any  # AgentRegistry
@@ -143,8 +114,8 @@ class RuntimeServices:
             plan_tracker=plan_tracker,
         )
 
-        # Compatibility shim for callers that still read model/temperature/etc.
-        agent_loop = RuntimeAgentLoopCompat(
+        # Immutable model configuration for runtime-owned execution
+        model_settings = RuntimeModelSettings(
             model=defaults.model,
             temperature=defaults.temperature,
             max_tokens=defaults.max_tokens,
@@ -271,7 +242,7 @@ class RuntimeServices:
             bus=bus,
             provider=provider,
             event_emitter=emitter,
-            agent_loop=agent_loop,
+            model_settings=model_settings,
             tool_registry=tool_registry,
             orchestrator=orchestrator,
             agent_registry=registry,
