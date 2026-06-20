@@ -862,9 +862,7 @@ export function ChatConsole({
                   />
                 ))
               )}
-              {streaming &&
-                messages.length > 0 &&
-                messages[messages.length - 1].role === 'progress' && (
+              {streaming && (
                   <div
                     className="flex items-center gap-2 text-xs px-1"
                     style={{ color: 'var(--text-muted)' }}
