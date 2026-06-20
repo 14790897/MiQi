@@ -55,7 +55,7 @@ export function SessionExplorer({
     const unsub = window.miqi.runtime.onStateChange((status) => {
       if (status.state === 'running') loadSessions()
     })
-    return unsub
+    return () => { unsub() }
   }, [loadSessions])
 
   const loadDetail = async (key: string) => {

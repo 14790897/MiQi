@@ -100,7 +100,7 @@ export function Sidebar({
     const unsub = window.miqi.runtime.onStateChange((status) => {
       if (status.state === 'running') loadSessions()
     })
-    return unsub
+    return () => { unsub() }
   }, [loadSessions])
 
   return (
