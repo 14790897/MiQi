@@ -516,7 +516,7 @@ class BridgeRuntimeLoop:
             provider = make_provider(config)
             runtime = await registry.create_session(
                 client_id=client_id,
-                session_key=runtime_id,
+                session_key=session_key,
                 config=config,
                 provider=provider,
                 workspace=config.workspace_path,
