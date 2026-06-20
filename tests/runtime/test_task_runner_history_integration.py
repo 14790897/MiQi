@@ -385,19 +385,20 @@ async def test_compaction_record_persisted_and_reused(
 
     # Build services with real history_runtime + real context_runtime
     from miqi.runtime.context_runtime import ContextRuntime
-    from miqi.runtime.services import RuntimeEventEmitter
+    from miqi.runtime.services import RuntimeEventEmitter, RuntimeModelSettings
 
     services = MagicMock()
     services.session_id = "sess-cp"
     services.workspace = tmp_path
     services.provider = fake_provider
     services.event_emitter = RuntimeEventEmitter()
-    services.agent_loop = MagicMock()
-    services.agent_loop.model = "test-model"
-    services.agent_loop.temperature = 0.1
-    services.agent_loop.max_tokens = 4096
-    services.agent_loop.context_limit_chars = 600000
-    services.agent_loop.stop = MagicMock()
+    services.model_settings = RuntimeModelSettings(
+        model="test-model",
+        temperature=0.1,
+        max_tokens=4096,
+        max_tool_result_chars=12000,
+        context_limit_chars=600000,
+    )
     services.tool_registry = MagicMock()
     services.tool_registry.get_definitions.return_value = []
     services.orchestrator = MagicMock()

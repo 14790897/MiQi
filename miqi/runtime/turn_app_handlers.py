@@ -337,7 +337,7 @@ async def _run_thread_compaction(
             history_runtime=history,
             thread_id=thread_id,
             turn_id=turn_id,
-            model=getattr(session.services.agent_loop, "model", "default"),
+            model=getattr(session.services.model_settings, "model", "default"),
         )
         completed = context_compaction_item(turn_id, status="completed")
         await server.emit_event(

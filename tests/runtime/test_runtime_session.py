@@ -25,7 +25,9 @@ def test_runtime_services_builds_orchestrator(fake_config, fake_provider):
     assert services.orchestrator is not None
     assert services.orchestrator.tools is services.tool_registry
     assert services.event_emitter is not None
-    assert services.agent_loop is not None
+    assert services.model_settings is not None
+    assert services.model_settings.model == fake_config.agents.defaults.model
+    assert not hasattr(services, "agent_loop")
     assert services.agent_control is not None
     # AgentControl must have orchestrator wired
     assert services.agent_control._orchestrator is services.orchestrator

@@ -130,8 +130,7 @@ class RuntimeSession:
                 *([self._active_turn_task] if self._active_turn_task is not None and not self._active_turn_task.done() else []),
                 return_exceptions=True,
             )
-        self.services.agent_loop.stop()
-        await self.services.agent_loop.close_mcp()
+        # Phase 48: legacy agent_loop shim removed — no-op lifecycle calls deleted.
         # Phase 22 hardening: close persistent aiosqlite connections before
         # the event loop shuts down to avoid background-thread leaks.
         history = getattr(self.services, "history_runtime", None)
