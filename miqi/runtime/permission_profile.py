@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from miqi.execution.exec_policy import ExecPolicy
+
 
 @dataclass
 class PermissionProfile:
@@ -27,4 +29,5 @@ class PermissionProfile:
     # Phase 21: exec prefix rules (deny wins over allow)
     exec_allow_prefixes: list[list[str]] = field(default_factory=list)
     exec_deny_prefixes: list[list[str]] = field(default_factory=list)
+    exec_policy: ExecPolicy | None = None
     network_allowed: bool = False

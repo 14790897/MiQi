@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from miqi.execution.exec_policy import PolicyVerdict
+
 
 # Shell metacharacters that indicate command chaining or injection
 _SHELL_METACHAR_PATTERN = re.compile(r"[;&|`$(){}\[\]<>!\n\r]")
@@ -97,21 +99,52 @@ class PermissionEngine:
         if cmd_key in self.permanent_allowlist:
             return PermissionDecision(verdict=PermissionVerdict.ALLOW)
 
-        # 4. Phase 21: permission profile prefix rules for exec
+        # 4. Exec tool branch
         if tool_name == "exec":
             profile = getattr(ctx, "permission_profile", None)
+            cmd = str(ctx.arguments.get("command", ""))
+
+            # Declarative ExecPolicy takes precedence when present
+            if profile is not None and getattr(profile, "exec_policy", None) is not None:
+                policy_decision = profile.exec_policy.evaluate_command(cmd)
+                if policy_decision.verdict == PolicyVerdict.DENY:
+                    return PermissionDecision(
+                        verdict=PermissionVerdict.DENY,
+                        reason=f"Denied by exec policy: {policy_decision.source}",
+                    )
+                if policy_decision.verdict == PolicyVerdict.ALLOW:
+                    # Policy allows override the legacy safe-prefix whitelist, but
+                    # shell metacharacters still force approval to prevent injection.
+                    if _SHELL_METACHAR_PATTERN.search(cmd.strip()):
+                        return PermissionDecision(
+                            verdict=PermissionVerdict.APPROVAL_REQUIRED,
+                            category="exec",
+                            description=f"Policy allowed but command contains shell metacharacters: {cmd[:100]}",
+                            details={"command": cmd},
+                            allow_permanent=True,
+                        )
+                    return PermissionDecision(
+                        verdict=PermissionVerdict.ALLOW,
+                        reason=f"Allowed by exec policy: {policy_decision.source}",
+                    )
+                # PROMPT → require approval
+                return PermissionDecision(
+                    verdict=PermissionVerdict.APPROVAL_REQUIRED,
+                    category="exec",
+                    description=f"Run: {cmd[:100]}",
+                    details={"command": cmd},
+                    allow_permanent=True,
+                )
+
+            # Fall-through: legacy profile prefix rules + safe command checks
             if profile is not None:
-                cmd = str(ctx.arguments.get("command", ""))
                 parts = cmd.split()
                 # Deny rules checked first — explicit blocks always win
                 for prefix in getattr(profile, "exec_deny_prefixes", []):
                     if parts[:len(prefix)] == prefix:
                         return PermissionDecision(
                             verdict=PermissionVerdict.DENY,
-                            reason=(
-                                f"Denied by permission profile prefix: "
-                                f"{' '.join(prefix)}"
-                            ),
+                            reason=f"Denied by permission profile prefix: {' '.join(prefix)}",
                         )
                 # Allow rules — still require metacharacter safety
                 for prefix in getattr(profile, "exec_allow_prefixes", []):
@@ -120,22 +153,15 @@ class PermissionEngine:
                             return PermissionDecision(
                                 verdict=PermissionVerdict.APPROVAL_REQUIRED,
                                 category="exec",
-                                description=(
-                                    f"Allowed prefix but command contains "
-                                    f"shell metacharacters: {cmd[:100]}"
-                                ),
+                                description=f"Allowed prefix but command contains shell metacharacters: {cmd[:100]}",
                                 details={"command": cmd},
                             )
                         return PermissionDecision(
                             verdict=PermissionVerdict.ALLOW,
-                            reason=(
-                                f"Allowed by permission profile prefix: "
-                                f"{' '.join(prefix)}"
-                            ),
+                            reason=f"Allowed by permission profile prefix: {' '.join(prefix)}",
                         )
 
             # 5. Shell commands: metacharacter-aware safety check
-            cmd = ctx.arguments.get("command", "")
             if self._is_safe_command(cmd):
                 return PermissionDecision(verdict=PermissionVerdict.ALLOW)
             return PermissionDecision(

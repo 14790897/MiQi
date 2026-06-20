@@ -165,3 +165,47 @@ async def test_make_key_write_file():
     ctx = FakeContext("write_file", {"path": "/tmp/test.txt"})
     key = PermissionEngine._make_key(ctx)
     assert key == "write_file:/tmp/test.txt"
+
+
+from miqi.execution.exec_policy import ExecPolicy, CommandRule
+from miqi.execution.permission_engine import PermissionEngine, PermissionVerdict
+from miqi.runtime.permission_profile import PermissionProfile
+
+
+class _Ctx:
+    def __init__(self, tool_name, arguments, profile=None):
+        self.tool_name = tool_name
+        self.arguments = arguments
+        self.permission_profile = profile
+
+
+@pytest.mark.asyncio
+async def test_engine_uses_policy_allow_for_exec(tmp_path):
+    policy = ExecPolicy(command_rules=[
+        CommandRule(prefix=["pytest"], decision="allow", source="t"),
+    ])
+    profile = PermissionProfile(workspace=tmp_path, exec_policy=policy)
+    engine = PermissionEngine()
+    d = await engine.check(_Ctx("exec", {"command": "pytest -q"}, profile))
+    assert d.verdict == PermissionVerdict.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_engine_policy_deny_blocks_exec(tmp_path):
+    policy = ExecPolicy(command_rules=[
+        CommandRule(prefix=["curl"], decision="deny", source="t"),
+    ])
+    profile = PermissionProfile(workspace=tmp_path, exec_policy=policy)
+    engine = PermissionEngine()
+    d = await engine.check(_Ctx("exec", {"command": "curl evil.test"}, profile))
+    assert d.verdict == PermissionVerdict.DENY
+
+
+@pytest.mark.asyncio
+async def test_legacy_prefixes_still_work_without_policy(tmp_path):
+    # Backwards-compat: profile with only exec_allow_prefixes, no exec_policy
+    profile = PermissionProfile(workspace=tmp_path)
+    profile.exec_allow_prefixes = [["git", "status"]]
+    engine = PermissionEngine()
+    d = await engine.check(_Ctx("exec", {"command": "git status"}, profile))
+    assert d.verdict == PermissionVerdict.ALLOW
