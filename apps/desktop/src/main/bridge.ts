@@ -254,8 +254,14 @@ export class BridgeManager extends EventEmitter {
                 // Terminal: skip bridge-event
                 return
               }
-              // Non-terminal events: call onEvent and emit bridge-event
-              pending?.onEvent?.(resp.eventType, resp.data)
+              // Non-terminal events: call onEvent for tracked requests.
+              // Skip bridge-event when a pending exists — onEvent already
+              // delivers to the IPC handler. bridge-event is only for
+              // global events without a tracked request (e.g. fs/changed).
+              if (pending) {
+                pending.onEvent?.(resp.eventType, resp.data)
+                return
+              }
             }
             this.emit('bridge-event', {
               requestId: resp.requestId,
