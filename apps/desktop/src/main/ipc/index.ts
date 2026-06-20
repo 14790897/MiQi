@@ -703,7 +703,7 @@ for m in ("pydantic", "httpx", "loguru"):
   // Agents (Phase 2)
   // ---------------------------------------------------------------------------
   ipcMain.handle(IPC.AGENT_LIST, async () => {
-    return bridge.sendSafe('agent.list')
+    return bridge.sendSafe('agent.list', { session_key: 'desktop:default' })
   })
 
   ipcMain.handle(IPC.AGENT_SPAWN, async (_event, payload: unknown) => {

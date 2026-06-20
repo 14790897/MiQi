@@ -872,6 +872,11 @@ class BridgeRuntimeLoop:
 
                 client_id = conn_state.client_id or self._resolve_client_id(params)
                 session_id = params.get("session_key") or params.get("session_id")
+                # Namespace bare session_key with client_id so the registry
+                # lookup matches the {client_id}:{session_key} format used by
+                # ClientSessionRegistry.create_session().
+                if session_id and ":" not in session_id and client_id:
+                    session_id = f"{client_id}:{session_id}"
 
                 # Check if this method is registered on AppServer
                 if method in getattr(app_server, "_methods", {}):
