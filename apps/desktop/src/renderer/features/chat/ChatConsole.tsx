@@ -425,7 +425,7 @@ export function ChatConsole({
 
   const handleAbort = useCallback(async () => {
     cleanupListeners()
-    await window.miqi.chat.abort()
+    try { await window.miqi.chat.abort() } catch { /* ignore */ }
     setStreaming(false)
     setMessages((prev) => [
       ...prev,

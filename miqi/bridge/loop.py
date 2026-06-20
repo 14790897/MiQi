@@ -603,6 +603,7 @@ class BridgeRuntimeLoop:
             from miqi.protocol.events import (
                 AgentMessageEvent,
                 ErrorEvent,
+                TurnAbortedEvent,
                 TurnCompleteEvent,
             )
 
@@ -623,6 +624,13 @@ class BridgeRuntimeLoop:
                     # Do NOT break — consume the TurnCompleteEvent that
                     # follows so the next drain task starts with a clean queue.
                     continue
+
+                if isinstance(event, TurnAbortedEvent):
+                    await _emit_terminal("aborted", {
+                        "reason": event.reason,
+                        "turn_id": event.turn_id,
+                    })
+                    break
 
                 if isinstance(event, ErrorEvent):
                     await _emit_terminal("error", {
