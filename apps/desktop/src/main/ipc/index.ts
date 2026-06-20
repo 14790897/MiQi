@@ -69,7 +69,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   })
 
   ipcMain.handle(IPC.CHAT_ABORT, async () => {
-    return bridge.send('chat.abort')
+    return bridge.send('chat.abort', { session_key: 'desktop:default' })
   })
 
   // -----------------------------------------------------------------------
