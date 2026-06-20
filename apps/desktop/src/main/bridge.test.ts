@@ -100,16 +100,48 @@ vi.mock('child_process', () => ({
   execSync: mockExecSync,
 }))
 
-// fs mocks: only return true for uv/pyproject to force the uv code path
+// Captured watcher close spies for cleanup assertions
+const watcherCloses: Array<ReturnType<typeof vi.fn>> = []
+
+// Captured readline close spies — collected by the readline mock below
+const rlCloseSpies: Array<ReturnType<typeof vi.fn>> = []
+
+// fs mocks: only return true for uv/pyproject to force the uv code path,
+// and for miqi directory so file watcher starts
 vi.mock('fs', () => ({
   existsSync: vi.fn((p: string) => {
     if (typeof p === 'string') {
       if (p.includes('uv.lock') || p.includes('pyproject.toml')) return true
+      if (p.includes('miqi')) return true
     }
     return false
   }),
-  watch: vi.fn(() => ({ close: vi.fn() })),
+  watch: vi.fn(() => {
+    const closeFn = vi.fn()
+    watcherCloses.push(closeFn)
+    return { close: closeFn }
+  }),
 }))
+
+// readline mock: wraps createInterface to spy on close() calls
+vi.mock('readline', async () => {
+  const actual = await vi.importActual<typeof import('readline')>('readline')
+  return {
+    ...actual,
+    createInterface: vi.fn((opts: any) => {
+      const rl = actual.createInterface(opts)
+      const origClose = actual.Interface.prototype.close.bind(rl) as () => void
+      const closeSpy = vi.fn(() => origClose())
+      Object.defineProperty(rl, 'close', {
+        value: closeSpy,
+        writable: true,
+        configurable: true,
+      })
+      rlCloseSpies.push(closeSpy)
+      return rl
+    }),
+  }
+})
 
 async function importBridgeManager() {
   const mod = await import('./bridge')
@@ -150,6 +182,8 @@ function findRequestId(proc: ReturnType<typeof createMockProcess>, method: strin
 
 beforeEach(() => {
   vi.clearAllMocks()
+  watcherCloses.length = 0
+  rlCloseSpies.length = 0
 })
 
 describe('BridgeManager lifecycle', () => {
@@ -197,6 +231,8 @@ describe('BridgeManager lifecycle', () => {
   })
 
   it('cleans up all resources on initialize failure', async () => {
+    // Enable hot reload so the file watcher is started
+    process.env['ELECTRON_RENDERER_URL'] = 'test'
     const BridgeManager = await importBridgeManager()
     const proc = createMockProcess()
     const bridge = new BridgeManager('/fake/root')
@@ -213,15 +249,22 @@ describe('BridgeManager lifecycle', () => {
 
     await expect(startPromise).rejects.toThrow(/Internal error/)
 
-    // 1. readline close → rl set to null after cleanup
+    // 1. readline.close() spy was called (captured by module-level mock)
+    expect(rlCloseSpies.length).toBeGreaterThan(0)
+    for (const spy of rlCloseSpies) {
+      expect(spy).toHaveBeenCalled()
+    }
+    // 2. watcher.close() spy was called
+    expect(watcherCloses.length).toBeGreaterThan(0)
+    expect(watcherCloses[0]).toHaveBeenCalled()
+    // 3. rl and fileWatcher set to null after cleanup
     expect((bridge as any).rl).toBeNull()
-    // 2. watcher close → fileWatcher set to null
     expect((bridge as any).fileWatcher).toBeNull()
-    // 3. stdin.end called
+    // 4. stdin.end called
     expect(proc.stdin.end).toHaveBeenCalled()
-    // 4. process.kill called with SIGTERM
+    // 5. process.kill called with SIGTERM
     expect(proc.kill).toHaveBeenCalledWith('SIGTERM')
-    // 5. pending cleared (size 0 after cleanup)
+    // 6. pending cleared (size 0 after cleanup)
     expect((bridge as any).pending.size).toBe(0)
   }, 10_000)
 
@@ -310,7 +353,7 @@ describe('BridgeManager lifecycle', () => {
     await expect(sendPromise).rejects.toThrow('Something broke')
   }, 10_000)
 
-  it('does not emit bridge-event for terminal error (single channel)', async () => {
+  it('terminal error does not call onEvent (single channel — only promise rejection)', async () => {
     const BridgeManager = await importBridgeManager()
     const proc = createMockProcess()
     const bridge = new BridgeManager('/fake/root')
@@ -319,32 +362,30 @@ describe('BridgeManager lifecycle', () => {
     await new Promise((r) => setTimeout(r, 300))
     feedLine(proc, {
       id: findRequestId(proc, 'initialize'),
-      result: { clientId: 'ch-test', serverInfo: { version: '1' } },
+      result: { clientId: 'sc-test', serverInfo: { version: '1' } },
     })
     await startPromise
 
-    // Track bridge-event emissions
-    const bridgeEvents: unknown[] = []
-    bridge.on('bridge-event', (e: unknown) => bridgeEvents.push(e))
-
-    // Send a streaming request
-    const sendPromise = bridge.send('chat.send', { message: 'test' }, () => {})
+    // Track all onEvent calls
+    const onEventCalls: Array<{ type: string; data: unknown }> = []
+    const sendPromise = bridge.send('chat.send', { message: 'test' }, (type, data) => {
+      onEventCalls.push({ type, data })
+    })
 
     await new Promise((r) => setTimeout(r, 10))
     const reqId = findRequestId(proc, 'chat.send')
 
-    // progress event → should emit bridge-event
+    // 1) progress event → onEvent called (non-terminal)
     feedLine(proc, { id: reqId, type: 'progress', data: { text: 'thinking...' } })
     await new Promise((r) => setTimeout(r, 10))
-    expect(bridgeEvents.length).toBeGreaterThanOrEqual(1)
+    expect(onEventCalls.length).toBeGreaterThanOrEqual(1)
+    const progressCount = onEventCalls.length
 
-    // terminal error event → must NOT emit bridge-event (single channel)
-    const beforeCount = bridgeEvents.length
-    feedLine(proc, { id: reqId, type: 'error', data: { message: 'Boom' } })
-
-    await expect(sendPromise).rejects.toThrow('Boom')
-    // No new bridge-event emitted for terminal error
-    expect(bridgeEvents.length).toBe(beforeCount)
+    // 2) terminal error event → onEvent NOT called (single channel), only reject
+    feedLine(proc, { id: reqId, type: 'error', data: { message: 'Something broke' } })
+    await expect(sendPromise).rejects.toThrow('Something broke')
+    // onEvent count unchanged — error delivered only through promise rejection
+    expect(onEventCalls.length).toBe(progressCount)
   }, 10_000)
 
   it('rejects all pending on process exit', async () => {

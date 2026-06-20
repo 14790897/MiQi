@@ -233,10 +233,10 @@ export class BridgeManager extends EventEmitter {
           if (resp.eventType) {
             if (resp.requestId) {
               const pending = this.pending.get(resp.requestId)
-              pending?.onEvent?.(resp.eventType, resp.data)
               // Terminal events resolve/reject the streaming promise
               if (pending && TERMINAL_EVENT_TYPES.has(resp.eventType)) {
                 if (resp.eventType === 'error') {
+                  // Error: single channel — only reject; do NOT call onEvent
                   const msg: string =
                     typeof resp.error === 'string' ? resp.error
                     : (resp.data && typeof resp.data === 'object' && 'message' in resp.data && typeof (resp.data as Record<string,unknown>).message === 'string')
@@ -247,11 +247,15 @@ export class BridgeManager extends EventEmitter {
                   if (resp.code) (err as Error & { code?: string }).code = resp.code
                   pending.reject(err)
                 } else {
+                  // final / aborted: call onEvent then resolve
+                  pending.onEvent?.(resp.eventType, resp.data)
                   pending.resolve(resp.data)
                 }
-                // Terminal: deliver only through promise/callback — skip bridge-event
+                // Terminal: skip bridge-event
                 return
               }
+              // Non-terminal events: call onEvent and emit bridge-event
+              pending?.onEvent?.(resp.eventType, resp.data)
             }
             this.emit('bridge-event', {
               requestId: resp.requestId,
