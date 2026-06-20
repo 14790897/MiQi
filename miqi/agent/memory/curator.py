@@ -42,8 +42,10 @@ class LessonCurator:
 
     Called periodically from MemoryStore.flush() when the active lesson count
     exceeds the configured threshold. The LLM call follows the same pattern as
-    AgentLoop._call_llm_for_summary() — direct provider.chat() without going
-    through ContextBuilder.build_system_prompt() to prevent self-reference loops.
+    the runtime's direct provider.chat() summarization — direct provider.chat()
+    without going through ContextBuilder.build_system_prompt() to prevent
+    self-reference loops.
+    (Historical: pattern previously matched AgentLoop._call_llm_for_summary().)
     """
 
     def __init__(
@@ -117,7 +119,7 @@ class LessonCurator:
         lessons_text = "\n".join(lesson_lines)
 
         # Direct LLM call, bypasses ContextBuilder — prevents self-reference loop.
-        # Pattern matches AgentLoop._call_llm_for_summary() in loop.py.
+        # Historical: pattern previously matched AgentLoop._call_llm_for_summary().
         try:
             response = await self._llm_call(
                 messages=[

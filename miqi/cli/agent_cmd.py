@@ -99,7 +99,7 @@ def register_agent_command(
             signal.signal(signal.SIGINT, _exit_on_sigint)
 
             async def run_interactive():
-                # Phase 14: create RuntimeSession, not AgentLoop
+                # Historical (Phase 14): create RuntimeSession, not AgentLoop
                 runtime = RuntimeSession.create(
                     config=config,
                     provider=provider,

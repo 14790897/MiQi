@@ -1,7 +1,8 @@
 """Runtime-owned tool registry factory.
 
-Creates a fully populated ToolRegistry without depending on AgentLoop.
-Replaces AgentLoop._register_default_tools() for runtime-owned sessions.
+Historical: Creates a fully populated ToolRegistry without depending on the
+legacy AgentLoop. Replaces AgentLoop._register_default_tools() for
+runtime-owned sessions.
 
 Registration order is kept stable so model tool specs remain deterministic.
 """
@@ -31,7 +32,8 @@ def create_runtime_tool_registry(
 ) -> ToolRegistry:
     """Create the runtime-owned ToolRegistry.
 
-    This replaces RuntimeServices' dependency on AgentLoop._setup_tools().
+    Historical: This replaces RuntimeServices' dependency on the legacy
+    AgentLoop._setup_tools().
     Registration order is kept stable so model tool specs remain deterministic.
 
     Args:
@@ -56,7 +58,8 @@ def create_runtime_tool_registry(
     defaults = getattr(config, "agents", None)
     defaults = getattr(defaults, "defaults", None) if defaults is not None else None
 
-    # Resolve session-key-dependent paths (mirrors AgentLoop._register_default_tools)
+    # Resolve session-key-dependent paths (Historical: mirrors the legacy
+    # AgentLoop._register_default_tools)
     _session_key = getattr(config, "_session_key", "") or ""
     _snap_dir: Path | None = None
     _work_dir: Path | None = None

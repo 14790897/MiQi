@@ -13,7 +13,7 @@ graph TB
 
     subgraph MIQI["🐍 miqi/ — Python 后端"]
         direction LR
-        AGENT["agent/<br/>AgentLoop · Context · Subagent"]
+        AGENT["agent/<br/>Runtime · Context · Subagent"]
         TOOLS["agent/tools/<br/>15 内置工具"]
         BRIDGE["bridge/<br/>Bridge Server"]
         MEMORY["agent/memory/<br/>Store · Lessons · Curator"]
@@ -55,7 +55,7 @@ graph TB
 miqi-desktop/
 ├── miqi/                        Python 后端
 │   ├── agent/                   核心代理引擎
-│   │   ├── loop.py              AgentLoop — 消息处理主循环
+│   │   ├── turn_runner.py        TurnRunner — LLM调用循环 (runtime/)
 │   │   ├── context.py           ContextBuilder — 系统提示词构建
 │   │   ├── subagent.py          SubagentManager — 子代理管理
 │   │   ├── tools/               工具系统 (15个工具)

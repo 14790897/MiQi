@@ -8,7 +8,7 @@ sequenceDiagram
     participant ChatConsole as ChatConsole<br/>(React Renderer)
     participant IPC as IPC Handler<br/>(Main Process)
     participant Bridge as BridgeManager<br/>(Python 子进程)
-    participant Agent as AgentLoop<br/>(Agent 引擎)
+    participant Runtime as RuntimeSession<br/>/TaskRunner/TurnRunner
     participant Context as ContextBuilder
     participant LLM as LLM Provider
     participant Tools as ToolRegistry
@@ -19,20 +19,20 @@ sequenceDiagram
     IPC->>Bridge: bridge:chat-send
     Note over Bridge: JSON-line 写入 stdin
 
-    Bridge->>Agent: handle_chat_send()
-    Agent->>Context: build_system_prompt()
+    Bridge->>Runtime: handle_chat_send()
+    Runtime->>Context: build_system_prompt()
     Note over Context: 注入 SOUL.md / Memory / Trace
     Context-->>Agent: system prompt
 
-    loop Agent Loop
-        Agent->>LLM: Chat Completion (stream)
+    loop Turn Loop (TurnRunner)
+        Runtime->>LLM: Chat Completion (stream)
         LLM-->>Bridge: 流式文本增量
         Bridge-->>IPC: progress event
         IPC-->>ChatConsole: 实时渲染 Markdown
 
         alt 需要工具调用
-            LLM-->>Agent: function_call
-            Agent->>Tools: execute_concurrent()
+            LLM-->>Runtime: function_call
+            Runtime->>Tools: execute_concurrent()
 
             par 内置工具
                 Tools->>Tools: read_file / write_file / web_search
@@ -40,12 +40,12 @@ sequenceDiagram
                 Tools->>Tools: raspa-mcp / zeopp-backend
             end
 
-            Tools-->>Agent: 工具结果
+            Tools-->>Runtime: 工具结果
             Note over Bridge: tool_progress 心跳
         end
     end
 
-    Agent-->>Bridge: final event
+    Runtime-->>Bridge: final event
     Bridge-->>ChatConsole: 完整响应
     ChatConsole-->>User: 渲染结果
 ```
@@ -77,6 +77,6 @@ Event: 后端流式推送
 
 ## 并发处理
 
-- **多会话并行**：每个会话维护独立的 `AgentLoop` 实例，互不阻塞
+- **多会话并行**：每个会话维护独立的 `RuntimeSession` 实例，互不阻塞
 - **工具并行**：`ToolRegistry` 支持批量工具的并发执行
 - **MCP 心跳**：长时运行的工具通过心跳机制报告进度

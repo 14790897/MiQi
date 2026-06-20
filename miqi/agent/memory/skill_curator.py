@@ -37,8 +37,9 @@ class SkillCuratorReport:
 class SkillCurator:
     """LLM-driven skill deduplication and lifecycle management.
 
-    Called periodically from AgentLoop.flush_if_needed(). Manages workspace
+    Called periodically via the runtime nudge/flush mechanism. Manages workspace
     skills only (never touches built-in skills).
+    (Historical: previously called from AgentLoop.flush_if_needed().)
     """
 
     STALE_DAYS = 60      # unused for 60 days → stale

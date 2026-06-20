@@ -102,7 +102,7 @@ class RuntimeServices:
         bus = MessageBus()
         defaults = config.agents.defaults
 
-        # Phase 22: runtime-owned tool registry (replaces AgentLoop._register_default_tools)
+        # Historical (Phase 22): runtime-owned tool registry (replaced AgentLoop._register_default_tools)
         plan_tracker = PlanTracker()
         tool_registry = create_runtime_tool_registry(
             config=config,

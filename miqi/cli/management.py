@@ -543,7 +543,7 @@ def register_management_commands(
         service = CronService(store_path)
         provider = make_provider_getter()(config)
 
-        # Phase 14: use RuntimeSession, not AgentLoop
+        # Historical (Phase 14): use RuntimeSession, not AgentLoop
         result_holder = []
 
         async def on_job(job: CronJob) -> str | None:

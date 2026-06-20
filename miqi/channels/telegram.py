@@ -311,7 +311,7 @@ class TelegramChannel(BaseChannel):
         return f"{sid}|{user.username}" if user.username else sid
 
     async def _forward_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Forward slash commands to the bus for unified handling in AgentLoop."""
+        """Forward slash commands to the bus for unified handling via GatewayRuntimeDispatcher."""
         if not update.message or not update.effective_user:
             return
         await self._handle_message(

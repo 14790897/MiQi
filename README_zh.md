@@ -158,7 +158,7 @@ npx electron-builder
 │  └── Log forwarding                                        │
 ├─────────────────────────────────────────────────────────────┤
 │  MiQi Python Runtime                                       │
-│  ├── AgentLoop (核心代理引擎)                               │
+│  ├── RuntimeSession/TaskRunner/TurnRunner (核心运行时引擎)    │
 │  ├── Memory System (记忆系统)                               │
 │  ├── Tool Registry (工具注册)                               │
 │  └── Provider Interface (提供商接口)                         │

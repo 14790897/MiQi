@@ -159,7 +159,7 @@ The application configuration file is located at `~/.miqi/config.json` and conta
 │  └── Log forwarding                                        │
 ├─────────────────────────────────────────────────────────────┤
 │  MiQi Python Runtime                                       │
-│  ├── AgentLoop (Core agent engine)                         │
+│  ├── RuntimeSession/TaskRunner/TurnRunner (Core runtime engine) │
 │  ├── Memory System                                         │
 │  ├── Tool Registry                                         │
 │  └── Provider Interface                                    │

@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+### Removed (2026-06-20)
+- **Legacy AgentLoop module and imports** (`miqi/agent/loop.py`):
+  - Removed the `AgentLoop` class and `miqi/agent/loop.py` module. The `miqi/agent/__init__.py` no longer exports `AgentLoop`.
+  - Removed `RuntimeAgentLoopCompat` and `RuntimeServices.agent_loop` property; replaced by `RuntimeModelSettings`.
+  - Removed `configure_agent_orchestrator` from `miqi/runtime/factory.py`.
+  - All `services.agent_loop` references replaced with `services.model_settings` across the codebase.
+  - **Public Python API break**: code that directly imported `AgentLoop` from `miqi.agent` or accessed `RuntimeServices.agent_loop` / `RuntimeAgentLoopCompat` must migrate to `RuntimeModelSettings`.
+  - **Intentional retirement** of unreachable AgentLoop-only behaviors including `_run_agent_loop`, `_call_llm_for_summary`, `_register_default_tools`, and `flush_if_needed` instance methods — these are now owned by `TurnRunner`, `ContextRuntime`, `ToolRegistryFactory`, and the runtime nudge mechanism respectively.
+
 ### Added (2026-06-08)
 - **Collapse tool call messages in chat**:
   - Added ability to collapse tool call messages in chat interface for cleaner conversation view

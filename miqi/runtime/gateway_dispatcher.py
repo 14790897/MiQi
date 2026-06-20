@@ -1,8 +1,8 @@
 """Gateway runtime dispatcher — routes channel bus messages to RuntimeSession.
 
-Replaces the legacy AgentLoop.run() bus-based message loop for gateways.
-Reads InboundMessage from the bus, submits as UserMessage to RuntimeSession,
-and publishes responses back via bus.publish_outbound.
+Historical: Replaces the legacy AgentLoop.run() bus-based message loop for
+gateways. Reads InboundMessage from the bus, submits as UserMessage to
+RuntimeSession, and publishes responses back via bus.publish_outbound.
 """
 
 from __future__ import annotations
