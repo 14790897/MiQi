@@ -43,5 +43,3 @@ def test_create_default_orchestrator_permanent_allowlist():
     )
 
     assert "echo hello" in orchestrator.permissions.permanent_allowlist
-
-

@@ -49,35 +49,18 @@
 ### 处理流程
 
 1. **接收消息**：从 Bridge 或 CLI 接收用户输入，通过 RuntimeSession 进入
-2. **构建上下文**：调用 `ContextRuntime` 组装系统提示词（注入 SOUL.md、Memory、Trace 等）
+2. **构建上下文**：调用 `ContextRuntime` 组装系统提示词（注入 SOUL.md 等工作区模板）
 3. **TurnRunner LLM 调用**：向配置的 Provider 发送请求，流式接收响应
 4. **工具执行**：解析 Function Calling 响应，通过 `ToolRuntime` 和 `ToolRegistry` 执行
 5. **循环迭代**：将工具结果反馈给 LLM，直到任务完成或达到最大轮次
-6. **记忆持久化**：通过 Nudge 系统触发记忆和技能的持久化
+
+> **Phase 48 退役说明**: 旧版 AgentLoop 在第 5 步之后会自动触发记忆/技能持久化（Nudge）、自动调用 `task_begin`/`task_end` 标记任务边界、自动将工具调用链记录到 TraceStore。这些 AgentLoop-only 自动能力已在 Phase 48 退役，当前 RuntimeSession / TaskRunner / TurnRunner 尚未实现。后续如需要这些能力，必须从 AgentLoop 中单独迁移到 RuntimeSession / TaskRunner / TurnRunner。
 
 ## ContextRuntime
 
-`ContextRuntime` (`miqi/runtime/context_runtime.py`) 管理 turn 消息历史和上下文压紧：
+`ContextRuntime` (`miqi/runtime/context_runtime.py`) 管理 turn 消息历史和上下文压紧。
 
-### 注入项
-
-| 注入项 | 来源 | 说明 |
-|--------|------|------|
-| 工作区模板 | SOUL.md, IDENTITY.md, AGENTS.md | Agent 人格与行为定义 |
-| 记忆指导 | Memory System | 长期记忆使用说明 |
-| 技能列表 | Skills System | 可用技能清单与使用指导 |
-| 会话搜索 | FTS5 Index | 跨会话上下文召回指导 |
-| 历史追踪 | TraceStore | 最多 3 条相似历史任务上下文 |
-| Nudge 提醒 | Nudge System | 定期提醒持久化记忆和技能 |
-
-## TaskTracker
-
-集成在 `TurnRunner` / `TaskRunner` 中的任务追踪器，负责：
-
-- 自动调用 `task_begin` / `task_end` 标记任务边界
-- 记录工具调用链到 `TraceStore`
-- 任务结束时自动触发嵌入和索引
-- Nudge 间隔可配置（默认 8 轮）
+> **Phase 48 退役说明**: 旧版 AgentLoop 通过 `ContextRuntime` 自动注入了 Memory System 指南、Skills System 指南、FTS5 跨会话搜索提示、TraceStore 相似历史任务上下文、以及 Nudge 提醒。这些自动注入由 AgentLoop 在每次 turn 构建 system prompt 时驱动，并非 ContextRuntime 自身的独立行为。当前 ContextRuntime 仅管理消息历史和压紧；上述注入行为已在 Phase 48 随 AgentLoop 退役，后续如需要必须单独迁移。
 
 ## 子代理支持
 
