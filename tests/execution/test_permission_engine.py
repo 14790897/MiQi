@@ -167,6 +167,7 @@ async def test_make_key_write_file():
     assert key == "write_file:/tmp/test.txt"
 
 
+from miqi.execution.approval_policy import ApprovalPolicy, ApprovalMode
 from miqi.execution.exec_policy import ExecPolicy, CommandRule
 from miqi.execution.permission_engine import PermissionEngine, PermissionVerdict
 from miqi.runtime.permission_profile import PermissionProfile
@@ -209,3 +210,31 @@ async def test_legacy_prefixes_still_work_without_policy(tmp_path):
     engine = PermissionEngine()
     d = await engine.check(_Ctx("exec", {"command": "git status"}, profile))
     assert d.verdict == PermissionVerdict.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_never_mode_suppresses_file_write_prompt(tmp_path):
+    profile = PermissionProfile(workspace=tmp_path)
+    profile.approval_policy = ApprovalPolicy(mode=ApprovalMode.NEVER)
+    engine = PermissionEngine()
+    d = await engine.check(_Ctx("write_file", {"path": str(tmp_path / "a.txt")}, profile))
+    assert d.verdict == PermissionVerdict.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_granular_keeps_prompt_for_untrusted_category(tmp_path):
+    profile = PermissionProfile(workspace=tmp_path)
+    profile.approval_policy = ApprovalPolicy(
+        mode=ApprovalMode.GRANULAR, granular={"file_write": "on_request"})
+    engine = PermissionEngine()
+    d = await engine.check(_Ctx("write_file", {"path": str(tmp_path / "a.txt")}, profile))
+    assert d.verdict == PermissionVerdict.APPROVAL_REQUIRED
+
+
+@pytest.mark.asyncio
+async def test_no_policy_keeps_existing_behavior(tmp_path):
+    # No approval_policy → unchanged: file writes require approval
+    profile = PermissionProfile(workspace=tmp_path)
+    engine = PermissionEngine()
+    d = await engine.check(_Ctx("write_file", {"path": str(tmp_path / "a.txt")}, profile))
+    assert d.verdict == PermissionVerdict.APPROVAL_REQUIRED

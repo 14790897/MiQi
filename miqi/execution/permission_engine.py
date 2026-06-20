@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from miqi.execution.approval_policy import ApprovalPolicy
 from miqi.execution.exec_policy import PolicyVerdict
 
 
@@ -81,6 +82,7 @@ class PermissionEngine:
             PermissionDecision with the verdict.
         """
         tool_name = ctx.tool_name
+        profile = getattr(ctx, "permission_profile", None)
 
         # 1. Deny list check FIRST — explicit blocks always win
         for pattern in self.deny_patterns:
@@ -101,7 +103,6 @@ class PermissionEngine:
 
         # 4. Exec tool branch
         if tool_name == "exec":
-            profile = getattr(ctx, "permission_profile", None)
             cmd = str(ctx.arguments.get("command", ""))
 
             # Declarative ExecPolicy takes precedence when present
@@ -116,24 +117,30 @@ class PermissionEngine:
                     # Policy allows override the legacy safe-prefix whitelist, but
                     # shell metacharacters still force approval to prevent injection.
                     if _SHELL_METACHAR_PATTERN.search(cmd.strip()):
-                        return PermissionDecision(
-                            verdict=PermissionVerdict.APPROVAL_REQUIRED,
-                            category="exec",
-                            description=f"Policy allowed but command contains shell metacharacters: {cmd[:100]}",
-                            details={"command": cmd},
-                            allow_permanent=True,
+                        return self._apply_approval_policy(
+                            PermissionDecision(
+                                verdict=PermissionVerdict.APPROVAL_REQUIRED,
+                                category="exec",
+                                description=f"Policy allowed but command contains shell metacharacters: {cmd[:100]}",
+                                details={"command": cmd},
+                                allow_permanent=True,
+                            ),
+                            profile,
                         )
                     return PermissionDecision(
                         verdict=PermissionVerdict.ALLOW,
                         reason=f"Allowed by exec policy: {policy_decision.source}",
                     )
                 # PROMPT → require approval
-                return PermissionDecision(
-                    verdict=PermissionVerdict.APPROVAL_REQUIRED,
-                    category="exec",
-                    description=f"Run: {cmd[:100]}",
-                    details={"command": cmd},
-                    allow_permanent=True,
+                return self._apply_approval_policy(
+                    PermissionDecision(
+                        verdict=PermissionVerdict.APPROVAL_REQUIRED,
+                        category="exec",
+                        description=f"Run: {cmd[:100]}",
+                        details={"command": cmd},
+                        allow_permanent=True,
+                    ),
+                    profile,
                 )
 
             # Fall-through: legacy profile prefix rules + safe command checks
@@ -150,11 +157,14 @@ class PermissionEngine:
                 for prefix in getattr(profile, "exec_allow_prefixes", []):
                     if parts[:len(prefix)] == prefix:
                         if not self._is_safe_command(cmd):
-                            return PermissionDecision(
-                                verdict=PermissionVerdict.APPROVAL_REQUIRED,
-                                category="exec",
-                                description=f"Allowed prefix but command contains shell metacharacters: {cmd[:100]}",
-                                details={"command": cmd},
+                            return self._apply_approval_policy(
+                                PermissionDecision(
+                                    verdict=PermissionVerdict.APPROVAL_REQUIRED,
+                                    category="exec",
+                                    description=f"Allowed prefix but command contains shell metacharacters: {cmd[:100]}",
+                                    details={"command": cmd},
+                                ),
+                                profile,
                             )
                         return PermissionDecision(
                             verdict=PermissionVerdict.ALLOW,
@@ -164,12 +174,15 @@ class PermissionEngine:
             # 5. Shell commands: metacharacter-aware safety check
             if self._is_safe_command(cmd):
                 return PermissionDecision(verdict=PermissionVerdict.ALLOW)
-            return PermissionDecision(
-                verdict=PermissionVerdict.APPROVAL_REQUIRED,
-                category="exec",
-                description=f"Run: {cmd[:100]}",
-                details={"command": cmd},
-                allow_permanent=True,
+            return self._apply_approval_policy(
+                PermissionDecision(
+                    verdict=PermissionVerdict.APPROVAL_REQUIRED,
+                    category="exec",
+                    description=f"Run: {cmd[:100]}",
+                    details={"command": cmd},
+                    allow_permanent=True,
+                ),
+                profile,
             )
 
         # 6. File writes: require approval unless whitelisted.
@@ -182,20 +195,26 @@ class PermissionEngine:
         })
         if tool_name in _FILE_WRITE_TOOLS:
             path = ctx.arguments.get("path", "") or ctx.arguments.get("file_path", "")
-            return PermissionDecision(
-                verdict=PermissionVerdict.APPROVAL_REQUIRED,
-                category="file_write",
-                description=f"{tool_name}: {path}",
-                details={"path": path, "operation": tool_name},
-                allow_permanent=True,
+            return self._apply_approval_policy(
+                PermissionDecision(
+                    verdict=PermissionVerdict.APPROVAL_REQUIRED,
+                    category="file_write",
+                    description=f"{tool_name}: {path}",
+                    details={"path": path, "operation": tool_name},
+                    allow_permanent=True,
+                ),
+                profile,
             )
 
         # 7. Default: deny-by-default — unknown tools require approval
-        return PermissionDecision(
-            verdict=PermissionVerdict.APPROVAL_REQUIRED,
-            category="unknown_tool",
-            description=f"Unknown tool: {tool_name}",
-            details={"tool_name": tool_name},
+        return self._apply_approval_policy(
+            PermissionDecision(
+                verdict=PermissionVerdict.APPROVAL_REQUIRED,
+                category="unknown_tool",
+                description=f"Unknown tool: {tool_name}",
+                details={"tool_name": tool_name},
+            ),
+            profile,
         )
 
     def _is_safe_command(self, cmd: str) -> bool:
@@ -209,6 +228,30 @@ class PermissionEngine:
             return False
         cmd_lower = cmd_stripped.lower()
         return any(cmd_lower.startswith(p) for p in self.SAFE_COMMAND_PREFIXES)
+
+    def _apply_approval_policy(
+        self,
+        decision: PermissionDecision,
+        profile: Any | None,
+        *,
+        failed: bool = False,
+    ) -> PermissionDecision:
+        """Potentially auto-approve a decision based on the active policy."""
+        if decision.verdict != PermissionVerdict.APPROVAL_REQUIRED:
+            return decision
+        policy = getattr(profile, "approval_policy", None)
+        if policy is None:
+            return decision
+        if not policy.requires_prompt(category=decision.category, failed=failed):
+            return PermissionDecision(
+                verdict=PermissionVerdict.ALLOW,
+                category=decision.category,
+                reason=f"Auto-approved by policy ({policy.mode.value})",
+                description=decision.description,
+                details=decision.details,
+                allow_permanent=decision.allow_permanent,
+            )
+        return decision
 
     @staticmethod
     def _make_key(ctx: Any) -> str:

@@ -105,6 +105,62 @@ async def test_approvals_list_includes_permanent_allowlist(fake_config, fake_pro
     assert "timeout" in result["result"]
 
 
+@pytest.mark.asyncio
+async def test_approvals_list_includes_approval_mode_from_profile(fake_config, fake_provider, tmp_path):
+    """approvals.list surfaces the active session's approval_policy mode."""
+    from pathlib import Path
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.approval_handlers import approvals_list_handler
+    from miqi.runtime.permission_profile import PermissionProfile
+    from miqi.execution.approval_policy import ApprovalPolicy, ApprovalMode
+
+    registry = ClientSessionRegistry()
+
+    try:
+        session = await registry.create_session(
+            client_id="client-1",
+            session_key="session-a",
+            config=fake_config,
+            provider=fake_provider,
+            workspace=tmp_path,
+        )
+        profile = PermissionProfile(
+            workspace=Path(tmp_path),
+            approval_policy=ApprovalPolicy(mode=ApprovalMode.NEVER),
+        )
+        session.services.permission_profile = profile
+
+        result = await approvals_list_handler("req-1", {}, "client-1", None, registry)
+        assert "approval_mode" in result["result"]
+        assert result["result"]["approval_mode"] == "never"
+    finally:
+        await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_approvals_list_defaults_approval_mode_to_on_request(fake_config, fake_provider, tmp_path):
+    """approvals.list defaults to 'on_request' when no approval_policy is available."""
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.approval_handlers import approvals_list_handler
+
+    registry = ClientSessionRegistry()
+
+    try:
+        await registry.create_session(
+            client_id="client-1",
+            session_key="session-a",
+            config=fake_config,
+            provider=fake_provider,
+            workspace=tmp_path,
+        )
+
+        result = await approvals_list_handler("req-1", {}, "client-1", None, registry)
+        assert "approval_mode" in result["result"]
+        assert result["result"]["approval_mode"] == "on_request"
+    finally:
+        await registry.stop_all()
+
+
 # ── approvals.resolve ──────────────────────────────────────────────────────
 
 

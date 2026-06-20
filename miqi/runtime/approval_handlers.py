@@ -19,6 +19,35 @@ from loguru import logger
 from miqi.runtime.app_server import AppServerError
 
 
+async def _resolve_approval_mode(registry: Any, client_id: str) -> str:
+    """Best-effort resolution of the active approval mode for a client.
+
+    Iterates over the client's authorized sessions and returns the first
+    non-None approval_policy mode found on the session's services or on
+    the session runtime itself. Falls back to 'on_request' when no policy
+    is available.
+    """
+    for sid in registry.list_sessions(client_id):
+        runtime = await registry.get_session(client_id, sid)
+        if runtime is None:
+            continue
+
+        profile = None
+        services = getattr(runtime, "services", None)
+        if services is not None:
+            profile = getattr(services, "permission_profile", None)
+        if profile is None:
+            profile = getattr(runtime, "permission_profile", None)
+        if profile is None:
+            continue
+
+        policy = getattr(profile, "approval_policy", None)
+        if policy is not None:
+            return policy.mode.value
+
+    return "on_request"
+
+
 async def approvals_list_handler(
     request_id: str,
     params: dict[str, Any],
@@ -75,6 +104,9 @@ async def approvals_list_handler(
     except Exception:
         pass
 
+    # Surface the active approval mode (best-effort from session profiles)
+    approval_mode = await _resolve_approval_mode(registry, client_id)
+
     return {
         "result": {
             "pending": pending,
@@ -83,6 +115,7 @@ async def approvals_list_handler(
             "permanent_entries": permanent_entries,
             "enabled": enabled,
             "timeout": timeout,
+            "approval_mode": approval_mode,
         },
     }
 
