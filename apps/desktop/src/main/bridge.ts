@@ -52,6 +52,9 @@ export interface InitializeParams {
   }
 }
 
+/** Terminal event types that resolve/reject a streaming pending entry. */
+const TERMINAL_EVENT_TYPES = new Set(['final', 'error', 'aborted'])
+
 export function normalizeBridgeMessage(resp: BridgeResponse): NormalizedBridgeMessage {
   const requestId =
     typeof resp.id === 'string'
@@ -106,9 +109,10 @@ function findBridgeExecutable(projectRoot: string): {
 
   // Check for bundled miqi-bridge executable (packaged app)
   // In asar, __dirname is inside the archive, so use process.resourcesPath
-  const bundledBridge =
-    join(process.resourcesPath, 'miqi-bridge.exe')
-  if (existsSync(bundledBridge)) {
+  const bundledBridge = process.resourcesPath
+    ? join(process.resourcesPath, 'miqi-bridge.exe')
+    : null
+  if (bundledBridge && existsSync(bundledBridge)) {
     return { command: bundledBridge, args: [] }
   }
 
@@ -171,6 +175,11 @@ export class BridgeManager extends EventEmitter {
       process.env['ELECTRON_RENDERER_URL'] !== undefined
   }
 
+  /** Whether the bridge has completed the initialize/initialized handshake. */
+  isInitialized(): boolean {
+    return this.initialized
+  }
+
   getStatus(): RuntimeStatus {
     return {
       state: this.state,
@@ -225,6 +234,20 @@ export class BridgeManager extends EventEmitter {
             if (resp.requestId) {
               const pending = this.pending.get(resp.requestId)
               pending?.onEvent?.(resp.eventType, resp.data)
+              // Terminal events resolve/reject the streaming promise
+              if (pending && TERMINAL_EVENT_TYPES.has(resp.eventType)) {
+                if (resp.eventType === 'error') {
+                  const msg: string =
+                    typeof resp.error === 'string' ? resp.error
+                    : typeof resp.data === 'string' ? resp.data
+                    : 'Stream error'
+                  const err = new Error(msg)
+                  if (resp.code) (err as Error & { code?: string }).code = resp.code
+                  pending.reject(err)
+                } else {
+                  pending.resolve(resp.data)
+                }
+              }
             }
             this.emit('bridge-event', {
               requestId: resp.requestId,
@@ -254,6 +277,9 @@ export class BridgeManager extends EventEmitter {
                 (resp.code ? ` (${resp.code})` : ''),
             )
             pending.reject(err)
+          } else if (pending.onEvent) {
+            // Streaming mode: notify via onEvent, keep pending alive for future events
+            pending.onEvent('response', resp.result)
           } else {
             pending.resolve(resp.result)
           }
@@ -319,6 +345,25 @@ export class BridgeManager extends EventEmitter {
       this.state = 'error'
       this.addLog(`Failed to start bridge: ${err}`)
       this.emitState()
+
+      // Cleanup on initialization failure
+      this.stopFileWatcher()
+      if (this.rl) {
+        this.rl.close()
+        this.rl = null
+      }
+      if (this.process) {
+        this.process.stdin?.end()
+        this.process.kill('SIGTERM')
+        this.process = null
+      }
+      this.initialized = false
+      this.clientId = 'miqi-desktop'
+      // Reject all pending requests
+      for (const [id, pending] of this.pending) {
+        pending.reject(new Error('Bridge initialization failed'))
+        this.pending.delete(id)
+      }
       throw err
     }
   }
