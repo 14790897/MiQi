@@ -196,7 +196,7 @@ describe('BridgeManager lifecycle', () => {
     expect(bridge.getStatus().state).toBe('error')
   })
 
-  it('cleans up on initialize failure (error response)', async () => {
+  it('cleans up all resources on initialize failure', async () => {
     const BridgeManager = await importBridgeManager()
     const proc = createMockProcess()
     const bridge = new BridgeManager('/fake/root')
@@ -212,8 +212,17 @@ describe('BridgeManager lifecycle', () => {
     })
 
     await expect(startPromise).rejects.toThrow(/Internal error/)
-    expect(bridge.getStatus().state).toBe('error')
-    expect(bridge.isInitialized()).toBe(false)
+
+    // 1. readline close → rl set to null after cleanup
+    expect((bridge as any).rl).toBeNull()
+    // 2. watcher close → fileWatcher set to null
+    expect((bridge as any).fileWatcher).toBeNull()
+    // 3. stdin.end called
+    expect(proc.stdin.end).toHaveBeenCalled()
+    // 4. process.kill called with SIGTERM
+    expect(proc.kill).toHaveBeenCalledWith('SIGTERM')
+    // 5. pending cleared (size 0 after cleanup)
+    expect((bridge as any).pending.size).toBe(0)
   }, 10_000)
 
   it('routes streaming accepted→progress→final without early resolve', async () => {
@@ -270,7 +279,7 @@ describe('BridgeManager lifecycle', () => {
     expect(events[2].type).toBe('final')
   }, 10_000)
 
-  it('rejects streaming promise on error event', async () => {
+  it('rejects streaming promise on error event with data.message envelope', async () => {
     const BridgeManager = await importBridgeManager()
     const proc = createMockProcess()
     const bridge = new BridgeManager('/fake/root')
@@ -296,9 +305,46 @@ describe('BridgeManager lifecycle', () => {
     await new Promise((r) => setTimeout(r, 10))
     expect(events).toContain('response')
 
-    // error event
-    feedLine(proc, { id: reqId, type: 'error', error: 'Something broke', code: 'CHAT_ERROR' })
+    // error event with data.message envelope (real bridge format)
+    feedLine(proc, { id: reqId, type: 'error', data: { message: 'Something broke' } })
     await expect(sendPromise).rejects.toThrow('Something broke')
+  }, 10_000)
+
+  it('does not emit bridge-event for terminal error (single channel)', async () => {
+    const BridgeManager = await importBridgeManager()
+    const proc = createMockProcess()
+    const bridge = new BridgeManager('/fake/root')
+
+    const startPromise = bridge.start()
+    await new Promise((r) => setTimeout(r, 300))
+    feedLine(proc, {
+      id: findRequestId(proc, 'initialize'),
+      result: { clientId: 'ch-test', serverInfo: { version: '1' } },
+    })
+    await startPromise
+
+    // Track bridge-event emissions
+    const bridgeEvents: unknown[] = []
+    bridge.on('bridge-event', (e: unknown) => bridgeEvents.push(e))
+
+    // Send a streaming request
+    const sendPromise = bridge.send('chat.send', { message: 'test' }, () => {})
+
+    await new Promise((r) => setTimeout(r, 10))
+    const reqId = findRequestId(proc, 'chat.send')
+
+    // progress event → should emit bridge-event
+    feedLine(proc, { id: reqId, type: 'progress', data: { text: 'thinking...' } })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(bridgeEvents.length).toBeGreaterThanOrEqual(1)
+
+    // terminal error event → must NOT emit bridge-event (single channel)
+    const beforeCount = bridgeEvents.length
+    feedLine(proc, { id: reqId, type: 'error', data: { message: 'Boom' } })
+
+    await expect(sendPromise).rejects.toThrow('Boom')
+    // No new bridge-event emitted for terminal error
+    expect(bridgeEvents.length).toBe(beforeCount)
   }, 10_000)
 
   it('rejects all pending on process exit', async () => {

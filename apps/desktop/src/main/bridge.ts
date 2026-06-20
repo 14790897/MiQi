@@ -239,6 +239,8 @@ export class BridgeManager extends EventEmitter {
                 if (resp.eventType === 'error') {
                   const msg: string =
                     typeof resp.error === 'string' ? resp.error
+                    : (resp.data && typeof resp.data === 'object' && 'message' in resp.data && typeof (resp.data as Record<string,unknown>).message === 'string')
+                      ? (resp.data as Record<string,unknown>).message as string
                     : typeof resp.data === 'string' ? resp.data
                     : 'Stream error'
                   const err = new Error(msg)
@@ -247,6 +249,8 @@ export class BridgeManager extends EventEmitter {
                 } else {
                   pending.resolve(resp.data)
                 }
+                // Terminal: deliver only through promise/callback — skip bridge-event
+                return
               }
             }
             this.emit('bridge-event', {

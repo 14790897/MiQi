@@ -218,7 +218,7 @@ export function ApprovalsPage() {
             >
               <Icon size={13} />
               {t.label}
-              {t.key === 'pending' && data?.pending?.length > 0 && (
+              {t.key === 'pending' && (data?.pending?.length ?? 0) > 0 && (
                 <span className="ml-0.5 bg-[var(--danger)] text-white text-[10px] rounded-full px-1.5 py-0.5 leading-none">
                   {data?.pending?.length}
                 </span>

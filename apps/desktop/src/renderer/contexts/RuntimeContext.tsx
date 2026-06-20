@@ -6,15 +6,15 @@ import {
   useCallback,
   type ReactNode,
 } from 'react'
-import type { RuntimeState, RuntimeStatus } from '../../shared/ipc'
+import type { RuntimeStatus } from '../../shared/ipc'
 
 const hasApi = typeof window !== 'undefined' && !!(window as any).miqi?.runtime
 
 interface RuntimeContextValue {
   status: RuntimeStatus
   logs: string[]
-  start: () => Promise<void>
-  stop: () => Promise<void>
+  start: () => Promise<RuntimeStatus | undefined>
+  stop: () => Promise<RuntimeStatus | undefined>
   refreshStatus: () => Promise<void>
   refreshLogs: () => Promise<void>
 }
@@ -53,12 +53,14 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     if (!hasApi) return
     const s = await window.miqi.runtime.start()
     setStatus(s)
+    return s
   }, [])
 
   const stop = useCallback(async () => {
     if (!hasApi) return
     const s = await window.miqi.runtime.stop()
     setStatus(s)
+    return s
   }, [])
 
   useEffect(() => {
