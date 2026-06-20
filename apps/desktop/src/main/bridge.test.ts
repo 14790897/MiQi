@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { PassThrough } from 'stream'
 import {
   buildInitializeParams,
@@ -184,6 +184,11 @@ beforeEach(() => {
   vi.clearAllMocks()
   watcherCloses.length = 0
   rlCloseSpies.length = 0
+})
+
+afterEach(() => {
+  // Restore env set by cleanup/hot-reload tests to avoid cross-test leakage
+  delete process.env['ELECTRON_RENDERER_URL']
 })
 
 describe('BridgeManager lifecycle', () => {
