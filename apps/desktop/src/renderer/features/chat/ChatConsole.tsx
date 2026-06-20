@@ -450,7 +450,15 @@ export function ChatConsole({
 
   const handleSend = useCallback(async () => {
     const text = input.trim()
-    if ((!text && attachments.length === 0) || streaming) return
+    if (!text && attachments.length === 0) return
+
+    // If a reveal animation is still running from the previous response,
+    // cancel it and abort the in-flight request so we can start fresh.
+    if (streaming) {
+      cleanupListeners()
+      setStreaming(false)
+      try { await window.miqi.chat.abort() } catch { /* ignore */ }
+    }
 
     let content = text
     for (const att of attachments) {
