@@ -20,9 +20,11 @@ import { ApprovalsPage } from './features/approvals/ApprovalsPage'
 import { PermissionsPage } from './features/permissions/PermissionsPage'
 import { PluginMarket } from './features/plugins/PluginMarket'
 import { SessionExplorer } from './features/sessions/SessionExplorer'
+import { WorkspacePage } from './features/workspace/WorkspacePage'
 
 type NavId =
   | 'chat'
+  | 'workspace'
   | 'agents'
   | 'plan'
   | 'mcps'
@@ -236,6 +238,7 @@ function AppShell() {
                     onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
                   />
                 </div>
+                {activeNav === 'workspace' && <WorkspacePage />}
                 {activeNav === 'mcps' && <MCPsPage />}
                 {activeNav === 'cron' && <CronPage />}
                 {activeNav === 'memory' && <MemoryPage />}
