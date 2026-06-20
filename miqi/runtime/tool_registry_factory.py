@@ -97,6 +97,7 @@ def create_runtime_tool_registry(
     _sbm = sandbox_manager
 
     # ── Core tools (always registered) ──────────────────────────────────
+    from miqi.agent.tools.apply_patch import ApplyPatchTool
     from miqi.agent.tools.filesystem import (
         EditFileTool,
         ListDirTool,
@@ -120,6 +121,14 @@ def create_runtime_tool_registry(
     )
     registry.register(
         EditFileTool(
+            workspace=_write_workspace,
+            allowed_dir=allowed_dir,
+            snapshot_dir=_snap_dir,
+            sandbox_manager=_sbm,
+        )
+    )
+    registry.register(
+        ApplyPatchTool(
             workspace=_write_workspace,
             allowed_dir=allowed_dir,
             snapshot_dir=_snap_dir,

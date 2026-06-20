@@ -380,7 +380,7 @@ def test_file_mutation_tools_matches_policy_set():
 
     # Reconstruct the orchestrator's local set
     orch_set = frozenset({
-        "write_file", "edit_file", "delete_file",
+        "write_file", "edit_file", "delete_file", "apply_patch",
         "docx_write", "pptx_write", "xlsx_write",
     })
     assert orch_set == SandboxPolicyEngine.FILE_MUTATION_TOOLS, (

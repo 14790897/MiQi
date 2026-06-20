@@ -652,20 +652,25 @@ def test_appserver_files_methods_not_in_runtime_tool_registry_after_full_setup(
         )
 
 
-# ── No apply_patch bypass path ─────────────────────────────────────────────
+# ── apply_patch must not bypass approval ───────────────────────────────────
 
 
-def test_no_apply_patch_tool_in_registry(tmp_path):
-    """There is no apply_patch agent tool.  If one is added later, it
-    must go through ToolOrchestrator → PermissionEngine."""
+@pytest.mark.asyncio
+async def test_apply_patch_tool_requires_approval(tmp_path):
+    """apply_patch must go through ToolOrchestrator → PermissionEngine."""
+    from miqi.execution.permission_engine import PermissionEngine, PermissionVerdict
+
     registry = create_runtime_tool_registry(
         config=FakeConfig(),
         workspace=tmp_path,
     )
     names = set(registry.tool_names)
-    patch_like_names = [n for n in names if "patch" in n.lower()]
-    assert len(patch_like_names) == 0, (
-        f"Rejecting unexpected patch tools: {patch_like_names}. "
-        "If this is intentional, ensure patch tools go through "
-        "ToolOrchestrator → PermissionEngine for approval."
-    )
+    assert "apply_patch" in names, "apply_patch tool must be registered"
+
+    class _Ctx:
+        tool_name = "apply_patch"
+        arguments = {"patch": "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-a\n+b\n"}
+
+    decision = await PermissionEngine().check(_Ctx())
+    assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
+    assert decision.category == "file_write"

@@ -190,7 +190,7 @@ class PermissionEngine:
         # explicitly categorized (not falling through to "unknown_tool")
         # and support permanent allowlisting.
         _FILE_WRITE_TOOLS = frozenset({
-            "write_file", "edit_file", "delete_file",
+            "write_file", "edit_file", "delete_file", "apply_patch",
             "docx_write", "pptx_write", "xlsx_write",
         })
         if tool_name in _FILE_WRITE_TOOLS:
@@ -259,7 +259,7 @@ class PermissionEngine:
         tool = ctx.tool_name
         if tool == "exec":
             return f"exec:{ctx.arguments.get('command', '')}"
-        if tool in ("write_file", "edit_file", "delete_file",
+        if tool in ("write_file", "edit_file", "delete_file", "apply_patch",
                       "docx_write", "pptx_write", "xlsx_write"):
             return f"{tool}:{ctx.arguments.get('path', '') or ctx.arguments.get('file_path', '')}"
         return f"{tool}:{hash(str(ctx.arguments))}"
