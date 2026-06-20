@@ -73,6 +73,22 @@ async def test_edit_file_requires_approval():
 
 
 @pytest.mark.asyncio
+async def test_apply_patch_requires_approval():
+    engine = PermissionEngine()
+    ctx = FakeContext("apply_patch", {"patch": "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n"})
+    decision = await engine.check(ctx)
+    assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
+    assert decision.category == "file_write"
+
+
+@pytest.mark.asyncio
+async def test_make_key_apply_patch():
+    ctx = FakeContext("apply_patch", {"patch": "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n"})
+    key = PermissionEngine._make_key(ctx)
+    assert key == "apply_patch:"
+
+
+@pytest.mark.asyncio
 async def test_permanent_allowlist_bypasses_approval():
     engine = PermissionEngine(permanent_allowlist={"exec:rm -rf /tmp/test"})
     ctx = FakeContext("exec", {"command": "rm -rf /tmp/test"})

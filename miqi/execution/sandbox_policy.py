@@ -80,6 +80,7 @@ class SandboxPolicyEngine:
         "write_file",
         "edit_file",
         "delete_file",
+        "apply_patch",
         "docx_write",
         "pptx_write",
         "xlsx_write",

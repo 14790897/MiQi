@@ -633,7 +633,7 @@ class ToolOrchestrator:
         # normally RESTRICTED.  Injecting even NONE is future-proofing
         # for tool-body sandbox enforcement and auditing.
         _FILE_MUTATION_TOOLS = frozenset({
-            "write_file", "edit_file", "delete_file",
+            "write_file", "edit_file", "delete_file", "apply_patch",
             "docx_write", "pptx_write", "xlsx_write",
         })
         kwargs = {**ctx.arguments}
