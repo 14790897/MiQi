@@ -74,6 +74,21 @@ async def test_agent_list_requires_authorized_session(fake_config, fake_provider
         await registry.stop_all()
 
 
+@pytest.mark.asyncio
+async def test_agent_list_missing_session_returns_empty(fake_config, fake_provider, tmp_path):
+    """agent.list returns empty list when the session_id does not exist yet
+    (desktop pre-session call) for any client."""
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.agent_handlers import agent_list_handler
+
+    registry = ClientSessionRegistry()
+
+    result = await agent_list_handler(
+        "req-1", {}, "any-client", "nonexistent:session", registry,
+    )
+    assert result["result"]["agents"] == []
+
+
 # ── agent.get ──────────────────────────────────────────────────────────────
 
 

@@ -138,6 +138,12 @@ class ClientSessionRegistry:
         self._last_activity[session_id] = time.time()
         return self._sessions.get(session_id)
 
+    def session_exists(self, session_id: str) -> bool:
+        """Return True if *session_id* exists in the registry, regardless of
+        caller authorization. Used by handlers that must distinguish
+        \"session does not exist\" from \"client is not authorized\"."""
+        return session_id in self._sessions
+
     def authorize_client(
         self, owner_client_id: str, session_id: str, target_client_id: str,
     ) -> bool:

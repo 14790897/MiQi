@@ -37,6 +37,11 @@ async def agent_list_handler(
 
     runtime = await registry.get_session(client_id, session_id)
     if runtime is None:
+        if registry.session_exists(session_id):
+            raise AppServerError(
+                "Not authorized",
+                code="UNAUTHORIZED",
+            )
         # Desktop calls agent.list before any session exists — return empty
         return {"result": {"agents": []}}
 
