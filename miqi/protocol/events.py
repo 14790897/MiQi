@@ -241,6 +241,7 @@ class ErrorEvent:
     severity: EventSeverity = EventSeverity.ERROR
     message: str = ""
     recoverable: bool = True
+    error_kind: str | None = None  # Plan 57: provider error category (additive)
 
 
 @dataclass

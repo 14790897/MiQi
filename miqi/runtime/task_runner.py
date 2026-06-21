@@ -646,6 +646,15 @@ class TaskRunner:
             ))
             raise
         except Exception as exc:
+            # Phase 57: a ProviderError carries a classified error_kind from
+            # the provider (rate_limit/auth/context_length/...). Surface the
+            # category + recoverability and, for user-actionable kinds, the
+            # provider's own message. Non-ProviderError exceptions keep the
+            # original generic internal-error behavior.
+            from miqi.providers.resilience import ErrorKind, ProviderError
+            prov_err = exc if isinstance(exc, ProviderError) else None
+            error_kind = prov_err.kind.value if prov_err is not None else None
+            recoverable = prov_err.recoverable if prov_err is not None else False
             if history_runtime is not None:
                 await history_runtime.complete_turn(
                     turn_id,
@@ -658,16 +667,33 @@ class TaskRunner:
                     thread_id=thread_id,
                     turn_id=turn_id,
                     item_type="error",
-                    payload={"recoverable": False, "source": "task_runner"},
+                    payload={
+                        "recoverable": recoverable,
+                        "source": "task_runner",
+                        "error_kind": error_kind,
+                    },
                 )
-            # Log full details server-side, send sanitized message to client
+            # Log full details server-side, send sanitized message to client.
+            # User-actionable kinds (rate_limit/auth/context_length/
+            # invalid_request) are safe + actionable, so surface the provider
+            # message; everything else (transient/fatal/unknown) keeps the
+            # generic message to avoid leaking internal details.
             from loguru import logger
             logger.error("Agent processing error in turn {}: {}", turn_id, exc, exc_info=True)
+            user_message = "An internal error occurred while processing your message."
+            if prov_err is not None and prov_err.kind in (
+                ErrorKind.RATE_LIMIT,
+                ErrorKind.AUTH,
+                ErrorKind.CONTEXT_LENGTH,
+                ErrorKind.INVALID_REQUEST,
+            ):
+                user_message = prov_err.message or user_message
             await self._events.put(ErrorEvent(
                 turn_id=turn_id,
                 severity=EventSeverity.ERROR,
-                message="An internal error occurred while processing your message.",
-                recoverable=False,
+                message=user_message,
+                recoverable=recoverable,
+                error_kind=error_kind,
             ))
         finally:
             self._turn_cancel_events.pop(thread_id, None)

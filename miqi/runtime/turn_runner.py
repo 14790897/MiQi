@@ -206,6 +206,23 @@ class TurnRunner:
                     content="".join(content_parts),
                     finish_reason="stop",
                 )
+            # Phase 57: surface provider-reported failures. A terminal
+            # response with finish_reason == "error" means the provider hit
+            # an unrecoverable error (transient/rate-limit retries already
+            # exhausted by plan/56). Treat it as a real failure — raise a
+            # classified ProviderError instead of returning the error text
+            # as a normal final_content. Invalid/missing error_kind → FATAL.
+            if getattr(response, "finish_reason", None) == "error":
+                from miqi.providers.resilience import ErrorKind, ProviderError
+                raw_kind = getattr(response, "error_kind", None)
+                try:
+                    kind = ErrorKind(raw_kind) if raw_kind else ErrorKind.FATAL
+                except ValueError:
+                    kind = ErrorKind.FATAL
+                raise ProviderError(
+                    kind=kind,
+                    message=response.content or "Provider error",
+                )
 
             if not response.has_tool_calls:
                 # Phase 41: drain steering messages before completing
