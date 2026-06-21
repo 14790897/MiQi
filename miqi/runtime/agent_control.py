@@ -27,6 +27,7 @@ from miqi.protocol.events import (
     ErrorEvent,
     EventSeverity,
 )
+from miqi.runtime.agent_graph_store import AgentGraphStore
 from miqi.runtime.agent_registry import AgentMetadata, AgentRegistry
 from miqi.runtime.agent_status import AgentStateMachine
 
@@ -66,6 +67,7 @@ class AgentControl:
         tool_registry: Any = None,  # ToolRegistry — for role-filtered tool definitions
         agent_jobs: Any = None,  # AgentJobRuntime — Phase 13
         hooks: HookRuntime | None = None,
+        store: AgentGraphStore | None = None,
     ):
         self.session_id = session_id
         self.registry = registry
@@ -76,6 +78,7 @@ class AgentControl:
         self._tool_registry = tool_registry
         self._agent_jobs = agent_jobs
         self._hooks = hooks
+        self._store = store
         self._agents: dict[str, LiveAgent] = {}  # agent_id → LiveAgent
         self._thread_agents: dict[str, str] = {}  # thread_id → agent_id
         self._lock = asyncio.Lock()
@@ -131,6 +134,13 @@ class AgentControl:
         async with self._lock:
             self._agents[agent_id] = agent
             self._thread_agents[thread_id] = agent_id
+
+        if self._store is not None and parent_agent_id is not None:
+            self._store.add_edge(
+                parent_agent_id=parent_agent_id,
+                child_agent_id=agent_id,
+                child_thread_id=thread_id,
+            )
 
         # Emit SpawnedEvent with the FINAL IDs
         await self._events.emit(SubAgentSpawnedEvent(

@@ -126,3 +126,88 @@ def test_agent_job_dataclass_defaults():
     assert job.error is None
     assert job.completed_at is None
     assert job.created_at > 0
+
+
+# ---------------------------------------------------------------------------
+# Phase 52: persistence and resume
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_persisted_job_survives_restart(tmp_path, fake_services_for_jobs):
+    """A completed job persisted to the store must be visible in a fresh runtime."""
+    import asyncio as _asyncio
+    from miqi.runtime.agent_graph_store import AgentGraphStore
+    from miqi.runtime.agent_jobs import AgentJobRuntime
+    from miqi.runtime.turn_runner import TurnResult
+
+    db_path = tmp_path / "agent_graph.db"
+    store = AgentGraphStore(db_path)
+
+    async def _fake_run_agent_job(job):
+        return TurnResult(final_content="done", messages=[], tools_used=[])
+
+    fake_services_for_jobs.turn_runner.run_agent_job = _fake_run_agent_job
+
+    runtime = AgentJobRuntime(services=fake_services_for_jobs, store=store)
+    job = await runtime.start(
+        agent_type="code-agent", task="persist me", parent_thread_id="main",
+    )
+
+    # Wait for the background task to finish
+    await _asyncio.sleep(0.1)
+
+    # Create a brand-new runtime backed by the same store
+    resumed = AgentJobRuntime(services=fake_services_for_jobs, store=store)
+    jobs = resumed.list()
+    found = next((j for j in jobs if j["job_id"] == job.job_id), None)
+    assert found is not None, "Persisted job should be loaded into new runtime"
+    assert found["status"] == "completed"
+    assert found["result_preview"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_running_job_resumed_as_interrupted(tmp_path):
+    """A 'running' job row must be loaded as 'interrupted' on restart."""
+    import time
+    from miqi.runtime.agent_graph_store import AgentGraphStore
+    from miqi.runtime.agent_jobs import AgentJobRuntime
+
+    store = AgentGraphStore(tmp_path / "agent_graph.db")
+    store.save_job(
+        job_id="orphan-job",
+        agent_type="code-agent",
+        task="was running",
+        thread_id="thread-1",
+        parent_thread_id="main",
+        status="running",
+        result=None,
+        error=None,
+        created_at=time.time(),
+        completed_at=None,
+    )
+
+    runtime = AgentJobRuntime(services=None, store=store)
+    jobs = runtime.list()
+    assert len(jobs) == 1
+    assert jobs[0]["status"] == "interrupted"
+
+
+@pytest.mark.asyncio
+async def test_without_store_behavior_unchanged(fake_services_for_jobs):
+    """Constructing AgentJobRuntime without a store must preserve existing behaviour."""
+    import asyncio as _asyncio
+    from miqi.runtime.agent_jobs import AgentJobRuntime
+
+    runtime = AgentJobRuntime(services=fake_services_for_jobs)
+    job = await runtime.start(
+        agent_type="code-agent", task="no store", parent_thread_id="main",
+    )
+
+    await _asyncio.sleep(0.1)
+
+    jobs = runtime.list()
+    found = next((j for j in jobs if j["job_id"] == job.job_id), None)
+    assert found is not None
+    assert found["status"] == "completed"
+    assert found["result_preview"].startswith("Completed: no store")

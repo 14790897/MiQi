@@ -442,6 +442,53 @@ async def test_killed_agent_not_marked_completed(tmp_path, event_emitter):
 
 
 # ---------------------------------------------------------------------------
+# Phase 52: spawn edge persistence
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_spawn_records_edge_when_store_present(tmp_path, event_emitter):
+    """AgentControl.spawn must persist a parent→child edge when a store is given."""
+    from miqi.runtime.agent_graph_store import AgentGraphStore
+    from miqi.runtime.agent_control import AgentControl
+    from miqi.runtime.agent_registry import AgentRegistry
+
+    store = AgentGraphStore(tmp_path / "agent_graph.db")
+    control = AgentControl(
+        session_id="test-session",
+        registry=AgentRegistry(),
+        event_emitter=event_emitter,
+        workspace=tmp_path,
+        store=store,
+    )
+
+    agent = await control.spawn("code-agent", "task", parent_agent_id="root")
+
+    children = store.get_children("root")
+    assert len(children) == 1
+    assert children[0].child_agent_id == agent.agent_id
+    assert children[0].child_thread_id == agent.thread_id
+
+
+@pytest.mark.asyncio
+async def test_spawn_without_store_no_edge(tmp_path, event_emitter):
+    """Spawning with no store must still work and record no edges."""
+    from miqi.runtime.agent_control import AgentControl
+    from miqi.runtime.agent_registry import AgentRegistry
+
+    control = AgentControl(
+        session_id="test-session",
+        registry=AgentRegistry(),
+        event_emitter=event_emitter,
+        workspace=tmp_path,
+    )
+
+    agent = await control.spawn("code-agent", "task", parent_agent_id="root")
+    assert agent.agent_id
+    assert agent.parent_agent_id == "root"
+
+
+# ---------------------------------------------------------------------------
 # Phase 13 integration: spawn ordering (job-first), kill delegation
 # ---------------------------------------------------------------------------
 
