@@ -14,6 +14,7 @@ from miqi.providers.base import LLMResponse
 from miqi.providers.openai_provider import OpenAIProvider
 from miqi.providers.resilience import (
     ErrorKind,
+    ProviderError,
     classify_error,
     compute_backoff,
     is_retryable,
@@ -489,3 +490,45 @@ def test_anthropic_request_timeout_set() -> None:
     provider = AnthropicProvider(api_key="sk-test")
     assert isinstance(provider._client.timeout, (int, float))
     assert provider._client.timeout > 0
+
+
+# ---------------------------------------------------------------------------
+# ProviderError (Plan 57)
+# ---------------------------------------------------------------------------
+
+
+def test_provider_error_exposes_kind_message_and_str() -> None:
+    err = ProviderError(kind=ErrorKind.RATE_LIMIT, message="slow down")
+    assert err.kind is ErrorKind.RATE_LIMIT
+    assert err.message == "slow down"
+    assert "slow down" in str(err)
+
+
+def test_provider_error_recoverable_true_for_retryable_kinds() -> None:
+    """recoverable mirrors is_retryable: True for TRANSIENT and RATE_LIMIT."""
+    assert ProviderError(kind=ErrorKind.RATE_LIMIT, message="x").recoverable is True
+    assert ProviderError(kind=ErrorKind.TRANSIENT, message="x").recoverable is True
+
+
+def test_provider_error_recoverable_false_for_non_retryable_kinds() -> None:
+    assert ProviderError(kind=ErrorKind.AUTH, message="x").recoverable is False
+    assert ProviderError(kind=ErrorKind.CONTEXT_LENGTH, message="x").recoverable is False
+    assert (
+        ProviderError(kind=ErrorKind.INVALID_REQUEST, message="x").recoverable is False
+    )
+    assert ProviderError(kind=ErrorKind.FATAL, message="x").recoverable is False
+
+
+def test_provider_error_recovers_matches_is_retryable() -> None:
+    """ProviderError.recoverable must be consistent with is_retryable(kind)."""
+    for kind in ErrorKind:
+        err = ProviderError(kind=kind, message="m")
+        assert err.recoverable is is_retryable(kind)
+
+
+def test_provider_error_is_an_exception() -> None:
+    err = ProviderError(kind=ErrorKind.AUTH, message="bad key")
+    assert isinstance(err, Exception)
+    with pytest.raises(ProviderError):
+        raise err
+

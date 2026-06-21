@@ -274,6 +274,26 @@ def is_retryable(kind: ErrorKind) -> bool:
     return kind in _RETRYABLE
 
 
+class ProviderError(Exception):
+    """A terminal provider failure carrying a classified ``ErrorKind``.
+
+    Raised by the runtime when a provider response reports
+    ``finish_reason == "error"`` (e.g. after plan/56 retries are exhausted).
+    Carries the provider's error category so callers (TaskRunner) can
+    surface a useful, user-actionable message and recoverability flag
+    without re-inspecting SDK/HTTP details.
+    """
+
+    def __init__(self, *, kind: ErrorKind, message: str):
+        super().__init__(message)
+        self.kind = kind
+        self.message = message
+
+    @property
+    def recoverable(self) -> bool:
+        return is_retryable(self.kind)
+
+
 def retry_after_seconds(exc: BaseException) -> float | None:
     """Parse Retry-After header/attribute/response value.
 
