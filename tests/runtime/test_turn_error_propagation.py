@@ -280,8 +280,9 @@ async def test_task_runner_provider_error_auth_is_non_recoverable(error_services
     err = next(e for e in emitted if isinstance(e, ErrorEvent))
     assert err.error_kind == "auth"
     assert err.recoverable is False
-    # auth is user-actionable → provider message surfaced.
-    assert "Invalid API key" in err.message
+    # AUTH is sensitive — surface a fixed, non-leaking message, never the raw
+    # provider exception text (Plan 58.2).
+    assert err.message == "Authentication failed. Please check your API key or credentials."
 
     payload = _record_ledger_error_payload(ledger)
     assert payload.get("error_kind") == "auth"

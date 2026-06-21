@@ -129,6 +129,28 @@ class RuntimeServices:
             context_limit_chars=defaults.context_limit_chars,
         )
 
+        # Phase 59: tee telemetry sink when enabled (additive, no-op by default).
+        # Telemetry failures are silently swallowed — they never break a turn.
+        if (
+            hasattr(config, "observability")
+            and getattr(config.observability, "enabled", False)
+        ):
+            from miqi.observability.otel import build_telemetry_sink
+
+            telemetry_handle = build_telemetry_sink(config.observability)
+            if telemetry_handle is not None:
+                original_sink = event_sink
+
+                async def _tee(event: Any) -> None:
+                    if original_sink is not None:
+                        await original_sink(event)
+                    try:
+                        await telemetry_handle(event)
+                    except Exception:
+                        pass
+
+                event_sink = _tee
+
         emitter = RuntimeEventEmitter(event_sink)
         hook_runtime = HookRuntime()
 

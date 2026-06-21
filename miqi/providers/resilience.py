@@ -381,7 +381,7 @@ async def with_retry(
     for attempt in range(1, max_attempts + 1):
         try:
             return await factory()
-        except BaseException as e:
+        except Exception as e:
             last_exc = e
             kind = classify_error(e)
             if attempt < max_attempts and is_retryable(kind):
