@@ -80,6 +80,8 @@ class RuntimeServices:
     replay_runtime: Any | None = None
     # Phase 51.3: shared lifecycle hook runtime
     hooks: HookRuntime | None = None
+    # Phase 52: shared agent graph persistence
+    agent_graph_store: Any | None = None
 
     @classmethod
     def from_config(
@@ -135,6 +137,12 @@ class RuntimeServices:
             event_emitter=emitter,
         )
 
+        # Phase 52: shared agent graph persistence (created before AgentControl)
+        agent_graph_db = workspace / ".miqi-runtime" / "agent_graph.db"
+        from miqi.runtime.agent_graph_store import AgentGraphStore
+
+        agent_graph_store = AgentGraphStore(agent_graph_db)
+
         registry = AgentRegistry()
         agent_control = AgentControl(
             session_id=session_id,
@@ -145,6 +153,7 @@ class RuntimeServices:
             orchestrator=orchestrator,
             tool_registry=tool_registry,
             hooks=hook_runtime,
+            store=agent_graph_store,
         )
 
         # Wire SpawnTool into AgentControl
@@ -270,8 +279,9 @@ class RuntimeServices:
             hooks=hook_runtime,
         )
 
-        agent_jobs = AgentJobRuntime(services=services)
+        agent_jobs = AgentJobRuntime(services=services, store=agent_graph_store)
         services.agent_jobs = agent_jobs
+        services.agent_graph_store = agent_graph_store
 
         # Wire AgentJobRuntime into AgentControl (Phase 13 delegation)
         agent_control._agent_jobs = agent_jobs
