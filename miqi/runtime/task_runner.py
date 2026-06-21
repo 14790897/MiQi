@@ -681,9 +681,12 @@ class TaskRunner:
             from loguru import logger
             logger.error("Agent processing error in turn {}: {}", turn_id, exc, exc_info=True)
             user_message = "An internal error occurred while processing your message."
-            if prov_err is not None and prov_err.kind in (
+            if prov_err is not None and prov_err.kind is ErrorKind.AUTH:
+                # AUTH is sensitive — surface a fixed, non-leaking message
+                # instead of the raw provider exception text (Plan 58.2).
+                user_message = "Authentication failed. Please check your API key or credentials."
+            elif prov_err is not None and prov_err.kind in (
                 ErrorKind.RATE_LIMIT,
-                ErrorKind.AUTH,
                 ErrorKind.CONTEXT_LENGTH,
                 ErrorKind.INVALID_REQUEST,
             ):

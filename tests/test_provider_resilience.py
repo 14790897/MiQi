@@ -182,6 +182,31 @@ def test_compute_backoff_without_retry_after() -> None:
 
 
 @pytest.mark.asyncio
+async def test_with_retry_cancelled_error_propagates_untouched() -> None:
+    """CancelledError must propagate immediately without classification or sleep.
+
+    Plan 58.1: with_retry catches Exception, not BaseException, so
+    asyncio.CancelledError passes through cleanly.
+    """
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    class _FakeCancelled(asyncio.CancelledError):
+        pass
+
+    async def factory() -> str:
+        raise _FakeCancelled()
+
+    with pytest.raises(_FakeCancelled):
+        await with_retry(factory, max_attempts=3, sleep=fake_sleep)
+
+    # CancelledError propagates on the first attempt without sleeping.
+    assert len(sleeps) == 0
+
+
+@pytest.mark.asyncio
 async def test_with_retry_succeeds_after_failures() -> None:
     sleeps: list[float] = []
 

@@ -407,6 +407,23 @@ class MCPServerConfig(Base):
     lazy: bool = False  # If true, register a single gateway tool instead of all tools upfront; activate on demand
 
 
+class ObservabilityConfig(Base):
+    """OpenTelemetry observability configuration (Plan 59).
+
+    Default disabled. When enabled and opentelemetry-sdk is installed,
+    runtime events are exported as traces/metrics to an OTLP endpoint
+    (or console for dev). The entire feature is a no-op when disabled
+    or when the optional dependency is missing.
+    """
+
+    enabled: bool = False
+    endpoint: str | None = None  # OTLP gRPC/HTTP endpoint URL
+    service_name: str = "miqi"
+    console_export: bool = False  # Console exporter for dev
+    sample_ratio: float = 1.0
+    capture_content: bool = False  # Never put message text on spans unless this is true
+
+
 class ToolsConfig(Base):
     """Tools configuration."""
 
@@ -428,6 +445,7 @@ class Config(BaseSettings):
     heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
     cron: CronConfig = Field(default_factory=CronConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     # Opaque Desktop-owned settings (e.g. theme, layout).  Not validated —
     # the Desktop UI reads/writes this via config/batchWrite desktop.* paths.
     desktop: dict[str, object] = Field(default_factory=dict)

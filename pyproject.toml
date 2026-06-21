@@ -54,6 +54,10 @@ trace = [
     "numpy>=1.24.0",
     "blake3>=0.4.0,<1.0.0",
 ]
+otel = [
+    "opentelemetry-sdk>=1.27.0",
+    "opentelemetry-exporter-otlp>=1.27.0",
+]
 
 [project.scripts]
 miqi = "miqi.cli.commands:app"
