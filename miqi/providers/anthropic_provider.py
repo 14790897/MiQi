@@ -6,17 +6,18 @@ the codebase can always speak OpenAI-format messages.
 
 from __future__ import annotations
 
-import asyncio
 import json
-import random
 from typing import Any
 
 import anthropic
 import json_repair
-from loguru import logger
 
+import miqi.providers.resilience as resilience
 from miqi.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from miqi.providers.registry import find_by_model, find_by_name
+from miqi.providers.resilience import ErrorKind
+
+DEFAULT_REQUEST_TIMEOUT = 600.0
 
 
 class AnthropicProvider(LLMProvider):
@@ -34,6 +35,7 @@ class AnthropicProvider(LLMProvider):
         default_model: str = "claude-opus-4-5",
         extra_headers: dict[str, str] | None = None,
         provider_name: str | None = None,
+        request_timeout: float | None = None,
     ):
         self._selected_spec = find_by_name(provider_name) if provider_name else None
         super().__init__(api_key, api_base)
@@ -43,6 +45,7 @@ class AnthropicProvider(LLMProvider):
         client_kwargs: dict[str, Any] = {
             "api_key": api_key or None,
             "default_headers": self.extra_headers,
+            "timeout": request_timeout or DEFAULT_REQUEST_TIMEOUT,
         }
         if api_base:
             client_kwargs["base_url"] = api_base
@@ -238,21 +241,7 @@ class AnthropicProvider(LLMProvider):
     # ------------------------------------------------------------------
 
     def _is_transient_network_error(self, error: Exception) -> bool:
-        msg = str(error).lower()
-        signals = (
-            "connection reset",
-            "connection aborted",
-            "temporary failure",
-            "timed out",
-            "timeout",
-            "502",
-            "503",
-            "504",
-            "bad gateway",
-            "service unavailable",
-            "overloaded",
-        )
-        return any(s in msg for s in signals)
+        return resilience.classify_error(error) == ErrorKind.TRANSIENT
 
     # ------------------------------------------------------------------
     # Main interface
@@ -292,22 +281,19 @@ class AnthropicProvider(LLMProvider):
             kwargs["tools"] = self._convert_tools(tools, use_cache_control=use_cache)
             kwargs["tool_choice"] = {"type": "auto"}
 
-        max_attempts = 3
-        for attempt in range(1, max_attempts + 1):
-            try:
-                response = await self._client.messages.create(**kwargs)
-                return self._parse_response(response)
-            except Exception as e:
-                if attempt < max_attempts and self._is_transient_network_error(e):
-                    delay = min(30, (2 ** (attempt - 1)) * (0.5 + random.random() * 0.5))
-                    await asyncio.sleep(delay)
-                    continue
-                return LLMResponse(
-                    content=f"Error calling LLM: {e}",
-                    finish_reason="error",
-                )
-
-        return LLMResponse(content="Error calling LLM: retries exhausted", finish_reason="error")
+        try:
+            response = await resilience.with_retry(
+                lambda: self._client.messages.create(**kwargs),
+                max_attempts=3,
+            )
+            return self._parse_response(response)
+        except Exception as e:
+            kind = resilience.classify_error(e)
+            return LLMResponse(
+                content=f"Error calling LLM: {e}",
+                finish_reason="error",
+                error_kind=kind.value,
+            )
 
     def _parse_response(self, response: Any) -> LLMResponse:
         """Convert an Anthropic Messages response to LLMResponse."""
