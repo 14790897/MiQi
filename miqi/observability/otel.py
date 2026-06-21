@@ -112,7 +112,11 @@ class TelemetrySink:
         if total_tokens > 0:
             self._token_histogram.record(total_tokens, {"type": "total"})
 
-        span.set_status(self._Status(self._StatusCode.OK))
+        # Only set OK if the span isn't already in a terminal error state.
+        # (error events end the span with ERROR and remove it from _spans,
+        # so this is only reached when no prior error occurred.)
+        if span.status.status_code != self._StatusCode.ERROR:
+            span.set_status(self._Status(self._StatusCode.OK))
         span.end()
         self._context.detach(token)
 
@@ -188,13 +192,16 @@ class TelemetrySink:
         error_kind = getattr(event, "error_kind", None) or "none"
         self._error_counter.add(1, {"error_kind": error_kind})
 
-        # If there's a live turn span, mark it ERROR.
+        # If there's a live turn span, mark it ERROR and end it.
+        # Use pop so a subsequent turn_complete cannot overwrite the terminal state.
         turn_id = getattr(event, "turn_id", "")
-        entry = self._spans.get(turn_id)
+        entry = self._spans.pop(turn_id, None)
         if entry is not None:
-            span = entry[0]
+            span, token = entry
             message = getattr(event, "message", "")
             span.set_status(self._Status(self._StatusCode.ERROR, message[:256] if message else ""))
+            span.end()
+            self._context.detach(token)
 
 
 # ── Factory ────────────────────────────────────────────────────

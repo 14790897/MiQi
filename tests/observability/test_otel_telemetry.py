@@ -220,10 +220,71 @@ class TestOtelSpanLifecycle:
             )
         )
 
-        # Span should be marked ERROR
-        # (still in _spans because turn hasn't completed)
-        span = sink._spans["t1"][0]
+        # Span should be ended with ERROR status and exported
+        assert len(exporter.spans) == 1
+        span = exporter.spans[0]
+        assert span.name == "miqi.turn"
         assert span.status.status_code.name == "ERROR"
+        assert span.status.description == "Something broke"
+        assert "t1" not in sink._spans  # popped by _on_error
+
+    async def test_error_ends_span_and_removes_from_tracking(self):
+        """After an error event, the turn span is ended with ERROR status
+        and cleaned up from sink._spans (so turn_complete cannot touch it)."""
+        handle, sink, exporter = self._build_sink()
+
+        await handle(_event("turn_started", turn_id="t1", thread_id="th1", agent_name="test"))
+        await handle(
+            _event(
+                "error",
+                turn_id="t1",
+                severity="error",
+                message="Something broke",
+                recoverable=False,
+                error_kind="rate_limit",
+            )
+        )
+
+        # Span should be exported (ended) and removed from tracking
+        assert len(exporter.spans) == 1
+        span = exporter.spans[0]
+        assert span.name == "miqi.turn"
+        assert span.status.status_code.name == "ERROR"
+        assert "t1" not in sink._spans  # cleaned up by pop
+
+    async def test_error_then_complete_does_not_revert_to_ok(self):
+        """When error arrives before turn_complete, the error span is ended
+        and removed.  A subsequent turn_complete finds nothing in _spans
+        and is a no-op — the span stays ERROR."""
+        handle, sink, exporter = self._build_sink()
+
+        await handle(_event("turn_started", turn_id="t1", thread_id="th1", agent_name="test"))
+        await handle(
+            _event(
+                "error",
+                turn_id="t1",
+                severity="error",
+                message="Something broke",
+                recoverable=False,
+                error_kind="rate_limit",
+            )
+        )
+        await handle(
+            _event(
+                "turn_complete",
+                turn_id="t1",
+                thread_id="th1",
+                outcome="success",
+            )
+        )
+
+        # Only one span was ended (by error), complete was a no-op.
+        assert len(exporter.spans) == 1
+        span = exporter.spans[0]
+        assert span.name == "miqi.turn"
+        assert span.status.status_code.name == "ERROR"
+        # Verify the error description is preserved
+        assert span.status.description == "Something broke"
 
     async def test_tool_child_span(self):
         handle, sink, exporter = self._build_sink()
