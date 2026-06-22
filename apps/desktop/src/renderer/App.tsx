@@ -31,11 +31,24 @@ const PRELOAD_OK = typeof window !== 'undefined' && !!(window as any).miqi
 function AppShell() {
   const { status } = useRuntime()
   const [activeNav, setActiveNav] = useState<NavId>('chat')
-  const [sessionKey, setSessionKey] = useState('desktop:default')
+  const [sessionKey, setSessionKey] = useState(() => {
+    try {
+      return localStorage.getItem('miqi:lastSession') || 'desktop:default'
+    } catch {
+      return 'desktop:default'
+    }
+  })
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0)
   const [runtimeReadyKey, setRuntimeReadyKey] = useState(0)
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
   const [canSkipSetup, setCanSkipSetup] = useState(false)  // true when re-running wizard from settings
+
+  // Persist last active session so the app restores it on next launch
+  useEffect(() => {
+    try {
+      localStorage.setItem('miqi:lastSession', sessionKey)
+    } catch { /* localStorage unavailable */ }
+  }, [sessionKey])
 
   // When the bridge becomes ready, trigger a session history reload in ChatConsole
   useEffect(() => {

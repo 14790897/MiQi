@@ -419,16 +419,47 @@ class SessionManager:
         return ""
 
     def _read_metadata(self, path: Path) -> dict | None:
-        """Read the metadata line from a conversation.jsonl or flat .jsonl file."""
+        """Read the metadata line from a conversation.jsonl or flat .jsonl file.
+
+        Falls back to the most recent message timestamp when the metadata
+        ``updated_at`` is missing or older than the latest message — saves are
+        append-only, so the metadata line is only rewritten on compaction, but
+        we still want the sidebar to re-sort the session to the top after
+        every new message.
+        """
         try:
+            metadata: dict | None = None
+            latest_msg_ts: datetime | None = None
             with open(path, encoding="utf-8") as f:
-                first_line = f.readline().strip()
-                if not first_line:
-                    return None
-                data = json.loads(first_line)
-                if data.get("_type") != "metadata":
-                    return None
-                return data
+                for raw in f:
+                    line = raw.strip()
+                    if not line:
+                        continue
+                    obj = json.loads(line)
+                    if metadata is None and obj.get("_type") == "metadata":
+                        metadata = obj
+                        continue
+                    msg_ts = obj.get("timestamp")
+                    if isinstance(msg_ts, str):
+                        try:
+                            ts = datetime.fromisoformat(msg_ts)
+                        except Exception:
+                            continue
+                        if latest_msg_ts is None or ts > latest_msg_ts:
+                            latest_msg_ts = ts
+            if metadata is None:
+                return None
+            if latest_msg_ts is not None:
+                meta_ts_raw = metadata.get("updated_at")
+                meta_ts: datetime | None = None
+                if isinstance(meta_ts_raw, str):
+                    try:
+                        meta_ts = datetime.fromisoformat(meta_ts_raw)
+                    except Exception:
+                        meta_ts = None
+                if meta_ts is None or latest_msg_ts > meta_ts:
+                    metadata["updated_at"] = latest_msg_ts.isoformat()
+            return metadata
         except Exception:
             return None
 

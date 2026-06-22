@@ -521,6 +521,9 @@ export function ChatConsole({
       const result = await window.miqi.chat.send(content, currentSessionRef.current, reqId) as { req_id?: string }
       // Update reqId with the server-confirmed one (should match)
       if (result?.req_id) setCurrentReqId(result.req_id)
+      // Refresh sidebar session order immediately (the bridge pre-persists
+      // the user message, so updated_at is already fresh by this point)
+      if (onChatFinished) onChatFinished()
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId)
       setMessages((prev) => [
