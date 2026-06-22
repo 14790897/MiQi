@@ -101,6 +101,10 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "self_managed_env: test fully isolates and manages its own home and temp environment",
+    "subprocess: requires permission to start a normal local subprocess",
+    "sandbox: requires a real OS sandbox adapter",
+    "wsl: requires Windows Subsystem for Linux and a usable distribution",
+    "bwrap: requires a usable bubblewrap executable on Linux or WSL",
 ]
 
 [dependency-groups]

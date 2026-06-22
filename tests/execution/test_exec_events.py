@@ -6,6 +6,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from miqi.agent.tools.shell import ExecTool
+
+# All tests in this module launch real subprocesses via ExecTool.execute().
+pytestmark = pytest.mark.subprocess
 from miqi.protocol.events import (
     ExecCommandBeginEvent,
     ExecCommandOutputDeltaEvent,
@@ -734,6 +737,10 @@ def _make_bwrap_selection(*, timeout_ms: int = 30_000):
 # ── Phase 33.2: stdout/stderr delta events ────────────────────────────────
 
 
+@pytest.mark.sandbox
+@pytest.mark.bwrap
+@pytest.mark.sandbox
+@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_bwrap_stdout_delta_emitted():
     """Phase 33.2: bwrap path must emit ExecCommandOutputDeltaEvent for
@@ -771,6 +778,10 @@ async def test_bwrap_stdout_delta_emitted():
     assert len(end_events) == 1
 
 
+@pytest.mark.sandbox
+@pytest.mark.bwrap
+@pytest.mark.sandbox
+@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_bwrap_stderr_delta_emitted():
     """Phase 33.2: bwrap path must emit ExecCommandOutputDeltaEvent for
@@ -804,6 +815,8 @@ async def test_bwrap_stderr_delta_emitted():
     assert "bwrap-err-msg" in "".join(d.delta for d in stderr_deltas)
 
 
+@pytest.mark.sandbox
+@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_bwrap_final_result_contains_stdout_stderr():
     """Phase 33.2: bwrap final aggregated result must contain both stdout
@@ -833,6 +846,8 @@ async def test_bwrap_final_result_contains_stdout_stderr():
 # ── Phase 33.2: timeout kills ─────────────────────────────────────────────
 
 
+@pytest.mark.sandbox
+@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_bwrap_timeout_kills_and_one_end_event():
     """Phase 33.2: when a bwrap command exceeds its timeout, the process
@@ -867,6 +882,8 @@ async def test_bwrap_timeout_kills_and_one_end_event():
 # ── Phase 33.2: cancel_event kills ────────────────────────────────────────
 
 
+@pytest.mark.sandbox
+@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_bwrap_cancel_kills_and_one_end_event():
     """Phase 33.2: when cancel_event is set during bwrap execution, the
@@ -910,6 +927,8 @@ async def test_bwrap_cancel_kills_and_one_end_event():
 # ── Phase 33.2: no duplicate end event ────────────────────────────────────
 
 
+@pytest.mark.sandbox
+@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_bwrap_no_duplicate_end_event_on_failure():
     """Phase 33.2: a bwrap command that fails (non-zero exit) must still
@@ -942,6 +961,8 @@ async def test_bwrap_no_duplicate_end_event_on_failure():
 # ── Phase 33.2: no pending internal tasks ─────────────────────────────────
 
 
+@pytest.mark.sandbox
+@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_bwrap_no_pending_tasks_on_normal():
     """Phase 33.2: after normal bwrap completion, no internal asyncio
@@ -965,6 +986,8 @@ async def test_bwrap_no_pending_tasks_on_normal():
     assert handle.cleanup_called, "handle.cleanup() must be called"
 
 
+@pytest.mark.sandbox
+@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_bwrap_no_pending_tasks_on_timeout():
     """Phase 33.2: after bwrap timeout, no internal asyncio tasks are
@@ -991,6 +1014,8 @@ async def test_bwrap_no_pending_tasks_on_timeout():
     )
 
 
+@pytest.mark.sandbox
+@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_bwrap_no_pending_tasks_on_cancel():
     """Phase 33.2: after bwrap cancel, no internal asyncio tasks are
@@ -1030,6 +1055,8 @@ async def test_bwrap_no_pending_tasks_on_cancel():
 # ── Phase 33.2: duration_ms / output_size accuracy ────────────────────────
 
 
+@pytest.mark.sandbox
+@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_bwrap_end_event_duration_ms_accurate():
     """Phase 33.2: ExecCommandEndEvent.duration_ms must reflect real
@@ -1060,6 +1087,8 @@ async def test_bwrap_end_event_duration_ms_accurate():
     )
 
 
+@pytest.mark.sandbox
+@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_bwrap_end_event_output_size_accurate():
     """Phase 33.2: ExecCommandEndEvent.output_size must match the
@@ -1137,6 +1166,8 @@ async def test_regression_direct_none_path_unaffected_by_bwrap_changes(tmp_path)
 # ── Phase 33.2: ledger / replay records bwrap sandbox_type and deltas ──────
 
 
+@pytest.mark.sandbox
+@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_bwrap_ledger_records_sandbox_type_and_output_deltas():
     """Phase 33.2: when executing via bwrap, the ledger must record
@@ -1198,6 +1229,8 @@ async def test_bwrap_ledger_records_sandbox_type_and_output_deltas():
 # ── Phase 33.2: BwrapCommandHandle.wait() exit code regression tests ──────
 
 
+@pytest.mark.sandbox
+@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_bwrap_handle_wait_exit_code_zero():
     """BwrapCommandHandle.wait() MUST return 0 for successful exit (not -1)."""
@@ -1213,6 +1246,8 @@ async def test_bwrap_handle_wait_exit_code_zero():
     assert exit_code == 0, f"Expected 0 for successful exit, got {exit_code}"
 
 
+@pytest.mark.sandbox
+@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_bwrap_handle_wait_exit_code_nonzero():
     """BwrapCommandHandle.wait() MUST return the real non-zero exit code."""

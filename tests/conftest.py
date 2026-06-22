@@ -70,9 +70,11 @@ def isolated_process_environment(monkeypatch, tmp_path, request):
     if request.node.get_closest_marker("self_managed_env") is not None:
         return
 
-    home = tmp_path / "home"
-    miqi_home = tmp_path / ".miqi"
-    temp_dir = tmp_path / "tmp"
+    iso_dir = tmp_path / ".pytest-isolation"
+    iso_dir.mkdir()
+    home = iso_dir / "home"
+    miqi_home = iso_dir / ".miqi"
+    temp_dir = iso_dir / "tmp"
     home.mkdir()
     temp_dir.mkdir()
 
@@ -83,3 +85,75 @@ def isolated_process_environment(monkeypatch, tmp_path, request):
     monkeypatch.setenv("TMP", str(temp_dir))
     monkeypatch.setenv("TMPDIR", str(temp_dir))
     monkeypatch.setattr(tempfile, "tempdir", str(temp_dir))
+
+
+# ── Platform capability detection ─────────────────────────────────────────────
+
+
+def _has_subprocess() -> bool:
+    """Check whether we can spawn a normal local subprocess."""
+    import shutil
+    import sys
+
+    # On all platforms, look for a basic shell
+    if sys.platform == "win32":
+        return shutil.which("cmd.exe") is not None
+    return shutil.which("sh") is not None
+
+
+def _has_bwrap() -> bool:
+    """Check whether bubblewrap is available."""
+    import shutil
+    import subprocess
+
+    if shutil.which("bwrap") is None:
+        return False
+    try:
+        subprocess.run(["bwrap", "--version"], capture_output=True, timeout=5, check=True)
+        return True
+    except Exception:
+        return False
+
+
+def _has_wsl() -> bool:
+    """Check whether WSL has a usable distribution."""
+    import shutil
+    import subprocess
+    import sys
+
+    if sys.platform != "win32":
+        return False
+    if shutil.which("wsl.exe") is None:
+        return False
+    try:
+        result = subprocess.run(
+            ["wsl.exe", "--status"], capture_output=True, timeout=10,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+@pytest.fixture
+def require_subprocess():
+    """Skip the test if a normal subprocess cannot be launched."""
+    if not _has_subprocess():
+        pytest.skip("subprocess executable is not available")
+
+
+@pytest.fixture
+def require_bwrap():
+    """Skip the test if bubblewrap is not available."""
+    import sys
+
+    if sys.platform == "win32":
+        pytest.skip("bwrap is not available on Windows (requires WSL)")
+    if not _has_bwrap():
+        pytest.skip("bwrap executable is not available")
+
+
+@pytest.fixture
+def require_wsl():
+    """Skip the test if WSL is not available."""
+    if not _has_wsl():
+        pytest.skip("wsl.exe is not available or has no usable distribution")

@@ -415,15 +415,19 @@ class TestFsReadDirectory:
     @pytest.mark.asyncio
     async def test_read_directory_returns_sorted_entries(self, tmp_path):
         """Direct children are returned sorted by fileName."""
+        # Use a dedicated subdirectory so test isolation directories don't
+        # interfere with the entry count assertion.
+        work_dir = tmp_path / "listing-test"
+        work_dir.mkdir()
         # Create files in non-sorted order
-        (tmp_path / "zebra.txt").write_text("z")
-        (tmp_path / "alpha.txt").write_text("a")
-        (tmp_path / "mike.txt").write_text("m")
-        (tmp_path / "subdir").mkdir()
+        (work_dir / "zebra.txt").write_text("z")
+        (work_dir / "alpha.txt").write_text("a")
+        (work_dir / "mike.txt").write_text("m")
+        (work_dir / "subdir").mkdir()
 
         server, registry = _make_server_and_registry(tmp_path)
         resp = await _dispatch(server, registry, "fs/readDirectory", {
-            "path": str(tmp_path),
+            "path": str(work_dir),
         })
 
         assert "result" in resp
