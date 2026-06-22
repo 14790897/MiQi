@@ -15,15 +15,18 @@ def pytest_configure(config):
     On some Windows/CI environments the system temp directory is read-only
     or contains an unowned ``pytest-of-*`` directory left by another process.
     Setting ``config.option.basetemp`` here forces pytest to create
-    ``tmp_path`` under ``<repo>/.pytest-basetemp`` before any fixture runs,
+    ``tmp_path`` under ``<repo>/.pytest-basetemp-*`` before any fixture runs,
     so ``isolated_process_environment`` never depends on a possibly-broken
     default system temp path.
+
+    A per-process (or per-xdist-worker) suffix avoids conflicts between
+    consecutive local runs, including cases where a previous subprocess test
+    is still releasing handles when the next pytest session starts.
     """
     repo_root = Path(__file__).resolve().parent.parent
     worker = os.environ.get("PYTEST_XDIST_WORKER")
-    basetemp = repo_root / ".pytest-basetemp"
-    if worker:
-        basetemp = basetemp / worker
+    suffix = worker if worker else f"pid{os.getpid()}"
+    basetemp = repo_root / f".pytest-basetemp-{suffix}"
     basetemp.mkdir(parents=True, exist_ok=True)
     config.option.basetemp = str(basetemp)
 

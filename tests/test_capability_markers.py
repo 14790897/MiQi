@@ -51,3 +51,11 @@ def test_require_bwrap_fixture_is_callable(require_bwrap):
     assert require_bwrap is None, (
         "require_bwrap should return None when capability is present"
     )
+
+
+@pytest.mark.wsl
+def test_require_wsl_fixture_is_callable(require_wsl):
+    """require_wsl fixture is available (returns None if WSL present, skips otherwise)."""
+    assert require_wsl is None, (
+        "require_wsl should return None when capability is present"
+    )

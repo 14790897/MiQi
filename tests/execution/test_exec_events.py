@@ -1,14 +1,11 @@
 """Tests for exec lifecycle events (Phases 21, 31.5, 31.6)."""
 
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from miqi.agent.tools.shell import ExecTool
-
-# All tests in this module launch real subprocesses via ExecTool.execute().
-pytestmark = pytest.mark.subprocess
 from miqi.protocol.events import (
     ExecCommandBeginEvent,
     ExecCommandOutputDeltaEvent,
@@ -29,8 +26,9 @@ class _EventCollector:
 # ── Phase 21: basic begin / end events ──────────────────────────────────
 
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_exec_tool_emits_begin_and_end(tmp_path):
+async def test_exec_tool_emits_begin_and_end(require_subprocess, tmp_path):
     """ExecTool must emit ExecCommandBeginEvent before execution and
     ExecCommandEndEvent after execution when _event_emitter is passed."""
     emitter = _EventCollector()
@@ -62,8 +60,9 @@ async def test_exec_tool_emits_begin_and_end(tmp_path):
 
 # ── Phase 31.5: stdout/stderr streaming ─────────────────────────────────
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_stdout_streaming_emits_delta_events(tmp_path):
+async def test_stdout_streaming_emits_delta_events(require_subprocess, tmp_path):
     """Phase 31.5: stdout chunks must emit ExecCommandOutputDeltaEvent
     with stream='stdout' BEFORE ExecCommandEndEvent."""
     emitter = _EventCollector()
@@ -103,8 +102,9 @@ async def test_stdout_streaming_emits_delta_events(tmp_path):
     )
 
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_stderr_streaming_emits_delta_events(tmp_path):
+async def test_stderr_streaming_emits_delta_events(require_subprocess, tmp_path):
     """Phase 31.5: stderr chunks must emit ExecCommandOutputDeltaEvent
     with stream='stderr'."""
     emitter = _EventCollector()
@@ -130,8 +130,9 @@ async def test_stderr_streaming_emits_delta_events(tmp_path):
     assert len(end_events) == 1
 
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_multiple_stdout_chunks_produce_multiple_delta_events(tmp_path):
+async def test_multiple_stdout_chunks_produce_multiple_delta_events(require_subprocess, tmp_path):
     """Phase 31.5: a command with enough stdout should produce multiple
     delta events (reading in 4KB chunks)."""
     emitter = _EventCollector()
@@ -154,8 +155,9 @@ async def test_multiple_stdout_chunks_produce_multiple_delta_events(tmp_path):
     )
 
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_final_result_still_contains_stdout_stderr(tmp_path):
+async def test_final_result_still_contains_stdout_stderr(require_subprocess, tmp_path):
     """Phase 31.5: even with streaming, the final tool result must
     still contain the aggregated stdout/stderr."""
     tool = ExecTool(timeout=10, working_dir=str(tmp_path))
@@ -173,8 +175,9 @@ async def test_final_result_still_contains_stdout_stderr(tmp_path):
 
 # ── Phase 31.6: timeout kills subprocess ────────────────────────────────
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_timeout_kills_subprocess(tmp_path):
+async def test_timeout_kills_subprocess(require_subprocess, tmp_path):
     """Phase 31.6: when a command exceeds its timeout, the subprocess
     must be killed and a single end event emitted."""
     emitter = _EventCollector()
@@ -203,8 +206,9 @@ async def test_timeout_kills_subprocess(tmp_path):
 
 # ── Phase 31.6: cancel_event kills subprocess ───────────────────────────
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_cancel_event_kills_running_subprocess(tmp_path):
+async def test_cancel_event_kills_running_subprocess(require_subprocess, tmp_path):
     """Phase 31.6: when cancel_event is set during execution, the
     subprocess must be killed and a single end event emitted."""
     emitter = _EventCollector()
@@ -270,8 +274,9 @@ async def test_cancel_before_start_returns_safely(tmp_path):
 
 # ── Phase 31.5: duration_ms ─────────────────────────────────────────────
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_duration_ms_greater_than_zero(tmp_path):
+async def test_duration_ms_greater_than_zero(require_subprocess, tmp_path):
     """Phase 31.5: ExecCommandEndEvent.duration_ms must reflect real
     wall-clock time, not the old hard-coded 0."""
     emitter = _EventCollector()
@@ -299,8 +304,9 @@ async def test_duration_ms_greater_than_zero(tmp_path):
 
 # ── Phase 31.6: no duplicate end events on error ────────────────────────
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_no_duplicate_end_event_on_command_error(tmp_path):
+async def test_no_duplicate_end_event_on_command_error(require_subprocess, tmp_path):
     """Phase 31.6: a command that fails (non-zero exit) must still emit
     exactly one end event."""
     emitter = _EventCollector()
@@ -320,8 +326,9 @@ async def test_no_duplicate_end_event_on_command_error(tmp_path):
     )
 
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_no_duplicate_end_event_on_launch_failure(tmp_path):
+async def test_no_duplicate_end_event_on_launch_failure(require_subprocess, tmp_path):
     """Phase 31.6: a command that fails to launch (bad executable) must
     still emit exactly one end event."""
     emitter = _EventCollector()
@@ -343,8 +350,9 @@ async def test_no_duplicate_end_event_on_launch_failure(tmp_path):
 
 # ── Phase 31.6+ resource cleanup ───────────────────────────────────────
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_normal_completion_with_cancel_event_no_pending_cancel_wait(tmp_path):
+async def test_normal_completion_with_cancel_event_no_pending_cancel_wait(require_subprocess, tmp_path):
     """When a command completes normally but a cancel_event was passed,
     the internal cancel_wait task must be cancelled (not left pending)."""
     emitter = _EventCollector()
@@ -368,8 +376,9 @@ async def test_normal_completion_with_cancel_event_no_pending_cancel_wait(tmp_pa
     assert end_events[0].exit_code == 0
 
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_timeout_no_pending_tasks(tmp_path):
+async def test_timeout_no_pending_tasks(require_subprocess, tmp_path):
     """After a timeout kill, no internal asyncio task (proc_wait,
     stdout/stderr readers) should remain pending."""
     tool = ExecTool(timeout=5, working_dir=str(tmp_path))
@@ -385,8 +394,9 @@ async def test_timeout_no_pending_tasks(tmp_path):
     assert "timed out" in output.lower()
 
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_cancel_no_pending_tasks(tmp_path):
+async def test_cancel_no_pending_tasks(require_subprocess, tmp_path):
     """After cancel-event kills a running subprocess, no internal
     asyncio task should remain pending."""
     emitter = _EventCollector()
@@ -449,8 +459,9 @@ class _FakeLedger:
         self.items.append(kwargs)
 
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_exec_tool_writes_ledger_begin_and_end(tmp_path):
+async def test_exec_tool_writes_ledger_begin_and_end(require_subprocess, tmp_path):
     """ExecTool with _ledger_runtime must write exec_started + exec_completed."""
     from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
     from miqi.protocol.permissions import (
@@ -498,8 +509,9 @@ async def test_exec_tool_writes_ledger_begin_and_end(tmp_path):
     assert completed["payload"]["timed_out"] is False
 
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_exec_tool_writes_output_deltas_to_ledger(tmp_path):
+async def test_exec_tool_writes_output_deltas_to_ledger(require_subprocess, tmp_path):
     """ExecTool must write exec_output_delta for each stdout/stderr chunk."""
     import asyncio as _asyncio
 
@@ -537,8 +549,9 @@ async def test_exec_tool_writes_output_deltas_to_ledger(tmp_path):
         assert d["payload"]["stream"] in ("stdout", "stderr")
 
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_exec_tool_launch_failure_recorded_in_ledger():
+async def test_exec_tool_launch_failure_recorded_in_ledger(require_subprocess):
     """When process launch fails, exec_completed must be written with exit_code=1."""
     fake_ledger = _FakeLedger()
     emitter = _EventCollector()
@@ -737,12 +750,9 @@ def _make_bwrap_selection(*, timeout_ms: int = 30_000):
 # ── Phase 33.2: stdout/stderr delta events ────────────────────────────────
 
 
-@pytest.mark.sandbox
-@pytest.mark.bwrap
-@pytest.mark.sandbox
-@pytest.mark.bwrap
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_bwrap_stdout_delta_emitted():
+async def test_bwrap_stdout_delta_emitted(require_subprocess):
     """Phase 33.2: bwrap path must emit ExecCommandOutputDeltaEvent for
     stdout chunks during streaming execution."""
     emitter = _EventCollector()
@@ -778,12 +788,9 @@ async def test_bwrap_stdout_delta_emitted():
     assert len(end_events) == 1
 
 
-@pytest.mark.sandbox
-@pytest.mark.bwrap
-@pytest.mark.sandbox
-@pytest.mark.bwrap
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_bwrap_stderr_delta_emitted():
+async def test_bwrap_stderr_delta_emitted(require_subprocess):
     """Phase 33.2: bwrap path must emit ExecCommandOutputDeltaEvent for
     stderr chunks during streaming execution."""
     emitter = _EventCollector()
@@ -815,10 +822,9 @@ async def test_bwrap_stderr_delta_emitted():
     assert "bwrap-err-msg" in "".join(d.delta for d in stderr_deltas)
 
 
-@pytest.mark.sandbox
-@pytest.mark.bwrap
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_bwrap_final_result_contains_stdout_stderr():
+async def test_bwrap_final_result_contains_stdout_stderr(require_subprocess):
     """Phase 33.2: bwrap final aggregated result must contain both stdout
     and stderr content."""
     emitter = _EventCollector()
@@ -846,10 +852,9 @@ async def test_bwrap_final_result_contains_stdout_stderr():
 # ── Phase 33.2: timeout kills ─────────────────────────────────────────────
 
 
-@pytest.mark.sandbox
-@pytest.mark.bwrap
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_bwrap_timeout_kills_and_one_end_event():
+async def test_bwrap_timeout_kills_and_one_end_event(require_subprocess):
     """Phase 33.2: when a bwrap command exceeds its timeout, the process
     must be killed (handle.kill() called) and exactly one EndEvent emitted."""
     emitter = _EventCollector()
@@ -882,10 +887,9 @@ async def test_bwrap_timeout_kills_and_one_end_event():
 # ── Phase 33.2: cancel_event kills ────────────────────────────────────────
 
 
-@pytest.mark.sandbox
-@pytest.mark.bwrap
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_bwrap_cancel_kills_and_one_end_event():
+async def test_bwrap_cancel_kills_and_one_end_event(require_subprocess):
     """Phase 33.2: when cancel_event is set during bwrap execution, the
     process must be killed and exactly one EndEvent emitted."""
     emitter = _EventCollector()
@@ -927,10 +931,9 @@ async def test_bwrap_cancel_kills_and_one_end_event():
 # ── Phase 33.2: no duplicate end event ────────────────────────────────────
 
 
-@pytest.mark.sandbox
-@pytest.mark.bwrap
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_bwrap_no_duplicate_end_event_on_failure():
+async def test_bwrap_no_duplicate_end_event_on_failure(require_subprocess):
     """Phase 33.2: a bwrap command that fails (non-zero exit) must still
     emit exactly one end event."""
     emitter = _EventCollector()
@@ -961,10 +964,9 @@ async def test_bwrap_no_duplicate_end_event_on_failure():
 # ── Phase 33.2: no pending internal tasks ─────────────────────────────────
 
 
-@pytest.mark.sandbox
-@pytest.mark.bwrap
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_bwrap_no_pending_tasks_on_normal():
+async def test_bwrap_no_pending_tasks_on_normal(require_subprocess):
     """Phase 33.2: after normal bwrap completion, no internal asyncio
     tasks are left pending."""
     handle = await _make_streaming_handle(stdout_text="normal-done")
@@ -986,10 +988,9 @@ async def test_bwrap_no_pending_tasks_on_normal():
     assert handle.cleanup_called, "handle.cleanup() must be called"
 
 
-@pytest.mark.sandbox
-@pytest.mark.bwrap
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_bwrap_no_pending_tasks_on_timeout():
+async def test_bwrap_no_pending_tasks_on_timeout(require_subprocess):
     """Phase 33.2: after bwrap timeout, no internal asyncio tasks are
     left pending."""
     handle = await _make_streaming_handle(sleep_forever=True)
@@ -1014,10 +1015,9 @@ async def test_bwrap_no_pending_tasks_on_timeout():
     )
 
 
-@pytest.mark.sandbox
-@pytest.mark.bwrap
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_bwrap_no_pending_tasks_on_cancel():
+async def test_bwrap_no_pending_tasks_on_cancel(require_subprocess):
     """Phase 33.2: after bwrap cancel, no internal asyncio tasks are
     left pending."""
     cancel_event = asyncio.Event()
@@ -1055,10 +1055,9 @@ async def test_bwrap_no_pending_tasks_on_cancel():
 # ── Phase 33.2: duration_ms / output_size accuracy ────────────────────────
 
 
-@pytest.mark.sandbox
-@pytest.mark.bwrap
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_bwrap_end_event_duration_ms_accurate():
+async def test_bwrap_end_event_duration_ms_accurate(require_subprocess):
     """Phase 33.2: ExecCommandEndEvent.duration_ms must reflect real
     wall-clock time for bwrap execution."""
     emitter = _EventCollector()
@@ -1087,10 +1086,9 @@ async def test_bwrap_end_event_duration_ms_accurate():
     )
 
 
-@pytest.mark.sandbox
-@pytest.mark.bwrap
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_bwrap_end_event_output_size_accurate():
+async def test_bwrap_end_event_output_size_accurate(require_subprocess):
     """Phase 33.2: ExecCommandEndEvent.output_size must match the
     aggregated output length."""
     emitter = _EventCollector()
@@ -1139,8 +1137,9 @@ async def test_regression_bwrap_unavailable_fail_closed_unchanged():
     assert "BWRAP sandbox" in result
 
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_regression_direct_none_path_unaffected_by_bwrap_changes(tmp_path):
+async def test_regression_direct_none_path_unaffected_by_bwrap_changes(require_subprocess, tmp_path):
     """Phase 33.2 regression: direct NONE execution path still works
     (streaming + delta events + cancel unchanged from Phase 31.5/31.6)."""
     emitter = _EventCollector()
@@ -1166,10 +1165,9 @@ async def test_regression_direct_none_path_unaffected_by_bwrap_changes(tmp_path)
 # ── Phase 33.2: ledger / replay records bwrap sandbox_type and deltas ──────
 
 
-@pytest.mark.sandbox
-@pytest.mark.bwrap
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_bwrap_ledger_records_sandbox_type_and_output_deltas():
+async def test_bwrap_ledger_records_sandbox_type_and_output_deltas(require_subprocess):
     """Phase 33.2: when executing via bwrap, the ledger must record
     exec_started with sandbox_type='bwrap' and exec_output_delta items
     for each stdout/stderr chunk."""
@@ -1229,35 +1227,27 @@ async def test_bwrap_ledger_records_sandbox_type_and_output_deltas():
 # ── Phase 33.2: BwrapCommandHandle.wait() exit code regression tests ──────
 
 
-@pytest.mark.sandbox
-@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_bwrap_handle_wait_exit_code_zero():
     """BwrapCommandHandle.wait() MUST return 0 for successful exit (not -1)."""
     from miqi.sandbox.bwrap import BwrapCommandHandle
 
-    proc = await asyncio.create_subprocess_exec(
-        "python", "-c", "pass",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    proc = MagicMock()
+    proc.wait = AsyncMock(return_value=None)
+    proc.returncode = 0
     handle = BwrapCommandHandle(proc)
     exit_code = await handle.wait()
     assert exit_code == 0, f"Expected 0 for successful exit, got {exit_code}"
 
 
-@pytest.mark.sandbox
-@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_bwrap_handle_wait_exit_code_nonzero():
     """BwrapCommandHandle.wait() MUST return the real non-zero exit code."""
     from miqi.sandbox.bwrap import BwrapCommandHandle
 
-    proc = await asyncio.create_subprocess_exec(
-        "python", "-c", "import sys; sys.exit(42)",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    proc = MagicMock()
+    proc.wait = AsyncMock(return_value=None)
+    proc.returncode = 42
     handle = BwrapCommandHandle(proc)
     exit_code = await handle.wait()
     assert exit_code == 42, f"Expected 42, got {exit_code}"
@@ -1266,7 +1256,10 @@ async def test_bwrap_handle_wait_exit_code_nonzero():
 @pytest.mark.asyncio
 async def test_fake_handle_wait_exit_code_zero():
     """_FakeBwrapHandle.wait() MUST also return 0 for successful exit."""
-    handle = await _make_streaming_handle(stdout_text="ok", exit_code=0)
+    proc = MagicMock()
+    proc.wait = AsyncMock(return_value=None)
+    proc.returncode = 0
+    handle = _FakeBwrapHandle(proc)
     exit_code = await handle.wait()
     assert exit_code == 0, f"Expected 0 for successful exit, got {exit_code}"
 
@@ -1274,7 +1267,10 @@ async def test_fake_handle_wait_exit_code_zero():
 @pytest.mark.asyncio
 async def test_fake_handle_wait_exit_code_nonzero():
     """_FakeBwrapHandle.wait() MUST also return the real non-zero exit code."""
-    handle = await _make_streaming_handle(stdout_text="err", exit_code=7)
+    proc = MagicMock()
+    proc.wait = AsyncMock(return_value=None)
+    proc.returncode = 7
+    handle = _FakeBwrapHandle(proc)
     exit_code = await handle.wait()
     assert exit_code == 7, f"Expected 7, got {exit_code}"
 
@@ -1284,8 +1280,9 @@ async def test_fake_handle_wait_exit_code_nonzero():
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_exec_begin_event_includes_user_shell_source(tmp_path):
+async def test_exec_begin_event_includes_user_shell_source(require_subprocess, tmp_path):
     from miqi.agent.tools.shell import ExecTool
     from miqi.protocol.events import ExecCommandBeginEvent
 
@@ -1308,8 +1305,9 @@ async def test_exec_begin_event_includes_user_shell_source(tmp_path):
     assert begin.source == "userShell"
 
 
+@pytest.mark.subprocess
 @pytest.mark.asyncio
-async def test_exec_started_ledger_includes_user_shell_source(tmp_path):
+async def test_exec_started_ledger_includes_user_shell_source(require_subprocess, tmp_path):
     from miqi.agent.tools.shell import ExecTool
     from miqi.runtime.ledger_runtime import LedgerRuntime
 
