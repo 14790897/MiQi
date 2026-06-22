@@ -21,14 +21,14 @@ from miqi.runtime.app_server import AppServerError
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-def _handler_sm():
+def _handler_sm(*, legacy_sessions_dir: Path | None = None):
     """Get a SessionManager using the same path the AppServer handlers use."""
     import miqi.bridge.server as bridge_module
     state = getattr(bridge_module, "_state", None)
     if state is None:
         pytest.skip("Bridge state not available")
     config = state.load_config()
-    return SessionManager(config.workspace_path)
+    return SessionManager(config.workspace_path, legacy_sessions_dir=legacy_sessions_dir)
 
 
 def _cleanup_session(sm, key):

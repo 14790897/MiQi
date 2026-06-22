@@ -25,7 +25,7 @@ def _setup_session(session_key: str, client_id: str | None, *, set_owner: bool =
     config = state.load_config()
     from miqi.session.manager import SessionManager
 
-    sm = SessionManager(config.workspace_path)
+    sm = SessionManager(config.workspace_path, legacy_sessions_dir=config.workspace_path / "_legacy_sessions")
     session = sm.get_or_create(session_key, client_id=client_id)
     if set_owner and client_id is not None:
         session.metadata["owner_client_id"] = client_id
