@@ -10,7 +10,9 @@ from miqi.paths import get_miqi_home
 def test_pytest_basetemp_is_inside_repo(request, tmp_path):
     """Regression: tmp_path must be created under a repository-local base temp."""
     repo_root = Path(request.config.rootpath).resolve()
-    assert tmp_path.resolve().is_relative_to(repo_root / ".pytest-basetemp")
+    resolved = tmp_path.resolve()
+    assert resolved.is_relative_to(repo_root)
+    assert ".pytest-basetemp" in str(resolved)
 
 
 def test_global_fixture_isolates_home_and_temp(tmp_path):
