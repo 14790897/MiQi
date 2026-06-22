@@ -3,6 +3,9 @@
 from datetime import datetime
 from pathlib import Path
 
+from miqi.paths import get_miqi_home, get_legacy_data_dir
+
+# Kept as public aliases for callers that still reference these constants.
 DEFAULT_DATA_DIR = ".miqi"
 LEGACY_DATA_DIR = ".assistant"
 
@@ -14,13 +17,8 @@ def ensure_dir(path: Path) -> Path:
 
 
 def get_data_path() -> Path:
-    """Get runtime data directory, preferring ~/.miqi with legacy fallback."""
-    home = Path.home()
-    preferred = home / DEFAULT_DATA_DIR
-    legacy = home / LEGACY_DATA_DIR
-    if preferred.exists() or not legacy.exists():
-        return ensure_dir(preferred)
-    return ensure_dir(legacy)
+    """Get runtime data directory from MIQI_HOME (or default ~/.miqi)."""
+    return ensure_dir(get_miqi_home())
 
 
 def get_workspace_path(workspace: str | None = None) -> Path:
