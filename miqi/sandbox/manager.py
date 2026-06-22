@@ -89,7 +89,8 @@ class SandboxManager:
             from miqi.config.loader import get_data_dir
             data_dir = get_data_dir()
         except Exception:
-            data_dir = Path.home() / ".miqi"
+            from miqi.paths import get_miqi_home
+            data_dir = get_miqi_home()
         data_dir.mkdir(parents=True, exist_ok=True)
         return data_dir / "sandbox_state.json"
 

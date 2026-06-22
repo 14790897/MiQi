@@ -316,7 +316,8 @@ from miqi.agent.tools.filesystem import (
 # ---------------------------------------------------------------------------
 
 def handle_status(req_id: str, params: dict) -> None:
-    config_exists = Path.home() / ".miqi" / "config.json"
+    from miqi.paths import get_config_path
+    config_exists = get_config_path()
     _result(req_id, {
         "status": "ok",
         "configured": config_exists.exists(),
@@ -1428,6 +1429,7 @@ def handle_mcp_delete(req_id: str, params: dict) -> None:
 def handle_python_check(req_id: str, params: dict) -> None:
     """Check if Python and MiQi are available."""
     import importlib
+    from miqi.paths import get_config_path
 
     issues = []
 
@@ -1447,7 +1449,7 @@ def handle_python_check(req_id: str, params: dict) -> None:
         "ok": len(issues) == 0,
         "python_version": f"{py_ver.major}.{py_ver.minor}.{py_ver.micro}",
         "issues": issues,
-        "config_exists": (Path.home() / ".miqi" / "config.json").exists(),
+        "config_exists": get_config_path().exists(),
     })
 
 

@@ -38,9 +38,11 @@ async def python_check_handler(
         except ImportError:
             issues.append(f"Missing dependency: {mod}")
 
+    from miqi.paths import get_config_path
+
     return {"result": {
         "ok": len(issues) == 0,
         "python_version": f"{py_ver.major}.{py_ver.minor}.{py_ver.micro}",
         "issues": issues,
-        "config_exists": (Path.home() / ".miqi" / "config.json").exists(),
+        "config_exists": get_config_path().exists(),
     }}

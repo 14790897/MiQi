@@ -254,7 +254,8 @@ def _get_data_home() -> str:
 
         return str(get_data_dir())
     except Exception:
-        return str(Path.home() / ".miqi")
+        from miqi.paths import get_miqi_home
+        return str(get_miqi_home())
 
 
 def _get_miqi_version() -> str:

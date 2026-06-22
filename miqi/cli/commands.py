@@ -128,7 +128,8 @@ def _init_prompt_session() -> None:
     except Exception:
         pass
 
-    history_file = Path.home() / ".miqi" / "history" / "cli_history"
+    from miqi.paths import get_miqi_home
+    history_file = get_miqi_home() / "history" / "cli_history"
     history_file.parent.mkdir(parents=True, exist_ok=True)
 
     _PROMPT_SESSION = PromptSession(
