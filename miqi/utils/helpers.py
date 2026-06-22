@@ -3,7 +3,7 @@
 from datetime import datetime
 from pathlib import Path
 
-from miqi.paths import get_legacy_data_dir, get_miqi_home, _miqi_home_is_configured
+from miqi.paths import _miqi_home_is_configured, get_legacy_data_dir, get_miqi_home
 
 # Kept as public aliases for callers that still reference these constants.
 DEFAULT_DATA_DIR = ".miqi"
