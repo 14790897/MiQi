@@ -53,3 +53,43 @@ def test_path_getters_do_not_create_directories(monkeypatch, tmp_path):
 
     assert get_miqi_home() == configured.resolve()
     assert not configured.exists()
+
+
+from miqi.config.loader import load_config, save_config
+from miqi.config.schema import Config
+from miqi.utils.helpers import get_data_path, get_workspace_path
+
+
+def test_config_loader_uses_miqi_home(monkeypatch, tmp_path):
+    miqi_home = tmp_path / "isolated"
+    monkeypatch.setenv("MIQI_HOME", str(miqi_home))
+    config = Config()
+
+    save_config(config)
+
+    assert (miqi_home / "config.json").is_file()
+    assert load_config().model_dump() == config.model_dump()
+
+
+def test_data_and_default_workspace_use_miqi_home(monkeypatch, tmp_path):
+    miqi_home = tmp_path / "isolated"
+    monkeypatch.setenv("MIQI_HOME", str(miqi_home))
+
+    assert get_data_path() == miqi_home.resolve()
+    assert get_workspace_path() == (miqi_home / "workspace").resolve()
+
+
+def test_default_config_workspace_uses_miqi_home(monkeypatch, tmp_path):
+    miqi_home = tmp_path / "isolated"
+    monkeypatch.setenv("MIQI_HOME", str(miqi_home))
+
+    assert Config().agents.defaults.workspace == "~/.miqi/workspace"
+    assert Config().workspace_path == (miqi_home / "workspace").resolve()
+
+
+def test_explicit_workspace_is_not_rebased_to_miqi_home(monkeypatch, tmp_path):
+    monkeypatch.setenv("MIQI_HOME", str(tmp_path / "isolated"))
+    config = Config()
+    config.agents.defaults.workspace = str(tmp_path / "explicit-workspace")
+
+    assert config.workspace_path == (tmp_path / "explicit-workspace").resolve()
