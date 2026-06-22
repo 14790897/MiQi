@@ -9,7 +9,8 @@ from typing import Any
 
 from loguru import logger
 
-from miqi.utils.helpers import LEGACY_DATA_DIR, ensure_dir, safe_filename
+from miqi.paths import get_legacy_data_dir
+from miqi.utils.helpers import ensure_dir, safe_filename
 
 
 @dataclass
@@ -88,10 +89,16 @@ class SessionManager:
         compact_threshold_messages: int = 400,
         compact_threshold_bytes: int = 2_000_000,
         compact_keep_messages: int = 300,
+        *,
+        legacy_sessions_dir: Path | None = None,
     ):
         self.workspace = workspace
         self.sessions_dir = ensure_dir(self.workspace / "sessions")
-        self.legacy_sessions_dir = Path.home() / LEGACY_DATA_DIR / "sessions"
+        self.legacy_sessions_dir = (
+            legacy_sessions_dir
+            if legacy_sessions_dir is not None
+            else get_legacy_data_dir() / "sessions"
+        )
         self.compact_threshold_messages = max(1, compact_threshold_messages)
         self.compact_threshold_bytes = max(1, compact_threshold_bytes)
         self.compact_keep_messages = max(1, compact_keep_messages)

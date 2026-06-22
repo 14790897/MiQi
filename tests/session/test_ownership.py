@@ -591,3 +591,32 @@ def test_compact_preserves_owner_client_id(tmp_path):
     with open(path, encoding="utf-8") as f:
         meta_line = json.loads(f.readline().strip())
     assert meta_line.get("owner_client_id") == "owner-1"
+
+
+# ── Legacy directory injection ─────────────────────────────────────────────────
+
+
+def test_session_manager_uses_injected_legacy_directory(tmp_path):
+    from miqi.session.manager import SessionManager
+
+    workspace = tmp_path / "workspace"
+    legacy = tmp_path / "legacy-sessions"
+    manager = SessionManager(workspace, legacy_sessions_dir=legacy)
+
+    assert manager.sessions_dir == workspace / "sessions"
+    assert manager.legacy_sessions_dir == legacy
+
+
+def test_new_session_never_writes_to_legacy_directory(tmp_path):
+    from miqi.session.manager import SessionManager
+
+    workspace = tmp_path / "workspace"
+    legacy = tmp_path / "legacy-sessions"
+    manager = SessionManager(workspace, legacy_sessions_dir=legacy)
+    session = manager.get_or_create("cli:new")
+    session.add_message("user", "hello")
+
+    manager.save(session)
+
+    assert (workspace / "sessions" / "cli_new" / "conversation.jsonl").is_file()
+    assert not legacy.exists()
