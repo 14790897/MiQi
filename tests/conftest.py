@@ -1,7 +1,9 @@
 """Shared fixtures for all test packages."""
 
 import os
+import shutil
 import tempfile
+import warnings
 from pathlib import Path
 
 import pytest
@@ -9,26 +11,92 @@ import pytest
 from miqi.config.schema import Config
 
 
+_AUTO_BASETEMP_ATTR = "_miqi_auto_basetemp"
+
+
+def _repo_root() -> Path:
+    """Return the repository root that contains this conftest.py file."""
+    return Path(__file__).resolve().parent.parent
+
+
+def _auto_basetemp_name() -> str:
+    """Return a per-process / per-xdist-worker basetemp directory name."""
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    suffix = worker if worker else f"pid{os.getpid()}"
+    return f".pytest-basetemp-{suffix}"
+
+
+def _is_safe_to_clean(path: Path, repo_root: Path) -> bool:
+    """Verify ``path`` is an automatic basetemp directory inside the repo."""
+    try:
+        resolved = path.resolve()
+        root = repo_root.resolve()
+    except Exception:
+        return False
+    if not resolved.exists():
+        return False
+    if resolved == root:
+        return False
+    if not resolved.is_relative_to(root):
+        return False
+    if not resolved.name.startswith(".pytest-basetemp-"):
+        return False
+    return True
+
+
 def pytest_configure(config):
     """Bootstrap a writable, repository-local pytest base temp directory.
 
     On some Windows/CI environments the system temp directory is read-only
     or contains an unowned ``pytest-of-*`` directory left by another process.
-    Setting ``config.option.basetemp`` here forces pytest to create
-    ``tmp_path`` under ``<repo>/.pytest-basetemp-*`` before any fixture runs,
-    so ``isolated_process_environment`` never depends on a possibly-broken
-    default system temp path.
+    This hook sets a repository-local base temp *only* when the caller has
+    not explicitly provided ``--basetemp``.  The chosen directory is recorded
+    on the config object so ``pytest_unconfigure`` can safely remove it.
 
     A per-process (or per-xdist-worker) suffix avoids conflicts between
     consecutive local runs, including cases where a previous subprocess test
     is still releasing handles when the next pytest session starts.
     """
-    repo_root = Path(__file__).resolve().parent.parent
-    worker = os.environ.get("PYTEST_XDIST_WORKER")
-    suffix = worker if worker else f"pid{os.getpid()}"
-    basetemp = repo_root / f".pytest-basetemp-{suffix}"
+    if getattr(config.option, "basetemp", None) is not None:
+        # Respect the caller's explicit --basetemp; do not auto-manage it.
+        return
+
+    basetemp = _repo_root() / _auto_basetemp_name()
     basetemp.mkdir(parents=True, exist_ok=True)
     config.option.basetemp = str(basetemp)
+    setattr(config, _AUTO_BASETEMP_ATTR, basetemp)
+
+
+def pytest_unconfigure(config):
+    """Clean up the automatic base temp directory created by this conftest.
+
+    User-provided ``--basetemp`` directories are never touched.  Before
+    deleting, the path must pass safety checks: it must be inside the
+    repository root, its name must start with ``.pytest-basetemp-``, and it
+    must not be the repository root itself.  Cleanup failures are reported
+    as warnings so they do not mask test results.
+    """
+    basetemp = getattr(config, _AUTO_BASETEMP_ATTR, None)
+    if basetemp is None:
+        return
+
+    repo_root = _repo_root()
+    if not _is_safe_to_clean(basetemp, repo_root):
+        warnings.warn(
+            f"Refusing to clean automatic pytest base temp {basetemp}: safety check failed",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return
+
+    try:
+        shutil.rmtree(basetemp)
+    except Exception as exc:  # pragma: no cover
+        warnings.warn(
+            f"Failed to clean automatic pytest base temp {basetemp}: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
 
 class _FakeResponse:
