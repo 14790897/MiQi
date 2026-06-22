@@ -215,8 +215,10 @@ class RuntimeServices:
         from miqi.runtime.capabilities import CapabilityResolver
         from miqi.skills.plugin_manager import PluginManager
 
+        from miqi.paths import get_miqi_home
+
         plugin_manager = PluginManager(
-            user_plugins_dir=_Path.home() / ".miqi" / "plugins",
+            user_plugins_dir=get_miqi_home() / "plugins",
             system_plugins_dir=_Path(__file__).parent.parent / "plugins",
             workspace=workspace,
             hook_runtime=hook_runtime,

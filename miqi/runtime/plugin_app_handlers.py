@@ -78,7 +78,8 @@ def _catalog(registry: Any) -> PluginCatalogRuntime:
     pm = get_bridge_context(registry, "plugin_manager", None)
     if pm is None:
         raise AppServerError("Plugin manager not initialized", code="INTERNAL")
-    marketplaces_dir = Path(get_bridge_context(registry, "marketplaces_dir", Path.home() / ".miqi" / "marketplaces"))
+    from miqi.paths import get_miqi_home
+    marketplaces_dir = Path(get_bridge_context(registry, "marketplaces_dir", get_miqi_home() / "marketplaces"))
     catalog = get_bridge_context(registry, "plugin_catalog", None)
     if catalog is None:
         catalog = PluginCatalogRuntime(plugin_manager=pm, marketplaces_dir=marketplaces_dir)

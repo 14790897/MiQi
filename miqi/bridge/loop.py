@@ -468,7 +468,8 @@ class BridgeRuntimeLoop:
         _session_id: str | None, _registry: Any,
     ) -> dict:
         """Bridge status check — session-less handler."""
-        config_exists = Path.home() / ".miqi" / "config.json"
+        from miqi.paths import get_config_path
+        config_exists = get_config_path()
         return {
             "result": {
                 "status": "ok",
