@@ -17,6 +17,7 @@ venv/
 __pycache__/
 poetry.lock
 .pytest_cache/
+.pytest-basetemp/
 site/
 botpy.log
 .ruff_cache/

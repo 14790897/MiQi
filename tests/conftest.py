@@ -1,11 +1,31 @@
 """Shared fixtures for all test packages."""
 
+import os
 import tempfile
 from pathlib import Path
 
 import pytest
 
 from miqi.config.schema import Config
+
+
+def pytest_configure(config):
+    """Bootstrap a writable, repository-local pytest base temp directory.
+
+    On some Windows/CI environments the system temp directory is read-only
+    or contains an unowned ``pytest-of-*`` directory left by another process.
+    Setting ``config.option.basetemp`` here forces pytest to create
+    ``tmp_path`` under ``<repo>/.pytest-basetemp`` before any fixture runs,
+    so ``isolated_process_environment`` never depends on a possibly-broken
+    default system temp path.
+    """
+    repo_root = Path(__file__).resolve().parent.parent
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    basetemp = repo_root / ".pytest-basetemp"
+    if worker:
+        basetemp = basetemp / worker
+    basetemp.mkdir(parents=True, exist_ok=True)
+    config.option.basetemp = str(basetemp)
 
 
 class _FakeResponse:
