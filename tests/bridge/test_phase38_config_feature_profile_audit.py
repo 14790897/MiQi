@@ -84,23 +84,23 @@ def test_phase38_runtime_handlers_do_not_import_bridge_server_directly():
 
 
 def test_phase38_config_tests_must_not_write_real_config():
-    """Runtime test conftest must patch save_config so tests never touch
-    ~/.miqi/config.json."""
-    conftest = _ROOT / "tests" / "runtime" / "conftest.py"
+    """Root test conftest must isolate MIQI_HOME so tests never touch
+    ~/.miqi/config.json.
+
+    Plan 60 replaces the runtime-specific mock_save_config workaround with a
+    global autouse fixture that sets MIQI_HOME/HOME/TEMP below tmp_path.
+    """
+    conftest = _ROOT / "tests" / "conftest.py"
     text = conftest.read_text(encoding="utf-8")
 
-    # Must have an autouse fixture that patches save_config
-    assert "mock_save_config" in text, (
-        "conftest.py must define mock_save_config fixture"
+    assert "isolated_process_environment" in text, (
+        "root conftest.py must define isolated_process_environment fixture"
     )
     assert "autouse=True" in text, (
-        "mock_save_config must be autouse to protect all runtime tests"
+        "isolated_process_environment must be autouse to protect all tests"
     )
-    assert "save_config" in text, (
-        "mock_save_config must patch save_config"
-    )
-    assert "get_config_path" in text, (
-        "mock_save_config must patch get_config_path"
+    assert "MIQI_HOME" in text, (
+        "isolated_process_environment must set MIQI_HOME"
     )
 
 

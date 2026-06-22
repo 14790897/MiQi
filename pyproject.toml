@@ -99,6 +99,9 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "self_managed_env: test fully isolates and manages its own home and temp environment",
+]
 
 [dependency-groups]
 dev = [

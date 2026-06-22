@@ -50,3 +50,36 @@ def fake_provider():
             yield LLMStreamEvent(kind="completed", response=response)
 
     return FakeProvider()
+
+
+@pytest.fixture(autouse=True)
+def isolated_process_environment(monkeypatch, tmp_path, request):
+    """Isolate every test from the real user home and system temp.
+
+    Sets MIQI_HOME, HOME, USERPROFILE, TEMP, TMP, TMPDIR, and
+    tempfile.tempdir below ``tmp_path`` so that no MiQi-owned write
+    or third-party temp file can accidentally land in the real user
+    profile.
+
+    Tests decorated with ``@pytest.mark.self_managed_env`` opt out
+    of automatic isolation — they MUST set all six environment
+    variables themselves before any path access.
+    """
+    import tempfile
+
+    if request.node.get_closest_marker("self_managed_env") is not None:
+        return
+
+    home = tmp_path / "home"
+    miqi_home = tmp_path / ".miqi"
+    temp_dir = tmp_path / "tmp"
+    home.mkdir()
+    temp_dir.mkdir()
+
+    monkeypatch.setenv("MIQI_HOME", str(miqi_home))
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("TEMP", str(temp_dir))
+    monkeypatch.setenv("TMP", str(temp_dir))
+    monkeypatch.setenv("TMPDIR", str(temp_dir))
+    monkeypatch.setattr(tempfile, "tempdir", str(temp_dir))
