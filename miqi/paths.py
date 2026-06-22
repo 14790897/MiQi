@@ -10,6 +10,11 @@ DEFAULT_HOME_NAME = ".miqi"
 LEGACY_HOME_NAME = ".assistant"
 
 
+def _miqi_home_is_configured() -> bool:
+    """Return True when MIQI_HOME is explicitly set and non-empty."""
+    return bool(os.environ.get(MIQI_HOME_ENV, "").strip())
+
+
 def get_miqi_home() -> Path:
     configured = os.environ.get(MIQI_HOME_ENV, "").strip()
     if configured:
