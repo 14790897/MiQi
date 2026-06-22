@@ -8,8 +8,8 @@ import pytest
 from miqi.agent.tools.shell import ExecTool
 from miqi.protocol.events import (
     ExecCommandBeginEvent,
-    ExecCommandOutputDeltaEvent,
     ExecCommandEndEvent,
+    ExecCommandOutputDeltaEvent,
 )
 
 
@@ -432,7 +432,8 @@ def _make_none_selection(*, timeout_ms: int = 30_000):
     to pass _sandbox kwarg."""
     from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
     from miqi.protocol.permissions import (
-        FileSystemSandboxPolicy, NetworkSandboxPolicy,
+        FileSystemSandboxPolicy,
+        NetworkSandboxPolicy,
     )
     return SandboxSelection(
         sandbox_type=SandboxType.NONE,
@@ -465,7 +466,8 @@ async def test_exec_tool_writes_ledger_begin_and_end(require_subprocess, tmp_pat
     """ExecTool with _ledger_runtime must write exec_started + exec_completed."""
     from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
     from miqi.protocol.permissions import (
-        FileSystemSandboxPolicy, NetworkSandboxPolicy,
+        FileSystemSandboxPolicy,
+        NetworkSandboxPolicy,
     )
 
     fake_ledger = _FakeLedger()
@@ -517,7 +519,8 @@ async def test_exec_tool_writes_output_deltas_to_ledger(require_subprocess, tmp_
 
     from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
     from miqi.protocol.permissions import (
-        FileSystemSandboxPolicy, NetworkSandboxPolicy,
+        FileSystemSandboxPolicy,
+        NetworkSandboxPolicy,
     )
 
     fake_ledger = _FakeLedger()
@@ -609,7 +612,8 @@ def _none_sandbox():
     """Helper: SandboxSelection for NONE (direct execution)."""
     from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
     from miqi.protocol.permissions import (
-        FileSystemSandboxPolicy, NetworkSandboxPolicy,
+        FileSystemSandboxPolicy,
+        NetworkSandboxPolicy,
     )
     return SandboxSelection(
         sandbox_type=SandboxType.NONE,
