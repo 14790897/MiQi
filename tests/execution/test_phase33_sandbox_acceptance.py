@@ -384,6 +384,9 @@ async def test_acceptance_none_emits_sandbox_type_in_events(tmp_path):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.subprocess
+@pytest.mark.sandbox
+@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_acceptance_bwrap_handle_wait_preserves_exit_zero():
     """Regression: BwrapCommandHandle.wait() must return 0, not -1, for exit code 0."""
@@ -400,6 +403,9 @@ async def test_acceptance_bwrap_handle_wait_preserves_exit_zero():
     assert exit_code == 0, f"Expected 0, got {exit_code}"
 
 
+@pytest.mark.subprocess
+@pytest.mark.sandbox
+@pytest.mark.bwrap
 @pytest.mark.asyncio
 async def test_acceptance_bwrap_handle_wait_preserves_exit_nonzero():
     """Regression: BwrapCommandHandle.wait() must return the actual non-zero exit code."""
