@@ -183,6 +183,26 @@ def _with_aliases(params: dict[str, Any]) -> dict[str, Any]:
     return aliased
 
 
+TURN_METHOD_PARAM_MODELS = {
+    "turn/start": TurnStartParams,
+    "turn/interrupt": TurnInterruptParams,
+    "turn/steer": TurnSteerParams,
+    "thread/compact/start": ThreadCompactStartParams,
+    "thread/inject_items": ThreadInjectItemsParams,
+}
+
+
+def required_fields_for_model(model: type[BaseModel]) -> list[str]:
+    """Return required external camelCase field names for a request model."""
+    required: list[str] = []
+    for name, field in model.model_fields.items():
+        if not field.is_required():
+            continue
+        alias = field.validation_alias
+        required.append(str(alias) if alias is not None else name)
+    return sorted(required)
+
+
 def validate_turn_params(model: type[T], params: dict[str, Any]) -> T:
     """Validate turn handler params and convert failures to AppServerError."""
     try:
