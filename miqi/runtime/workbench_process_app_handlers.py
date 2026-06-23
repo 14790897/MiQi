@@ -15,6 +15,7 @@ import base64
 from pathlib import Path
 from typing import Any
 
+import miqi.runtime.protocol_specs as protocol_specs
 from miqi.runtime.app_server import (
     AppServer,
     AppServerError,
@@ -284,7 +285,7 @@ def register_workbench_process_handlers(server: AppServer) -> None:
 
     # ── Register all ────────────────────────────────────────────────────
 
-    server.register_method("process/spawn", _process_spawn)
-    server.register_method("process/writeStdin", _process_write_stdin)
-    server.register_method("process/resizePty", _process_resize_pty)
-    server.register_method("process/kill", _process_kill)
+    server.register_method("process/spawn", _process_spawn, spec=protocol_specs.PROCESS_SPAWN)
+    server.register_method("process/writeStdin", _process_write_stdin, spec=protocol_specs.PROCESS_WRITE_STDIN)
+    server.register_method("process/resizePty", _process_resize_pty, spec=protocol_specs.PROCESS_RESIZE_PTY)
+    server.register_method("process/kill", _process_kill, spec=protocol_specs.PROCESS_KILL)

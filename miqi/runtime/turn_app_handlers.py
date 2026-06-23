@@ -10,6 +10,7 @@ import uuid
 from typing import Any
 
 from miqi.protocol.commands import UserMessage
+import miqi.runtime.protocol_specs as protocol_specs
 from miqi.runtime.app_server import AppServer, AppServerError
 from miqi.runtime.turn_event_adapter import CodexTurnEventAdapter
 from miqi.runtime.turn_protocol import (
@@ -295,11 +296,11 @@ def register_codex_turn_handlers(server: AppServer) -> None:
 
     # ── register ──────────────────────────────────────────────────────────
 
-    server.register_method("turn/start", _turn_start)
-    server.register_method("turn/interrupt", _turn_interrupt)
-    server.register_method("turn/steer", _turn_steer)
-    server.register_method("thread/compact/start", _thread_compact_start)
-    server.register_method("thread/inject_items", _thread_inject_items)
+    server.register_method("turn/start", _turn_start, spec=protocol_specs.TURN_START)
+    server.register_method("turn/interrupt", _turn_interrupt, spec=protocol_specs.TURN_INTERRUPT)
+    server.register_method("turn/steer", _turn_steer, spec=protocol_specs.TURN_STEER)
+    server.register_method("thread/compact/start", _thread_compact_start, spec=protocol_specs.THREAD_COMPACT_START)
+    server.register_method("thread/inject_items", _thread_inject_items, spec=protocol_specs.THREAD_INJECT_ITEMS)
 
 
 # ── background compaction ──────────────────────────────────────────────────

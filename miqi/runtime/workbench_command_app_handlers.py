@@ -14,6 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import miqi.runtime.protocol_specs as protocol_specs
 from miqi.runtime.app_server import (
     AppServer,
     AppServerError,
@@ -428,7 +429,7 @@ def register_workbench_command_handlers(server: AppServer) -> None:
 
     # ── Register all ────────────────────────────────────────────────────
 
-    server.register_method("command/exec", _command_exec)
-    server.register_method("command/exec/write", _command_exec_write)
-    server.register_method("command/exec/resize", _command_exec_resize)
-    server.register_method("command/exec/terminate", _command_exec_terminate)
+    server.register_method("command/exec", _command_exec, spec=protocol_specs.COMMAND_EXEC)
+    server.register_method("command/exec/write", _command_exec_write, spec=protocol_specs.COMMAND_EXEC_WRITE)
+    server.register_method("command/exec/resize", _command_exec_resize, spec=protocol_specs.COMMAND_EXEC_RESIZE)
+    server.register_method("command/exec/terminate", _command_exec_terminate, spec=protocol_specs.COMMAND_EXEC_TERMINATE)

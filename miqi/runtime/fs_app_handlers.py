@@ -12,6 +12,7 @@ from __future__ import annotations
 import shutil
 from typing import Any
 
+import miqi.runtime.protocol_specs as protocol_specs
 from miqi.runtime.app_server import AppServer, AppServerError
 from miqi.runtime.fs_protocol import (
     decode_data_base64,
@@ -239,10 +240,10 @@ async def fs_copy_handler(
 
 def register_fs_handlers(server: AppServer) -> None:
     """Register Codex fs/* handlers on *server*."""
-    server.register_method("fs/readFile", fs_read_file_handler)
-    server.register_method("fs/writeFile", fs_write_file_handler)
-    server.register_method("fs/createDirectory", fs_create_directory_handler)
-    server.register_method("fs/getMetadata", fs_get_metadata_handler)
-    server.register_method("fs/readDirectory", fs_read_directory_handler)
-    server.register_method("fs/remove", fs_remove_handler)
-    server.register_method("fs/copy", fs_copy_handler)
+    server.register_method("fs/readFile", fs_read_file_handler, spec=protocol_specs.FS_READ_FILE)
+    server.register_method("fs/writeFile", fs_write_file_handler, spec=protocol_specs.FS_WRITE_FILE)
+    server.register_method("fs/createDirectory", fs_create_directory_handler, spec=protocol_specs.FS_CREATE_DIRECTORY)
+    server.register_method("fs/getMetadata", fs_get_metadata_handler, spec=protocol_specs.FS_GET_METADATA)
+    server.register_method("fs/readDirectory", fs_read_directory_handler, spec=protocol_specs.FS_READ_DIRECTORY)
+    server.register_method("fs/remove", fs_remove_handler, spec=protocol_specs.FS_REMOVE)
+    server.register_method("fs/copy", fs_copy_handler, spec=protocol_specs.FS_COPY)

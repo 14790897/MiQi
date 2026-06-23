@@ -10,6 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+import miqi.runtime.protocol_specs as protocol_specs
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_state
 from miqi.runtime.replay_document import diff_replay_documents
 from miqi.runtime.replay_inspector import ReplayInspector
@@ -124,9 +125,9 @@ def register_replay_handlers(server: AppServer) -> None:
         diff = diff_replay_documents(left, right)
         return {"result": {"diff": diff.to_dict()}}
 
-    server.register_method("replay.turns", _replay_turns)
-    server.register_method("replay.timeline", _replay_timeline)
-    server.register_method("replay.messages", _replay_messages)
+    server.register_method("replay.turns", _replay_turns, spec=protocol_specs.REPLAY_TURNS)
+    server.register_method("replay.timeline", _replay_timeline, spec=protocol_specs.REPLAY_TIMELINE)
+    server.register_method("replay.messages", _replay_messages, spec=protocol_specs.REPLAY_MESSAGES)
     server.register_method("debug/replay/thread", _debug_thread)
     server.register_method("debug/replay/turn", _debug_turn)
     server.register_method("debug/replay/messages", _debug_messages)
