@@ -2,7 +2,7 @@
 
 > Date: 2026-06-22
 >
-> Status: **REVIEWED** — review fixes applied. Criterion 10 is **PENDING** on native Windows because bwrap is not available.
+> Status: **REVIEWED** — review fixes applied. Criterion 10 remains **PENDING** because this machine has no real Ubuntu/WSL+bwrap execution environment.
 
 ## 1. Original Commit Sequence
 
@@ -177,7 +177,7 @@ After the session `.explicit-test-temp/` still exists, proving it was not auto-c
 | 7 | Platform capability markers registered; skip reasons are diagnostic | **PASS** — 5 markers registered; capability fixtures produce specific skip reasons |
 | 8 | Windows and Ubuntu non-Desktop CI established | **PASS** — `.github/workflows/python-tests.yml` created with matrix strategy |
 | 9 | Normal + subprocess tests all green in capable environment | **PASS** — Command 4 and Command 5 are green on native Windows |
-| 10 | Bwrap tests green on configured Ubuntu CI | **PENDING** — `bwrap` is not available on native Windows; real integration test `test_bwrap_sandbox_runs_echo_command` is gated by `require_bwrap` and will run on the Ubuntu CI job |
+| 10 | Bwrap tests green on configured Ubuntu CI | **PENDING** — no real Ubuntu/WSL+bwrap environment is available on this host. `wsl.exe --status` and `wsl.exe -- bash -lc "command -v bwrap"` both fail, so the real integration test `test_bwrap_sandbox_runs_echo_command` cannot be exercised. It remains gated by `require_bwrap` and must run on the Ubuntu CI job. |
 | 11 | No test deletions, assertion weakening, or unconditional skips to achieve green | **PASS** — all assertions intact; skips are capability-based |
 
 **Criterion 10 is PENDING. Therefore the plan does NOT claim 11/11 PASS.** All other criteria pass, and no pass was achieved through test deletion or assertion weakening.
@@ -186,7 +186,8 @@ After the session `.explicit-test-temp/` still exists, proving it was not auto-c
 
 ### Windows-specific limitations
 - **bwrap**: Not available on native Windows. The real integration test `tests/execution/test_bwrap_real_integration.py::test_bwrap_sandbox_runs_echo_command` skips locally and will exercise actual bwrap on the Ubuntu CI job.
-- **WSL**: `wsl.exe --status` availability was not tested on this host. WSL tests are marked with `@pytest.mark.wsl` and skip on hosts without WSL.
+- **WSL**: `wsl.exe --status` and `wsl.exe -- bash -lc "command -v bwrap"` both fail on this host with exit code 255 / garbled output, confirming no usable WSL distribution. WSL tests marked with `@pytest.mark.wsl` skip on hosts without WSL.
+- **Real bwrap verification**: This host cannot run real bwrap. Criterion 10 remains PENDING until the Ubuntu CI job executes it.
 - **ruff**: Import ordering issues introduced by Plan 60 changes were fixed. Pre-existing violations in touched files (unused `result`/`output` assignments, unused `asyncio as _asyncio` import, superfluous f-string prefix) remain unchanged per 'only fix issues introduced by this plan'.
 - **CRLF warnings**: Git reports LF→CRLF conversion warnings (expected on Windows).
 
