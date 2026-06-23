@@ -21,6 +21,12 @@ from typing import Any, Callable, Coroutine
 
 from loguru import logger
 
+from miqi.runtime.protocol_registry import (
+    ProtocolMethodSpec,
+    ProtocolRegistry,
+    legacy_method_spec,
+)
+
 # ── Handler/middleware signatures ────────────────────────────────────────
 
 # Handler: receives parsed request, returns result dict or raises
@@ -252,6 +258,8 @@ class AppServer:
         self._ttl_interval = ttl_interval_seconds
         self._ttl_task: asyncio.Task | None = None
         self._running = False
+        # Phase 61: typed protocol catalog storage
+        self._protocol = ProtocolRegistry()
         # Phase 26.4: event subscription
         # session_id → {client_id}
         self._subscriptions: dict[str, set[str]] = {}
@@ -267,8 +275,14 @@ class AppServer:
 
     # ── method registration ──────────────────────────────────────────────
 
-    def register_method(self, method: str, handler: Handler) -> None:
-        """Register a handler for a method name.
+    def register_method(
+        self,
+        method: str,
+        handler: Handler,
+        *,
+        spec: ProtocolMethodSpec | None = None,
+    ) -> None:
+        """Register a handler for a method name and optional protocol spec.
 
         Handler signature:
             async def handler(request_id, params, client_id, session_id, registry) -> dict
@@ -277,8 +291,21 @@ class AppServer:
         raise AppServerError on expected errors. Unexpected exceptions
         are caught and sanitized by the dispatch layer.
         """
+        if spec is not None and spec.method != method:
+            raise ValueError(
+                f"Protocol spec method {spec.method!r} does not match registered method {method!r}"
+            )
         self._methods[method] = handler
+        self._protocol.add(spec or legacy_method_spec(method))
         logger.debug("AppServer: registered method {}", method)
+
+    def protocol_catalog(self) -> dict[str, Any]:
+        """Return JSON-serializable protocol catalog for registered methods."""
+        return self._protocol.to_catalog()
+
+    def protocol_method_names(self) -> set[str]:
+        """Return registered protocol method names."""
+        return self._protocol.methods()
 
     # ── middleware ───────────────────────────────────────────────────────
 
