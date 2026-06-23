@@ -72,18 +72,42 @@ THREAD_SHELL_COMMAND = spec(
     emits=["turn/started", "item/started", "item/commandExecution/outputDelta", "item/completed", "turn/completed"],
 )
 
-COMMAND_EXEC = spec("command/exec", scope=MethodScope.PROCESS, required=["cmd"])
-COMMAND_EXEC_WRITE = spec("command/exec/write", scope=MethodScope.PROCESS, required=["execId", "data"])
-COMMAND_EXEC_RESIZE = spec("command/exec/resize", scope=MethodScope.PROCESS, required=["execId", "cols", "rows"])
-COMMAND_EXEC_TERMINATE = spec("command/exec/terminate", scope=MethodScope.PROCESS, required=["execId"])
+COMMAND_EXEC = spec("command/exec", scope=MethodScope.PROCESS, required=["command"])
+COMMAND_EXEC_WRITE = spec(
+    "command/exec/write",
+    scope=MethodScope.PROCESS,
+    required=["processId"],
+    description="Send stdin data or close stdin on a command/exec process.  "
+    "At least one of deltaBase64 or closeStdin must be provided.",
+)
+COMMAND_EXEC_RESIZE = spec(
+    "command/exec/resize",
+    scope=MethodScope.PROCESS,
+    stability=MethodStability.EXPERIMENTAL,
+    required=[],
+    description="PTY resize is not supported in this version — always returns UNSUPPORTED_FEATURE.",
+)
+COMMAND_EXEC_TERMINATE = spec("command/exec/terminate", scope=MethodScope.PROCESS, required=["processId"])
 
-PROCESS_SPAWN = spec("process/spawn", scope=MethodScope.PROCESS, required=["cmd"])
-PROCESS_WRITE_STDIN = spec("process/writeStdin", scope=MethodScope.PROCESS, required=["processId", "data"])
-PROCESS_RESIZE_PTY = spec("process/resizePty", scope=MethodScope.PROCESS, required=["processId", "cols", "rows"])
-PROCESS_KILL = spec("process/kill", scope=MethodScope.PROCESS, required=["processId"])
+PROCESS_SPAWN = spec("process/spawn", scope=MethodScope.PROCESS, required=["command", "processHandle", "cwd"])
+PROCESS_WRITE_STDIN = spec(
+    "process/writeStdin",
+    scope=MethodScope.PROCESS,
+    required=["processHandle"],
+    description="Send stdin data or close stdin on a background process.  "
+    "At least one of deltaBase64 or closeStdin must be provided.",
+)
+PROCESS_RESIZE_PTY = spec(
+    "process/resizePty",
+    scope=MethodScope.PROCESS,
+    stability=MethodStability.EXPERIMENTAL,
+    required=[],
+    description="PTY resize is not supported in this version — always returns UNSUPPORTED_FEATURE.",
+)
+PROCESS_KILL = spec("process/kill", scope=MethodScope.PROCESS, required=["processHandle"])
 
 FS_READ_FILE = spec("fs/readFile", scope=MethodScope.FILESYSTEM, required=["path"])
-FS_WRITE_FILE = spec("fs/writeFile", scope=MethodScope.FILESYSTEM, required=["path", "content"])
+FS_WRITE_FILE = spec("fs/writeFile", scope=MethodScope.FILESYSTEM, required=["path", "dataBase64"])
 FS_CREATE_DIRECTORY = spec("fs/createDirectory", scope=MethodScope.FILESYSTEM, required=["path"])
 FS_GET_METADATA = spec("fs/getMetadata", scope=MethodScope.FILESYSTEM, required=["path"])
 FS_READ_DIRECTORY = spec("fs/readDirectory", scope=MethodScope.FILESYSTEM, required=["path"])
@@ -92,11 +116,11 @@ FS_COPY = spec("fs/copy", scope=MethodScope.FILESYSTEM, required=["sourcePath", 
 FS_WATCH = spec("fs/watch", scope=MethodScope.FILESYSTEM, required=["path"], emits=["fs/changed"])
 FS_UNWATCH = spec("fs/unwatch", scope=MethodScope.FILESYSTEM, required=["watchId"])
 
-FUZZY_FILE_SEARCH = spec("fuzzyFileSearch", scope=MethodScope.FILESYSTEM, required=["query"])
-FUZZY_FILE_SEARCH_SESSION_START = spec("fuzzyFileSearch/sessionStart", scope=MethodScope.FILESYSTEM)
+FUZZY_FILE_SEARCH = spec("fuzzyFileSearch", scope=MethodScope.FILESYSTEM, required=["query", "roots"])
+FUZZY_FILE_SEARCH_SESSION_START = spec("fuzzyFileSearch/sessionStart", scope=MethodScope.FILESYSTEM, required=["sessionId", "roots"])
 FUZZY_FILE_SEARCH_SESSION_UPDATE = spec("fuzzyFileSearch/sessionUpdate", scope=MethodScope.FILESYSTEM, required=["sessionId", "query"])
 FUZZY_FILE_SEARCH_SESSION_STOP = spec("fuzzyFileSearch/sessionStop", scope=MethodScope.FILESYSTEM, required=["sessionId"])
 
-REPLAY_TURNS = spec("replay.turns", scope=MethodScope.DEBUG, required=["thread_id"])
-REPLAY_TIMELINE = spec("replay.timeline", scope=MethodScope.DEBUG, required=["thread_id", "turn_id"])
-REPLAY_MESSAGES = spec("replay.messages", scope=MethodScope.DEBUG, required=["thread_id"])
+REPLAY_TURNS = spec("replay.turns", scope=MethodScope.DEBUG, required=["threadId"])
+REPLAY_TIMELINE = spec("replay.timeline", scope=MethodScope.DEBUG, required=["threadId", "turnId"])
+REPLAY_MESSAGES = spec("replay.messages", scope=MethodScope.DEBUG, required=["threadId"])
