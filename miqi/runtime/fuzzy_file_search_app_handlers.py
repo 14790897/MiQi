@@ -13,6 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import miqi.runtime.protocol_specs as protocol_specs
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_context
 from miqi.runtime.experimental_api import require_experimental_api
 from miqi.runtime.fs_protocol import resolve_workspace_absolute_path
@@ -180,7 +181,7 @@ def _get_fuzzy_runtime(registry: Any):
 
 def register_fuzzy_file_search_handlers(server: AppServer) -> None:
     """Register fuzzyFileSearch* handlers on *server*."""
-    server.register_method("fuzzyFileSearch", fuzzy_file_search_handler)
-    server.register_method("fuzzyFileSearch/sessionStart", fuzzy_session_start_handler)
-    server.register_method("fuzzyFileSearch/sessionUpdate", fuzzy_session_update_handler)
-    server.register_method("fuzzyFileSearch/sessionStop", fuzzy_session_stop_handler)
+    server.register_method("fuzzyFileSearch", fuzzy_file_search_handler, spec=protocol_specs.FUZZY_FILE_SEARCH)
+    server.register_method("fuzzyFileSearch/sessionStart", fuzzy_session_start_handler, spec=protocol_specs.FUZZY_FILE_SEARCH_SESSION_START)
+    server.register_method("fuzzyFileSearch/sessionUpdate", fuzzy_session_update_handler, spec=protocol_specs.FUZZY_FILE_SEARCH_SESSION_UPDATE)
+    server.register_method("fuzzyFileSearch/sessionStop", fuzzy_session_stop_handler, spec=protocol_specs.FUZZY_FILE_SEARCH_SESSION_STOP)

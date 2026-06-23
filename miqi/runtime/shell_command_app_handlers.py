@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 from miqi.protocol.commands import RunUserShellCommand
+import miqi.runtime.protocol_specs as protocol_specs
 from miqi.runtime.app_server import AppServer, AppServerError
 from miqi.runtime.turn_app_handlers import drain_turn_events
 
@@ -96,4 +97,4 @@ def register_shell_command_handlers(server: AppServer) -> None:
         )
         return {"result": {}}
 
-    server.register_method("thread/shellCommand", _thread_shell_command)
+    server.register_method("thread/shellCommand", _thread_shell_command, spec=protocol_specs.THREAD_SHELL_COMMAND)

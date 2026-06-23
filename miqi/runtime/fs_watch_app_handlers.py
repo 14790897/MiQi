@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import miqi.runtime.protocol_specs as protocol_specs
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_context
 from miqi.runtime.fs_protocol import resolve_workspace_absolute_path
 
@@ -78,5 +79,5 @@ def _get_fs_watch_runtime(registry: Any):
 
 def register_fs_watch_handlers(server: AppServer) -> None:
     """Register fs/watch and fs/unwatch handlers on *server*."""
-    server.register_method("fs/watch", fs_watch_handler)
-    server.register_method("fs/unwatch", fs_unwatch_handler)
+    server.register_method("fs/watch", fs_watch_handler, spec=protocol_specs.FS_WATCH)
+    server.register_method("fs/unwatch", fs_unwatch_handler, spec=protocol_specs.FS_UNWATCH)

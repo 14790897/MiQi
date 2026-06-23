@@ -20,6 +20,7 @@ from typing import Any
 
 import miqi
 
+import miqi.runtime.protocol_specs as protocol_specs
 from miqi.runtime.app_server import (
     AppServer,
     AppServerError,
@@ -379,5 +380,5 @@ def register_initialize_handler(server: AppServer) -> None:
         # For direct dispatch, return an empty result.
         return {"result": {"acknowledged": True}}
 
-    server.register_method("initialize", _initialize_handler)
+    server.register_method("initialize", _initialize_handler, spec=protocol_specs.INITIALIZE)
     server.register_method("initialized", _initialized_handler)
