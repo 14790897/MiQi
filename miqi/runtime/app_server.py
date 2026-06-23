@@ -310,6 +310,10 @@ class AppServer:
         """Return registered protocol method names."""
         return self._protocol.methods()
 
+    def protocol_schema(self) -> dict[str, Any]:
+        """Return JSON Schema document for the registered protocol catalog."""
+        return self._protocol.to_json_schema()
+
     # ── middleware ───────────────────────────────────────────────────────
 
     def add_middleware(self, middleware: Middleware) -> None:

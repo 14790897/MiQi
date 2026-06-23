@@ -80,6 +80,36 @@ class ProtocolRegistry:
             ],
         }
 
+    def to_json_schema(self) -> dict[str, Any]:
+        """Return a JSON Schema document embedding the current protocol catalog."""
+        return {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "MiQi App Server Protocol Catalog",
+            "type": "object",
+            "required": ["version", "methods"],
+            "properties": {
+                "version": {"type": "integer"},
+                "methods": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["method", "stability", "scope", "paramsSchema", "resultSchema"],
+                        "properties": {
+                            "method": {"type": "string"},
+                            "stability": {"type": "string"},
+                            "scope": {"type": "string"},
+                            "paramsSchema": {"type": "object"},
+                            "resultSchema": {"type": "object"},
+                            "emits": {"type": "array", "items": {"type": "string"}},
+                            "deprecatedBy": {"type": ["string", "null"]},
+                            "description": {"type": ["string", "null"]},
+                        },
+                    },
+                },
+            },
+            "x-miqi-protocol": self.to_catalog(),
+        }
+
 
 def legacy_method_spec(method: str) -> ProtocolMethodSpec:
     """Create a placeholder spec for methods not yet typed."""
