@@ -22,6 +22,8 @@ from typing import Any, Callable, Coroutine
 from loguru import logger
 
 from miqi.runtime.protocol_registry import (
+    MethodScope,
+    MethodStability,
     ProtocolMethodSpec,
     ProtocolRegistry,
     legacy_method_spec,
@@ -260,6 +262,7 @@ class AppServer:
         self._running = False
         # Phase 61: typed protocol catalog storage
         self._protocol = ProtocolRegistry()
+        register_protocol_handlers(self)
         # Phase 26.4: event subscription
         # session_id → {client_id}
         self._subscriptions: dict[str, set[str]] = {}
@@ -683,6 +686,29 @@ def get_bridge_context(registry: Any, key: str, default: Any = None) -> Any:
     """Get an arbitrary value from registry.bridge_context."""
     ctx = getattr(registry, "bridge_context", {})
     return ctx.get(key, default)
+
+
+# ── Protocol introspection handlers ──────────────────────────────────────
+
+
+def register_protocol_handlers(server: "AppServer") -> None:
+    """Register protocol introspection handlers."""
+
+    async def _protocol_catalog(request_id, params, client_id, session_id, registry):
+        return {"result": server.protocol_catalog()}
+
+    server.register_method(
+        "protocol/catalog",
+        _protocol_catalog,
+        spec=ProtocolMethodSpec(
+            method="protocol/catalog",
+            stability=MethodStability.STABLE,
+            scope=MethodScope.CONNECTION,
+            params_schema={"type": "object"},
+            result_schema={"type": "object"},
+            description="Return the App Server protocol method catalog.",
+        ),
+    )
 
 
 # ── Built-in handler registration ────────────────────────────────────────

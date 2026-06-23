@@ -22,8 +22,9 @@ async def test_register_method_accepts_explicit_spec():
     server.register_method("turn/start", _handler, spec=spec)
 
     catalog = server.protocol_catalog()
-    assert catalog["methods"][0]["method"] == "turn/start"
-    assert catalog["methods"][0]["stability"] == "stable"
+    by_method = {item["method"]: item for item in catalog["methods"]}
+    assert by_method["turn/start"]["method"] == "turn/start"
+    assert by_method["turn/start"]["stability"] == "stable"
     await server.stop()
 
 
@@ -34,8 +35,9 @@ async def test_register_method_without_spec_creates_legacy_placeholder():
     server.register_method("legacy.method", _handler)
 
     catalog = server.protocol_catalog()
-    assert catalog["methods"][0]["method"] == "legacy.method"
-    assert catalog["methods"][0]["stability"] == "legacy"
+    by_method = {item["method"]: item for item in catalog["methods"]}
+    assert by_method["legacy.method"]["method"] == "legacy.method"
+    assert by_method["legacy.method"]["stability"] == "legacy"
     await server.stop()
 
 
@@ -51,4 +53,22 @@ async def test_register_method_rejects_mismatched_spec_name():
     with pytest.raises(ValueError):
         server.register_method("turn/steer", _handler, spec=spec)
 
+    await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_protocol_catalog_method_returns_catalog():
+    server = AppServer(ClientSessionRegistry())
+
+    response = await server.dispatch(
+        "req-1",
+        "protocol/catalog",
+        {},
+        "client-1",
+        None,
+    )
+
+    assert response["result"]["version"] == 1
+    methods = {item["method"] for item in response["result"]["methods"]}
+    assert "protocol/catalog" in methods
     await server.stop()
