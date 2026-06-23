@@ -573,3 +573,102 @@ async def test_drain_task_blocks_not_hot_loops():
     assert len(server._background_tasks) == 1
     await server.stop()
     assert not server._background_tasks, "All background tasks should be cleaned up"
+
+
+# ── Phase 62 typed validation regressions ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_turn_start_typed_validation_happens_before_reservation():
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+    _register_runtime(registry, runtime)
+
+    from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+    server = AppServer(registry)
+    register_codex_turn_handlers(server)
+
+    response = await server.dispatch(
+        "req-1",
+        "turn/start",
+        {"threadId": "thread-1", "input": [{"type": "image", "url": "https://example.com/a.png"}]},
+        "client-1",
+        runtime.session_id,
+    )
+
+    assert response["code"] == "INVALID_PARAMS"
+    assert runtime.submissions == []
+    assert runtime._reservations == {}
+    await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_turn_interrupt_rejects_non_string_turn_id_before_runtime_call():
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+    _register_runtime(registry, runtime)
+
+    from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+    server = AppServer(registry)
+    register_codex_turn_handlers(server)
+
+    response = await server.dispatch(
+        "req-1",
+        "turn/interrupt",
+        {"threadId": "thread-1", "turnId": 123},
+        "client-1",
+        runtime.session_id,
+    )
+
+    assert response["code"] == "INVALID_PARAMS"
+    runtime.interrupt_turn.assert_not_awaited()
+    await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_turn_steer_rejects_invalid_input_before_runtime_call():
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+    _register_runtime(registry, runtime)
+
+    from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+    server = AppServer(registry)
+    register_codex_turn_handlers(server)
+
+    response = await server.dispatch(
+        "req-1",
+        "turn/steer",
+        {"threadId": "thread-1", "expectedTurnId": "turn-1", "input": "bad"},
+        "client-1",
+        runtime.session_id,
+    )
+
+    assert response["code"] == "INVALID_PARAMS"
+    runtime.steer_turn.assert_not_awaited()
+    await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_thread_inject_items_rejects_empty_items_before_writes():
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+    runtime.services.history_runtime = MagicMock()
+    runtime.services.ledger_runtime = MagicMock()
+    _register_runtime(registry, runtime)
+
+    from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+    server = AppServer(registry)
+    register_codex_turn_handlers(server)
+
+    response = await server.dispatch(
+        "req-1",
+        "thread/inject_items",
+        {"threadId": "thread-1", "items": []},
+        "client-1",
+        runtime.session_id,
+    )
+
+    assert response["code"] == "INVALID_PARAMS"
+    runtime.services.history_runtime.append_message.assert_not_called()
+    runtime.services.ledger_runtime.append_item.assert_not_called()
+    await server.stop()

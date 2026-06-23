@@ -13,13 +13,19 @@ from miqi.protocol.commands import UserMessage
 import miqi.runtime.protocol_specs as protocol_specs
 from miqi.runtime.app_server import AppServer, AppServerError
 from miqi.runtime.turn_event_adapter import CodexTurnEventAdapter
+from miqi.runtime.turn_request_models import (
+    ThreadCompactStartParams,
+    ThreadInjectItemsParams,
+    TurnInterruptParams,
+    TurnStartParams,
+    TurnSteerParams,
+    validate_turn_params,
+)
 from miqi.runtime.turn_protocol import (
     TurnProtocolError,
     input_attachments,
     input_media,
-    input_text,
     injected_message_to_provider_message,
-    normalize_turn_input,
     turn_view,
 )
 
@@ -110,10 +116,10 @@ def register_codex_turn_handlers(server: AppServer) -> None:
     # ── turn/start ────────────────────────────────────────────────────────
 
     async def _turn_start(request_id, params, client_id, session_id, registry):
+        typed = validate_turn_params(TurnStartParams, params)
+        thread_id = typed.thread_id
+
         session = await _require_session(registry, client_id, session_id)
-        thread_id = params.get("threadId") or params.get("thread_id")
-        if not thread_id:
-            raise AppServerError("threadId is required", code="INVALID_PARAMS")
 
         # Phase 41 hardening v2: atomically check-and-reserve a turn slot.
         # This closes the race window between the previous active_turn_id
@@ -133,21 +139,10 @@ def register_codex_turn_handlers(server: AppServer) -> None:
                 if thread is None:
                     raise AppServerError("Thread not found", code="NOT_FOUND")
 
-            try:
-                input_items = normalize_turn_input(params.get("input"))
-            except TurnProtocolError as exc:
-                from loguru import logger
-                logger.warning("turn/start invalid input: {}", exc)
-                raise AppServerError("Invalid turn input", code="INVALID_PARAMS") from exc
+            input_items = typed.input_items
+            content = typed.content
+            client_msg_id = typed.client_user_message_id
 
-            content = input_text(input_items)
-            if not content:
-                raise AppServerError(
-                    "turn/start requires at least one text input item in Phase 41",
-                    code="INVALID_PARAMS",
-                )
-
-            client_msg_id = params.get("clientUserMessageId")
             server.subscribe(client_id, session.session_id)
 
             await session.submit(UserMessage(
@@ -158,14 +153,7 @@ def register_codex_turn_handlers(server: AppServer) -> None:
                 turn_id=turn_id,
                 input_items=input_items,
                 client_user_message_id=client_msg_id,
-                settings_overrides={
-                    key: params[key]
-                    for key in (
-                        "model", "effort", "summary", "personality", "outputSchema",
-                        "environments",
-                    )
-                    if key in params
-                },
+                settings_overrides=typed.settings_overrides,
             ))
         except AppServerError:
             await session.release_turn_reservation(thread_id)
@@ -192,12 +180,12 @@ def register_codex_turn_handlers(server: AppServer) -> None:
     # ── turn/interrupt ────────────────────────────────────────────────────
 
     async def _turn_interrupt(request_id, params, client_id, session_id, registry):
+        typed = validate_turn_params(TurnInterruptParams, params)
         session = await _require_session(registry, client_id, session_id)
-        thread_id = params.get("threadId") or params.get("thread_id")
-        turn_id = params.get("turnId") or params.get("turn_id")
-        if not thread_id or not turn_id:
-            raise AppServerError("threadId and turnId are required", code="INVALID_PARAMS")
-        accepted = await session.interrupt_turn(thread_id=thread_id, turn_id=turn_id)
+        accepted = await session.interrupt_turn(
+            thread_id=typed.thread_id,
+            turn_id=typed.turn_id,
+        )
         if not accepted:
             raise AppServerError("Active turn not found", code="INVALID_REQUEST")
         return {"result": {}}
@@ -205,42 +193,27 @@ def register_codex_turn_handlers(server: AppServer) -> None:
     # ── turn/steer ────────────────────────────────────────────────────────
 
     async def _turn_steer(request_id, params, client_id, session_id, registry):
+        typed = validate_turn_params(TurnSteerParams, params)
         session = await _require_session(registry, client_id, session_id)
-        thread_id = params.get("threadId") or params.get("thread_id")
-        expected_turn_id = params.get("expectedTurnId") or params.get("expected_turn_id")
-        if not thread_id or not expected_turn_id:
-            raise AppServerError("threadId and expectedTurnId are required", code="INVALID_PARAMS")
-        try:
-            input_items = normalize_turn_input(params.get("input"))
-        except TurnProtocolError as exc:
-            raise AppServerError("Invalid turn input", code="INVALID_PARAMS") from exc
-        content = input_text(input_items)
-        if not content:
-            raise AppServerError(
-                "turn/steer requires at least one text input item in Phase 41",
-                code="INVALID_PARAMS",
-            )
         accepted = await session.steer_turn(
-            thread_id=thread_id,
-            expected_turn_id=expected_turn_id,
-            content=content,
-            input_items=input_items,
-            client_user_message_id=params.get("clientUserMessageId"),
+            thread_id=typed.thread_id,
+            expected_turn_id=typed.expected_turn_id,
+            content=typed.content,
+            input_items=typed.input_items,
+            client_user_message_id=typed.client_user_message_id,
         )
         if not accepted:
             raise AppServerError("Active turn not steerable", code="INVALID_REQUEST")
-        return {"result": {"turnId": expected_turn_id}}
+        return {"result": {"turnId": typed.expected_turn_id}}
 
     # ── thread/inject_items ───────────────────────────────────────────────
 
     async def _thread_inject_items(request_id, params, client_id, session_id, registry):
+        typed = validate_turn_params(ThreadInjectItemsParams, params)
+        thread_id = typed.thread_id
+        items = typed.items
+
         session = await _require_session(registry, client_id, session_id)
-        thread_id = params.get("threadId") or params.get("thread_id")
-        items = params.get("items")
-        if not thread_id:
-            raise AppServerError("threadId is required", code="INVALID_PARAMS")
-        if not isinstance(items, list) or not items:
-            raise AppServerError("items must be a non-empty list", code="INVALID_PARAMS")
 
         history = getattr(session.services, "history_runtime", None)
         ledger = getattr(session.services, "ledger_runtime", None)
@@ -276,10 +249,10 @@ def register_codex_turn_handlers(server: AppServer) -> None:
     # ── thread/compact/start ──────────────────────────────────────────────
 
     async def _thread_compact_start(request_id, params, client_id, session_id, registry):
+        typed = validate_turn_params(ThreadCompactStartParams, params)
+        thread_id = typed.thread_id
+
         session = await _require_session(registry, client_id, session_id)
-        thread_id = params.get("threadId") or params.get("thread_id")
-        if not thread_id:
-            raise AppServerError("threadId is required", code="INVALID_PARAMS")
         turn_id = f"compact-{str(uuid.uuid4())[:12]}"
         server.subscribe(client_id, session.session_id)
         server.create_background_task(
