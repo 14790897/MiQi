@@ -90,3 +90,18 @@ async def test_phase61_protocol_catalog_has_no_duplicate_methods():
     assert len(names) == len(set(names))
 
     await loop.app_server.stop()
+
+
+@pytest.mark.asyncio
+async def test_phase61_protocol_catalog_registered_on_bridge_loop():
+    from miqi.bridge.loop import BridgeRuntimeLoop
+
+    loop = BridgeRuntimeLoop(
+        send_func=_CaptureSend().send,
+        dispatch_legacy_func=_dispatch_legacy,
+    )
+    await loop._init_app_server()
+
+    assert "protocol/catalog" in loop.app_server._methods
+
+    await loop.app_server.stop()
