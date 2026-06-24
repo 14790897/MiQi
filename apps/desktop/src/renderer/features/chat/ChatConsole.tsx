@@ -279,6 +279,7 @@ export function ChatConsole({
   const [reverting, setReverting] = useState(false)
   const [merging, setMerging] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const userScrolledUp = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const unsubsRef = useRef<Array<() => void>>([])
@@ -303,6 +304,7 @@ export function ChatConsole({
     setHistoryLoaded(false)
     setMessages([])
     setTrackedFiles([])
+    userScrolledUp.current = false  // reset for new session
     const load = async () => {
       try {
         const detail = await window.miqi.sessions.get(sessionKey)
@@ -328,10 +330,32 @@ export function ChatConsole({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionKey, loadTrigger])
 
+  // Auto-scroll to bottom only when the user hasn't manually scrolled up.
+  // During streaming, messages update rapidly — force-scrolling every frame
+  // makes it impossible to read earlier content.
   useEffect(() => {
-    if (scrollRef.current)
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    const el = scrollRef.current
+    if (!el || userScrolledUp.current) return
+    el.scrollTop = el.scrollHeight
   }, [messages])
+
+  // Detect manual scroll-up: if the user scrolls more than 80px above
+  // the bottom, pause auto-scroll. Reset when they scroll back to bottom
+  // or when a new user message is sent.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const onScroll = () => {
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      if (distFromBottom < 40) {
+        userScrolledUp.current = false
+      } else if (distFromBottom > 80) {
+        userScrolledUp.current = true
+      }
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [])
 
   // Persistent listener for subagent results — must NOT be cleaned up
   // when the main chat completes, because subagents finish asynchronously.
@@ -436,6 +460,7 @@ export function ChatConsole({
       timestamp: Date.now(),
     }
     setMessages((prev) => [...prev, userMsg])
+    userScrolledUp.current = false  // user sent a message — resume auto-scroll
     setInput('')
     // Reset textarea height after sending
     setTimeout(() => {
