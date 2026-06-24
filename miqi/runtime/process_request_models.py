@@ -389,5 +389,5 @@ def validate_process_params(
         return parsed
     except ValidationError as exc:
         raise AppServerError("Invalid process params", code="INVALID_PARAMS") from exc
-    except ValueError as exc:
-        raise AppServerError(str(exc), code="INVALID_PARAMS") from exc
+    except ValueError:
+        raise AppServerError("Invalid process params", code="INVALID_PARAMS")
