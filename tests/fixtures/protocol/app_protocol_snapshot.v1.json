@@ -498,48 +498,135 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "config.get",
         "paramsSchema": {
+          "additionalProperties": true,
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "config.update",
         "paramsSchema": {
+          "additionalProperties": true,
+          "properties": {
+            "config": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "config"
+          ],
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "propagated_sessions": {
+              "type": "integer"
+            },
+            "saved": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "propagated_sessions",
+            "saved"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "config/batchWrite",
         "paramsSchema": {
+          "$defs": {
+            "ConfigEditParams": {
+              "additionalProperties": true,
+              "properties": {
+                "op": {
+                  "default": "set",
+                  "enum": [
+                    "set",
+                    "delete"
+                  ],
+                  "title": "Op",
+                  "type": "string"
+                },
+                "path": {
+                  "title": "Path",
+                  "type": "string"
+                },
+                "value": {
+                  "default": null,
+                  "title": "Value"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "title": "ConfigEditParams",
+              "type": "object"
+            }
+          },
+          "additionalProperties": true,
+          "properties": {
+            "edits": {
+              "items": {
+                "$ref": "#/$defs/ConfigEditParams"
+              },
+              "type": "array"
+            },
+            "reloadUserConfig": {
+              "default": true,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "edits"
+          ],
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "applied": {
+              "type": "integer"
+            },
+            "propagatedSessions": {
+              "type": "integer"
+            },
+            "saved": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "applied",
+            "propagatedSessions",
+            "saved"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -558,18 +645,20 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "config/read",
         "paramsSchema": {
+          "additionalProperties": true,
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -828,33 +917,125 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "experimentalFeature/enablement/set",
         "paramsSchema": {
+          "additionalProperties": true,
+          "properties": {
+            "enablement": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "features": {
+              "additionalProperties": {
+                "type": "boolean"
+              },
+              "type": "object"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "ignored": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "saved": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "ignored",
+            "saved"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "experimentalFeature/list",
         "paramsSchema": {
+          "additionalProperties": true,
+          "properties": {
+            "cursor": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "limit": {
+              "default": 100,
+              "type": "integer"
+            },
+            "threadId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "nextCursor": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "data"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -1591,14 +1772,177 @@
         "eventSchemas": {},
         "method": "initialize",
         "paramsSchema": {
+          "$defs": {
+            "ClientInfoParams": {
+              "additionalProperties": true,
+              "properties": {
+                "name": {
+                  "title": "Name",
+                  "type": "string"
+                },
+                "title": {
+                  "default": "",
+                  "title": "Title",
+                  "type": "string"
+                },
+                "version": {
+                  "default": "",
+                  "title": "Version",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "title": "ClientInfoParams",
+              "type": "object"
+            },
+            "InitializeCapabilitiesParams": {
+              "additionalProperties": true,
+              "properties": {
+                "experimental_api": {
+                  "default": false,
+                  "title": "Experimental Api",
+                  "type": "boolean"
+                },
+                "opt_out_notification_methods": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Opt Out Notification Methods",
+                  "type": "array"
+                }
+              },
+              "title": "InitializeCapabilitiesParams",
+              "type": "object"
+            }
+          },
           "additionalProperties": true,
+          "properties": {
+            "capabilities": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/InitializeCapabilitiesParams"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "clientId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "clientInfo": {
+              "$ref": "#/$defs/ClientInfoParams"
+            }
+          },
           "required": [
             "clientInfo"
           ],
           "type": "object"
         },
         "resultSchema": {
-          "additionalProperties": true,
+          "$defs": {
+            "InitializeCapabilitiesResult": {
+              "additionalProperties": true,
+              "properties": {
+                "experimental_api": {
+                  "title": "Experimental Api",
+                  "type": "boolean"
+                },
+                "supports_notification_opt_out": {
+                  "title": "Supports Notification Opt Out",
+                  "type": "boolean"
+                },
+                "supports_pty": {
+                  "title": "Supports Pty",
+                  "type": "boolean"
+                },
+                "supports_workbench_processes": {
+                  "title": "Supports Workbench Processes",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "experimental_api",
+                "supports_notification_opt_out",
+                "supports_workbench_processes",
+                "supports_pty"
+              ],
+              "title": "InitializeCapabilitiesResult",
+              "type": "object"
+            },
+            "ServerInfoResult": {
+              "additionalProperties": true,
+              "properties": {
+                "name": {
+                  "title": "Name",
+                  "type": "string"
+                },
+                "title": {
+                  "title": "Title",
+                  "type": "string"
+                },
+                "version": {
+                  "title": "Version",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "title",
+                "version"
+              ],
+              "title": "ServerInfoResult",
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "capabilities": {
+              "$ref": "#/$defs/InitializeCapabilitiesResult"
+            },
+            "clientId": {
+              "type": "string"
+            },
+            "codexHome": {
+              "type": "string"
+            },
+            "miqiHome": {
+              "type": "string"
+            },
+            "platformFamily": {
+              "type": "string"
+            },
+            "platformOs": {
+              "type": "string"
+            },
+            "serverInfo": {
+              "$ref": "#/$defs/ServerInfoResult"
+            },
+            "userAgent": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "capabilities",
+            "clientId",
+            "codexHome",
+            "miqiHome",
+            "platformFamily",
+            "platformOs",
+            "serverInfo",
+            "userAgent"
+          ],
           "type": "object"
         },
         "scope": "connection",
@@ -1606,18 +1950,20 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": "Acknowledge initialize completion.",
         "emits": [],
         "eventSchemas": {},
         "method": "initialized",
         "paramsSchema": {
+          "additionalProperties": true,
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -1846,48 +2192,145 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "model/list",
         "paramsSchema": {
+          "additionalProperties": true,
+          "properties": {
+            "includeHidden": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "models": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "models"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "modelProvider/capabilities/read",
         "paramsSchema": {
+          "additionalProperties": true,
+          "properties": {
+            "provider": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "providerName": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "capabilities": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "capabilities"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "permissionProfile/list",
         "paramsSchema": {
+          "additionalProperties": true,
+          "properties": {
+            "cursor": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "limit": {
+              "default": 100,
+              "type": "integer"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "nextCursor": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "data"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -2432,18 +2875,43 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "python.check",
         "paramsSchema": {
+          "additionalProperties": true,
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "config_exists": {
+              "type": "boolean"
+            },
+            "issues": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "ok": {
+              "type": "boolean"
+            },
+            "python_version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "config_exists",
+            "issues",
+            "ok",
+            "python_version"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -2763,18 +3231,36 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "status",
         "paramsSchema": {
+          "additionalProperties": true,
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "configured": {
+              "type": "boolean"
+            },
+            "python_version": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "configured",
+            "python_version",
+            "status"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -3360,13 +3846,13 @@
   "catalogVersion": 1,
   "generatedTypes": {
     "outputPath": "apps/desktop/src/shared/app-protocol.ts",
-    "sha256": "4154bb599a3f04bdfacbeba4707edcd03f159a50770b293b8a15ca25323ec141",
+    "sha256": "45d08878a814926b66c667bd42942368d63cdda7a16f24b5d08199c2bdbb5779",
     "source": "miqi.runtime.export_app_protocol_ts.render_typescript_contract"
   },
   "methodCounts": {
-    "legacy": 120,
+    "legacy": 108,
     "total": 152,
-    "typed": 32
+    "typed": 44
   },
   "schemaVersion": 1
 }

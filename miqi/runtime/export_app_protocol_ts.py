@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 import miqi.runtime.protocol_specs as specs
+from miqi.runtime.core_request_models import CORE_METHOD_PARAM_MODELS
+from miqi.runtime.core_response_models import CORE_METHOD_RESULT_MODELS
 from miqi.runtime.filesystem_request_models import FILESYSTEM_METHOD_PARAM_MODELS
 from miqi.runtime.process_request_models import COMMAND_PROCESS_METHOD_PARAM_MODELS
 from miqi.runtime.filesystem_response_models import (
@@ -25,12 +27,14 @@ DEFAULT_OUTPUT = ROOT / "apps" / "desktop" / "src" / "shared" / "app-protocol.ts
 
 
 MODEL_MAP = {
+    **CORE_METHOD_PARAM_MODELS,
     **TURN_METHOD_PARAM_MODELS,
     **COMMAND_PROCESS_METHOD_PARAM_MODELS,
     **FILESYSTEM_METHOD_PARAM_MODELS,
 }
 
 RESULT_MODEL_MAP = {
+    **CORE_METHOD_RESULT_MODELS,
     **PROCESS_METHOD_RESULT_MODELS,
     **FILESYSTEM_METHOD_RESULT_MODELS,
 }
@@ -42,6 +46,19 @@ EVENT_MODEL_MAP = {
 
 
 METHOD_TO_SPEC = {
+    "initialize": specs.INITIALIZE,
+    "initialized": specs.INITIALIZED,
+    "status": specs.STATUS,
+    "python.check": specs.PYTHON_CHECK,
+    "config/read": specs.CONFIG_READ,
+    "config/batchWrite": specs.CONFIG_BATCH_WRITE,
+    "config.get": specs.CONFIG_GET,
+    "config.update": specs.CONFIG_UPDATE,
+    "model/list": specs.MODEL_LIST,
+    "modelProvider/capabilities/read": specs.MODEL_PROVIDER_CAPABILITIES_READ,
+    "experimentalFeature/list": specs.EXPERIMENTAL_FEATURE_LIST,
+    "experimentalFeature/enablement/set": specs.EXPERIMENTAL_FEATURE_ENABLEMENT_SET,
+    "permissionProfile/list": specs.PERMISSION_PROFILE_LIST,
     "turn/start": specs.TURN_START,
     "turn/interrupt": specs.TURN_INTERRUPT,
     "turn/steer": specs.TURN_STEER,
@@ -72,6 +89,19 @@ METHOD_TO_SPEC = {
 
 
 TYPE_NAME_BY_METHOD = {
+    "initialize": "InitializeParams",
+    "initialized": "InitializedParams",
+    "status": "StatusParams",
+    "python.check": "PythonCheckParams",
+    "config/read": "ConfigReadParams",
+    "config/batchWrite": "ConfigBatchWriteParams",
+    "config.get": "ConfigGetParams",
+    "config.update": "ConfigUpdateParams",
+    "model/list": "ModelListParams",
+    "modelProvider/capabilities/read": "ModelProviderCapabilitiesReadParams",
+    "experimentalFeature/list": "ExperimentalFeatureListParams",
+    "experimentalFeature/enablement/set": "ExperimentalFeatureEnablementSetParams",
+    "permissionProfile/list": "PermissionProfileListParams",
     "turn/start": "TurnStartParams",
     "turn/interrupt": "TurnInterruptParams",
     "turn/steer": "TurnSteerParams",
@@ -102,8 +132,38 @@ TYPE_NAME_BY_METHOD = {
 
 
 RESULT_TYPE_NAME_BY_METHOD = {
-    method: TYPE_NAME_BY_METHOD[method].replace("Params", "Result")
-    for method in RESULT_MODEL_MAP
+    "initialize": "InitializeResult",
+    "initialized": "InitializedResult",
+    "status": "StatusResult",
+    "python.check": "PythonCheckResult",
+    "config/read": "ConfigReadResult",
+    "config/batchWrite": "ConfigBatchWriteResult",
+    "config.get": "ConfigGetResult",
+    "config.update": "ConfigUpdateResult",
+    "model/list": "ModelListResult",
+    "modelProvider/capabilities/read": "ModelProviderCapabilitiesReadResult",
+    "experimentalFeature/list": "ExperimentalFeatureListResult",
+    "experimentalFeature/enablement/set": "ExperimentalFeatureEnablementSetResult",
+    "permissionProfile/list": "PermissionProfileListResult",
+    **{
+        method: TYPE_NAME_BY_METHOD[method].replace("Params", "Result")
+        for method in RESULT_MODEL_MAP
+        if method not in {
+            "initialize",
+            "initialized",
+            "status",
+            "python.check",
+            "config/read",
+            "config/batchWrite",
+            "config.get",
+            "config.update",
+            "model/list",
+            "modelProvider/capabilities/read",
+            "experimentalFeature/list",
+            "experimentalFeature/enablement/set",
+            "permissionProfile/list",
+        }
+    },
 }
 
 EVENT_TYPE_NAME_BY_EVENT = {
