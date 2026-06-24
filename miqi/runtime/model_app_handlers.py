@@ -40,11 +40,12 @@ def register_model_app_handlers(server: AppServer) -> None:
         Response:
             {"capabilities": capability_dict}
         """
+        typed = validate_core_params("modelProvider/capabilities/read", params)
+        provider_name = typed.provider or typed.provider_name
+
         state = get_bridge_state(registry)
         config = state.load_config()
 
-        typed = validate_core_params("modelProvider/capabilities/read", params)
-        provider_name = typed.provider or typed.provider_name
         if not provider_name:
             # Default to the provider of the currently configured model
             current_model = config.agents.defaults.model
