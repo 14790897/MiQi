@@ -3,11 +3,15 @@ import type {
   AppMethodParams,
   AppMethodResult,
   AppMethodEvents,
+  AppEventName,
+  AppEventPayload,
 } from './app-protocol'
 
-export type AppEventHandler<M extends AppMethod = AppMethod> = (
-  type: AppMethodEvents[M],
-  data: unknown,
+export type AppEventHandler<M extends AppMethod = AppMethod> = <
+  E extends Extract<AppMethodEvents[M], AppEventName>
+>(
+  type: E,
+  data: AppEventPayload<E>,
 ) => void
 
 export type UntypedAppSend = (

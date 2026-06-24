@@ -8,7 +8,15 @@ from typing import Any
 import miqi.runtime.protocol_specs as specs
 from miqi.runtime.filesystem_request_models import FILESYSTEM_METHOD_PARAM_MODELS
 from miqi.runtime.process_request_models import COMMAND_PROCESS_METHOD_PARAM_MODELS
-from miqi.runtime.protocol_model_schema import params_schema_from_model
+from miqi.runtime.filesystem_response_models import (
+    FILESYSTEM_EVENT_MODELS,
+    FILESYSTEM_METHOD_RESULT_MODELS,
+)
+from miqi.runtime.process_response_models import (
+    PROCESS_EVENT_MODELS,
+    PROCESS_METHOD_RESULT_MODELS,
+)
+from miqi.runtime.protocol_model_schema import params_schema_from_model, result_schema_from_model
 from miqi.runtime.turn_request_models import TURN_METHOD_PARAM_MODELS
 
 
@@ -20,6 +28,16 @@ MODEL_MAP = {
     **TURN_METHOD_PARAM_MODELS,
     **COMMAND_PROCESS_METHOD_PARAM_MODELS,
     **FILESYSTEM_METHOD_PARAM_MODELS,
+}
+
+RESULT_MODEL_MAP = {
+    **PROCESS_METHOD_RESULT_MODELS,
+    **FILESYSTEM_METHOD_RESULT_MODELS,
+}
+
+EVENT_MODEL_MAP = {
+    **PROCESS_EVENT_MODELS,
+    **FILESYSTEM_EVENT_MODELS,
 }
 
 
@@ -83,20 +101,18 @@ TYPE_NAME_BY_METHOD = {
 }
 
 
-RESULT_TYPE_BY_METHOD = {
-    "fs/readFile": "{ dataBase64: string }",
-    "fs/writeFile": "Record<string, never>",
-    "fs/createDirectory": "Record<string, never>",
-    "fs/getMetadata": "{ isDirectory: boolean; isFile: boolean; isSymlink: boolean; createdAtMs: number; modifiedAtMs: number }",
-    "fs/readDirectory": "{ entries: Array<{ fileName: string; isDirectory: boolean; isFile: boolean }> }",
-    "fs/remove": "Record<string, never>",
-    "fs/copy": "Record<string, never>",
-    "fs/watch": "Record<string, unknown>",
-    "fs/unwatch": "Record<string, never>",
-    "fuzzyFileSearch": "{ files: string[] }",
-    "fuzzyFileSearch/sessionStart": "Record<string, never>",
-    "fuzzyFileSearch/sessionUpdate": "Record<string, never>",
-    "fuzzyFileSearch/sessionStop": "Record<string, never>",
+RESULT_TYPE_NAME_BY_METHOD = {
+    method: TYPE_NAME_BY_METHOD[method].replace("Params", "Result")
+    for method in RESULT_MODEL_MAP
+}
+
+EVENT_TYPE_NAME_BY_EVENT = {
+    "command/exec/outputDelta": "CommandExecOutputDeltaEventPayload",
+    "process/outputDelta": "ProcessOutputDeltaEventPayload",
+    "process/exited": "ProcessExitedEventPayload",
+    "fs/changed": "FsChangedEventPayload",
+    "fuzzyFileSearch/sessionUpdated": "FuzzySessionUpdatedEventPayload",
+    "fuzzyFileSearch/sessionCompleted": "FuzzySessionCompletedEventPayload",
 }
 
 
@@ -159,10 +175,27 @@ def render_typescript_contract() -> str:
         "",
     ]
 
+    # ---- request params interfaces ----
     for method in methods:
         model = MODEL_MAP[method]
         type_name = TYPE_NAME_BY_METHOD[method]
         schema = params_schema_from_model(model)
+        chunks.append(_render_interface(type_name, schema))
+        chunks.append("")
+
+    # ---- result interfaces ----
+    for method in sorted(RESULT_MODEL_MAP):
+        model = RESULT_MODEL_MAP[method]
+        type_name = RESULT_TYPE_NAME_BY_METHOD[method]
+        schema = result_schema_from_model(model)
+        chunks.append(_render_interface(type_name, schema))
+        chunks.append("")
+
+    # ---- event payload interfaces ----
+    for event_name in sorted(EVENT_MODEL_MAP):
+        model = EVENT_MODEL_MAP[event_name]
+        type_name = EVENT_TYPE_NAME_BY_EVENT[event_name]
+        schema = result_schema_from_model(model)
         chunks.append(_render_interface(type_name, schema))
         chunks.append("")
 
@@ -179,7 +212,8 @@ def render_typescript_contract() -> str:
 
     chunks.append("export interface AppMethodResult {")
     for method in methods:
-        chunks.append(f"  '{method}': {RESULT_TYPE_BY_METHOD.get(method, 'Record<string, unknown>')}")
+        result_type = RESULT_TYPE_NAME_BY_METHOD.get(method, "Record<string, unknown>")
+        chunks.append(f"  '{method}': {result_type}")
     chunks.append("}")
     chunks.append("")
 
@@ -191,7 +225,16 @@ def render_typescript_contract() -> str:
     chunks.append("}")
     chunks.append("")
 
+    chunks.append("export interface AppEventPayloadMap {")
+    for event_name in sorted(EVENT_MODEL_MAP):
+        chunks.append(f"  '{event_name}': {EVENT_TYPE_NAME_BY_EVENT[event_name]}")
+    chunks.append("}")
+    chunks.append("export type AppEventName = keyof AppEventPayloadMap")
+    chunks.append("")
+
     chunks.extend([
+        "export type AppEventPayload<E extends AppEventName> = AppEventPayloadMap[E]",
+        "",
         "export type AppRequest<M extends AppMethod = AppMethod> = {",
         "  id: string",
         "  method: M",
