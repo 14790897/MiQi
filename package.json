@@ -1,6 +1,6 @@
 {
   "name": "miqi-desktop-release",
-  "version": "0.1.19",
+  "version": "0.2.0-dev.5",
   "private": true,
   "description": "Release tooling for MiQi Desktop",
   "repository": {

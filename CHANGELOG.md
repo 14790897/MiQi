@@ -1,3 +1,10 @@
+# [0.2.0-dev.5](https://github.com/14790897/MiQi/compare/v0.2.0-dev.4...v0.2.0-dev.5) (2026-06-24)
+
+
+### Bug Fixes
+
+* **desktop:** stop scroll jank — sidebar list reset & chat stream lock ([2644787](https://github.com/14790897/MiQi/commit/264478766b7a94c83f1b222920badae380d4b1bf))
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
