@@ -113,7 +113,7 @@ FS_GET_METADATA = spec("fs/getMetadata", scope=MethodScope.FILESYSTEM, required=
 FS_READ_DIRECTORY = spec("fs/readDirectory", scope=MethodScope.FILESYSTEM, required=["path"])
 FS_REMOVE = spec("fs/remove", scope=MethodScope.FILESYSTEM, required=["path"])
 FS_COPY = spec("fs/copy", scope=MethodScope.FILESYSTEM, required=["sourcePath", "destinationPath"])
-FS_WATCH = spec("fs/watch", scope=MethodScope.FILESYSTEM, required=["path"], emits=["fs/changed"])
+FS_WATCH = spec("fs/watch", scope=MethodScope.FILESYSTEM, required=["path", "watchId"], emits=["fs/changed"])
 FS_UNWATCH = spec("fs/unwatch", scope=MethodScope.FILESYSTEM, required=["watchId"])
 
 FUZZY_FILE_SEARCH = spec("fuzzyFileSearch", scope=MethodScope.FILESYSTEM, required=["query", "roots"])
