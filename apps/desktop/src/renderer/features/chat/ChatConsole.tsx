@@ -280,6 +280,7 @@ export function ChatConsole({
   const [merging, setMerging] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const userScrolledUp = useRef(false)
+  const justOpened = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const unsubsRef = useRef<Array<() => void>>([])
@@ -304,6 +305,7 @@ export function ChatConsole({
     setHistoryLoaded(false)
     setMessages([])
     setTrackedFiles([])
+    justOpened.current = true
     userScrolledUp.current = false  // reset for new session
     const load = async () => {
       try {
@@ -330,18 +332,22 @@ export function ChatConsole({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionKey, loadTrigger])
 
-  // Auto-scroll to bottom only when the user hasn't manually scrolled up.
-  // During streaming, messages update rapidly — force-scrolling every frame
-  // makes it impossible to read earlier content.
+  // Scroll to bottom: (a) unconditionally after opening a session,
+  // (b) during streaming only if the user hasn't manually scrolled up.
   useEffect(() => {
+    if (!historyLoaded) return
     const el = scrollRef.current
-    if (!el || userScrolledUp.current) return
-    el.scrollTop = el.scrollHeight
-  }, [messages])
+    if (!el) return
+    if (justOpened.current) {
+      justOpened.current = false
+      el.scrollTop = el.scrollHeight + el.clientHeight  // clamped to max
+      userScrolledUp.current = false
+    } else if (!userScrolledUp.current) {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [historyLoaded, messages])
 
-  // Detect manual scroll-up: if the user scrolls more than 80px above
-  // the bottom, pause auto-scroll. Reset when they scroll back to bottom
-  // or when a new user message is sent.
+  // Detect manual scroll-up / scroll-back-to-bottom
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
