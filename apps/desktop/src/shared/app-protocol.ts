@@ -37,6 +37,32 @@ export interface CommandExecWriteParams {
   processId: string
 }
 
+export interface ConfigGetParams {
+}
+
+export interface ConfigUpdateParams {
+  config: Record<string, unknown>
+}
+
+export interface ConfigBatchWriteParams {
+  edits: unknown[]
+  reloadUserConfig?: boolean
+}
+
+export interface ConfigReadParams {
+}
+
+export interface ExperimentalFeatureEnablementSetParams {
+  enablement?: Record<string, unknown> | null
+  features?: Record<string, unknown>
+}
+
+export interface ExperimentalFeatureListParams {
+  cursor?: null | string
+  limit?: number
+  threadId?: null | string
+}
+
 export interface FsCopyParams {
   destinationPath: string
   recursive?: boolean
@@ -99,6 +125,29 @@ export interface FuzzySessionUpdateParams {
   sessionId: string
 }
 
+export interface InitializeParams {
+  capabilities?: null | unknown
+  clientId?: null | string
+  clientInfo: unknown
+}
+
+export interface InitializedParams {
+}
+
+export interface ModelListParams {
+  includeHidden?: boolean
+}
+
+export interface ModelProviderCapabilitiesReadParams {
+  provider?: null | string
+  providerName?: null | string
+}
+
+export interface PermissionProfileListParams {
+  cursor?: null | string
+  limit?: number
+}
+
 export interface ProcessKillParams {
   processHandle: string
 }
@@ -124,6 +173,12 @@ export interface ProcessWriteStdinParams {
   closeStdin?: boolean
   deltaBase64?: null | string
   processHandle: string
+}
+
+export interface PythonCheckParams {
+}
+
+export interface StatusParams {
 }
 
 export interface ThreadCompactStartParams {
@@ -178,6 +233,33 @@ export interface CommandExecTerminateResult {
 export interface CommandExecWriteResult {
 }
 
+export interface ConfigGetResult {
+}
+
+export interface ConfigUpdateResult {
+  propagated_sessions: number
+  saved: boolean
+}
+
+export interface ConfigBatchWriteResult {
+  applied: number
+  propagatedSessions: number
+  saved: boolean
+}
+
+export interface ConfigReadResult {
+}
+
+export interface ExperimentalFeatureEnablementSetResult {
+  ignored: string[]
+  saved: boolean
+}
+
+export interface ExperimentalFeatureListResult {
+  data: Record<string, unknown>[]
+  nextCursor?: null | string
+}
+
 export interface FsCopyResult {
 }
 
@@ -226,6 +308,33 @@ export interface FuzzySessionStopResult {
 export interface FuzzySessionUpdateResult {
 }
 
+export interface InitializeResult {
+  capabilities: unknown
+  clientId: string
+  codexHome: string
+  miqiHome: string
+  platformFamily: string
+  platformOs: string
+  serverInfo: unknown
+  userAgent: string
+}
+
+export interface InitializedResult {
+}
+
+export interface ModelListResult {
+  models: Record<string, unknown>[]
+}
+
+export interface ModelProviderCapabilitiesReadResult {
+  capabilities: Record<string, unknown>
+}
+
+export interface PermissionProfileListResult {
+  data: Record<string, unknown>[]
+  nextCursor?: null | string
+}
+
 export interface ProcessKillResult {
 }
 
@@ -236,6 +345,19 @@ export interface ProcessSpawnResult {
 }
 
 export interface ProcessWriteStdinResult {
+}
+
+export interface PythonCheckResult {
+  config_exists: boolean
+  issues: string[]
+  ok: boolean
+  python_version: string
+}
+
+export interface StatusResult {
+  configured: boolean
+  python_version: string
+  status: string
 }
 
 export interface CommandExecOutputDeltaEventPayload {
@@ -283,6 +405,12 @@ export const APP_METHODS = [
   'command/exec/resize',
   'command/exec/terminate',
   'command/exec/write',
+  'config.get',
+  'config.update',
+  'config/batchWrite',
+  'config/read',
+  'experimentalFeature/enablement/set',
+  'experimentalFeature/list',
   'fs/copy',
   'fs/createDirectory',
   'fs/getMetadata',
@@ -296,10 +424,17 @@ export const APP_METHODS = [
   'fuzzyFileSearch/sessionStart',
   'fuzzyFileSearch/sessionStop',
   'fuzzyFileSearch/sessionUpdate',
+  'initialize',
+  'initialized',
+  'model/list',
+  'modelProvider/capabilities/read',
+  'permissionProfile/list',
   'process/kill',
   'process/resizePty',
   'process/spawn',
   'process/writeStdin',
+  'python.check',
+  'status',
   'thread/compact/start',
   'thread/inject_items',
   'turn/interrupt',
@@ -313,6 +448,12 @@ export interface AppMethodParams {
   'command/exec/resize': CommandExecResizeParams
   'command/exec/terminate': CommandExecTerminateParams
   'command/exec/write': CommandExecWriteParams
+  'config.get': ConfigGetParams
+  'config.update': ConfigUpdateParams
+  'config/batchWrite': ConfigBatchWriteParams
+  'config/read': ConfigReadParams
+  'experimentalFeature/enablement/set': ExperimentalFeatureEnablementSetParams
+  'experimentalFeature/list': ExperimentalFeatureListParams
   'fs/copy': FsCopyParams
   'fs/createDirectory': FsCreateDirectoryParams
   'fs/getMetadata': FsGetMetadataParams
@@ -326,10 +467,17 @@ export interface AppMethodParams {
   'fuzzyFileSearch/sessionStart': FuzzySessionStartParams
   'fuzzyFileSearch/sessionStop': FuzzySessionStopParams
   'fuzzyFileSearch/sessionUpdate': FuzzySessionUpdateParams
+  'initialize': InitializeParams
+  'initialized': InitializedParams
+  'model/list': ModelListParams
+  'modelProvider/capabilities/read': ModelProviderCapabilitiesReadParams
+  'permissionProfile/list': PermissionProfileListParams
   'process/kill': ProcessKillParams
   'process/resizePty': ProcessResizePtyParams
   'process/spawn': ProcessSpawnParams
   'process/writeStdin': ProcessWriteStdinParams
+  'python.check': PythonCheckParams
+  'status': StatusParams
   'thread/compact/start': ThreadCompactStartParams
   'thread/inject_items': ThreadInjectItemsParams
   'turn/interrupt': TurnInterruptParams
@@ -342,6 +490,12 @@ export interface AppMethodResult {
   'command/exec/resize': CommandExecResizeResult
   'command/exec/terminate': CommandExecTerminateResult
   'command/exec/write': CommandExecWriteResult
+  'config.get': ConfigGetResult
+  'config.update': ConfigUpdateResult
+  'config/batchWrite': ConfigBatchWriteResult
+  'config/read': ConfigReadResult
+  'experimentalFeature/enablement/set': ExperimentalFeatureEnablementSetResult
+  'experimentalFeature/list': ExperimentalFeatureListResult
   'fs/copy': FsCopyResult
   'fs/createDirectory': FsCreateDirectoryResult
   'fs/getMetadata': FsGetMetadataResult
@@ -355,10 +509,17 @@ export interface AppMethodResult {
   'fuzzyFileSearch/sessionStart': FuzzySessionStartResult
   'fuzzyFileSearch/sessionStop': FuzzySessionStopResult
   'fuzzyFileSearch/sessionUpdate': FuzzySessionUpdateResult
+  'initialize': InitializeResult
+  'initialized': InitializedResult
+  'model/list': ModelListResult
+  'modelProvider/capabilities/read': ModelProviderCapabilitiesReadResult
+  'permissionProfile/list': PermissionProfileListResult
   'process/kill': ProcessKillResult
   'process/resizePty': ProcessResizePtyResult
   'process/spawn': ProcessSpawnResult
   'process/writeStdin': ProcessWriteStdinResult
+  'python.check': PythonCheckResult
+  'status': StatusResult
   'thread/compact/start': Record<string, unknown>
   'thread/inject_items': Record<string, unknown>
   'turn/interrupt': Record<string, unknown>
@@ -371,6 +532,12 @@ export interface AppMethodEvents {
   'command/exec/resize': never
   'command/exec/terminate': never
   'command/exec/write': never
+  'config.get': never
+  'config.update': never
+  'config/batchWrite': never
+  'config/read': never
+  'experimentalFeature/enablement/set': never
+  'experimentalFeature/list': never
   'fs/copy': never
   'fs/createDirectory': never
   'fs/getMetadata': never
@@ -384,10 +551,17 @@ export interface AppMethodEvents {
   'fuzzyFileSearch/sessionStart': never
   'fuzzyFileSearch/sessionStop': never
   'fuzzyFileSearch/sessionUpdate': 'fuzzyFileSearch/sessionCompleted' | 'fuzzyFileSearch/sessionUpdated'
+  'initialize': never
+  'initialized': never
+  'model/list': never
+  'modelProvider/capabilities/read': never
+  'permissionProfile/list': never
   'process/kill': never
   'process/resizePty': never
   'process/spawn': 'process/exited' | 'process/outputDelta'
   'process/writeStdin': never
+  'python.check': never
+  'status': never
   'thread/compact/start': 'item/completed' | 'item/started' | 'turn/completed' | 'turn/started'
   'thread/inject_items': never
   'turn/interrupt': never
