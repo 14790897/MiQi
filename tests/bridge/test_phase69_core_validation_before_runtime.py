@@ -49,6 +49,21 @@ async def test_permission_profile_bad_params_invalid_before_workspace_lookup():
 
 
 @pytest.mark.asyncio
+async def test_model_provider_capabilities_bad_params_invalid_before_state_lookup():
+    server = AppServer(ClientSessionRegistry())
+    register_model_app_handlers(server)
+    server.registry.bridge_context = {}
+
+    with pytest.raises(AppServerError) as exc:
+        await server._dispatch_inner(
+            "req", "modelProvider/capabilities/read", {"providerName": 123}, "client", None,
+        )
+
+    assert exc.value.code == "INVALID_PARAMS"
+    await server.stop()
+
+
+@pytest.mark.asyncio
 async def test_config_batch_write_bad_params_invalid_before_state_lookup():
     server = AppServer(ClientSessionRegistry())
     register_config_app_handlers(server)
