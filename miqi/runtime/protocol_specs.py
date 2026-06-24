@@ -19,6 +19,10 @@ from miqi.runtime.filesystem_request_models import (
     FuzzySessionStopParams,
     FuzzySessionUpdateParams,
 )
+from miqi.runtime.filesystem_response_models import (
+    FILESYSTEM_EVENT_MODELS,
+    FILESYSTEM_METHOD_RESULT_MODELS,
+)
 from miqi.runtime.process_request_models import (
     CommandExecParams,
     CommandExecResizeParams,
@@ -28,6 +32,10 @@ from miqi.runtime.process_request_models import (
     ProcessResizePtyParams,
     ProcessSpawnParams,
     ProcessWriteStdinParams,
+)
+from miqi.runtime.process_response_models import (
+    PROCESS_EVENT_MODELS,
+    PROCESS_METHOD_RESULT_MODELS,
 )
 from miqi.runtime.protocol_model_schema import model_spec
 from miqi.runtime.protocol_registry import (
@@ -105,11 +113,21 @@ THREAD_SHELL_COMMAND = spec(
     emits=["turn/started", "item/started", "item/commandExecution/outputDelta", "item/completed", "turn/completed"],
 )
 
-COMMAND_EXEC = model_spec("command/exec", CommandExecParams, scope=MethodScope.PROCESS)
+COMMAND_EXEC = model_spec(
+    "command/exec",
+    CommandExecParams,
+    scope=MethodScope.PROCESS,
+    emits=["command/exec/outputDelta"],
+    result_model=PROCESS_METHOD_RESULT_MODELS["command/exec"],
+    event_models={
+        "command/exec/outputDelta": PROCESS_EVENT_MODELS["command/exec/outputDelta"],
+    },
+)
 COMMAND_EXEC_WRITE = model_spec(
     "command/exec/write",
     CommandExecWriteParams,
     scope=MethodScope.PROCESS,
+    result_model=PROCESS_METHOD_RESULT_MODELS["command/exec/write"],
     description="Send stdin data or close stdin on a command/exec process. "
     "At least one of deltaBase64 or closeStdin must be provided.",
 )
@@ -118,15 +136,32 @@ COMMAND_EXEC_RESIZE = model_spec(
     CommandExecResizeParams,
     scope=MethodScope.PROCESS,
     stability=MethodStability.EXPERIMENTAL,
+    result_model=PROCESS_METHOD_RESULT_MODELS["command/exec/resize"],
     description="PTY resize is not supported in this version — always returns UNSUPPORTED_FEATURE.",
 )
-COMMAND_EXEC_TERMINATE = model_spec("command/exec/terminate", CommandExecTerminateParams, scope=MethodScope.PROCESS)
+COMMAND_EXEC_TERMINATE = model_spec(
+    "command/exec/terminate",
+    CommandExecTerminateParams,
+    scope=MethodScope.PROCESS,
+    result_model=PROCESS_METHOD_RESULT_MODELS["command/exec/terminate"],
+)
 
-PROCESS_SPAWN = model_spec("process/spawn", ProcessSpawnParams, scope=MethodScope.PROCESS)
+PROCESS_SPAWN = model_spec(
+    "process/spawn",
+    ProcessSpawnParams,
+    scope=MethodScope.PROCESS,
+    emits=["process/outputDelta", "process/exited"],
+    result_model=PROCESS_METHOD_RESULT_MODELS["process/spawn"],
+    event_models={
+        "process/outputDelta": PROCESS_EVENT_MODELS["process/outputDelta"],
+        "process/exited": PROCESS_EVENT_MODELS["process/exited"],
+    },
+)
 PROCESS_WRITE_STDIN = model_spec(
     "process/writeStdin",
     ProcessWriteStdinParams,
     scope=MethodScope.PROCESS,
+    result_model=PROCESS_METHOD_RESULT_MODELS["process/writeStdin"],
     description="Send stdin data or close stdin on a background process. "
     "At least one of deltaBase64 or closeStdin must be provided.",
 )
@@ -135,35 +170,101 @@ PROCESS_RESIZE_PTY = model_spec(
     ProcessResizePtyParams,
     scope=MethodScope.PROCESS,
     stability=MethodStability.EXPERIMENTAL,
+    result_model=PROCESS_METHOD_RESULT_MODELS["process/resizePty"],
     description="PTY resize is not supported in this version — always returns UNSUPPORTED_FEATURE.",
 )
-PROCESS_KILL = model_spec("process/kill", ProcessKillParams, scope=MethodScope.PROCESS)
+PROCESS_KILL = model_spec(
+    "process/kill",
+    ProcessKillParams,
+    scope=MethodScope.PROCESS,
+    result_model=PROCESS_METHOD_RESULT_MODELS["process/kill"],
+)
 
-FS_READ_FILE = model_spec("fs/readFile", FsReadFileParams, scope=MethodScope.FILESYSTEM)
-FS_WRITE_FILE = model_spec("fs/writeFile", FsWriteFileParams, scope=MethodScope.FILESYSTEM)
-FS_CREATE_DIRECTORY = model_spec("fs/createDirectory", FsCreateDirectoryParams, scope=MethodScope.FILESYSTEM)
-FS_GET_METADATA = model_spec("fs/getMetadata", FsGetMetadataParams, scope=MethodScope.FILESYSTEM)
-FS_READ_DIRECTORY = model_spec("fs/readDirectory", FsReadDirectoryParams, scope=MethodScope.FILESYSTEM)
-FS_REMOVE = model_spec("fs/remove", FsRemoveParams, scope=MethodScope.FILESYSTEM)
-FS_COPY = model_spec("fs/copy", FsCopyParams, scope=MethodScope.FILESYSTEM)
-FS_WATCH = model_spec("fs/watch", FsWatchParams, scope=MethodScope.FILESYSTEM, emits=["fs/changed"])
-FS_UNWATCH = model_spec("fs/unwatch", FsUnwatchParams, scope=MethodScope.FILESYSTEM)
+FS_READ_FILE = model_spec(
+    "fs/readFile",
+    FsReadFileParams,
+    scope=MethodScope.FILESYSTEM,
+    result_model=FILESYSTEM_METHOD_RESULT_MODELS["fs/readFile"],
+)
+FS_WRITE_FILE = model_spec(
+    "fs/writeFile",
+    FsWriteFileParams,
+    scope=MethodScope.FILESYSTEM,
+    result_model=FILESYSTEM_METHOD_RESULT_MODELS["fs/writeFile"],
+)
+FS_CREATE_DIRECTORY = model_spec(
+    "fs/createDirectory",
+    FsCreateDirectoryParams,
+    scope=MethodScope.FILESYSTEM,
+    result_model=FILESYSTEM_METHOD_RESULT_MODELS["fs/createDirectory"],
+)
+FS_GET_METADATA = model_spec(
+    "fs/getMetadata",
+    FsGetMetadataParams,
+    scope=MethodScope.FILESYSTEM,
+    result_model=FILESYSTEM_METHOD_RESULT_MODELS["fs/getMetadata"],
+)
+FS_READ_DIRECTORY = model_spec(
+    "fs/readDirectory",
+    FsReadDirectoryParams,
+    scope=MethodScope.FILESYSTEM,
+    result_model=FILESYSTEM_METHOD_RESULT_MODELS["fs/readDirectory"],
+)
+FS_REMOVE = model_spec(
+    "fs/remove",
+    FsRemoveParams,
+    scope=MethodScope.FILESYSTEM,
+    result_model=FILESYSTEM_METHOD_RESULT_MODELS["fs/remove"],
+)
+FS_COPY = model_spec(
+    "fs/copy",
+    FsCopyParams,
+    scope=MethodScope.FILESYSTEM,
+    result_model=FILESYSTEM_METHOD_RESULT_MODELS["fs/copy"],
+)
+FS_WATCH = model_spec(
+    "fs/watch",
+    FsWatchParams,
+    scope=MethodScope.FILESYSTEM,
+    emits=["fs/changed"],
+    result_model=FILESYSTEM_METHOD_RESULT_MODELS["fs/watch"],
+    event_models={"fs/changed": FILESYSTEM_EVENT_MODELS["fs/changed"]},
+)
+FS_UNWATCH = model_spec(
+    "fs/unwatch",
+    FsUnwatchParams,
+    scope=MethodScope.FILESYSTEM,
+    result_model=FILESYSTEM_METHOD_RESULT_MODELS["fs/unwatch"],
+)
 
-FUZZY_FILE_SEARCH = model_spec("fuzzyFileSearch", FuzzyFileSearchParams, scope=MethodScope.FILESYSTEM)
+FUZZY_FILE_SEARCH = model_spec(
+    "fuzzyFileSearch",
+    FuzzyFileSearchParams,
+    scope=MethodScope.FILESYSTEM,
+    result_model=FILESYSTEM_METHOD_RESULT_MODELS["fuzzyFileSearch"],
+)
 FUZZY_FILE_SEARCH_SESSION_START = model_spec(
     "fuzzyFileSearch/sessionStart",
     FuzzySessionStartParams,
     scope=MethodScope.FILESYSTEM,
+    result_model=FILESYSTEM_METHOD_RESULT_MODELS["fuzzyFileSearch/sessionStart"],
 )
 FUZZY_FILE_SEARCH_SESSION_UPDATE = model_spec(
     "fuzzyFileSearch/sessionUpdate",
     FuzzySessionUpdateParams,
     scope=MethodScope.FILESYSTEM,
+    emits=["fuzzyFileSearch/sessionUpdated", "fuzzyFileSearch/sessionCompleted"],
+    result_model=FILESYSTEM_METHOD_RESULT_MODELS["fuzzyFileSearch/sessionUpdate"],
+    event_models={
+        "fuzzyFileSearch/sessionUpdated": FILESYSTEM_EVENT_MODELS["fuzzyFileSearch/sessionUpdated"],
+        "fuzzyFileSearch/sessionCompleted": FILESYSTEM_EVENT_MODELS["fuzzyFileSearch/sessionCompleted"],
+    },
 )
 FUZZY_FILE_SEARCH_SESSION_STOP = model_spec(
     "fuzzyFileSearch/sessionStop",
     FuzzySessionStopParams,
     scope=MethodScope.FILESYSTEM,
+    result_model=FILESYSTEM_METHOD_RESULT_MODELS["fuzzyFileSearch/sessionStop"],
 )
 
 REPLAY_TURNS = spec("replay.turns", scope=MethodScope.DEBUG, required=["threadId"])
