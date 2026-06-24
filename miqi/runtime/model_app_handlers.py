@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_state
+from miqi.runtime.core_request_models import validate_core_params
 from miqi.runtime.model_catalog import ModelCatalog
 
 
@@ -18,7 +19,8 @@ def register_model_app_handlers(server: AppServer) -> None:
         Response:
             {"models": [model_dict, ...]}
         """
-        include_hidden = bool(params.get("includeHidden", False))
+        typed = validate_core_params("model/list", params)
+        include_hidden = typed.include_hidden
 
         state = get_bridge_state(registry)
         config = state.load_config()
@@ -40,10 +42,8 @@ def register_model_app_handlers(server: AppServer) -> None:
         state = get_bridge_state(registry)
         config = state.load_config()
 
-        provider_name = (
-            params.get("provider")
-            or params.get("providerName")
-        )
+        typed = validate_core_params("modelProvider/capabilities/read", params)
+        provider_name = typed.provider or typed.provider_name
         if not provider_name:
             # Default to the provider of the currently configured model
             current_model = config.agents.defaults.model

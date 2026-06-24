@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_context
+from miqi.runtime.core_request_models import validate_core_params
 from miqi.runtime.permission_profile_runtime import PermissionProfileRuntime
 
 
@@ -32,8 +33,12 @@ def register_permission_profile_app_handlers(server: AppServer) -> None:
         Response:
             {"data": [...], "nextCursor": str|None}
         """
+        typed = validate_core_params("permissionProfile/list", params)
+        cwd_raw = typed.cwd
+        cursor = typed.cursor
+        limit = typed.limit
+
         # Validate cwd if provided
-        cwd_raw = params.get("cwd")
         cwd: str | None = None
         if cwd_raw is not None:
             workspace = _workspace_root(registry)
@@ -47,9 +52,6 @@ def register_permission_profile_app_handlers(server: AppServer) -> None:
                         code="INVALID_PARAMS",
                     )
             cwd = str(resolved)
-
-        cursor = params.get("cursor")
-        limit = int(params.get("limit", 100))
 
         pr = PermissionProfileRuntime()
         page = pr.list_profiles(cwd=cwd, cursor=cursor, limit=limit)
