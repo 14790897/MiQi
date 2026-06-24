@@ -4,10 +4,43 @@ from __future__ import annotations
 
 from typing import Any
 
+from miqi.runtime.filesystem_request_models import (
+    FsCopyParams,
+    FsCreateDirectoryParams,
+    FsGetMetadataParams,
+    FsReadDirectoryParams,
+    FsReadFileParams,
+    FsRemoveParams,
+    FsUnwatchParams,
+    FsWatchParams,
+    FsWriteFileParams,
+    FuzzyFileSearchParams,
+    FuzzySessionStartParams,
+    FuzzySessionStopParams,
+    FuzzySessionUpdateParams,
+)
+from miqi.runtime.process_request_models import (
+    CommandExecParams,
+    CommandExecResizeParams,
+    CommandExecTerminateParams,
+    CommandExecWriteParams,
+    ProcessKillParams,
+    ProcessResizePtyParams,
+    ProcessSpawnParams,
+    ProcessWriteStdinParams,
+)
+from miqi.runtime.protocol_model_schema import model_spec
 from miqi.runtime.protocol_registry import (
     MethodScope,
     MethodStability,
     ProtocolMethodSpec,
+)
+from miqi.runtime.turn_request_models import (
+    ThreadCompactStartParams,
+    ThreadInjectItemsParams,
+    TurnInterruptParams,
+    TurnStartParams,
+    TurnSteerParams,
 )
 
 
@@ -50,21 +83,21 @@ INITIALIZE = spec(
     description="Negotiate client identity and capabilities.",
 )
 
-TURN_START = spec(
+TURN_START = model_spec(
     "turn/start",
+    TurnStartParams,
     scope=MethodScope.TURN,
-    required=["threadId", "input"],
     emits=["turn/started", "item/started", "item/completed", "turn/completed"],
 )
-TURN_INTERRUPT = spec("turn/interrupt", scope=MethodScope.TURN, required=["threadId", "turnId"])
-TURN_STEER = spec("turn/steer", scope=MethodScope.TURN, required=["threadId", "expectedTurnId", "input"])
-THREAD_COMPACT_START = spec(
+TURN_INTERRUPT = model_spec("turn/interrupt", TurnInterruptParams, scope=MethodScope.TURN)
+TURN_STEER = model_spec("turn/steer", TurnSteerParams, scope=MethodScope.TURN)
+THREAD_COMPACT_START = model_spec(
     "thread/compact/start",
+    ThreadCompactStartParams,
     scope=MethodScope.THREAD,
-    required=["threadId"],
     emits=["turn/started", "item/started", "item/completed", "turn/completed"],
 )
-THREAD_INJECT_ITEMS = spec("thread/inject_items", scope=MethodScope.THREAD, required=["threadId", "items"])
+THREAD_INJECT_ITEMS = model_spec("thread/inject_items", ThreadInjectItemsParams, scope=MethodScope.THREAD)
 THREAD_SHELL_COMMAND = spec(
     "thread/shellCommand",
     scope=MethodScope.THREAD,
@@ -72,54 +105,66 @@ THREAD_SHELL_COMMAND = spec(
     emits=["turn/started", "item/started", "item/commandExecution/outputDelta", "item/completed", "turn/completed"],
 )
 
-COMMAND_EXEC = spec("command/exec", scope=MethodScope.PROCESS, required=["command"])
-COMMAND_EXEC_WRITE = spec(
+COMMAND_EXEC = model_spec("command/exec", CommandExecParams, scope=MethodScope.PROCESS)
+COMMAND_EXEC_WRITE = model_spec(
     "command/exec/write",
+    CommandExecWriteParams,
     scope=MethodScope.PROCESS,
-    required=["processId"],
-    description="Send stdin data or close stdin on a command/exec process.  "
+    description="Send stdin data or close stdin on a command/exec process. "
     "At least one of deltaBase64 or closeStdin must be provided.",
 )
-COMMAND_EXEC_RESIZE = spec(
+COMMAND_EXEC_RESIZE = model_spec(
     "command/exec/resize",
+    CommandExecResizeParams,
     scope=MethodScope.PROCESS,
     stability=MethodStability.EXPERIMENTAL,
-    required=[],
     description="PTY resize is not supported in this version — always returns UNSUPPORTED_FEATURE.",
 )
-COMMAND_EXEC_TERMINATE = spec("command/exec/terminate", scope=MethodScope.PROCESS, required=["processId"])
+COMMAND_EXEC_TERMINATE = model_spec("command/exec/terminate", CommandExecTerminateParams, scope=MethodScope.PROCESS)
 
-PROCESS_SPAWN = spec("process/spawn", scope=MethodScope.PROCESS, required=["command", "processHandle", "cwd"])
-PROCESS_WRITE_STDIN = spec(
+PROCESS_SPAWN = model_spec("process/spawn", ProcessSpawnParams, scope=MethodScope.PROCESS)
+PROCESS_WRITE_STDIN = model_spec(
     "process/writeStdin",
+    ProcessWriteStdinParams,
     scope=MethodScope.PROCESS,
-    required=["processHandle"],
-    description="Send stdin data or close stdin on a background process.  "
+    description="Send stdin data or close stdin on a background process. "
     "At least one of deltaBase64 or closeStdin must be provided.",
 )
-PROCESS_RESIZE_PTY = spec(
+PROCESS_RESIZE_PTY = model_spec(
     "process/resizePty",
+    ProcessResizePtyParams,
     scope=MethodScope.PROCESS,
     stability=MethodStability.EXPERIMENTAL,
-    required=[],
     description="PTY resize is not supported in this version — always returns UNSUPPORTED_FEATURE.",
 )
-PROCESS_KILL = spec("process/kill", scope=MethodScope.PROCESS, required=["processHandle"])
+PROCESS_KILL = model_spec("process/kill", ProcessKillParams, scope=MethodScope.PROCESS)
 
-FS_READ_FILE = spec("fs/readFile", scope=MethodScope.FILESYSTEM, required=["path"])
-FS_WRITE_FILE = spec("fs/writeFile", scope=MethodScope.FILESYSTEM, required=["path", "dataBase64"])
-FS_CREATE_DIRECTORY = spec("fs/createDirectory", scope=MethodScope.FILESYSTEM, required=["path"])
-FS_GET_METADATA = spec("fs/getMetadata", scope=MethodScope.FILESYSTEM, required=["path"])
-FS_READ_DIRECTORY = spec("fs/readDirectory", scope=MethodScope.FILESYSTEM, required=["path"])
-FS_REMOVE = spec("fs/remove", scope=MethodScope.FILESYSTEM, required=["path"])
-FS_COPY = spec("fs/copy", scope=MethodScope.FILESYSTEM, required=["sourcePath", "destinationPath"])
-FS_WATCH = spec("fs/watch", scope=MethodScope.FILESYSTEM, required=["path", "watchId"], emits=["fs/changed"])
-FS_UNWATCH = spec("fs/unwatch", scope=MethodScope.FILESYSTEM, required=["watchId"])
+FS_READ_FILE = model_spec("fs/readFile", FsReadFileParams, scope=MethodScope.FILESYSTEM)
+FS_WRITE_FILE = model_spec("fs/writeFile", FsWriteFileParams, scope=MethodScope.FILESYSTEM)
+FS_CREATE_DIRECTORY = model_spec("fs/createDirectory", FsCreateDirectoryParams, scope=MethodScope.FILESYSTEM)
+FS_GET_METADATA = model_spec("fs/getMetadata", FsGetMetadataParams, scope=MethodScope.FILESYSTEM)
+FS_READ_DIRECTORY = model_spec("fs/readDirectory", FsReadDirectoryParams, scope=MethodScope.FILESYSTEM)
+FS_REMOVE = model_spec("fs/remove", FsRemoveParams, scope=MethodScope.FILESYSTEM)
+FS_COPY = model_spec("fs/copy", FsCopyParams, scope=MethodScope.FILESYSTEM)
+FS_WATCH = model_spec("fs/watch", FsWatchParams, scope=MethodScope.FILESYSTEM, emits=["fs/changed"])
+FS_UNWATCH = model_spec("fs/unwatch", FsUnwatchParams, scope=MethodScope.FILESYSTEM)
 
-FUZZY_FILE_SEARCH = spec("fuzzyFileSearch", scope=MethodScope.FILESYSTEM, required=["query", "roots"])
-FUZZY_FILE_SEARCH_SESSION_START = spec("fuzzyFileSearch/sessionStart", scope=MethodScope.FILESYSTEM, required=["sessionId", "roots"])
-FUZZY_FILE_SEARCH_SESSION_UPDATE = spec("fuzzyFileSearch/sessionUpdate", scope=MethodScope.FILESYSTEM, required=["sessionId", "query"])
-FUZZY_FILE_SEARCH_SESSION_STOP = spec("fuzzyFileSearch/sessionStop", scope=MethodScope.FILESYSTEM, required=["sessionId"])
+FUZZY_FILE_SEARCH = model_spec("fuzzyFileSearch", FuzzyFileSearchParams, scope=MethodScope.FILESYSTEM)
+FUZZY_FILE_SEARCH_SESSION_START = model_spec(
+    "fuzzyFileSearch/sessionStart",
+    FuzzySessionStartParams,
+    scope=MethodScope.FILESYSTEM,
+)
+FUZZY_FILE_SEARCH_SESSION_UPDATE = model_spec(
+    "fuzzyFileSearch/sessionUpdate",
+    FuzzySessionUpdateParams,
+    scope=MethodScope.FILESYSTEM,
+)
+FUZZY_FILE_SEARCH_SESSION_STOP = model_spec(
+    "fuzzyFileSearch/sessionStop",
+    FuzzySessionStopParams,
+    scope=MethodScope.FILESYSTEM,
+)
 
 REPLAY_TURNS = spec("replay.turns", scope=MethodScope.DEBUG, required=["threadId"])
 REPLAY_TIMELINE = spec("replay.timeline", scope=MethodScope.DEBUG, required=["threadId", "turnId"])
