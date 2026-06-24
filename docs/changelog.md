@@ -30,7 +30,7 @@
 - **OTEL 可观测性** (Plans 58-59)：OpenTelemetry SDK 集成
 
 ### 2026-06-14-20 — Plans 31-47: 运行时平台
-- **AppServer 运行时** (Plan 35)：Codex 风格应用服务器，客户端/会话隔离，TTL 驱逐
+- **AppServer 运行时** (Plan 35)：类型化应用服务器，客户端/会话隔离，TTL 驱逐
 - **Turn API** (Plan 41)：turn/start、turn/interrupt、turn/steer 处理器
 - **Replay 调试** (Plan 40)：确定性回放文档、检查器
 - **存储线程** (Plan 39)：Ledger 支持的线程导入/导出、rollback/fork
