@@ -94,9 +94,40 @@ def result_schema_from_model(model: type[BaseModel]) -> dict[str, Any]:
     """Return a catalog-ready result/event schema for a Pydantic model.
 
     Result/event models should be closed: additionalProperties=false.
+
+    Uses ``by_alias=False`` and then manually maps Python field names to
+    wire names via ``serialization_alias`` (result/event models use
+    ``serialization_alias`` for output wire naming, not ``validation_alias``).
     """
-    raw = model.model_json_schema(by_alias=True)
-    result = _normalize_schema(raw)
+    # Build wire name map from serialization_alias (output models)
+    wire_map: dict[str, str] = {}
+    for name, field_info in model.model_fields.items():
+        alias = field_info.serialization_alias or field_info.validation_alias
+        wire_map[name] = str(alias) if alias is not None else name
+
+    raw = model.model_json_schema(by_alias=False)
+
+    # ---- properties: rename to wire names ----
+    raw_properties: dict[str, Any] = dict(raw.get("properties") or {})
+    properties: dict[str, Any] = {}
+    for py_name, prop_schema in raw_properties.items():
+        properties[wire_map.get(py_name, py_name)] = prop_schema
+
+    # ---- required: rename to wire names ----
+    raw_required: list[str] = list(raw.get("required") or [])
+    required = sorted(wire_map.get(name, name) for name in raw_required)
+
+    result = dict(raw)
+    if properties:
+        result["properties"] = properties
+    else:
+        result.pop("properties", None)
+    if required:
+        result["required"] = required
+    else:
+        result.pop("required", None)
+
+    result = _normalize_schema(result)
     result["additionalProperties"] = False
     return result
 

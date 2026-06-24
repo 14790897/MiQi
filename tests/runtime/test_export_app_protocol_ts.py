@@ -37,3 +37,16 @@ def test_render_typescript_contract_excludes_internal_fields():
 
     assert "cwd_raw" not in output
     assert "cwdRaw" not in output
+
+
+def test_render_typescript_contract_contains_typed_results_and_events():
+    output = render_typescript_contract()
+
+    assert "export interface CommandExecResult" in output
+    assert "exitCode: number" in output
+    assert "export interface ProcessExitedEventPayload" in output
+    assert "processHandle: string" in output
+    assert "export interface FsChangedEventPayload" in output
+    assert "changedPaths: string[]" in output
+    assert "export interface AppEventPayloadMap" in output
+    assert "'process/exited': ProcessExitedEventPayload" in output

@@ -1,4 +1,4 @@
-import type { AppParams, AppResult } from './app-protocol'
+import type { AppParams, AppResult, AppEventPayload } from './app-protocol'
 import { createTypedAppClient } from './app-client'
 
 const send = async () => ({}) as unknown
@@ -37,3 +37,50 @@ client.request('fs/remove', {
 client.request('fs/nope', {
   path: 'C:/repo/out.txt',
 })
+
+const execResult: AppResult<'command/exec'> = {
+  exitCode: 0,
+  stdout: '',
+  stderr: '',
+  stdoutCapReached: false,
+  stderrCapReached: false,
+  durationMs: 1,
+  terminationReason: 'exited',
+}
+
+void execResult
+
+const changed: AppEventPayload<'fs/changed'> = {
+  watchId: 'watch-1',
+  changedPaths: ['C:/repo/a.txt'],
+}
+
+void changed
+
+// Typed event payloads are accessible with explicit type narrowing
+const outputDelta: AppEventPayload<'process/outputDelta'> = {
+  processHandle: 'p',
+  stream: 'stdout',
+  deltaBase64: '',
+  capReached: false,
+}
+void outputDelta
+
+const exited: AppEventPayload<'process/exited'> = {
+  processHandle: 'p',
+  exitCode: 0,
+  stdout: '',
+  stderr: '',
+  stdoutCapReached: false,
+  stderrCapReached: false,
+  durationMs: 1,
+  terminationReason: 'exited',
+}
+void exited
+
+// @ts-expect-error fs/changed event payload requires changedPaths
+const badChanged: AppEventPayload<'fs/changed'> = {
+  watchId: 'watch-1',
+}
+
+void badChanged

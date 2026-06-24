@@ -159,6 +159,125 @@ export interface TurnSteerParams {
   threadId: string
 }
 
+export interface CommandExecResult {
+  durationMs: number
+  exitCode: number
+  stderr: string
+  stderrCapReached: boolean
+  stdout: string
+  stdoutCapReached: boolean
+  terminationReason: null | string
+}
+
+export interface CommandExecResizeResult {
+}
+
+export interface CommandExecTerminateResult {
+}
+
+export interface CommandExecWriteResult {
+}
+
+export interface FsCopyResult {
+}
+
+export interface FsCreateDirectoryResult {
+}
+
+export interface FsGetMetadataResult {
+  createdAtMs: number
+  isDirectory: boolean
+  isFile: boolean
+  isSymlink: boolean
+  modifiedAtMs: number
+}
+
+export interface FsReadDirectoryResult {
+  entries: unknown[]
+}
+
+export interface FsReadFileResult {
+  dataBase64: string
+}
+
+export interface FsRemoveResult {
+}
+
+export interface FsUnwatchResult {
+}
+
+export interface FsWatchResult {
+  path: string
+}
+
+export interface FsWriteFileResult {
+}
+
+export interface FuzzyFileSearchResult {
+  files: unknown[]
+}
+
+export interface FuzzySessionStartResult {
+}
+
+export interface FuzzySessionStopResult {
+}
+
+export interface FuzzySessionUpdateResult {
+}
+
+export interface ProcessKillResult {
+}
+
+export interface ProcessResizePtyResult {
+}
+
+export interface ProcessSpawnResult {
+}
+
+export interface ProcessWriteStdinResult {
+}
+
+export interface CommandExecOutputDeltaEventPayload {
+  capReached: boolean
+  deltaBase64: string
+  processId: string
+  stream: string
+}
+
+export interface FsChangedEventPayload {
+  changedPaths: string[]
+  watchId: string
+}
+
+export interface FuzzySessionCompletedEventPayload {
+  sessionId: string
+}
+
+export interface FuzzySessionUpdatedEventPayload {
+  files: unknown[]
+  query: string
+  sessionId: string
+}
+
+export interface ProcessExitedEventPayload {
+  durationMs: number
+  exitCode: number
+  processHandle: string
+  stderr: string
+  stderrCapReached: boolean
+  stdout: string
+  stdoutCapReached: boolean
+  terminationReason: null | string
+}
+
+export interface ProcessOutputDeltaEventPayload {
+  capReached: boolean
+  deltaBase64: string
+  processHandle: string
+  stream: string
+}
+
 export const APP_METHODS = [
   'command/exec',
   'command/exec/resize',
@@ -219,27 +338,27 @@ export interface AppMethodParams {
 }
 
 export interface AppMethodResult {
-  'command/exec': Record<string, unknown>
-  'command/exec/resize': Record<string, unknown>
-  'command/exec/terminate': Record<string, unknown>
-  'command/exec/write': Record<string, unknown>
-  'fs/copy': Record<string, never>
-  'fs/createDirectory': Record<string, never>
-  'fs/getMetadata': { isDirectory: boolean; isFile: boolean; isSymlink: boolean; createdAtMs: number; modifiedAtMs: number }
-  'fs/readDirectory': { entries: Array<{ fileName: string; isDirectory: boolean; isFile: boolean }> }
-  'fs/readFile': { dataBase64: string }
-  'fs/remove': Record<string, never>
-  'fs/unwatch': Record<string, never>
-  'fs/watch': Record<string, unknown>
-  'fs/writeFile': Record<string, never>
-  'fuzzyFileSearch': { files: string[] }
-  'fuzzyFileSearch/sessionStart': Record<string, never>
-  'fuzzyFileSearch/sessionStop': Record<string, never>
-  'fuzzyFileSearch/sessionUpdate': Record<string, never>
-  'process/kill': Record<string, unknown>
-  'process/resizePty': Record<string, unknown>
-  'process/spawn': Record<string, unknown>
-  'process/writeStdin': Record<string, unknown>
+  'command/exec': CommandExecResult
+  'command/exec/resize': CommandExecResizeResult
+  'command/exec/terminate': CommandExecTerminateResult
+  'command/exec/write': CommandExecWriteResult
+  'fs/copy': FsCopyResult
+  'fs/createDirectory': FsCreateDirectoryResult
+  'fs/getMetadata': FsGetMetadataResult
+  'fs/readDirectory': FsReadDirectoryResult
+  'fs/readFile': FsReadFileResult
+  'fs/remove': FsRemoveResult
+  'fs/unwatch': FsUnwatchResult
+  'fs/watch': FsWatchResult
+  'fs/writeFile': FsWriteFileResult
+  'fuzzyFileSearch': FuzzyFileSearchResult
+  'fuzzyFileSearch/sessionStart': FuzzySessionStartResult
+  'fuzzyFileSearch/sessionStop': FuzzySessionStopResult
+  'fuzzyFileSearch/sessionUpdate': FuzzySessionUpdateResult
+  'process/kill': ProcessKillResult
+  'process/resizePty': ProcessResizePtyResult
+  'process/spawn': ProcessSpawnResult
+  'process/writeStdin': ProcessWriteStdinResult
   'thread/compact/start': Record<string, unknown>
   'thread/inject_items': Record<string, unknown>
   'turn/interrupt': Record<string, unknown>
@@ -248,7 +367,7 @@ export interface AppMethodResult {
 }
 
 export interface AppMethodEvents {
-  'command/exec': never
+  'command/exec': 'command/exec/outputDelta'
   'command/exec/resize': never
   'command/exec/terminate': never
   'command/exec/write': never
@@ -264,10 +383,10 @@ export interface AppMethodEvents {
   'fuzzyFileSearch': never
   'fuzzyFileSearch/sessionStart': never
   'fuzzyFileSearch/sessionStop': never
-  'fuzzyFileSearch/sessionUpdate': never
+  'fuzzyFileSearch/sessionUpdate': 'fuzzyFileSearch/sessionCompleted' | 'fuzzyFileSearch/sessionUpdated'
   'process/kill': never
   'process/resizePty': never
-  'process/spawn': never
+  'process/spawn': 'process/exited' | 'process/outputDelta'
   'process/writeStdin': never
   'thread/compact/start': 'item/completed' | 'item/started' | 'turn/completed' | 'turn/started'
   'thread/inject_items': never
@@ -275,6 +394,18 @@ export interface AppMethodEvents {
   'turn/start': 'item/completed' | 'item/started' | 'turn/completed' | 'turn/started'
   'turn/steer': never
 }
+
+export interface AppEventPayloadMap {
+  'command/exec/outputDelta': CommandExecOutputDeltaEventPayload
+  'fs/changed': FsChangedEventPayload
+  'fuzzyFileSearch/sessionCompleted': FuzzySessionCompletedEventPayload
+  'fuzzyFileSearch/sessionUpdated': FuzzySessionUpdatedEventPayload
+  'process/exited': ProcessExitedEventPayload
+  'process/outputDelta': ProcessOutputDeltaEventPayload
+}
+export type AppEventName = keyof AppEventPayloadMap
+
+export type AppEventPayload<E extends AppEventName> = AppEventPayloadMap[E]
 
 export type AppRequest<M extends AppMethod = AppMethod> = {
   id: string
