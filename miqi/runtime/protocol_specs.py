@@ -23,6 +23,19 @@ from miqi.runtime.filesystem_response_models import (
     FILESYSTEM_EVENT_MODELS,
     FILESYSTEM_METHOD_RESULT_MODELS,
 )
+from miqi.runtime.core_request_models import (
+    CORE_METHOD_PARAM_MODELS,
+    ConfigBatchWriteParams,
+    ConfigUpdateParams,
+    EmptyParams,
+    ExperimentalFeatureEnablementSetParams,
+    ExperimentalFeatureListParams,
+    InitializeParams,
+    ModelListParams,
+    ModelProviderCapabilitiesReadParams,
+    PermissionProfileListParams,
+)
+from miqi.runtime.core_response_models import CORE_METHOD_RESULT_MODELS
 from miqi.runtime.process_request_models import (
     CommandExecParams,
     CommandExecResizeParams,
@@ -83,12 +96,97 @@ def spec(
     )
 
 
-INITIALIZE = spec(
+INITIALIZE = model_spec(
     "initialize",
+    InitializeParams,
     scope=MethodScope.CONNECTION,
-    required=["clientInfo"],
-    emits=[],
+    result_model=CORE_METHOD_RESULT_MODELS["initialize"],
     description="Negotiate client identity and capabilities.",
+)
+
+INITIALIZED = model_spec(
+    "initialized",
+    EmptyParams,
+    scope=MethodScope.CONNECTION,
+    result_model=CORE_METHOD_RESULT_MODELS["initialized"],
+    description="Acknowledge initialize completion.",
+)
+
+STATUS = model_spec(
+    "status",
+    EmptyParams,
+    scope=MethodScope.CONNECTION,
+    result_model=CORE_METHOD_RESULT_MODELS["status"],
+)
+
+PYTHON_CHECK = model_spec(
+    "python.check",
+    EmptyParams,
+    scope=MethodScope.CONNECTION,
+    result_model=CORE_METHOD_RESULT_MODELS["python.check"],
+)
+
+CONFIG_READ = model_spec(
+    "config/read",
+    EmptyParams,
+    scope=MethodScope.CONNECTION,
+    result_model=CORE_METHOD_RESULT_MODELS["config/read"],
+)
+
+CONFIG_BATCH_WRITE = model_spec(
+    "config/batchWrite",
+    ConfigBatchWriteParams,
+    scope=MethodScope.CONNECTION,
+    result_model=CORE_METHOD_RESULT_MODELS["config/batchWrite"],
+)
+
+CONFIG_GET = model_spec(
+    "config.get",
+    EmptyParams,
+    scope=MethodScope.CONNECTION,
+    result_model=CORE_METHOD_RESULT_MODELS["config.get"],
+)
+
+CONFIG_UPDATE = model_spec(
+    "config.update",
+    ConfigUpdateParams,
+    scope=MethodScope.CONNECTION,
+    result_model=CORE_METHOD_RESULT_MODELS["config.update"],
+)
+
+MODEL_LIST = model_spec(
+    "model/list",
+    ModelListParams,
+    scope=MethodScope.CONNECTION,
+    result_model=CORE_METHOD_RESULT_MODELS["model/list"],
+)
+
+MODEL_PROVIDER_CAPABILITIES_READ = model_spec(
+    "modelProvider/capabilities/read",
+    ModelProviderCapabilitiesReadParams,
+    scope=MethodScope.CONNECTION,
+    result_model=CORE_METHOD_RESULT_MODELS["modelProvider/capabilities/read"],
+)
+
+EXPERIMENTAL_FEATURE_LIST = model_spec(
+    "experimentalFeature/list",
+    ExperimentalFeatureListParams,
+    scope=MethodScope.CONNECTION,
+    result_model=CORE_METHOD_RESULT_MODELS["experimentalFeature/list"],
+)
+
+EXPERIMENTAL_FEATURE_ENABLEMENT_SET = model_spec(
+    "experimentalFeature/enablement/set",
+    ExperimentalFeatureEnablementSetParams,
+    scope=MethodScope.CONNECTION,
+    result_model=CORE_METHOD_RESULT_MODELS["experimentalFeature/enablement/set"],
+)
+
+PERMISSION_PROFILE_LIST = model_spec(
+    "permissionProfile/list",
+    PermissionProfileListParams,
+    scope=MethodScope.CONNECTION,
+    result_model=CORE_METHOD_RESULT_MODELS["permissionProfile/list"],
 )
 
 TURN_START = model_spec(

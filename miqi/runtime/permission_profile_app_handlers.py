@@ -8,6 +8,7 @@ from typing import Any
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_context
 from miqi.runtime.core_request_models import validate_core_params
 from miqi.runtime.permission_profile_runtime import PermissionProfileRuntime
+import miqi.runtime.protocol_specs as protocol_specs
 
 
 def _workspace_root(registry: Any) -> Path | None:
@@ -57,4 +58,8 @@ def register_permission_profile_app_handlers(server: AppServer) -> None:
         page = pr.list_profiles(cwd=cwd, cursor=cursor, limit=limit)
         return {"result": page}
 
-    server.register_method("permissionProfile/list", _permission_profile_list)
+    server.register_method(
+        "permissionProfile/list",
+        _permission_profile_list,
+        spec=protocol_specs.PERMISSION_PROFILE_LIST,
+    )

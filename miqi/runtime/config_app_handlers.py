@@ -13,6 +13,7 @@ from loguru import logger
 
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_state
 from miqi.runtime.core_request_models import validate_core_params
+import miqi.runtime.protocol_specs as protocol_specs
 
 # ── Secret field names ────────────────────────────────────────────────────
 _SECRET_FIELDS = {
@@ -297,5 +298,5 @@ def register_config_app_handlers(server: AppServer) -> None:
             "propagatedSessions": propagated,
         }}
 
-    server.register_method("config/read", _config_read)
-    server.register_method("config/batchWrite", _config_batch_write)
+    server.register_method("config/read", _config_read, spec=protocol_specs.CONFIG_READ)
+    server.register_method("config/batchWrite", _config_batch_write, spec=protocol_specs.CONFIG_BATCH_WRITE)
