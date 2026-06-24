@@ -16,6 +16,13 @@ from typing import Any
 import miqi.runtime.protocol_specs as protocol_specs
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_context
 from miqi.runtime.experimental_api import require_experimental_api
+from miqi.runtime.filesystem_request_models import (
+    FuzzyFileSearchParams,
+    FuzzySessionStartParams,
+    FuzzySessionStopParams,
+    FuzzySessionUpdateParams,
+    validate_filesystem_params,
+)
 from miqi.runtime.fs_protocol import resolve_workspace_absolute_path
 
 
@@ -31,23 +38,10 @@ async def fuzzy_file_search_handler(
 ) -> dict[str, Any]:
     """Handle fuzzyFileSearch — one-shot file search (no experimental gate)."""
     runtime = _get_fuzzy_runtime(registry)
-
-    query = params.get("query")
-    if not isinstance(query, str):
-        raise AppServerError(
-            "query must be a string",
-            code="INVALID_PARAMS",
-        )
-
-    raw_roots = params.get("roots")
-    if not isinstance(raw_roots, list):
-        raise AppServerError(
-            "roots must be a list",
-            code="INVALID_PARAMS",
-        )
+    typed = validate_filesystem_params(FuzzyFileSearchParams, params)
 
     roots: list[Path] = []
-    for raw in raw_roots:
+    for raw in typed.roots:
         resolved = resolve_workspace_absolute_path(
             registry, raw, field_name="root",
         )
@@ -59,7 +53,7 @@ async def fuzzy_file_search_handler(
         # No valid roots → empty result
         return {"result": {"files": []}}
 
-    files = runtime.search(query, roots)
+    files = runtime.search(typed.query, roots)
     return {"result": {"files": files}}
 
 
@@ -73,23 +67,10 @@ async def fuzzy_session_start_handler(
     """Handle fuzzyFileSearch/sessionStart — requires experimentalApi."""
     require_experimental_api(params, registry, client_id, "fuzzyFileSearch/sessionStart")
     runtime = _get_fuzzy_runtime(registry)
-
-    sid = params.get("sessionId")
-    if not isinstance(sid, str) or not sid.strip():
-        raise AppServerError(
-            "sessionId must be a non-empty string",
-            code="INVALID_PARAMS",
-        )
-
-    raw_roots = params.get("roots")
-    if not isinstance(raw_roots, list):
-        raise AppServerError(
-            "roots must be a list",
-            code="INVALID_PARAMS",
-        )
+    typed = validate_filesystem_params(FuzzySessionStartParams, params)
 
     roots: list[Path] = []
-    for raw in raw_roots:
+    for raw in typed.roots:
         resolved = resolve_workspace_absolute_path(
             registry, raw, field_name="root",
         )
@@ -97,7 +78,7 @@ async def fuzzy_session_start_handler(
             continue  # Skip missing roots inside workspace
         roots.append(resolved)
 
-    runtime.session_start(client_id, sid, roots)
+    runtime.session_start(client_id, typed.session_id, roots)
     return {"result": {}}
 
 
@@ -111,26 +92,13 @@ async def fuzzy_session_update_handler(
     """Handle fuzzyFileSearch/sessionUpdate — requires experimentalApi."""
     require_experimental_api(params, registry, client_id, "fuzzyFileSearch/sessionUpdate")
     runtime = _get_fuzzy_runtime(registry)
-
-    sid = params.get("sessionId")
-    if not isinstance(sid, str) or not sid.strip():
-        raise AppServerError(
-            "sessionId must be a non-empty string",
-            code="INVALID_PARAMS",
-        )
-
-    query = params.get("query")
-    if not isinstance(query, str):
-        raise AppServerError(
-            "query must be a string",
-            code="INVALID_PARAMS",
-        )
+    typed = validate_filesystem_params(FuzzySessionUpdateParams, params)
 
     try:
-        await runtime.session_update(client_id, sid, query)
+        await runtime.session_update(client_id, typed.session_id, typed.query)
     except KeyError:
         raise AppServerError(
-            f"Unknown session: {sid}",
+            f"Unknown session: {typed.session_id}",
             code="INVALID_PARAMS",
         )
 
@@ -147,12 +115,9 @@ async def fuzzy_session_stop_handler(
     """Handle fuzzyFileSearch/sessionStop — requires experimentalApi."""
     require_experimental_api(params, registry, client_id, "fuzzyFileSearch/sessionStop")
     runtime = _get_fuzzy_runtime(registry)
+    typed = validate_filesystem_params(FuzzySessionStopParams, params)
 
-    sid = params.get("sessionId", "")
-    if not isinstance(sid, str):
-        sid = ""
-
-    runtime.session_stop(client_id, sid)
+    runtime.session_stop(client_id, typed.session_id)
     return {"result": {}}
 
 
