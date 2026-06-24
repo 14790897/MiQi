@@ -4,6 +4,8 @@ import { createInterface, Interface } from 'readline'
 import { existsSync, watch } from 'fs'
 import { join, extname } from 'path'
 import { randomUUID } from 'crypto'
+import { createTypedAppClient } from '../shared/app-client'
+import type { TypedAppClient } from '../shared/app-client'
 import type { RuntimeState, RuntimeStatus } from '../shared/ipc'
 
 export interface BridgeRequest {
@@ -502,6 +504,12 @@ export class BridgeManager extends EventEmitter {
     } catch {
       return null
     }
+  }
+
+  app(): TypedAppClient {
+    return createTypedAppClient((method, params, onEvent) =>
+      this.send(method, params, onEvent),
+    )
   }
 
   async send(
