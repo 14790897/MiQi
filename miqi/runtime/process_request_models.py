@@ -187,8 +187,6 @@ class CommandExecParams(_ProcessParams, _CommandMixin, _EnvMixin, _CapTimeoutMix
 
     @model_validator(mode="after")
     def _validate_shape(self) -> "CommandExecParams":
-        if self.tty is True:
-            raise ValueError("PTY is not supported in this version")
         if self.size is not None and not self.tty:
             raise ValueError("size requires tty: true")
         if self.stream_stdout_stderr and self.process_id is None:
@@ -285,8 +283,6 @@ class ProcessSpawnParams(_ProcessParams, _CommandMixin, _EnvMixin, _CapTimeoutMi
 
     @model_validator(mode="after")
     def _validate_shape(self) -> "ProcessSpawnParams":
-        if self.tty is True:
-            raise ValueError("PTY is not supported in this version")
         _ = self.output_cap
         _ = self.process_timeout_ms()
         return self
