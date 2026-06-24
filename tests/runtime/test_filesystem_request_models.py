@@ -154,3 +154,13 @@ def test_fuzzy_session_stop_rejects_non_string_session_id():
         validate_filesystem_params(FuzzySessionStopParams, {"sessionId": 123})
 
     assert exc.value.code == "INVALID_PARAMS"
+
+
+def test_fs_write_file_accepts_empty_data_base64():
+    params = validate_filesystem_params(FsWriteFileParams, {
+        "path": "/tmp/file.txt",
+        "dataBase64": "",
+    })
+
+    assert params.path == "/tmp/file.txt"
+    assert params.data_base64 == ""

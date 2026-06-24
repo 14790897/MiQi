@@ -58,7 +58,9 @@ class FsWriteFileParams(_PathParam):
     @field_validator("data_base64", mode="before")
     @classmethod
     def _data_base64(cls, value: Any) -> Any:
-        return _non_empty_string(value, "dataBase64")
+        if not isinstance(value, str):
+            raise ValueError("dataBase64 must be a string")
+        return value
 
 
 class FsCreateDirectoryParams(_PathParam):

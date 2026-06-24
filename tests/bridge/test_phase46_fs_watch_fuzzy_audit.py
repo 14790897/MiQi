@@ -18,6 +18,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from miqi.runtime.app_server import AppServerError
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -516,3 +518,83 @@ class TestPhase64WatchFuzzyTypedValidation:
             assert resp.get("code") == "EXPERIMENTAL_API_REQUIRED"
         finally:
             await loop._shutdown()
+
+
+# ── Phase 64-fix: validation before runtime context tests ────────────────
+
+
+class TestPhase64ValidationBeforeRuntime:
+    """Typed validation must run before runtime lookup — bad params return
+    INVALID_PARAMS even when registry.bridge_context is empty (no app_server,
+    no runtime)."""
+
+    @pytest.mark.asyncio
+    async def test_fs_watch_bad_params_invalid_before_runtime(self):
+        from types import SimpleNamespace
+
+        from miqi.runtime.fs_watch_app_handlers import fs_watch_handler
+
+        registry = SimpleNamespace()
+        registry.bridge_context = {}
+
+        with pytest.raises(AppServerError) as exc:
+            await fs_watch_handler(
+                "req-1", {"watchId": 123, "path": 123},
+                "client-1", None, registry,
+            )
+
+        assert exc.value.code == "INVALID_PARAMS"
+
+    @pytest.mark.asyncio
+    async def test_fs_unwatch_bad_params_invalid_before_runtime(self):
+        from types import SimpleNamespace
+
+        from miqi.runtime.fs_watch_app_handlers import fs_unwatch_handler
+
+        registry = SimpleNamespace()
+        registry.bridge_context = {}
+
+        with pytest.raises(AppServerError) as exc:
+            await fs_unwatch_handler(
+                "req-1", {}, "client-1", None, registry,
+            )
+
+        assert exc.value.code == "INVALID_PARAMS"
+
+    @pytest.mark.asyncio
+    async def test_fuzzy_search_bad_params_invalid_before_runtime(self):
+        from types import SimpleNamespace
+
+        from miqi.runtime.fuzzy_file_search_app_handlers import (
+            fuzzy_file_search_handler,
+        )
+
+        registry = SimpleNamespace()
+        registry.bridge_context = {}
+
+        with pytest.raises(AppServerError) as exc:
+            await fuzzy_file_search_handler(
+                "req-1", {"query": 123, "roots": "bad"},
+                "client-1", None, registry,
+            )
+
+        assert exc.value.code == "INVALID_PARAMS"
+
+    @pytest.mark.asyncio
+    async def test_fuzzy_session_start_experimental_gate_before_validation(self):
+        from types import SimpleNamespace
+
+        from miqi.runtime.fuzzy_file_search_app_handlers import (
+            fuzzy_session_start_handler,
+        )
+
+        registry = SimpleNamespace()
+        registry.bridge_context = {}
+
+        with pytest.raises(AppServerError) as exc:
+            await fuzzy_session_start_handler(
+                "req-1", {"sessionId": 123, "roots": "bad"},
+                "client-1", None, registry,
+            )
+
+        assert exc.value.code == "EXPERIMENTAL_API_REQUIRED"

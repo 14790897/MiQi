@@ -762,3 +762,17 @@ class TestPhase64TypedValidation:
 
         assert resp.get("code") == "INVALID_PARAMS"
         assert not target.exists()
+
+    @pytest.mark.asyncio
+    async def test_write_file_empty_data_creates_empty_file(self, tmp_path):
+        target = tmp_path / "empty.bin"
+
+        server, registry = _make_server_and_registry(tmp_path)
+        resp = await _dispatch(server, registry, "fs/writeFile", {
+            "path": str(target),
+            "dataBase64": "",
+        })
+
+        assert "result" in resp
+        assert target.exists()
+        assert target.read_bytes() == b""

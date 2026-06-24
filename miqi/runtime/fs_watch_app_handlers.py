@@ -29,8 +29,8 @@ async def fs_watch_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Handle fs/watch — start watching a filesystem path."""
-    runtime = _get_fs_watch_runtime(registry)
     typed = validate_filesystem_params(FsWatchParams, params)
+    runtime = _get_fs_watch_runtime(registry)
     path = resolve_workspace_absolute_path(registry, typed.path)
     result = await runtime.watch(client_id, typed.watch_id, path)
     return {"result": result}
@@ -44,8 +44,8 @@ async def fs_unwatch_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Handle fs/unwatch — stop watching a filesystem path."""
-    runtime = _get_fs_watch_runtime(registry)
     typed = validate_filesystem_params(FsUnwatchParams, params)
+    runtime = _get_fs_watch_runtime(registry)
     await runtime.unwatch(client_id, typed.watch_id)
     return {"result": {}}
 
