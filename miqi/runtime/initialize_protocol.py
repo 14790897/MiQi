@@ -339,6 +339,10 @@ def register_initialize_handler(server: AppServer) -> None:
         registry: Any,
     ) -> dict[str, Any]:
         """Handle the initialize request."""
+        # Typed validation rejects non-string title/version etc.
+        from miqi.runtime.core_request_models import validate_core_params
+        validate_core_params("initialize", params)
+
         # Parse and validate params
         client_info, capabilities = parse_initialize_params(params)
 

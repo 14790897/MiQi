@@ -12,6 +12,7 @@ from typing import Any
 from loguru import logger
 
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_state
+from miqi.runtime.core_request_models import validate_core_params
 
 # ── Secret field names ────────────────────────────────────────────────────
 _SECRET_FIELDS = {
@@ -206,6 +207,8 @@ def register_config_app_handlers(server: AppServer) -> None:
         Returns the full config dict with all secret values replaced by
         stable hints.  Does not expose raw api_key / token / password.
         """
+        validate_core_params("config/read", params)
+
         state = get_bridge_state(registry)
         config = state.load_config()
         data = config.model_dump(by_alias=True)
@@ -227,21 +230,17 @@ def register_config_app_handlers(server: AppServer) -> None:
         from miqi.config.schema import Config
         from miqi.config.loader import save_config
 
+        typed = validate_core_params("config/batchWrite", params)
+        edits = [edit.model_dump(by_alias=True) for edit in typed.edits]
+        reload_user_config = typed.reload_user_config
+
         state = get_bridge_state(registry)
         config = state.load_config()
-
-        edits = params.get("edits", [])
-        if not isinstance(edits, list) or not edits:
-            raise AppServerError("edits is required and must be a non-empty list", code="INVALID_PARAMS")
-
-        reload_user_config = params.get("reloadUserConfig", True)
 
         # Apply all edits to an in-memory dict copy
         current_dict = config.model_dump(by_alias=True)
         applied = 0
         for edit in edits:
-            if not isinstance(edit, dict):
-                raise AppServerError("Each edit must be a dict", code="INVALID_PARAMS")
             _apply_edit(current_dict, edit)
             applied += 1
 

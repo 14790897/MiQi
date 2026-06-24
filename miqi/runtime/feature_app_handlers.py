@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from miqi.runtime.app_server import AppServer, get_bridge_context
+from miqi.runtime.core_request_models import validate_core_params
 from miqi.runtime.feature_runtime import FeatureRuntime
 
 
@@ -28,10 +29,9 @@ def register_feature_app_handlers(server: AppServer) -> None:
         Response:
             {"data": [...], "nextCursor": str|None}
         """
+        typed = validate_core_params("experimentalFeature/list", params)
         fr = _get_feature_runtime(registry)
-        cursor = params.get("cursor")
-        limit = int(params.get("limit", 100))
-        page = fr.list_features(cursor=cursor, limit=limit)
+        page = fr.list_features(cursor=typed.cursor, limit=typed.limit)
         return {"result": page}
 
     async def _experimental_feature_enablement_set(request_id, params, client_id, session_id, registry):
@@ -42,11 +42,9 @@ def register_feature_app_handlers(server: AppServer) -> None:
         Response:
             {"saved": True, "ignored": [...]}
         """
+        typed = validate_core_params("experimentalFeature/enablement/set", params)
         fr = _get_feature_runtime(registry)
-        features = params.get("features") or params.get("enablement") or {}
-        if not isinstance(features, dict):
-            features = {}
-        ignored = fr.set_enablement(features)
+        ignored = fr.set_enablement(typed.features)
         return {"result": {"saved": True, "ignored": ignored}}
 
     server.register_method("experimentalFeature/list", _experimental_feature_list)

@@ -16,6 +16,7 @@ from typing import Any
 from loguru import logger
 
 from miqi.runtime.app_server import AppServerError, get_bridge_state
+from miqi.runtime.core_request_models import validate_core_params
 
 
 async def config_get_handler(
@@ -30,6 +31,8 @@ async def config_get_handler(
     Returns the full config dict with API key values replaced by hints
     (e.g., "sk-a…b123").
     """
+    validate_core_params("config.get", params)
+
     from miqi.runtime.config_app_handlers import _redact_secrets
 
     state = get_bridge_state(registry)
@@ -54,15 +57,15 @@ async def config_update_handler(
     4. Update AppServer-level config reference
     5. Propagate config snapshot to active RuntimeSessions
     """
+    typed = validate_core_params("config.update", params)
+    updates = typed.config
+
     from miqi.config.schema import Config
     from miqi.config.loader import save_config
 
     from miqi.runtime.config_app_handlers import _deep_merge
 
     state = get_bridge_state(registry)
-    updates = params.get("config", {})
-    if not updates:
-        raise AppServerError("config is required", code="INVALID_PARAMS")
 
     current = state.load_config()
     merged = _deep_merge(current.model_dump(by_alias=True), updates)
