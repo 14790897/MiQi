@@ -701,3 +701,64 @@ class TestNoTextSuffixFiltering:
 
         assert "result" in resp
         assert test_file.read_bytes() == data
+
+
+# ── Phase 64 typed validation regressions ───────────────────────────────
+
+
+class TestPhase64TypedValidation:
+    @pytest.mark.asyncio
+    async def test_create_directory_rejects_string_recursive_without_creating(self, tmp_path):
+        target = tmp_path / "bad-recursive"
+
+        server, registry = _make_server_and_registry(tmp_path)
+        resp = await _dispatch(server, registry, "fs/createDirectory", {
+            "path": str(target),
+            "recursive": "true",
+        })
+
+        assert resp.get("code") == "INVALID_PARAMS"
+        assert not target.exists()
+
+    @pytest.mark.asyncio
+    async def test_remove_rejects_string_force_without_removing(self, tmp_path):
+        target = tmp_path / "keep.txt"
+        target.write_text("keep", encoding="utf-8")
+
+        server, registry = _make_server_and_registry(tmp_path)
+        resp = await _dispatch(server, registry, "fs/remove", {
+            "path": str(target),
+            "force": "true",
+        })
+
+        assert resp.get("code") == "INVALID_PARAMS"
+        assert target.exists()
+
+    @pytest.mark.asyncio
+    async def test_copy_rejects_string_recursive_without_copying(self, tmp_path):
+        source = tmp_path / "source.txt"
+        source.write_text("source", encoding="utf-8")
+        destination = tmp_path / "destination.txt"
+
+        server, registry = _make_server_and_registry(tmp_path)
+        resp = await _dispatch(server, registry, "fs/copy", {
+            "sourcePath": str(source),
+            "destinationPath": str(destination),
+            "recursive": "false",
+        })
+
+        assert resp.get("code") == "INVALID_PARAMS"
+        assert not destination.exists()
+
+    @pytest.mark.asyncio
+    async def test_write_file_rejects_non_string_data_before_write(self, tmp_path):
+        target = tmp_path / "bad.bin"
+
+        server, registry = _make_server_and_registry(tmp_path)
+        resp = await _dispatch(server, registry, "fs/writeFile", {
+            "path": str(target),
+            "dataBase64": 123,
+        })
+
+        assert resp.get("code") == "INVALID_PARAMS"
+        assert not target.exists()

@@ -14,6 +14,16 @@ from typing import Any
 
 import miqi.runtime.protocol_specs as protocol_specs
 from miqi.runtime.app_server import AppServer, AppServerError
+from miqi.runtime.filesystem_request_models import (
+    FsCopyParams,
+    FsCreateDirectoryParams,
+    FsGetMetadataParams,
+    FsReadDirectoryParams,
+    FsReadFileParams,
+    FsRemoveParams,
+    FsWriteFileParams,
+    validate_filesystem_params,
+)
 from miqi.runtime.fs_protocol import (
     decode_data_base64,
     directory_entry_response,
@@ -35,7 +45,8 @@ async def fs_read_file_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Handle fs/readFile — read a file and return base64-encoded bytes."""
-    path = resolve_workspace_absolute_path(registry, params.get("path"))
+    typed = validate_filesystem_params(FsReadFileParams, params)
+    path = resolve_workspace_absolute_path(registry, typed.path)
 
     if not path.exists():
         raise AppServerError(
@@ -61,8 +72,9 @@ async def fs_write_file_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Handle fs/writeFile — write raw bytes from base64 to a file."""
-    path = resolve_workspace_absolute_path(registry, params.get("path"))
-    data = decode_data_base64(params.get("dataBase64"))
+    typed = validate_filesystem_params(FsWriteFileParams, params)
+    path = resolve_workspace_absolute_path(registry, typed.path)
+    data = decode_data_base64(typed.data_base64)
 
     if not path.parent.is_dir():
         raise AppServerError(
@@ -85,10 +97,9 @@ async def fs_create_directory_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Handle fs/createDirectory — create a directory on the filesystem."""
-    path = resolve_workspace_absolute_path(registry, params.get("path"))
-    recursive = params.get("recursive", True)
-    if not isinstance(recursive, bool):
-        recursive = True
+    typed = validate_filesystem_params(FsCreateDirectoryParams, params)
+    path = resolve_workspace_absolute_path(registry, typed.path)
+    recursive = typed.recursive
 
     try:
         if recursive:
@@ -111,7 +122,8 @@ async def fs_get_metadata_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Handle fs/getMetadata — return filesystem metadata for a path."""
-    path = resolve_workspace_absolute_path(registry, params.get("path"), resolve_symlinks=False)
+    typed = validate_filesystem_params(FsGetMetadataParams, params)
+    path = resolve_workspace_absolute_path(registry, typed.path, resolve_symlinks=False)
 
     if not path.exists():
         raise AppServerError(
@@ -133,7 +145,8 @@ async def fs_read_directory_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Handle fs/readDirectory — list direct children of a directory."""
-    path = resolve_workspace_absolute_path(registry, params.get("path"))
+    typed = validate_filesystem_params(FsReadDirectoryParams, params)
+    path = resolve_workspace_absolute_path(registry, typed.path)
 
     if not path.is_dir():
         raise AppServerError(
@@ -164,13 +177,10 @@ async def fs_remove_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Handle fs/remove — remove a file or directory tree."""
-    path = resolve_workspace_absolute_path(registry, params.get("path"))
-    recursive = params.get("recursive", True)
-    if not isinstance(recursive, bool):
-        recursive = True
-    force = params.get("force", True)
-    if not isinstance(force, bool):
-        force = True
+    typed = validate_filesystem_params(FsRemoveParams, params)
+    path = resolve_workspace_absolute_path(registry, typed.path)
+    recursive = typed.recursive
+    force = typed.force
 
     # Missing path
     if not path.exists():
@@ -202,11 +212,10 @@ async def fs_copy_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Handle fs/copy — copy a file or directory tree."""
-    src = resolve_workspace_absolute_path(registry, params.get("sourcePath"), field_name="sourcePath")
-    dst = resolve_workspace_absolute_path(registry, params.get("destinationPath"), field_name="destinationPath")
-    recursive = params.get("recursive", False)
-    if not isinstance(recursive, bool):
-        recursive = False
+    typed = validate_filesystem_params(FsCopyParams, params)
+    src = resolve_workspace_absolute_path(registry, typed.source_path, field_name="sourcePath")
+    dst = resolve_workspace_absolute_path(registry, typed.destination_path, field_name="destinationPath")
+    recursive = typed.recursive
 
     if not src.exists():
         raise AppServerError(
