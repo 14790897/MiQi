@@ -18,10 +18,7 @@ def _dispatch_legacy(_req_id: str, _method: str, _params: dict) -> None:
 @pytest.mark.asyncio
 async def test_filesystem_search_specs_match_typed_request_models():
     from miqi.bridge.loop import BridgeRuntimeLoop
-    from miqi.runtime.filesystem_request_models import (
-        FILESYSTEM_METHOD_PARAM_MODELS,
-        required_fields_for_model,
-    )
+    from miqi.runtime.filesystem_request_models import FILESYSTEM_METHOD_PARAM_MODELS
 
     loop = BridgeRuntimeLoop(
         send_func=_CaptureSend().send,
@@ -33,12 +30,14 @@ async def test_filesystem_search_specs_match_typed_request_models():
         catalog = loop.app_server.protocol_catalog()
         by_method = {item["method"]: item for item in catalog["methods"]}
 
+        from miqi.runtime.protocol_model_schema import params_schema_from_model
+
         failures: list[str] = []
         for method, model in sorted(FILESYSTEM_METHOD_PARAM_MODELS.items()):
-            expected = required_fields_for_model(model)
-            actual = sorted(by_method[method]["paramsSchema"].get("required", []))
+            expected = params_schema_from_model(model)
+            actual = by_method[method]["paramsSchema"]
             if actual != expected:
-                failures.append(f"{method}: catalog={actual}, model={expected}")
+                failures.append(f"{method}: catalog paramsSchema does not match typed model")
 
         assert failures == [], "\n".join(failures)
     finally:
