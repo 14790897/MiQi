@@ -68,17 +68,16 @@ export function Sidebar({
   onNewSession,
 }: SidebarProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([])
-  const [loading, setLoading] = useState(false)
+  const [initialLoading, setInitialLoading] = useState(true)
 
   const loadSessions = useCallback(async () => {
-    setLoading(true)
     try {
       const r = await window.miqi.sessions.list()
       setSessions(r?.sessions ?? [])
     } catch {
       /* Bridge not available */
     }
-    setLoading(false)
+    setInitialLoading(false)
   }, [])
 
   useEffect(() => {
@@ -168,7 +167,7 @@ export function Sidebar({
 
       {/* Session list */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
-        {loading ? (
+        {initialLoading && sessions.length === 0 ? (
           <div className="flex items-center justify-center py-6">
             <div className="w-4 h-4 border-2 border-[var(--border)] border-t-[var(--accent)] rounded-full animate-spin" />
           </div>
