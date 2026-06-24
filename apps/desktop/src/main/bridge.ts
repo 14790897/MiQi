@@ -428,7 +428,23 @@ export class BridgeManager extends EventEmitter {
         onEvent,
       })
 
-      this.process!.stdin!.write(JSON.stringify(request) + '\n')
+      const stdin = this.process!.stdin!
+      if (!stdin.writable || stdin.destroyed) {
+        this.pending.delete(id)
+        reject(new Error('Bridge not running'))
+        return
+      }
+      try {
+        stdin.write(JSON.stringify(request) + '\n', (err) => {
+          if (err) {
+            this.pending.delete(id)
+            reject(err)
+          }
+        })
+      } catch (err) {
+        this.pending.delete(id)
+        reject(err instanceof Error ? err : new Error(String(err)))
+      }
     })
   }
 
