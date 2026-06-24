@@ -385,4 +385,4 @@ def register_initialize_handler(server: AppServer) -> None:
         return {"result": {"acknowledged": True}}
 
     server.register_method("initialize", _initialize_handler, spec=protocol_specs.INITIALIZE)
-    server.register_method("initialized", _initialized_handler)
+    server.register_method("initialized", _initialized_handler, spec=protocol_specs.INITIALIZED)

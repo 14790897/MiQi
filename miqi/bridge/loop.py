@@ -168,8 +168,10 @@ class BridgeRuntimeLoop:
         registry.bridge_context["app_server"] = self._app_server
         await self._app_server.start()
 
+        import miqi.runtime.protocol_specs as protocol_specs
+
         # Register bridge-owned handlers
-        self._app_server.register_method("status", self._status_handler)
+        self._app_server.register_method("status", self._status_handler, spec=protocol_specs.STATUS)
 
         # Register Phase 27.3: chat.send through AppServer
         self._app_server.register_method("chat.send", self._chat_send_handler)
@@ -237,8 +239,8 @@ class BridgeRuntimeLoop:
             config_get_handler,
             config_update_handler,
         )
-        self._app_server.register_method("config.get", config_get_handler)
-        self._app_server.register_method("config.update", config_update_handler)
+        self._app_server.register_method("config.get", config_get_handler, spec=protocol_specs.CONFIG_GET)
+        self._app_server.register_method("config.update", config_update_handler, spec=protocol_specs.CONFIG_UPDATE)
 
         # Register Phase 28.4: sessions.* handlers
         from miqi.runtime.session_handlers import (
@@ -396,7 +398,7 @@ class BridgeRuntimeLoop:
 
         # Register Phase 35.8: diagnostic handlers
         from miqi.runtime.diagnostic_handlers import python_check_handler
-        self._app_server.register_method("python.check", python_check_handler)
+        self._app_server.register_method("python.check", python_check_handler, spec=protocol_specs.PYTHON_CHECK)
 
         # Register Phase 41: Codex-style active turn handlers
         from miqi.runtime.turn_app_handlers import register_codex_turn_handlers

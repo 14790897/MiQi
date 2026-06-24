@@ -7,6 +7,7 @@ from typing import Any
 from miqi.runtime.app_server import AppServer, get_bridge_context
 from miqi.runtime.core_request_models import validate_core_params
 from miqi.runtime.feature_runtime import FeatureRuntime
+import miqi.runtime.protocol_specs as protocol_specs
 
 
 def _get_feature_runtime(registry: Any) -> FeatureRuntime:
@@ -47,5 +48,13 @@ def register_feature_app_handlers(server: AppServer) -> None:
         ignored = fr.set_enablement(typed.features)
         return {"result": {"saved": True, "ignored": ignored}}
 
-    server.register_method("experimentalFeature/list", _experimental_feature_list)
-    server.register_method("experimentalFeature/enablement/set", _experimental_feature_enablement_set)
+    server.register_method(
+        "experimentalFeature/list",
+        _experimental_feature_list,
+        spec=protocol_specs.EXPERIMENTAL_FEATURE_LIST,
+    )
+    server.register_method(
+        "experimentalFeature/enablement/set",
+        _experimental_feature_enablement_set,
+        spec=protocol_specs.EXPERIMENTAL_FEATURE_ENABLEMENT_SET,
+    )

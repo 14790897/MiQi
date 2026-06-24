@@ -7,6 +7,7 @@ from typing import Any
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_state
 from miqi.runtime.core_request_models import validate_core_params
 from miqi.runtime.model_catalog import ModelCatalog
+import miqi.runtime.protocol_specs as protocol_specs
 
 
 def register_model_app_handlers(server: AppServer) -> None:
@@ -60,5 +61,9 @@ def register_model_app_handlers(server: AppServer) -> None:
 
         return {"result": {"capabilities": caps.to_dict()}}
 
-    server.register_method("model/list", _model_list)
-    server.register_method("modelProvider/capabilities/read", _model_provider_capabilities_read)
+    server.register_method("model/list", _model_list, spec=protocol_specs.MODEL_LIST)
+    server.register_method(
+        "modelProvider/capabilities/read",
+        _model_provider_capabilities_read,
+        spec=protocol_specs.MODEL_PROVIDER_CAPABILITIES_READ,
+    )
