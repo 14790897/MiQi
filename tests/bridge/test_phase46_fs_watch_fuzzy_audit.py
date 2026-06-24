@@ -411,3 +411,108 @@ def _fake_bridge_state(workspace_path: str):
     state = MagicMock()
     state.load_config.return_value = fake_config
     return state
+
+
+# ── Phase 64 typed validation regressions ───────────────────────────────
+
+
+class TestPhase64WatchFuzzyTypedValidation:
+    @pytest.mark.asyncio
+    async def test_fs_unwatch_rejects_missing_watch_id(self, tmp_path):
+        from miqi.bridge.loop import BridgeRuntimeLoop
+
+        capturer = _CaptureSend()
+        loop = BridgeRuntimeLoop(
+            send_func=capturer.send,
+            dispatch_legacy_func=None,
+            bridge_state=_fake_bridge_state(str(tmp_path)),
+        )
+        await loop._init_app_server()
+
+        try:
+            resp = await loop.app_server.dispatch(
+                request_id="req-unwatch",
+                method="fs/unwatch",
+                params={},
+                client_id="client-1",
+                session_id=None,
+            )
+
+            assert resp.get("code") == "INVALID_PARAMS"
+        finally:
+            await loop._shutdown()
+
+    @pytest.mark.asyncio
+    async def test_fs_watch_rejects_stringless_watch_id_before_runtime(self, tmp_path):
+        from miqi.bridge.loop import BridgeRuntimeLoop
+
+        capturer = _CaptureSend()
+        loop = BridgeRuntimeLoop(
+            send_func=capturer.send,
+            dispatch_legacy_func=None,
+            bridge_state=_fake_bridge_state(str(tmp_path)),
+        )
+        await loop._init_app_server()
+
+        try:
+            resp = await loop.app_server.dispatch(
+                request_id="req-watch",
+                method="fs/watch",
+                params={"watchId": 123, "path": str(tmp_path)},
+                client_id="client-1",
+                session_id=None,
+            )
+
+            assert resp.get("code") == "INVALID_PARAMS"
+        finally:
+            await loop._shutdown()
+
+    @pytest.mark.asyncio
+    async def test_fuzzy_search_rejects_non_list_roots(self, tmp_path):
+        from miqi.bridge.loop import BridgeRuntimeLoop
+
+        capturer = _CaptureSend()
+        loop = BridgeRuntimeLoop(
+            send_func=capturer.send,
+            dispatch_legacy_func=None,
+            bridge_state=_fake_bridge_state(str(tmp_path)),
+        )
+        await loop._init_app_server()
+
+        try:
+            resp = await loop.app_server.dispatch(
+                request_id="req-fuzzy",
+                method="fuzzyFileSearch",
+                params={"query": "readme", "roots": str(tmp_path)},
+                client_id="client-1",
+                session_id=None,
+            )
+
+            assert resp.get("code") == "INVALID_PARAMS"
+        finally:
+            await loop._shutdown()
+
+    @pytest.mark.asyncio
+    async def test_fuzzy_session_start_experimental_gate_still_runs_first(self, tmp_path):
+        from miqi.bridge.loop import BridgeRuntimeLoop
+
+        capturer = _CaptureSend()
+        loop = BridgeRuntimeLoop(
+            send_func=capturer.send,
+            dispatch_legacy_func=None,
+            bridge_state=_fake_bridge_state(str(tmp_path)),
+        )
+        await loop._init_app_server()
+
+        try:
+            resp = await loop.app_server.dispatch(
+                request_id="req-fuzzy-start",
+                method="fuzzyFileSearch/sessionStart",
+                params={"sessionId": 123, "roots": "bad"},
+                client_id="client-1",
+                session_id=None,
+            )
+
+            assert resp.get("code") == "EXPERIMENTAL_API_REQUIRED"
+        finally:
+            await loop._shutdown()
