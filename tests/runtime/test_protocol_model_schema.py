@@ -86,3 +86,48 @@ def test_command_exec_cwd_is_wire_string_schema():
 
     # The internal field names must not leak into the catalog schema.
     assert "cwd_raw" not in schema["properties"]
+
+
+def test_result_schema_from_model_preserves_wire_names():
+    from pydantic import BaseModel, Field
+    from miqi.runtime.protocol_model_schema import result_schema_from_model
+
+    class ExampleResult(BaseModel):
+        exit_code: int = Field(validation_alias="exitCode", serialization_alias="exitCode")
+        stdout: str
+
+    schema = result_schema_from_model(ExampleResult)
+
+    assert schema["type"] == "object"
+    assert schema["additionalProperties"] is False
+    assert sorted(schema["required"]) == ["exitCode", "stdout"]
+    assert "exitCode" in schema["properties"]
+    assert "exit_code" not in schema["properties"]
+
+
+def test_protocol_method_spec_exports_event_schemas():
+    from miqi.runtime.protocol_registry import (
+        MethodScope,
+        MethodStability,
+        ProtocolMethodSpec,
+    )
+
+    spec = ProtocolMethodSpec(
+        method="process/spawn",
+        stability=MethodStability.STABLE,
+        scope=MethodScope.PROCESS,
+        params_schema={"type": "object"},
+        result_schema={"type": "object"},
+        emits=["process/exited"],
+        event_schemas={
+            "process/exited": {
+                "type": "object",
+                "properties": {"processHandle": {"type": "string"}},
+                "required": ["processHandle"],
+            },
+        },
+    )
+
+    data = spec.to_json()
+
+    assert data["eventSchemas"]["process/exited"]["required"] == ["processHandle"]

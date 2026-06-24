@@ -34,6 +34,7 @@ class ProtocolMethodSpec:
     params_schema: dict[str, Any] = field(default_factory=lambda: {"type": "object"})
     result_schema: dict[str, Any] = field(default_factory=lambda: {"type": "object"})
     emits: list[str] = field(default_factory=list)
+    event_schemas: dict[str, dict[str, Any]] = field(default_factory=dict)
     deprecated_by: str | None = None
     description: str | None = None
 
@@ -49,6 +50,7 @@ class ProtocolMethodSpec:
             "paramsSchema": self.params_schema,
             "resultSchema": self.result_schema,
             "emits": list(self.emits),
+            "eventSchemas": dict(self.event_schemas),
             "deprecatedBy": self.deprecated_by,
             "description": self.description,
         }

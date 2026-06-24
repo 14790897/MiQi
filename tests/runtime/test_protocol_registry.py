@@ -27,6 +27,7 @@ def test_method_spec_exports_minimal_json():
         "paramsSchema": {"type": "object", "required": ["threadId"]},
         "resultSchema": {"type": "object"},
         "emits": ["turn/started", "turn/completed"],
+        "eventSchemas": {},
         "deprecatedBy": None,
         "description": None,
     }

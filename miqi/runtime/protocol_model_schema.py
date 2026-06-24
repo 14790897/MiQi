@@ -90,6 +90,25 @@ def params_schema_from_model(model: type[BaseModel]) -> dict[str, Any]:
     return _normalize_schema(result)
 
 
+def result_schema_from_model(model: type[BaseModel]) -> dict[str, Any]:
+    """Return a catalog-ready result/event schema for a Pydantic model.
+
+    Result/event models should be closed: additionalProperties=false.
+    """
+    raw = model.model_json_schema(by_alias=True)
+    result = _normalize_schema(raw)
+    result["additionalProperties"] = False
+    return result
+
+
+def event_schema_map(models: dict[str, type[BaseModel]]) -> dict[str, dict[str, Any]]:
+    """Return {eventName: schema} for event payload models."""
+    return {
+        event_name: result_schema_from_model(model)
+        for event_name, model in sorted(models.items())
+    }
+
+
 def model_spec(
     method: str,
     model: type[BaseModel],
@@ -97,16 +116,25 @@ def model_spec(
     scope: MethodScope,
     stability: MethodStability = MethodStability.STABLE,
     result_schema: dict[str, Any] | None = None,
+    result_model: type[BaseModel] | None = None,
     emits: list[str] | None = None,
+    event_models: dict[str, type[BaseModel]] | None = None,
     description: str | None = None,
 ) -> ProtocolMethodSpec:
     """Create a ProtocolMethodSpec whose paramsSchema is derived from *model*."""
+    final_result_schema = (
+        result_schema_from_model(result_model)
+        if result_model is not None
+        else result_schema or {"type": "object", "additionalProperties": True}
+    )
+    final_event_schemas = event_schema_map(event_models or {})
     return ProtocolMethodSpec(
         method=method,
         stability=stability,
         scope=scope,
         params_schema=params_schema_from_model(model),
-        result_schema=result_schema or {"type": "object", "additionalProperties": True},
+        result_schema=final_result_schema,
         emits=emits or [],
+        event_schemas=final_event_schemas,
         description=description,
     )
