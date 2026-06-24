@@ -37,8 +37,8 @@ async def fuzzy_file_search_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Handle fuzzyFileSearch — one-shot file search (no experimental gate)."""
-    runtime = _get_fuzzy_runtime(registry)
     typed = validate_filesystem_params(FuzzyFileSearchParams, params)
+    runtime = _get_fuzzy_runtime(registry)
 
     roots: list[Path] = []
     for raw in typed.roots:
@@ -66,8 +66,8 @@ async def fuzzy_session_start_handler(
 ) -> dict[str, Any]:
     """Handle fuzzyFileSearch/sessionStart — requires experimentalApi."""
     require_experimental_api(params, registry, client_id, "fuzzyFileSearch/sessionStart")
-    runtime = _get_fuzzy_runtime(registry)
     typed = validate_filesystem_params(FuzzySessionStartParams, params)
+    runtime = _get_fuzzy_runtime(registry)
 
     roots: list[Path] = []
     for raw in typed.roots:
@@ -91,8 +91,8 @@ async def fuzzy_session_update_handler(
 ) -> dict[str, Any]:
     """Handle fuzzyFileSearch/sessionUpdate — requires experimentalApi."""
     require_experimental_api(params, registry, client_id, "fuzzyFileSearch/sessionUpdate")
-    runtime = _get_fuzzy_runtime(registry)
     typed = validate_filesystem_params(FuzzySessionUpdateParams, params)
+    runtime = _get_fuzzy_runtime(registry)
 
     try:
         await runtime.session_update(client_id, typed.session_id, typed.query)
@@ -114,8 +114,8 @@ async def fuzzy_session_stop_handler(
 ) -> dict[str, Any]:
     """Handle fuzzyFileSearch/sessionStop — requires experimentalApi."""
     require_experimental_api(params, registry, client_id, "fuzzyFileSearch/sessionStop")
-    runtime = _get_fuzzy_runtime(registry)
     typed = validate_filesystem_params(FuzzySessionStopParams, params)
+    runtime = _get_fuzzy_runtime(registry)
 
     runtime.session_stop(client_id, typed.session_id)
     return {"result": {}}
