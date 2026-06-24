@@ -1,3 +1,10 @@
+# [0.2.0-dev.7](https://github.com/14790897/MiQi/compare/v0.2.0-dev.6...v0.2.0-dev.7) (2026-06-24)
+
+
+### Bug Fixes
+
+* **bridge:** handle stdin write errors gracefully ([b642627](https://github.com/14790897/MiQi/commit/b64262781314e35bfafc52363f5f21ab69723a59))
+
 # [0.2.0-dev.6](https://github.com/14790897/MiQi/compare/v0.2.0-dev.5...v0.2.0-dev.6) (2026-06-24)
 
 
