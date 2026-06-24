@@ -15,7 +15,7 @@
 
 ## Overview
 
-MiQi is a personal AI agent framework that combines a powerful **Python runtime engine** with an **Electron desktop application**. It provides a Codex-style application server protocol, typed request validation, multi-provider LLM support, sandboxed command execution, and a plugin/skills ecology — all with a local-first, privacy-respecting architecture.
+MiQi is a personal AI agent framework that combines a powerful **Python runtime engine** with an **Electron desktop application**. It provides a typed application server protocol, request validation, multi-provider LLM support, sandboxed command execution, and a plugin/skills ecology — all with a local-first, privacy-respecting architecture.
 
 ### Core Positioning
 
@@ -23,7 +23,7 @@ MiQi is a personal AI agent framework that combines a powerful **Python runtime 
 - 🔧 **Highly Extensible** — MCP protocol for external tools, custom skills, and pluggable LLM providers
 - 🖥️ **Native Desktop Experience** — Electron with system-level integration (WSL2 sandbox, filesystem operations)
 - 🔒 **Local-First** — all data stored locally; non-destructive file editing with versioned snapshots
-- 📋 **Codex-Style Protocol** — typed AppServer with JSON Schema catalog, method stability tracking, and handler-boundary validation
+- 📋 **Typed Application Protocol** — typed AppServer with JSON Schema catalog, method stability tracking, and handler-boundary validation
 
 ### Tech Stack
 
@@ -47,7 +47,7 @@ MiQi is a personal AI agent framework that combines a powerful **Python runtime 
 |---|---|
 | **Smart Chat** | Natural language conversation with streaming responses and tool-call progress |
 | **Multi-Provider** | OpenAI, Anthropic, Gemini, OpenRouter, DeepSeek, and more — with provider resilience |
-| **Codex Protocol** | Typed AppServer with 31 method specs, JSON Schema catalog, and handler-boundary validation |
+| **Typed Protocol** | Typed AppServer with method specs, JSON Schema catalog, and handler-boundary validation |
 | **Memory System** | Long-term memory snapshots, self-improvement lessons, and cross-session recall |
 | **Task Scheduler** | Cron-based scheduled tasks with timezone support |
 | **Skill System** | Create, upload, and manage agent skills; SkillHub registry integration |
@@ -120,11 +120,11 @@ npx electron-builder
 │  ├── State synchronization + Log forwarding                 │
 │  └── BridgeRuntimeLoop (persistent asyncio event loop)      │
 ├─────────────────────────────────────────────────────────────┤
-│  AppServer (Codex-Style Protocol)                           │
-│  ├── ProtocolRegistry (31 typed method specs)               │
+│  AppServer (Typed Protocol Layer)                            │
+│  ├── ProtocolRegistry (typed method specs)                  │
 │  ├── Typed Envelopes (Pydantic v2)                          │
 │  ├── JSON Schema Draft 2020-12 Catalog                      │
-│  └── Turn Handler Typed Validation                          │
+│  └── Handler Typed Validation                               │
 ├─────────────────────────────────────────────────────────────┤
 │  MiQi Runtime Engine                                        │
 │  ├── RuntimeSession / TaskRunner / TurnRunner               │
@@ -147,7 +147,7 @@ npx electron-builder
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Codex Protocol Method Families
+### Protocol Method Families
 
 | Family | Scope | Methods |
 |--------|-------|---------|
@@ -209,27 +209,41 @@ The application configuration file is located at `~/.miqi/config.json`:
 ```
 miqi-desktop/
 ├── miqi/                         # Python backend
-│   ├── runtime/                  # Runtime engine (AppServer, Session, Turn, Thread, Replay, ...)
-│   ├── agent/                    # Agent logic, tools, memory, trace
+│   ├── runtime/                  # Runtime engine (AppServer, Session, Turn, Thread, Replay, Agent, MCP, ...)
+│   ├── agent/                    # Agent logic, tools, memory, trace, context compression, smart routing
 │   ├── bridge/                   # Electron bridge service (IPC protocol)
-│   ├── execution/                # Sandbox, permissions, approval, hooks
-│   ├── providers/                # LLM provider implementations
-│   ├── channels/                 # Chat channel adapters (Feishu, Slack, Discord, ...)
+│   ├── bus/                      # Internal message bus (async in/out queues)
+│   ├── execution/                # Tool orchestrator, permissions, approval, hooks, sandbox policy
+│   ├── providers/                # LLM provider implementations + resilience
+│   ├── protocol/                 # Typed commands, events, permissions (runtime-frontend protocol)
+│   ├── channels/                 # Chat channel adapters (Feishu, Slack, Discord, Telegram, ...)
 │   ├── sandbox/                  # bwrap sandbox manager
 │   ├── skills/                   # Built-in skills (cron, paper-research, feishu-report, ...)
+│   ├── session/                  # Session management (Manager, SQLite store)
 │   ├── config/                   # Configuration loader and schema
 │   ├── cli/                      # CLI commands (agent, gateway, trace, config)
 │   ├── cron/                     # Cron scheduler service
+│   ├── context/                  # Context fragments, thread store
+│   ├── heartbeat/                # Heartbeat service
+│   ├── plan/                     # Plan tracker and tool
 │   ├── documents/                # Office document tools (docx, pptx, xlsx)
-│   └── observability/            # OpenTelemetry integration
+│   ├── observability/            # OpenTelemetry integration
+│   ├── server/                   # Server assets and configuration
+│   ├── templates/                # Templates
+│   ├── tui/                      # Terminal UI (Textual-based)
+│   └── utils/                    # Utility functions
 ├── apps/
 │   └── desktop/                  # Electron frontend
 │       ├── src/main/             # Main process (BridgeManager, IPC handlers)
 │       ├── src/renderer/         # Renderer (React pages and components)
 │       └── src/preload/          # Preload scripts (contextBridge API)
-├── tests/                        # Test suite (~1800+ tests)
-│   ├── runtime/                  # Runtime unit and integration tests
-│   └── bridge/                   # Bridge protocol and audit tests
+├── tests/                        # Test suite (~150+ test files)
+│   ├── runtime/                  # Runtime unit and integration tests (~70+ files)
+│   ├── bridge/                   # Bridge protocol and audit tests (~20+ files)
+│   ├── execution/                # Sandbox, permissions, orchestration tests
+│   ├── providers/                # LLM provider tests
+│   ├── protocol/                 # Protocol commands/events/permissions tests
+│   └── agent/tools/              # Tool-level tests
 ├── docs/                         # Documentation (MkDocs)
 ├── plan/                         # Implementation plans (not in VCS deliverables)
 └── scripts/                      # Build and utility scripts

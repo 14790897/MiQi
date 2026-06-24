@@ -70,19 +70,6 @@ pyinstaller miqi.spec
 # 输出: dist/miqi-bridge.exe
 ```
 
-### Docker 部署
-
-```bash
-# 构建镜像
-docker build -t miqi .
-
-# 启动网关服务
-docker-compose up miqi-gateway -d
-
-# CLI 模式
-docker-compose run miqi-cli
-```
-
 ## 配置文件位置
 
 首次运行后，配置文件自动生成在 `~/.miqi/config.json`。详见 [配置参考](configuration.md)。
