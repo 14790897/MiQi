@@ -363,7 +363,8 @@ COMMAND_PROCESS_METHOD_PARAM_MODELS = {
 def required_fields_for_model(model: type[BaseModel]) -> list[str]:
     required: list[str] = []
     for name, field in model.model_fields.items():
-        if name.endswith("_raw") or name == "cwd":
+        # Skip internal fields that are set after validation
+        if name == "cwd":
             continue
         if not field.is_required():
             continue
