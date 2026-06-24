@@ -461,6 +461,28 @@ describe('BridgeManager lifecycle', () => {
     expect(result).toEqual({ reason: 'user cancelled' })
   }, 10_000)
 
+describe('BridgeManager typed app client', () => {
+  it('exposes a typed app client backed by send()', async () => {
+    const BridgeManager = await importBridgeManager()
+    const bridge = new BridgeManager('/fake/root')
+    const sendSpy = vi
+      .spyOn(bridge, 'send')
+      .mockResolvedValue({ dataBase64: 'aGVsbG8=' })
+
+    const app = bridge.app()
+    const result = await app.request('fs/readFile', {
+      path: 'C:/repo/file.txt',
+    })
+
+    expect(result).toEqual({ dataBase64: 'aGVsbG8=' })
+    expect(sendSpy).toHaveBeenCalledWith(
+      'fs/readFile',
+      { path: 'C:/repo/file.txt' },
+      undefined,
+    )
+  })
+})
+
   it('times out streaming request with no terminal event', async () => {
     const BridgeManager = await importBridgeManager()
     const proc = createMockProcess()
