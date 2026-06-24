@@ -157,3 +157,114 @@ def test_process_kill_validates_handle():
     )
 
     assert params.process_handle == "proc-1"
+
+
+# ── Phase 63-fix: strict type rejection tests ────────────────────────────
+
+
+def test_command_exec_rejects_string_timeout_ms(tmp_path):
+    with pytest.raises(AppServerError) as exc:
+        validate_process_params(
+            CommandExecParams,
+            {"command": ["python"], "timeoutMs": "5"},
+            workspace=tmp_path,
+        )
+    assert exc.value.code == "INVALID_PARAMS"
+
+
+def test_command_exec_rejects_string_output_bytes_cap(tmp_path):
+    with pytest.raises(AppServerError) as exc:
+        validate_process_params(
+            CommandExecParams,
+            {"command": ["python"], "outputBytesCap": "5"},
+            workspace=tmp_path,
+        )
+    assert exc.value.code == "INVALID_PARAMS"
+
+
+def test_command_exec_rejects_string_disable_timeout(tmp_path):
+    with pytest.raises(AppServerError) as exc:
+        validate_process_params(
+            CommandExecParams,
+            {"command": ["python"], "disableTimeout": "true"},
+            workspace=tmp_path,
+        )
+    assert exc.value.code == "INVALID_PARAMS"
+
+
+def test_command_exec_rejects_string_disable_output_cap(tmp_path):
+    with pytest.raises(AppServerError) as exc:
+        validate_process_params(
+            CommandExecParams,
+            {"command": ["python"], "disableOutputCap": "true"},
+            workspace=tmp_path,
+        )
+    assert exc.value.code == "INVALID_PARAMS"
+
+
+def test_command_exec_rejects_string_stream_stdout_stderr(tmp_path):
+    with pytest.raises(AppServerError) as exc:
+        validate_process_params(
+            CommandExecParams,
+            {"command": ["python"], "streamStdoutStderr": "true"},
+            workspace=tmp_path,
+        )
+    assert exc.value.code == "INVALID_PARAMS"
+
+
+def test_command_exec_rejects_string_stream_stdin(tmp_path):
+    with pytest.raises(AppServerError) as exc:
+        validate_process_params(
+            CommandExecParams,
+            {"command": ["python"], "streamStdin": "true"},
+            workspace=tmp_path,
+        )
+    assert exc.value.code == "INVALID_PARAMS"
+
+
+def test_command_exec_write_rejects_string_close_stdin():
+    with pytest.raises(AppServerError) as exc:
+        validate_process_params(
+            CommandExecWriteParams,
+            {"processId": "cmd-1", "closeStdin": "true", "deltaBase64": "aGVsbG8="},
+        )
+    assert exc.value.code == "INVALID_PARAMS"
+
+
+def test_process_spawn_rejects_string_timeout_ms(tmp_path):
+    with pytest.raises(AppServerError) as exc:
+        validate_process_params(
+            ProcessSpawnParams,
+            {"command": ["python"], "processHandle": "proc-1", "cwd": str(tmp_path), "timeoutMs": "5"},
+            workspace=tmp_path,
+        )
+    assert exc.value.code == "INVALID_PARAMS"
+
+
+def test_process_spawn_rejects_string_output_bytes_cap(tmp_path):
+    with pytest.raises(AppServerError) as exc:
+        validate_process_params(
+            ProcessSpawnParams,
+            {"command": ["python"], "processHandle": "proc-1", "cwd": str(tmp_path), "outputBytesCap": "5"},
+            workspace=tmp_path,
+        )
+    assert exc.value.code == "INVALID_PARAMS"
+
+
+def test_process_spawn_rejects_string_stream_stdout_stderr(tmp_path):
+    with pytest.raises(AppServerError) as exc:
+        validate_process_params(
+            ProcessSpawnParams,
+            {"command": ["python"], "processHandle": "proc-1", "cwd": str(tmp_path), "streamStdoutStderr": "true"},
+            workspace=tmp_path,
+        )
+    assert exc.value.code == "INVALID_PARAMS"
+
+
+def test_process_write_stdin_rejects_string_close_stdin():
+    with pytest.raises(AppServerError) as exc:
+        validate_process_params(
+            ProcessWriteStdinParams,
+            {"processHandle": "proc-1", "closeStdin": "true", "deltaBase64": "aGVsbG8="},
+        )
+    assert exc.value.code == "INVALID_PARAMS"

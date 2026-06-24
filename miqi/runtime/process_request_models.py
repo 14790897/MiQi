@@ -109,6 +109,20 @@ class _CapTimeoutMixin(BaseModel):
     disable_timeout: bool = Field(default=False, validation_alias="disableTimeout")
     timeout_ms_raw: int | float | None = Field(default=None, validation_alias="timeoutMs")
 
+    @field_validator("disable_output_cap", "disable_timeout", mode="before")
+    @classmethod
+    def _strict_bools(cls, value: Any) -> Any:
+        if not isinstance(value, bool):
+            raise ValueError("flag must be a boolean")
+        return value
+
+    @field_validator("output_bytes_cap", "timeout_ms_raw", mode="before")
+    @classmethod
+    def _strict_numbers(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            raise ValueError("must be a number, not a string")
+        return value
+
     @field_validator("disable_output_cap", "disable_timeout")
     @classmethod
     def _bools(cls, value: bool) -> bool:
@@ -178,6 +192,13 @@ class CommandExecParams(_ProcessParams, _CommandMixin, _EnvMixin, _CapTimeoutMix
             return None
         return _handle_id(value, "processId")
 
+    @field_validator("tty", "stream_stdout_stderr", "stream_stdin", mode="before")
+    @classmethod
+    def _strict_flags(cls, value: Any) -> Any:
+        if not isinstance(value, bool):
+            raise ValueError("flag must be a boolean")
+        return value
+
     @field_validator("tty", "stream_stdout_stderr", "stream_stdin")
     @classmethod
     def _flags(cls, value: bool) -> bool:
@@ -219,6 +240,13 @@ class CommandExecWriteParams(_ProcessParams):
     @classmethod
     def _process_id(cls, value: str) -> str:
         return _handle_id(value, "processId")
+
+    @field_validator("close_stdin", mode="before")
+    @classmethod
+    def _strict_close_stdin(cls, value: Any) -> Any:
+        if not isinstance(value, bool):
+            raise ValueError("closeStdin must be a boolean")
+        return value
 
     @field_validator("close_stdin")
     @classmethod
@@ -274,6 +302,13 @@ class ProcessSpawnParams(_ProcessParams, _CommandMixin, _EnvMixin, _CapTimeoutMi
     def _process_handle(cls, value: str) -> str:
         return _handle_id(value, "processHandle")
 
+    @field_validator("tty", "stream_stdout_stderr", mode="before")
+    @classmethod
+    def _strict_flags(cls, value: Any) -> Any:
+        if not isinstance(value, bool):
+            raise ValueError("flag must be a boolean")
+        return value
+
     @field_validator("tty", "stream_stdout_stderr")
     @classmethod
     def _flags(cls, value: bool) -> bool:
@@ -305,6 +340,13 @@ class ProcessWriteStdinParams(_ProcessParams):
     @classmethod
     def _process_handle(cls, value: str) -> str:
         return _handle_id(value, "processHandle")
+
+    @field_validator("close_stdin", mode="before")
+    @classmethod
+    def _strict_close_stdin(cls, value: Any) -> Any:
+        if not isinstance(value, bool):
+            raise ValueError("closeStdin must be a boolean")
+        return value
 
     @field_validator("close_stdin")
     @classmethod
