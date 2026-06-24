@@ -22,16 +22,14 @@ from miqi.runtime.app_server import (
     get_bridge_context,
 )
 from miqi.runtime.experimental_api import require_experimental_api
-from miqi.runtime.workbench_command_app_handlers import (
-    _decode_base64,
-    _resolve_cwd,
-    _safe_handle_id,
-    _validate_argv,
-    _validate_env,
+from miqi.runtime.process_request_models import (
+    ProcessKillParams,
+    ProcessResizePtyParams,
+    ProcessSpawnParams,
+    ProcessWriteStdinParams,
+    validate_process_params,
 )
 from miqi.runtime.workbench_process_runtime import (
-    DEFAULT_OUTPUT_BYTES_CAP,
-    DEFAULT_TIMEOUT_MS,
     HandleNotFoundError,
     OutputChunk,
     ProcessExit,
@@ -71,109 +69,22 @@ def register_workbench_process_handlers(server: AppServer) -> None:
     # ── process/spawn ───────────────────────────────────────────────────
 
     async def _process_spawn(request_id, params, client_id, session_id, registry):
-        wpr = _get_wpr(registry)
-
         # Experimental gate
         require_experimental_api(params, registry, client_id, "process/spawn")
+        wpr = _get_wpr(registry)
 
-        # Reject tty early
+        # Preserve UNSUPPORTED_FEATURE for tty before typed validation
         if params.get("tty") is True:
             raise AppServerError(
                 "PTY is not supported in this version",
                 code="UNSUPPORTED_FEATURE",
             )
 
-        command = _validate_argv(params.get("command"))
-        process_handle = _safe_handle_id(
-            params.get("processHandle"), param_name="processHandle",
-        )
-
-        cwd_raw = params.get("cwd")
-        if cwd_raw is None:
-            raise AppServerError(
-                "cwd is required for process/spawn",
-                code="INVALID_PARAMS",
-            )
-        cwd = _resolve_cwd(cwd_raw, wpr.workspace)
-
-        env = _validate_env(params.get("env"))
-
-        # ── output cap / disableOutputCap ──────────────────────────────
-        disable_output_cap = params.get("disableOutputCap", False)
-        if not isinstance(disable_output_cap, bool):
-            raise AppServerError(
-                "disableOutputCap must be a boolean",
-                code="INVALID_PARAMS",
-            )
-        output_cap = params.get("outputBytesCap")
-        if "outputBytesCap" not in params:
-            output_cap_int: int | None = DEFAULT_OUTPUT_BYTES_CAP
-        elif disable_output_cap:
-            raise AppServerError(
-                "disableOutputCap and outputBytesCap are mutually exclusive",
-                code="INVALID_PARAMS",
-            )
-        elif output_cap is None:
-            raise AppServerError(
-                "outputBytesCap must not be null",
-                code="INVALID_PARAMS",
-            )
-        elif not isinstance(output_cap, (int, float)):
-            raise AppServerError(
-                "outputBytesCap must be a number",
-                code="INVALID_PARAMS",
-            )
-        else:
-            output_cap_int = int(output_cap)
-            if output_cap_int < 0:
-                raise AppServerError(
-                    "outputBytesCap must be >= 0",
-                    code="INVALID_PARAMS",
-                )
-        if disable_output_cap:
-            output_cap_int = None
-
-        # ── timeout / disableTimeout ──────────────────────────────────
-        disable_timeout = params.get("disableTimeout", False)
-        if not isinstance(disable_timeout, bool):
-            raise AppServerError(
-                "disableTimeout must be a boolean",
-                code="INVALID_PARAMS",
-            )
-        if "timeoutMs" in params:
-            # timeoutMs is present (regardless of value type — null or number)
-            if disable_timeout:
-                raise AppServerError(
-                    "disableTimeout and timeoutMs are mutually exclusive",
-                    code="INVALID_PARAMS",
-                )
-            timeout_ms_raw = params["timeoutMs"]
-            if timeout_ms_raw is None:
-                # null means no timeout for process/spawn (long-running servers)
-                timeout_ms_int: int | None = None
-            elif not isinstance(timeout_ms_raw, (int, float)):
-                raise AppServerError(
-                    "timeoutMs must be a number",
-                    code="INVALID_PARAMS",
-                )
-            else:
-                timeout_ms_int = int(timeout_ms_raw)
-                if timeout_ms_int < 0:
-                    raise AppServerError(
-                        "timeoutMs must be >= 0",
-                        code="INVALID_PARAMS",
-                    )
-        else:
-            timeout_ms_int: int | None = (
-                None if disable_timeout else DEFAULT_TIMEOUT_MS
-            )
-
-        stream_stdout_stderr = params.get("streamStdoutStderr", True)
-        stdin_enabled = bool(stream_stdout_stderr)  # default true for spawn
+        typed = validate_process_params(ProcessSpawnParams, params, workspace=wpr.workspace)
 
         # Streaming callback
         async def _on_chunk(handle_id: str, chunk: OutputChunk) -> None:
-            if stream_stdout_stderr:
+            if typed.stream_stdout_stderr:
                 await server.emit_client_event(
                     client_id,
                     "process/outputDelta",
@@ -207,15 +118,15 @@ def register_workbench_process_handlers(server: AppServer) -> None:
         try:
             await wpr.spawn_background(
                 client_id=client_id,
-                handle_id=process_handle,
+                handle_id=typed.process_handle,
                 kind="process",
-                command=command,
-                cwd=cwd,
-                env=env,
-                stdin_enabled=stdin_enabled,
-                output_cap=output_cap_int,
-                timeout_ms=timeout_ms_int,
-                on_chunk=_on_chunk if stream_stdout_stderr else None,
+                command=typed.command,
+                cwd=typed.cwd,
+                env=typed.env,
+                stdin_enabled=typed.stdin_enabled,
+                output_cap=typed.output_cap,
+                timeout_ms=typed.timeout_ms,
+                on_chunk=_on_chunk if typed.stream_stdout_stderr else None,
                 on_exit=_on_exit,
             )
         except WorkbenchProcessError as exc:
@@ -227,29 +138,17 @@ def register_workbench_process_handlers(server: AppServer) -> None:
 
     async def _process_write_stdin(request_id, params, client_id, session_id, registry):
         wpr = _get_wpr(registry)
-        process_handle = _safe_handle_id(
-            params.get("processHandle"), param_name="processHandle",
-        )
+        typed = validate_process_params(ProcessWriteStdinParams, params)
 
-        delta_b64 = params.get("deltaBase64")
-        close_stdin = params.get("closeStdin", False)
-
-        if not delta_b64 and not close_stdin:
-            raise AppServerError(
-                "At least one of deltaBase64 or closeStdin is required",
-                code="INVALID_PARAMS",
-            )
-
-        if delta_b64:
-            data = _decode_base64(delta_b64)
+        if typed.delta_bytes is not None:
             try:
-                await wpr.write_stdin(client_id, process_handle, data)
+                await wpr.write_stdin(client_id, typed.process_handle, typed.delta_bytes)
             except WorkbenchProcessError as exc:
                 raise AppServerError(exc.args[0], code=exc.code)
 
-        if close_stdin:
+        if typed.close_stdin:
             try:
-                await wpr.close_stdin(client_id, process_handle)
+                await wpr.close_stdin(client_id, typed.process_handle)
             except WorkbenchProcessError as exc:
                 raise AppServerError(exc.args[0], code=exc.code)
 
@@ -258,6 +157,7 @@ def register_workbench_process_handlers(server: AppServer) -> None:
     # ── process/resizePty ───────────────────────────────────────────────
 
     async def _process_resize_pty(request_id, params, client_id, session_id, registry):
+        validate_process_params(ProcessResizePtyParams, params)
         raise AppServerError(
             "PTY is not supported in this version",
             code="UNSUPPORTED_FEATURE",
@@ -267,15 +167,13 @@ def register_workbench_process_handlers(server: AppServer) -> None:
 
     async def _process_kill(request_id, params, client_id, session_id, registry):
         wpr = _get_wpr(registry)
-        process_handle = _safe_handle_id(
-            params.get("processHandle"), param_name="processHandle",
-        )
+        typed = validate_process_params(ProcessKillParams, params)
 
         try:
-            await wpr.kill(client_id, process_handle)
+            await wpr.kill(client_id, typed.process_handle)
         except HandleNotFoundError:
             raise AppServerError(
-                f"Process handle not found: {process_handle}",
+                f"Process handle not found: {typed.process_handle}",
                 code="NOT_FOUND",
             )
         except WorkbenchProcessError as exc:
