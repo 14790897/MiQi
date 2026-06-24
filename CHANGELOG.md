@@ -1,3 +1,10 @@
+# [0.2.0-dev.6](https://github.com/14790897/MiQi/compare/v0.2.0-dev.5...v0.2.0-dev.6) (2026-06-24)
+
+
+### Bug Fixes
+
+* **chat:** scroll to bottom on session open ([2fce763](https://github.com/14790897/MiQi/commit/2fce763fd7d395b959789600e060717ad0aba16c))
+
 # [0.2.0-dev.5](https://github.com/14790897/MiQi/compare/v0.2.0-dev.4...v0.2.0-dev.5) (2026-06-24)
 
 
