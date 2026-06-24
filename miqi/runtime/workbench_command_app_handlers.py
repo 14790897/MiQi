@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import base64
 import uuid
-from pathlib import Path
+
 from typing import Any
 
 import miqi.runtime.protocol_specs as protocol_specs
@@ -28,170 +28,11 @@ from miqi.runtime.process_request_models import (
     validate_process_params,
 )
 from miqi.runtime.workbench_process_runtime import (
-    BLOCKED_ENV_PREFIXES,
-    DEFAULT_OUTPUT_BYTES_CAP,
-    DEFAULT_TIMEOUT_MS,
     HandleNotFoundError,
     OutputChunk,
     WorkbenchProcessError,
     WorkbenchProcessRuntime,
 )
-
-
-# ── Validation helpers ───────────────────────────────────────────────────
-
-
-def _safe_handle_id(raw: Any, param_name: str = "processId") -> str:
-    """Validate a process/handle ID string.
-
-    Rules:
-    - must be a non-empty string
-    - max length 128
-    - allowed chars: [A-Za-z0-9_.:-]
-    - no slash or backslash
-    - no ".."
-    """
-    if not isinstance(raw, str) or not raw:
-        raise AppServerError(
-            f"{param_name} must be a non-empty string",
-            code="INVALID_PARAMS",
-        )
-    if len(raw) > 128:
-        raise AppServerError(
-            f"{param_name} must be <= 128 characters",
-            code="INVALID_PARAMS",
-        )
-    # Check for disallowed characters
-    for ch in raw:
-        if ch not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.:-":
-            raise AppServerError(
-                f"{param_name} contains invalid character: {ch!r}",
-                code="INVALID_PARAMS",
-            )
-    if "/" in raw or "\\" in raw:
-        raise AppServerError(
-            f"{param_name} must not contain slashes",
-            code="INVALID_PARAMS",
-        )
-    if ".." in raw:
-        raise AppServerError(
-            f"{param_name} must not contain '..'",
-            code="INVALID_PARAMS",
-        )
-    return raw
-
-
-def _validate_argv(raw: Any) -> list[str]:
-    """Validate command argv list.
-
-    - must be a non-empty list
-    - every element must be a non-empty string
-    """
-    if not isinstance(raw, list) or len(raw) == 0:
-        raise AppServerError(
-            "command must be a non-empty list of strings",
-            code="INVALID_PARAMS",
-        )
-    for i, arg in enumerate(raw):
-        if not isinstance(arg, str) or not arg:
-            raise AppServerError(
-                f"command[{i}] must be a non-empty string",
-                code="INVALID_PARAMS",
-            )
-    return raw
-
-
-def _validate_env(raw: Any) -> dict[str, str | None] | None:
-    """Validate optional env dict.
-
-    Only allows environment variables that do not start with
-    known-dangerous prefixes (dynamic linker, language runtime
-    injection vectors).  Unknown/blocked keys are rejected with
-    INVALID_PARAMS.
-    """
-    if raw is None:
-        return None
-    if not isinstance(raw, dict):
-        raise AppServerError(
-            "env must be a dict of string -> string|null",
-            code="INVALID_PARAMS",
-        )
-    for key, value in raw.items():
-        if not isinstance(key, str):
-            raise AppServerError(
-                "env keys must be strings",
-                code="INVALID_PARAMS",
-            )
-        if value is not None and not isinstance(value, str):
-            raise AppServerError(
-                f"env['{key}'] must be a string or null",
-                code="INVALID_PARAMS",
-            )
-        # Security: reject dangerous environment variable prefixes
-        for prefix in BLOCKED_ENV_PREFIXES:
-            if key.upper().startswith(prefix.upper()):
-                raise AppServerError(
-                    f"env key {key!r} is not allowed for security reasons",
-                    code="INVALID_PARAMS",
-                )
-    return raw
-
-
-def _resolve_cwd(raw: Any, workspace: Path) -> Path:
-    """Validate and resolve cwd parameter.
-
-    - If None/omitted, use workspace root.
-    - Must be an absolute path.
-    - By default, must be inside workspace.
-    """
-    if raw is None:
-        return workspace
-    if not isinstance(raw, str) or not raw:
-        raise AppServerError(
-            "cwd must be a non-empty string",
-            code="INVALID_PARAMS",
-        )
-    cwd = Path(raw)
-    if not cwd.is_absolute():
-        raise AppServerError(
-            "cwd must be an absolute path",
-            code="INVALID_PARAMS",
-        )
-    if not cwd.exists():
-        raise AppServerError(
-            f"cwd does not exist: {cwd}",
-            code="INVALID_PARAMS",
-        )
-    if not cwd.is_dir():
-        raise AppServerError(
-            f"cwd is not a directory: {cwd}",
-            code="INVALID_PARAMS",
-        )
-    # Default safety: cwd must be inside workspace
-    try:
-        cwd.resolve().relative_to(workspace.resolve())
-    except ValueError:
-        raise AppServerError(
-            f"cwd is outside workspace: {cwd}",
-            code="INVALID_PARAMS",
-        )
-    return cwd
-
-
-def _decode_base64(raw: Any, param_name: str = "deltaBase64") -> bytes:
-    """Decode a base64-encoded string, raising INVALID_PARAMS on failure."""
-    if not isinstance(raw, str):
-        raise AppServerError(
-            f"{param_name} must be a base64-encoded string",
-            code="INVALID_PARAMS",
-        )
-    try:
-        return base64.b64decode(raw, validate=True)
-    except Exception:
-        raise AppServerError(
-            f"{param_name} is not valid base64",
-            code="INVALID_PARAMS",
-        )
 
 
 def _get_wpr(registry: Any) -> WorkbenchProcessRuntime:
