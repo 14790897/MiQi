@@ -759,3 +759,57 @@ async def test_command_exec_output_cap_boundary_fill_then_overflow(server_and_re
         f"stdoutCapReached should be True when output exceeds cap, "
         f"got: {resp['result']}"
     )
+
+
+# ── Phase 63 typed validation regressions ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_command_exec_typed_validation_before_spawn(server_and_registry):
+    from unittest.mock import AsyncMock
+
+    server, registry = server_and_registry
+    wpr = registry.bridge_context["workbench_process_runtime"]
+    wpr.spawn = AsyncMock()
+
+    resp = await _dispatch(server, registry, "command/exec", {
+        "command": [],
+        "processId": "bad-command",
+    })
+
+    assert resp["code"] == "INVALID_PARAMS"
+    wpr.spawn.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_command_exec_write_typed_validation_before_write(server_and_registry):
+    from unittest.mock import AsyncMock
+
+    server, registry = server_and_registry
+    wpr = registry.bridge_context["workbench_process_runtime"]
+    wpr.write_stdin = AsyncMock()
+    wpr.close_stdin = AsyncMock()
+
+    resp = await _dispatch(server, registry, "command/exec/write", {
+        "processId": "cmd-1",
+    })
+
+    assert resp["code"] == "INVALID_PARAMS"
+    wpr.write_stdin.assert_not_awaited()
+    wpr.close_stdin.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_command_exec_terminate_typed_validation_before_kill(server_and_registry):
+    from unittest.mock import AsyncMock
+
+    server, registry = server_and_registry
+    wpr = registry.bridge_context["workbench_process_runtime"]
+    wpr.kill = AsyncMock()
+
+    resp = await _dispatch(server, registry, "command/exec/terminate", {
+        "processId": "../bad",
+    })
+
+    assert resp["code"] == "INVALID_PARAMS"
+    wpr.kill.assert_not_awaited()
