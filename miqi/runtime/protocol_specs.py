@@ -55,6 +55,22 @@ from miqi.runtime.session_request_models import (
     SessionKeyParams,
 )
 from miqi.runtime.session_response_models import SESSION_METHOD_RESULT_MODELS
+from miqi.runtime.thread_request_models import (
+    THREAD_METHOD_PARAM_MODELS,
+    ThreadExportParams,
+    ThreadForkParams,
+    ThreadImportParams,
+    ThreadListParams,
+    ThreadLoadedListParams,
+    ThreadNameSetParams,
+    ThreadReadParams,
+    ThreadResumeParams,
+    ThreadRollbackParams,
+    ThreadStartParams,
+    ThreadTurnsItemsListParams,
+    ThreadTurnsListParams,
+)
+from miqi.runtime.thread_response_models import THREAD_METHOD_RESULT_MODELS
 from miqi.runtime.process_request_models import (
     CommandExecParams,
     CommandExecResizeParams,
@@ -342,6 +358,86 @@ SESSIONS_CLAIM_LEGACY = model_spec(
     SessionKeyParams,
     scope=MethodScope.SESSION,
     result_model=SESSION_METHOD_RESULT_MODELS["sessions.claim_legacy"],
+)
+
+# ── thread (Codex-style) ──────────────────────────────────────────────────
+
+THREAD_START = model_spec(
+    "thread/start",
+    ThreadStartParams,
+    scope=MethodScope.THREAD,
+    emits=["thread/started"],
+    result_model=THREAD_METHOD_RESULT_MODELS["thread/start"],
+)
+THREAD_RESUME = model_spec(
+    "thread/resume",
+    ThreadResumeParams,
+    scope=MethodScope.THREAD,
+    emits=["thread/started"],
+    result_model=THREAD_METHOD_RESULT_MODELS["thread/resume"],
+)
+THREAD_FORK = model_spec(
+    "thread/fork",
+    ThreadForkParams,
+    scope=MethodScope.THREAD,
+    emits=["thread/started"],
+    result_model=THREAD_METHOD_RESULT_MODELS["thread/fork"],
+)
+THREAD_READ = model_spec(
+    "thread/read",
+    ThreadReadParams,
+    scope=MethodScope.THREAD,
+    result_model=THREAD_METHOD_RESULT_MODELS["thread/read"],
+)
+THREAD_TURNS_LIST = model_spec(
+    "thread/turns/list",
+    ThreadTurnsListParams,
+    scope=MethodScope.THREAD,
+    result_model=THREAD_METHOD_RESULT_MODELS["thread/turns/list"],
+)
+THREAD_TURNS_ITEMS_LIST = model_spec(
+    "thread/turns/items/list",
+    ThreadTurnsItemsListParams,
+    scope=MethodScope.THREAD,
+    result_model=THREAD_METHOD_RESULT_MODELS["thread/turns/items/list"],
+)
+THREAD_LIST = model_spec(
+    "thread/list",
+    ThreadListParams,
+    scope=MethodScope.THREAD,
+    result_model=THREAD_METHOD_RESULT_MODELS["thread/list"],
+)
+THREAD_EXPORT = model_spec(
+    "thread/export",
+    ThreadExportParams,
+    scope=MethodScope.THREAD,
+    result_model=THREAD_METHOD_RESULT_MODELS["thread/export"],
+)
+THREAD_IMPORT = model_spec(
+    "thread/import",
+    ThreadImportParams,
+    scope=MethodScope.THREAD,
+    result_model=THREAD_METHOD_RESULT_MODELS["thread/import"],
+)
+THREAD_NAME_SET = model_spec(
+    "thread/name/set",
+    ThreadNameSetParams,
+    scope=MethodScope.THREAD,
+    emits=["thread/name/updated"],
+    result_model=THREAD_METHOD_RESULT_MODELS["thread/name/set"],
+)
+THREAD_ROLLBACK = model_spec(
+    "thread/rollback",
+    ThreadRollbackParams,
+    scope=MethodScope.THREAD,
+    emits=["thread/rollback"],
+    result_model=THREAD_METHOD_RESULT_MODELS["thread/rollback"],
+)
+THREAD_LOADED_LIST = model_spec(
+    "thread/loaded/list",
+    ThreadLoadedListParams,
+    scope=MethodScope.THREAD,
+    result_model=THREAD_METHOD_RESULT_MODELS["thread/loaded/list"],
 )
 
 TURN_START = model_spec(
