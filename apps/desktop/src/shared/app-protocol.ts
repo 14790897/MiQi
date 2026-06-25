@@ -7,6 +7,10 @@ export const APP_PROTOCOL_GENERATED_AT = 'static' as const
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 export type EmptyObject = Record<string, never>
 
+export interface ChatAbortParams {
+  thread_id?: null | string
+}
+
 export interface CommandExecParams {
   command: string[]
   cwd?: null | string
@@ -274,13 +278,118 @@ export interface SkillsListParams {
 export interface StatusParams {
 }
 
+export interface ThreadArchiveCompatParams {
+  thread_id?: string
+}
+
+export interface ThreadCreateCompatParams {
+  thread_id?: null | string
+  title?: null | string
+}
+
+export interface ThreadDeleteCompatParams {
+  thread_id?: string
+}
+
+export interface ThreadListCompatParams {
+}
+
+export interface ThreadRenameCompatParams {
+  thread_id?: string
+  title?: string
+}
+
 export interface ThreadCompactStartParams {
   threadId: string
+}
+
+export interface ThreadExportParams {
+  sessionId?: null | string
+  threadId?: string
+}
+
+export interface ThreadForkParams {
+  excludeTurns?: boolean
+  itemsView?: null | string
+  sessionId?: null | string
+  threadId?: string
+  title?: null | string
+}
+
+export interface ThreadImportParams {
+  document?: Record<string, unknown> | null
+  includeTurns?: boolean
+  overwrite?: boolean
+  sessionId?: null | string
+  sessionKey?: null | string
+  threadId?: null | string
 }
 
 export interface ThreadInjectItemsParams {
   items: Record<string, unknown>[]
   threadId: string
+}
+
+export interface ThreadListParams {
+  archived?: boolean
+  cursor?: null | string
+  limit?: number
+  searchTerm?: null | string
+  sessionId?: null | string
+  sortDirection?: null | string
+}
+
+export interface ThreadLoadedListParams {
+}
+
+export interface ThreadNameSetParams {
+  name?: string
+  threadId?: string
+}
+
+export interface ThreadReadParams {
+  includeTurns?: boolean
+  itemsView?: null | string
+  sessionId?: null | string
+  threadId?: string
+}
+
+export interface ThreadResumeParams {
+  excludeTurns?: boolean
+  itemsView?: null | string
+  sessionId?: null | string
+  sessionKey?: null | string
+  threadId?: string
+}
+
+export interface ThreadRollbackParams {
+  dropLastTurns?: number
+  itemsView?: null | string
+  numTurns?: null | number
+  sessionId?: null | string
+  threadId?: string
+}
+
+export interface ThreadStartParams {
+  ephemeral?: boolean
+  name?: null | string
+  sessionId?: null | string
+  sessionKey?: null | string
+  threadId?: null | string
+  title?: null | string
+}
+
+export interface ThreadTurnsItemsListParams {
+  threadId?: null | string
+}
+
+export interface ThreadTurnsListParams {
+  cursor?: null | string
+  itemsView?: null | string
+  limit?: number
+  sessionId?: null | string
+  sortDirection?: null | string
+  threadId?: string
 }
 
 export interface TurnInterruptParams {
@@ -305,6 +414,10 @@ export interface TurnSteerParams {
   expectedTurnId: string
   input: Record<string, unknown>[]
   threadId: string
+}
+
+export interface ChatAbortResult {
+  aborted: boolean
 }
 
 export interface CommandExecResult {
@@ -552,6 +665,79 @@ export interface StatusResult {
   status: string
 }
 
+export interface ThreadArchiveCompatResult {
+  status: string
+  thread_id: string
+}
+
+export interface ThreadCreateCompatResult {
+  parent_thread_id?: null | string
+  thread_id: string
+  title: string
+}
+
+export interface ThreadDeleteCompatResult {
+  deleted: boolean
+}
+
+export interface ThreadListCompatResult {
+  threads: Record<string, unknown>[]
+}
+
+export interface ThreadRenameCompatResult {
+  thread_id: string
+  title: string
+}
+
+export interface ThreadExportResult {
+  document: Record<string, unknown>
+}
+
+export interface ThreadForkResult {
+  thread: Record<string, unknown>
+}
+
+export interface ThreadImportResult {
+  thread: Record<string, unknown>
+}
+
+export interface ThreadListResult {
+  items: Record<string, unknown>[]
+  nextCursor?: null | string
+}
+
+export interface ThreadLoadedListResult {
+  threadIds: string[]
+}
+
+export interface ThreadNameSetResult {
+  thread: Record<string, unknown>
+}
+
+export interface ThreadReadResult {
+  thread: Record<string, unknown>
+}
+
+export interface ThreadResumeResult {
+  thread: Record<string, unknown>
+}
+
+export interface ThreadRollbackResult {
+  thread: Record<string, unknown>
+}
+
+export interface ThreadStartResult {
+  thread: Record<string, unknown>
+}
+
+export interface ThreadTurnsItemsListResult {
+}
+
+export interface ThreadTurnsListResult {
+  items: Record<string, unknown>[]
+  nextCursor?: null | string
+}
+
 export interface CommandExecOutputDeltaEventPayload {
   capReached: boolean
   deltaBase64: string
@@ -593,6 +779,7 @@ export interface ProcessOutputDeltaEventPayload {
 }
 
 export const APP_METHODS = [
+  'chat.abort',
   'command/exec',
   'command/exec/resize',
   'command/exec/terminate',
@@ -648,8 +835,25 @@ export const APP_METHODS = [
   'skills/extraRoots/set',
   'skills/list',
   'status',
+  'thread.archive',
+  'thread.create',
+  'thread.delete',
+  'thread.list',
+  'thread.rename',
   'thread/compact/start',
+  'thread/export',
+  'thread/fork',
+  'thread/import',
   'thread/inject_items',
+  'thread/list',
+  'thread/loaded/list',
+  'thread/name/set',
+  'thread/read',
+  'thread/resume',
+  'thread/rollback',
+  'thread/start',
+  'thread/turns/items/list',
+  'thread/turns/list',
   'turn/interrupt',
   'turn/start',
   'turn/steer',
@@ -657,6 +861,7 @@ export const APP_METHODS = [
 export type AppMethod = typeof APP_METHODS[number]
 
 export interface AppMethodParams {
+  'chat.abort': ChatAbortParams
   'command/exec': CommandExecParams
   'command/exec/resize': CommandExecResizeParams
   'command/exec/terminate': CommandExecTerminateParams
@@ -712,14 +917,32 @@ export interface AppMethodParams {
   'skills/extraRoots/set': SkillsExtraRootsSetParams
   'skills/list': SkillsListParams
   'status': StatusParams
+  'thread.archive': ThreadArchiveCompatParams
+  'thread.create': ThreadCreateCompatParams
+  'thread.delete': ThreadDeleteCompatParams
+  'thread.list': ThreadListCompatParams
+  'thread.rename': ThreadRenameCompatParams
   'thread/compact/start': ThreadCompactStartParams
+  'thread/export': ThreadExportParams
+  'thread/fork': ThreadForkParams
+  'thread/import': ThreadImportParams
   'thread/inject_items': ThreadInjectItemsParams
+  'thread/list': ThreadListParams
+  'thread/loaded/list': ThreadLoadedListParams
+  'thread/name/set': ThreadNameSetParams
+  'thread/read': ThreadReadParams
+  'thread/resume': ThreadResumeParams
+  'thread/rollback': ThreadRollbackParams
+  'thread/start': ThreadStartParams
+  'thread/turns/items/list': ThreadTurnsItemsListParams
+  'thread/turns/list': ThreadTurnsListParams
   'turn/interrupt': TurnInterruptParams
   'turn/start': TurnStartParams
   'turn/steer': TurnSteerParams
 }
 
 export interface AppMethodResult {
+  'chat.abort': ChatAbortResult
   'command/exec': CommandExecResult
   'command/exec/resize': CommandExecResizeResult
   'command/exec/terminate': CommandExecTerminateResult
@@ -775,14 +998,32 @@ export interface AppMethodResult {
   'skills/extraRoots/set': SkillsExtraRootsSetResult
   'skills/list': SkillsListResult
   'status': StatusResult
+  'thread.archive': ThreadArchiveCompatResult
+  'thread.create': ThreadCreateCompatResult
+  'thread.delete': ThreadDeleteCompatResult
+  'thread.list': ThreadListCompatResult
+  'thread.rename': ThreadRenameCompatResult
   'thread/compact/start': Record<string, unknown>
+  'thread/export': ThreadExportResult
+  'thread/fork': ThreadForkResult
+  'thread/import': ThreadImportResult
   'thread/inject_items': Record<string, unknown>
+  'thread/list': ThreadListResult
+  'thread/loaded/list': ThreadLoadedListResult
+  'thread/name/set': ThreadNameSetResult
+  'thread/read': ThreadReadResult
+  'thread/resume': ThreadResumeResult
+  'thread/rollback': ThreadRollbackResult
+  'thread/start': ThreadStartResult
+  'thread/turns/items/list': ThreadTurnsItemsListResult
+  'thread/turns/list': ThreadTurnsListResult
   'turn/interrupt': Record<string, unknown>
   'turn/start': Record<string, unknown>
   'turn/steer': Record<string, unknown>
 }
 
 export interface AppMethodEvents {
+  'chat.abort': never
   'command/exec': 'command/exec/outputDelta'
   'command/exec/resize': never
   'command/exec/terminate': never
@@ -838,8 +1079,25 @@ export interface AppMethodEvents {
   'skills/extraRoots/set': 'skills/changed'
   'skills/list': never
   'status': never
+  'thread.archive': never
+  'thread.create': never
+  'thread.delete': never
+  'thread.list': never
+  'thread.rename': never
   'thread/compact/start': 'item/completed' | 'item/started' | 'turn/completed' | 'turn/started'
+  'thread/export': never
+  'thread/fork': 'thread/started'
+  'thread/import': never
   'thread/inject_items': never
+  'thread/list': never
+  'thread/loaded/list': never
+  'thread/name/set': 'thread/name/updated'
+  'thread/read': never
+  'thread/resume': 'thread/started'
+  'thread/rollback': 'thread/rollback'
+  'thread/start': 'thread/started'
+  'thread/turns/items/list': never
+  'thread/turns/list': never
   'turn/interrupt': never
   'turn/start': 'item/completed' | 'item/started' | 'turn/completed' | 'turn/started'
   'turn/steer': never

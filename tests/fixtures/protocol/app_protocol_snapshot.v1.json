@@ -168,18 +168,43 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "chat.abort",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "chat.abort — abort the active turn in a session.",
+          "properties": {
+            "thread_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "chat.abort — abort confirmation.",
+          "properties": {
+            "aborted": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "aborted"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -3924,78 +3949,211 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "thread.archive",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread.archive — legacy archive a thread.",
+          "properties": {
+            "thread_id": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "thread.archive — archive confirmation.",
+          "properties": {
+            "status": {
+              "type": "string"
+            },
+            "thread_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "thread_id"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "thread.create",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread.create — legacy create a thread in the active session.",
+          "properties": {
+            "thread_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "thread.create — created thread reference.",
+          "properties": {
+            "parent_thread_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "thread_id",
+            "title"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "thread.delete",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread.delete — legacy delete a thread.",
+          "properties": {
+            "thread_id": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "thread.delete — delete confirmation.",
+          "properties": {
+            "deleted": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "deleted"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "thread.list",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread.list — legacy list threads. Empty params.",
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "thread.list — list of threads.",
+          "properties": {
+            "threads": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "threads"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "thread.rename",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread.rename — legacy rename a thread.",
+          "properties": {
+            "thread_id": {
+              "default": "",
+              "type": "string"
+            },
+            "title": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "thread.rename — renamed thread reference.",
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "thread_id",
+            "title"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -4029,48 +4187,204 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "thread/export",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread/export — export a thread as a document.",
+          "properties": {
+            "sessionId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "threadId": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "Thread export document result.",
+          "properties": {
+            "document": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "document"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
-        "emits": [],
+        "description": null,
+        "emits": [
+          "thread/started"
+        ],
         "eventSchemas": {},
         "method": "thread/fork",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread/fork — fork a thread from a source.",
+          "properties": {
+            "excludeTurns": {
+              "default": false,
+              "type": "boolean"
+            },
+            "itemsView": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "sessionId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "threadId": {
+              "default": "",
+              "type": "string"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "Single thread view result.",
+          "properties": {
+            "thread": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "thread"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "thread/import",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread/import — import a thread from a document.",
+          "properties": {
+            "document": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "includeTurns": {
+              "default": false,
+              "type": "boolean"
+            },
+            "overwrite": {
+              "default": false,
+              "type": "boolean"
+            },
+            "sessionId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "sessionKey": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "threadId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "Single thread view result.",
+          "properties": {
+            "thread": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "thread"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -4107,93 +4421,375 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "thread/list",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread/list — list stored threads.",
+          "properties": {
+            "archived": {
+              "default": false,
+              "type": "boolean"
+            },
+            "cursor": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "limit": {
+              "default": 50,
+              "type": "integer"
+            },
+            "searchTerm": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "sessionId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "sortDirection": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "Paginated thread list result.",
+          "properties": {
+            "items": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "nextCursor": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "items"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "thread/loaded/list",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread/loaded/list — list loaded thread IDs. Empty params.",
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "Loaded thread IDs list result.",
+          "properties": {
+            "threadIds": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "threadIds"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
-        "emits": [],
+        "description": null,
+        "emits": [
+          "thread/name/updated"
+        ],
         "eventSchemas": {},
         "method": "thread/name/set",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread/name/set — rename a thread.",
+          "properties": {
+            "name": {
+              "default": "",
+              "type": "string"
+            },
+            "threadId": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "Single thread view result.",
+          "properties": {
+            "thread": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "thread"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "thread/read",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread/read — read a thread view.",
+          "properties": {
+            "includeTurns": {
+              "default": false,
+              "type": "boolean"
+            },
+            "itemsView": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "sessionId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "threadId": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "Single thread view result.",
+          "properties": {
+            "thread": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "thread"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
-        "emits": [],
+        "description": null,
+        "emits": [
+          "thread/started"
+        ],
         "eventSchemas": {},
         "method": "thread/resume",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread/resume — resume an existing thread.",
+          "properties": {
+            "excludeTurns": {
+              "default": false,
+              "type": "boolean"
+            },
+            "itemsView": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "sessionId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "sessionKey": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "threadId": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "Single thread view result.",
+          "properties": {
+            "thread": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "thread"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
-        "emits": [],
+        "description": null,
+        "emits": [
+          "thread/rollback"
+        ],
         "eventSchemas": {},
         "method": "thread/rollback",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread/rollback — roll back turns in a thread.",
+          "properties": {
+            "dropLastTurns": {
+              "default": 1,
+              "type": "integer"
+            },
+            "itemsView": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "numTurns": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "sessionId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "threadId": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "Single thread view result.",
+          "properties": {
+            "thread": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "thread"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -4224,48 +4820,222 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
-        "emits": [],
+        "description": null,
+        "emits": [
+          "thread/started"
+        ],
         "eventSchemas": {},
         "method": "thread/start",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread/start — create a new thread within a session.",
+          "properties": {
+            "ephemeral": {
+              "default": false,
+              "type": "boolean"
+            },
+            "name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "sessionId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "sessionKey": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "threadId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "Single thread view result.",
+          "properties": {
+            "thread": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "thread"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "thread/turns/items/list",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread/turns/items/list — unsupported, validated before rejection.",
+          "properties": {
+            "threadId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "Empty result for unsupported methods.",
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "thread/turns/list",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "thread/turns/list — list turns for a thread.",
+          "properties": {
+            "cursor": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "itemsView": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "limit": {
+              "default": 50,
+              "type": "integer"
+            },
+            "sessionId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "sortDirection": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "threadId": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "Paginated thread list result.",
+          "properties": {
+            "items": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "nextCursor": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "items"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "thread",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -4506,13 +5276,13 @@
   "catalogVersion": 1,
   "generatedTypes": {
     "outputPath": "apps/desktop/src/shared/app-protocol.ts",
-    "sha256": "69ae3f3820c02553f396b75f667bd737a419fb40915a9b87d0f0d96f71d5cbfd",
+    "sha256": "4341393db35de918f0bae9cde39deeda9b1e77647a52165224500d4a2e3551f6",
     "source": "miqi.runtime.export_app_protocol_ts.render_typescript_contract"
   },
   "methodCounts": {
-    "legacy": 87,
+    "legacy": 69,
     "total": 152,
-    "typed": 65
+    "typed": 83
   },
   "schemaVersion": 1
 }
