@@ -9,6 +9,7 @@ from typing import Any
 from loguru import logger
 
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_context
+from miqi.runtime.plugin_skill_request_models import validate_plugin_skill_params
 
 
 def _workspace_root(registry: Any) -> Path | None:
@@ -80,11 +81,10 @@ def register_skills_app_handlers(server: AppServer) -> None:
     async def _skills_list(request_id, params, client_id, session_id, registry):
         from miqi.agent.skills import SkillsLoader
 
+        typed = validate_plugin_skill_params("skills/list", params)
         workspace = _workspace_root(registry)
         roots = _get_client_extra_roots(registry, client_id)
-        cwds = params.get("cwds") or params.get("cwd") or []
-        if isinstance(cwds, str):
-            cwds = [cwds]
+        cwds = typed.cwds
         if not cwds:
             state = get_bridge_context(registry, "state", None)
             if state is not None:
@@ -126,10 +126,11 @@ def register_skills_app_handlers(server: AppServer) -> None:
         return {"result": {"skills": result}}
 
     async def _extra_roots_set(request_id, params, client_id, session_id, registry):
+        typed = validate_plugin_skill_params("skills/extraRoots/set", params)
         workspace = _workspace_root(registry)
         validated: list[Path] = []
-        for raw in params.get("roots", []):
-            validated.append(_resolve_allowed_extra_root(str(raw), workspace))
+        for raw in typed.roots:
+            validated.append(_resolve_allowed_extra_root(raw, workspace))
         by_client = registry.bridge_context.setdefault("skills_extra_roots_by_client", {})
         by_client[client_id] = validated
         roots_payload = {"roots": [str(root) for root in validated]}
@@ -148,10 +149,9 @@ def register_skills_app_handlers(server: AppServer) -> None:
         return {"result": {}}
 
     async def _hooks_list(request_id, params, client_id, session_id, registry):
+        typed = validate_plugin_skill_params("hooks/list", params)
         workspace = _workspace_root(registry)
-        cwds = params.get("cwds") or []
-        if isinstance(cwds, str):
-            cwds = [cwds]
+        cwds = typed.cwds
         hooks = []
         for cwd_raw in cwds:
             cwd = _resolve_allowed_cwd(str(cwd_raw), workspace)
