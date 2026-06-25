@@ -28,12 +28,15 @@ from miqi.runtime.thread_projection import (
     project_stored_turns,
 )
 from miqi.runtime.thread_protocol import page_items
+from miqi.runtime.thread_request_models import validate_thread_params
+import miqi.runtime.protocol_specs as protocol_specs
 
 
 def register_codex_thread_handlers(server: AppServer) -> None:
     """Register all Codex-style thread methods on an AppServer instance."""
 
     async def _thread_start(request_id, params, client_id, session_id, registry):
+        typed = validate_thread_params("thread/start", params)
         # Respect dispatch session_id when provided; otherwise derive from params.
         if session_id is not None:
             session = await _require_session(registry, client_id, session_id)
@@ -42,10 +45,10 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         threads = session.services.thread_runtime
         projection = _projection(session)
         thread = await threads.create_thread(
-            title=params.get("title") or params.get("name") or "New thread",
+            title=typed.title or params.get("name") or "New thread",
             thread_id=params.get("threadId") or params.get("thread_id"),
-            ephemeral=bool(params.get("ephemeral", False)),
-            cwd=params.get("cwd"),
+            ephemeral=typed.ephemeral,
+            cwd=typed.cwd,
             metadata={"source": params.get("sessionStartSource", "startup")},
         )
         server.subscribe(client_id, session.session_id)
@@ -56,18 +59,19 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         return {"result": {"thread": view.to_dict()}}
 
     async def _thread_resume(request_id, params, client_id, session_id, registry):
+        typed = validate_thread_params("thread/resume", params)
+        thread_id = typed.thread_id
+        include_turns = not typed.exclude_turns
         # Respect dispatch session_id when provided; otherwise derive from params.
         if session_id is not None:
             session = await _require_session(registry, client_id, session_id)
         else:
             session = await _get_or_create_session(registry, client_id, params)
         projection = _projection(session)
-        thread_id = params["threadId"]
-        include_turns = not bool(params.get("excludeTurns", False))
         view = await projection.read_thread(
             thread_id,
             include_turns=include_turns,
-            items_view=params.get("itemsView", "summary"),
+            items_view=typed.items_view or "summary",
         )
         server.subscribe(client_id, session.session_id)
         await server.emit_event(
@@ -76,11 +80,10 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         return {"result": {"thread": view.to_dict()}}
 
     async def _thread_fork(request_id, params, client_id, session_id, registry):
-        source_id = params.get("threadId")
-        if not source_id:
-            raise AppServerError("threadId is required", code="INVALID_PARAMS")
-        include_turns = not bool(params.get("excludeTurns", False))
-        items_view = params.get("itemsView", "summary")
+        typed = validate_thread_params("thread/fork", params)
+        source_id = typed.thread_id
+        include_turns = not typed.exclude_turns
+        items_view = typed.items_view or "summary"
 
         # Live-first: use existing session if available.
         if session_id is not None:
@@ -92,7 +95,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
                 projection = _projection(live)
                 child = await threads.fork_thread(
                     source_id,
-                    title=params.get("title", "Fork"),
+                    title=typed.title or "Fork",
                 )
                 if ledger is not None:
                     await ledger.copy_thread_items(source_id, child.thread_id)
@@ -114,7 +117,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         try:
             bundle = await reader.fork_stored_thread(
                 source_id,
-                title=params.get("title", "Fork"),
+                title=typed.title or "Fork",
                 target_session_id=target_session_id,
                 new_thread_id=None,  # Always auto-generate to avoid UNIQUE conflicts
                 exclude_turns=not include_turns,
@@ -125,11 +128,10 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         return {"result": {"thread": view.to_dict()}}
 
     async def _thread_read(request_id, params, client_id, session_id, registry):
-        thread_id = params.get("threadId")
-        if not thread_id:
-            raise AppServerError("threadId is required", code="INVALID_PARAMS")
-        include_turns = bool(params.get("includeTurns", False))
-        items_view = params.get("itemsView", "summary")
+        typed = validate_thread_params("thread/read", params)
+        thread_id = typed.thread_id
+        include_turns = typed.include_turns
+        items_view = typed.items_view or "summary"
 
         # Live-first: if the caller already has a live session, use it.
         if session_id is not None:
@@ -153,13 +155,12 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         return {"result": {"thread": view.to_dict()}}
 
     async def _thread_turns_list(request_id, params, client_id, session_id, registry):
-        thread_id = params.get("threadId")
-        if not thread_id:
-            raise AppServerError("threadId is required", code="INVALID_PARAMS")
-        items_view = params.get("itemsView", "summary")
-        limit = int(params.get("limit", 50))
-        cursor = params.get("cursor")
-        sort_direction = params.get("sortDirection", "desc")
+        typed = validate_thread_params("thread/turns/list", params)
+        thread_id = typed.thread_id
+        items_view = typed.items_view or "summary"
+        limit = typed.limit
+        cursor = typed.cursor
+        sort_direction = typed.sort_direction or "desc"
 
         # Live-first path
         if session_id is not None:
@@ -190,6 +191,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         return {"result": page.to_dict()}
 
     async def _thread_turns_items_list(request_id, params, client_id, session_id, registry):
+        validate_thread_params("thread/turns/items/list", params)
         raise AppServerError(
             "thread/turns/items/list is not supported yet",
             code="UNSUPPORTED_METHOD",
@@ -197,12 +199,13 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         )
 
     async def _thread_list(request_id, params, client_id, session_id, registry):
+        typed = validate_thread_params("thread/list", params)
         reader = _stored_reader(registry, client_id)
         threads = await reader.list_threads(
-            include_archived=bool(params.get("archived", False)),
+            include_archived=typed.archived,
             session_id=params.get("sessionId") or params.get("session_id"),
-            cwd=params.get("cwd"),
-            search_term=params.get("searchTerm"),
+            cwd=typed.cwd,
+            search_term=typed.search_term,
         )
         views = []
         for thread in threads:
@@ -210,16 +213,15 @@ def register_codex_thread_handlers(server: AppServer) -> None:
             views.append(project_stored_thread(bundle, include_turns=False).to_dict())
         page = page_items(
             views,
-            limit=int(params.get("limit", 50)),
-            cursor=params.get("cursor"),
-            sort_direction=params.get("sortDirection", "desc"),
+            limit=typed.limit,
+            cursor=typed.cursor,
+            sort_direction=typed.sort_direction or "desc",
         )
         return {"result": page.to_dict()}
 
     async def _thread_export(request_id, params, client_id, session_id, registry):
-        thread_id = params.get("threadId")
-        if not thread_id:
-            raise AppServerError("threadId is required", code="INVALID_PARAMS")
+        typed = validate_thread_params("thread/export", params)
+        thread_id = typed.thread_id
         reader = _stored_reader(registry, client_id)
         try:
             bundle = await reader.load_bundle(
@@ -238,9 +240,8 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         return {"result": {"document": document.to_dict()}}
 
     async def _thread_import(request_id, params, client_id, session_id, registry):
-        document = params.get("document")
-        if not isinstance(document, dict):
-            raise AppServerError("document is required", code="INVALID_PARAMS")
+        typed = validate_thread_params("thread/import", params)
+        document = typed.document
         target_session_id = params.get("sessionId") or params.get("session_id") or session_id
         if target_session_id is None:
             session_key = params.get("sessionKey") or params.get("session_key") or "default"
@@ -253,7 +254,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
                 document,
                 session_id=target_session_id,
                 thread_id=params.get("threadId") or params.get("thread_id"),
-                overwrite=bool(params.get("overwrite", False)),
+                overwrite=typed.overwrite,
             )
             bundle = await reader.load_bundle(imported_thread_id, session_id=target_session_id)
         except (StoredThreadError, StoredThreadUnauthorized) as exc:
@@ -262,13 +263,14 @@ def register_codex_thread_handlers(server: AppServer) -> None:
             from loguru import logger
             logger.warning("thread/import failed: {}", exc)
             raise AppServerError("Thread import rejected", code="INVALID_PARAMS") from exc
-        view = project_stored_thread(bundle, include_turns=bool(params.get("includeTurns", False)))
+        view = project_stored_thread(bundle, include_turns=typed.include_turns)
         return {"result": {"thread": view.to_dict()}}
 
     async def _thread_name_set(request_id, params, client_id, session_id, registry):
+        typed = validate_thread_params("thread/name/set", params)
         session = await _require_session(registry, client_id, session_id)
         thread = await session.services.thread_runtime.rename_thread(
-            params["threadId"], params["name"],
+            typed.thread_id, typed.name,
         )
         view = await _projection(session).read_thread(thread.thread_id, include_turns=False)
         await server.emit_event(
@@ -278,12 +280,9 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         return {"result": {"thread": view.to_dict()}}
 
     async def _thread_rollback(request_id, params, client_id, session_id, registry):
-        thread_id = params.get("threadId")
-        if not thread_id:
-            raise AppServerError("threadId is required", code="INVALID_PARAMS")
-        drop_last_turns = int(params.get("dropLastTurns", params.get("numTurns", 1)))
-        if drop_last_turns < 1:
-            raise AppServerError("dropLastTurns must be >= 1", code="INVALID_PARAMS")
+        typed = validate_thread_params("thread/rollback", params)
+        thread_id = typed.thread_id
+        drop_last_turns = typed.drop_last_turns
 
         # Live-first path
         if session_id is not None:
@@ -298,7 +297,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
                     await history.delete_turn_items(thread_id, removed)
                 view = await _projection(live).read_thread(
                     thread_id, include_turns=True,
-                    items_view=params.get("itemsView", "summary"),
+                    items_view=typed.items_view or "summary",
                 )
                 await server.emit_event(
                     live.session_id, "thread/rollback",
@@ -317,11 +316,12 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         except Exception as exc:
             raise _stored_error(exc) from exc
         view = project_stored_thread(
-            bundle, include_turns=True, items_view=params.get("itemsView", "summary"),
+            bundle, include_turns=True, items_view=typed.items_view or "summary",
         )
         return {"result": {"thread": view.to_dict()}}
 
     async def _thread_loaded_list(request_id, params, client_id, session_id, registry):
+        validate_thread_params("thread/loaded/list", params)
         loaded = []
         for sid, clients in registry._session_clients.items():
             if client_id in clients:
@@ -332,18 +332,18 @@ def register_codex_thread_handlers(server: AppServer) -> None:
                 loaded.extend(t.thread_id for t in threads)
         return {"result": {"threadIds": sorted(set(loaded))}}
 
-    server.register_method("thread/start", _thread_start)
-    server.register_method("thread/resume", _thread_resume)
-    server.register_method("thread/fork", _thread_fork)
-    server.register_method("thread/read", _thread_read)
-    server.register_method("thread/turns/list", _thread_turns_list)
-    server.register_method("thread/turns/items/list", _thread_turns_items_list)
-    server.register_method("thread/list", _thread_list)
-    server.register_method("thread/export", _thread_export)
-    server.register_method("thread/import", _thread_import)
-    server.register_method("thread/name/set", _thread_name_set)
-    server.register_method("thread/rollback", _thread_rollback)
-    server.register_method("thread/loaded/list", _thread_loaded_list)
+    server.register_method("thread/start", _thread_start, spec=protocol_specs.THREAD_START)
+    server.register_method("thread/resume", _thread_resume, spec=protocol_specs.THREAD_RESUME)
+    server.register_method("thread/fork", _thread_fork, spec=protocol_specs.THREAD_FORK)
+    server.register_method("thread/read", _thread_read, spec=protocol_specs.THREAD_READ)
+    server.register_method("thread/turns/list", _thread_turns_list, spec=protocol_specs.THREAD_TURNS_LIST)
+    server.register_method("thread/turns/items/list", _thread_turns_items_list, spec=protocol_specs.THREAD_TURNS_ITEMS_LIST)
+    server.register_method("thread/list", _thread_list, spec=protocol_specs.THREAD_LIST)
+    server.register_method("thread/export", _thread_export, spec=protocol_specs.THREAD_EXPORT)
+    server.register_method("thread/import", _thread_import, spec=protocol_specs.THREAD_IMPORT)
+    server.register_method("thread/name/set", _thread_name_set, spec=protocol_specs.THREAD_NAME_SET)
+    server.register_method("thread/rollback", _thread_rollback, spec=protocol_specs.THREAD_ROLLBACK)
+    server.register_method("thread/loaded/list", _thread_loaded_list, spec=protocol_specs.THREAD_LOADED_LIST)
 
 
 def _projection(session: Any) -> ThreadProjectionRuntime:
