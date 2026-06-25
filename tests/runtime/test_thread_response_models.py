@@ -7,20 +7,14 @@ from miqi.runtime.protocol_model_schema import result_schema_from_model
 
 
 class TestAllMethodsExist:
-    def test_all_12_primary_result_models_in_map(self):
+    def test_all_18_result_models_in_map(self):
         expected = {
-            "thread/start",
-            "thread/resume",
-            "thread/fork",
-            "thread/read",
-            "thread/turns/list",
-            "thread/turns/items/list",
-            "thread/list",
-            "thread/export",
-            "thread/import",
-            "thread/name/set",
-            "thread/rollback",
-            "thread/loaded/list",
+            "thread/start", "thread/resume", "thread/fork",
+            "thread/read", "thread/turns/list", "thread/turns/items/list",
+            "thread/list", "thread/export", "thread/import",
+            "thread/name/set", "thread/rollback", "thread/loaded/list",
+            "thread.create", "thread.list", "thread.rename",
+            "thread.archive", "thread.delete", "chat.abort",
         }
         assert set(THREAD_METHOD_RESULT_MODELS) == expected
 

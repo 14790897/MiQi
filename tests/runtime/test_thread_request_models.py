@@ -12,20 +12,14 @@ from miqi.runtime.app_server import AppServerError
 
 
 class TestAllMethodsExist:
-    def test_all_12_primary_methods_in_map(self):
+    def test_all_18_methods_in_param_map(self):
         expected = {
-            "thread/start",
-            "thread/resume",
-            "thread/fork",
-            "thread/read",
-            "thread/turns/list",
-            "thread/turns/items/list",
-            "thread/list",
-            "thread/export",
-            "thread/import",
-            "thread/name/set",
-            "thread/rollback",
-            "thread/loaded/list",
+            "thread/start", "thread/resume", "thread/fork",
+            "thread/read", "thread/turns/list", "thread/turns/items/list",
+            "thread/list", "thread/export", "thread/import",
+            "thread/name/set", "thread/rollback", "thread/loaded/list",
+            "thread.create", "thread.list", "thread.rename",
+            "thread.archive", "thread.delete", "chat.abort",
         }
         assert set(THREAD_METHOD_PARAM_MODELS) == expected
 
