@@ -57,13 +57,19 @@ from miqi.runtime.session_request_models import (
 from miqi.runtime.session_response_models import SESSION_METHOD_RESULT_MODELS
 from miqi.runtime.thread_request_models import (
     THREAD_METHOD_PARAM_MODELS,
+    ChatAbortParams,
+    ThreadArchiveCompatParams,
+    ThreadCreateCompatParams,
+    ThreadDeleteCompatParams,
     ThreadExportParams,
     ThreadForkParams,
     ThreadImportParams,
+    ThreadListCompatParams,
     ThreadListParams,
     ThreadLoadedListParams,
     ThreadNameSetParams,
     ThreadReadParams,
+    ThreadRenameCompatParams,
     ThreadResumeParams,
     ThreadRollbackParams,
     ThreadStartParams,
@@ -438,6 +444,45 @@ THREAD_LOADED_LIST = model_spec(
     ThreadLoadedListParams,
     scope=MethodScope.THREAD,
     result_model=THREAD_METHOD_RESULT_MODELS["thread/loaded/list"],
+)
+
+# ── thread compatibility ──────────────────────────────────────────────────
+
+THREAD_CREATE_COMPAT = model_spec(
+    "thread.create",
+    ThreadCreateCompatParams,
+    scope=MethodScope.THREAD,
+    result_model=THREAD_METHOD_RESULT_MODELS["thread.create"],
+)
+THREAD_LIST_COMPAT = model_spec(
+    "thread.list",
+    ThreadListCompatParams,
+    scope=MethodScope.THREAD,
+    result_model=THREAD_METHOD_RESULT_MODELS["thread.list"],
+)
+THREAD_RENAME_COMPAT = model_spec(
+    "thread.rename",
+    ThreadRenameCompatParams,
+    scope=MethodScope.THREAD,
+    result_model=THREAD_METHOD_RESULT_MODELS["thread.rename"],
+)
+THREAD_ARCHIVE_COMPAT = model_spec(
+    "thread.archive",
+    ThreadArchiveCompatParams,
+    scope=MethodScope.THREAD,
+    result_model=THREAD_METHOD_RESULT_MODELS["thread.archive"],
+)
+THREAD_DELETE_COMPAT = model_spec(
+    "thread.delete",
+    ThreadDeleteCompatParams,
+    scope=MethodScope.THREAD,
+    result_model=THREAD_METHOD_RESULT_MODELS["thread.delete"],
+)
+CHAT_ABORT = model_spec(
+    "chat.abort",
+    ChatAbortParams,
+    scope=MethodScope.THREAD,
+    result_model=THREAD_METHOD_RESULT_MODELS["chat.abort"],
 )
 
 TURN_START = model_spec(

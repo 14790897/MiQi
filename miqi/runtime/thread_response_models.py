@@ -41,6 +41,49 @@ class UnsupportedResult(_Result):
     pass
 
 
+# ── compatibility result models ────────────────────────────────────────────
+
+
+class ThreadCreateCompatResult(_Result):
+    """thread.create — created thread reference."""
+
+    thread_id: str
+    title: str
+    parent_thread_id: str | None = None
+
+
+class ThreadListCompatResult(_Result):
+    """thread.list — list of threads."""
+
+    threads: list[dict[str, Any]]
+
+
+class ThreadRenameCompatResult(_Result):
+    """thread.rename — renamed thread reference."""
+
+    thread_id: str
+    title: str
+
+
+class ThreadArchiveCompatResult(_Result):
+    """thread.archive — archive confirmation."""
+
+    thread_id: str
+    status: str
+
+
+class ThreadDeleteCompatResult(_Result):
+    """thread.delete — delete confirmation."""
+
+    deleted: bool
+
+
+class ChatAbortResult(_Result):
+    """chat.abort — abort confirmation."""
+
+    aborted: bool
+
+
 THREAD_METHOD_RESULT_MODELS: dict[str, type[BaseModel]] = {
     "thread/start": ThreadResult,
     "thread/resume": ThreadResult,
@@ -54,4 +97,10 @@ THREAD_METHOD_RESULT_MODELS: dict[str, type[BaseModel]] = {
     "thread/name/set": ThreadResult,
     "thread/rollback": ThreadResult,
     "thread/loaded/list": ThreadLoadedListResult,
+    "thread.create": ThreadCreateCompatResult,
+    "thread.list": ThreadListCompatResult,
+    "thread.rename": ThreadRenameCompatResult,
+    "thread.archive": ThreadArchiveCompatResult,
+    "thread.delete": ThreadDeleteCompatResult,
+    "chat.abort": ChatAbortResult,
 }
