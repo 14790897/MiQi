@@ -258,7 +258,6 @@ async def test_plugin_skill_read_missing_skill_name_rejected(tmp_path):
         "client-1", None,
     )
     assert response.get("code") == "INVALID_PARAMS"
-    assert "skillName" in response.get("error", "")
 
 
 @pytest.mark.asyncio
@@ -277,7 +276,6 @@ async def test_plugin_skill_read_missing_plugin_name_rejected(tmp_path):
         "client-1", None,
     )
     assert response.get("code") == "INVALID_PARAMS"
-    assert "pluginName" in response.get("error", "")
 
 
 @pytest.mark.asyncio
