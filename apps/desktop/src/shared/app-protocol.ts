@@ -229,6 +229,40 @@ export interface ProcessWriteStdinParams {
 export interface PythonCheckParams {
 }
 
+export interface SessionsArchiveParams {
+  sessionKey?: string
+}
+
+export interface SessionsClaimLegacyParams {
+  sessionKey?: string
+}
+
+export interface SessionsClearTrackedFilesParams {
+  sessionKey?: string
+}
+
+export interface SessionsDeleteParams {
+  sessionKey?: string
+}
+
+export interface SessionsGetParams {
+  sessionKey?: string
+}
+
+export interface SessionsGetTrackedFilesParams {
+  sessionKey?: string
+}
+
+export interface SessionsListParams {
+}
+
+export interface SessionsListArchivedParams {
+}
+
+export interface SessionsUnarchiveParams {
+  sessionKey?: string
+}
+
 export interface SkillsExtraRootsSetParams {
   roots: string[]
 }
@@ -460,6 +494,51 @@ export interface PythonCheckResult {
   python_version: string
 }
 
+export interface SessionsArchiveResult {
+  archived: boolean
+}
+
+export interface SessionsClaimLegacyResult {
+  claimed: boolean
+  was_already_claimed: boolean
+}
+
+export interface SessionsClearTrackedFilesResult {
+  cleared: boolean
+}
+
+export interface SessionsDeleteResult {
+  deleted: boolean
+}
+
+export interface SessionsGetResult {
+  agent_count?: null | number
+  created_at?: null | string
+  key?: null | string
+  messages?: Record<string, unknown>[] | null
+  metadata?: Record<string, unknown> | null
+  ownership?: null | string
+  session_id?: null | string
+  status?: null | string
+  updated_at?: null | string
+}
+
+export interface SessionsGetTrackedFilesResult {
+  tracked_files: Record<string, unknown>[]
+}
+
+export interface SessionsListResult {
+  sessions: Record<string, unknown>[]
+}
+
+export interface SessionsListArchivedResult {
+  sessions: Record<string, unknown>[]
+}
+
+export interface SessionsUnarchiveResult {
+  unarchived: boolean
+}
+
 export interface SkillsExtraRootsSetResult {
 }
 
@@ -557,6 +636,15 @@ export const APP_METHODS = [
   'process/spawn',
   'process/writeStdin',
   'python.check',
+  'sessions.archive',
+  'sessions.claim_legacy',
+  'sessions.clear_tracked_files',
+  'sessions.delete',
+  'sessions.get',
+  'sessions.get_tracked_files',
+  'sessions.list',
+  'sessions.list_archived',
+  'sessions.unarchive',
   'skills/extraRoots/set',
   'skills/list',
   'status',
@@ -612,6 +700,15 @@ export interface AppMethodParams {
   'process/spawn': ProcessSpawnParams
   'process/writeStdin': ProcessWriteStdinParams
   'python.check': PythonCheckParams
+  'sessions.archive': SessionsArchiveParams
+  'sessions.claim_legacy': SessionsClaimLegacyParams
+  'sessions.clear_tracked_files': SessionsClearTrackedFilesParams
+  'sessions.delete': SessionsDeleteParams
+  'sessions.get': SessionsGetParams
+  'sessions.get_tracked_files': SessionsGetTrackedFilesParams
+  'sessions.list': SessionsListParams
+  'sessions.list_archived': SessionsListArchivedParams
+  'sessions.unarchive': SessionsUnarchiveParams
   'skills/extraRoots/set': SkillsExtraRootsSetParams
   'skills/list': SkillsListParams
   'status': StatusParams
@@ -666,6 +763,15 @@ export interface AppMethodResult {
   'process/spawn': ProcessSpawnResult
   'process/writeStdin': ProcessWriteStdinResult
   'python.check': PythonCheckResult
+  'sessions.archive': SessionsArchiveResult
+  'sessions.claim_legacy': SessionsClaimLegacyResult
+  'sessions.clear_tracked_files': SessionsClearTrackedFilesResult
+  'sessions.delete': SessionsDeleteResult
+  'sessions.get': SessionsGetResult
+  'sessions.get_tracked_files': SessionsGetTrackedFilesResult
+  'sessions.list': SessionsListResult
+  'sessions.list_archived': SessionsListArchivedResult
+  'sessions.unarchive': SessionsUnarchiveResult
   'skills/extraRoots/set': SkillsExtraRootsSetResult
   'skills/list': SkillsListResult
   'status': StatusResult
@@ -720,6 +826,15 @@ export interface AppMethodEvents {
   'process/spawn': 'process/exited' | 'process/outputDelta'
   'process/writeStdin': never
   'python.check': never
+  'sessions.archive': never
+  'sessions.claim_legacy': never
+  'sessions.clear_tracked_files': never
+  'sessions.delete': never
+  'sessions.get': never
+  'sessions.get_tracked_files': never
+  'sessions.list': never
+  'sessions.list_archived': never
+  'sessions.unarchive': never
   'skills/extraRoots/set': 'skills/changed'
   'skills/list': never
   'status': never

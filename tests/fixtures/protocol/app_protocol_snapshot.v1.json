@@ -3331,138 +3331,402 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "sessions.archive",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "Shared params for all session-keyed methods.\n\nAccepts both session_key and sessionKey (wire name).\nNormalizes to session_key.",
+          "properties": {
+            "sessionKey": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "sessions.archive — archive confirmation.",
+          "properties": {
+            "archived": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "archived"
+          ],
           "type": "object"
         },
         "scope": "session",
-        "stability": "legacy"
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "sessions.claim_legacy",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "Shared params for all session-keyed methods.\n\nAccepts both session_key and sessionKey (wire name).\nNormalizes to session_key.",
+          "properties": {
+            "sessionKey": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "sessions.claim_legacy — claim result.",
+          "properties": {
+            "claimed": {
+              "type": "boolean"
+            },
+            "was_already_claimed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "claimed",
+            "was_already_claimed"
+          ],
           "type": "object"
         },
         "scope": "session",
-        "stability": "legacy"
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "sessions.clear_tracked_files",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "Shared params for all session-keyed methods.\n\nAccepts both session_key and sessionKey (wire name).\nNormalizes to session_key.",
+          "properties": {
+            "sessionKey": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "sessions.clear_tracked_files — clear confirmation.",
+          "properties": {
+            "cleared": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "cleared"
+          ],
           "type": "object"
         },
         "scope": "session",
-        "stability": "legacy"
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "sessions.delete",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "Shared params for all session-keyed methods.\n\nAccepts both session_key and sessionKey (wire name).\nNormalizes to session_key.",
+          "properties": {
+            "sessionKey": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "sessions.delete — delete confirmation.",
+          "properties": {
+            "deleted": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "deleted"
+          ],
           "type": "object"
         },
         "scope": "session",
-        "stability": "legacy"
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "sessions.get",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "Shared params for all session-keyed methods.\n\nAccepts both session_key and sessionKey (wire name).\nNormalizes to session_key.",
+          "properties": {
+            "sessionKey": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "sessions.get — session detail (permissive dynamic object).",
+          "properties": {
+            "agent_count": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "created_at": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "key": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "messages": {
+              "anyOf": [
+                {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "metadata": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "ownership": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "session_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "updated_at": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
           "type": "object"
         },
         "scope": "session",
-        "stability": "legacy"
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "sessions.get_tracked_files",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "Shared params for all session-keyed methods.\n\nAccepts both session_key and sessionKey (wire name).\nNormalizes to session_key.",
+          "properties": {
+            "sessionKey": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "sessions.get_tracked_files — tracked files list.",
+          "properties": {
+            "tracked_files": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "tracked_files"
+          ],
           "type": "object"
         },
         "scope": "session",
-        "stability": "legacy"
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "sessions.list",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "sessions.list — empty params, extra allowed.",
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "sessions.list — list of session summaries.",
+          "properties": {
+            "sessions": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "sessions"
+          ],
           "type": "object"
         },
         "scope": "session",
-        "stability": "legacy"
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "sessions.list_archived",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "sessions.list_archived — empty params, extra allowed.",
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "sessions.list_archived — list of archived sessions.",
+          "properties": {
+            "sessions": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "sessions"
+          ],
           "type": "object"
         },
         "scope": "session",
-        "stability": "legacy"
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "sessions.unarchive",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "Shared params for all session-keyed methods.\n\nAccepts both session_key and sessionKey (wire name).\nNormalizes to session_key.",
+          "properties": {
+            "sessionKey": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "sessions.unarchive — unarchive confirmation.",
+          "properties": {
+            "unarchived": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "unarchived"
+          ],
           "type": "object"
         },
         "scope": "session",
-        "stability": "legacy"
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -4242,13 +4506,13 @@
   "catalogVersion": 1,
   "generatedTypes": {
     "outputPath": "apps/desktop/src/shared/app-protocol.ts",
-    "sha256": "22682f1b95421f9727191740f5ef8cdbd0a68fab1e19d05ecf14a362f0df1c77",
+    "sha256": "69ae3f3820c02553f396b75f667bd737a419fb40915a9b87d0f0d96f71d5cbfd",
     "source": "miqi.runtime.export_app_protocol_ts.render_typescript_contract"
   },
   "methodCounts": {
-    "legacy": 96,
+    "legacy": 87,
     "total": 152,
-    "typed": 56
+    "typed": 65
   },
   "schemaVersion": 1
 }
