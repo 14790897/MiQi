@@ -10,6 +10,7 @@ from loguru import logger
 
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_context
 from miqi.runtime.plugin_skill_request_models import validate_plugin_skill_params
+import miqi.runtime.protocol_specs as protocol_specs
 
 
 def _workspace_root(registry: Any) -> Path | None:
@@ -171,6 +172,6 @@ def register_skills_app_handlers(server: AppServer) -> None:
                     hooks.append({"cwd": str(cwd), **entry})
         return {"result": {"hooks": hooks}}
 
-    server.register_method("skills/list", _skills_list)
-    server.register_method("skills/extraRoots/set", _extra_roots_set)
-    server.register_method("hooks/list", _hooks_list)
+    server.register_method("skills/list", _skills_list, spec=protocol_specs.SKILLS_LIST)
+    server.register_method("skills/extraRoots/set", _extra_roots_set, spec=protocol_specs.SKILLS_EXTRA_ROOTS_SET)
+    server.register_method("hooks/list", _hooks_list, spec=protocol_specs.HOOKS_LIST)

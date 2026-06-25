@@ -9,6 +9,8 @@ import miqi.runtime.protocol_specs as specs
 from miqi.runtime.core_request_models import CORE_METHOD_PARAM_MODELS
 from miqi.runtime.core_response_models import CORE_METHOD_RESULT_MODELS
 from miqi.runtime.filesystem_request_models import FILESYSTEM_METHOD_PARAM_MODELS
+from miqi.runtime.plugin_skill_request_models import PLUGIN_SKILL_METHOD_PARAM_MODELS
+from miqi.runtime.plugin_skill_response_models import PLUGIN_SKILL_METHOD_RESULT_MODELS
 from miqi.runtime.process_request_models import COMMAND_PROCESS_METHOD_PARAM_MODELS
 from miqi.runtime.filesystem_response_models import (
     FILESYSTEM_EVENT_MODELS,
@@ -28,6 +30,7 @@ DEFAULT_OUTPUT = ROOT / "apps" / "desktop" / "src" / "shared" / "app-protocol.ts
 
 MODEL_MAP = {
     **CORE_METHOD_PARAM_MODELS,
+    **PLUGIN_SKILL_METHOD_PARAM_MODELS,
     **TURN_METHOD_PARAM_MODELS,
     **COMMAND_PROCESS_METHOD_PARAM_MODELS,
     **FILESYSTEM_METHOD_PARAM_MODELS,
@@ -35,6 +38,7 @@ MODEL_MAP = {
 
 RESULT_MODEL_MAP = {
     **CORE_METHOD_RESULT_MODELS,
+    **PLUGIN_SKILL_METHOD_RESULT_MODELS,
     **PROCESS_METHOD_RESULT_MODELS,
     **FILESYSTEM_METHOD_RESULT_MODELS,
 }
@@ -59,6 +63,18 @@ METHOD_TO_SPEC = {
     "experimentalFeature/list": specs.EXPERIMENTAL_FEATURE_LIST,
     "experimentalFeature/enablement/set": specs.EXPERIMENTAL_FEATURE_ENABLEMENT_SET,
     "permissionProfile/list": specs.PERMISSION_PROFILE_LIST,
+    "plugin/list": specs.PLUGIN_LIST,
+    "plugin/installed": specs.PLUGIN_INSTALLED,
+    "plugin/read": specs.PLUGIN_READ,
+    "plugin/skill/read": specs.PLUGIN_SKILL_READ,
+    "plugin/install": specs.PLUGIN_INSTALL,
+    "plugin/uninstall": specs.PLUGIN_UNINSTALL,
+    "marketplace/add": specs.MARKETPLACE_ADD,
+    "marketplace/remove": specs.MARKETPLACE_REMOVE,
+    "marketplace/upgrade": specs.MARKETPLACE_UPGRADE,
+    "skills/list": specs.SKILLS_LIST,
+    "skills/extraRoots/set": specs.SKILLS_EXTRA_ROOTS_SET,
+    "hooks/list": specs.HOOKS_LIST,
     "turn/start": specs.TURN_START,
     "turn/interrupt": specs.TURN_INTERRUPT,
     "turn/steer": specs.TURN_STEER,
@@ -102,6 +118,18 @@ TYPE_NAME_BY_METHOD = {
     "experimentalFeature/list": "ExperimentalFeatureListParams",
     "experimentalFeature/enablement/set": "ExperimentalFeatureEnablementSetParams",
     "permissionProfile/list": "PermissionProfileListParams",
+    "plugin/list": "PluginListParams",
+    "plugin/installed": "PluginInstalledParams",
+    "plugin/read": "PluginReadParams",
+    "plugin/skill/read": "PluginSkillReadParams",
+    "plugin/install": "PluginInstallParams",
+    "plugin/uninstall": "PluginUninstallParams",
+    "marketplace/add": "MarketplaceAddParams",
+    "marketplace/remove": "MarketplaceRemoveParams",
+    "marketplace/upgrade": "MarketplaceUpgradeParams",
+    "skills/list": "SkillsListParams",
+    "skills/extraRoots/set": "SkillsExtraRootsSetParams",
+    "hooks/list": "HooksListParams",
     "turn/start": "TurnStartParams",
     "turn/interrupt": "TurnInterruptParams",
     "turn/steer": "TurnSteerParams",
@@ -162,6 +190,18 @@ RESULT_TYPE_NAME_BY_METHOD = {
             "experimentalFeature/list",
             "experimentalFeature/enablement/set",
             "permissionProfile/list",
+            "plugin/list",
+            "plugin/installed",
+            "plugin/read",
+            "plugin/skill/read",
+            "plugin/install",
+            "plugin/uninstall",
+            "marketplace/add",
+            "marketplace/remove",
+            "marketplace/upgrade",
+            "skills/list",
+            "skills/extraRoots/set",
+            "hooks/list",
         }
     },
 }

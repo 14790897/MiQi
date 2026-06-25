@@ -11,6 +11,7 @@ from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_contex
 from miqi.runtime.plugin_catalog import PluginCatalogRuntime
 from miqi.runtime.plugin_protocol import MarketplaceView
 from miqi.runtime.plugin_skill_request_models import validate_plugin_skill_params
+import miqi.runtime.protocol_specs as protocol_specs
 
 # ── marketplace validation helpers ────────────────────────────────────────
 
@@ -195,12 +196,12 @@ def register_plugin_app_handlers(server: AppServer) -> None:
         selected = [name] if name else [m.name for m in catalog.list_marketplaces()]
         return {"result": {"selectedMarketplaces": selected, "errors": []}}
 
-    server.register_method("plugin/list", _plugin_list)
-    server.register_method("plugin/installed", _plugin_installed)
-    server.register_method("plugin/read", _plugin_read)
-    server.register_method("plugin/skill/read", _plugin_skill_read)
-    server.register_method("plugin/install", _plugin_install)
-    server.register_method("plugin/uninstall", _plugin_uninstall)
-    server.register_method("marketplace/add", _marketplace_add)
-    server.register_method("marketplace/remove", _marketplace_remove)
-    server.register_method("marketplace/upgrade", _marketplace_upgrade)
+    server.register_method("plugin/list", _plugin_list, spec=protocol_specs.PLUGIN_LIST)
+    server.register_method("plugin/installed", _plugin_installed, spec=protocol_specs.PLUGIN_INSTALLED)
+    server.register_method("plugin/read", _plugin_read, spec=protocol_specs.PLUGIN_READ)
+    server.register_method("plugin/skill/read", _plugin_skill_read, spec=protocol_specs.PLUGIN_SKILL_READ)
+    server.register_method("plugin/install", _plugin_install, spec=protocol_specs.PLUGIN_INSTALL)
+    server.register_method("plugin/uninstall", _plugin_uninstall, spec=protocol_specs.PLUGIN_UNINSTALL)
+    server.register_method("marketplace/add", _marketplace_add, spec=protocol_specs.MARKETPLACE_ADD)
+    server.register_method("marketplace/remove", _marketplace_remove, spec=protocol_specs.MARKETPLACE_REMOVE)
+    server.register_method("marketplace/upgrade", _marketplace_upgrade, spec=protocol_specs.MARKETPLACE_UPGRADE)
