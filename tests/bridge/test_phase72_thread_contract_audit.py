@@ -55,7 +55,7 @@ async def test_plan72_primary_thread_contract_counts():
         legacy = [item for item in catalog["methods"] if item["stability"] == "legacy"]
 
         assert len(catalog["methods"]) == 152
-        assert len(typed) >= 77
-        assert len(legacy) <= 75
+        assert len(typed) >= 83
+        assert len(legacy) <= 69
     finally:
         await loop.app_server.stop()

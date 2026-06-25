@@ -732,9 +732,11 @@ def register_command_handlers(server: "AppServer") -> None:
     ensuring the runtime has full visibility into state mutations.
     Called by transport adapters during init.
     """
+    from miqi.runtime.thread_request_models import validate_thread_params
 
     # ── thread.create ────────────────────────────────────────────────────
     async def _thread_create(request_id, params, client_id, session_id, registry):
+        typed = validate_thread_params("thread.create", params)
         session = await registry.get_session(client_id, session_id)
         if session is None:
             raise AppServerError("Not authorized", code="UNAUTHORIZED")
@@ -742,8 +744,8 @@ def register_command_handlers(server: "AppServer") -> None:
         if threads is None:
             raise AppServerError("Thread runtime not available", code="INTERNAL")
         thread = await threads.create_thread(
-            title=params.get("title", "New thread"),
-            thread_id=params.get("thread_id"),
+            title=typed.title or "New thread",
+            thread_id=typed.thread_id,
         )
         return {"result": {
             "thread_id": thread.thread_id,
@@ -753,6 +755,7 @@ def register_command_handlers(server: "AppServer") -> None:
 
     # ── thread.list ──────────────────────────────────────────────────────
     async def _thread_list(request_id, params, client_id, session_id, registry):
+        validate_thread_params("thread.list", params)
         session = await registry.get_session(client_id, session_id)
         if session is None:
             raise AppServerError("Not authorized", code="UNAUTHORIZED")
@@ -767,52 +770,58 @@ def register_command_handlers(server: "AppServer") -> None:
 
     # ── thread.rename ────────────────────────────────────────────────────
     async def _thread_rename(request_id, params, client_id, session_id, registry):
+        typed = validate_thread_params("thread.rename", params)
         session = await registry.get_session(client_id, session_id)
         if session is None:
             raise AppServerError("Not authorized", code="UNAUTHORIZED")
         threads = getattr(session.services, "thread_runtime", None)
         if threads is None:
             raise AppServerError("Thread runtime not available", code="INTERNAL")
-        thread = await threads.rename_thread(params["thread_id"], params["title"])
+        thread = await threads.rename_thread(typed.thread_id, typed.title)
         return {"result": {"thread_id": thread.thread_id, "title": thread.title}}
 
     # ── thread.archive ───────────────────────────────────────────────────
     async def _thread_archive(request_id, params, client_id, session_id, registry):
+        typed = validate_thread_params("thread.archive", params)
         session = await registry.get_session(client_id, session_id)
         if session is None:
             raise AppServerError("Not authorized", code="UNAUTHORIZED")
         threads = getattr(session.services, "thread_runtime", None)
         if threads is None:
             raise AppServerError("Thread runtime not available", code="INTERNAL")
-        thread = await threads.archive_thread(params["thread_id"])
+        thread = await threads.archive_thread(typed.thread_id)
         return {"result": {"thread_id": thread.thread_id, "status": thread.status}}
 
     # ── thread.delete ────────────────────────────────────────────────────
     async def _thread_delete(request_id, params, client_id, session_id, registry):
+        typed = validate_thread_params("thread.delete", params)
         session = await registry.get_session(client_id, session_id)
         if session is None:
             raise AppServerError("Not authorized", code="UNAUTHORIZED")
         threads = getattr(session.services, "thread_runtime", None)
         if threads is None:
             raise AppServerError("Thread runtime not available", code="INTERNAL")
-        await threads.delete_thread(params["thread_id"])
+        await threads.delete_thread(typed.thread_id)
         return {"result": {"deleted": True}}
 
     # ── chat.abort ───────────────────────────────────────────────────────
     async def _chat_abort(request_id, params, client_id, session_id, registry):
         from miqi.protocol.commands import AbortTurn
 
+        typed = validate_thread_params("chat.abort", params)
         session = await registry.get_session(client_id, session_id)
         if session is None:
             raise AppServerError("Not authorized", code="UNAUTHORIZED")
-        thread_id = params.get("thread_id", "default")
+        thread_id = typed.thread_id or "default"
         await session.submit(AbortTurn(thread_id=thread_id))
         return {"result": {"aborted": True}}
 
-    server.register_method("thread.create", _thread_create)
-    server.register_method("thread.list", _thread_list)
-    server.register_method("thread.rename", _thread_rename)
-    server.register_method("thread.archive", _thread_archive)
-    server.register_method("thread.delete", _thread_delete)
-    server.register_method("chat.abort", _chat_abort)
+    import miqi.runtime.protocol_specs as protocol_specs
+
+    server.register_method("thread.create", _thread_create, spec=protocol_specs.THREAD_CREATE_COMPAT)
+    server.register_method("thread.list", _thread_list, spec=protocol_specs.THREAD_LIST_COMPAT)
+    server.register_method("thread.rename", _thread_rename, spec=protocol_specs.THREAD_RENAME_COMPAT)
+    server.register_method("thread.archive", _thread_archive, spec=protocol_specs.THREAD_ARCHIVE_COMPAT)
+    server.register_method("thread.delete", _thread_delete, spec=protocol_specs.THREAD_DELETE_COMPAT)
+    server.register_method("chat.abort", _chat_abort, spec=protocol_specs.CHAT_ABORT)
     logger.info("AppServer: registered command handlers")

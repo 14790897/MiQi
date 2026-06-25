@@ -315,6 +315,101 @@ class ThreadLoadedListParams(_Params):
     pass
 
 
+# ── compatibility methods ──────────────────────────────────────────────────
+
+
+class ThreadCreateCompatParams(_Params):
+    """thread.create — legacy create a thread in the active session."""
+
+    title: str | None = None
+    thread_id: str | None = Field(default=None, validation_alias="thread_id")
+
+    @field_validator("title", "thread_id", mode="before")
+    @classmethod
+    def _optional_string(cls, value: Any) -> Any:
+        if value is not None and not isinstance(value, str):
+            raise ValueError("must be a string")
+        return value
+
+
+class ThreadListCompatParams(_Params):
+    """thread.list — legacy list threads. Empty params."""
+    pass
+
+
+class ThreadRenameCompatParams(_Params):
+    """thread.rename — legacy rename a thread."""
+
+    thread_id: str = Field(default="", validation_alias="thread_id")
+    title: str = ""
+
+    @model_validator(mode="after")
+    def _check_required(self) -> "ThreadRenameCompatParams":
+        if not self.thread_id.strip():
+            raise ValueError("thread_id is required")
+        if not self.title.strip():
+            raise ValueError("title is required")
+        return self
+
+    @field_validator("thread_id", "title", mode="before")
+    @classmethod
+    def _non_empty(cls, value: Any) -> Any:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("must be a non-empty string")
+        return value
+
+
+class ThreadArchiveCompatParams(_Params):
+    """thread.archive — legacy archive a thread."""
+
+    thread_id: str = Field(default="", validation_alias="thread_id")
+
+    @model_validator(mode="after")
+    def _check_required(self) -> "ThreadArchiveCompatParams":
+        if not self.thread_id.strip():
+            raise ValueError("thread_id is required")
+        return self
+
+    @field_validator("thread_id", mode="before")
+    @classmethod
+    def _non_empty(cls, value: Any) -> Any:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("thread_id must be a non-empty string")
+        return value
+
+
+class ThreadDeleteCompatParams(_Params):
+    """thread.delete — legacy delete a thread."""
+
+    thread_id: str = Field(default="", validation_alias="thread_id")
+
+    @model_validator(mode="after")
+    def _check_required(self) -> "ThreadDeleteCompatParams":
+        if not self.thread_id.strip():
+            raise ValueError("thread_id is required")
+        return self
+
+    @field_validator("thread_id", mode="before")
+    @classmethod
+    def _non_empty(cls, value: Any) -> Any:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("thread_id must be a non-empty string")
+        return value
+
+
+class ChatAbortParams(_Params):
+    """chat.abort — abort the active turn in a session."""
+
+    thread_id: str | None = Field(default=None, validation_alias="thread_id")
+
+    @field_validator("thread_id", mode="before")
+    @classmethod
+    def _optional_string(cls, value: Any) -> Any:
+        if value is not None and not isinstance(value, str):
+            raise ValueError("thread_id must be a string")
+        return value
+
+
 THREAD_METHOD_PARAM_MODELS: dict[str, type[BaseModel]] = {
     "thread/start": ThreadStartParams,
     "thread/resume": ThreadResumeParams,
@@ -328,6 +423,12 @@ THREAD_METHOD_PARAM_MODELS: dict[str, type[BaseModel]] = {
     "thread/name/set": ThreadNameSetParams,
     "thread/rollback": ThreadRollbackParams,
     "thread/loaded/list": ThreadLoadedListParams,
+    "thread.create": ThreadCreateCompatParams,
+    "thread.list": ThreadListCompatParams,
+    "thread.rename": ThreadRenameCompatParams,
+    "thread.archive": ThreadArchiveCompatParams,
+    "thread.delete": ThreadDeleteCompatParams,
+    "chat.abort": ChatAbortParams,
 }
 
 
