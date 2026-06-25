@@ -190,18 +190,6 @@ RESULT_TYPE_NAME_BY_METHOD = {
             "experimentalFeature/list",
             "experimentalFeature/enablement/set",
             "permissionProfile/list",
-            "plugin/list",
-            "plugin/installed",
-            "plugin/read",
-            "plugin/skill/read",
-            "plugin/install",
-            "plugin/uninstall",
-            "marketplace/add",
-            "marketplace/remove",
-            "marketplace/upgrade",
-            "skills/list",
-            "skills/extraRoots/set",
-            "hooks/list",
         }
     },
 }
