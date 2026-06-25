@@ -50,6 +50,11 @@ from miqi.runtime.plugin_skill_request_models import (
     SkillsListParams,
 )
 from miqi.runtime.plugin_skill_response_models import PLUGIN_SKILL_METHOD_RESULT_MODELS
+from miqi.runtime.session_request_models import (
+    SESSION_METHOD_PARAM_MODELS,
+    SessionKeyParams,
+)
+from miqi.runtime.session_response_models import SESSION_METHOD_RESULT_MODELS
 from miqi.runtime.process_request_models import (
     CommandExecParams,
     CommandExecResizeParams,
@@ -280,6 +285,63 @@ HOOKS_LIST = model_spec(
     HooksListParams,
     scope=MethodScope.CONNECTION,
     result_model=PLUGIN_SKILL_METHOD_RESULT_MODELS["hooks/list"],
+)
+
+# ── sessions ──────────────────────────────────────────────────────────────
+
+SESSIONS_LIST = model_spec(
+    "sessions.list",
+    SESSION_METHOD_PARAM_MODELS["sessions.list"],
+    scope=MethodScope.SESSION,
+    result_model=SESSION_METHOD_RESULT_MODELS["sessions.list"],
+)
+SESSIONS_GET = model_spec(
+    "sessions.get",
+    SessionKeyParams,
+    scope=MethodScope.SESSION,
+    result_model=SESSION_METHOD_RESULT_MODELS["sessions.get"],
+)
+SESSIONS_DELETE = model_spec(
+    "sessions.delete",
+    SessionKeyParams,
+    scope=MethodScope.SESSION,
+    result_model=SESSION_METHOD_RESULT_MODELS["sessions.delete"],
+)
+SESSIONS_ARCHIVE = model_spec(
+    "sessions.archive",
+    SessionKeyParams,
+    scope=MethodScope.SESSION,
+    result_model=SESSION_METHOD_RESULT_MODELS["sessions.archive"],
+)
+SESSIONS_UNARCHIVE = model_spec(
+    "sessions.unarchive",
+    SessionKeyParams,
+    scope=MethodScope.SESSION,
+    result_model=SESSION_METHOD_RESULT_MODELS["sessions.unarchive"],
+)
+SESSIONS_LIST_ARCHIVED = model_spec(
+    "sessions.list_archived",
+    SESSION_METHOD_PARAM_MODELS["sessions.list_archived"],
+    scope=MethodScope.SESSION,
+    result_model=SESSION_METHOD_RESULT_MODELS["sessions.list_archived"],
+)
+SESSIONS_GET_TRACKED_FILES = model_spec(
+    "sessions.get_tracked_files",
+    SessionKeyParams,
+    scope=MethodScope.SESSION,
+    result_model=SESSION_METHOD_RESULT_MODELS["sessions.get_tracked_files"],
+)
+SESSIONS_CLEAR_TRACKED_FILES = model_spec(
+    "sessions.clear_tracked_files",
+    SessionKeyParams,
+    scope=MethodScope.SESSION,
+    result_model=SESSION_METHOD_RESULT_MODELS["sessions.clear_tracked_files"],
+)
+SESSIONS_CLAIM_LEGACY = model_spec(
+    "sessions.claim_legacy",
+    SessionKeyParams,
+    scope=MethodScope.SESSION,
+    result_model=SESSION_METHOD_RESULT_MODELS["sessions.claim_legacy"],
 )
 
 TURN_START = model_spec(

@@ -24,6 +24,7 @@ from typing import Any
 from loguru import logger
 
 from miqi.runtime.app_server import AppServerError
+from miqi.runtime.session_request_models import validate_session_params
 from miqi.session.manager import OwnershipError
 
 
@@ -60,6 +61,8 @@ async def sessions_list_handler(
     with status: "running". Disk-only sessions get status: "inactive".
     Sessions from other clients are never visible.
     """
+    validate_session_params("sessions.list", params)
+
     # Active sessions from AppServer registry
     active_sids: set[str] = set(registry.list_sessions(client_id))
 
@@ -131,9 +134,8 @@ async def sessions_get_handler(
     If the session is active in AppServer, returns runtime info.
     Otherwise, falls back to SessionManager disk data.
     """
-    session_key = params.get("session_key", "")
-    if not session_key:
-        raise AppServerError("session_key is required", code="INVALID_PARAMS")
+    typed = validate_session_params("sessions.get", params)
+    session_key = typed.session_key
 
     sid = _client_session_id(client_id, session_key)
 
@@ -190,11 +192,10 @@ async def sessions_delete_handler(
     2. Destroy sandbox
     3. Remove disk files via SessionManager
     """
-    import miqi.bridge.server as bridge_module
+    typed = validate_session_params("sessions.delete", params)
+    session_key = typed.session_key
 
-    session_key = params.get("session_key", "")
-    if not session_key:
-        raise AppServerError("session_key is required", code="INVALID_PARAMS")
+    import miqi.bridge.server as bridge_module
 
     sid = _client_session_id(client_id, session_key)
 
@@ -255,11 +256,10 @@ async def sessions_archive_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Archive a session: stop RuntimeSession, clean sandbox, mark archived."""
-    import miqi.bridge.server as bridge_module
+    typed = validate_session_params("sessions.archive", params)
+    session_key = typed.session_key
 
-    session_key = params.get("session_key", "")
-    if not session_key:
-        raise AppServerError("session_key is required", code="INVALID_PARAMS")
+    import miqi.bridge.server as bridge_module
 
     sid = _client_session_id(client_id, session_key)
 
@@ -310,9 +310,8 @@ async def sessions_unarchive_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Unarchive a session — restore it to the default session list."""
-    session_key = params.get("session_key", "")
-    if not session_key:
-        raise AppServerError("session_key is required", code="INVALID_PARAMS")
+    typed = validate_session_params("sessions.unarchive", params)
+    session_key = typed.session_key
 
     sm = _get_session_manager()
     try:
@@ -334,6 +333,8 @@ async def sessions_list_archived_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """List only archived sessions (client-scoped)."""
+    validate_session_params("sessions.list_archived", params)
+
     from miqi.session.manager import safe_filename
 
     sm = _get_session_manager()
@@ -361,9 +362,8 @@ async def sessions_get_tracked_files_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Return tracked files for a session from tracked_files.json (client-scoped)."""
-    session_key = params.get("session_key", "")
-    if not session_key:
-        raise AppServerError("session_key is required", code="INVALID_PARAMS")
+    typed = validate_session_params("sessions.get_tracked_files", params)
+    session_key = typed.session_key
 
     sm = _get_session_manager()
     try:
@@ -389,9 +389,8 @@ async def sessions_clear_tracked_files_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Remove all tracked file entries for a session (client-scoped)."""
-    session_key = params.get("session_key", "")
-    if not session_key:
-        raise AppServerError("session_key is required", code="INVALID_PARAMS")
+    typed = validate_session_params("sessions.clear_tracked_files", params)
+    session_key = typed.session_key
 
     sm = _get_session_manager()
     try:
@@ -421,9 +420,8 @@ async def sessions_claim_legacy_handler(
     A session that is already owned by a different client cannot be
     claimed — it will return UNAUTHORIZED.
     """
-    session_key = params.get("session_key", "")
-    if not session_key:
-        raise AppServerError("session_key is required", code="INVALID_PARAMS")
+    typed = validate_session_params("sessions.claim_legacy", params)
+    session_key = typed.session_key
 
     sm = _get_session_manager()
     try:
