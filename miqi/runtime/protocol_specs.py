@@ -36,6 +36,20 @@ from miqi.runtime.core_request_models import (
     PermissionProfileListParams,
 )
 from miqi.runtime.core_response_models import CORE_METHOD_RESULT_MODELS
+from miqi.runtime.plugin_skill_request_models import (
+    PLUGIN_SKILL_METHOD_PARAM_MODELS,
+    HooksListParams,
+    MarketplaceAddParams,
+    MarketplaceRemoveParams,
+    MarketplaceUpgradeParams,
+    PluginInstallParams,
+    PluginReadParams,
+    PluginSkillReadParams,
+    PluginUninstallParams,
+    SkillsExtraRootsSetParams,
+    SkillsListParams,
+)
+from miqi.runtime.plugin_skill_response_models import PLUGIN_SKILL_METHOD_RESULT_MODELS
 from miqi.runtime.process_request_models import (
     CommandExecParams,
     CommandExecResizeParams,
@@ -187,6 +201,85 @@ PERMISSION_PROFILE_LIST = model_spec(
     PermissionProfileListParams,
     scope=MethodScope.CONNECTION,
     result_model=CORE_METHOD_RESULT_MODELS["permissionProfile/list"],
+)
+
+# ── plugin / marketplace ─────────────────────────────────────────────────
+
+PLUGIN_LIST = model_spec(
+    "plugin/list",
+    PLUGIN_SKILL_METHOD_PARAM_MODELS["plugin/list"],
+    scope=MethodScope.CONNECTION,
+    result_model=PLUGIN_SKILL_METHOD_RESULT_MODELS["plugin/list"],
+)
+PLUGIN_INSTALLED = model_spec(
+    "plugin/installed",
+    PLUGIN_SKILL_METHOD_PARAM_MODELS["plugin/installed"],
+    scope=MethodScope.CONNECTION,
+    result_model=PLUGIN_SKILL_METHOD_RESULT_MODELS["plugin/installed"],
+)
+PLUGIN_READ = model_spec(
+    "plugin/read",
+    PluginReadParams,
+    scope=MethodScope.CONNECTION,
+    result_model=PLUGIN_SKILL_METHOD_RESULT_MODELS["plugin/read"],
+)
+PLUGIN_SKILL_READ = model_spec(
+    "plugin/skill/read",
+    PluginSkillReadParams,
+    scope=MethodScope.CONNECTION,
+    result_model=PLUGIN_SKILL_METHOD_RESULT_MODELS["plugin/skill/read"],
+)
+PLUGIN_INSTALL = model_spec(
+    "plugin/install",
+    PluginInstallParams,
+    scope=MethodScope.CONNECTION,
+    result_model=PLUGIN_SKILL_METHOD_RESULT_MODELS["plugin/install"],
+)
+PLUGIN_UNINSTALL = model_spec(
+    "plugin/uninstall",
+    PluginUninstallParams,
+    scope=MethodScope.CONNECTION,
+    result_model=PLUGIN_SKILL_METHOD_RESULT_MODELS["plugin/uninstall"],
+)
+MARKETPLACE_ADD = model_spec(
+    "marketplace/add",
+    MarketplaceAddParams,
+    scope=MethodScope.CONNECTION,
+    result_model=PLUGIN_SKILL_METHOD_RESULT_MODELS["marketplace/add"],
+)
+MARKETPLACE_REMOVE = model_spec(
+    "marketplace/remove",
+    MarketplaceRemoveParams,
+    scope=MethodScope.CONNECTION,
+    result_model=PLUGIN_SKILL_METHOD_RESULT_MODELS["marketplace/remove"],
+)
+MARKETPLACE_UPGRADE = model_spec(
+    "marketplace/upgrade",
+    MarketplaceUpgradeParams,
+    scope=MethodScope.CONNECTION,
+    result_model=PLUGIN_SKILL_METHOD_RESULT_MODELS["marketplace/upgrade"],
+)
+
+# ── skills / hooks ───────────────────────────────────────────────────────
+
+SKILLS_LIST = model_spec(
+    "skills/list",
+    SkillsListParams,
+    scope=MethodScope.CONNECTION,
+    result_model=PLUGIN_SKILL_METHOD_RESULT_MODELS["skills/list"],
+)
+SKILLS_EXTRA_ROOTS_SET = model_spec(
+    "skills/extraRoots/set",
+    SkillsExtraRootsSetParams,
+    scope=MethodScope.CONNECTION,
+    emits=["skills/changed"],
+    result_model=PLUGIN_SKILL_METHOD_RESULT_MODELS["skills/extraRoots/set"],
+)
+HOOKS_LIST = model_spec(
+    "hooks/list",
+    HooksListParams,
+    scope=MethodScope.CONNECTION,
+    result_model=PLUGIN_SKILL_METHOD_RESULT_MODELS["hooks/list"],
 )
 
 TURN_START = model_spec(
