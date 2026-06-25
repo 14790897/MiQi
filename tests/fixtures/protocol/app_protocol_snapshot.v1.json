@@ -1752,18 +1752,42 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "hooks/list",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "hooks/list — list hooks in working directories.",
+          "properties": {
+            "cwds": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "hooks/list — hooks found in workspace(s).",
+          "properties": {
+            "hooks": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "hooks"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -1967,48 +1991,154 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "marketplace/add",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "marketplace/add — register a marketplace source.",
+          "properties": {
+            "marketplaceName": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "name": {
+              "default": "",
+              "type": "string"
+            },
+            "source": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "marketplace/add — registered marketplace view.",
+          "properties": {
+            "alreadyPresent": {
+              "type": "boolean"
+            },
+            "marketplace": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "alreadyPresent",
+            "marketplace"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "marketplace/remove",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "marketplace/remove — unregister a marketplace.",
+          "properties": {
+            "marketplaceName": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "name": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "marketplace/remove — result of marketplace removal.",
+          "properties": {
+            "marketplaceName": {
+              "type": "string"
+            },
+            "removed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "marketplaceName",
+            "removed"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "marketplace/upgrade",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "marketplace/upgrade — refresh marketplace listings or a single one.",
+          "properties": {
+            "marketplaceName": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "marketplace/upgrade — selected marketplaces for refresh.",
+          "properties": {
+            "errors": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "selectedMarketplaces": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "selectedMarketplaces"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -2394,93 +2524,318 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "plugin/install",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "plugin/install — install a plugin from source.",
+          "properties": {
+            "name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "pluginId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "pluginName": {
+              "default": "",
+              "type": "string"
+            },
+            "source": {
+              "default": "",
+              "type": "string"
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "plugin/install — newly installed plugin reference.",
+          "properties": {
+            "plugin": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "plugin"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "plugin/installed",
         "paramsSchema": {
+          "additionalProperties": true,
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "plugin/installed — list of locally installed plugins.",
+          "properties": {
+            "plugins": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "plugins"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "plugin/list",
         "paramsSchema": {
+          "additionalProperties": true,
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "plugin/list — full marketplace and plugin catalog.",
+          "properties": {
+            "featuredPluginIds": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "marketplaceLoadErrors": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "marketplaces": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "plugins": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "marketplaces",
+            "plugins"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "plugin/read",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "plugin/read — resolve a single plugin's metadata.\n\nAccepts pluginName, plugin_name, or name.",
+          "properties": {
+            "marketplaceName": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "pluginName": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "plugin/read — single plugin detail.",
+          "properties": {
+            "plugin": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "plugin"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "plugin/skill/read",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "plugin/skill/read — read a skill definition from a plugin.",
+          "properties": {
+            "marketplaceName": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "pluginName": {
+              "default": "",
+              "type": "string"
+            },
+            "skillName": {
+              "default": "",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "plugin/skill/read — skill markdown content.",
+          "properties": {
+            "content": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "content"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "plugin/uninstall",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "plugin/uninstall — remove an installed plugin.",
+          "properties": {
+            "name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "pluginId": {
+              "default": "",
+              "type": "string"
+            },
+            "pluginName": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "plugin/uninstall — result of uninstall operation.",
+          "properties": {
+            "pluginId": {
+              "type": "string"
+            },
+            "removed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "pluginId",
+            "removed"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -3201,33 +3556,74 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
-        "emits": [],
+        "description": null,
+        "emits": [
+          "skills/changed"
+        ],
         "eventSchemas": {},
         "method": "skills/extraRoots/set",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "skills/extraRoots/set — update extra skills roots.",
+          "properties": {
+            "roots": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "roots"
+          ],
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "skills/extraRoots/set — empty result on success.",
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "description": null,
         "emits": [],
         "eventSchemas": {},
         "method": "skills/list",
         "paramsSchema": {
+          "additionalProperties": true,
+          "description": "skills/list — list skills across one or more working directories.",
+          "properties": {
+            "cwds": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
           "type": "object"
         },
         "resultSchema": {
+          "additionalProperties": false,
+          "description": "skills/list — skills found in workspace(s).",
+          "properties": {
+            "skills": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "skills"
+          ],
           "type": "object"
         },
-        "scope": "session",
-        "stability": "legacy"
+        "scope": "connection",
+        "stability": "stable"
       },
       {
         "deprecatedBy": null,
@@ -3846,13 +4242,13 @@
   "catalogVersion": 1,
   "generatedTypes": {
     "outputPath": "apps/desktop/src/shared/app-protocol.ts",
-    "sha256": "45d08878a814926b66c667bd42942368d63cdda7a16f24b5d08199c2bdbb5779",
+    "sha256": "22682f1b95421f9727191740f5ef8cdbd0a68fab1e19d05ecf14a362f0df1c77",
     "source": "miqi.runtime.export_app_protocol_ts.render_typescript_contract"
   },
   "methodCounts": {
-    "legacy": 108,
+    "legacy": 96,
     "total": 152,
-    "typed": 44
+    "typed": 56
   },
   "schemaVersion": 1
 }

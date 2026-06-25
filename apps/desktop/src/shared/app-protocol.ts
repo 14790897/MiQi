@@ -125,6 +125,10 @@ export interface FuzzySessionUpdateParams {
   sessionId: string
 }
 
+export interface HooksListParams {
+  cwds?: string[]
+}
+
 export interface InitializeParams {
   capabilities?: null | unknown
   clientId?: null | string
@@ -132,6 +136,21 @@ export interface InitializeParams {
 }
 
 export interface InitializedParams {
+}
+
+export interface MarketplaceAddParams {
+  marketplaceName?: null | string
+  name?: string
+  source?: string
+}
+
+export interface MarketplaceRemoveParams {
+  marketplaceName?: null | string
+  name?: string
+}
+
+export interface MarketplaceUpgradeParams {
+  marketplaceName?: null | string
 }
 
 export interface ModelListParams {
@@ -146,6 +165,38 @@ export interface ModelProviderCapabilitiesReadParams {
 export interface PermissionProfileListParams {
   cursor?: null | string
   limit?: number
+}
+
+export interface PluginInstallParams {
+  name?: null | string
+  pluginId?: null | string
+  pluginName?: string
+  source?: string
+  url?: null | string
+}
+
+export interface PluginInstalledParams {
+}
+
+export interface PluginListParams {
+}
+
+export interface PluginReadParams {
+  marketplaceName?: null | string
+  name?: null | string
+  pluginName?: string
+}
+
+export interface PluginSkillReadParams {
+  marketplaceName?: null | string
+  pluginName?: string
+  skillName?: string
+}
+
+export interface PluginUninstallParams {
+  name?: null | string
+  pluginId?: string
+  pluginName?: null | string
 }
 
 export interface ProcessKillParams {
@@ -176,6 +227,14 @@ export interface ProcessWriteStdinParams {
 }
 
 export interface PythonCheckParams {
+}
+
+export interface SkillsExtraRootsSetParams {
+  roots: string[]
+}
+
+export interface SkillsListParams {
+  cwds?: string[]
 }
 
 export interface StatusParams {
@@ -308,6 +367,10 @@ export interface FuzzySessionStopResult {
 export interface FuzzySessionUpdateResult {
 }
 
+export interface HooksListResult {
+  hooks: Record<string, unknown>[]
+}
+
 export interface InitializeResult {
   capabilities: unknown
   clientId: string
@@ -322,6 +385,21 @@ export interface InitializeResult {
 export interface InitializedResult {
 }
 
+export interface MarketplaceAddResult {
+  alreadyPresent: boolean
+  marketplace: Record<string, unknown>
+}
+
+export interface MarketplaceRemoveResult {
+  marketplaceName: string
+  removed: boolean
+}
+
+export interface MarketplaceUpgradeResult {
+  errors?: Record<string, unknown>[]
+  selectedMarketplaces: string[]
+}
+
 export interface ModelListResult {
   models: Record<string, unknown>[]
 }
@@ -333,6 +411,34 @@ export interface ModelProviderCapabilitiesReadResult {
 export interface PermissionProfileListResult {
   data: Record<string, unknown>[]
   nextCursor?: null | string
+}
+
+export interface PluginInstallResult {
+  plugin: Record<string, unknown>
+}
+
+export interface PluginInstalledResult {
+  plugins: Record<string, unknown>[]
+}
+
+export interface PluginListResult {
+  featuredPluginIds?: string[]
+  marketplaceLoadErrors?: Record<string, unknown>[]
+  marketplaces: Record<string, unknown>[]
+  plugins: Record<string, unknown>[]
+}
+
+export interface PluginReadResult {
+  plugin: Record<string, unknown>
+}
+
+export interface PluginSkillReadResult {
+  content: string
+}
+
+export interface PluginUninstallResult {
+  pluginId: string
+  removed: boolean
 }
 
 export interface ProcessKillResult {
@@ -352,6 +458,13 @@ export interface PythonCheckResult {
   issues: string[]
   ok: boolean
   python_version: string
+}
+
+export interface SkillsExtraRootsSetResult {
+}
+
+export interface SkillsListResult {
+  skills: Record<string, unknown>[]
 }
 
 export interface StatusResult {
@@ -424,16 +537,28 @@ export const APP_METHODS = [
   'fuzzyFileSearch/sessionStart',
   'fuzzyFileSearch/sessionStop',
   'fuzzyFileSearch/sessionUpdate',
+  'hooks/list',
   'initialize',
   'initialized',
+  'marketplace/add',
+  'marketplace/remove',
+  'marketplace/upgrade',
   'model/list',
   'modelProvider/capabilities/read',
   'permissionProfile/list',
+  'plugin/install',
+  'plugin/installed',
+  'plugin/list',
+  'plugin/read',
+  'plugin/skill/read',
+  'plugin/uninstall',
   'process/kill',
   'process/resizePty',
   'process/spawn',
   'process/writeStdin',
   'python.check',
+  'skills/extraRoots/set',
+  'skills/list',
   'status',
   'thread/compact/start',
   'thread/inject_items',
@@ -467,16 +592,28 @@ export interface AppMethodParams {
   'fuzzyFileSearch/sessionStart': FuzzySessionStartParams
   'fuzzyFileSearch/sessionStop': FuzzySessionStopParams
   'fuzzyFileSearch/sessionUpdate': FuzzySessionUpdateParams
+  'hooks/list': HooksListParams
   'initialize': InitializeParams
   'initialized': InitializedParams
+  'marketplace/add': MarketplaceAddParams
+  'marketplace/remove': MarketplaceRemoveParams
+  'marketplace/upgrade': MarketplaceUpgradeParams
   'model/list': ModelListParams
   'modelProvider/capabilities/read': ModelProviderCapabilitiesReadParams
   'permissionProfile/list': PermissionProfileListParams
+  'plugin/install': PluginInstallParams
+  'plugin/installed': PluginInstalledParams
+  'plugin/list': PluginListParams
+  'plugin/read': PluginReadParams
+  'plugin/skill/read': PluginSkillReadParams
+  'plugin/uninstall': PluginUninstallParams
   'process/kill': ProcessKillParams
   'process/resizePty': ProcessResizePtyParams
   'process/spawn': ProcessSpawnParams
   'process/writeStdin': ProcessWriteStdinParams
   'python.check': PythonCheckParams
+  'skills/extraRoots/set': SkillsExtraRootsSetParams
+  'skills/list': SkillsListParams
   'status': StatusParams
   'thread/compact/start': ThreadCompactStartParams
   'thread/inject_items': ThreadInjectItemsParams
@@ -509,16 +646,28 @@ export interface AppMethodResult {
   'fuzzyFileSearch/sessionStart': FuzzySessionStartResult
   'fuzzyFileSearch/sessionStop': FuzzySessionStopResult
   'fuzzyFileSearch/sessionUpdate': FuzzySessionUpdateResult
+  'hooks/list': HooksListResult
   'initialize': InitializeResult
   'initialized': InitializedResult
+  'marketplace/add': MarketplaceAddResult
+  'marketplace/remove': MarketplaceRemoveResult
+  'marketplace/upgrade': MarketplaceUpgradeResult
   'model/list': ModelListResult
   'modelProvider/capabilities/read': ModelProviderCapabilitiesReadResult
   'permissionProfile/list': PermissionProfileListResult
+  'plugin/install': PluginInstallResult
+  'plugin/installed': PluginInstalledResult
+  'plugin/list': PluginListResult
+  'plugin/read': PluginReadResult
+  'plugin/skill/read': PluginSkillReadResult
+  'plugin/uninstall': PluginUninstallResult
   'process/kill': ProcessKillResult
   'process/resizePty': ProcessResizePtyResult
   'process/spawn': ProcessSpawnResult
   'process/writeStdin': ProcessWriteStdinResult
   'python.check': PythonCheckResult
+  'skills/extraRoots/set': SkillsExtraRootsSetResult
+  'skills/list': SkillsListResult
   'status': StatusResult
   'thread/compact/start': Record<string, unknown>
   'thread/inject_items': Record<string, unknown>
@@ -551,16 +700,28 @@ export interface AppMethodEvents {
   'fuzzyFileSearch/sessionStart': never
   'fuzzyFileSearch/sessionStop': never
   'fuzzyFileSearch/sessionUpdate': 'fuzzyFileSearch/sessionCompleted' | 'fuzzyFileSearch/sessionUpdated'
+  'hooks/list': never
   'initialize': never
   'initialized': never
+  'marketplace/add': never
+  'marketplace/remove': never
+  'marketplace/upgrade': never
   'model/list': never
   'modelProvider/capabilities/read': never
   'permissionProfile/list': never
+  'plugin/install': never
+  'plugin/installed': never
+  'plugin/list': never
+  'plugin/read': never
+  'plugin/skill/read': never
+  'plugin/uninstall': never
   'process/kill': never
   'process/resizePty': never
   'process/spawn': 'process/exited' | 'process/outputDelta'
   'process/writeStdin': never
   'python.check': never
+  'skills/extraRoots/set': 'skills/changed'
+  'skills/list': never
   'status': never
   'thread/compact/start': 'item/completed' | 'item/started' | 'turn/completed' | 'turn/started'
   'thread/inject_items': never
