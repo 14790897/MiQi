@@ -11,6 +11,8 @@ from miqi.runtime.core_response_models import CORE_METHOD_RESULT_MODELS
 from miqi.runtime.filesystem_request_models import FILESYSTEM_METHOD_PARAM_MODELS
 from miqi.runtime.plugin_skill_request_models import PLUGIN_SKILL_METHOD_PARAM_MODELS
 from miqi.runtime.plugin_skill_response_models import PLUGIN_SKILL_METHOD_RESULT_MODELS
+from miqi.runtime.session_request_models import SESSION_METHOD_PARAM_MODELS
+from miqi.runtime.session_response_models import SESSION_METHOD_RESULT_MODELS
 from miqi.runtime.process_request_models import COMMAND_PROCESS_METHOD_PARAM_MODELS
 from miqi.runtime.filesystem_response_models import (
     FILESYSTEM_EVENT_MODELS,
@@ -31,6 +33,7 @@ DEFAULT_OUTPUT = ROOT / "apps" / "desktop" / "src" / "shared" / "app-protocol.ts
 MODEL_MAP = {
     **CORE_METHOD_PARAM_MODELS,
     **PLUGIN_SKILL_METHOD_PARAM_MODELS,
+    **SESSION_METHOD_PARAM_MODELS,
     **TURN_METHOD_PARAM_MODELS,
     **COMMAND_PROCESS_METHOD_PARAM_MODELS,
     **FILESYSTEM_METHOD_PARAM_MODELS,
@@ -39,6 +42,7 @@ MODEL_MAP = {
 RESULT_MODEL_MAP = {
     **CORE_METHOD_RESULT_MODELS,
     **PLUGIN_SKILL_METHOD_RESULT_MODELS,
+    **SESSION_METHOD_RESULT_MODELS,
     **PROCESS_METHOD_RESULT_MODELS,
     **FILESYSTEM_METHOD_RESULT_MODELS,
 }
@@ -75,6 +79,15 @@ METHOD_TO_SPEC = {
     "skills/list": specs.SKILLS_LIST,
     "skills/extraRoots/set": specs.SKILLS_EXTRA_ROOTS_SET,
     "hooks/list": specs.HOOKS_LIST,
+    "sessions.list": specs.SESSIONS_LIST,
+    "sessions.get": specs.SESSIONS_GET,
+    "sessions.delete": specs.SESSIONS_DELETE,
+    "sessions.archive": specs.SESSIONS_ARCHIVE,
+    "sessions.unarchive": specs.SESSIONS_UNARCHIVE,
+    "sessions.list_archived": specs.SESSIONS_LIST_ARCHIVED,
+    "sessions.get_tracked_files": specs.SESSIONS_GET_TRACKED_FILES,
+    "sessions.clear_tracked_files": specs.SESSIONS_CLEAR_TRACKED_FILES,
+    "sessions.claim_legacy": specs.SESSIONS_CLAIM_LEGACY,
     "turn/start": specs.TURN_START,
     "turn/interrupt": specs.TURN_INTERRUPT,
     "turn/steer": specs.TURN_STEER,
@@ -130,6 +143,15 @@ TYPE_NAME_BY_METHOD = {
     "skills/list": "SkillsListParams",
     "skills/extraRoots/set": "SkillsExtraRootsSetParams",
     "hooks/list": "HooksListParams",
+    "sessions.list": "SessionsListParams",
+    "sessions.get": "SessionsGetParams",
+    "sessions.delete": "SessionsDeleteParams",
+    "sessions.archive": "SessionsArchiveParams",
+    "sessions.unarchive": "SessionsUnarchiveParams",
+    "sessions.list_archived": "SessionsListArchivedParams",
+    "sessions.get_tracked_files": "SessionsGetTrackedFilesParams",
+    "sessions.clear_tracked_files": "SessionsClearTrackedFilesParams",
+    "sessions.claim_legacy": "SessionsClaimLegacyParams",
     "turn/start": "TurnStartParams",
     "turn/interrupt": "TurnInterruptParams",
     "turn/steer": "TurnSteerParams",
