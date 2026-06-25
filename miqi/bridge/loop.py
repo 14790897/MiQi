@@ -254,15 +254,15 @@ class BridgeRuntimeLoop:
             sessions_clear_tracked_files_handler,
             sessions_claim_legacy_handler,
         )
-        self._app_server.register_method("sessions.list", sessions_list_handler)
-        self._app_server.register_method("sessions.get", sessions_get_handler)
-        self._app_server.register_method("sessions.delete", sessions_delete_handler)
-        self._app_server.register_method("sessions.archive", sessions_archive_handler)
-        self._app_server.register_method("sessions.unarchive", sessions_unarchive_handler)
-        self._app_server.register_method("sessions.list_archived", sessions_list_archived_handler)
-        self._app_server.register_method("sessions.get_tracked_files", sessions_get_tracked_files_handler)
-        self._app_server.register_method("sessions.clear_tracked_files", sessions_clear_tracked_files_handler)
-        self._app_server.register_method("sessions.claim_legacy", sessions_claim_legacy_handler)
+        self._app_server.register_method("sessions.list", sessions_list_handler, spec=protocol_specs.SESSIONS_LIST)
+        self._app_server.register_method("sessions.get", sessions_get_handler, spec=protocol_specs.SESSIONS_GET)
+        self._app_server.register_method("sessions.delete", sessions_delete_handler, spec=protocol_specs.SESSIONS_DELETE)
+        self._app_server.register_method("sessions.archive", sessions_archive_handler, spec=protocol_specs.SESSIONS_ARCHIVE)
+        self._app_server.register_method("sessions.unarchive", sessions_unarchive_handler, spec=protocol_specs.SESSIONS_UNARCHIVE)
+        self._app_server.register_method("sessions.list_archived", sessions_list_archived_handler, spec=protocol_specs.SESSIONS_LIST_ARCHIVED)
+        self._app_server.register_method("sessions.get_tracked_files", sessions_get_tracked_files_handler, spec=protocol_specs.SESSIONS_GET_TRACKED_FILES)
+        self._app_server.register_method("sessions.clear_tracked_files", sessions_clear_tracked_files_handler, spec=protocol_specs.SESSIONS_CLEAR_TRACKED_FILES)
+        self._app_server.register_method("sessions.claim_legacy", sessions_claim_legacy_handler, spec=protocol_specs.SESSIONS_CLAIM_LEGACY)
 
         # Register Phase 30: files.* handlers (client-scoped ownership)
         from miqi.runtime.file_handlers import (
