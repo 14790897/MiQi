@@ -6,6 +6,7 @@
   "author": "MiQi Team",
   "repository": "http://git.miqroera.com/intership/miqi-desktop",
   "scripts": {
+    "predev": "cd ../.. && uv sync && uv pip install lxml cryptography --quiet",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "build:bridge": "cd ../.. && uv run pyinstaller miqi.spec --noconfirm",

@@ -32,3 +32,4 @@ node_modules/
 company_svg
 blog-asyncio-lock-threading.md
 # skill.md
+.pytest*
