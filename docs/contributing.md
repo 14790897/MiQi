@@ -36,6 +36,9 @@ uv run mkdocs serve
 
 # 构建静态站点
 uv run mkdocs build
+
+# 部署到 GitHub Pages
+uv run mkdocs gh-deploy
 ```
 
 ## 代码审查清单
