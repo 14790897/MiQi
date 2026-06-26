@@ -10,7 +10,7 @@ from pydantic_settings import BaseSettings
 class Base(BaseModel):
     """Base model that accepts both camelCase and snake_case keys."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="ignore")
 
 
 class TelegramConfig(Base):
@@ -187,6 +187,8 @@ class AgentDefaults(Base):
     max_tool_result_chars: int = 16000
     # Soft cap on total estimated context chars before LLM call.
     context_limit_chars: int = 600000
+    # Runtime engine: "legacy" (original AgentLoop) or "kun" (desktop-workbench runtime)
+    runtime: str = "legacy"
     # Provider fallback chain — tried in order when primary fails
     fallback_chain: list[FallbackChainEntry] = Field(default_factory=list)
 
@@ -209,6 +211,9 @@ class AgentSessionConfig(Base):
     session_tool_result_max_chars: int = 500
     # SQLite backend (new): when True use miqi/session/sqlite_store.py instead of JSONL
     use_sqlite: bool = False
+    # When True, agent file writes (relative paths) go to sessions/{key}/files/
+    # instead of workspace root. Set to False to restore legacy behavior.
+    session_workspace_enabled: bool = True
 
 
 class SmartRoutingCheapModel(Base):
@@ -241,9 +246,13 @@ class AgentSelfImprovementConfig(Base):
 
     enabled: bool = True
     max_lessons_in_prompt: int = 5
-    min_lesson_confidence: int = 1
+    min_lesson_confidence: int = 3
     max_lessons: int = 200
-    lesson_confidence_decay_hours: int = 168
+    lesson_stale_days: int = 30
+    lesson_archive_days: int = 90
+    curator_enabled: bool = True
+    curator_interval_days: int = 7
+    curator_threshold: int = 150
     feedback_max_message_chars: int = 220
     feedback_require_prefix: bool = True
     promotion_enabled: bool = True
@@ -251,6 +260,14 @@ class AgentSelfImprovementConfig(Base):
     promotion_triggers: list[str] = Field(
         default_factory=lambda: ["response:length", "response:language"]
     )
+    memory_nudge_interval: int = 8   # inject memory nudge every N turns
+    skill_nudge_interval: int = 10   # inject skill nudge every N turns
+    trace_enabled: bool = True
+    embedding_model: str = "intfloat/multilingual-e5-small"
+    trace_inject_top_k: int = 3
+    trace_similarity_threshold: float = 0.65
+    trace_nudge_interval: int = 8   # deprecated: trace is now auto-instrumented
+    lessons_legacy_inject_enabled: bool = True
 
 
 class AgentsConfig(Base):
@@ -292,8 +309,6 @@ class ProvidersConfig(Base):
     ollama_cloud: ProviderConfig = Field(default_factory=ProviderConfig)
     siliconflow: ProviderConfig = Field(default_factory=ProviderConfig)  # SiliconFlow (硅基流动) API gateway
     volcengine: ProviderConfig = Field(default_factory=ProviderConfig)  # VolcEngine (火山引擎) API gateway
-    openai_codex: ProviderConfig = Field(default_factory=ProviderConfig)  # OpenAI Codex (OAuth)
-    github_copilot: ProviderConfig = Field(default_factory=ProviderConfig)  # Github Copilot (OAuth)
 
 
 class GatewayConfig(Base):
@@ -339,6 +354,19 @@ class WebToolsConfig(Base):
 
     search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     fetch: WebFetchConfig = Field(default_factory=WebFetchConfig)
+
+
+class SandboxConfig(Base):
+    """Sandbox isolation configuration for per-session environments."""
+
+    enabled: bool = True
+    share_net: bool = True  # Allow network access inside sandbox
+    max_sandboxes: int = 10  # Maximum concurrent sandboxes
+    auto_cleanup: bool = True  # Clean up sandbox on session archive/delete
+    wsl_distro: str = "AIShadowSandbox"  # WSL distribution name (e.g. "AIShadowSandbox"). Auto-detected if empty on Windows.
+
+    wsl_base_dir: str = "/tmp/miqi-sandboxes"  # Sandbox directory inside WSL filesystem
+    sandbox_distro_name: str = "AIShadowSandbox"  # Dedicated sandbox distro name (imported from the default distro)
 
 
 class ExecToolConfig(Base):
@@ -390,6 +418,7 @@ class ToolsConfig(Base):
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
     papers: PapersToolConfig = Field(default_factory=PapersToolConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
+    sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
 
@@ -427,25 +456,22 @@ class Config(BaseSettings):
                 return bool(provider.api_base)
             return bool(provider.api_key)
 
-        # Explicit provider prefix wins — prevents `github-copilot/...codex` matching openai_codex.
+        # Explicit provider prefix wins.
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
             if p and model_prefix and normalized_prefix == spec.name:
-                if spec.is_oauth or _is_configured(spec, p):
+                if _is_configured(spec, p):
                     return p, spec.name
 
         # Match by keyword (order follows PROVIDERS registry)
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
             if p and any(_kw_matches(kw) for kw in spec.keywords):
-                if spec.is_oauth or _is_configured(spec, p):
+                if _is_configured(spec, p):
                     return p, spec.name
 
         # Fallback: gateways first, then others (follows registry order)
-        # OAuth providers are NOT valid fallbacks — they require explicit model selection
         for spec in PROVIDERS:
-            if spec.is_oauth:
-                continue
             p = getattr(self.providers, spec.name, None)
             if p and _is_configured(spec, p):
                 return p, spec.name

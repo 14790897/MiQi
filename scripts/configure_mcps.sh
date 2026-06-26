@@ -5,9 +5,17 @@
 # do not have to edit config.json by hand.  Credentials (API keys etc.) are
 # purposely NOT written here — see the prompts at the end.
 #
+# LLM-backed MCP servers (pdf2zh and any future ones) automatically follow
+# the model configured in miqi defaults. To switch models do NOT edit pdf2zh
+# directly — instead run:
+#
+#     miqi config defaults --model <new-model>
+#     bash scripts/configure_mcps.sh    # or: miqi config sync-llm
+#
 # Prerequisites:
-#   1. miqi is installed (uv sync or pip install -e .)
-#   2. scripts/setup_mcps.sh has already been run (venvs exist)
+#   1. miqi is installed (uv sync or pip install -e .) and `miqi onboard` has
+#      been run so a default provider + model exist.
+#   2. scripts/setup_mcps.sh has already been run (venvs exist).
 #
 # Usage:
 #   bash scripts/configure_mcps.sh
@@ -158,15 +166,29 @@ fi
 # ──────────────────────────────────────────────────────────────────────────────
 
 step "Configure pdf2zh MCP (reads LLM provider credentials from miqi config)"
-info "Configuring pdf2zh MCP (auto-reads provider credentials)..."
-if [[ -t 0 ]]; then
-    miqi config pdf2zh --mcp-python "$PDF2ZH_CMD" --timeout 3600
-else
-    # Non-interactive: skip if provider cannot be auto-detected
-    miqi config pdf2zh --mcp-python "$PDF2ZH_CMD" --timeout 3600 2>/dev/null || \
-        warn "pdf2zh auto-config failed (non-interactive). Run 'miqi config pdf2zh' manually."
+info "Configuring pdf2zh MCP (auto-reads provider credentials, no prompts)..."
+# --no-prompt forces the command to use the miqi default provider+model verbatim
+# and refuse to ask interactively. This is the only path that guarantees pdf2zh
+# stays in lock-step with `miqi config defaults`.
+if ! miqi config pdf2zh --mcp-python "$PDF2ZH_CMD" --timeout 3600 --no-prompt; then
+    warn "pdf2zh auto-config failed. Make sure 'miqi onboard' set up a default provider first."
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Final sync: realign every LLM-backed MCP with the current miqi default model.
+# This is what makes the workflow truly idempotent — re-run this script after
+# changing the main model and every MCP picks it up.
+# ──────────────────────────────────────────────────────────────────────────────
+
+step "Sync all LLM-backed MCP servers with miqi defaults"
+if ! miqi config sync-llm; then
+    warn "sync-llm failed. You can re-run it later: miqi config sync-llm"
 fi
 
 echo ""
 info "All MCP servers configured."
+echo ""
+echo "  💡 To change the LLM used by pdf2zh (and any future LLM-backed MCP):"
+echo "       miqi config defaults --model <new-model>"
+echo "       miqi config sync-llm"
 echo ""

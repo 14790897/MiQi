@@ -1,180 +1,395 @@
-# Developer Guide
+# 开发指南
 
-## Requirements
+## 开发环境搭建
 
-- Python 3.11 or 3.12
-- A virtual environment is strongly recommended
+### 必备工具
 
-## Local Installation
+- Python 3.11+ 和 uv
+- Node.js 20+ 和 npm
+- Git (含子模块支持)
+- WSL2 (Windows 用户必需，Sandbox 依赖)
+- bubblewrap (安装在 WSL 发行版内)
 
-```bash
-# Using uv (recommended)
-curl -LsSf https://astral.sh/uv/install.sh | sh   # skip if uv already installed
-uv --version
+### WSL Sandbox 环境准备
 
-git clone https://github.com/lichman0405/MiQi.git
-cd MiQi
-uv sync --extra dev     # creates .venv, installs all deps + dev tools
-source .venv/bin/activate
+项目在 Windows 上通过 WSL2 运行 bwrap 沙箱，需要先准备沙箱发行版：
+
+```powershell
+# 1. 导出已有的 WSL 发行版（如 Ubuntu）为镜像
+wsl.exe --export Ubuntu C:\TempSandbox\ubuntu-full.tar.gz
+
+# 2. 导入为独立沙箱发行版
+wsl.exe --import AIShadowSandbox C:\TempSandbox\ActiveInstance C:\TempSandbox\ubuntu-full.tar.gz --version 2
+
+# 3. 在沙箱发行版中安装 bubblewrap
+wsl.exe -d AIShadowSandbox -- bash -c "apt-get update && apt-get install -y bubblewrap"
+
+# 4. 确认安装
+wsl.exe -d AIShadowSandbox -- bash -c "bwrap --version"
 ```
 
+### 克隆并初始化
+
 ```bash
-# Using pip (alternative)
-git clone https://github.com/lichman0405/MiQi.git
-cd MiQi
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
+git clone --recurse-submodules <repo-url>
+cd miqi-desktop
+uv sync
+cd apps/desktop && npm install
 ```
 
----
+### 启动开发模式
 
-## Project Structure
+```bash
+cd apps/desktop
+npm run dev
+```
+
+开发模式下：
+- **Renderer (React UI)**：Vite HMR 热更新，修改即时生效
+- **Main Process (Electron)**：修改后需重启应用
+- **Bridge Server (Python)**：修改后需重启应用
+
+## 架构概览
+
+```
+┌────────────────────────────────────────────────┐
+│  Electron App                                   │
+│  ┌──────────┐  IPC   ┌──────────────────────┐  │
+│  │ Renderer │◄──────►│ Main Process          │  │
+│  │ (React)  │        │  ┌──────────────────┐ │  │
+│  │          │        │  │ BridgeManager     │ │  │
+│  └──────────┘        │  │ (Python 子进程)    │ │  │
+│                       │  │  stdin/stdout     │ │  │
+│                       │  │  JSON-line 协议   │ │  │
+│                       │  └──────────────────┘ │  │
+│                       └──────────────────────┘  │
+└────────────────────────────────────────────────┘
+         │
+         │ wsl.exe -d AIShadowSandbox
+         ▼
+┌────────────────────────────────────────────────┐
+│  WSL2 AIShadowSandbox                           │
+│  ┌──────────────────────────────────────────┐  │
+│  │  bwrap sandbox (per-session)              │  │
+│  │  - 文件系统隔离 (tmpfs + bind mounts)      │  │
+│  │  - 网络共享 (share_net=True)              │  │
+│  │  - PID/UTS/User 命名空间隔离              │  │
+│  └──────────────────────────────────────────┘  │
+└────────────────────────────────────────────────┘
+```
+
+前后端通过 **JSON-line stdin/stdout** 协议通信，每行一个完整的 JSON 消息，格式为 `["CMD", {...payload}]`。
+
+## 开发工作流
+
+### Python 后端开发
 
 ```
 miqi/
-  agent/          # Agent loop, context builder, memory system, tool wiring
-  cli/            # CLI entry point and subcommand modules
-  channels/       # IM and messaging channel adapters
-  providers/      # LLM provider integrations
-  cron/           # Scheduled task service
-  session/        # Session management
-  bus/            # Message bus (inbound/outbound queues)
-  config/         # Config loader and schema (Pydantic)
-  heartbeat/      # Heartbeat service
-  skills/         # Built-in skill files (SKILL.md per skill)
-  templates/      # Agent system prompt templates
-tests/            # Test cases
-docs/             # Project documentation (this site)
-mcps/             # Bundled MCP server submodules
-scripts/          # Setup and configuration helpers
+├── agent/          Agent 引擎
+│   ├── loop.py         AgentLoop — LLM 调用循环
+│   ├── context.py      ContextBuilder — 上下文注入
+│   └── tools/          工具实现
+│       ├── shell.py        ExecTool — Shell 执行（集成 Sandbox）
+│       ├── filesystem.py   文件操作（支持 WSL 路径映射）
+│       └── web.py          网络搜索与抓取
+├── bridge/
+│   ├── server.py      Bridge Server — IPC handler + SandboxManager
+│   └── protocol.py     JSON-line 协议解析
+├── config/
+│   ├── schema.py      Pydantic 配置模型（含 SandboxConfig）
+│   └── loader.py      配置加载（~/.miqi/config.json）
+├── providers/         LLM 提供商适配
+├── sandbox/
+│   ├── bwrap.py       BwrapSandbox — per-session bwrap 封装
+│   └── manager.py     SandboxManager — 沙箱生命周期管理
+└── memory/            三层记忆系统
 ```
 
-### Runtime Modules Worth Knowing
+关键模块说明：
 
-| File | Role |
-|---|---|
-| `agent/context_compressor.py` | Optional 5-phase context compression helper |
-| `agent/iteration_budget.py` | Iteration-pressure tracking used inside `AgentLoop` |
-| `agent/smart_routing.py` | Cheap-model routing helper for embedded runtimes |
-| `agent/command_approval.py` | Dangerous-command approval helper module |
-| `providers/fallback.py` | Provider fallback-chain helper |
-| `session/sqlite_store.py` | Optional SQLite+FTS5 session backend module |
+| 模块 | 职责 |
+|------|------|
+| `AgentLoop` | 管理 LLM 调用循环，处理工具调用结果，注入上下文 |
+| `BridgeServer` | 57 个 IPC handler，管理 Bridge 状态、SandboxManager、配置热更新 |
+| `BwrapSandbox` | 封装 bwrap 命令构建与执行，自动检测 Windows+WSL 环境 |
+| `SandboxManager` | 管理 per-session 沙箱生命周期，状态落盘到 `~/.miqi/sandbox_state.json` |
+| `SandboxConfig` | 沙箱配置：`enabled`、`share_net`、`wsl_distro`、`sandbox_distro_name`、`max_sandboxes` 等 |
 
-### CLI Module Structure
+### 前端开发
 
-| File | Purpose |
-|---|---|
-| `cli/commands.py` | Entry point; compatibility exports for tests |
-| `cli/onboard.py` | `miqi onboard` command |
-| `cli/agent_cmd.py` | `miqi agent` command |
-| `cli/gateway_cmd.py` | `miqi gateway` command |
-| `cli/management.py` | channels / memory / session / cron / status / provider |
-| `cli/config_cmd.py` | `miqi config` subcommands |
+```
+apps/desktop/src/
+├── main/             Electron 主进程
+│   ├── bridge.ts         BridgeManager — Python 子进程管理
+│   └── ipc/              IPC handler 注册
+│       └── index.ts          PYTHON_CHECK 等环境检查
+├── preload/           contextBridge 安全 API
+│   └── index.ts           暴露 window.miqi.* 命名空间
+├── renderer/          React 19 UI（HMR 热更新）
+│   ├── components/        通用组件
+│   ├── pages/             15 个功能页面
+│   └── hooks/             自定义 Hooks
+└── shared/            前后端共享类型
+    └── ipc.ts             IPC 通道 + Zod Schema 定义
+```
 
----
+修改规则：
 
-## Running Tests
+| 修改范围 | 生效方式 |
+|----------|----------|
+| `renderer/` | HMR 热更新，无需重启 |
+| `main/` | 需重启应用 |
+| `preload/` | 需重启应用 |
+| `shared/` | 前后端同步，需重启 |
+
+### 添加新的 IPC 通道
+
+1. **shared/ipc.ts** — 定义 IPC 常量 + Zod Schema（入参和返回值类型）
+2. **main/ipc/** — 实现 Main 进程 handler（调用 BridgeManager）
+3. **bridge/server.py** — 实现 Bridge handler（业务逻辑）
+4. **preload/index.ts** — 通过 `contextBridge` 暴露 API
+5. **renderer/** — 调用 `window.miqi.*` API
+
+### 沙箱配置
+
+`~/.miqi/config.json` 中 `tools.sandbox` 段：
+
+```json
+{
+  "tools": {
+    "sandbox": {
+      "enabled": true,
+      "share_net": true,
+      "max_sandboxes": 10,
+      "auto_cleanup": true,
+      "wsl_distro": "AIShadowSandbox",
+      "sandbox_distro_name": "AIShadowSandbox",
+      "wsl_base_dir": "/tmp/miqi-sandboxes"
+    }
+  }
+}
+```
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | bool | true | 启用沙箱隔离 |
+| `share_net` | bool | true | 共享宿主机网络（true=容器可联网） |
+| `max_sandboxes` | int | 10 | 最大并发沙箱数 |
+| `auto_cleanup` | bool | true | 会话结束时自动清理沙箱 |
+| `wsl_distro` | str | "AIShadowSandbox" | WSL 发行版名称 |
+| `sandbox_distro_name` | str | "AIShadowSandbox" | 专用沙箱发行版（优先级高于 wsl_distro） |
+| `wsl_base_dir` | str | "/tmp/miqi-sandboxes" | WSL 内沙箱根目录 |
+
+## 代码规范
+
+### Python
 
 ```bash
-# Core CLI and cron tests (run these first)
-PYTHONPATH=. python -m pytest tests/test_commands.py tests/test_cron_commands.py -q
+# 代码检查
+uv run ruff check .
 
-# Cron service and provider tests
-PYTHONPATH=. python -m pytest tests/test_cron_service.py tests/test_provider_retry.py tests/test_provider_routing.py -q
+# 代码格式化（行长度限制: 100）
+uv run ruff format .
 
-# Tool validation and fallback behavior
-PYTHONPATH=. python -m pytest tests/test_tool_validation.py tests/test_tool_call_fallback.py -q
-
-# Run the full test suite
-PYTHONPATH=. python -m pytest -q
+# 类型检查
+uv run mypy miqi/
 ```
 
-Install dev extras first with `pip install -e '.[dev]'`. Provider-related tests import optional SDKs such as `anthropic` during collection.
-
-**Available test files:**
-
-| File | Coverage |
-|---|---|
-| `test_commands.py` | CLI command registration and dispatch |
-| `test_cron_commands.py` | Cron CLI commands |
-| `test_cron_service.py` | Cron service scheduling logic |
-| `test_provider_retry.py` | LLM provider retry behavior |
-| `test_provider_routing.py` | Multi-provider routing |
-| `test_tool_validation.py` | Tool schema validation |
-| `test_tool_call_fallback.py` | Tool call error fallback |
-| `test_cli_input.py` | CLI input handling |
-| `test_heartbeat_service.py` | Heartbeat service |
-| `test_email_channel.py` | Email channel adapter |
-| `test_consolidate_offset.py` | Session compaction offset logic |
-
----
-
-## Linting
+### TypeScript
 
 ```bash
-.venv/bin/ruff check .
+# ESLint 检查
+cd apps/desktop && npm run lint
+
+# 格式化
+cd apps/desktop && npm run format
 ```
 
-Line length is set to 100. Target version is Python 3.11.
+### 提交规范
 
----
+遵循 Conventional Commits：
 
-## Coding Style
+```
+feat: 添加 SkillHub 页面
+fix: 修复快照回滚时的文件创建问题
+refactor: 重构 SessionManager 存储层
+docs: 更新 README 安装说明
+test: 添加 TaskTrace 数据模型测试
+```
 
-- Use `loguru.logger` for all runtime logging; never use `print()` in business logic
-- Prefer minimal, testable changes
-- Keep each module focused on its domain
-- Do not add docstrings or comments to code you didn't change
+## 构建与打包
 
----
+### Python Bridge 可执行文件
 
-## Adding a New Tool
-
-1. Create the tool in `miqi/agent/tools/<name>.py`
-2. Register it in `miqi/agent/tools/registry.py`
-3. Update `miqi/templates/TOOLS.md` with usage guidance
-4. Update `docs/cli-reference.md` with the tool reference
-5. Add tests in `tests/`
-
----
-
-## Adding a New Channel Adapter
-
-1. Create the adapter in `miqi/channels/<name>.py` extending `BaseChannel`
-2. Register it in `miqi/channels/manager.py`
-3. Add the channel config schema in `miqi/config/schema.py`
-
----
-
-## Commit Guidance
-
-- Keep each commit focused on one theme (e.g. "cron: fix UTC fallback", "CLI: split commands")
-- Commit messages should include: motivation, scope, and test commands used
-- When adding or updating tools, keep these in sync:
-  - `miqi/templates/TOOLS.md`
-  - `docs/cli-reference.md`
-  - `CHANGELOG.md`
-
----
-
-## Documentation
-
-This docs site is built with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/).
+使用 PyInstaller 打包为自包含 `miqi-bridge.exe`（内嵌 Python + 全部依赖）：
 
 ```bash
-pip install mkdocs-material
-mkdocs serve          # local preview at http://127.0.0.1:8000
-mkdocs build          # build static site to site/
+uv run pyinstaller miqi.spec
 ```
 
-When changing behavior or interfaces, update the relevant doc in `docs/` and add an entry to `CHANGELOG.md`.
+产物在 `dist/` 目录：
+- `dist/miqi-bridge.exe` — 自包含可执行文件
+- `dist/miqi-bridge/` — 目录形式的分发包
 
-When changing config schema, runtime data layout, MCP behavior, or shell safety semantics, the minimum review set is:
+关键规格 (`miqi.spec`)：
+- `console=False` — 无控制台窗口，但仍可通过 stdout 管道通信
+- 打包全部 Python 依赖（loguru、pydantic、httpx 等）
+- **不支持 `-c` 参数**：传参会变为 `sys.argv` 而非 Python 解释器选项
 
-- `README.md`
-- `docs/configuration.md`
-- `docs/architecture.md`
-- `docs/mcp-integration.md`
-- `docs/security.md`
-- `CHANGELOG.md`
+### 环境检查
+
+Electron 启动时通过 `PYTHON_CHECK` IPC 检测 Python 环境：
+
+1. 优先检测 `dist/miqi-bridge.exe`（bundled 可执行文件）
+2. 不存在则检查系统 Python（`python -c "import miqi"`）
+
+### 生产构建
+
+```bash
+cd apps/desktop
+npm run build        # Vite 构建渲染进程
+npm run package      # electron-builder 打包安装程序
+```
+
+## 测试
+
+### Python 测试
+
+```bash
+# 运行所有测试
+uv run pytest
+
+# 运行特定模块
+uv run pytest tests/test_trace.py
+
+# 带覆盖率
+uv run pytest --cov=miqi --cov-report=html
+
+# 沙箱网络测试
+uv run python tests/test_sandbox_network.py
+```
+
+### 前端测试
+
+```bash
+cd apps/desktop
+
+# 运行测试
+npm run test
+
+# 监视模式
+npm run test:watch
+```
+
+## 调试
+
+### Python 调试
+
+开发模式下，Bridge Server 的日志输出到 Electron DevTools Console：
+
+```python
+from loguru import logger
+logger.info("Debug message")  # → DevTools Console
+```
+
+日志格式：`[miqi-bridge] <level> <message>`
+
+通过 `--no-logs` 参数可将日志级别降为 WARNING。
+
+### 前端调试
+
+- 打开 Electron DevTools：`Ctrl+Shift+I`
+- React DevTools 可用
+- Network 面板可查看 IPC 通信
+
+### Sandbox 调试
+
+#### 查看沙箱状态
+
+```bash
+cat ~/.miqi/sandbox_state.json
+```
+
+状态文件记录所有活跃沙箱的 session_key、路径、创建时间。Bridge 重启时自动清理遗留沙箱。
+
+#### 手动进入 bwrap 沙箱
+
+```bash
+# 进入 WSL 沙箱发行版
+wsl.exe -d AIShadowSandbox
+
+# 查找沙箱目录
+ls /tmp/miqi-sandboxes/
+
+# 进入沙箱（替换 YOUR_SESSION_KEY 为实际会话 ID）
+bwrap \
+  --unshare-pid --unshare-ipc --unshare-uts \
+  --hostname miqi-sandbox \
+  --unshare-user-try --uid 1000 --gid 1000 \
+  --proc /proc --dev /dev \
+  --ro-bind-try /usr /usr \
+  --ro-bind-try /bin /bin \
+  --ro-bind-try /lib /lib \
+  --ro-bind-try /lib64 /lib64 \
+  --bind /tmp/miqi-sandboxes/YOUR_SESSION_KEY/etc /etc \
+  --bind /tmp/miqi-sandboxes/YOUR_SESSION_KEY/home/miqi /home/miqi \
+  --bind /mnt/c/Users/Intership003/.miqi/workspace /home/miqi/workspace \
+  --tmpfs /tmp \
+  --die-with-parent --new-session \
+  --setenv HOME /home/miqi \
+  --setenv PATH /usr/local/bin:/usr/bin:/bin \
+  bash -i
+```
+
+> **注意**：`/etc` 使用沙箱本地的完整拷贝（`sandbox_base/etc`），而非 `--ro-bind-try /etc /etc`。后者在 WSL 中会静默失败。
+
+#### 常用沙箱内调试命令
+
+```bash
+# 检查 DNS
+cat /etc/resolv.conf
+cat /etc/nsswitch.conf
+getent hosts www.baidu.com
+
+# 检查网络
+curl -I https://www.baidu.com
+ping -c 1 8.8.8.8
+
+# 检查挂载
+mount | grep bwrap
+ls /home/miqi/workspace/
+```
+
+#### 沙箱故障排查
+
+| 问题 | 可能原因 | 解决 |
+|------|----------|------|
+| `bwrap: Can't create file at /etc/...` | `/etc` 挂载失败 | 检查 sandbox_etc 目录是否存在 |
+| 网络不通 (DNS 失败) | nsswitch.conf 缺失或 resolv.conf 错误 | 检查 `/etc/nsswitch.conf` 有 `hosts: files dns` 行 |
+| `WinError 206` | bwrap 参数超 Windows 命令行长度限制 | 已自动使用脚本方式执行，如仍出现需进一步拆分参数 |
+| 沙箱不释放 | Bridge 异常退出 | 重启 Bridge 自动清理，或手动 `rm -rf /tmp/miqi-sandboxes/*` |
+
+### 路径映射
+
+Windows 路径在 WSL sandbox 中自动映射：
+
+| Windows 路径 | WSL 内路径 |
+|--------------|-----------|
+| `C:\Users\foo\.miqi\workspace` | `/mnt/c/Users/foo/.miqi/workspace` |
+| `D:\projects\app` | `/mnt/d/projects/app` |
+
+`filesystem.py` 中的 `_resolve_sandbox_path()` 和 `_resolve_sandbox_cwd()` 处理路径自动转换。
+
+## 目录约定
+
+| 目录 | 约定 |
+|------|------|
+| `miqi/` | 纯 Python，不包含 Node.js 依赖 |
+| `apps/desktop/` | 纯 Node.js/TypeScript，通过 Bridge 的 JSON-line 协议通信 |
+| `tests/` | 镜像 `miqi/` 结构，`test_module.py` 对应 `module.py` |
+| `docs/` | MkDocs Material 格式，每个页面一个 `.md` 文件 |
+| `dist/` | PyInstaller 打包产物（miqi-bridge.exe 等） |
+| `dist-new/` | electron-builder 打包产物 |
+| `build/` | PyInstaller 构建中间文件 |
+| `scripts/` | Shell 辅助脚本 |

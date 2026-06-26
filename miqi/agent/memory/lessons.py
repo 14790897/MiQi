@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,8 @@ class LessonStore:
     DEFAULT_MAX_LESSONS = 200
     DEFAULT_MAX_LESSONS_IN_PROMPT = 5
     DEFAULT_MIN_LESSON_CONFIDENCE = 1
-    DEFAULT_LESSON_CONFIDENCE_DECAY_HOURS = 168
+    DEFAULT_LESSON_STALE_DAYS = 30
+    DEFAULT_LESSON_ARCHIVE_DAYS = 90
     DEFAULT_FEEDBACK_MAX_MESSAGE_CHARS = 220
     DEFAULT_FEEDBACK_REQUIRE_PREFIX = True
     DEFAULT_PROMOTION_ENABLED = True
@@ -35,7 +36,8 @@ class LessonStore:
         max_lessons_in_prompt: int = DEFAULT_MAX_LESSONS_IN_PROMPT,
         min_lesson_confidence: int = DEFAULT_MIN_LESSON_CONFIDENCE,
         max_lessons: int = DEFAULT_MAX_LESSONS,
-        lesson_confidence_decay_hours: int = DEFAULT_LESSON_CONFIDENCE_DECAY_HOURS,
+        lesson_stale_days: int = DEFAULT_LESSON_STALE_DAYS,
+        lesson_archive_days: int = DEFAULT_LESSON_ARCHIVE_DAYS,
         feedback_max_message_chars: int = DEFAULT_FEEDBACK_MAX_MESSAGE_CHARS,
         feedback_require_prefix: bool = DEFAULT_FEEDBACK_REQUIRE_PREFIX,
         promotion_enabled: bool = DEFAULT_PROMOTION_ENABLED,
@@ -48,7 +50,8 @@ class LessonStore:
         self.max_lessons_in_prompt = max(1, max_lessons_in_prompt)
         self.min_lesson_confidence = min_lesson_confidence
         self.max_lessons = max(1, max_lessons)
-        self.lesson_confidence_decay_hours = max(1, lesson_confidence_decay_hours)
+        self.lesson_stale_days = max(1, lesson_stale_days)
+        self.lesson_archive_days = max(1, lesson_archive_days)
         self.feedback_max_message_chars = max(1, feedback_max_message_chars)
         self.feedback_require_prefix = feedback_require_prefix
         self.promotion_enabled = promotion_enabled
@@ -122,6 +125,7 @@ class LessonStore:
                             "confidence": int(data.get("confidence", 1)),
                             "hits": int(data.get("hits", 1)),
                             "enabled": bool(data.get("enabled", True)),
+                            "state": str(data.get("state", "active")),
                             "created_at": str(data.get("created_at", timestamp())),
                             "updated_at": str(data.get("updated_at", timestamp())),
                             "last_applied_at": str(data.get("last_applied_at", "")),
@@ -151,6 +155,41 @@ class LessonStore:
             self._audit_buffer = []
 
         self._dirty = False
+
+    def update_lifecycle_states(self) -> int:
+        """Advance lesson states based on idle time. Returns count of changed lessons.
+
+        Uses last_applied_at (fallback updated_at) to compute idle days.
+        active -> stale when idle >= lesson_stale_days.
+        stale -> archived when idle >= lesson_archive_days.
+        Archived lessons remain in the file but are excluded from prompt injection.
+        """
+        changed = 0
+        now = datetime.now()
+        for lesson in self._lessons:
+            current_state = str(lesson.get("state", "active"))
+            if current_state == "archived":
+                continue
+            anchor = str(lesson.get("last_applied_at") or lesson.get("updated_at") or "")
+            if not anchor:
+                continue
+            try:
+                dt = datetime.fromisoformat(anchor)
+                idle_days = max(0.0, (now - dt).total_seconds() / 86400)
+            except ValueError:
+                continue
+            if current_state == "active" and idle_days >= self.lesson_archive_days:
+                lesson["state"] = "archived"
+                changed += 1
+            elif current_state == "active" and idle_days >= self.lesson_stale_days:
+                lesson["state"] = "stale"
+                changed += 1
+            elif current_state == "stale" and idle_days >= self.lesson_archive_days:
+                lesson["state"] = "archived"
+                changed += 1
+        if changed:
+            self._dirty = True
+        return changed
 
     def learn(
         self,
@@ -217,6 +256,7 @@ class LessonStore:
                     "confidence": max(self.min_lesson_confidence, delta),
                     "hits": 1,
                     "enabled": True,
+                    "state": "active",
                     "created_at": now,
                     "updated_at": now,
                     "last_applied_at": "",
@@ -342,6 +382,8 @@ class LessonStore:
         for lesson in self._lessons:
             if not lesson.get("enabled", True):
                 continue
+            if lesson.get("state") == "archived":
+                continue
             raw_confidence = int(lesson.get("confidence", 0))
             if raw_confidence < self.min_lesson_confidence:
                 continue
@@ -395,8 +437,12 @@ class LessonStore:
                 break
         return deduped
 
-    def compact_lessons(self, max_lessons: int | None = None) -> int:
-        """Compact lessons by deduplicating and capping size. Returns removed count."""
+    def compact_lessons(self, max_lessons: int | None = None, max_session_lesson_age_days: int = 90) -> int:
+        """Compact lessons by deduplicating, evicting old sessions, and capping size.
+
+        Disabled lessons survive compaction unless the total count forces eviction.
+        Session-scoped lessons older than max_session_lesson_age_days are evicted.
+        """
         if not self.enabled:
             return 0
 
@@ -404,6 +450,32 @@ class LessonStore:
         original_count = len(self._lessons)
         if original_count == 0:
             return 0
+
+        # Age-based eviction for session-scoped lessons
+        total_evicted = 0
+        cutoff = (datetime.now() - timedelta(days=max_session_lesson_age_days)).isoformat()
+        age_filtered: list[dict] = []
+        for lesson in self._lessons:
+            if lesson.get("scope") == "session":
+                anchor = str(lesson.get("updated_at") or lesson.get("created_at") or "")
+                if anchor and anchor < cutoff:
+                    self._audit_buffer.append({
+                        "type": "lesson_age_evict",
+                        "at": timestamp(),
+                        "id": lesson.get("id", ""),
+                        "session_key": lesson.get("session_key", ""),
+                    })
+                    total_evicted += 1
+                    continue
+            age_filtered.append(lesson)
+
+        if total_evicted > 0:
+            self._lessons = age_filtered
+            self._dirty = True
+
+        # Early exit: no further compaction needed when under cap
+        if len(self._lessons) <= max_keep:
+            return total_evicted
 
         dedup: dict[str, dict[str, Any]] = {}
         sorted_lessons = sorted(
@@ -415,6 +487,8 @@ class LessonStore:
             ),
             reverse=True,
         )
+
+        # Pass 1: fill dedup with enabled lessons (high priority)
         for lesson in sorted_lessons:
             if not lesson.get("enabled", True):
                 continue
@@ -424,9 +498,18 @@ class LessonStore:
             if key and key not in dedup:
                 dedup[key] = lesson
 
+        # Pass 2: add disabled lessons at the end (only if under cap)
+        for lesson in sorted_lessons:
+            if lesson.get("enabled", True):
+                continue
+            key = str(lesson.get("key", ""))
+            if key and key not in dedup:
+                if len(dedup) < max_keep:
+                    dedup[key] = lesson
+
         compacted = list(dedup.values())[:max_keep]
-        removed = original_count - len(compacted)
-        if removed <= 0:
+        removed = total_evicted + original_count - len(compacted)
+        if removed <= total_evicted:
             return 0
 
         self._lessons = compacted
@@ -516,6 +599,58 @@ class LessonStore:
         self._audit_buffer.append({"type": "lesson_delete", "at": now, "id": normalized_id})
         return True
 
+    def unlearn_by_keyword(self, keyword: str) -> list[str]:
+        """Archive all active/stale lessons matching keyword in trigger or better_action.
+
+        Case-insensitive matching. Returns list of archived lesson IDs.
+        """
+        kw = keyword.strip().lower()
+        if not kw:
+            return []
+        now = timestamp()
+        archived_ids: list[str] = []
+        for lesson in self._lessons:
+            state = str(lesson.get("state", "active"))
+            if state == "archived":
+                continue
+            trigger = str(lesson.get("trigger", "")).lower()
+            better = str(lesson.get("better_action", "")).lower()
+            if kw in trigger or kw in better:
+                lesson["state"] = "archived"
+                lesson["enabled"] = False
+                lesson["updated_at"] = now
+                lesson_id = str(lesson.get("id", ""))
+                archived_ids.append(lesson_id)
+                self._audit_buffer.append({
+                    "type": "manual_unlearn",
+                    "at": now,
+                    "id": lesson_id,
+                    "keyword": keyword.strip(),
+                })
+        if archived_ids:
+            self._dirty = True
+        return archived_ids
+
+    def unlearn_by_id(self, lesson_id: str) -> bool:
+        """Archive a single lesson by exact ID match. Returns True if a lesson was archived."""
+        lid = lesson_id.strip()
+        if not lid:
+            return False
+        now = timestamp()
+        for lesson in self._lessons:
+            if str(lesson.get("id", "")) == lid and lesson.get("state") != "archived":
+                lesson["state"] = "archived"
+                lesson["enabled"] = False
+                lesson["updated_at"] = now
+                self._audit_buffer.append({
+                    "type": "manual_unlearn",
+                    "at": now,
+                    "id": lid,
+                })
+                self._dirty = True
+                return True
+        return False
+
     # ── Internal helpers ──
 
     def _lesson_key(
@@ -532,18 +667,8 @@ class LessonStore:
         ])
 
     def _effective_lesson_confidence(self, item: dict[str, Any]) -> float:
-        """Apply time decay to lesson confidence for ranking/filtering."""
-        raw = float(item.get("confidence", 0))
-        anchor = str(item.get("last_applied_at") or item.get("updated_at") or "")
-        if not anchor:
-            return raw
-        try:
-            dt = datetime.fromisoformat(anchor)
-            age_hours = max(0.0, (datetime.now() - dt).total_seconds() / 3600)
-            decay = age_hours / float(self.lesson_confidence_decay_hours)
-            return max(0.0, raw - decay)
-        except Exception:
-            return raw
+        """Return raw confidence. Time-based de-prioritization is handled by lifecycle state."""
+        return float(item.get("confidence", 0))
 
     def _suggest_tool_better_action(self, tool_name: str, result: str) -> str:
         """Suggest a lightweight fix action for common tool failures."""
@@ -575,7 +700,17 @@ class LessonStore:
     @staticmethod
     def _is_tool_error(result: str) -> bool:
         """Check whether tool result string indicates an error."""
-        return result.strip().lower().startswith("error:")
+        stripped = result.strip()
+        if stripped.lower().startswith("error:"):
+            return True
+        if stripped.startswith("{"):
+            try:
+                parsed = json.loads(stripped)
+                if isinstance(parsed, dict) and parsed.get("ok") is False:
+                    return True
+            except (ValueError, TypeError):
+                pass
+        return False
 
     def _has_feedback_prefix(self, user_message: str) -> bool:
         """Require correction cues to appear at the beginning of the message."""
@@ -720,6 +855,7 @@ class LessonStore:
                     "confidence": min(10, max(self.min_lesson_confidence, len(actor_keys) + 1)),
                     "hits": max(1, support_hits),
                     "enabled": True,
+                    "state": "active",
                     "created_at": now,
                     "updated_at": now,
                     "last_applied_at": "",

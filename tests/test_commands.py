@@ -7,7 +7,6 @@ from typer.testing import CliRunner
 
 from miqi.cli.commands import app
 from miqi.config.schema import Config
-from miqi.providers.openai_codex_provider import _strip_model_prefix
 from miqi.providers.registry import find_by_model
 
 runner = CliRunner()
@@ -93,18 +92,6 @@ def test_onboard_existing_workspace_safe_create(mock_paths):
     assert "Created workspace" not in result.stdout
     assert "Created AGENTS.md" in result.stdout
     assert (workspace_dir / "AGENTS.md").exists()
-
-
-def test_config_matches_openai_codex_with_hyphen_prefix():
-    config = Config()
-    config.agents.defaults.model = "openai-codex/gpt-5.1-codex"
-
-    assert config.get_provider_name() == "openai_codex"
-
-
-def test_openai_codex_strip_prefix_supports_hyphen_and_underscore():
-    assert _strip_model_prefix("openai-codex/gpt-5.1-codex") == "gpt-5.1-codex"
-    assert _strip_model_prefix("openai_codex/gpt-5.1-codex") == "gpt-5.1-codex"
 
 
 def test_status_with_existing_config_no_crash(monkeypatch, tmp_path):

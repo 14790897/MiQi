@@ -51,10 +51,38 @@ class SkillsLoader:
                     if skill_file.exists() and not any(s["name"] == skill_dir.name for s in skills):
                         skills.append({"name": skill_dir.name, "path": str(skill_file), "source": "builtin"})
 
+        # Filter out archived skills
+        skills = [s for s in skills if not self._is_skill_archived(s["name"])]
+
         # Filter by requirements
         if filter_unavailable:
             return [s for s in skills if self._check_requirements(self._get_skill_meta(s["name"]))]
         return skills
+
+    def _is_skill_archived(self, name: str) -> bool:
+        """Check whether a skill is archived."""
+        meta = self.get_skill_metadata(name)
+        if not meta:
+            return False
+        archived = meta.get("archived")
+        if archived is True:
+            return True
+        if isinstance(archived, str) and archived.lower() == "true":
+            return True
+        return False
+
+    def get_skill_path(self, name: str) -> Path | None:
+        """Return the path to a skill's SKILL.md file."""
+        workspace_skill = self.workspace_skills / name / "SKILL.md"
+        if workspace_skill.exists():
+            return workspace_skill
+
+        if self.builtin_skills:
+            builtin_skill = self.builtin_skills / name / "SKILL.md"
+            if builtin_skill.exists():
+                return builtin_skill
+
+        return None
 
     def load_skill(self, name: str) -> str | None:
         """

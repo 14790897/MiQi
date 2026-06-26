@@ -5,10 +5,68 @@ import importlib.resources
 import mimetypes
 import platform
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+from loguru import logger
 
 from miqi.agent.memory import MemoryStore
 from miqi.agent.skills import SkillsLoader
+
+if TYPE_CHECKING:
+    from miqi.agent.trace.store import TraceStore
+
+# ── Tool usage guidance injected into the system prompt ─────────────────
+
+MEMORY_GUIDANCE = """
+## Memory Tool Guidance
+Use the `memory` tool to save durable facts proactively — do not wait for the user to ask.
+
+Save to `memory` target:
+- Project conventions, build commands, architecture decisions
+- Environment facts (OS, key paths, tool versions)
+- Recurring patterns you observe
+
+Save to `user` target:
+- User's name, role, communication preferences
+- Things the user repeatedly corrects you on
+- User's preferred output format or verbosity
+
+Do NOT save: task progress, ephemeral file contents, one-time results.
+Write facts as declarative bullets: `- The project uses uv for dependency management`
+""".strip()
+
+SKILLS_GUIDANCE = """
+## Skill Management Guidance
+After completing any task that required 5+ tool calls, ask yourself: could this workflow
+be useful again? If yes, save it as a skill using `skill_manage(action='create')`.
+
+If you use a skill and find it outdated or incorrect, patch it immediately with
+`skill_manage(action='patch')` — do not wait for the user to report the problem.
+
+Skills should contain: goal, preconditions, step-by-step procedure, expected output.
+""".strip()
+
+SESSION_SEARCH_GUIDANCE = """
+## Session Search Guidance
+Before asking the user to repeat something, use `session_search` to check if it was
+discussed in a previous session. Use it proactively when the user references a past
+task, project, or decision you don't have in current context.
+""".strip()
+
+
+def _format_traces_for_context(traces: list) -> str:
+    lines = ["## Similar Task History (reference, do not blindly copy)"]
+    for t in traces:
+        lines.append(
+            f"- **{t.task_name}** (outcome={t.outcome}, score={t.similarity_score:.2f})"
+        )
+        lines.append(f"  Goal: {t.goal}")
+        if t.tool_calls:
+            chain = ", ".join(s.tool_name for s in t.tool_calls[:8])
+            lines.append(f"  Tools used: {chain}")
+        if t.outcome_notes:
+            lines.append(f"  Notes: {t.outcome_notes}")
+    return "\n".join(lines)
 
 
 class ContextBuilder:
@@ -26,11 +84,15 @@ class ContextBuilder:
         workspace: Path,
         memory_store: MemoryStore | None = None,
         agent_name: str = "miqi",
+        trace_store: "TraceStore | None" = None,
+        session_work_dir: Path | None = None,
     ):
         self.workspace = workspace
         self.memory = memory_store or MemoryStore(workspace)
         self.skills = SkillsLoader(workspace)
         self.agent_name = agent_name.strip() or "miqi"
+        self.trace_store = trace_store
+        self.session_work_dir = session_work_dir
 
     def build_system_prompt(
         self,
@@ -57,12 +119,29 @@ class ContextBuilder:
         if bootstrap:
             parts.append(bootstrap)
 
+        # Tool usage guidance (injected before memory context)
+        guidance_parts = [MEMORY_GUIDANCE, SKILLS_GUIDANCE, SESSION_SEARCH_GUIDANCE]
+        parts.append("\n\n".join(guidance_parts))
+
         # Memory context
         memory = self.memory.get_memory_context(
             session_key=session_key, current_message=current_message
         )
         if memory:
             parts.append(f"# Memory\n\n{memory}")
+
+        if current_message and self.trace_store is not None and self.trace_store.enabled:
+            try:
+                traces = self.trace_store.search_traces(
+                    current_message,
+                    limit=3,
+                    threshold=0.65,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"trace_search failed: {e}")
+                traces = []
+            if traces:
+                parts.append(_format_traces_for_context(traces))
 
         # Skills - progressive loading
         # 1. Always-loaded skills: include full content
@@ -96,6 +175,15 @@ Skills with available="false" need dependencies installed first - you can try in
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
         agent_name = self.agent_name
 
+        if self.session_work_dir:
+            work_dir_line = (
+                f"\n- Your working directory (for new files): {self.session_work_dir}"
+                "\n  → Use relative paths to write here; "
+                "use absolute paths to modify project files directly."
+            )
+        else:
+            work_dir_line = ""
+
         return f"""You are {agent_name}, a helpful AI assistant.
 
 ## Current Time
@@ -110,7 +198,7 @@ Your workspace is at: {workspace_path}
 - Runtime snapshot: {workspace_path}/memory/LTM_SNAPSHOT.json
 - Self-improvement lessons: {workspace_path}/memory/LESSONS.jsonl
 - Daily notes: {workspace_path}/memory/YYYY-MM-DD.md
-- Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md
+- Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md{work_dir_line}
 
 Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel.
 
@@ -206,9 +294,17 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         # History
         messages.extend(history)
 
-        # Current message (with optional image attachments)
+        # Current message (with optional image attachments).
+        # De-dup: if the current_message is identical to the last history
+        # entry, the caller (typically the desktop bridge) has already
+        # persisted it. Emitting it twice would cause the LLM to see the
+        # same user turn back-to-back and the session-saver to duplicate it.
         user_content = self._build_user_content(current_message, media)
-        messages.append({"role": "user", "content": user_content})
+        if not history or not (
+            history[-1].get("role") == "user"
+            and history[-1].get("content") == user_content
+        ):
+            messages.append({"role": "user", "content": user_content})
 
         return messages
 

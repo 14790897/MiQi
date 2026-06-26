@@ -48,8 +48,15 @@ class Session:
 
         out: list[dict[str, Any]] = []
         for item in sliced:
+            # Map MiQi-internal pseudo roles to LLM-accepted roles.  Subagent
+            # results are rendered into the conversation as `subagent` for UI
+            # purposes, but LLM providers only accept
+            # system/user/assistant/tool — passing `subagent` raises a 400.
+            role = item["role"]
+            if role == "subagent":
+                role = "assistant"
             entry: dict[str, Any] = {
-                "role": item["role"],
+                "role": role,
                 "content": item.get("content", ""),
             }
             for key in ("tool_calls", "tool_call_id", "name"):
@@ -84,10 +91,22 @@ class SessionManager:
         self.compact_keep_messages = max(1, compact_keep_messages)
         self._cache: dict[str, Session] = {}
 
+    def get_session_dir(self, key: str) -> Path:
+        safe_key = safe_filename(key.replace(":", "_"))
+        return self.sessions_dir / safe_key
+
     def _get_session_path(self, key: str) -> Path:
         """Get the file path for a session key."""
+        return self.get_session_dir(key) / "conversation.jsonl"
+
+    def _migrate_flat_to_dir(self, key: str) -> None:
+        """If old flat .jsonl exists and new dir does not, migrate."""
         safe_key = safe_filename(key.replace(":", "_"))
-        return self.sessions_dir / f"{safe_key}.jsonl"
+        old_flat = self.sessions_dir / f"{safe_key}.jsonl"
+        new_dir  = self.sessions_dir / safe_key
+        if old_flat.exists() and not new_dir.exists():
+            new_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(old_flat), str(new_dir / "conversation.jsonl"))
 
     def _get_legacy_session_path(self, key: str) -> Path:
         """Legacy global session path for migration only."""
@@ -108,6 +127,7 @@ class SessionManager:
 
     def _load(self, key: str) -> Session | None:
         """Load a session from disk."""
+        self._migrate_flat_to_dir(key)
         path = self._get_session_path(key)
         if not path.exists():
             legacy_path = self._get_legacy_session_path(key)
@@ -167,6 +187,7 @@ class SessionManager:
 
     def save(self, session: Session) -> None:
         """Persist session changes with append-only writes when possible."""
+        self._migrate_flat_to_dir(session.key)
         path = self._get_session_path(session.key)
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -199,37 +220,164 @@ class SessionManager:
         self._cache[session.key] = session
         self.compact_if_needed(session.key)
 
+    # ── Tracked files (sidebar) ───────────────────────────────────────
+
+    def _get_tracked_files_path(self, key: str) -> Path:
+        """Path to the per-session tracked_files.json."""
+        self._migrate_flat_to_dir(key)
+        return self.get_session_dir(key) / "tracked_files.json"
+
+    def load_tracked_files(self, key: str) -> dict[str, dict]:
+        """Load tracked files map {normalized_path: {op, name, lastSeen}}.
+
+        Returns an empty dict if the file doesn't exist or is corrupt.
+        """
+        path = self._get_tracked_files_path(key)
+        if not path.exists():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data.get("files", {}) if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def save_tracked_file(self, key: str, file_path: str, op: str = "read",
+                          name: str = "") -> None:
+        """Upsert a single tracked file entry.
+
+        ``file_path`` is normalised to forward-slash internally.
+        ``op`` is one of: read, write, edit, delete.
+        """
+        files = self.load_tracked_files(key)
+        norm = file_path.replace("\\", "/")
+        existing = files.get(norm, {})
+        # Upgrade: read < edit < write < delete
+        rank = {"read": 0, "edit": 1, "write": 2, "delete": 3}
+        cur_rank = rank.get(existing.get("op", "read"), 0)
+        new_rank = rank.get(op, 0)
+        if new_rank >= cur_rank:
+            from pathlib import PurePosixPath
+            files[norm] = {
+                "op": op,
+                "name": name or PurePosixPath(norm).name,
+                "lastSeen": int(datetime.now().timestamp() * 1000),
+            }
+        path = self._get_tracked_files_path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps({"version": 1, "files": files}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+
+    def reset_tracked_file_op(self, key: str, file_path: str, op: str = "read") -> None:
+        """Force-reset the op of a tracked file entry (ignoring rank).
+
+        Unlike ``save_tracked_file`` this bypasses the rank guard so a
+        ``write`` entry can be downgraded back to ``read`` after accept.
+        """
+        files = self.load_tracked_files(key)
+        norm = file_path.replace("\\", "/")
+        if norm not in files:
+            return
+        from pathlib import PurePosixPath
+        files[norm]["op"] = op
+        files[norm]["lastSeen"] = int(datetime.now().timestamp() * 1000)
+        path = self._get_tracked_files_path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps({"version": 1, "files": files}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+
+    def remove_tracked_file(self, key: str, file_path: str) -> None:
+        """Remove a single tracked file entry."""
+        files = self.load_tracked_files(key)
+        norm = file_path.replace("\\", "/")
+        files.pop(norm, None)
+        path = self._get_tracked_files_path(key)
+        if not files:
+            path.unlink(missing_ok=True)
+            return
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps({"version": 1, "files": files}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+
+    def clear_tracked_files(self, key: str) -> None:
+        """Remove the entire tracked_files.json for a session."""
+        path = self._get_tracked_files_path(key)
+        path.unlink(missing_ok=True)
+
+    # ── Archive ───────────────────────────────────────────────────────
+
+    def _get_archived_marker(self, key: str) -> Path:
+        """Path to the archive marker file."""
+        self._migrate_flat_to_dir(key)
+        return self.get_session_dir(key) / ".archived"
+
     def invalidate(self, key: str) -> None:
         """Remove a session from in-memory cache."""
         self._cache.pop(key, None)
 
-    def delete(self, key: str) -> bool:
-        """Delete a session from cache and disk."""
-        self._cache.pop(key, None)
-        path = self._get_session_path(key)
-        if path.exists():
-            path.unlink()
-            return True
-        return False
+    def archive(self, key: str) -> None:
+        """Mark a session as archived."""
+        path = self._get_archived_marker(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+        self.invalidate(key)
 
-    def list_sessions(self) -> list[dict[str, Any]]:
-        """List all sessions sorted by updated time descending."""
+    def unarchive(self, key: str) -> None:
+        """Remove archived marker from a session."""
+        path = self._get_archived_marker(key)
+        path.unlink(missing_ok=True)
+        self.invalidate(key)
+
+    def list_sessions(self, include_archived: bool = False) -> list[dict[str, Any]]:
+        """List sessions sorted by updated time descending.
+
+        Args:
+            include_archived: If False (default), exclude archived sessions.
+        """
         sessions: list[dict[str, Any]] = []
 
+        # Primary: directory-based sessions
+        for path in self.sessions_dir.glob("*/conversation.jsonl"):
+            try:
+                data = self._read_metadata(path)
+                if data is None:
+                    continue
+                if not include_archived and (path.parent / ".archived").exists():
+                    continue
+                key = data.get("key") or path.parent.name.replace("_", ":", 1)
+                sessions.append(
+                    {
+                        "key": key,
+                        "title": self._extract_title(path) or key,
+                        "created_at": data.get("created_at"),
+                        "updated_at": data.get("updated_at"),
+                        "path": str(path),
+                    }
+                )
+            except Exception:
+                continue
+
+        # Fallback: old flat .jsonl files not yet migrated
         for path in self.sessions_dir.glob("*.jsonl"):
             try:
-                with open(path, encoding="utf-8") as f:
-                    first_line = f.readline().strip()
-                    if not first_line:
-                        continue
-                    data = json.loads(first_line)
-                    if data.get("_type") != "metadata":
-                        continue
-
+                data = self._read_metadata(path)
+                if data is None:
+                    continue
                 key = data.get("key") or path.stem.replace("_", ":", 1)
                 sessions.append(
                     {
                         "key": key,
+                        "title": self._extract_title(path) or key,
                         "created_at": data.get("created_at"),
                         "updated_at": data.get("updated_at"),
                         "path": str(path),
@@ -239,6 +387,81 @@ class SessionManager:
                 continue
 
         return sorted(sessions, key=lambda item: item.get("updated_at", ""), reverse=True)
+        """Remove a session from in-memory cache."""
+        self._cache.pop(key, None)
+
+    def delete(self, key: str) -> bool:
+        """Delete a session from cache and disk."""
+        self._cache.pop(key, None)
+        self._migrate_flat_to_dir(key)
+        session_dir = self.get_session_dir(key)
+        if session_dir.exists():
+            shutil.rmtree(session_dir)
+            return True
+        # Fallback: old flat file that was never migrated
+        safe_key = safe_filename(key.replace(":", "_"))
+        old_flat = self.sessions_dir / f"{safe_key}.jsonl"
+        if old_flat.exists():
+            old_flat.unlink()
+            return True
+        return False
+
+    @staticmethod
+    def _extract_title(path: Path) -> str:
+        """Extract the first user message text (≤ 60 chars) from a conversation file."""
+        try:
+            for raw in path.read_text(encoding="utf-8").splitlines():
+                obj = json.loads(raw)
+                if obj.get("role") == "user" and obj.get("content"):
+                    return str(obj["content"])[:60]
+        except Exception:
+            pass
+        return ""
+
+    def _read_metadata(self, path: Path) -> dict | None:
+        """Read the metadata line from a conversation.jsonl or flat .jsonl file.
+
+        Falls back to the most recent message timestamp when the metadata
+        ``updated_at`` is missing or older than the latest message — saves are
+        append-only, so the metadata line is only rewritten on compaction, but
+        we still want the sidebar to re-sort the session to the top after
+        every new message.
+        """
+        try:
+            metadata: dict | None = None
+            latest_msg_ts: datetime | None = None
+            with open(path, encoding="utf-8") as f:
+                for raw in f:
+                    line = raw.strip()
+                    if not line:
+                        continue
+                    obj = json.loads(line)
+                    if metadata is None and obj.get("_type") == "metadata":
+                        metadata = obj
+                        continue
+                    msg_ts = obj.get("timestamp")
+                    if isinstance(msg_ts, str):
+                        try:
+                            ts = datetime.fromisoformat(msg_ts)
+                        except Exception:
+                            continue
+                        if latest_msg_ts is None or ts > latest_msg_ts:
+                            latest_msg_ts = ts
+            if metadata is None:
+                return None
+            if latest_msg_ts is not None:
+                meta_ts_raw = metadata.get("updated_at")
+                meta_ts: datetime | None = None
+                if isinstance(meta_ts_raw, str):
+                    try:
+                        meta_ts = datetime.fromisoformat(meta_ts_raw)
+                    except Exception:
+                        meta_ts = None
+                if meta_ts is None or latest_msg_ts > meta_ts:
+                    metadata["updated_at"] = latest_msg_ts.isoformat()
+            return metadata
+        except Exception:
+            return None
 
     def compact_if_needed(self, key: str) -> bool:
         """Compact a session file if thresholds are exceeded."""

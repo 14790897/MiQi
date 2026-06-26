@@ -266,7 +266,7 @@ def test_inbound_message_session_key_override() -> None:
 
 
 def test_memory_store_tool_feedback_learns_lessons(tmp_path) -> None:
-    store = MemoryStore(workspace=tmp_path, self_improvement_enabled=True)
+    store = MemoryStore(workspace=tmp_path, self_improvement_enabled=True, lessons_legacy_inject_enabled=True)
     changed = store.record_tool_feedback(
         session_key="cli:lesson",
         tool_name="read_file",
@@ -290,7 +290,7 @@ def test_memory_store_tool_feedback_learns_lessons(tmp_path) -> None:
 
 
 def test_memory_store_user_feedback_learns_lessons(tmp_path) -> None:
-    store = MemoryStore(workspace=tmp_path, self_improvement_enabled=True)
+    store = MemoryStore(workspace=tmp_path, self_improvement_enabled=True, lessons_legacy_inject_enabled=True)
     changed = store.record_user_feedback(
         session_key="cli:feedback",
         user_message="不对，回答太长了，简短一点",
@@ -350,7 +350,7 @@ def test_memory_store_lesson_confidence_decay_affects_ranking(tmp_path) -> None:
     store = MemoryStore(
         workspace=tmp_path,
         self_improvement_enabled=True,
-        lesson_confidence_decay_hours=1,
+        min_lesson_confidence=1,
     )
     store.learn_lesson(
         trigger="response:old",

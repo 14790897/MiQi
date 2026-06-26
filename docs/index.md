@@ -1,46 +1,48 @@
-# MiQi
+# MiQi Desktop
 
 <p align="center">
-  <em>A lightweight, extensible personal AI agent framework for production automation and conversational workflows.</em>
+  <em>基于 Electron 的轻量级个人 AI 助手桌面应用</em>
 </p>
 
-[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](https://python.org)
-[![Status](https://img.shields.io/badge/status-alpha-orange)](https://github.com/lichman0405/MiQi)
-[![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/lichman0405/MiQi/blob/main/LICENSE)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Docker](https://img.shields.io/badge/docker-supported-2496ED?logo=docker&logoColor=white)](https://hub.docker.com)
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.11%20%7C%203.12-blue" alt="Python" />
+  <img src="https://img.shields.io/badge/node.js-20+-green" alt="Node.js" />
+  <img src="https://img.shields.io/badge/status-alpha-orange" alt="Alpha" />
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT" />
+</p>
 
 ---
 
-MiQi is a compact AI agent runtime designed for developers who want a self-hosted, programmable assistant. It connects to any OpenAI-compatible LLM provider and exposes a rich toolset — file operations, shell execution, web search, scheduled tasks, sub-agents, and external MCP servers — all configurable via a single JSON file.
+## 概述
 
-## Features
+MiQi Desktop 是一款基于 **Electron** 构建的桌面应用，为 MiQi AI 代理提供现代化的图形界面。它将强大的 **Python AI Agent 引擎** 与直观的 **React + TypeScript** 用户界面相结合。
 
-| Category | Capabilities |
-|---|---|
-| **LLM Providers** | OpenRouter, OpenAI, Anthropic, DeepSeek, Gemini, Groq, Moonshot, MiniMax, ZhipuAI, DashScope (Qwen), SiliconFlow, VolcEngine, AiHubMix, vLLM, Ollama, OpenAI Codex (OAuth), and any OpenAI-compatible endpoint |
-| **Built-in Tools** | File system, shell, web fetch/search, paper research (search/details/download), cron scheduler, sub-agent spawning |
-| **Channels** | Feishu is wired in the packaged gateway today; additional adapter modules for Telegram/Discord/Slack/Email/QQ/DingTalk/MoChat are present in the repository |
-| **MCP Integration** | Connect any MCP-compatible tool server; seven domain-specific MCP servers bundled |
-| **Memory** | RAM-first snapshots, self-improvement lessons, and workspace-local JSONL session history |
-| **Agent Runtime** | Concurrent tool execution for safe batches, iteration-budget safeguards, queue notifications, and MCP heartbeat progress |
-| **Extensibility** | MCP server integration, skill files, custom provider plugins |
-| **CLI** | Interactive onboarding, agent chat, gateway mode, cron and memory management |
+### 核心定位
 
-## Quick Navigation
+- 🎯 **个人 AI 助手**：非聊天机器人，而是一个有记忆、有技能、能操作文件的桌面 AI
+- 🔧 **高度可扩展**：通过 MCP 协议集成外部工具，支持自定义技能和提供商
+- 🖥️ **真实桌面体验**：Electron 原生窗口，系统级集成（WSL2 沙箱、文件系统操作）
+- 🔒 **本地优先**：所有数据本地存储，支持文件版本控制的非破坏性编辑
 
-- :material-rocket-launch: **[Getting Started](getting-started.md)** — Installation, quick start, and first run
-- :material-cog: **[Configuration](configuration.md)** — Config file reference and environment variables
-- :material-console: **[CLI Reference](cli-reference.md)** — All commands, tools, and their options
-- :material-puzzle: **[MCP Integration](mcp-integration.md)** — Connect bundled and custom MCP servers
-- :material-sitemap: **[Architecture](architecture.md)** — System design and module breakdown
-- :material-brain: **[Memory System](memory-system.md)** — RAM-first memory architecture
-- :material-school: **[Self-Improvement](self-improvement.md)** — Lesson extraction and feedback loop
-- :material-shield: **[Security](security.md)** — Security policy and best practices
-- :material-code-braces: **[Developer Guide](developer-guide.md)** — Contributing and development setup
+### 技术栈
 
-## Acknowledgements
+| 层级 | 技术 | 版本 |
+|------|------|------|
+| 桌面框架 | Electron | 35.2 |
+| 前端 UI | React + TypeScript | 19.1 / 5.8 |
+| CSS | Tailwind CSS 4 | 4.x |
+| 组件库 | Radix UI + Lucide Icons | - |
+| 后端引擎 | Python (asyncio) | 3.11+ |
+| CLI 框架 | Typer | 0.20+ |
+| 数据模型 | Pydantic v2 | 2.12+ |
+| 构建工具 | electron-vite + electron-builder | 3.1 / 26.0 |
+| Python 打包 | PyInstaller + Hatchling | 6.20+ |
+| 容器化 | Docker + docker-compose | - |
 
-MiQi is a domain-focused evolution of the upstream [`nanobot`](https://github.com/HKUDS/nanobot) project. Full credit to the upstream team for the excellent engineering baseline in runtime design and tool abstraction.
+### 快速链接
 
-> **Reference baseline:** `nanobot` @ [`30361c9`](https://github.com/HKUDS/nanobot/commit/30361c9307f9014f49530d80abd5717bc97f554a) (2026-02-23)
+- [快速开始](getting-started.md) — 安装和运行
+- [系统架构](architecture.md) — 整体设计
+- [配置参考](configuration.md) — 完整配置项说明
+- [MCP 集成](mcp-integration.md) — 外部工具集成
+- [CLI 参考](backend/bridge.md) — 命令行与 Bridge API

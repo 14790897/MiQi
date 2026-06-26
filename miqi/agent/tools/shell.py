@@ -1,16 +1,19 @@
-"""Shell execution tool."""
+"""Shell execution tool with bwrap sandbox support."""
 
 import asyncio
 import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
+
+from loguru import logger
 
 from miqi.agent.tools.base import Tool
 
 
 class ExecTool(Tool):
-    """Tool to execute shell commands."""
+    """Tool to execute shell commands, optionally inside a bwrap sandbox."""
 
     def __init__(
         self,
@@ -20,6 +23,8 @@ class ExecTool(Tool):
         allow_patterns: list[str] | None = None,
         restrict_to_workspace: bool = False,
         env_passthrough: list[str] | None = None,
+        approval_callback=None,
+        sandbox_manager=None,
     ):
         self.timeout = timeout
         self.working_dir = working_dir
@@ -44,6 +49,8 @@ class ExecTool(Tool):
         ]
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace
+        self.approval_callback = approval_callback
+        self._sandbox_manager = sandbox_manager
 
     @property
     def name(self) -> str:
@@ -72,17 +79,164 @@ class ExecTool(Tool):
 
     async def execute(self, command: str, working_dir: str | None = None, **kwargs: Any) -> str:
         cwd = working_dir or self.working_dir or os.getcwd()
-        guard_error = self._guard_command(command, cwd)
-        if guard_error:
-            return guard_error
 
+        # If desktop approval callback is wired in, use the full approval system.
+        # Otherwise fall back to the static guard.
+        if self.approval_callback is not None:
+            import functools
+            from miqi.agent.command_approval import check_dangerous_command
+            loop = asyncio.get_event_loop()
+            check_fn = functools.partial(
+                check_dangerous_command,
+                command,
+                approval_callback=self.approval_callback,
+            )
+            approval_result = await loop.run_in_executor(None, check_fn)
+            if not approval_result.get("approved", True):
+                return approval_result.get(
+                    "message",
+                    "Error: Command blocked — user denied approval.",
+                )
+        else:
+            guard_error = self._guard_command(command, cwd)
+            if guard_error:
+                return guard_error
+
+        # Try sandbox execution first if a sandbox manager is available
+        if self._sandbox_manager is not None:
+            sandbox = self._sandbox_manager.active_sandbox
+            if sandbox and sandbox.is_running:
+                return await self._execute_in_sandbox(sandbox, command, cwd)
+
+        # Fall back to direct execution (no sandbox)
+        return await self._execute_direct(command, cwd)
+
+    async def _execute_in_sandbox(
+        self, sandbox, command: str, cwd: str
+    ) -> str:
+        """Execute a command inside the bwrap sandbox."""
         try:
+            # Build sandbox-relative working directory
+            sandbox_cwd = self._resolve_sandbox_cwd(cwd)
+
+            # Use only the sandbox's built-in environment variables.
+            # Do NOT merge the host's os.environ into the sandbox — the
+            # sandbox is an isolated Linux environment and does not need
+            # (or want) Windows host env vars like PATH, TEMP, PROGRAMFILES
+            # etc.  Passing all those via --setenv bloats the bwrap command
+            # line far beyond Windows' 32 767-char limit.
+            sandbox_env = sandbox.get_sandbox_env()
+
+            # Only pass through explicitly allowed env vars from the host
+            if self.env_passthrough:
+                safe_env = self._build_safe_env()
+                for k in self.env_passthrough:
+                    if k in safe_env and k not in sandbox_env:
+                        sandbox_env[k] = safe_env[k]
+
+            exit_code, stdout, stderr = await sandbox.run_command(
+                command,
+                timeout=self.timeout,
+                env=sandbox_env,
+                cwd=sandbox_cwd,
+            )
+
+            output_parts = []
+            if stdout:
+                output_parts.append(stdout)
+            if stderr and stderr.strip():
+                output_parts.append(f"STDERR:\n{stderr}")
+            if exit_code != 0:
+                output_parts.append(f"\nExit code: {exit_code}")
+
+            result = "\n".join(output_parts) if output_parts else "(no output)"
+
+            # Truncate very long output
+            max_len = 10000
+            if len(result) > max_len:
+                result = result[:max_len] + f"\n... (truncated, {len(result) - max_len} more chars)"
+
+            return result
+
+        except Exception as e:
+            logger.error("Sandbox execution failed: {} — {}", type(e).__name__, e)
+            # Do NOT silently fall back to host execution.
+            # The model needs to know the sandbox failed so it can adjust
+            # its commands (e.g. use Linux paths instead of Windows paths).
+            return (
+                f"Error: Sandbox execution failed — {type(e).__name__}: {e}\n"
+                f"Hint: You are running inside a Linux sandbox. Use Linux-style "
+                f"paths (e.g. /home/miqi/workspace/) and Linux commands."
+            )
+
+    def _resolve_sandbox_cwd(self, cwd: str) -> str:
+        """Map a working directory to its sandbox equivalent.
+
+        Rules:
+        - /home/miqi/workspace/... → already a sandbox path, use as-is
+        - /mnt/c/...              → already a WSL path, remap to /home/miqi/workspace/...
+        - C:\\Users\\...           → Windows path, remap relative to workspace
+        - Relative path            → resolve against /home/miqi/workspace
+        """
+        import re
+
+        # Already a sandbox path
+        if cwd.startswith("/home/miqi/"):
+            return cwd
+
+        # WSL /mnt/ path — remap to sandbox workspace
+        mnt_match = re.match(r"^/mnt/([a-z])/(.+)$", cwd)
+        if mnt_match:
+            drive = mnt_match.group(1)
+            rest = mnt_match.group(2)
+            # If workspace matches, compute relative
+            if self.working_dir:
+                ws_str = str(self.working_dir).replace("\\", "/")
+                ws_match = re.match(r"^([A-Za-z]):/(.+)$", ws_str)
+                if ws_match and ws_match.group(1).lower() == drive:
+                    ws_rest = ws_match.group(2).rstrip("/")
+                    if rest.startswith(ws_rest + "/") or rest == ws_rest:
+                        rel = rest[len(ws_rest):].lstrip("/")
+                        return f"/home/miqi/workspace/{rel}" if rel else "/home/miqi/workspace"
+            return cwd  # Can't map, use as-is (may fail but at least visible)
+
+        # Windows absolute path
+        win_match = re.match(r"^([A-Za-z]):[/\\](.+)$", cwd)
+        if win_match and self.working_dir:
+            try:
+                rel = Path(cwd).relative_to(self.working_dir)
+                return f"/home/miqi/workspace/{rel}"
+            except ValueError:
+                pass
+            # Fallback: compute from drive letter
+            drive = win_match.group(1).lower()
+            rest = win_match.group(2).replace("\\", "/")
+            ws_str = str(self.working_dir).replace("\\", "/")
+            ws_match = re.match(r"^([A-Za-z]):/(.+)$", ws_str)
+            if ws_match and ws_match.group(1).lower() == drive:
+                ws_rest = ws_match.group(2).rstrip("/")
+                if rest.startswith(ws_rest + "/") or rest == ws_rest:
+                    rel = rest[len(ws_rest):].lstrip("/")
+                    return f"/home/miqi/workspace/{rel}" if rel else "/home/miqi/workspace"
+            # Not under workspace — map as /mnt/c/...
+            return f"/mnt/{drive}/{rest}"
+
+        # Relative path or other — default to workspace root
+        return "/home/miqi/workspace"
+
+    async def _execute_direct(self, command: str, cwd: str) -> str:
+        """Execute a command directly on the host (no sandbox)."""
+        try:
+            _kwargs: dict = {}
+            if os.name == "nt":
+                _kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
             process = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
                 env=self._build_safe_env(),
+                **_kwargs,
             )
 
             try:
