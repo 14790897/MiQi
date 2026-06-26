@@ -2,7 +2,8 @@ name: Release and Build
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -22,7 +23,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
