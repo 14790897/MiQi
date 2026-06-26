@@ -1,3 +1,10 @@
+## [0.2.1](https://github.com/14790897/MiQi/compare/v0.2.0...v0.2.1) (2026-06-26)
+
+
+### Bug Fixes
+
+* **desktop:** add predev script to auto-install Python deps ([2e05e40](https://github.com/14790897/MiQi/commit/2e05e408acfa2dc11c077bf2b0bb8ac5cd35bb2f))
+
 # [0.2.0](https://github.com/14790897/MiQi/compare/v0.1.19...v0.2.0) (2026-06-26)
 
 

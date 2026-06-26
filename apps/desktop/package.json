@@ -1,6 +1,6 @@
 {
   "name": "miqi-desktop",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "MiQi Desktop — native desktop companion for the MiQi AI agent",
   "main": "./out/main/electron-trampoline.js",
   "author": "MiQi Team",
