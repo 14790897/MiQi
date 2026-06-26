@@ -28,3 +28,4 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 | `workspace-cleanup` | Organize the miqi workspace directory |
 | `skill-creator` | Create new skills |
 | `pptx-generator` | Generate, edit, and read PowerPoint presentations |
+| `slurm` | Submit, monitor, and manage SLURM jobs on the PVE cluster |
