@@ -1354,6 +1354,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#observability-opentelemetry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        observability — OpenTelemetry 可观测性
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1716,6 +1727,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#observability-opentelemetry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        observability — OpenTelemetry 可观测性
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2047,6 +2069,57 @@
 <td><code>progressIntervalSeconds</code></td>
 <td>int</td>
 <td>心跳间隔 (秒)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="observability-opentelemetry">observability — OpenTelemetry 可观测性<a class="headerlink" href="#observability-opentelemetry" title="Permanent link">&para;</a></h3>
+<p>默认关闭。启用并安装可选依赖后，运行时事件将导出为 OpenTelemetry traces 和 metrics。</p>
+<p>安装依赖: <code>pip install miqi[otel]</code></p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>类型</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enabled</code></td>
+<td>bool</td>
+<td>false</td>
+<td>启用 OTel 导出</td>
+</tr>
+<tr>
+<td><code>endpoint</code></td>
+<td>string</td>
+<td>null</td>
+<td>OTLP gRPC/HTTP 端点 URL</td>
+</tr>
+<tr>
+<td><code>serviceName</code></td>
+<td>string</td>
+<td>"miqi"</td>
+<td>服务名称标签</td>
+</tr>
+<tr>
+<td><code>consoleExport</code></td>
+<td>bool</td>
+<td>false</td>
+<td>输出到控制台 (开发调试用)</td>
+</tr>
+<tr>
+<td><code>sampleRatio</code></td>
+<td>float</td>
+<td>1.0</td>
+<td>采样率 (0-1)</td>
+</tr>
+<tr>
+<td><code>captureContent</code></td>
+<td>bool</td>
+<td>false</td>
+<td>捕获消息文本到 Span 属性 (隐私敏感，默认不捕获)</td>
 </tr>
 </tbody>
 </table>

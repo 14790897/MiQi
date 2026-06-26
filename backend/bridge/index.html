@@ -1887,6 +1887,9 @@
 
 <h1 id="bridge">Bridge 通信<a class="headerlink" href="#bridge" title="Permanent link">&para;</a></h1>
 <p><code>miqi/bridge/server.py</code>（约 2000 行，57 个 handler）是连接 Electron 前端和 Python 后端的核心通信层。</p>
+<blockquote>
+<p><strong>AppServer 层</strong>: Bridge Server 内部运行 AppServer（<code>miqi/runtime/app_server.py</code>），提供传输无关的类型化协议层。详见 <a href="../../architecture/">架构文档</a>。</p>
+</blockquote>
 <h2 id="_1">通信协议<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
 <p>Bridge 通过 <strong>stdin/stdout</strong> 使用 <strong>JSON-line</strong> 格式进行双向通信：</p>
 <h3 id="_2">消息格式<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h3>
