@@ -1,3 +1,22 @@
+# [0.2.0](https://github.com/14790897/MiQi/compare/v0.1.19...v0.2.0) (2026-06-26)
+
+
+### Bug Fixes
+
+* **bridge:** handle stdin write errors gracefully ([b642627](https://github.com/14790897/MiQi/commit/b64262781314e35bfafc52363f5f21ab69723a59))
+* **chat:** persist user message immediately so it survives session switch ([5498057](https://github.com/14790897/MiQi/commit/54980577226dc974841ddd6f24fbd74a81d14f8e))
+* **chat:** scroll to bottom on session open ([2fce763](https://github.com/14790897/MiQi/commit/2fce763fd7d395b959789600e060717ad0aba16c))
+* **desktop:** stop scroll jank — sidebar list reset & chat stream lock ([2644787](https://github.com/14790897/MiQi/commit/264478766b7a94c83f1b222920badae380d4b1bf))
+* handle cross-thread safety and prevent duplicate messages ([44a77fc](https://github.com/14790897/MiQi/commit/44a77fc9133f27402f53669e0b90a23b3f00428d))
+
+
+### Features
+
+* **chat:** persist and render subagent results ([1cd30ec](https://github.com/14790897/MiQi/commit/1cd30ec1dea918f06bcbe5dadca61611950befb1))
+* **desktop:** persist and restore last active session ([2545c40](https://github.com/14790897/MiQi/commit/2545c4087daea5a027b62e599a459609e25c399e))
+* **subagent:** support background execution in desktop mode ([e71c92d](https://github.com/14790897/MiQi/commit/e71c92d83caffa66ccd4c0dac4696a1aae124e32))
+* 添加 SLURM 技能支持 ([53f649e](https://github.com/14790897/MiQi/commit/53f649e70c6342ed6f6d1115099e86b77346f772))
+
 # [0.2.0-dev.7](https://github.com/14790897/MiQi/compare/v0.2.0-dev.6...v0.2.0-dev.7) (2026-06-24)
 
 
