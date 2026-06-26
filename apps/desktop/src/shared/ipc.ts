@@ -15,6 +15,16 @@ export const IPC = {
   CHAT_SEND: 'chat:send',
   CHAT_ABORT: 'chat:abort',
 
+  // Threads (Codex-style, Phase 36+)
+  THREAD_START: 'thread:start',
+  THREAD_LIST: 'thread:list',
+  THREAD_READ: 'thread:read',
+  THREAD_NAME_SET: 'thread:name:set',
+
+  // Turns (Codex-style, Phase 37+)
+  TURN_START: 'turn:start',
+  TURN_INTERRUPT: 'turn:interrupt',
+
   // Sessions
   SESSIONS_LIST: 'sessions:list',
   SESSIONS_GET: 'sessions:get',
@@ -24,6 +34,7 @@ export const IPC = {
   SESSIONS_LIST_ARCHIVED: 'sessions:list_archived',
   SESSIONS_GET_TRACKED_FILES: 'sessions:get_tracked_files',
   SESSIONS_CLEAR_TRACKED_FILES: 'sessions:clear_tracked_files',
+  SESSIONS_CLAIM_LEGACY: 'sessions:claim_legacy',
 
   // Config
   CONFIG_GET: 'config:get',
@@ -133,6 +144,7 @@ export const IPC_EVENTS = {
   PLAN_UPDATED: 'plan:updated',
   TURN_STARTED: 'turn:started',
   TURN_COMPLETED: 'turn:completed',
+  THREAD_STARTED: 'thread:started',
 } as const
 
 // ---------------------------------------------------------------------------
@@ -142,6 +154,7 @@ export const IPC_EVENTS = {
 export const ChatSendInput = z.object({
   content: z.string().min(1),
   session_key: z.string().optional(),
+  thread_id: z.string().optional(),
 })
 
 export const SessionGetInput = z.object({
@@ -151,6 +164,17 @@ export const SessionGetInput = z.object({
 export const SessionDeleteInput = z.object({
   session_key: z.string().min(1),
 })
+
+export const SessionClaimLegacyInput = z.object({
+  session_key: z.string().min(1),
+})
+
+export interface SessionClaimLegacyResult {
+  claimed: boolean
+  session_key: string
+  owner_client_id: string
+  error?: string
+}
 
 export const ConfigUpdateInput = z.object({
   config: z.record(z.unknown()),
@@ -273,16 +297,19 @@ export const ChannelsUpdateInput = z.object({
 
 export interface ApprovalRequest {
   approval_id: string
-  command: string
+  command?: string      // may be empty for non-exec approvals
   description: string
   allow_permanent: boolean
+  category?: string  // "exec" | "file_write" | "unknown_tool" | ...
+  details?: Record<string, unknown>  // e.g. { command, path, operation, tool_name }
 }
 
 export interface PendingApproval {
   approval_id: string
-  command: string
+  command?: string     // may be empty for non-exec approvals
   description: string
   category?: string  // "exec" | "file_write" | "network" | "patch_apply"
+  details?: Record<string, unknown>  // structured approval metadata
   allow_permanent: boolean
   created_at: number
   age_seconds: number
@@ -743,4 +770,79 @@ export interface TurnCompletedEvent {
   outcome: string
   tools_used: string[]
   token_usage: Record<string, number>
+}
+
+// ── Thread / Turn types (Phase 36+) ───────────────────────────────────────
+
+export const ThreadStartInput = z.object({
+  title: z.string().optional(),
+  session_key: z.string().optional(),
+  thread_id: z.string().optional(),
+})
+
+export const ThreadReadInput = z.object({
+  thread_id: z.string().min(1),
+  session_key: z.string().optional(),
+})
+
+export const ThreadNameSetInput = z.object({
+  thread_id: z.string().min(1),
+  name: z.string().min(1),
+  session_key: z.string().optional(),
+})
+
+export const TurnStartInput = z.object({
+  thread_id: z.string().min(1),
+  content: z.string().min(1),
+  session_key: z.string().optional(),
+  model: z.string().optional(),
+  effort: z.string().optional(),
+})
+
+export const TurnInterruptInput = z.object({
+  thread_id: z.string().min(1),
+  turn_id: z.string().min(1),
+  session_key: z.string().optional(),
+})
+
+export const ChatAbortInput = z.object({
+  session_key: z.string().optional(),
+  thread_id: z.string().optional(),
+})
+
+export const AgentListInput = z.object({
+  session_key: z.string().optional(),
+})
+
+export interface ThreadInfo {
+  id: string
+  title: string
+  created_at: number
+  updated_at: number
+  turn_count: number
+}
+
+export interface ThreadStartResult {
+  thread: Record<string, unknown>
+}
+
+export interface ThreadListResult {
+  items: Record<string, unknown>[]
+  nextCursor?: null | string
+}
+
+export interface ThreadReadResult {
+  thread: Record<string, unknown>
+}
+
+export interface TurnStartResult {
+  turn: Record<string, unknown>
+}
+
+export interface TurnInterruptResult {
+  interrupted: boolean
+}
+
+export interface ThreadStartedEvent {
+  thread: Record<string, unknown>
 }

@@ -501,8 +501,26 @@ export class BridgeManager extends EventEmitter {
     if (!this.isRunning()) return null
     try {
       return await this.send(method, params, onEvent)
-    } catch {
+    } catch (e: any) {
+      this.addLog(`[Bridge] sendSafe ${method} swallowed: ${e?.message ?? String(e)}`)
       return null
+    }
+  }
+
+  /** Like sendSafe but returns structured error info so the UI can display it.
+   *  Use for pages that need to show failure reasons, not just blank states. */
+  async sendSafeWithError(
+    method: string,
+    params?: Record<string, unknown>,
+  ): Promise<{ ok: true; value: unknown } | { ok: false; error: string; code?: string }> {
+    if (!this.isRunning()) return { ok: false, error: 'Bridge not running' }
+    try {
+      const value = await this.send(method, params)
+      return { ok: true, value }
+    } catch (e: any) {
+      const msg = e?.message ?? String(e ?? 'Unknown bridge error')
+      this.addLog(`[Bridge] sendSafeWithError ${method} failed: ${msg}`)
+      return { ok: false, error: msg, code: e?.code }
     }
   }
 

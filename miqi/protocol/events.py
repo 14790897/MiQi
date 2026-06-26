@@ -254,6 +254,17 @@ class WarningEvent:
 
 
 @dataclass
+class ToolErrorEvent:
+    """A tool execution failed with an exception (recoverable)."""
+    type: str = field(default="tool_error", init=False)
+    turn_id: str
+    tool_name: str
+    tool_call_id: str
+    message: str
+    recoverable: bool = True
+
+
+@dataclass
 class ContextCompactedEvent:
     """Conversation history was compacted."""
     type: str = field(default="context_compacted", init=False)

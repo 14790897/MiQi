@@ -7,6 +7,33 @@ Concurrent execution logic ported from Hermes Agent's run_agent.py:
     their target paths do not overlap
   - _NEVER_PARALLEL_TOOLS: tools that must always run sequentially
   - Path overlap detection prevents concurrent writes to the same file
+
+.. admonition:: Production-path audit (Phase 63)
+
+   ``ToolRegistry.execute()`` and ``ToolRegistry.execute_concurrent()`` are
+   **never** called in production.  All runtime tool invocations flow through
+   ``ToolOrchestrator.execute()`` → ``_execute_in_sandbox()`` (see
+   ``miqi/runtime/services.py:157-158`` and ``miqi/runtime/tool_runtime.py``).
+   The ``ToolRegistry`` instance is created by ``create_runtime_tool_registry()``
+   and passed into the orchestrator as its ``tools`` dependency — it is used
+   only for schema definitions and as a lookup table, never for direct execution.
+
+   The only remaining callers of ``ToolRegistry.execute()`` /
+   ``execute_concurrent()`` are in test files (``test_file_mutation_approval.py``,
+   ``test_phase31_acceptance.py``, ``test_phase32_office_path_enforcement.py``,
+   ``test_tool_validation.py``).  These tests construct ad-hoc registries and
+   bypass the orchestrator — they are not representative of production flows.
+
+   If you add a new production call site that calls ``ToolRegistry.execute()``
+   or ``execute_concurrent()`` directly, you are bypassing:
+   - Permission checks
+   - Sandbox policy enforcement
+   - Approval lifecycle
+   - Hook pipeline
+   - Replay ledger mirroring
+   - Structured error sanitization (``_sanitize_exc_for_ui()``)
+
+   **Do not do that.**  Wire through ``ToolOrchestrator.execute()`` instead.
 """
 from __future__ import annotations
 
