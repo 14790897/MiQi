@@ -675,8 +675,12 @@ class BridgeRuntimeLoop:
             logger.warning(
                 "chat.send drain error for request {}: {}", request_id, exc,
             )
+            # Sanitize before sending to UI — raw exception may contain paths/URLs
+            raw = str(exc)
+            if len(raw) > 300:
+                raw = raw[:300] + "…"
             await _emit_terminal("error", {
-                "message": str(exc),
+                "message": f"Bridge drain error: {raw}",
             })
 
     # ── agent.spawn / agent.kill handlers ──────────────────────────────────

@@ -4,7 +4,7 @@ import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import type { BridgeManager } from '../bridge'
-import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, ConfigUpdateInput, ProviderTestInput, ProviderUpdateInput, ChannelsUpdateInput, CronCreateInput, CronUpdateInput, CronToggleInput, CronDeleteInput, CronRunInput, CronRunsInput, MemoryGetInput, MemoryUpdateInput, MemoryLessonUnlearnInput, SkillsGetInput, FilesReadInput, FilesWriteInput, McpUpsertInput, McpDeleteInput, AgentSpawnInput, PermissionsUpdateInput } from '../../shared/ipc'
+import { IPC, ChatSendInput, SessionGetInput, SessionDeleteInput, SessionClaimLegacyInput, ConfigUpdateInput, ProviderTestInput, ProviderUpdateInput, ChannelsUpdateInput, CronCreateInput, CronUpdateInput, CronToggleInput, CronDeleteInput, CronRunInput, CronRunsInput, MemoryGetInput, MemoryUpdateInput, MemoryLessonUnlearnInput, SkillsGetInput, FilesReadInput, FilesWriteInput, McpUpsertInput, McpDeleteInput, AgentSpawnInput, PermissionsUpdateInput, ThreadStartInput, ThreadReadInput, ThreadNameSetInput, TurnStartInput, TurnInterruptInput } from '../../shared/ipc'
 import type { WslCheckResult } from '../../shared/ipc'
 
 const { ipcMain, dialog } = electron
@@ -46,6 +46,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     const result = await bridge.send('chat.send', {
       content: input.content,
       session_key: input.session_key ?? 'desktop:default',
+      thread_id: (input as any).thread_id ?? undefined,
     }, (type: string, data: unknown) => {
       if (type === 'progress') {
         safeSend('chat:progress', data)
@@ -68,8 +69,9 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     return result
   })
 
-  ipcMain.handle(IPC.CHAT_ABORT, async () => {
-    return bridge.send('chat.abort', { session_key: 'desktop:default' })
+  ipcMain.handle(IPC.CHAT_ABORT, async (_event, payload: unknown) => {
+    const p = (payload ?? {}) as { session_key?: string }
+    return bridge.send('chat.abort', { session_key: p.session_key ?? 'desktop:default' })
   })
 
   // -----------------------------------------------------------------------
@@ -113,6 +115,11 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   ipcMain.handle(IPC.SESSIONS_CLEAR_TRACKED_FILES, async (_event, payload: unknown) => {
     const input = SessionGetInput.parse(payload)
     return bridge.send('sessions.clear_tracked_files', { session_key: input.session_key })
+  })
+
+  ipcMain.handle(IPC.SESSIONS_CLAIM_LEGACY, async (_event, payload: unknown) => {
+    const input = SessionClaimLegacyInput.parse(payload)
+    return bridge.send('sessions.claim_legacy', { session_key: input.session_key })
   })
 
   // -----------------------------------------------------------------------
@@ -702,8 +709,9 @@ for m in ("pydantic", "httpx", "loguru"):
   // ---------------------------------------------------------------------------
   // Agents (Phase 2)
   // ---------------------------------------------------------------------------
-  ipcMain.handle(IPC.AGENT_LIST, async () => {
-    return bridge.sendSafe('agent.list', { session_key: 'desktop:default' })
+  ipcMain.handle(IPC.AGENT_LIST, async (_event, payload: unknown) => {
+    const p = (payload ?? {}) as { session_key?: string }
+    return bridge.sendSafe('agent.list', { session_key: p.session_key ?? 'desktop:default' })
   })
 
   ipcMain.handle(IPC.AGENT_SPAWN, async (_event, payload: unknown) => {
@@ -770,5 +778,78 @@ for m in ("pydantic", "httpx", "loguru"):
   ipcMain.handle(IPC.PLUGINS_TOGGLE, async (_event, payload: unknown) => {
     const { name, enabled } = payload as { name: string; enabled: boolean }
     return bridge.sendSafe('plugins.toggle', { name, enabled })
+  })
+
+  // -- Threads (Phase 36+) --------------------------------------------------
+  ipcMain.handle(IPC.THREAD_START, async (_event, payload: unknown) => {
+    const input = ThreadStartInput.parse(payload)
+    const sender = _event.sender
+    const safeSend = (channel: string, data: unknown) => {
+      if (!sender.isDestroyed()) sender.send(channel, data)
+    }
+    return bridge.send('thread/start', {
+      title: input.title,
+      sessionKey: input.session_key,
+      threadId: input.thread_id,
+    }, (type: string, data: unknown) => {
+      if (type === 'thread/started') {
+        safeSend('thread:started', data)
+      }
+    })
+  })
+
+  ipcMain.handle(IPC.THREAD_LIST, async (_event, payload: unknown) => {
+    const p = (payload ?? {}) as { session_key?: string }
+    return bridge.sendSafe('thread/list', { sessionKey: p.session_key })
+  })
+
+  ipcMain.handle(IPC.THREAD_READ, async (_event, payload: unknown) => {
+    const input = ThreadReadInput.parse(payload)
+    return bridge.sendSafe('thread/read', { threadId: input.thread_id, sessionKey: input.session_key })
+  })
+
+  ipcMain.handle(IPC.THREAD_NAME_SET, async (_event, payload: unknown) => {
+    const input = ThreadNameSetInput.parse(payload)
+    return bridge.send('thread/name/set', { threadId: input.thread_id, name: input.name, sessionKey: input.session_key })
+  })
+
+  // -- Turns (Phase 37+) ----------------------------------------------------
+  ipcMain.handle(IPC.TURN_START, async (_event, payload: unknown) => {
+    const input = TurnStartInput.parse(payload)
+    const sender = _event.sender
+    const safeSend = (channel: string, data: unknown) => {
+      if (!sender.isDestroyed()) sender.send(channel, data)
+    }
+    return bridge.send('turn/start', {
+      threadId: input.thread_id,
+      input: [{ type: 'message', content: input.content }],
+      sessionKey: input.session_key,
+      model: input.model,
+      effort: input.effort,
+    }, (type: string, data: unknown) => {
+      // Forward all turn-level events to the renderer
+      if (type === 'error') {
+        safeSend('chat:error', data)
+      } else if (type === 'turn/completed' || type === 'turn/started' || type === 'item/started' || type === 'item/completed') {
+        // These are informational; renderer can subscribe if needed
+        safeSend(`turn:event`, data)
+      } else if (type === 'approval_request') {
+        safeSend('approval:request', data)
+      } else if (type === 'approval_cleared') {
+        safeSend('approval:cleared', data)
+      } else {
+        // Forward delta/stream events as progress for compat
+        safeSend('chat:progress', data)
+      }
+    })
+  })
+
+  ipcMain.handle(IPC.TURN_INTERRUPT, async (_event, payload: unknown) => {
+    const input = TurnInterruptInput.parse(payload)
+    return bridge.send('turn/interrupt', {
+      threadId: input.thread_id,
+      turnId: input.turn_id,
+      sessionKey: input.session_key,
+    })
   })
 }

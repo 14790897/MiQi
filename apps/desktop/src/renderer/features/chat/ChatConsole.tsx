@@ -35,6 +35,8 @@ import type {
   ChatError,
   ChatAborted,
 } from '../../../shared/ipc'
+import { extractProgressMessage, type ProgressPayload } from './progressUtils'
+import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage'
 
 interface Attachment {
   name: string
@@ -279,6 +281,8 @@ export function ChatConsole({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const unsubsRef = useRef<Array<() => void>>([])
   const currentSessionRef = useRef(sessionKey)
+  // Track the active thread ID for new-protocol thread-aware conversations
+  const currentThreadIdRef = useRef<string | null>(null)
 
   // ── Thread tabs for multi-agent support ──
   interface ThreadTab {
@@ -357,6 +361,7 @@ export function ChatConsole({
 
   useEffect(() => {
     currentSessionRef.current = sessionKey
+    currentThreadIdRef.current = null  // Reset on session change
     setHistoryLoaded(false)
     setMessages([])
     setTrackedFiles([])
@@ -425,7 +430,7 @@ export function ChatConsole({
 
   const handleAbort = useCallback(async () => {
     cleanupListeners()
-    try { await window.miqi.chat.abort() } catch { /* ignore */ }
+    try { await window.miqi.chat.abort(currentSessionRef.current) } catch { /* ignore */ }
     setStreaming(false)
     setMessages((prev) => [
       ...prev,
@@ -436,6 +441,7 @@ export function ChatConsole({
   const handleNewSession = useCallback(async () => {
     if (streaming) return
     const newKey = `desktop:${Date.now()}`
+    currentThreadIdRef.current = null
     cleanupListeners()
     onNewSession?.(newKey)
   }, [streaming, cleanupListeners, onNewSession])
@@ -504,12 +510,49 @@ export function ChatConsole({
         animId = requestAnimationFrame(revealNext)
       } else if (finalDone) {
         setStreaming(false)
-        cleanupListeners()
+        sendCleanup()
         if (onChatFinished) onChatFinished()
       }
     }
 
+    // Track last progress event time for watchdog
+    let lastEventAt = Date.now()
+    const NO_PROGRESS_WARN_MS = 25_000  // 25s — show "still waiting" warning
+    const NO_PROGRESS_STRONG_MS = 60_000 // 60s — stronger warning
+    let warnMsgId: number | null = null   // timestamp of the last warning message
+    let watchdogTimer: ReturnType<typeof setInterval> | null = null
+
+    // Helper: append watchdog message (idempotent — deduplicates via warnMsgId ref)
+    const appendWatchdogMsg = (content: string) => {
+      if (warnMsgId !== null) return // already shown
+      warnMsgId = Date.now()
+      setMessages((prev) => [
+        ...prev,
+        { role: 'error' as const, content, timestamp: warnMsgId! },
+      ])
+    }
+
+    // Start watchdog timer
+    watchdogTimer = setInterval(() => {
+      if (finalDone) {
+        if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null }
+        return
+      }
+      const elapsed = Date.now() - lastEventAt
+      if (elapsed >= NO_PROGRESS_STRONG_MS) {
+        appendWatchdogMsg('⚠️ No response from backend for 60s. You can abort and check runtime logs.')
+      } else if (elapsed >= NO_PROGRESS_WARN_MS) {
+        appendWatchdogMsg('⏳ Still waiting for backend response…')
+      }
+    }, 5_000) // check every 5s
+
+    const sendCleanup = () => {
+      if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null }
+      cleanupListeners()
+    }
+
     const unsubProgress = window.miqi.chat.onProgress((data: any) => {
+      lastEventAt = Date.now()
       // Handle stream deltas from exec (Phase 7 inline tool progress)
       if (data.stream && data.delta && data.tool_call_id) {
         setExecOutputs((prev) => {
@@ -525,15 +568,33 @@ export function ChatConsole({
         })
         return
       }
-      // Skip progress events with no displayable content.
-      // Many runtime events ({event: "AgentReasoningEvent", data: {...}})
-      // contain no text — silence them to avoid blank lines.
-      const progressText = data.text ?? null
-      if (!progressText && !data.tool_hint && !data.stream) return
-      setMessages((prev) => [
-        ...prev,
-        { role: 'progress', content: progressText, toolHint: data.tool_hint, toolCallId: data.tool_call_id, timestamp: Date.now() },
-      ])
+
+      // Try structured extraction first, then fall back to raw text
+      const extracted = extractProgressMessage(data as ProgressPayload)
+
+      if (extracted) {
+        const msgRole = extracted.role === 'error' ? 'error' as const
+          : extracted.role === 'warning' ? 'progress' as const  // warnings render as progress with warning style
+          : 'progress' as const
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: msgRole,
+            content: extracted.role === 'warning'
+              ? `⚠️ ${extracted.message}`
+              : extracted.message,
+            toolHint: data.tool_hint,
+            toolCallId: data.tool_call_id,
+            timestamp: Date.now(),
+          },
+        ])
+      } else if (data.tool_hint || data.stream) {
+        // tool_hint without text still deserves a line (old behavior for exec hints)
+        // but skip completely empty/stream-only events
+        return
+      }
+      // Otherwise skip — no displayable content
+
       // Parse file operations from tool hints
       if (data.tool_hint && data.text) {
         const parsed = parseToolHint(data.text)
@@ -558,7 +619,7 @@ export function ChatConsole({
         { role: 'error', content: data.message, timestamp: Date.now() },
       ])
       setStreaming(false)
-      cleanupListeners()
+      sendCleanup()
     })
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
@@ -568,24 +629,56 @@ export function ChatConsole({
         ...prev,
         { role: 'progress', content: 'Aborted.', timestamp: Date.now() },
       ])
-      cleanupListeners()
+      sendCleanup()
     })
 
     unsubsRef.current = [unsubProgress, unsubFinal, unsubError, unsubAborted]
 
     try {
+      // On first message for a new conversation, create a thread with
+      // a title derived from the user's first prompt.
+      let threadId = currentThreadIdRef.current
+      if (threadId == null) {
+        try {
+          const title = (text || 'New conversation').trim().slice(0, 60)
+          const threadResult = await window.miqi.threads.start({
+            title,
+            session_key: currentSessionRef.current,
+          })
+          // Extract thread id from the result
+          const thread = (threadResult as any)?.thread
+          if (thread) {
+            threadId = thread.id || thread.threadId
+            if (threadId) {
+              currentThreadIdRef.current = threadId
+            }
+          }
+        } catch {
+          // If thread/start fails, fall through to chat.send without thread_id
+        }
+      }
+
       const key = activeThreadId === 'main'
         ? currentSessionRef.current
         : `desktop:${activeThreadId}`
-      await window.miqi.chat.send(content, key)
+      await window.miqi.chat.send(content, key, threadId ?? undefined)
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId)
-      setMessages((prev) => [
-        ...prev,
-        { role: 'error', content: e.message ?? String(e), timestamp: Date.now() },
-      ])
+      const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? 'Unknown error'))
+      const detail = `chat.send failed: ${errMsg}`
+      if (e?.code) {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'error' as const, content: `${detail} (code: ${e.code})`, timestamp: Date.now() },
+        ])
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'error' as const, content: detail, timestamp: Date.now() },
+        ])
+      }
       setStreaming(false)
-      cleanupListeners()
+      sendCleanup()
     }
   }, [input, attachments, streaming, cleanupListeners, onChatFinished])
 

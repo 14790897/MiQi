@@ -10,6 +10,8 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+from loguru import logger as _session_logger
+
 from miqi.execution.hook_runtime import (
     HookPoint,
     HookRuntime,
@@ -444,7 +446,17 @@ class RuntimeSession:
                         except asyncio.CancelledError:
                             pass
                         except Exception:
-                            pass
+                            _session_logger.exception(
+                                "RuntimeSession: unhandled exception in active turn task"
+                            )
+                            from miqi.protocol.events import ErrorEvent
+                            await self._events.put(
+                                ErrorEvent(
+                                    turn_id="session",
+                                    message="Turn task failed with an internal error. Check runtime logs.",
+                                    error_kind="internal",
+                                )
+                            )
                     # Cancel the get_task waiter (no longer needed)
                     if not get_task.done():
                         get_task.cancel()
@@ -487,7 +499,17 @@ class RuntimeSession:
                                 except asyncio.CancelledError:
                                     pass
                                 except Exception:
-                                    pass
+                                    _session_logger.exception(
+                                        "RuntimeSession: unhandled exception in cancelled turn task"
+                                    )
+                                    from miqi.protocol.events import ErrorEvent as _ErrEvt
+                                    await self._events.put(
+                                        _ErrEvt(
+                                            turn_id="session",
+                                            message="Cancelled turn task failed with an internal error.",
+                                            error_kind="internal",
+                                        )
+                                    )
                         else:
                             await self._runner.handle(submission)
                     elif isinstance(submission, SteerTurn):
@@ -517,7 +539,18 @@ class RuntimeSession:
                         except asyncio.CancelledError:
                             pass
                         except Exception:
-                            pass
+                            _session_logger.exception(
+                                "RuntimeSession: unhandled exception in auxiliary task %s",
+                                d.get_name() if hasattr(d, "get_name") else "?",
+                            )
+                            from miqi.protocol.events import ErrorEvent as _ErrEvt2
+                            await self._events.put(
+                                _ErrEvt2(
+                                    turn_id="session",
+                                    message="Auxiliary task failed with an internal error.",
+                                    error_kind="internal",
+                                )
+                            )
                 else:
                     if not get_task.done():
                         get_task.cancel()

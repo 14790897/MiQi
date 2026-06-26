@@ -39,6 +39,7 @@ from miqi.execution.hook_runtime import HookRuntime, HookPoint, HookOutcome
 from miqi.protocol.events import (
     ApprovalRequestedEvent,
     ApprovalResolvedEvent,
+    ToolErrorEvent,
 )
 
 # Phase 31.4: valid approval decision values.
@@ -53,6 +54,80 @@ _LEGACY_DECISION_MAP = {"allow": "once", "allow_permanent": "always"}
 _MAX_DESCRIPTION_LENGTH = 500
 _MAX_DETAILS_STRING_LENGTH = 2000
 _MAX_COMMAND_LENGTH = 500
+
+# ── Phase 56: arg normalization for provider-agnostic tool calls ───────────
+
+# Common arg-name aliases that different providers/models may use
+_ARG_ALIASES: dict[str, str] = {
+    "file_path": "path",
+    "filename": "path",
+    "cmd": "command",
+}
+# Sensitive arg names whose values should be trimmed or masked in logs
+_SENSITIVE_ARG_PATTERNS = frozenset({
+    "api_key", "apikey", "token", "secret", "password", "passwd",
+    "key", "auth", "credential",
+})
+
+
+def _normalize_tool_args(tool_name: str, kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Normalise common arg-name mismatches from different providers.
+
+    E.g. ``file_path`` → ``path``, ``cmd`` → ``command``.
+    When the canonical name already exists, the alias is dropped (safety:
+    don't let two competing values exist).
+    """
+    for alias, canonical in _ARG_ALIASES.items():
+        if alias in kwargs:
+            if canonical not in kwargs:
+                kwargs[canonical] = kwargs.pop(alias)
+                logger.debug(
+                    "Tool %s: normalised arg %r → %r", tool_name, alias, canonical,
+                )
+            else:
+                # Canonical already present — drop the alias to avoid ambiguity
+                dropped = kwargs.pop(alias)
+                logger.debug(
+                    "Tool %s: dropped alias arg %r=%r (canonical %r already set)",
+                    tool_name, alias, dropped, canonical,
+                )
+    return kwargs
+
+
+def _sanitize_args_for_log(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of kwargs safe for debug logging (no secrets)."""
+    out: dict[str, Any] = {}
+    for k, v in kwargs.items():
+        if k.startswith("_"):
+            continue  # skip internal runtime-injected args
+        k_lower = k.lower()
+        if any(pat in k_lower for pat in _SENSITIVE_ARG_PATTERNS):
+            out[k] = "[REDACTED]"
+        elif isinstance(v, str) and len(v) > 200:
+            out[k] = v[:200] + "…"
+        else:
+            out[k] = v
+    return out
+
+
+def _sanitize_exc_for_ui(exc: BaseException) -> str:
+    """Return a user-safe error summary from an exception.
+
+    Full exception details are logged server-side via logger.warning /
+    logger.exception.  This function produces a short summary safe for
+    emission to the frontend and model context — truncated and stripped
+    of potential path / URL / credential leakage.
+    """
+    raw = str(exc)
+    # Truncate to a reasonable length
+    if len(raw) > 300:
+        raw = raw[:300] + "…"
+    # Strip common sensitive patterns (absolute paths, URLs with credentials)
+    import re as _re
+    raw = _re.sub(r'(?:/[^\s"\'<>|:]{1,200})+', '[path]', raw)
+    raw = _re.sub(r'https?://[^\s"\'<>]{1,200}', '[url]', raw)
+    raw = _re.sub(r'\b[A-Za-z0-9+/=]{40,}\b', '[token]', raw)
+    return f"{type(exc).__name__}: {raw}" if raw else type(exc).__name__
 
 
 class OrchestrationResult(str, Enum):
@@ -162,6 +237,36 @@ class ToolOrchestrator:
                     self.permissions.permanent_allowlist.update(
                         permission_profile.permanent_allowlist
                     )
+
+            # 1.5. Tool parameter validation (after hooks, before permission/sandbox)
+            # Phase 63: invalid tool calls must not trigger approval or enter sandbox.
+            # Guard: when self.tools is None (integration-test / legacy mode),
+            # skip validation entirely — the tool is resolved later in
+            # _execute_in_sandbox() or the sandbox itself.
+            if self.tools is not None:
+                tool = self.tools.get(ctx.tool_name)
+                if tool is None:
+                    ctx.result = f"Error: Unknown tool '{ctx.tool_name}'"
+                    ctx.permission_decision = PermissionDecision(
+                        verdict=PermissionVerdict.DENY,
+                        reason=f"Unknown tool: {ctx.tool_name}",
+                    )
+                    ctx.duration_ms = int((time.monotonic() - start) * 1000)
+                    return ctx
+
+                schema_errors = tool.validate_params(ctx.arguments)
+                if isinstance(schema_errors, list) and schema_errors:
+                    ctx.result = (
+                        f"Error: Invalid parameters for tool '{ctx.tool_name}': "
+                        + "; ".join(schema_errors)
+                        + "\n\n[Analyze the error above and try a different approach.]"
+                    )
+                    ctx.permission_decision = PermissionDecision(
+                        verdict=PermissionVerdict.DENY,
+                        reason=f"Invalid parameters: {'; '.join(schema_errors)}",
+                    )
+                    ctx.duration_ms = int((time.monotonic() - start) * 1000)
+                    return ctx
 
             # 2. Permission check
             decision = await self.permissions.check(ctx)
@@ -457,6 +562,10 @@ class ToolOrchestrator:
         if decision == "always":
             self._record_permanent_approval(meta)
 
+        # Phase 31.6: "session" → add to session allowlist
+        if decision == "session":
+            self._record_session_approval(meta)
+
         # Phase 31.8 fix: store resolved decision in meta so
         # _request_approval() can write the ledger item with an
         # awaited call (deterministic, not fire-and-forget).
@@ -474,43 +583,61 @@ class ToolOrchestrator:
             turn_id=turn_id,
         )
 
-    def _record_permanent_approval(self, meta: dict[str, Any]) -> None:
-        """Add the approved tool+argument key to the permanent allowlist.
+    def _make_approval_pattern(self, meta: dict[str, Any]) -> str | None:
+        """Build the allowlist pattern key for the given approval metadata.
 
-        Builds the pattern using the same key format as
-        PermissionEngine._make_key so the allowlist entry actually
-        matches future permission checks:
+        Uses the same key format as PermissionEngine._make_key so the
+        allowlist entry matches future permission checks:
 
         - exec tools:     exec:<command>
         - file_write tools: <tool_name>:<path>
-        - other tools:    <tool_name>:<hash of arguments>
-
-        Phase 31.7 fix: previously used ``description`` which contains
-        a user-facing format (e.g. "write_file: /tmp/x" with a space)
-        that never matched _make_key's format ("write_file:/tmp/x").
+        - other tools:    <tool_name>:<hash of arguments> (via description)
         """
         tool = meta.get("tool_name", "")
         if tool == "exec":
             cmd = meta.get("command", "")
             if not cmd:
-                return
-            pattern = f"exec:{cmd}"
-        elif tool in (
+                return None
+            return f"exec:{cmd}"
+        if tool in (
             "write_file", "edit_file", "delete_file",
             "docx_write", "pptx_write", "xlsx_write",
         ):
             path = (meta.get("details", {}) or {}).get("path", "")
             if not path:
-                return
-            pattern = f"{tool}:{path}"
-        else:
-            # Fallback: use the description field (user-visible text)
-            pattern = (meta.get("description") or "").strip()
-            if not pattern:
-                return
+                return None
+            return f"{tool}:{path}"
+        # Fallback: use the description field (user-visible text)
+        pattern = (meta.get("description") or "").strip()
+        if not pattern:
+            return None
+        return pattern
+
+    def _record_permanent_approval(self, meta: dict[str, Any]) -> None:
+        """Add the approved tool+argument key to the permanent allowlist."""
+        pattern = self._make_approval_pattern(meta)
+        if pattern is None:
+            return
         self.permissions.permanent_allowlist.add(pattern)
         logger.info(
             "Permanent approval recorded: pattern={!r} session={}",
+            pattern, self._session_id,
+        )
+
+    def _record_session_approval(self, meta: dict[str, Any]) -> None:
+        """Add the approved tool+argument key to the session-scoped allowlist.
+
+        Phase 31.6: The session allowlist is checked before prompting,
+        so subsequent requests in the same session are auto-approved.
+        The allowlist lives on PermissionEngine and is garbage-collected
+        when the orchestrator/session is destroyed.
+        """
+        pattern = self._make_approval_pattern(meta)
+        if pattern is None:
+            return
+        self.permissions.session_allowlist.add(pattern)
+        logger.info(
+            "Session approval recorded: pattern={!r} session={}",
             pattern, self._session_id,
         )
 
@@ -654,4 +781,41 @@ class ToolOrchestrator:
                 kwargs["_ledger_runtime"] = self._ledger
                 kwargs["_thread_id"] = ctx.thread_id
 
-        return await tool.execute(**kwargs)
+        # Phase 56: normalize common arg-name incompatibilities from providers
+        kwargs = _normalize_tool_args(ctx.tool_name, kwargs)
+
+        logger.debug(
+            "Tool execute: name=%s args=%s sandbox=%s",
+            ctx.tool_name, _sanitize_args_for_log(kwargs),
+            getattr(sandbox.sandbox_type, 'value', str(sandbox.sandbox_type)) if hasattr(sandbox, 'sandbox_type') else str(sandbox),
+        )
+        t0 = time.monotonic()
+        try:
+            result = await tool.execute(**kwargs)
+        except Exception as exc:
+            dt_ms = int((time.monotonic() - t0) * 1000)
+            logger.warning(
+                "Tool %s execution failed (%dms): %s:%s args=%s",
+                ctx.tool_name, dt_ms, type(exc).__name__, exc,
+                _sanitize_args_for_log(kwargs),
+            )
+            # Emit a structured tool/error event so the UI can render it
+            safe_msg = _sanitize_exc_for_ui(exc)
+            await self.events.emit(ToolErrorEvent(
+                turn_id=ctx.turn_id,
+                tool_name=ctx.tool_name,
+                tool_call_id=ctx.tool_call_id,
+                message=safe_msg,
+                recoverable=True,
+            ))
+            result = f"Error executing {ctx.tool_name}: {safe_msg}"
+            if ctx.turn_id:
+                result += f"\n[Hint: Use 'exec' to inspect the environment or try a different approach.]"
+        else:
+            dt_ms = int((time.monotonic() - t0) * 1000)
+            logger.debug(
+                "Tool %s done (%dms): result prefix=%r",
+                ctx.tool_name, dt_ms,
+                (result[:120] + "…") if len(result) > 120 else result,
+            )
+        return result

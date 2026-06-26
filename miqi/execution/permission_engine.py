@@ -3,10 +3,11 @@
 Consults (in order):
 1. Config-based deny rules (checked first — explicit blocks always win)
 2. Read-only tools → auto-allow (unless blocked by deny pattern)
-3. Permanent whitelist
-4. Shell safety check (metacharacter-aware)
-5. File write approval
-6. Default: deny-by-default (APPROVAL_REQUIRED)
+3. Session-scoped allowlist
+4. Permanent whitelist
+5. Shell safety check (metacharacter-aware)
+6. File write approval
+7. Default: deny-by-default (APPROVAL_REQUIRED)
 """
 
 from __future__ import annotations
@@ -68,9 +69,12 @@ class PermissionEngine:
         self,
         permanent_allowlist: set[str] | None = None,
         deny_patterns: set[str] | None = None,
+        session_allowlist: set[str] | None = None,
     ):
         self.permanent_allowlist = permanent_allowlist or set()
         self.deny_patterns = deny_patterns or set()
+        # Phase 31.6: session-scoped allowlist (cleared when session ends)
+        self.session_allowlist = session_allowlist or set()
 
     async def check(self, ctx: Any) -> PermissionDecision:
         """Check whether a tool call is permitted.
@@ -96,12 +100,16 @@ class PermissionEngine:
         if tool_name in self.READ_ONLY_TOOLS:
             return PermissionDecision(verdict=PermissionVerdict.ALLOW)
 
-        # 3. Permanent allowlist (keyed by tool + arguments)
+        # 3. Session-scoped allowlist (keyed by tool + arguments)
         cmd_key = self._make_key(ctx)
+        if cmd_key in self.session_allowlist:
+            return PermissionDecision(verdict=PermissionVerdict.ALLOW)
+
+        # 4. Permanent allowlist (keyed by tool + arguments)
         if cmd_key in self.permanent_allowlist:
             return PermissionDecision(verdict=PermissionVerdict.ALLOW)
 
-        # 4. Exec tool branch
+        # 5. Exec tool branch
         if tool_name == "exec":
             cmd = str(ctx.arguments.get("command", ""))
 
@@ -171,7 +179,7 @@ class PermissionEngine:
                             reason=f"Allowed by permission profile prefix: {' '.join(prefix)}",
                         )
 
-            # 5. Shell commands: metacharacter-aware safety check
+            # 6. Shell commands: metacharacter-aware safety check
             if self._is_safe_command(cmd):
                 return PermissionDecision(verdict=PermissionVerdict.ALLOW)
             return self._apply_approval_policy(
@@ -185,7 +193,7 @@ class PermissionEngine:
                 profile,
             )
 
-        # 6. File writes: require approval unless whitelisted.
+        # 7. File writes: require approval unless whitelisted.
         # Phase 31.7: includes office document write tools so they are
         # explicitly categorized (not falling through to "unknown_tool")
         # and support permanent allowlisting.

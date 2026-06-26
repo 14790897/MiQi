@@ -33,3 +33,6 @@ plan/*
 .agent/
 .superpower/
 .claude/
+.debug/
+.playwright-mcp/
+*.png
