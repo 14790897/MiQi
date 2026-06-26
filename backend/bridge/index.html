@@ -1137,6 +1137,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="PyInstaller 打包">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --check 自检模式
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -1863,6 +1880,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="PyInstaller 打包">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --check 自检模式
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -1886,10 +1920,7 @@
 
 
 <h1 id="bridge">Bridge 通信<a class="headerlink" href="#bridge" title="Permanent link">&para;</a></h1>
-<p><code>miqi/bridge/server.py</code>（约 2000 行，57 个 handler）是连接 Electron 前端和 Python 后端的核心通信层。</p>
-<blockquote>
-<p><strong>AppServer 层</strong>: Bridge Server 内部运行 AppServer（<code>miqi/runtime/app_server.py</code>），提供传输无关的类型化协议层。详见 <a href="../../architecture/">架构文档</a>。</p>
-</blockquote>
+<p><code>miqi/bridge/server.py</code>（约 2300 行，57 个 handler）是连接 Electron 前端和 Python 后端的核心通信层。</p>
 <h2 id="_1">通信协议<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
 <p>Bridge 通过 <strong>stdin/stdout</strong> 使用 <strong>JSON-line</strong> 格式进行双向通信：</p>
 <h3 id="_2">消息格式<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h3>
@@ -2256,6 +2287,13 @@
 </span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="na">pyz</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">PYZ(a.pure)</span>
 </span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="na">exe</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">EXE(pyz, console=False, ...)</span><span class="w">  </span><span class="c1"># GUI 模式 (无控制台窗口)</span>
 </span></code></pre></div>
+<h3 id="-check">--check 自检模式<a class="headerlink" href="#-check" title="Permanent link">&para;</a></h3>
+<p><code>miqi-bridge.exe</code> 支持 <code>--check</code> 参数，用于环境验证。该逻辑在 <code>server.py</code> 文件顶部处理（标准库 import 之后、项目 import 之前），确保即使项目模块加载失败也能正确报告环境状态。</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>miqi-bridge.exe<span class="w"> </span>--check
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="c1"># 输出: {&quot;ok&quot;: true, &quot;python_version&quot;: &quot;3.12.10&quot;, &quot;issues&quot;: []}</span>
+</span></code></pre></div>
+<p><strong>为什么不支持 <code>-c</code> 参数</strong>：PyInstaller 打包的 exe 不是 Python 解释器，传给 exe 的参数会变成 <code>sys.argv</code>，而非 Python 解释器选项。因此 <code>miqi-bridge.exe -c "code"</code> 不会执行代码。</p>
+<p><strong><code>console=False</code> 行为</strong>：虽然不弹出控制台窗口，但 <code>spawnSync</code> 仍可通过 stdout 管道捕获输出，<code>--check</code> 的 JSON 输出能被 Electron 正常读取。</p>
 
 
 

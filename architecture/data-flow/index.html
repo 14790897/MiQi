@@ -678,46 +678,18 @@
   <a href="#_2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        协议层
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="协议层">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        消息格式
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#_4" class="md-nav__link">
-    <span class="md-ellipsis">
-      
         事件类型
       
     </span>
   </a>
   
 </li>
-        
-      </ul>
-    </nav>
-  
-</li>
       
         <li class="md-nav__item">
-  <a href="#_5" class="md-nav__link">
+  <a href="#_3" class="md-nav__link">
     <span class="md-ellipsis">
       
-        连接握手
+        请求/响应模型
       
     </span>
   </a>
@@ -725,7 +697,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#_6" class="md-nav__link">
+  <a href="#_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         并发处理
@@ -1598,46 +1570,18 @@
   <a href="#_2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        协议层
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="协议层">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        消息格式
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#_4" class="md-nav__link">
-    <span class="md-ellipsis">
-      
         事件类型
       
     </span>
   </a>
   
 </li>
-        
-      </ul>
-    </nav>
-  
-</li>
       
         <li class="md-nav__item">
-  <a href="#_5" class="md-nav__link">
+  <a href="#_3" class="md-nav__link">
     <span class="md-ellipsis">
       
-        连接握手
+        请求/响应模型
       
     </span>
   </a>
@@ -1645,7 +1589,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#_6" class="md-nav__link">
+  <a href="#_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         并发处理
@@ -1682,13 +1626,10 @@
     participant ChatConsole as ChatConsole&lt;br/&gt;(React Renderer)
     participant IPC as IPC Handler&lt;br/&gt;(Main Process)
     participant Bridge as BridgeManager&lt;br/&gt;(Python 子进程)
-    participant AppServer as AppServer
-    participant Runtime as RuntimeSession&lt;br/&gt;/TaskRunner
-    participant TurnRunner as TurnRunner
-    participant ContextRuntime as ContextRuntime
+    participant Agent as AgentLoop&lt;br/&gt;(Agent 引擎)
+    participant Context as ContextBuilder
     participant LLM as LLM Provider
-    participant Orchestrator as ToolOrchestrator&lt;br/&gt;(审批→沙箱→执行)
-    participant Sandbox as bwrap Sandbox
+    participant Tools as ToolRegistry
 
     User-&gt;&gt;ChatConsole: 输入消息
     ChatConsole-&gt;&gt;IPC: ipcRenderer.invoke("chat:send")
@@ -1696,152 +1637,79 @@
     IPC-&gt;&gt;Bridge: bridge:chat-send
     Note over Bridge: JSON-line 写入 stdin
 
-    Bridge-&gt;&gt;AppServer: dispatch("turn/start", params)
-    Note over AppServer: 类型化方法分发 + Middleware 链
-    AppServer-&gt;&gt;Runtime: 分发到 RuntimeSession
+    Bridge-&gt;&gt;Agent: handle_chat_send()
+    Agent-&gt;&gt;Context: build_system_prompt()
+    Note over Context: 注入 SOUL.md / Memory / Trace
+    Context--&gt;&gt;Agent: system prompt
 
-    Runtime-&gt;&gt;ContextRuntime: build_messages()
-    Note over ContextRuntime: 组装 system_prompt + 历史 + 用户输入
-    ContextRuntime--&gt;&gt;Runtime: 消息列表
-
-    Runtime-&gt;&gt;TurnRunner: 启动 turn
-
-    loop Turn Loop (TurnRunner)
-        TurnRunner-&gt;&gt;LLM: Chat Completion (stream)
+    loop Agent Loop
+        Agent-&gt;&gt;LLM: Chat Completion (stream)
         LLM--&gt;&gt;Bridge: 流式文本增量
-        Bridge--&gt;&gt;IPC: 类型化事件
+        Bridge--&gt;&gt;IPC: progress event
         IPC--&gt;&gt;ChatConsole: 实时渲染 Markdown
 
         alt 需要工具调用
-            LLM--&gt;&gt;TurnRunner: function_call
-            TurnRunner-&gt;&gt;Orchestrator: execute(tool_name, params)
+            LLM--&gt;&gt;Agent: function_call
+            Agent-&gt;&gt;Tools: execute_concurrent()
 
-            rect rgb(240, 248, 255)
-                Note over Orchestrator: 阶段 1: 审批
-                Orchestrator-&gt;&gt;Orchestrator: ApprovalPolicy.check()
-                Note over Orchestrator: 阶段 2: 沙箱选择
-                Orchestrator-&gt;&gt;Orchestrator: SandboxPolicyEngine.select()
-                Note over Orchestrator: 阶段 3: 执行
-                Orchestrator-&gt;&gt;Sandbox: 在 bwrap 沙箱中执行
-                Sandbox--&gt;&gt;Orchestrator: 结果
-                Note over Orchestrator: 阶段 4: 重试 (按需)
-                Orchestrator-&gt;&gt;Orchestrator: 指数退避重试
+            par 内置工具
+                Tools-&gt;&gt;Tools: read_file / write_file / web_search
+            and MCP 工具
+                Tools-&gt;&gt;Tools: raspa-mcp / zeopp-backend
             end
 
-            Orchestrator--&gt;&gt;TurnRunner: ToolResult
-            Note over Bridge: tool_progress 事件推送
+            Tools--&gt;&gt;Agent: 工具结果
+            Note over Bridge: tool_progress 心跳
         end
     end
 
-    TurnRunner--&gt;&gt;Runtime: TurnResult
-    Runtime--&gt;&gt;AppServer: 响应结果
-    AppServer--&gt;&gt;Bridge: 类型化响应
+    Agent--&gt;&gt;Bridge: final event
     Bridge--&gt;&gt;ChatConsole: 完整响应
     ChatConsole--&gt;&gt;User: 渲染结果</div>
-<h2 id="_2">协议层<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
-<h3 id="_3">消息格式<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h3>
-<p>MiQi 使用 <strong>JSON-line 协议</strong> 通过 stdin/stdout 通信，每条消息为一行完整 JSON：</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Request (前端 → 后端):
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>  {&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: &quot;uuid-001&quot;, &quot;method&quot;: &quot;turn/start&quot;, &quot;params&quot;: {...}}
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>Success Response (后端 → 前端):
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>  {&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: &quot;uuid-001&quot;, &quot;result&quot;: {...}}
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>Error Response (后端 → 前端):
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>  {&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: &quot;uuid-001&quot;, &quot;error&quot;: {&quot;code&quot;: &quot;INVALID_PARAMS&quot;, &quot;message&quot;: &quot;...&quot;}}
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>Event (后端 → 前端, 流式推送):
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>  {&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;method&quot;: &quot;turn/progress&quot;, &quot;params&quot;: {...}}
-</span></code></pre></div>
-<h3 id="_4">事件类型<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h3>
-<p>AppServer 通过 <code>miqi/protocol/events.py</code> 定义多种事件类型：</p>
+<h2 id="_2">事件类型<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
+<p>Bridge 协议支持三种事件流：</p>
 <table>
 <thead>
 <tr>
-<th>事件</th>
+<th>事件类型</th>
 <th>方向</th>
 <th>说明</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>TurnStartedEvent</code></td>
+<td><code>progress</code></td>
 <td>Backend → Frontend</td>
-<td>Turn 开始执行</td>
+<td>LLM 流式输出增量文本</td>
 </tr>
 <tr>
-<td><code>AgentMessageDeltaEvent</code></td>
+<td><code>tool_progress</code></td>
 <td>Backend → Frontend</td>
-<td>LLM 流式文本增量</td>
+<td>工具调用进度（MCP 心跳）</td>
 </tr>
 <tr>
-<td><code>ToolCallBeginEvent</code></td>
+<td><code>error</code></td>
 <td>Backend → Frontend</td>
-<td>工具调用开始</td>
-</tr>
-<tr>
-<td><code>ToolCallEndEvent</code></td>
-<td>Backend → Frontend</td>
-<td>工具调用完成</td>
-</tr>
-<tr>
-<td><code>ApprovalRequestedEvent</code></td>
-<td>Backend → Frontend</td>
-<td>命令审批请求</td>
-</tr>
-<tr>
-<td><code>SubAgentSpawnedEvent</code></td>
-<td>Backend → Frontend</td>
-<td>子 Agent 启动</td>
-</tr>
-<tr>
-<td><code>PlanUpdateEvent</code></td>
-<td>Backend → Frontend</td>
-<td>计划更新通知</td>
-</tr>
-<tr>
-<td><code>ErrorEvent</code></td>
-<td>Backend → Frontend</td>
-<td>异常错误</td>
-</tr>
-<tr>
-<td><code>TurnCompletedEvent</code></td>
-<td>Backend → Frontend</td>
-<td>Turn 完成</td>
-</tr>
-<tr>
-<td><code>TurnInterruptedEvent</code></td>
-<td>Backend → Frontend</td>
-<td>Turn 被中断</td>
-</tr>
-<tr>
-<td><code>FsChangedEvent</code></td>
-<td>Backend → Frontend</td>
-<td>文件系统变更通知</td>
-</tr>
-<tr>
-<td><code>FuzzyFileSearchUpdatedEvent</code></td>
-<td>Backend → Frontend</td>
-<td>模糊搜索更新</td>
-</tr>
-<tr>
-<td>...</td>
-<td></td>
-<td>等</td>
+<td>异常错误信息</td>
 </tr>
 </tbody>
 </table>
-<h2 id="_5">连接握手<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
-<p>客户端（Electron）启动 Python 子进程后，通过 <code>initialize</code> 进行能力协商：</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>Client → Server:  {&quot;method&quot;: &quot;initialize&quot;, &quot;params&quot;: {&quot;clientInfo&quot;: {...}, &quot;capabilities&quot;: {...}}}
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>Server → Client:  {&quot;method&quot;: &quot;initialized&quot;, &quot;params&quot;: {&quot;serverInfo&quot;: {...}, &quot;capabilities&quot;: {...}}}
+<h2 id="_3">请求/响应模型<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Request:  前端发起
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>  {&quot;id&quot;: &quot;uuid-001&quot;, &quot;method&quot;: &quot;chat:send&quot;, &quot;params&quot;: {...}}
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>Response: 后端同步响应
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>  {&quot;id&quot;: &quot;uuid-001&quot;, &quot;result&quot;: {...}}
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>Event: 后端流式推送
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>  {&quot;id&quot;: &quot;uuid-001&quot;, &quot;type&quot;: &quot;progress&quot;, &quot;data&quot;: {&quot;text&quot;: &quot;...&quot;}}
 </span></code></pre></div>
-<h2 id="_6">并发处理<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h2>
+<p><code>id</code> 字段用于关联请求与对应的流式事件，前端通过 <code>id</code> 将事件路由到正确的对话窗口。</p>
+<h2 id="_4">并发处理<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>多会话并行</strong>：<code>ClientSessionRegistry</code> 按 <code>(client_id, session_id)</code> 隔离，TTL 驱逐</li>
-<li><strong>工具并行</strong>：<code>ToolOrchestrator</code> 支持批量工具并发执行</li>
-<li><strong>多 Agent 并发</strong>：<code>AgentControl</code> + <code>AgentJobRuntime</code> 管理并发 agent 任务</li>
-<li><strong>请求序列化</strong>：同一会话内请求通过 <code>RuntimeSession</code> 锁序列化</li>
+<li><strong>多会话并行</strong>：每个会话维护独立的 <code>AgentLoop</code> 实例，互不阻塞</li>
+<li><strong>工具并行</strong>：<code>ToolRegistry</code> 支持批量工具的并发执行</li>
+<li><strong>MCP 心跳</strong>：长时运行的工具通过心跳机制报告进度</li>
 </ul>
 
 

@@ -1129,6 +1129,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Main 进程 IPC Handler">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#python_check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PYTHON_CHECK 环境检查
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1608,6 +1625,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Main 进程 IPC Handler">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#python_check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PYTHON_CHECK 环境检查
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1755,17 +1789,32 @@
 </span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="nx">bridge</span><span class="p">.</span><span class="nx">send</span><span class="p">(</span><span class="s2">&quot;config:get&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">{});</span>
 </span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="p">});</span>
 </span></code></pre></div>
+<h3 id="python_check">PYTHON_CHECK 环境检查<a class="headerlink" href="#python_check" title="Permanent link">&para;</a></h3>
+<p><code>PYTHON_CHECK</code> handler 按优先级检测运行环境：</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>1. 打包环境：process.resourcesPath/miqi-bridge.exe 存在？
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>   ├─ 是 → 环境就绪 ✅（pythonVersion = &#39;bundled&#39;）
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>   │        可选执行 miqi-bridge.exe --check 获取详细版本（best-effort）
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>   └─ 否 → 开发环境：按 MIQI_PYTHON_PATH → uv → .venv → python3 → python 查找
+</span></code></pre></div>
+<p>返回格式：
+<div class="language-typescript highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nx">ok</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w">           </span><span class="c1">// 环境是否就绪</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nx">python_version</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="c1">// Python 版本号（打包环境为 &#39;bundled&#39; 或实际版本）</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nx">issues</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[]</span><span class="w">      </span><span class="c1">// 问题列表</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="nx">config_exists</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="c1">// ~/.miqi/config.json 是否存在</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="p">}</span>
+</span></code></pre></div></p>
 <h2 id="bridge">Bridge 服务流程<a class="headerlink" href="#bridge" title="Permanent link">&para;</a></h2>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>renderer.invoke(&quot;chat:send&quot;, message)
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>  → main IPC handler (Zod 验证)
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    → bridge.send(&quot;chat:send&quot;, params)
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>      → JSON.stringify → Python stdin
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>        → Bridge Server handle_chat_send()
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>          → RuntimeSession → TurnRunner (LLM + tool loop)
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>            → [流式事件 → stdout JSON]
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>              → BridgeManager.parseLine()
-</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>                → ipcMain.emit(&quot;chat:progress&quot;, data)
-</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>                  → renderer 事件回调更新 UI
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>renderer.invoke(&quot;chat:send&quot;, message)
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>  → main IPC handler (Zod 验证)
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    → bridge.send(&quot;chat:send&quot;, params)
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>      → JSON.stringify → Python stdin
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>        → Bridge Server handle_chat_send()
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>          → AgentLoop.process_direct()
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>            → [流式事件 → stdout JSON]
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>              → BridgeManager.parseLine()
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>                → ipcMain.emit(&quot;chat:progress&quot;, data)
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>                  → renderer 事件回调更新 UI
 </span></code></pre></div>
 
 

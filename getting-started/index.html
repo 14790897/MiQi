@@ -631,7 +631,7 @@
   <a href="#_6" class="md-nav__link">
     <span class="md-ellipsis">
       
-        前端构建
+        一键打包
       
     </span>
   </a>
@@ -642,7 +642,7 @@
   <a href="#_7" class="md-nav__link">
     <span class="md-ellipsis">
       
-        打包桌面安装包
+        分步构建
       
     </span>
   </a>
@@ -650,10 +650,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#python" class="md-nav__link">
+  <a href="#docker" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Python 后端打包
+        Docker 部署
       
     </span>
   </a>
@@ -1738,7 +1738,7 @@
   <a href="#_6" class="md-nav__link">
     <span class="md-ellipsis">
       
-        前端构建
+        一键打包
       
     </span>
   </a>
@@ -1749,7 +1749,7 @@
   <a href="#_7" class="md-nav__link">
     <span class="md-ellipsis">
       
-        打包桌面安装包
+        分步构建
       
     </span>
   </a>
@@ -1757,10 +1757,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#python" class="md-nav__link">
+  <a href="#docker" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Python 后端打包
+        Docker 部署
       
     </span>
   </a>
@@ -1871,19 +1871,31 @@
 <li>配置 LLM 提供商和 API Key</li>
 </ol>
 <h2 id="_5">生产构建<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
-<h3 id="_6">前端构建<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h3>
+<h3 id="_6">一键打包<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h3>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nb">cd</span><span class="w"> </span>apps/desktop
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>npm<span class="w"> </span>run<span class="w"> </span>build
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>npm<span class="w"> </span>run<span class="w"> </span>build:all
 </span></code></pre></div>
-<h3 id="_7">打包桌面安装包<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nb">cd</span><span class="w"> </span>apps/desktop
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>npx<span class="w"> </span>electron-builder
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="c1"># 输出目录: ../../dist-new/</span>
+<p>该命令依次执行：Python 后端打包 → 前端编译 → Electron 安装包打包。</p>
+<h3 id="_7">分步构建<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># 1. Python 后端打包（生成 dist/miqi-bridge.exe）</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nb">cd</span><span class="w"> </span>apps/desktop
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>npm<span class="w"> </span>run<span class="w"> </span>build:bridge
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="c1"># 2. 前端编译</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>npm<span class="w"> </span>run<span class="w"> </span>build
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="c1"># 3. 打包安装包（输出到 ../../dist-new/）</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>npx<span class="w"> </span>electron-builder<span class="w"> </span>--win<span class="w"> </span>--publish<span class="w"> </span>never
 </span></code></pre></div>
-<h3 id="python">Python 后端打包<a class="headerlink" href="#python" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># 使用 PyInstaller 打包 bridge server</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>pyinstaller<span class="w"> </span>miqi.spec
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># 输出: dist/miqi-bridge.exe</span>
+<h3 id="docker">Docker 部署<a class="headerlink" href="#docker" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># 构建镜像</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>miqi<span class="w"> </span>.
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># 启动网关服务</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>docker-compose<span class="w"> </span>up<span class="w"> </span>miqi-gateway<span class="w"> </span>-d
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1"># CLI 模式</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>docker-compose<span class="w"> </span>run<span class="w"> </span>miqi-cli
 </span></code></pre></div>
 <h2 id="_8">配置文件位置<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h2>
 <p>首次运行后，配置文件自动生成在 <code>~/.miqi/config.json</code>。详见 <a href="../configuration/">配置参考</a>。</p>
