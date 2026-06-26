@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import sys
 from contextlib import nullcontext
 
 import typer
@@ -33,7 +34,7 @@ def register_agent_command(
             True, "--markdown/--no-markdown", help="Render assistant output as Markdown"
         ),
         logs: bool = typer.Option(
-            False, "--logs/--no-logs", help="Show runtime logs during chat"
+            True, "--logs/--no-logs", help="Show runtime logs during chat"
         ),
     ):
         """Interact with the agent directly."""
@@ -44,7 +45,21 @@ def register_agent_command(
         from miqi.config.loader import get_data_dir, load_config
         from miqi.cron.service import CronService
 
+        # Configure loguru: enable miqi namespace and set level
+        logger.enable("miqi")
+        if not logs:
+            # When --no-logs, suppress loguru output but don't fully disable
+            # (errors and warnings should still be visible)
+            logger.remove()
+            logger.add(
+                sys.stderr,
+                format="<level>[miqi] {name}:{function}:{line} | {message}</level>",
+                level="WARNING",
+                colorize=True,
+            )
+
         config = load_config()
+        runtime_choice = config.agents.defaults.runtime
 
         bus = MessageBus()
         provider = make_provider(config)
@@ -57,30 +72,100 @@ def register_agent_command(
         else:
             logger.disable("miqi")
 
-        agent_loop = AgentLoop(
-            bus=bus,
-            provider=provider,
-            workspace=config.workspace_path,
-            agent_name=config.agents.defaults.name,
-            model=config.agents.defaults.model,
-            temperature=config.agents.defaults.temperature,
-            max_tokens=config.agents.defaults.max_tokens,
-            max_iterations=config.agents.defaults.max_tool_iterations,
-            reflect_after_tool_calls=config.agents.defaults.reflect_after_tool_calls,
-            web_config=config.tools.web,
-            paper_config=config.tools.papers,
-            memory_window=config.agents.defaults.memory_window,
-            max_tool_result_chars=config.agents.defaults.max_tool_result_chars,
-            context_limit_chars=config.agents.defaults.context_limit_chars,
-            exec_config=config.tools.exec,
-            memory_config=config.agents.memory,
-            self_improvement_config=config.agents.self_improvement,
-            session_config=config.agents.sessions,
-            cron_service=cron,
-            restrict_to_workspace=config.tools.restrict_to_workspace,
-            mcp_servers=config.tools.mcp_servers,
-            channels_config=config.channels,
-        )
+        if runtime_choice == "kun":
+            from miqi.agent.tools.registry import ToolRegistry
+            from miqi.kun_runtime.migration_adapter import GatewayKunRuntime
+
+            _workspace_path = config.workspace_path
+            _allowed_dir = _workspace_path if config.tools.restrict_to_workspace else None
+            from miqi.agent.tools.cron import CronTool
+            from miqi.agent.tools.filesystem import (
+                EditFileTool,
+                ListDirTool,
+                ReadFileTool,
+                WriteFileTool,
+            )
+            from miqi.agent.tools.message import MessageTool
+            from miqi.agent.tools.papers import PaperDownloadTool, PaperGetTool, PaperSearchTool
+            from miqi.agent.tools.shell import ExecTool
+            from miqi.agent.tools.web import WebFetchTool, WebSearchTool
+
+            tool_registry = ToolRegistry()
+            for cls in (ReadFileTool, WriteFileTool, EditFileTool, ListDirTool):
+                tool_registry.register(cls(workspace=_workspace_path, allowed_dir=_allowed_dir))
+            tool_registry.register(ExecTool(
+                working_dir=str(_workspace_path),
+                timeout=config.tools.exec.timeout,
+                restrict_to_workspace=config.tools.restrict_to_workspace,
+                env_passthrough=list(config.tools.exec.env_passthrough),
+            ))
+            tool_registry.register(WebSearchTool(
+                provider=config.tools.web.search.provider,
+                api_key=config.tools.web.search.api_key or None,
+                max_results=config.tools.web.search.max_results,
+                ollama_api_key=config.tools.web.search.ollama_api_key or None,
+                ollama_api_base=config.tools.web.search.ollama_api_base,
+            ))
+            tool_registry.register(WebFetchTool(
+                provider=config.tools.web.fetch.provider,
+                ollama_api_key=config.tools.web.fetch.ollama_api_key or None,
+                ollama_api_base=config.tools.web.fetch.ollama_api_base,
+            ))
+            tool_registry.register(PaperSearchTool(
+                provider=config.tools.papers.provider,
+                semantic_scholar_api_key=config.tools.papers.semantic_scholar_api_key or None,
+                timeout_seconds=config.tools.papers.timeout_seconds,
+                default_limit=config.tools.papers.default_limit,
+                max_limit=config.tools.papers.max_limit,
+            ))
+            tool_registry.register(PaperGetTool(
+                provider=config.tools.papers.provider,
+                semantic_scholar_api_key=config.tools.papers.semantic_scholar_api_key or None,
+                timeout_seconds=config.tools.papers.timeout_seconds,
+            ))
+            tool_registry.register(PaperDownloadTool(
+                workspace=_workspace_path,
+                provider=config.tools.papers.provider,
+                semantic_scholar_api_key=config.tools.papers.semantic_scholar_api_key or None,
+                timeout_seconds=config.tools.papers.timeout_seconds,
+            ))
+            tool_registry.register(MessageTool(send_callback=bus.publish_outbound))
+            tool_registry.register(CronTool(cron))
+
+            agent_loop = GatewayKunRuntime(
+                data_dir=get_data_dir() / "kun_runtime",
+                workspace=config.workspace_path,
+                provider=provider,
+                tool_registry=tool_registry,
+                model=config.agents.defaults.model,
+                agent_name=config.agents.defaults.name,
+                mcp_servers=config.tools.mcp_servers,
+            )
+        else:
+            agent_loop = AgentLoop(
+                bus=bus,
+                provider=provider,
+                workspace=config.workspace_path,
+                agent_name=config.agents.defaults.name,
+                model=config.agents.defaults.model,
+                temperature=config.agents.defaults.temperature,
+                max_tokens=config.agents.defaults.max_tokens,
+                max_iterations=config.agents.defaults.max_tool_iterations,
+                reflect_after_tool_calls=config.agents.defaults.reflect_after_tool_calls,
+                web_config=config.tools.web,
+                paper_config=config.tools.papers,
+                memory_window=config.agents.defaults.memory_window,
+                max_tool_result_chars=config.agents.defaults.max_tool_result_chars,
+                context_limit_chars=config.agents.defaults.context_limit_chars,
+                exec_config=config.tools.exec,
+                memory_config=config.agents.memory,
+                self_improvement_config=config.agents.self_improvement,
+                session_config=config.agents.sessions,
+                cron_service=cron,
+                restrict_to_workspace=config.tools.restrict_to_workspace,
+                mcp_servers=config.tools.mcp_servers,
+                channels_config=config.channels,
+            )
 
         def _thinking_ctx():
             if logs:

@@ -3,7 +3,24 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
+
+
+# Matches model names that signal "small" parameter count (≤ ~13B), e.g.
+#   Qwen/Qwen2.5-7B-Instruct, llama-3.1-8b, mistral-7B, qwen-1.8b, gemma-2b.
+# Bare "13B" / "8B" / "7B" / single-digit-B / decimal-B forms all match.
+_SMALL_MODEL_RE = re.compile(
+    r"\b(0?\.[0-9]+B|[1-9]B|1[0-3]B)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_small_model(model: str | None) -> bool:
+    """Return True if the model name looks like a ≤13B-parameter model."""
+    if not model:
+        return False
+    return bool(_SMALL_MODEL_RE.search(model))
 
 
 def register_config_commands(app, *, console) -> None:
@@ -249,18 +266,28 @@ def register_config_commands(app, *, console) -> None:
         ),
         model: str = typer.Option(None, "--model", "-m", help="Model name for pdf2zh translation"),
         timeout: int = typer.Option(3600, "--timeout", "-t", help="Tool call timeout seconds (default 3600 = 1 h; increase for large documents)"),
+        no_prompt: bool = typer.Option(
+            False, "--no-prompt",
+            help="Never ask interactively. Use values from miqi defaults; "
+                 "if anything is missing, exit non-zero. Used by configure_mcps.sh.",
+        ),
     ):
         """Configure pdf2zh MCP server, auto-filling LLM credentials from miqi config.
 
         pdf2zh needs OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL env vars.
         This command reads them from your miqi provider configuration so
         you never have to copy-paste credentials twice.
+
+        With ``--no-prompt`` the command runs unattended: it uses the current
+        miqi default model + provider verbatim and refuses to fall back to
+        interactive prompts. This is what scripts/configure_mcps.sh uses to
+        keep pdf2zh permanently in lock-step with `miqi config defaults`.
         """
         from miqi.config.loader import get_config_path, load_config, save_config
         from miqi.config.schema import MCPServerConfig
 
         config = load_config()
-        interactive = sys.stdin.isatty() and sys.stdout.isatty()
+        interactive = sys.stdin.isatty() and sys.stdout.isatty() and not no_prompt
 
         # ---- Resolve provider ----
         if provider is None:
@@ -290,6 +317,14 @@ def register_config_commands(app, *, console) -> None:
         # Ensure /v1 suffix for base URL
         if api_base and not api_base.rstrip("/").endswith("/v1"):
             api_base = api_base.rstrip("/") + "/v1"
+
+        if no_prompt and not api_key:
+            console.print(
+                f"[red]No API key configured for provider '{norm_provider or '(unset)'}'.[/red]\n"
+                "Run `miqi onboard` (or `miqi config provider <name> --api-key …`) first, "
+                "then re-run this command."
+            )
+            raise typer.Exit(1)
 
         # ---- Resolve model ----
         if model is None:
@@ -338,6 +373,98 @@ def register_config_commands(app, *, console) -> None:
         console.print(f"  api_base:  [cyan]{api_base or '(default)'}[/cyan]")
         console.print(f"  python:    [dim]{mcp_python}[/dim]")
         console.print(f"  timeout:   {timeout}s")
+
+        # ---- Small-model advisory ----------------------------------------
+        if _looks_like_small_model(model):
+            console.print(
+                "[yellow]⚠[/yellow]  [yellow]This model looks small (≤ ~13B parameters). "
+                "Academic / scientific PDF translation quality with such models is often "
+                "poor. To switch, run:[/yellow]\n"
+                "    [cyan]miqi config defaults --model <larger-model>[/cyan]\n"
+                "    [cyan]miqi config sync-llm[/cyan]"
+            )
+
+    # ------------------------------------------------------------------ #
+    # miqi config sync-llm
+    # ------------------------------------------------------------------ #
+
+    @config_app.command("sync-llm")
+    def config_sync_llm():
+        """Re-sync every LLM-backed MCP server with the current miqi default model.
+
+        Any MCP server whose ``env`` block contains an ``OPENAI_API_KEY`` /
+        ``OPENAI_MODEL`` pair is treated as LLM-backed. Their three env vars
+        (``OPENAI_API_KEY`` / ``OPENAI_BASE_URL`` / ``OPENAI_MODEL``) are
+        rewritten from the miqi defaults so they never drift.
+
+        Run this after changing the main model, e.g.::
+
+            miqi config defaults --model anthropic/claude-opus-4-5
+            miqi config sync-llm
+        """
+        from rich.table import Table
+        from miqi.config.loader import get_config_path, load_config, save_config
+
+        config = load_config()
+        default_model = config.agents.defaults.model
+        provider_name = config.get_provider_name(default_model) or ""
+        norm_provider = provider_name.lower().replace("-", "_").replace(" ", "_")
+        provider_cfg = getattr(config.providers, norm_provider, None) if norm_provider else None
+
+        api_key = (provider_cfg.api_key if provider_cfg else "") or ""
+        api_base = (provider_cfg.api_base if provider_cfg else "") or ""
+        if api_base and not api_base.rstrip("/").endswith("/v1"):
+            api_base = api_base.rstrip("/") + "/v1"
+
+        # Strip provider prefix from model name (anthropic/claude-… → claude-…)
+        env_model = default_model.split("/", 1)[1] if "/" in default_model else default_model
+
+        if not api_key:
+            console.print(
+                f"[red]No API key configured for provider '{norm_provider or '(unset)'}'.[/red]\n"
+                "Run `miqi onboard` first."
+            )
+            raise typer.Exit(1)
+
+        updated: list[tuple[str, str, str]] = []  # (name, old_model, new_model)
+        skipped: list[str] = []
+
+        for name, srv in config.tools.mcp_servers.items():
+            env = dict(srv.env or {})
+            if "OPENAI_API_KEY" not in env or "OPENAI_MODEL" not in env:
+                skipped.append(name)
+                continue
+            old_model = env.get("OPENAI_MODEL", "")
+            env["OPENAI_API_KEY"] = api_key
+            env["OPENAI_BASE_URL"] = api_base
+            env["OPENAI_MODEL"] = env_model
+            srv.env = env
+            updated.append((name, old_model, env_model))
+
+        save_config(config, get_config_path())
+
+        table = Table(title=f"Synced LLM-backed MCP servers → {env_model}")
+        table.add_column("Server", style="cyan")
+        table.add_column("Old model")
+        table.add_column("New model", style="green")
+        for name, old, new in updated:
+            table.add_row(name, old or "[dim](unset)[/dim]", new)
+        if updated:
+            console.print(table)
+        else:
+            console.print("[dim]No LLM-backed MCP servers found (nothing to sync).[/dim]")
+
+        if skipped:
+            console.print(
+                f"[dim]Skipped {len(skipped)} non-LLM MCP server(s): "
+                f"{', '.join(skipped)}[/dim]"
+            )
+
+        if _looks_like_small_model(env_model):
+            console.print(
+                "[yellow]⚠[/yellow]  [yellow]The current default model looks small "
+                "(≤ ~13B parameters). Academic / scientific work may suffer.[/yellow]"
+            )
 
     # ------------------------------------------------------------------ #
     # miqi config mcp list

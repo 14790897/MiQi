@@ -1,8 +1,8 @@
-site_name: MiQi
-site_description: A lightweight, extensible personal AI agent framework for production automation and conversational workflows
-site_url: https://lichman0405.github.io/MiQi/
-repo_url: https://github.com/lichman0405/MiQi
-repo_name: lichman0405/MiQi
+site_name: MiQi Desktop
+site_description: 基于 Electron 的轻量级个人 AI 助手桌面应用 — 完整技术文档
+# site_url: https://14790897.github.io/miqi/
+repo_url: https://github.com/14790897/miqi
+repo_name: 14790897/miqi
 edit_uri: edit/main/docs/
 
 theme:
@@ -34,13 +34,20 @@ theme:
   icon:
     repo: fontawesome/brands/github
 
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js
+
 plugins:
   - search
 
 markdown_extensions:
   - admonition
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_div_format
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span
@@ -57,16 +64,31 @@ markdown_extensions:
   - md_in_html
 
 nav:
-  - Home: index.md
-  - Getting Started: getting-started.md
-  - Configuration: configuration.md
-  - CLI Reference: cli-reference.md
-  - MCP Integration: mcp-integration.md
-  - Architecture: architecture.md
-  - Memory System: memory-system.md
-  - Self-Improvement: self-improvement.md
-  - Security: security.md
-  - Developer Guide:
-      - developer-guide.md
-      - contributing.md
-  - Changelog: changelog.md
+  - 首页: index.md
+  - 快速开始: getting-started.md
+  - 系统架构:
+      - 整体架构: architecture.md
+      - 数据流: architecture/data-flow.md
+      - 项目结构: architecture/project-structure.md
+  - Python 后端:
+      - Agent 引擎: backend/agent.md
+      - 工具系统: backend/tools.md
+      - Provider 系统: backend/providers.md
+      - 记忆系统: backend/memory.md
+      - 会话管理: backend/session.md
+      - 任务追踪: backend/trace.md
+      - Bridge 通信: backend/bridge.md
+  - Electron 前端:
+      - 前端概览: frontend/overview.md
+      - IPC 通信: frontend/ipc.md
+      - 功能页面: frontend/features.md
+      - SkillHub: frontend/skillhub.md
+  - MCP 集成: mcp-integration.md
+  - 配置与部署:
+      - 配置参考: configuration.md
+      - Docker 部署: deployment/docker.md
+      - 桌面打包: deployment/packaging.md
+  - 开发指南:
+      - 开发环境搭建: developer-guide.md
+      - 贡献指南: contributing.md
+  - 更新日志: changelog.md

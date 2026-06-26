@@ -10,7 +10,7 @@ from collections import deque
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from loguru import logger
 
@@ -21,6 +21,7 @@ from miqi.agent.memory import MemoryStore
 from miqi.agent.smart_routing import SmartModelRouter
 from miqi.agent.subagent import SubagentManager
 from miqi.agent.tools.cron import CronTool
+from miqi.agent.tools.memory import MemoryTool
 from miqi.agent.tools.filesystem import (
     EditFileTool,
     ListDirTool,
@@ -30,9 +31,13 @@ from miqi.agent.tools.filesystem import (
 from miqi.agent.tools.message import MessageTool
 from miqi.agent.tools.papers import PaperDownloadTool, PaperGetTool, PaperSearchTool
 from miqi.agent.tools.registry import ToolRegistry
+from miqi.agent.tools.session_search import SessionSearchTool
 from miqi.agent.tools.shell import ExecTool
+from miqi.agent.tools.skill_manage import SkillManageTool
 from miqi.agent.tools.spawn import SpawnTool
+from miqi.agent.tools.task_trace import TaskBeginTool, TaskEndTool, TraceSearchTool
 from miqi.agent.tools.web import WebFetchTool, WebSearchTool
+from miqi.agent.trace.store import TraceStore
 from miqi.bus.events import InboundMessage, OutboundMessage
 from miqi.bus.queue import MessageBus
 from miqi.config.schema import (
@@ -42,6 +47,7 @@ from miqi.config.schema import (
     ChannelsConfig,
     ExecToolConfig,
     PapersToolConfig,
+    SandboxConfig,
     SmartRoutingConfig,
     WebToolsConfig,
 )
@@ -147,6 +153,10 @@ class AgentLoop:
         smart_routing_config: SmartRoutingConfig | None = None,
         enable_context_compression: bool = False,
         compression_threshold_chars: int = 400_000,
+        approval_callback=None,
+        session_key: str = "",
+        sandbox_config: SandboxConfig | None = None,
+        sandbox_manager: Any = None,
     ):
         self.bus = bus
         self.channels_config = channels_config
@@ -170,6 +180,25 @@ class AgentLoop:
         self.session_config = session_config or AgentSessionConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self.sandbox_config = sandbox_config or SandboxConfig()
+
+        # Initialize sandbox manager (per-session bwrap isolation)
+        self._sandbox_manager: Any = None
+        if sandbox_manager is not None:
+            # Use externally-provided manager (e.g. from BridgeState)
+            self._sandbox_manager = sandbox_manager
+        elif self.sandbox_config.enabled:
+            from miqi.sandbox.manager import SandboxManager
+            self._sandbox_manager = SandboxManager(
+                workspace=workspace,
+                share_net=self.sandbox_config.share_net,
+                enabled=self.sandbox_config.enabled,
+                max_sandboxes=self.sandbox_config.max_sandboxes,
+                auto_cleanup=self.sandbox_config.auto_cleanup,
+                wsl_distro=self.sandbox_config.wsl_distro,
+                wsl_base_dir=self.sandbox_config.wsl_base_dir,
+                sandbox_distro_name=self.sandbox_config.sandbox_distro_name,
+            )
 
         self.memory = MemoryStore(
             workspace=workspace,
@@ -181,17 +210,76 @@ class AgentLoop:
             max_lessons_in_prompt=self.self_improvement_config.max_lessons_in_prompt,
             min_lesson_confidence=self.self_improvement_config.min_lesson_confidence,
             max_lessons=self.self_improvement_config.max_lessons,
-            lesson_confidence_decay_hours=self.self_improvement_config.lesson_confidence_decay_hours,
+            lesson_stale_days=self.self_improvement_config.lesson_stale_days,
+            lesson_archive_days=self.self_improvement_config.lesson_archive_days,
             feedback_max_message_chars=self.self_improvement_config.feedback_max_message_chars,
             feedback_require_prefix=self.self_improvement_config.feedback_require_prefix,
             promotion_enabled=self.self_improvement_config.promotion_enabled,
             promotion_min_users=self.self_improvement_config.promotion_min_users,
             promotion_triggers=self.self_improvement_config.promotion_triggers,
+            lessons_legacy_inject_enabled=(
+                self.self_improvement_config.lessons_legacy_inject_enabled
+            ),
+            curator_enabled=self.self_improvement_config.curator_enabled,
+            curator_interval_days=self.self_improvement_config.curator_interval_days,
+            curator_threshold=self.self_improvement_config.curator_threshold,
         )
+
+        # Wire up lesson curator (direct LLM call, bypasses context builder)
+        if (self.self_improvement_config.curator_enabled
+                and self.self_improvement_config.lessons_legacy_inject_enabled):
+            from miqi.agent.memory.curator import LessonCurator
+
+            async def _curator_chat(**kwargs: Any) -> Any:
+                return await self.provider.chat(**kwargs)
+
+            curator = LessonCurator(
+                lesson_store=self.memory._lesson_store,
+                llm_call=_curator_chat,
+                workspace=workspace,
+                enabled=self.self_improvement_config.curator_enabled,
+                interval_days=self.self_improvement_config.curator_interval_days,
+                threshold=self.self_improvement_config.curator_threshold,
+                model=self.model,
+            )
+            self.memory.set_curator(curator)
+
+        # Wire up skill curator (lifecycle management for workspace skills)
+        if self.self_improvement_config.curator_enabled:
+            from miqi.agent.memory.skill_curator import SkillCurator
+
+            async def _skill_curator_chat(**kwargs: Any) -> Any:
+                return await self.provider.chat(**kwargs)
+
+            self._skill_curator = SkillCurator(
+                workspace=workspace,
+                llm_call=_skill_curator_chat,
+                enabled=self.self_improvement_config.curator_enabled,
+                interval_days=self.self_improvement_config.curator_interval_days,
+                review_threshold=self.self_improvement_config.curator_threshold,
+                model=self.model,
+            )
+        else:
+            self._skill_curator = None
+
+        self.trace_store = TraceStore(
+            workspace=self.workspace,
+            enabled=self.self_improvement_config.trace_enabled,
+            embedding_model=self.self_improvement_config.embedding_model,
+        )
+
+        _ctx_work_dir: Path | None = None
+        if session_key and getattr(self.session_config, "session_workspace_enabled", True):
+            from miqi.utils.helpers import safe_filename as _sf
+            _ck = _sf(session_key.replace(":", "_"))
+            _ctx_work_dir = workspace / "sessions" / _ck / "files"
+
         self.context = ContextBuilder(
             workspace,
             memory_store=self.memory,
             agent_name=self.agent_name,
+            trace_store=self.trace_store,
+            session_work_dir=_ctx_work_dir,
         )
         self.sessions = session_manager or SessionManager(
             workspace,
@@ -215,6 +303,9 @@ class AgentLoop:
         )
 
         self._running = False
+        self._abort_event = asyncio.Event()
+        self._approval_callback = approval_callback
+        self._session_key = session_key
         self._mcp_servers = mcp_servers or {}
         self._mcp_stack: AsyncExitStack | None = None
         self._mcp_connected = False
@@ -245,6 +336,14 @@ class AgentLoop:
             }
         )
 
+        # ── Nudge counters (periodic memory/skill save reminders) ─────────
+        self._memory_nudge_counter: int = 0
+        self._skill_nudge_counter: int = 0
+        self._memory_nudge_pending: bool = False
+        self._skill_nudge_pending: bool = False
+        self._memory_nudge_interval: int = self.self_improvement_config.memory_nudge_interval
+        self._skill_nudge_interval: int = self.self_improvement_config.skill_nudge_interval
+
         # Context compressor (5-phase LLM compression when context grows large)
         self._enable_compression = enable_context_compression
         self._compression_threshold_chars = compression_threshold_chars
@@ -260,13 +359,39 @@ class AgentLoop:
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
         allowed_dir = self.workspace if self.restrict_to_workspace else None
-        for cls in (ReadFileTool, WriteFileTool, EditFileTool, ListDirTool):
-            self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
+
+        from miqi.utils.helpers import safe_filename
+
+        _snap_dir: Path | None = None
+        _work_dir: Path | None = None
+        if self._session_key:
+            safe_key = safe_filename(self._session_key.replace(":", "_"))
+            _snap_dir = self.workspace / "sessions" / safe_key / "snapshots"
+            _snap_dir.mkdir(parents=True, exist_ok=True)
+            if self.session_config.session_workspace_enabled:
+                _work_dir = self.workspace / "sessions" / safe_key / "files"
+                _work_dir.mkdir(parents=True, exist_ok=True)
+                from miqi.utils.helpers import ensure_sessions_gitignored
+                ensure_sessions_gitignored(self.workspace)
+
+        _write_workspace = _work_dir if _work_dir is not None else self.workspace
+
+        # Pass sandbox_manager to tools for per-session filesystem isolation
+        _sbm = self._sandbox_manager
+
+        for cls in (ReadFileTool, ListDirTool):
+            self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir, sandbox_manager=_sbm))
+        self.tools.register(WriteFileTool(
+            workspace=_write_workspace, allowed_dir=allowed_dir, snapshot_dir=_snap_dir, sandbox_manager=_sbm))
+        self.tools.register(EditFileTool(
+            workspace=_write_workspace, allowed_dir=allowed_dir, snapshot_dir=_snap_dir, sandbox_manager=_sbm))
         self.tools.register(ExecTool(
-            working_dir=str(self.workspace),
+            working_dir=str(_work_dir or self.workspace),
             timeout=self.exec_config.timeout,
             restrict_to_workspace=self.restrict_to_workspace,
             env_passthrough=list(self.exec_config.env_passthrough),
+            approval_callback=self._approval_callback,
+            sandbox_manager=_sbm,
         ))
         self.tools.register(
             WebSearchTool(
@@ -308,6 +433,12 @@ class AgentLoop:
                 timeout_seconds=self.paper_config.timeout_seconds,
             )
         )
+        self.tools.register(MemoryTool(memory_store=self.memory))
+        self.tools.register(TaskBeginTool(trace_store=self.trace_store))
+        self.tools.register(TaskEndTool(trace_store=self.trace_store))
+        self.tools.register(TraceSearchTool(trace_store=self.trace_store))
+        self.tools.register(SessionSearchTool(memory=self.memory, session_manager=self.sessions))
+        self.tools.register(SkillManageTool(workspace=self.workspace))
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
@@ -461,6 +592,9 @@ class AgentLoop:
 
         return work
 
+    # File-operation tool names whose first string argument should NOT be truncated.
+    _FILE_OPS = frozenset({"write_file", "edit_file", "delete_file", "read_file"})
+
     @staticmethod
     def _tool_hint(tool_calls: list) -> str:
         """Format tool calls as concise hint, e.g. 'web_search("query")'."""
@@ -468,6 +602,9 @@ class AgentLoop:
             val = next(iter(tc.arguments.values()), None) if tc.arguments else None
             if not isinstance(val, str):
                 return tc.name
+            # File operations → always show full path so the Task Assets panel works
+            if tc.name in AgentLoop._FILE_OPS:
+                return f'{tc.name}("{val}")'
             return f'{tc.name}("{val[:40]}…")' if len(val) > 40 else f'{tc.name}("{val}")'
         return ", ".join(_fmt(tc) for tc in tool_calls)
 
@@ -488,6 +625,23 @@ class AgentLoop:
             return f'<at user_id="{sender_id}">{display}</at>'
         return display
 
+    @staticmethod
+    def _make_trace_slug(text: str) -> str:
+        """Derive a short trace name from the user's message for use as task_name."""
+        text = text.strip()
+        if not text:
+            return "session"
+        sample = text[:30]
+        printable = sum(1 for c in sample if c.isprintable() and not c.isspace())
+        ascii_p = sum(1 for c in sample if c.isascii() and c.isprintable() and not c.isspace())
+        if printable == 0 or ascii_p / printable < 0.6:
+            # CJK-heavy: use raw prefix as task name (already human-readable)
+            return text[:20].strip() or "session"
+        # ASCII-heavy: produce a hyphenated slug from first 5 words
+        words = [w for w in re.split(r'\W+', text.lower()) if w][:5]
+        slug = "-".join(words)[:40]
+        return slug or "session"
+
     async def _run_agent_loop(
         self,
         initial_messages: list[dict],
@@ -501,6 +655,8 @@ class AgentLoop:
         budget = IterationBudget(self.max_iterations)
 
         while not budget.exhausted:
+            if self._abort_event.is_set():
+                break
             budget.consume()
             iteration = budget.used
 
@@ -566,6 +722,17 @@ class AgentLoop:
                 max_tokens=self.max_tokens,
             )
 
+            # ── Diagnostic logging for every LLM response ──
+            logger.info(
+                "LLM response: finish_reason={}, tool_calls={}, "
+                "content={}chars, reasoning={}chars, usage={}",
+                response.finish_reason,
+                len(response.tool_calls) if response.tool_calls else 0,
+                len(response.content or ""),
+                len(response.reasoning_content or ""),
+                response.usage,
+            )
+
             if response.has_tool_calls:
                 if on_progress:
                     await on_progress(
@@ -588,6 +755,34 @@ class AgentLoop:
                     messages, response.content, tool_call_dicts,
                     reasoning_content=response.reasoning_content,
                 )
+                # Inject formatted tool hint into the assistant message so it
+                # gets persisted to session history and the frontend can display
+                # full (non-truncated) file paths in the Task Assets panel.
+                if messages[-1].get("tool_calls"):
+                    hint_text = self._tool_hint(response.tool_calls)
+                    messages[-1]["_tool_hint"] = True
+                    messages[-1]["_tool_hint_text"] = hint_text
+                    # Persist tracked files to dedicated tracked_files.json
+                    # so accept/revert can clear them without rewriting conversation.jsonl
+                    if self._session_key:
+                        try:
+                            for tc in response.tool_calls:
+                                if tc.name in self._FILE_OPS:
+                                    arg = next(iter(tc.arguments.values()), "")
+                                    if isinstance(arg, str) and arg:
+                                        op = {"write_file": "write", "edit_file": "edit",
+                                              "delete_file": "delete", "read_file": "read"
+                                              }.get(tc.name, "read")
+                                        # Resolve relative paths to absolute so the
+                                        # Task Assets panel shows full paths.
+                                        _path_arg = arg
+                                        if not arg.startswith(("/", "\\")) and not (len(arg) > 1 and arg[1] == ":"):
+                                            _base = self.context.session_work_dir or self.workspace
+                                            _path_arg = str((_base / arg).resolve())
+                                        self.sessions.save_tracked_file(
+                                            self._session_key, _path_arg, op=op)
+                        except Exception:
+                            pass  # Non-critical: sidebar is a nice-to-have
 
                 # Build flat dicts for the registry dispatch helpers
                 _tc_dicts = [
@@ -598,15 +793,24 @@ class AgentLoop:
                 # Dispatch tool calls: run parallelisable batches concurrently,
                 # fall back to sequential for tools that must run one at a time.
                 if self.tools.should_parallelize(_tc_dicts):
-                    parallel_results = await self.tools.execute_concurrent(_tc_dicts)
+                    parallel_results = await self.tools.execute_concurrent(
+                        _tc_dicts, default_kwargs={"session_id": session_key},
+                    )
                     # execute_concurrent returns list[tuple[tc_id, result_str]]
                     result_by_id = dict(parallel_results)
                     for tool_call in response.tool_calls:
                         result = result_by_id.get(tool_call.id, "")
                         tools_used.append(tool_call.name)
+                        # Log tool call + result (truncated)
+                        args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
+                        _res_preview = (result or "")[:200]
+                        if isinstance(result, str) and len(result) > 200:
+                            _res_preview += f"…({len(result)}chars)"
                         logger.info(
-                            "Tool call (parallel): {}",
+                            "Tool (parallel): {}({}) → {}",
                             tool_call.name,
+                            args_str[:100],
+                            _res_preview,
                         )
                         if (
                             self.max_tool_result_chars > 0
@@ -620,6 +824,12 @@ class AgentLoop:
                         if session_key and isinstance(result, str):
                             self.memory.record_tool_feedback(
                                 session_key, tool_call.name, result,
+                            )
+                        if session_key and self.trace_store.enabled:
+                            _args_s = json.dumps(tool_call.arguments, ensure_ascii=False)[:300]
+                            _res_s = (result or "")[:300]
+                            self.trace_store.record_step(
+                                session_key, tool_call.name, _args_s, _res_s
                             )
                         messages = self.context.add_tool_result(
                             messages, tool_call.id, tool_call.name, result
@@ -666,11 +876,28 @@ class AgentLoop:
                             tool_call.name,
                             tool_call.arguments,
                             _on_progress=_mcp_on_progress,
+                            session_id=session_key,
+                        )
+                        # Log tool execution result for debugging (truncated)
+                        _res_preview = (result or "")[:500]
+                        if isinstance(result, str) and len(result) > 500:
+                            _res_preview += f"…({len(result)}chars total)"
+                        logger.info(
+                            "Tool: {}({}) → {}",
+                            tool_call.name,
+                            args_str[:100],
+                            _res_preview,
                         )
                         # Record tool feedback for self-improvement lessons
                         if session_key and isinstance(result, str):
                             self.memory.record_tool_feedback(
                                 session_key, tool_call.name, result,
+                            )
+                        if session_key and self.trace_store.enabled:
+                            _args_s = json.dumps(tool_call.arguments, ensure_ascii=False)[:300]
+                            _res_s = (result or "")[:300]
+                            self.trace_store.record_step(
+                                session_key, tool_call.name, _args_s, _res_s
                             )
                         # Truncate large tool results to prevent context explosion.
                         # This applies to the live prompt; saved-session truncation is
@@ -714,18 +941,36 @@ class AgentLoop:
                 else:
                     final_content = self._strip_think(response.content)
                     if final_content is None:
-                        # Model returned only <think>…</think> with no visible answer.
-                        # This usually means max_tokens was exhausted during reasoning
-                        # (e.g. DeepSeek-R1 via OpenRouter). Log and surface a hint.
+                        # Model returned only <think>…</think> with no visible answer,
+                        # or content was empty/None.  Log enough detail to diagnose.
+                        _raw_content = response.content
+                        _raw_reasoning = response.reasoning_content
                         logger.warning(
-                            "Model response empty after stripping think tags "
-                            "(finish_reason={}, has reasoning={}) — likely max_tokens too low",
+                            "Model response empty after stripping think tags — "
+                            "finish_reason={}, has_reasoning={}, "
+                            "raw_content={!r}{}{}, "
+                            "raw_reasoning={!r}{}{}, "
+                            "usage={}, max_tokens={}, msg_count={}",
                             response.finish_reason,
-                            response.reasoning_content is not None,
+                            _raw_reasoning is not None,
+                            (_raw_content or "")[:200],
+                            f"…({len(_raw_content)}chars)" if _raw_content and len(_raw_content) > 200 else "",
+                            f" (None)" if _raw_content is None else "",
+                            (_raw_reasoning or "")[:200],
+                            f"…({len(_raw_reasoning)}chars)" if _raw_reasoning and len(_raw_reasoning) > 200 else "",
+                            f" (None)" if _raw_reasoning is None else "",
+                            response.usage,
+                            self.max_tokens,
+                            len(messages),
                         )
                         final_content = (
-                            "\u26a0\ufe0f \u6a21\u578b\u5b8c\u6210\u4e86\u63a8\u7406\u4f46\u672a\u8f93\u51fa\u6700\u7ec8\u56de\u590d"
-                            "\uff08\u53ef\u80fd\u662f max_tokens \u8bbe\u7f6e\u8fc7\u4f4e\uff09\uff0c\u8bf7\u5c1d\u8bd5\u5bf9\u8be5\u4efb\u52a1\u589e\u5927 max_tokens \u540e\u91cd\u8bd5\u3002"
+                            "⚠️ 模型完成了推理但未输出最终回复。\n"
+                            f"诊断：finish_reason={response.finish_reason}, "
+                            f"reasoning={'有' if _raw_reasoning else '无'}, "
+                            f"content={'空' if not _raw_content else f'{len(_raw_content)}字符'}, "
+                            f"usage={response.usage}, "
+                            f"max_tokens={self.max_tokens}。\n"
+                            "可能原因：模型推理消耗了输出配额、API 参数不兼容、或模型内部错误。"
                         )
                 break
 
@@ -776,6 +1021,19 @@ class AgentLoop:
         """
         self._running = True
         await self._connect_mcp()
+
+        # Initialize sandbox manager (check bwrap availability)
+        if self._sandbox_manager is not None:
+            try:
+                sandbox_ok = await self._sandbox_manager.initialize()
+                if sandbox_ok:
+                    logger.info("Per-session bwrap sandboxing is ACTIVE")
+                else:
+                    logger.info("Per-session sandboxing is NOT available (bwrap missing or disabled)")
+            except Exception as exc:
+                logger.warning("Sandbox manager initialization failed: {}", exc)
+                self._sandbox_manager = None
+
         logger.info("Agent loop started")
 
         while self._running:
@@ -873,6 +1131,32 @@ class AgentLoop:
         for task in list(self._consolidation_tasks):
             task.cancel()
         self._consolidation_tasks.clear()
+        # Cancel subagents only on explicit abort or in Gateway mode (no executor).
+        # In Desktop mode (executor), subagents outlive the parent request intentionally.
+        if hasattr(self, "subagents") and self.subagents is not None:
+            if self._abort_event.is_set() or self.subagents._executor is None:
+                self.subagents.cancel_all()
+        for sess_key, _open in list(self.trace_store._open_tasks.items()):
+            self.trace_store.end_task(
+                session_id=sess_key,
+                outcome="partial",
+                outcome_notes="Agent stopped without explicit task_end.",
+                tool_calls=[],
+            )
+        # Destroy all sandboxes
+        if self._sandbox_manager is not None:
+            try:
+                # Best-effort synchronous cleanup; async destroy_all
+                # is called in the async stop path below.
+                import asyncio
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(self._sandbox_manager.destroy_all())
+                except RuntimeError:
+                    pass
+            except Exception as exc:
+                logger.warning("Failed to destroy sandboxes on stop: {}", exc)
         self._running = False
         logger.info("Agent loop stopping")
 
@@ -902,6 +1186,14 @@ class AgentLoop:
             logger.info("Processing system message from {}", msg.sender_id)
             key = f"{channel}:{chat_id}"
             session = self.sessions.get_or_create(key)
+
+            # Activate sandbox for this session
+            if self._sandbox_manager is not None:
+                try:
+                    await self._sandbox_manager.activate(key)
+                except Exception as exc:
+                    logger.warning("Failed to activate sandbox for {}: {}", key, exc)
+
             self._set_tool_context(
                 channel,
                 chat_id,
@@ -914,6 +1206,17 @@ class AgentLoop:
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
             )
+            # Inject sandbox context hint for system messages too
+            if self._sandbox_manager is not None:
+                _active_sb = self._sandbox_manager.active_sandbox
+                if _active_sb is not None and _active_sb.is_running:
+                    _win_ws2 = str(self.workspace.resolve())
+                    messages.append({"role": "system", "content":
+                        "## Sandbox Environment\n"
+                        "You are running inside an isolated Linux sandbox (bwrap).\n"
+                        "Use Linux-style paths (/home/miqi/workspace/) and Linux commands for execution.\n"
+                        f"Map /home/miqi/workspace/ to Windows path {_win_ws2} when presenting file locations to the user."
+                    })
             try:
                 final_content, _, all_msgs = await self._run_agent_loop(
                     messages, session_key=key,
@@ -931,6 +1234,14 @@ class AgentLoop:
 
         key = session_key or msg.session_key
         session = self.sessions.get_or_create(key)
+
+        # Activate sandbox for this session (creates new sandbox on first use)
+        if self._sandbox_manager is not None:
+            try:
+                await self._sandbox_manager.activate(key)
+            except Exception as exc:
+                logger.warning("Failed to activate sandbox for {}: {}", key, exc)
+
         previous_assistant = self._get_last_assistant_message(session)
 
         # Slash commands
@@ -959,14 +1270,42 @@ class AgentLoop:
                 self._consolidating.discard(session.key)
                 self._prune_consolidation_lock(session.key, lock)
 
+            if self.trace_store.get_current_task(session.key) is not None:
+                self.trace_store.end_task(
+                    session_id=session.key,
+                    outcome="partial",
+                    outcome_notes="Session reset via /new without explicit task_end.",
+                    tool_calls=[],
+                )
             session.clear()
             self.sessions.save(session)
-            self.sessions.invalidate(session.key)
+
+            # Destroy sandbox for this session so it starts fresh
+            if self._sandbox_manager is not None:
+                try:
+                    await self._sandbox_manager.destroy(session.key)
+                except Exception as exc:
+                    logger.warning("Failed to destroy sandbox on /new: {}", exc)
+
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
                                   content="New session started.")
         if cmd == "/help":
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="Assistant commands:\n/new - Start a new conversation\n/help - Show available commands")
+                                  content="Assistant commands:\n/new - Start a new conversation\n/unlearn <keyword> - Archive lessons matching keyword\n/help - Show available commands")
+        if cmd.startswith("/unlearn "):
+            keyword = msg.content.strip()[len("/unlearn "):].strip()
+            if not keyword:
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                      content="Usage: /unlearn <keyword>")
+            archived = self.memory._lesson_store.unlearn_by_keyword(keyword)
+            if not archived:
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                      content=f"No active lessons matched '{keyword}'.")
+            self.memory._lesson_store.flush()
+            return OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id,
+                content=f"Archived {len(archived)} lesson(s) matching '{keyword}'.",
+            )
 
         unconsolidated = len(session.messages) - session.last_consolidated
         if (unconsolidated >= self.memory_window and session.key not in self._consolidating):
@@ -999,6 +1338,12 @@ class AgentLoop:
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()
 
+        # Auto-begin trace for each user turn (begin_task auto-closes any stale open task)
+        if self.trace_store.enabled:
+            _auto_goal = (msg.content or "").strip()[:200] or "session"
+            _auto_task_name = AgentLoop._make_trace_slug(msg.content or "")
+            self.trace_store.begin_task(session.key, _auto_task_name, _auto_goal)
+
         history = session.get_history(max_messages=self.memory_window)
         initial_messages = self.context.build_messages(
             history=history,
@@ -1006,6 +1351,66 @@ class AgentLoop:
             media=msg.media if msg.media else None,
             channel=msg.channel, chat_id=msg.chat_id,
         )
+
+        # Inject pending nudges as system messages before the LLM call
+        if getattr(self, '_memory_nudge_pending', False):
+            initial_messages = initial_messages + [
+                {"role": "system", "content": "Reminder: if you learned anything durable this session "
+                 "(project conventions, user preferences, environment facts), save it now using the memory tool."}
+            ]
+            self._memory_nudge_pending = False
+        if getattr(self, '_skill_nudge_pending', False):
+            initial_messages = initial_messages + [
+                {"role": "system", "content": "Reminder: if you completed a complex workflow (5+ steps) "
+                 "this session, consider saving it as a reusable skill using skill_manage(action='create')."}
+            ]
+            self._skill_nudge_pending = False
+
+        # Inject sandbox context so the model knows it's inside a Linux sandbox
+        if self._sandbox_manager is not None:
+            _active_sb = self._sandbox_manager.active_sandbox
+            if _active_sb is not None and _active_sb.is_running:
+                _win_ws = str(self.workspace.resolve())
+                # Session work dir info (for per-session isolation)
+                _swd = self.context.session_work_dir
+                if _swd:
+                    _swd_str = str(_swd.resolve()).replace("\\", "/")
+                    _win_ws_norm = _win_ws.replace("\\", "/")
+                    # Compute relative path (case-insensitive for Windows)
+                    _swd_lower = _swd_str.lower()
+                    _win_lower = _win_ws_norm.lower()
+                    if _swd_lower.startswith(_win_lower):
+                        _swd_sandbox = _swd_str[len(_win_ws_norm):].lstrip("/")
+                    else:
+                        _swd_sandbox = ""
+                    _session_dir_info = (
+                        f"\n### Session Working Directory\n"
+                        f"- Your session work dir (Windows): {_swd_str}\n"
+                        f"- Your session work dir (sandbox): /home/miqi/workspace/{_swd_sandbox}\n"
+                        "- **Use relative paths** when writing files — they will go to your session work dir.\n"
+                        "- This ensures your files are isolated from other conversations.\n"
+                    )
+                else:
+                    _session_dir_info = ""
+                _sb_hint = (
+                    "## Sandbox Environment\n"
+                    "You are running inside an isolated Linux sandbox (bwrap).\n\n"
+                    "### For executing commands and tools:\n"
+                    "- Use Linux-style paths: /home/miqi/workspace/ is your workspace root.\n"
+                    "- Windows paths (C:\\...) are NOT valid inside the sandbox.\n"
+                    "- The host filesystem is accessible via /mnt/c/, /mnt/d/ etc. if needed.\n"
+                    "- Your home directory is /home/miqi/ (isolated per session).\n"
+                    "- Commands run in a Linux environment (bash, python3, ls, grep, etc.).\n"
+                    "- No Windows commands (dir, type, where, echo %OS%) will work.\n"
+                    f"{_session_dir_info}\n"
+                    "### For presenting results to the user:\n"
+                    f"- The user is on Windows. Your workspace root /home/miqi/workspace/ maps to: {_win_ws}\n"
+                    "- **ALWAYS use the Windows path** (NOT /home/miqi/workspace/) when telling the user where a file is.\n"
+                    f"- Example: say 'File saved to {_win_ws}/report.pdf', NOT '/home/miqi/workspace/report.pdf'.\n"
+                )
+                initial_messages = initial_messages + [
+                    {"role": "system", "content": _sb_hint}
+                ]
 
         _chat_type = (msg.metadata or {}).get("chat_type", "")
         _mention_prefix = ""
@@ -1025,14 +1430,35 @@ class AgentLoop:
                 channel=msg.channel, chat_id=msg.chat_id, content=prefixed, metadata=meta,
             ))
 
+        _turn_tools: list[str] = []
+        _turn_exc = False
         try:
-            final_content, _, all_msgs = await self._run_agent_loop(
+            final_content, _turn_tools, all_msgs = await self._run_agent_loop(
                 initial_messages, on_progress=on_progress or _bus_progress,
                 session_key=key,
             )
+            if final_content:
+                final_content = self.memory.strip_memory_fence(final_content)
+        except Exception:
+            _turn_exc = True
+            raise
         finally:
             for _gw in self._mcp_gateways:
                 _gw.deactivate()
+            if self.trace_store.enabled:
+                if _turn_exc:
+                    _t_outcome, _t_notes = "failure", "exception during agent loop"
+                elif _turn_tools:
+                    _t_outcome = "success"
+                    _t_notes = f"tools: {', '.join(dict.fromkeys(_turn_tools))}"
+                else:
+                    _t_outcome, _t_notes = "partial", "no tools used; text-only response"
+                self.trace_store.end_task(
+                    session_id=session.key,
+                    outcome=_t_outcome,
+                    outcome_notes=_t_notes,
+                    tool_calls=[],  # auto-populated from recorded steps in store.py
+                )
 
         if final_content is None:
             final_content = "I've completed processing but have no response to give."
@@ -1053,7 +1479,34 @@ class AgentLoop:
         )
         self.memory.flush_if_needed()
 
+        # Increment nudge counters at end of turn; set pending flag when threshold reached
+        self._memory_nudge_counter += 1
+        self._skill_nudge_counter += 1
+        if self._memory_nudge_counter >= self._memory_nudge_interval:
+            self._memory_nudge_counter = 0
+            self._memory_nudge_pending = True
+        if self._skill_nudge_counter >= self._skill_nudge_interval:
+            self._skill_nudge_counter = 0
+            self._skill_nudge_pending = True
+
+        # Trigger skill curator lifecycle check (same cadence as lesson curator)
+        if self._skill_curator is not None and self._skill_curator.enabled:
+            try:
+                await self._skill_curator.maybe_run()
+            except Exception:
+                pass
+
         self._save_turn(session, all_msgs, 1 + len(history))
+        # Persist the final assistant response — it is returned as final_content
+        # but never appended to all_msgs by _run_agent_loop, so it would be
+        # absent from the saved session without this explicit append.
+        if final_content:
+            from datetime import datetime as _dt
+            session.messages.append({
+                "role": "assistant",
+                "content": final_content,
+                "timestamp": _dt.now().isoformat(),
+            })
         self.sessions.save(session)
 
         if message_tool := self.tools.get("message"):
@@ -1147,6 +1600,19 @@ class AgentLoop:
     ) -> str:
         """Process a message directly (for CLI or cron usage)."""
         await self._connect_mcp()
+
+        # Initialize sandbox manager (check bwrap availability)
+        if self._sandbox_manager is not None and hasattr(self._sandbox_manager, "initialize"):
+            try:
+                sandbox_ok = await self._sandbox_manager.initialize()
+                if sandbox_ok:
+                    logger.info("Per-session bwrap sandboxing is ACTIVE")
+                else:
+                    logger.info("Per-session sandboxing is NOT available (bwrap missing or disabled)")
+            except Exception as exc:
+                logger.warning("Sandbox manager initialization failed: {}", exc)
+                self._sandbox_manager = None
+
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
         response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
         return response.content if response else ""

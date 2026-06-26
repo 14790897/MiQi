@@ -14,12 +14,15 @@ Key differences from Hermes:
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
 import sys
 import threading
+import time
 import unicodedata
+import uuid
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -75,6 +78,33 @@ DANGEROUS_PATTERNS: list[tuple[str, str]] = [
 _lock = threading.Lock()
 _session_approved: dict[str, set[str]] = {}   # session_key → set of approved pattern descriptions
 _permanent_approved: set[str] = set()
+_permanent_added_at: dict[str, float] = {}     # pattern → added_at timestamp
+
+# Approval history (decisions that were prompted and resolved)
+_approval_history: list[dict] = []  # each entry: {id, pattern_key, description, command, decision, timestamp, session_key}
+_history_file: str | None = None
+
+
+def init_history_file(path: str) -> None:
+    """Initialize file-backed persistence for approval history.
+
+    Loads existing entries from *path* into memory and configures
+    ``add_approval_history`` to append each new entry to the file.
+    """
+    global _history_file
+    _history_file = path
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    _approval_history.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    except FileNotFoundError:
+        pass
 
 
 def _normalize_command(command: str) -> str:
@@ -116,6 +146,76 @@ def approve_permanent(pattern_key: str) -> None:
     """Add a pattern to the permanent allowlist."""
     with _lock:
         _permanent_approved.add(pattern_key)
+        _permanent_added_at[pattern_key] = time.time()
+
+
+def remove_permanent(pattern_key: str) -> bool:
+    """Remove a pattern from the permanent allowlist. Returns True if found."""
+    with _lock:
+        if pattern_key in _permanent_approved:
+            _permanent_approved.discard(pattern_key)
+            _permanent_added_at.pop(pattern_key, None)
+            return True
+        return False
+
+
+def get_permanent_allowlist_meta() -> dict[str, float]:
+    """Return permanent allowlist with added-at timestamps."""
+    with _lock:
+        return dict(_permanent_added_at)
+
+
+def add_approval_history(
+    pattern_key: str,
+    description: str,
+    command: str,
+    decision: str,
+    session_key: str = "",
+) -> None:
+    """Record an approval decision in history."""
+    entry = {
+        "id": str(uuid.uuid4()),
+        "pattern_key": pattern_key,
+        "description": description,
+        "command": command,
+        "decision": decision,
+        "timestamp": time.time(),
+        "session_key": session_key,
+    }
+    with _lock:
+        _approval_history.append(entry)
+        if _history_file:
+            try:
+                with open(_history_file, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            except OSError:
+                pass
+
+
+def get_approval_history(limit: int = 200) -> list[dict]:
+    """Return recent approval history (most recent first)."""
+    with _lock:
+        return list(reversed(_approval_history[-limit:]))
+
+
+def get_pending_approvals_with_age(
+    pending_ids: list[str], approval_data: dict[str, dict]
+) -> list[dict]:
+    """Return pending approval details with age info for timeout display."""
+    now = time.time()
+    result = []
+    for aid in pending_ids:
+        data = approval_data.get(aid, {})
+        created_at = data.get("created_at", now)
+        result.append({
+            "approval_id": aid,
+            "command": data.get("command", ""),
+            "description": data.get("description", ""),
+            "created_at": created_at,
+            "age_seconds": now - created_at,
+            "allow_permanent": data.get("allow_permanent", True),
+        })
+    return result
 
 
 def clear_session(session_key: str) -> None:
@@ -160,18 +260,21 @@ def check_dangerous_command(
     if is_approved(session_key, pattern_key):
         return {"approved": True, "message": None}
 
-    # Non-interactive mode: approve (matches Hermes behaviour for non-CLI/gateway)
-    is_cli = os.getenv("MIQI_INTERACTIVE")
-    if not is_cli:
-        return {"approved": True, "message": None}
+    # If a custom callback is provided (e.g. desktop bridge), always prompt.
+    # Otherwise fall back to MIQI_INTERACTIVE guard for CLI mode.
+    if approval_callback is None:
+        is_cli = os.getenv("MIQI_INTERACTIVE")
+        if not is_cli:
+            return {"approved": True, "message": None}
 
-    # CLI interactive approval
+    # CLI interactive approval (or custom callback)
     choice = prompt_dangerous_approval(
         command, description,
         approval_callback=approval_callback,
     )
 
     if choice == "deny":
+        add_approval_history(pattern_key, description, command, "deny", session_key)
         return {
             "approved": False,
             "message": (
@@ -184,10 +287,14 @@ def check_dangerous_command(
 
     if choice == "session":
         approve_session(session_key, pattern_key)
+        add_approval_history(pattern_key, description, command, "session", session_key)
     elif choice == "always":
         approve_session(session_key, pattern_key)
         approve_permanent(pattern_key)
         _save_permanent_allowlist()
+        add_approval_history(pattern_key, description, command, "always", session_key)
+    else:
+        add_approval_history(pattern_key, description, command, "once", session_key)
 
     return {"approved": True, "message": None}
 

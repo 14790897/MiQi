@@ -1,61 +1,75 @@
-# Contributing
+# 贡献指南
 
-Thanks for contributing to MiQi.
+## 欢迎贡献
 
-## Before You Start
+MiQi Desktop 是一个开源项目，采用 MIT 许可证。我们欢迎各种形式的贡献。
 
-1. Fork the repository and create a branch.
-2. Install the local development environment:
-   ```bash
-   uv sync --extra dev        # recommended
-   # or: pip install -e '.[dev]'
-   ```
-3. Read these docs before making changes:
-   - [Architecture](architecture.md)
-   - [Developer Guide](developer-guide.md)
+## 贡献方式
 
-## Development Principles
+### 报告 Bug
 
-- Make minimal and verifiable changes.
-- Preserve backward compatibility (especially public CLI behavior).
-- Use `loguru.logger` for logging; avoid `print()` in business logic.
-- Do not refactor unrelated areas.
+1. 在 GitHub Issues 中搜索是否已有相同问题
+2. 使用 Bug Report 模板提交 Issue
+3. 尽可能提供：
+   - 操作系统和版本
+   - MiQi Desktop 版本
+   - 复现步骤
+   - 预期行为 vs 实际行为
+   - 相关日志或截图
 
-## Testing Requirements
+### 提交代码
 
-Run at least the tests relevant to your changes before submitting:
+1. **Fork 仓库**
+2. **创建特性分支**：`git checkout -b feat/your-feature`
+3. **编写代码**：遵循项目代码规范
+4. **添加测试**：确保新功能有测试覆盖
+5. **运行测试**：`uv run pytest && cd apps/desktop && npm run test`
+6. **提交 PR**：使用 PR 模板，描述变更内容
 
-```bash
-PYTHONPATH=. python -m pytest tests/test_commands.py tests/test_cron_commands.py -q
-```
+### 改进文档
 
-If your change touches cron or agent core behavior, also run:
-
-```bash
-PYTHONPATH=. python -m pytest tests/test_cron_service.py tests/test_provider_routing.py -q
-```
-
-For the full suite:
+文档使用 MkDocs Material 构建，位于 `docs/` 目录：
 
 ```bash
-PYTHONPATH=. python -m pytest -q
+# 本地预览文档
+uv run mkdocs serve
+
+# 构建静态站点
+uv run mkdocs build
 ```
 
-## Pull Request Guidelines
+## 代码审查清单
 
-Your PR description should include:
+提交 PR 前请确认：
 
-- Background and goal
-- Key changes made
-- Risk and backward-compatibility notes
-- Test commands run and their results
+- [ ] 代码通过 Ruff / ESLint 检查
+- [ ] 所有测试通过
+- [ ] 新功能有适当的测试覆盖
+- [ ] 提交信息遵循 Conventional Commits
+- [ ] 更新了相关文档
+- [ ] 没有引入新的 lint 警告
+- [ ] 如果是 UI 变更，已在 Windows 上测试
 
-## Documentation
+## 技术栈要求
 
-If your changes affect behavior or interfaces, update the relevant files:
+| 技术 | 版本要求 |
+|------|----------|
+| Python | 3.11 或 3.12 |
+| Node.js | 20+ |
+| TypeScript | 5.8+ |
 
-- `docs/cli-reference.md` — CLI commands and tools
-- `docs/configuration.md` — Config options
-- `docs/architecture.md` — Module or data flow changes
-- `miqi/templates/TOOLS.md` — Tool usage guidance
-- `CHANGELOG.md` — Always add a changelog entry
+## PR 流程
+
+1. 创建 Draft PR 进行早期讨论
+2. CI 通过后标记为 Ready for Review
+3. 维护者审查并提供反馈
+4. 修改完成后合并到 `main` 分支
+
+## 沟通渠道
+
+- GitHub Issues：Bug 报告和功能请求
+- GitHub Discussions：技术讨论和 Q&A
+
+## 许可证
+
+贡献的代码自动采用项目的 MIT 许可证。
