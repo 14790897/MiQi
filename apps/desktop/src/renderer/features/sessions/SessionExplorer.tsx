@@ -254,9 +254,9 @@ export function SessionExplorer({
           <ScrollArea className="flex-1">
             <div className="px-6 py-4 flex flex-col gap-3">
               <div className="text-xs text-[var(--text-faint)] mb-2">
-                Session: {detail.key} • Messages: {detail.messages.length}
+                Session: {detail.key} • Messages: {detail.messages?.length ?? 0}
               </div>
-              {detail.messages.map((msg, i) => {
+              {(detail.messages ?? []).map((msg, i) => {
                 const role = String(msg.role ?? '')
                 const content = String(msg.content ?? '')
                 const isUser = role === 'user'
