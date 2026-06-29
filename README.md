@@ -305,7 +305,7 @@ npm run test
 - [MCP Integration](docs/mcp-integration.md)
 - [Developer Guide](docs/developer-guide.md)
 - [Internal Alpha Smoke](docs/internal-alpha-smoke.md)
-
+![alt text](interface.png)
 ---
 
 ## License
