@@ -368,6 +368,13 @@ def handle_sessions_delete(req_id: str, params: dict) -> None:
     _result(req_id, {"deleted": deleted})
 
 
+def _get_session_manager():
+    """Get a SessionManager instance for the current workspace."""
+    config = _state.load_config()
+    from miqi.session.manager import SessionManager
+    return SessionManager(config.workspace_path)
+
+
 def handle_sessions_archive(req_id: str, params: dict) -> None:
     """Archive a session — hide it from the default session list."""
     session_key = params.get("session_key", "")
