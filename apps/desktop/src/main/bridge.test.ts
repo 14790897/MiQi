@@ -95,10 +95,14 @@ const { spawn: mockSpawn, execSync: mockExecSync } = vi.hoisted(() => ({
   execSync: vi.fn(() => Buffer.from('')),
 }))
 
-vi.mock('child_process', () => ({
-  spawn: mockSpawn,
-  execSync: mockExecSync,
-}))
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>()
+  return {
+    ...actual,
+    spawn: mockSpawn,
+    execSync: mockExecSync,
+  }
+})
 
 // Captured watcher close spies for cleanup assertions
 const watcherCloses: Array<ReturnType<typeof vi.fn>> = []
@@ -108,20 +112,24 @@ const rlCloseSpies: Array<ReturnType<typeof vi.fn>> = []
 
 // fs mocks: only return true for uv/pyproject to force the uv code path,
 // and for miqi directory so file watcher starts
-vi.mock('fs', () => ({
-  existsSync: vi.fn((p: string) => {
-    if (typeof p === 'string') {
-      if (p.includes('uv.lock') || p.includes('pyproject.toml')) return true
-      if (p.includes('miqi')) return true
-    }
-    return false
-  }),
-  watch: vi.fn(() => {
-    const closeFn = vi.fn()
-    watcherCloses.push(closeFn)
-    return { close: closeFn }
-  }),
-}))
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>()
+  return {
+    ...actual,
+    existsSync: vi.fn((p: string) => {
+      if (typeof p === 'string') {
+        if (p.includes('uv.lock') || p.includes('pyproject.toml')) return true
+        if (p.includes('miqi')) return true
+      }
+      return false
+    }),
+    watch: vi.fn(() => {
+      const closeFn = vi.fn()
+      watcherCloses.push(closeFn)
+      return { close: closeFn }
+    }),
+  }
+})
 
 // readline mock: wraps createInterface to spy on close() calls
 vi.mock('readline', async () => {

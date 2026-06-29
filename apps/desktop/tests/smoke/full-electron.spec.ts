@@ -213,7 +213,14 @@ test.describe('Native Electron E2E', () => {
     const env = { ...process.env, MIQI_E2E_TEST: '1' };
     delete env.ELECTRON_RUN_AS_NODE;
 
-    proc = spawn(ELECTRON_BIN, ['.'], {
+    // --no-sandbox must be a CLI arg, NOT app.commandLine.appendSwitch(),
+    // because Chromium's SUID sandbox check runs before JS initialisation.
+    // On CI (root user) the sandbox helper is not configured correctly,
+    // causing SIGTRAP.  --disable-gpu and --disable-dev-shm-usage are
+    // also needed for headless CI containers.
+    const electronArgs = ['.', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'];
+
+    proc = spawn(ELECTRON_BIN, electronArgs, {
       cwd: APPS_DESKTOP,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
