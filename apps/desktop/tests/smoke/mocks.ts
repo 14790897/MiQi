@@ -15,10 +15,11 @@ export interface MockBridgeOptions {
 export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   const runtimeStatus = opts.runtimeStatus || 'running';
   const preloadOk = opts.preloadOk !== false;
-  const sessions = JSON.stringify(opts.sessions || [
+  const initialSessions = opts.sessions || [
     { key: 'sess-001', title: 'Test conversation 1', updated_at: Date.now(), message_count: 5 },
     { key: 'sess-002', title: 'Test conversation 2', updated_at: Date.now() - 3600000, message_count: 3 },
-  ]);
+  ];
+  const sessionsJson = JSON.stringify(initialSessions);
 
   return `
 (function() {
@@ -74,14 +75,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
     },
 
     sessions: {
-      list: function() { return Promise.resolve({ sessions: ${sessions} }); },
-      get: function() { return Promise.resolve({ key: 'sess-001', title: 'Test conversation 1', messages: [] }); },
-      delete: function() { return Promise.resolve({ deleted: true }); },
-      archive: function() { return Promise.resolve({ archived: true }); },
-      unarchive: function() { return Promise.resolve({ unarchived: true }); },
-      listArchived: function() { return Promise.resolve({ sessions: [] }); },
-      getTrackedFiles: function() { return Promise.resolve({ tracked_files: [] }); },
-      clearTrackedFiles: function() { return Promise.resolve({ cleared: true }); },
+      list: function() { return Promise.resolve({ sessions: ${sessionsJson} }); },
     },
 
     approvals: {

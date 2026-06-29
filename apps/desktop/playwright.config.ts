@@ -26,14 +26,16 @@ export default defineConfig({
         headless: true,  // CI runs headless; use --headed locally
       },
     },
-    // ② Electron E2E: launches real desktop app via _electron.launch()
+    // ② Electron E2E: launches real desktop app via CDP connection
+    //    Electron 34+ removed --remote-debugging-port CLI flag, so we use
+    //    app.commandLine.appendSwitch() + chromium.connectOverCDP() instead.
     {
       name: 'electron',
       testMatch: ['full-electron.spec.ts'],
       timeout: 300000,  // 5 min — Electron boot + bridge + LLM are slow
       use: {
-        // Electron tests manage their own launch; no browser device needed
-        headless: false,
+        // Tests manage their own Electron process and CDP connection
+        // No browser device config needed — connectOverCDP handles it
       },
     },
   ],
@@ -42,6 +44,6 @@ export default defineConfig({
   webServer: {
     command: 'python -m http.server 3458 --directory out/renderer',
     url: 'http://localhost:3458',
-    reuseExistingServer: false,
+    reuseExistingServer: true,
   },
 });
