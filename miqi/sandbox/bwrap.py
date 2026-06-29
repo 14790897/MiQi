@@ -497,6 +497,14 @@ class BwrapSandbox:
         """Stop any running bwrap process and clean up sandbox directories."""
         self._running = False
 
+        # Clean up any streaming handles not manually cleaned up
+        for handle in getattr(self, '_streaming_handles', []):
+            try:
+                await handle.cleanup()
+            except Exception:
+                pass
+        self._streaming_handles = []
+
         # Kill any running process
         if self._process and self._process.returncode is None:
             try:
@@ -601,10 +609,24 @@ class BwrapSandbox:
 
         bwrap_args = self._build_bwrap_args(command, env=env, cwd=cwd)
 
+        if not hasattr(self, '_streaming_handles'):
+            self._streaming_handles: list[BwrapCommandHandle] = []
+
         if self._use_wsl:
-            return await self._run_bwrap_streaming_via_script(bwrap_args)
+            handle = await self._run_bwrap_streaming_via_script(bwrap_args)
         else:
-            return await self._run_bwrap_streaming_native(bwrap_args)
+            handle = await self._run_bwrap_streaming_native(bwrap_args)
+
+        self._streaming_handles.append(handle)
+        # Remove from tracking once the caller manually cleans up
+        _orig_cleanup = handle.cleanup
+
+        async def _tracked_cleanup():
+            await _orig_cleanup()
+            if handle in self._streaming_handles:
+                self._streaming_handles.remove(handle)
+        handle.cleanup = _tracked_cleanup  # type: ignore[method-assign]
+        return handle
 
     async def _run_bwrap_streaming_native(
         self, bwrap_args: list[str],
