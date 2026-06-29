@@ -389,7 +389,7 @@ class AgentControl:
                 agent_metadata=agent.metadata,
                 thread_id=agent.thread_id,
                 workspace=self.workspace,
-                model="default",
+                model=self._provider.get_default_model() if self._provider is not None else "gpt-4o",
                 provider=None,  # Set by caller after spawn
                 temperature=0.1,
                 max_tokens=8192,
