@@ -650,17 +650,21 @@ export class BridgeManager extends EventEmitter {
     onEvent?: (type: string, data: unknown) => void,
     options: SendOptions = {},
   ): Promise<unknown> {
-    // Auto-start/wait: bridge process may be running but not yet
-    // initialized (AppServer handlers not registered). start() handles
-    // the full spawn→ready→initialize handshake.
+    // Ensure bridge is fully initialized before sending.
+    // start() returns immediately if state is 'running', even if the
+    // AppServer initialize handshake hasn't completed. We check and
+    // retry initialization when the process is alive but not ready.
     if (!this.isInitialized()) {
-      if (this.state !== 'starting') {
+      if (this.state === 'stopped' || this.state === 'error') {
         await this.start()
-      } else {
-        // Another caller is starting the bridge; wait for it to finish
+      } else if (this.state === 'starting') {
+        // Another caller is starting; poll until initialized
         for (let i = 0; i < 1400 && !this.isInitialized(); i++) {
           await new Promise((r) => setTimeout(r, 50))
         }
+      } else if (this.state === 'running') {
+        // Process is alive but AppServer not initialized — retry handshake
+        await this.initializeConnection()
       }
       if (!this.isInitialized()) {
         throw new Error('Bridge not initialized')
