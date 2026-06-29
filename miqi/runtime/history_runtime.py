@@ -244,18 +244,26 @@ class HistoryRuntime:
             (thread_id, self.session_id),
         )
         rows = await cursor.fetchall()
-        return [
-            HistoryItem(
+        results = []
+        for row in rows:
+            try:
+                payload = json.loads(row["payload_json"])
+            except (json.JSONDecodeError, TypeError) as exc:
+                logger.warning(
+                    "Skipping corrupted payload_json for item %s in thread %s: %s",
+                    row["item_id"], thread_id, exc,
+                )
+                payload = {}
+            results.append(HistoryItem(
                 item_id=row["item_id"],
                 thread_id=row["thread_id"],
                 turn_id=row["turn_id"],
                 role=row["role"],
                 content=row["content"],
-                payload=json.loads(row["payload_json"]),
+                payload=payload,
                 created_at=row["created_at"],
-            )
-            for row in rows
-        ]
+            ))
+        return results
 
     async def load_messages(self, thread_id: str) -> list[dict[str, Any]]:
         """Return provider-compatible message dicts for a thread."""
