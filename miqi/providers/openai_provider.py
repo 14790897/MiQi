@@ -365,8 +365,12 @@ class OpenAIProvider(LLMProvider):
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": True,
-            "stream_options": {"include_usage": True},
         }
+        # stream_options with include_usage is OpenAI-specific — gateways
+        # (OpenRouter, etc.) and compatible providers (DeepSeek, Moonshot)
+        # reject it with 400.
+        if self._gateway is None:
+            kwargs["stream_options"] = {"include_usage": True}
 
         self._apply_model_overrides(resolved, kwargs)
 
