@@ -1,0 +1,129 @@
+name: Desktop CI
+
+on:
+  push:
+    paths:
+      - 'apps/desktop/**'
+      - '.github/workflows/desktop-ci.yml'
+  pull_request:
+    paths:
+      - 'apps/desktop/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ────────────────────────────────────────────────────────────
+  # Job 1: 快速检查 — TypeScript + 单元测试 + mock smoke (无 API key)
+  # ────────────────────────────────────────────────────────────
+  quick:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer
+        run: npm run build
+
+      - name: Unit tests (vitest)
+        run: npm test
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Mock smoke tests (Playwright)
+        run: npx playwright test --config=playwright.config.ts --project=smoke
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/desktop/playwright-report/
+          retention-days: 7
+
+  # ────────────────────────────────────────────────────────────
+  # Job 2: Electron E2E — 完整桌面应用 + 真实 bridge + LLM
+  # ────────────────────────────────────────────────────────────
+  electron-e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          pip install uv
+          uv sync
+
+      - name: Build renderer
+        run: npm run build
+
+      - name: Generate config.json
+        run: |
+          mkdir -p ~/.miqi
+          cat > ~/.miqi/config.json << 'CONFEOF'
+          {
+            "providers": {
+              "siliconflow": {
+                "apiKey": "${{ secrets.DEEPSEEK_API_KEY }}",
+                "apiBase": "https://api.deepseek.com",
+                "extraHeaders": null
+              }
+            },
+            "agents": {
+              "defaults": {
+                "model": "deepseek-v4-pro",
+                "maxTokens": 8000,
+                "temperature": 0.1,
+                "maxToolIterations": 10
+              },
+              "commandApproval": { "enabled": false }
+            },
+            "tools": {
+              "web": {
+                "search": {
+                  "provider": "brave",
+                  "apiKey": "${{ secrets.BRAVE_API_KEY }}",
+                  "maxResults": 3
+                },
+                "fetch": { "provider": "builtin" }
+              },
+              "exec": { "timeout": 30, "envPassthrough": [] }
+            }
+          }
+          CONFEOF
+
+      - name: Run Electron E2E
+        run: |
+          xvfb-run --auto-servernum \
+            npx playwright test --config=playwright.config.ts --project=electron
+        timeout-minutes: 20
