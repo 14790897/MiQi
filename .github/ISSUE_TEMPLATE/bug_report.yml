@@ -1,0 +1,80 @@
+name: Bug 报告 / Feature 请求
+description: 报告 Bug 或提出新功能建议
+title: "[BUG/FEATURE] "
+labels: []
+assignees: []
+body:
+  - type: dropdown
+    id: type
+    attributes:
+      label: 类型
+      options:
+        - 🐛 Bug
+        - ✨ Feature
+        - 📝 文档
+        - 🔧 重构
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 描述
+      placeholder: 清晰描述问题或需求
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤（Bug）
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: false
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: false
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      placeholder: 截图、日志、报错信息
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境
+      placeholder: |
+        - OS: Windows 11
+        - MiQi 版本: 0.2.0-dev.7
+        - Electron 版本: 34.5.8
+        - Node 版本: 22
+        - Python 版本: 3.12
+    validations:
+      required: false
+
+  - type: input
+    id: assignee
+    attributes:
+      label: 谁来解决
+      placeholder: "@username 或留空由维护者分配"
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其他
+      placeholder: 额外上下文、参考资料
+    validations:
+      required: false
