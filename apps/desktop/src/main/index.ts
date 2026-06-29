@@ -102,6 +102,11 @@ export function main(): void {
   // are unaffected.
   if (process.env.MIQI_E2E_TEST) {
     app.commandLine.appendSwitch('remote-debugging-port', '8315')
+    // CI environments (root user, no GPU, /dev/shm too small) need these
+    // flags to prevent SIGTRAP / sandbox crashes.
+    app.commandLine.appendSwitch('no-sandbox')
+    app.commandLine.appendSwitch('disable-gpu')
+    app.commandLine.appendSwitch('disable-dev-shm-usage')
   }
 
   app.whenReady().then(() => {
