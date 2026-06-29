@@ -378,7 +378,7 @@ class TurnRunner:
             agent_metadata=metadata,
             thread_id=job.thread_id,
             workspace=getattr(self._provider, "workspace", Path(".")),
-            model="default",
+            model=self._provider.get_default_model(),
             provider=self._provider,
             temperature=0.1,
             max_tokens=8192,
