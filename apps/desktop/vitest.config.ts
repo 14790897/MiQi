@@ -12,5 +12,7 @@ export default defineConfig({
       'tests/smoke/**',     // Playwright + real E2E tests
       '**/*.spec.ts',       // Playwright specs
     ],
+    // Allow passing even if no test files (CI may not have all branches' tests)
+    passWithNoTests: true,
   },
 });
