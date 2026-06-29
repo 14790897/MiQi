@@ -650,19 +650,20 @@ export class BridgeManager extends EventEmitter {
     onEvent?: (type: string, data: unknown) => void,
     options: SendOptions = {},
   ): Promise<unknown> {
-    // Auto-start the bridge and wait for it to be ready.
-    // Handles startup races: multiple requests can arrive while the
-    // bridge is starting, but only one will call start().
-    if (!this.isRunning()) {
+    // Auto-start/wait: bridge process may be running but not yet
+    // initialized (AppServer handlers not registered). start() handles
+    // the full spawn→ready→initialize handshake.
+    if (!this.isInitialized()) {
       if (this.state !== 'starting') {
         await this.start()
+      } else {
+        // Another caller is starting the bridge; wait for it to finish
+        for (let i = 0; i < 1400 && !this.isInitialized(); i++) {
+          await new Promise((r) => setTimeout(r, 50))
+        }
       }
-      // Wait for bridge to become ready (up to 70s for slow CI)
-      for (let i = 0; i < 1400 && !this.isRunning(); i++) {
-        await new Promise((r) => setTimeout(r, 50))
-      }
-      if (!this.isRunning()) {
-        throw new Error('Bridge failed to start')
+      if (!this.isInitialized()) {
+        throw new Error('Bridge not initialized')
       }
     }
 
