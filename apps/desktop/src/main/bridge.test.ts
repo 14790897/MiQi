@@ -91,9 +91,24 @@ describe('buildInitializeParams', () => {
 // ============================================================
 
 const { spawn: mockSpawn, execSync: mockExecSync } = vi.hoisted(() => ({
-  spawn: vi.fn(),
+  spawn: vi.fn(() => createDefaultMockProcess()),
   execSync: vi.fn(() => Buffer.from('')),
 }))
+
+function createDefaultMockProcess() {
+  const stdout = new PassThrough()
+  const stderr = new PassThrough()
+  return {
+    stdin: { write: vi.fn(), end: vi.fn(), writable: true, destroyed: false },
+    stdout,
+    stderr,
+    on: vi.fn(),
+    once: vi.fn(),
+    removeListener: vi.fn(),
+    kill: vi.fn(),
+    exitCode: null as number | null,
+  }
+}
 
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>()
