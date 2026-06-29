@@ -2,6 +2,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/smoke',
+  testMatch: '**/*.spec.ts',
+  testIgnore: '**/*.test.ts',  // Exclude vitest files from Playwright scan
   fullyParallel: false,
   retries: 0,
   workers: 1,
