@@ -1,3 +1,15 @@
+## [0.2.2](https://github.com/14790897/MiQi/compare/v0.2.1...v0.2.2) (2026-06-29)
+
+
+### Bug Fixes
+
+* **ci:** add workflow_dispatch trigger ([4f4c0c1](https://github.com/14790897/MiQi/commit/4f4c0c150e272c24a91560369db3a82843875329))
+* **ci:** exclude real-e2e from vitest, allow passWithNoTests ([4849a50](https://github.com/14790897/MiQi/commit/4849a503844557bc6908f7ba86f76b174e96d257))
+* **ci:** increase electron test timeout to 5min ([07b6f12](https://github.com/14790897/MiQi/commit/07b6f1247a71cc8564c0473d60f7f843d147dcec))
+* **ci:** remove HOME=/root to fix config.json path mismatch ([cd90fb3](https://github.com/14790897/MiQi/commit/cd90fb3025ccec247433a5fccca80f2b4dc4020b))
+* **ci:** set headless: true for CI smoke tests ([0d8bfad](https://github.com/14790897/MiQi/commit/0d8bfad889fd078d6b24137adf06fc0053b0db05))
+* **test:** separate vitest and playwright configs ([501c6b6](https://github.com/14790897/MiQi/commit/501c6b610ce7001d99f50aa905eb3622499621e9))
+
 ## [0.2.1](https://github.com/14790897/MiQi/compare/v0.2.0...v0.2.1) (2026-06-26)
 
 
