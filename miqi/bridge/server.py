@@ -840,7 +840,7 @@ def handle_cron_update(req_id: str, params: dict) -> None:
         if kind not in ("at", "every", "cron"):
             _error(req_id, f"Invalid schedule kind: {kind}")
             return
-        from miqi.cron.types import _validate_schedule_for_add
+        from miqi.cron.service import _validate_schedule_for_add
 
         target.schedule.kind = kind
         if kind == "at" and "atMs" in params:

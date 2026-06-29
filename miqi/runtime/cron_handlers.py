@@ -189,7 +189,7 @@ async def cron_update_handler(
             raise AppServerError(
                 f"Invalid schedule kind: {kind}", code="INVALID_PARAMS",
             )
-        from miqi.cron.types import _validate_schedule_for_add
+        from miqi.cron.service import _validate_schedule_for_add
 
         target.schedule.kind = kind
         if kind == "at" and "atMs" in params:
