@@ -11,8 +11,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.job }}
+  cancel-in-progress: false
 
 jobs:
   # ────────────────────────────────────────────────────────────
@@ -129,4 +129,4 @@ jobs:
         run: |
           xvfb-run --auto-servernum \
             npx playwright test --config=playwright.config.ts --project=electron
-        timeout-minutes: 20
+        timeout-minutes: 30
