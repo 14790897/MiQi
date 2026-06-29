@@ -1,11 +1,12 @@
 {
   "name": "miqi-desktop",
-  "version": "0.2.0-dev.7",
+  "version": "0.2.1",
   "description": "MiQi Desktop — native desktop companion for the MiQi AI agent",
   "main": "./out/main/electron-trampoline.js",
   "author": "MiQi Team",
   "repository": "http://git.miqroera.com/intership/miqi-desktop",
   "scripts": {
+    "predev": "cd ../.. && uv sync && uv pip install lxml cryptography --quiet",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "build:bridge": "cd ../.. && uv run pyinstaller miqi.spec --noconfirm",

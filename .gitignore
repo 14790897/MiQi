@@ -40,3 +40,4 @@ apps/desktop/test-results/
 
 # Keep desktop test files (exclude from root-level tests/ rule)
 !apps/desktop/tests/
+.pytest*
