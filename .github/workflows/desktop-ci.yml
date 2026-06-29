@@ -41,7 +41,7 @@ jobs:
         run: npm run build
 
       - name: Unit tests (vitest)
-        run: npm test -- --exclude=tests/smoke/real-e2e.test.ts
+        run: npm test
 
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps
