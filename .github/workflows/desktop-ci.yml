@@ -59,10 +59,9 @@ jobs:
           retention-days: 7
 
   # ────────────────────────────────────────────────────────────
-  # Job 2: Electron E2E — 需要真实 bridge + API key (仅手动触发)
+  # Job 2: Electron E2E — 完整桌面应用 + 真实 bridge + LLM
   # ────────────────────────────────────────────────────────────
   electron-e2e:
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults:
       run:
