@@ -327,54 +327,62 @@ class HistoryRuntime:
         """
         db = self._conn
         compaction_id = str(uuid.uuid4())
-        # Delete existing items for this thread (session-scoped)
-        await db.execute(
-            "DELETE FROM runtime_history_items WHERE thread_id = ? AND session_id = ?",
-            (thread_id, self.session_id),
-        )
-        # Insert replacement messages
-        for msg in replacement_messages:
+        # Wrap in transaction so DELETE+INSERT+compaction record are atomic.
+        # If the process crashes between DELETE and commit, the transaction
+        # is rolled back and no history is lost.
+        await db.execute("BEGIN")
+        try:
+            # Delete existing items for this thread (session-scoped)
             await db.execute(
-                """INSERT INTO runtime_history_items
-                   (item_id, thread_id, session_id, turn_id, role, content,
-                    payload_json, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                "DELETE FROM runtime_history_items WHERE thread_id = ? AND session_id = ?",
+                (thread_id, self.session_id),
+            )
+            # Insert replacement messages
+            for msg in replacement_messages:
+                await db.execute(
+                    """INSERT INTO runtime_history_items
+                       (item_id, thread_id, session_id, turn_id, role, content,
+                        payload_json, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        str(uuid.uuid4()),
+                        thread_id,
+                        self.session_id,
+                        turn_id,
+                        msg["role"],
+                        msg.get("content") or "",
+                        json.dumps(
+                            {
+                                "message_fields": {
+                                    k: v
+                                    for k, v in msg.items()
+                                    if k not in {"role", "content"}
+                                },
+                            },
+                        ),
+                        time.time(),
+                    ),
+                )
+            # Record the compaction with full audit metadata
+            await db.execute(
+                """INSERT INTO runtime_compactions
+                   (compaction_id, thread_id, session_id, turn_id,
+                    messages_before, messages_after, tokens_saved,
+                    replacement_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    str(uuid.uuid4()),
+                    compaction_id,
                     thread_id,
                     self.session_id,
                     turn_id,
-                    msg["role"],
-                    msg.get("content") or "",
-                    json.dumps(
-                        {
-                            "message_fields": {
-                                k: v
-                                for k, v in msg.items()
-                                if k not in {"role", "content"}
-                            },
-                        },
-                    ),
+                    messages_before,
+                    messages_after,
+                    tokens_saved,
+                    json.dumps(replacement_messages),
                     time.time(),
                 ),
             )
-        # Record the compaction with full audit metadata
-        await db.execute(
-            """INSERT INTO runtime_compactions
-               (compaction_id, thread_id, session_id, turn_id,
-                messages_before, messages_after, tokens_saved,
-                replacement_json, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                compaction_id,
-                thread_id,
-                self.session_id,
-                turn_id,
-                messages_before,
-                messages_after,
-                tokens_saved,
-                json.dumps(replacement_messages),
-                time.time(),
-            ),
-        )
-        await db.commit()
+            await db.commit()
+        except Exception:
+            await db.execute("ROLLBACK")
+            raise
