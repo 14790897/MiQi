@@ -100,13 +100,10 @@ export function main(): void {
   // Must be called before app.whenReady() — the switch is read during
   // Chromium initialisation.  Controlled by env var so production builds
   // are unaffected.
+  // Note: --no-sandbox, --disable-gpu, --disable-dev-shm-usage are passed
+  // as CLI args by the test harness (they must be processed before JS init).
   if (process.env.MIQI_E2E_TEST) {
     app.commandLine.appendSwitch('remote-debugging-port', '8315')
-    // CI environments (root user, no GPU, /dev/shm too small) need these
-    // flags to prevent SIGTRAP / sandbox crashes.
-    app.commandLine.appendSwitch('no-sandbox')
-    app.commandLine.appendSwitch('disable-gpu')
-    app.commandLine.appendSwitch('disable-dev-shm-usage')
   }
 
   app.whenReady().then(() => {
