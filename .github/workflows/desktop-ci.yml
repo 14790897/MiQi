@@ -84,6 +84,9 @@ jobs:
           pip install uv
           uv sync
 
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
       - name: Build renderer
         run: npm run build
 

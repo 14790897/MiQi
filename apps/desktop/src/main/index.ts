@@ -96,6 +96,14 @@ function createWindow(): void {
 }
 
 export function main(): void {
+  // Enable CDP remote debugging for E2E tests.
+  // Must be called before app.whenReady() — the switch is read during
+  // Chromium initialisation.  Controlled by env var so production builds
+  // are unaffected.
+  if (process.env.MIQI_E2E_TEST) {
+    app.commandLine.appendSwitch('remote-debugging-port', '8315')
+  }
+
   app.whenReady().then(() => {
     bridgeManager = new BridgeManager()
     registerIpcHandlers(bridgeManager)
