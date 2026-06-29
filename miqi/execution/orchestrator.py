@@ -327,7 +327,7 @@ class ToolOrchestrator:
             ctx.result = "Tool execution cancelled"
         except Exception as e:
             logger.exception("Tool orchestrator error for {}", ctx.tool_name)
-            ctx.result = f"Error executing {ctx.tool_name}: {e}"
+            ctx.result = f"Error executing {ctx.tool_name}: tool execution failed"
 
         finally:
             ctx.duration_ms = int((time.monotonic() - start) * 1000)
