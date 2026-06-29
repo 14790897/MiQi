@@ -29,7 +29,6 @@ Usage:
     await manager.destroy("feishu:oc_123")
 """
 
-import asyncio
 import json
 import os
 import tempfile

@@ -15,11 +15,10 @@ from miqi.agent.tools.base import Tool
 from miqi.execution.sandbox_policy import SandboxType
 from miqi.protocol.events import (
     ExecCommandBeginEvent,
-    ExecCommandOutputDeltaEvent,
     ExecCommandEndEvent,
+    ExecCommandOutputDeltaEvent,
 )
 from miqi.protocol.permissions import NetworkSandboxPolicy
-
 
 # ── Internal result carrier ────────────────────────────────────────────
 
@@ -28,6 +27,7 @@ from miqi.protocol.permissions import NetworkSandboxPolicy
 class _ExecResult:
     """Carries the output of a single command execution plus metadata
     needed to emit an accurate ExecCommandEndEvent."""
+
     output: str
     exit_code: int = 0
     duration_ms: int = 0
@@ -53,21 +53,21 @@ class ExecTool(Tool):
         self.working_dir = working_dir
         self.env_passthrough: frozenset[str] = frozenset(env_passthrough or [])
         self.deny_patterns = deny_patterns or [
-            r"\brm\s+-[rf]{1,2}\b",          # rm -r, rm -rf, rm -fr
-            r"\bdel\s+/[fq]\b",              # del /f, del /q
-            r"\brmdir\s+/s\b",               # rmdir /s
-            r"(?:^|[;&|]\s*)format\b",       # format (as standalone command only)
-            r"\b(mkfs|diskpart)\b",          # disk operations
-            r"\bdd\s+if=",                   # dd
-            r">\s*/dev/sd",                  # write to disk
+            r"\brm\s+-[rf]{1,2}\b",  # rm -r, rm -rf, rm -fr
+            r"\bdel\s+/[fq]\b",  # del /f, del /q
+            r"\brmdir\s+/s\b",  # rmdir /s
+            r"(?:^|[;&|]\s*)format\b",  # format (as standalone command only)
+            r"\b(mkfs|diskpart)\b",  # disk operations
+            r"\bdd\s+if=",  # dd
+            r">\s*/dev/sd",  # write to disk
             r"\b(shutdown|reboot|poweroff)\b",  # system power
-            r":\(\)\s*\{.*\};\s*:",          # fork bomb
-            r"\bsudo\b",                     # privilege escalation
-            r"\beval\b",                     # code/string evaluation
-            r"\bsource\b",                   # source external scripts
-            r"`[^`\n]{1,500}`",              # backtick command substitution
-            r"\$\([^)\n]{1,500}\)",          # $() command substitution
-            r"\|\s*(ba|da|z|fi|c)?sh\b",    # pipe to any shell variant
+            r":\(\)\s*\{.*\};\s*:",  # fork bomb
+            r"\bsudo\b",  # privilege escalation
+            r"\beval\b",  # code/string evaluation
+            r"\bsource\b",  # source external scripts
+            r"`[^`\n]{1,500}`",  # backtick command substitution
+            r"\$\([^)\n]{1,500}\)",  # $() command substitution
+            r"\|\s*(ba|da|z|fi|c)?sh\b",  # pipe to any shell variant
             r"\b(?:curl|wget)\b[^;\n]{0,200}\|\s*python[23]?\b",  # download-and-execute via Python
         ]
         self.allow_patterns = allow_patterns or []
@@ -88,16 +88,13 @@ class ExecTool(Tool):
         return {
             "type": "object",
             "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "The shell command to execute"
-                },
+                "command": {"type": "string", "description": "The shell command to execute"},
                 "working_dir": {
                     "type": "string",
-                    "description": "Optional working directory for the command"
-                }
+                    "description": "Optional working directory for the command",
+                },
             },
-            "required": ["command"]
+            "required": ["command"],
         }
 
     async def execute(self, command: str, working_dir: str | None = None, **kwargs: Any) -> str:
@@ -133,14 +130,16 @@ class ExecTool(Tool):
 
         # Phase 21: emit exec begin event
         if event_emitter is not None:
-            await event_emitter.emit(ExecCommandBeginEvent(
-                turn_id=turn_id,
-                tool_call_id=tool_call_id,
-                command=command,
-                cwd=cwd,
-                sandbox_type=sandbox_type,
-                source=exec_source,
-            ))
+            await event_emitter.emit(
+                ExecCommandBeginEvent(
+                    turn_id=turn_id,
+                    tool_call_id=tool_call_id,
+                    command=command,
+                    cwd=cwd,
+                    sandbox_type=sandbox_type,
+                    source=exec_source,
+                )
+            )
 
         # Phase 31.8: record exec start in ledger for replay
         if ledger_runtime is not None:
@@ -164,6 +163,7 @@ class ExecTool(Tool):
             # approval system.  Otherwise fall back to the static guard.
             if self.approval_callback is not None:
                 import functools
+
                 from miqi.agent.command_approval import check_dangerous_command
                 loop = asyncio.get_event_loop()
                 check_fn = functools.partial(
