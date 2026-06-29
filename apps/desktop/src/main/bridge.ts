@@ -650,12 +650,14 @@ export class BridgeManager extends EventEmitter {
     onEvent?: (type: string, data: unknown) => void,
     options: SendOptions = {},
   ): Promise<unknown> {
-    // Auto-start the bridge if it's not running yet (prevents startup races)
-    if (!this.isInitialized()) {
+    // Auto-start the bridge if it's not running yet (prevents startup races).
+    // Must also handle the window between ready-signal and initialize-handshake
+    // where the bridge is running but isInitialized() is still false.
+    if (!this.isRunning() && this.state !== 'starting') {
       await this.start()
-      if (!this.isRunning()) {
-        throw new Error('Bridge failed to start')
-      }
+    }
+    if (!this.isRunning()) {
+      throw new Error('Bridge not running')
     }
 
     const id = randomUUID()
