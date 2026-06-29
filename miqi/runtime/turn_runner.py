@@ -228,12 +228,19 @@ class TurnRunner:
                 # Phase 41: drain steering messages before completing
                 steers = await _drain_steer_messages()
                 if steers:
+                    # Save assistant reply before steering messages
+                    content = response.content or ""
+                    messages = self._context.add_assistant_message(
+                        messages=messages,
+                        content=content,
+                    )
+                    messages_delta.append({"role": "assistant", "content": content})
                     for steer in steers:
-                        content = steer["content"]
-                        messages.append({"role": "user", "content": content})
+                        steer_content = steer["content"]
+                        messages.append({"role": "user", "content": steer_content})
                         delta: dict[str, Any] = {
                             "role": "user",
-                            "content": content,
+                            "content": steer_content,
                         }
                         cid = steer.get("client_user_message_id")
                         if cid is not None:
