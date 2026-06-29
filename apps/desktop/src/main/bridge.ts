@@ -569,6 +569,10 @@ export class BridgeManager extends EventEmitter {
 
     this.addLog('[Hot Reload] Restarting bridge due to code changes...')
 
+    // Reject all pending requests so callers don't hang forever
+    for (const [id, entry] of this.pending) {
+      entry.reject(new Error('Bridge restarted — request cancelled'))
+    }
     this.pending.clear()
 
     // Stop current process
@@ -576,6 +580,10 @@ export class BridgeManager extends EventEmitter {
       this.process.stdin?.end()
       this.process.kill('SIGTERM')
     }
+
+    // Reset state so start() can proceed
+    this.state = 'stopped'
+    this.process = null
 
     // Wait briefly for process to exit
     await new Promise((resolve) => setTimeout(resolve, 500))
