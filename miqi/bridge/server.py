@@ -1740,7 +1740,7 @@ def handle_agent_get(req_id: str, params: dict) -> None:
 
 def handle_plan_get(req_id: str, params: dict) -> None:
     """Get current plan for a thread."""
-    plan_id = params.get("plan_id", "")
+    plan_id = params.get("plan_id", "") or params.get("thread_id", "")
     tracker = getattr(_state, '_plan_tracker', None)
     if tracker is not None and plan_id:
         plan = tracker.get(plan_id)
