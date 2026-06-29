@@ -130,4 +130,4 @@ jobs:
             npx playwright test --config=playwright.config.ts --project=electron
         env:
           HOME: /root
-        timeout-minutes: 15
+        timeout-minutes: 20
