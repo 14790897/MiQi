@@ -2,12 +2,10 @@ name: Desktop CI
 
 on:
   push:
-    branches: [develop, main]
     paths:
       - 'apps/desktop/**'
       - '.github/workflows/desktop-ci.yml'
   pull_request:
-    branches: [develop, main]
     paths:
       - 'apps/desktop/**'
   workflow_dispatch:
