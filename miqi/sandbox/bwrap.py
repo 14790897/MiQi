@@ -211,7 +211,7 @@ class BwrapSandbox:
         self.sandbox_distro_name = sandbox_distro_name
 
         # Per-session directories (always Linux-style paths inside WSL or native)
-        safe_key = session_key.replace(":", "_").replace("/", "_").replace("\\", "_")
+        safe_key = session_key.replace(":", "_").replace("/", "_").replace("\\", "_").replace("'", "_")
         if sandbox_base_dir:
             self._base_dir = Path(sandbox_base_dir) / safe_key
         else:
