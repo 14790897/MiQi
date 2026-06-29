@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import atexit
 import json
-import importlib
 import os
 import re
 import signal
@@ -31,25 +30,6 @@ import traceback
 import uuid
 from pathlib import Path
 from typing import Any
-
-# ---------------------------------------------------------------------------
-# Early-exit: --check mode (used by Electron IPC PYTHON_CHECK)
-# This MUST run before any heavy project imports so it works even when
-# the miqi package is not on sys.path (dev env) or deps are broken.
-# ---------------------------------------------------------------------------
-if "--check" in sys.argv:
-    _issues: list[str] = []
-    _py_ver = sys.version_info
-    _python_version = f"{_py_ver.major}.{_py_ver.minor}.{_py_ver.micro}"
-    if _py_ver < (3, 11):
-        _issues.append(f" Python {_python_version} is too old (need >= 3.11)")
-    for _mod in ("pydantic", "httpx", "loguru"):
-        try:
-            importlib.import_module(_mod)
-        except ImportError:
-            _issues.append(f"Missing dependency: {_mod}")
-    print(json.dumps({"ok": len(_issues) == 0, "python_version": _python_version, "issues": _issues}), flush=True)
-    sys.exit(0 if len(_issues) == 0 else 1)
 
 # Force UTF-8 on Windows (default is GBK/cp936 which cannot encode emoji)
 if hasattr(sys.stdout, 'reconfigure'):
@@ -138,32 +118,72 @@ def _terminal_event(req_id: str, event_type: str, data: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 class BridgeState:
-    """Holds cached config, per-request active agents, abort state, and shared sandbox manager.
-
-    Each in-flight chat request gets its own entry in ``_active_agents`` keyed by
-    ``req_id``, so multiple concurrent conversations no longer overwrite each other.
-    """
+    """Holds cached config, abort state, and shared sandbox manager."""
 
     def __init__(self) -> None:
         self.config = None  # lazy-loaded
         self._lock = threading.Lock()
-        # req_id -> agent  (supports multiple concurrent conversations)
-        self._active_agents: dict[str, Any] = {}
         self._terminated: set[str] = set()
         self._pending_approvals: dict[str, threading.Event] = {}
         self._approval_decisions: dict[str, str] = {}
         self._approval_meta: dict[str, dict] = {}
         self._sandbox_manager: Any = None  # shared SandboxManager across agents
-        self._bg_executor: Any = None  # BackgroundExecutor for subagent tasks
-        self.runtime_mode = "legacy"  # "legacy" or "kun"
+        self._event_emitter: Any = None  # Phase 1 shared EventEmitter
+        self._agent_control: Any = None  # Phase 2 shared AgentControl
+        self._orchestrator: Any = None  # Phase 3 shared ToolOrchestrator
+        self._plan_tracker: Any = None  # Phase 9 shared PlanTracker
+        self._plugin_manager: Any = None  # Phase 4 shared PluginManager
+        self._runtime_sessions: dict[str, Any] = {}  # Phase 11 RuntimeSession cache
 
     def load_config(self):
         from miqi.config.loader import load_config
 
         self.config = load_config()
-        runtime = self.config.agents.defaults.runtime
-        self.runtime_mode = runtime if runtime in ("legacy", "kun") else "legacy"
         return self.config
+
+    async def get_runtime_session(self, session_key: str, *, caller_id: str = "", approval_callback=None):
+        """Get or create a RuntimeSession for the given session key.
+
+        Sessions are cached and reused across bridge requests. This is the
+        Phase 11 foundation — actual chat routing through RuntimeSession
+        will happen in Phase 14.
+
+        Session keys are namespaced per caller to prevent cross-user
+        session access when multiple frontends share a bridge process.
+        caller_id will become REQUIRED in Phase 14 (no default).
+        """
+        import warnings
+
+        if not caller_id:
+            warnings.warn(
+                "get_runtime_session called without caller_id — "
+                "sessions are NOT isolated. caller_id will be required "
+                "in Phase 14.",
+                FutureWarning,
+                stacklevel=2,
+            )
+
+        from miqi.providers.factory import make_provider
+        from miqi.runtime.session import RuntimeSession
+
+        # Namespace sessions by caller to prevent cross-user access
+        ns_key = f"{caller_id}:{session_key}" if caller_id else session_key
+
+        runtime = self._runtime_sessions.get(ns_key)
+        if runtime is not None:
+            return runtime
+
+        config = self.load_config()
+        provider = make_provider(config)
+        runtime = RuntimeSession.create(
+            config=config,
+            provider=provider,
+            session_id=ns_key,
+            workspace=config.workspace_path,
+        )
+        await runtime.start()
+        self._runtime_sessions[ns_key] = runtime
+        return runtime
 
     def _ensure_sandbox_manager(self):
         """Lazy-init the shared SandboxManager from config."""
@@ -177,106 +197,29 @@ class BridgeState:
         from miqi.sandbox.manager import SandboxManager
         self._sandbox_manager = SandboxManager(
             workspace=config.workspace_path,
-            share_net=getattr(sb_cfg, "share_net", True),
+            share_net=getattr(sb_cfg, "share_net", False),
             enabled=getattr(sb_cfg, "enabled", True),
             max_sandboxes=getattr(sb_cfg, "max_sandboxes", 10),
             auto_cleanup=getattr(sb_cfg, "auto_cleanup", True),
             wsl_distro=getattr(sb_cfg, "wsl_distro", ""),
             wsl_base_dir=getattr(sb_cfg, "wsl_base_dir", "/tmp/miqi-sandboxes"),
-            sandbox_distro_name=getattr(sb_cfg, "sandbox_distro_name", "AIShadowSandbox"),
         )
 
-    def get_executor(self):
-        """Lazy-init and return the persistent BackgroundExecutor for subagent tasks."""
-        if self._bg_executor is None:
-            from miqi.bridge.executor import BackgroundExecutor
-            self._bg_executor = BackgroundExecutor()
-            self._bg_executor.start()
-        return self._bg_executor
+    def destroy_sandbox(self, session_key: str, *, client_id: str | None = None) -> bool:
+        """Destroy the sandbox for a session (called on delete/archive).
 
-    def build_agent(self, session_key: str, approval_callback=None):
-        """Create an AgentLoop (or GatewayKunRuntime) for the given session."""
-        config = self.load_config()
-
-        provider = config.build_provider(config.agents.defaults.model)
-        if provider is None:
-            raise RuntimeError(
-                f"No provider configured for model '{config.agents.defaults.model}'. "
-                "Run setup first."
-            )
-
-        if self.runtime_mode == "kun":
-            from miqi.config.loader import get_data_dir
-            from miqi.kun_runtime.migration_adapter import GatewayKunRuntime
-
-            tool_registry = _build_tool_registry(config)
-            return GatewayKunRuntime(
-                data_dir=get_data_dir() / "kun_runtime",
-                workspace=config.workspace_path,
-                provider=provider,
-                tool_registry=tool_registry,
-                model=config.agents.defaults.model,
-                agent_name=config.agents.defaults.name,
-            )
-
-        from miqi.agent.loop import AgentLoop
-        from miqi.bus.queue import MessageBus
-
-        defaults = config.agents.defaults
-        bus = MessageBus()
-
-        self._ensure_sandbox_manager()
-        # Pass the shared manager so all agents reuse the same sandbox pool
-        sandbox_mgr = None if self._sandbox_manager == "disabled" else self._sandbox_manager
-
-        agent = AgentLoop(
-            bus=bus,
-            provider=provider,
-            workspace=config.workspace_path,
-            agent_name=defaults.name,
-            model=defaults.model,
-            max_iterations=defaults.max_tool_iterations,
-            temperature=defaults.temperature,
-            max_tokens=defaults.max_tokens,
-            memory_window=defaults.memory_window,
-            reflect_after_tool_calls=defaults.reflect_after_tool_calls,
-            max_tool_result_chars=defaults.max_tool_result_chars,
-            context_limit_chars=defaults.context_limit_chars,
-            memory_config=config.agents.memory,
-            self_improvement_config=config.agents.self_improvement,
-            session_config=config.agents.sessions,
-            exec_config=config.tools.exec,
-            web_config=config.tools.web,
-            paper_config=config.tools.papers,
-            restrict_to_workspace=config.tools.restrict_to_workspace,
-            mcp_servers={},
-            channels_config=config.channels,
-            smart_routing_config=config.agents.smart_routing,
-            approval_callback=approval_callback,
-            session_key=session_key,
-            sandbox_manager=sandbox_mgr,
-        )
-        return agent
-
-    def set_active(self, agent: Any, req_id: str) -> None:
-        """Register *agent* as the active agent for *req_id*."""
-        with self._lock:
-            self._active_agents[req_id] = agent
-
-    def clear_active(self, req_id: str) -> None:
-        """Remove the active agent entry for *req_id* (called on completion/abort)."""
-        with self._lock:
-            self._active_agents.pop(req_id, None)
-
-    def destroy_sandbox(self, session_key: str) -> bool:
-        """Destroy the sandbox for a session (called on delete/archive)."""
+        Phase 30: client_id is used to compute the client-scoped sandbox key.
+        When client_id is None, falls back to raw session_key (legacy path).
+        """
         if self._sandbox_manager is None or self._sandbox_manager == "disabled":
             return False
         try:
             import asyncio
             loop = asyncio.new_event_loop()
             try:
-                result = loop.run_until_complete(self._sandbox_manager.destroy(session_key))
+                result = loop.run_until_complete(
+                    self._sandbox_manager.destroy(session_key, client_id=client_id),
+                )
             finally:
                 loop.close()
             return result
@@ -284,47 +227,17 @@ class BridgeState:
             _log(f"destroy_sandbox error: {exc}")
             return False
 
-    def abort_request(self, target_req_id: str) -> dict:
-        """Abort a specific in-flight request by *target_req_id*.
-
-        Returns ``{"aborted": True, "req_id": target_req_id}`` on success,
-        or ``{"aborted": False}`` if no such request is active.
-        """
-        with self._lock:
-            agent = self._active_agents.get(target_req_id)
-            if agent is None:
-                return {"aborted": False}
-            # Remove before aborting so clear_active in finally won't double-remove
-            self._active_agents.pop(target_req_id, None)
-        # Wake all pending approvals so the blocked chat daemon thread can exit.
-        pending_ids = self.list_pending_approval_ids()
-        for aid in pending_ids:
-            self.resolve_approval(aid, "deny")
-        agent._abort_event.set()
-        agent.stop()
-        return {"aborted": True, "req_id": target_req_id}
-
     def abort_active(self) -> dict:
-        """Legacy: abort the *most recently registered* active agent.
+        """Resolve all pending approvals so blocked daemon threads can exit.
 
-        Kept for backward-compatibility with older frontends that don't send
-        ``req_id``.  New frontends should use ``chat.abort`` with an explicit
-        ``req_id`` instead.
+        After Phase 14, turn abort is handled by RuntimeSession.submit(AbortTurn(...)).
+        This method remains as a safety net to unblock approval-waiting threads
+        (the user-facing abort button also calls RuntimeSession, not this method).
         """
-        with self._lock:
-            if not self._active_agents:
-                return {"aborted": False}
-            # Pick the last (most recent) req_id
-            target_req_id = next(reversed(self._active_agents))
-            agent = self._active_agents.pop(target_req_id, None)
-        if agent is None:
-            return {"aborted": False}
         pending_ids = self.list_pending_approval_ids()
         for aid in pending_ids:
             self.resolve_approval(aid, "deny")
-        agent._abort_event.set()
-        agent.stop()
-        return {"aborted": True, "req_id": target_req_id}
+        return {"aborted": len(pending_ids) > 0}
 
     def mark_terminated(self, req_id: str) -> bool:
         """Atomically check-and-mark a request as terminated.
@@ -390,69 +303,12 @@ class BridgeState:
 
 _state = BridgeState()
 
-
-def _build_tool_registry(config):
-    """Build a ToolRegistry with all default tools (mirrors gateway_cmd.py).
-
-    Extracted so build_agent() and any future callers can reuse it.
-    """
-    from miqi.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
-    from miqi.agent.tools.papers import PaperDownloadTool, PaperGetTool, PaperSearchTool
-    from miqi.agent.tools.registry import ToolRegistry
-    from miqi.agent.tools.shell import ExecTool
-    from miqi.agent.tools.web import WebFetchTool, WebSearchTool
-
-    registry = ToolRegistry()
-    ws = config.workspace_path
-    allowed_dir = ws if config.tools.restrict_to_workspace else None
-
-    for cls in (ReadFileTool, WriteFileTool, EditFileTool, ListDirTool):
-        registry.register(cls(workspace=ws, allowed_dir=allowed_dir))
-    registry.register(ExecTool(
-        working_dir=str(ws),
-        timeout=config.tools.exec.timeout,
-        restrict_to_workspace=config.tools.restrict_to_workspace,
-        env_passthrough=list(config.tools.exec.env_passthrough),
-    ))
-    registry.register(WebSearchTool(
-        provider=config.tools.web.search.provider,
-        api_key=config.tools.web.search.api_key or None,
-        max_results=config.tools.web.search.max_results,
-        ollama_api_key=config.tools.web.search.ollama_api_key or None,
-        ollama_api_base=config.tools.web.search.ollama_api_base,
-    ))
-    registry.register(WebFetchTool(
-        provider=config.tools.web.fetch.provider,
-        ollama_api_key=config.tools.web.fetch.ollama_api_key or None,
-        ollama_api_base=config.tools.web.fetch.ollama_api_base,
-    ))
-    registry.register(PaperSearchTool(
-        provider=config.tools.papers.provider,
-        semantic_scholar_api_key=config.tools.papers.semantic_scholar_api_key or None,
-        timeout_seconds=config.tools.papers.timeout_seconds,
-        default_limit=config.tools.papers.default_limit,
-        max_limit=config.tools.papers.max_limit,
-    ))
-    registry.register(PaperGetTool(
-        provider=config.tools.papers.provider,
-        semantic_scholar_api_key=config.tools.papers.semantic_scholar_api_key or None,
-        timeout_seconds=config.tools.papers.timeout_seconds,
-    ))
-    registry.register(PaperDownloadTool(
-        workspace=ws,
-        provider=config.tools.papers.provider,
-        semantic_scholar_api_key=config.tools.papers.semantic_scholar_api_key or None,
-        timeout_seconds=config.tools.papers.timeout_seconds,
-    ))
-    return registry
-
-
 from miqi.agent.tools.filesystem import (
     _delete_snapshot,
-    _maybe_snapshot,
-    _read_snapshot,
-    _restore_snapshot,
     _snapshots_lock,
+    _maybe_snapshot,
+    _restore_snapshot,
+    _read_snapshot,
 )
 
 # ---------------------------------------------------------------------------
@@ -460,7 +316,8 @@ from miqi.agent.tools.filesystem import (
 # ---------------------------------------------------------------------------
 
 def handle_status(req_id: str, params: dict) -> None:
-    config_exists = Path.home() / ".miqi" / "config.json"
+    from miqi.paths import get_config_path
+    config_exists = get_config_path()
     _result(req_id, {
         "status": "ok",
         "configured": config_exists.exists(),
@@ -468,140 +325,10 @@ def handle_status(req_id: str, params: dict) -> None:
     })
 
 
-def handle_chat_send(req_id: str, params: dict) -> None:
-    """Handle chat.send.
-    The frontend may include its own ``req_id`` so it can later abort
-    exactly this request.  We return ``req_id`` in the result so the frontend
-    can track it.
-    """
-    content = params["content"]
-    session_key = params.get("session_key", "desktop:default")
-    # Use client-provided req_id if available (for abort support)
-    client_req_id = params.get("req_id", req_id)
-
-    def _run_in_thread() -> None:
-        async def _run() -> None:
-            # Persist user message to session IMMEDIATELY so it survives
-            # a frontend switch before the agent finishes processing.
-            # Without this, switching conversations while the agent is still
-            # running causes the user's message to disappear on reload.
-            # The agent's _save_turn is idempotent against this pre-save
-            # (it detects already-persisted messages and skips them).
-            try:
-                sm = _get_session_manager()
-                user_session = sm.get_or_create(session_key)
-                user_session.add_message("user", content)
-                sm.save(user_session)
-            except Exception as exc:
-                _log(f"Failed to persist user message eagerly: {exc}")
-
-            # Build desktop approval callback (blocks thread, sends event to renderer)
-            config = _state.load_config()
-            approval_timeout = config.agents.command_approval.timeout
-            approval_enabled = config.agents.command_approval.enabled
-
-            def _desktop_approval_callback(command: str, description: str, *, allow_permanent: bool = True) -> str:
-                if not approval_enabled:
-                    return "once"
-                approval_id = str(uuid.uuid4())
-                evt = _state.register_approval(approval_id, {
-                    "command": command,
-                    "description": description,
-                    "allow_permanent": allow_permanent,
-                })
-                _event(client_req_id, "approval_request", {
-                    "approval_id": approval_id,
-                    "command": command,
-                    "description": description,
-                    "allow_permanent": allow_permanent,
-                })
-                if not evt.wait(timeout=approval_timeout):
-                    _state.resolve_approval(approval_id, "deny")
-                    return "deny"
-                return _state.get_approval_decision(approval_id)
-
-            agent = _state.build_agent(session_key, approval_callback=_desktop_approval_callback)
-
-            # Wire up BackgroundExecutor for subagent survival in Desktop mode
-            if hasattr(agent, "subagents") and agent.subagents is not None:
-                agent.subagents._executor = _state.get_executor()
-
-                def _subagent_result_cb(task_id, label, task_desc, result, status, channel, chat_id):
-                    _event(client_req_id, "subagent_result", {
-                        "task_id": task_id,
-                        "label": label,
-                        "task": task_desc,
-                        "result": result,
-                        "status": status,
-                        "session_key": session_key,
-                    })
-                    # Persist subagent result to session history so it survives page reload
-                    try:
-                        sm = _get_session_manager()
-                        session = sm.get_or_create(session_key)
-                        status_icon = "✅" if status == "ok" else "❌"
-                        display_label = label or task_id
-                        status_text = "completed" if status == "ok" else "failed"
-                        content = f'{status_icon} Subagent "{display_label}" {status_text}:\n\n{result}'
-                        session.add_message("subagent", content)
-                        sm.save(session)
-                    except Exception as exc:
-                        _log(f"Failed to persist subagent result: {exc}")
-
-                agent.subagents._result_callback = _subagent_result_cb
-
-            _state.set_active(agent, client_req_id)
-
-            async def on_progress(text: str, tool_hint: bool = False) -> None:
-                _event(client_req_id, "progress", {"text": text, "tool_hint": tool_hint})
-
-            try:
-                result = await agent.process_direct(
-                    content=content,
-                    session_key=session_key,
-                    channel="desktop",
-                    chat_id=session_key,
-                    on_progress=on_progress,
-                )
-                aborted = agent._abort_event.is_set()
-                _terminal_event(client_req_id, "final", {"content": result, "aborted": aborted})
-            except Exception as exc:
-                _log(f"chat.send error: {exc}")
-                _terminal_event(client_req_id, "error", {"message": str(exc)})
-            finally:
-                _state.clear_active(client_req_id)
-                # Stop the agent to clean up sandbox resources
-                try:
-                    agent.stop()
-                except Exception as exc:
-                    _log(f"agent.stop error: {exc}")
-
-        asyncio.run(_run())
-
-    t = threading.Thread(target=_run_in_thread, daemon=True)
-    t.start()
-    _result(req_id, {"accepted": True, "req_id": client_req_id})
-
-
-def handle_chat_abort(req_id: str, params: dict) -> None:
-    """Abort a specific in-flight chat request.
-
-    The frontend may send ``target_req_id`` to identify which conversation to
-    abort.  If omitted the legacy behaviour (abort the most recent request) is
-    used so older frontends keep working.
-    """
-    target_req_id = params.get("target_req_id", "")
-    if target_req_id:
-        result = _state.abort_request(target_req_id)
-    else:
-        result = _state.abort_active()  # legacy fallback
-    aborted = result["aborted"]
-    active_req_id = result.get("req_id")
-    if aborted and active_req_id:
-        # Notify frontend to dismiss any orphan approval modal immediately
-        _event(active_req_id, "approval_cleared", {"reason": "abort"})
-        _terminal_event(active_req_id, "aborted", {"message": "Chat aborted by user"})
-    _result(req_id, {"aborted": aborted})
+# Phase 27.3: handle_chat_send, _run_chat_send_via_runtime, handle_chat_abort,
+# and _caller_id_from_params removed. chat.send routes through
+# BridgeRuntimeLoop._chat_send_handler → AppServer → RuntimeSession.
+# chat.abort routes through AppServer (registered by register_command_handlers).
 
 
 def handle_sessions_list(req_id: str, params: dict) -> None:
@@ -909,8 +636,7 @@ def handle_channels_update(req_id: str, params: dict) -> None:
 
 def handle_approvals_list(req_id: str, params: dict) -> None:
     from miqi.agent.command_approval import (
-        get_permanent_allowlist,
-        get_permanent_allowlist_meta,
+        get_permanent_allowlist, get_permanent_allowlist_meta,
     )
     config = _state.load_config()
     pending = _state.list_pending_approvals()
@@ -945,9 +671,7 @@ def handle_approvals_resolve(req_id: str, params: dict) -> None:
 
 def handle_approvals_clear_permanent(req_id: str, params: dict) -> None:
     from miqi.agent.command_approval import (
-        _lock,
-        _permanent_added_at,
-        _permanent_approved,
+        _lock, _permanent_approved, _permanent_added_at,
     )
     pattern = params.get("pattern")
     with _lock:
@@ -962,8 +686,7 @@ def handle_approvals_clear_permanent(req_id: str, params: dict) -> None:
 
 def handle_approvals_add_permanent(req_id: str, params: dict) -> None:
     from miqi.agent.command_approval import (
-        _save_permanent_allowlist,
-        approve_permanent,
+        approve_permanent, _save_permanent_allowlist,
     )
     pattern = params.get("pattern", "").strip()
     if not pattern:
@@ -1239,8 +962,10 @@ def _validate_memory_path(file_path: str) -> Path:
     memory_dir = _get_memory_dir()
     # Resolve the requested path relative to memory dir
     resolved = (memory_dir / file_path).resolve()
-    # Must be within the memory directory
-    if not str(resolved).startswith(str(memory_dir.resolve())):
+    # Must be within the memory directory — use relative_to for robust containment
+    try:
+        resolved.relative_to(memory_dir.resolve())
+    except ValueError:
         raise ValueError(f"Path escapes memory directory: {file_path}")
     return resolved
 
@@ -1424,8 +1149,8 @@ def _get_experience_store():
     if _experience_store is not None:
         return _experience_store
 
-    from miqi.agent.memory import MemoryStore
     from miqi.agent.memory.experience_store import ExperienceStore
+    from miqi.agent.memory import MemoryStore
     from miqi.agent.trace.store import TraceStore
 
     config = _state.load_config()
@@ -1560,449 +1285,6 @@ def handle_skills_get(req_id: str, params: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Files handlers
-# ---------------------------------------------------------------------------
-
-def _get_workspace_path() -> Path:
-    config = _state.load_config()
-    return config.workspace_path.resolve()
-
-
-def _get_session_files_path(session_key: str | None) -> Path | None:
-    """Get the session-level files directory, if session_key is provided.
-
-    Matches the logic in AgentLoop._setup_tools() so that files.revert/files.diff/files.write
-    resolve relative paths to the same directory as the Agent's WriteFileTool/EditFileTool.
-    """
-    if not session_key:
-        return None
-    from miqi.utils.helpers import safe_filename  # noqa: PLC0415
-    config = _state.load_config()
-    safe_key = safe_filename(session_key.replace(":", "_"))
-    files_dir = config.workspace_path / "sessions" / safe_key / "files"
-    files_dir.mkdir(parents=True, exist_ok=True)
-    return files_dir
-
-
-def _validate_file_path(file_path: str, session_key: str | None = None) -> Path:
-    """Resolve a relative path against workspace and block traversal.
-
-    If session_key is provided and the session's workspace is enabled,
-    resolves relative paths against the session-level files directory
-    instead of the workspace root, matching AgentLoop._setup_tools().
-    """
-    workspace = _get_workspace_path()
-    if not file_path or file_path.startswith("/") or file_path.startswith("\\"):
-        raise ValueError("Only relative paths are allowed")
-
-    # If we have a session_key, try session-level files dir first
-    session_files = _get_session_files_path(session_key)
-    if session_files:
-        resolved = (session_files / file_path).resolve()
-        if str(resolved).startswith(str(workspace) + str(Path("/"))) or resolved == workspace:
-            return resolved
-
-    # Fall back to workspace root
-    resolved = (workspace / file_path).resolve()
-    if not str(resolved).startswith(str(workspace) + str(Path("/"))) and resolved != workspace:
-        raise ValueError(f"Path escapes workspace: {file_path}")
-    return resolved
-
-
-def _build_tree(path: Path, relative_to: Path, depth: int = 0, max_depth: int = 6) -> dict:
-    """Build a FileNode tree for a directory."""
-    node: dict[str, Any] = {
-        "name": path.name or str(path),
-        "path": str(path.relative_to(relative_to)).replace("\\", "/"),
-        "is_dir": path.is_dir(),
-    }
-    if path.is_dir() and depth < max_depth:
-        children = []
-        _TREE_SKIP_SUFFIXES = {
-            ".sqlite", ".sqlite-shm", ".sqlite-wal", ".sqlite-journal",
-            ".db", ".db-shm", ".db-wal",
-            ".pyc", ".pyo", ".pyd",
-            ".so", ".dll", ".dylib", ".exe",
-            ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp",
-            ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
-            ".bin", ".dat", ".pkl", ".npz", ".npy", ".h5", ".hdf5",
-        }
-        try:
-            for child in sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
-                if child.name.startswith(".") or child.name == "__pycache__":
-                    continue
-                if child.suffix.lower() in _TREE_SKIP_SUFFIXES:
-                    continue
-                children.append(_build_tree(child, relative_to, depth + 1, max_depth))
-        except PermissionError:
-            pass
-        node["children"] = children
-    return node
-
-
-def handle_files_tree(req_id: str, params: dict) -> None:
-    workspace = _get_workspace_path()
-    if not workspace.exists():
-        _result(req_id, {"root": {"name": workspace.name, "path": ".", "is_dir": True, "children": []}, "workspace_path": str(workspace)})
-        return
-    root = _build_tree(workspace, workspace)
-    _result(req_id, {"root": root, "workspace_path": str(workspace)})
-
-
-def handle_files_read(req_id: str, params: dict) -> None:
-    file_path = params.get("path", "").strip()
-    session_key = params.get("session_key")
-    _log(f"[files:read] req={req_id} path={file_path} session_key={session_key}")
-    if not file_path:
-        _error(req_id, "path is required")
-        return
-
-    try:
-        resolved = _validate_file_path(file_path, session_key)
-    except ValueError as exc:
-        _log(f"[files:read] path validation failed: {exc}")
-        _error(req_id, str(exc))
-        return
-
-    if not resolved.exists():
-        _log(f"[files:read] not found: {file_path}")
-        _error(req_id, f"File not found: {file_path}")
-        return
-
-    if resolved.is_dir():
-        _log(f"[files:read] is directory: {file_path}")
-        _error(req_id, f"Path is a directory: {file_path}")
-        return
-
-    # Only allow text-like files
-    allowed = {".md", ".txt", ".py", ".json", ".yaml", ".yml", ".toml", ".cfg", ".ini",
-               ".js", ".ts", ".tsx", ".jsx", ".css", ".html", ".xml", ".svg",
-               ".sh", ".bash", ".zsh", ".ps1", ".bat",
-               ".env", ".gitignore", ".dockerignore", ".editorconfig",
-               ".csv", ".log", ".lock", ".jsonl"}
-    if resolved.suffix not in allowed and resolved.name not in {".gitignore", ".dockerignore", ".editorconfig", ".env"}:
-        _log(f"[files:read] unsupported type: {resolved.suffix or resolved.name}")
-        _error(req_id, f"File type not supported: {resolved.suffix or resolved.name}")
-        return
-
-    try:
-        content = resolved.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        _log(f"[files:read] decode error: {file_path}")
-        _error(req_id, "File is not valid UTF-8 text")
-        return
-    except Exception as exc:
-        _log(f"[files:read] read error: {exc}")
-        _error(req_id, str(exc))
-        return
-
-    _log(f"[files:read] ok path={file_path} size={len(content)}")
-    _result(req_id, {
-        "path": file_path,
-        "content": content,
-        "size": len(content),
-    })
-
-
-def handle_files_write(req_id: str, params: dict) -> None:
-    file_path = params.get("path", "").strip()
-    content = params.get("content", "")
-    _log(f"[files:write] req={req_id} path={file_path} size={len(content)}")
-    if not file_path:
-        _error(req_id, "path is required")
-        return
-
-    try:
-        resolved = _validate_file_path(file_path, session_key)
-    except ValueError as exc:
-        _log(f"[files:write] path validation failed: {exc}")
-        _error(req_id, str(exc))
-        return
-
-    # Only allow text-like files for write
-    allowed = {".md", ".txt", ".py", ".json", ".yaml", ".yml", ".toml", ".cfg", ".ini",
-               ".js", ".ts", ".tsx", ".jsx", ".css", ".html", ".xml", ".svg",
-               ".sh", ".bash", ".zsh", ".ps1", ".bat",
-               ".env", ".gitignore", ".dockerignore", ".editorconfig",
-               ".csv", ".log", ".lock", ".jsonl"}
-    if resolved.suffix not in allowed and resolved.name not in {".gitignore", ".dockerignore", ".editorconfig", ".env"}:
-        _log(f"[files:write] unsupported file type: {resolved.suffix or resolved.name}")
-        _error(req_id, f"File type not supported for write: {resolved.suffix or resolved.name}")
-        return
-
-    # Snapshot original content before first write (enables non-git diff/revert)
-    session_key = params.get("session_key")
-    snapshot_dir = _get_snapshot_dir_for_session(session_key)
-    _maybe_snapshot(resolved, snapshot_dir=snapshot_dir)
-    resolved.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        resolved.write_text(content, encoding="utf-8")
-        _log(f"[files:write] ok path={file_path}")
-    except Exception as exc:
-        _log(f"[files:write] write failed: {exc}")
-        _error(req_id, str(exc))
-        return
-    _result(req_id, {"saved": True, "path": file_path})
-
-
-def handle_files_delete(req_id: str, params: dict) -> None:
-    """Delete a workspace file or empty directory."""
-    file_path = params.get("path", "").strip()
-    session_key = params.get("session_key")
-    _log(f"[files:delete] req={req_id} path={file_path} session_key={session_key}")
-    if not file_path:
-        _error(req_id, "path is required")
-        return
-
-    try:
-        resolved = _validate_file_path(file_path, session_key)
-    except ValueError as exc:
-        _log(f"[files:delete] path validation failed: {exc}")
-        _error(req_id, str(exc))
-        return
-
-    if not resolved.exists():
-        _log(f"[files:delete] not found: {file_path}")
-        _error(req_id, f"Not found: {file_path}")
-        return
-
-    workspace = _get_workspace_path()
-    if resolved == workspace:
-        _log("[files:delete] refused: workspace root")
-        _error(req_id, "Cannot delete workspace root")
-        return
-
-    if resolved.is_dir():
-        if any(resolved.iterdir()):
-            _log(f"[files:delete] not empty: {file_path}")
-            _error(req_id, "Directory is not empty")
-            return
-        resolved.rmdir()
-    else:
-        resolved.unlink()
-
-    _log(f"[files:delete] ok path={file_path}")
-    _result(req_id, {"deleted": True, "path": file_path})
-
-
-def _get_snapshot_dir_for_session(session_key: str | None) -> Path | None:
-    """Get the session-level snapshot directory, if session_key is provided.
-
-    Matches the logic in AgentLoop._setup_tools() so that files.revert/files.diff
-    use the same snapshot directory as the Agent's WriteFileTool/EditFileTool.
-    """
-    if not session_key:
-        return None
-    from miqi.utils.helpers import safe_filename  # noqa: PLC0415
-    config = _state.load_config()
-    safe_key = safe_filename(session_key.replace(":", "_"))
-    snap_dir = config.workspace_path / "sessions" / safe_key / "snapshots"
-    snap_dir.mkdir(parents=True, exist_ok=True)
-    return snap_dir
-
-
-def handle_files_diff(req_id: str, params: dict) -> None:
-    """Diff a file against its pre-session snapshot using difflib (no git required).
-
-    For new files (no snapshot exists but file currently exists), generates a diff
-    showing all content as additions (like 'git diff' for untracked files).
-    """
-    import difflib
-
-    file_path = params.get("path", "").strip()
-    session_key = params.get("session_key")
-    _log(f"[files:diff] req={req_id} path={file_path} session_key={session_key}")
-    if not file_path:
-        _error(req_id, "path is required")
-        return
-
-    try:
-        resolved = _validate_file_path(file_path, session_key)
-    except ValueError as exc:
-        _log(f"[files:diff] path validation failed: {exc}")
-        _error(req_id, str(exc))
-        return
-
-    snapshot_key = str(resolved)
-    snapshot_dir = _get_snapshot_dir_for_session(session_key)
-    with _snapshots_lock:
-        original_content: str | None = _read_snapshot(snapshot_key, snapshot_dir=snapshot_dir)
-
-    # Fall back to global snapshots dir
-    if original_content is None:
-        original_content = _read_snapshot(snapshot_key)
-
-    # Read current content
-    current_content: str | None = None
-    file_exists = resolved.exists()
-    if file_exists:
-        try:
-            current_content = resolved.read_text(encoding="utf-8", errors="replace")
-        except Exception as exc:
-            _log(f"[files:diff] read current failed: {exc}")
-
-    # If no snapshot exists, generate a diff showing all content as additions (new file)
-    if original_content is None:
-        if file_exists and current_content is not None and current_content != "":
-            _log(f"[files:diff] new file detected for {snapshot_key}, generating full diff")
-            # Generate diff showing all lines as additions (simulating git diff for untracked file)
-            current_lines = current_content.splitlines(keepends=True)
-            # Build unified diff header for new file
-            diff_lines = [
-                "--- /dev/null",
-                f"+++ b/{file_path}",
-            ]
-            # Add hunk header and all content as additions
-            line_count = len(current_lines)
-            diff_lines.append(f"@@ -0,0 +1,{line_count} @@")
-            diff_lines.extend("+" + line for line in current_lines)
-            diff_text = "\n".join(diff_lines)
-            _result(req_id, {
-                "path": file_path,
-                "diff": diff_text,
-                "has_diff": True,
-                "original_content": None,
-                "current_content": current_content,
-                "is_new_file": True,
-            })
-            return
-        _log(f"[files:diff] no snapshot for {snapshot_key}")
-        _result(req_id, {
-            "path": file_path,
-            "diff": None,
-            "has_diff": False,
-            "original_content": None,
-            "current_content": current_content,
-            "error": "No snapshot found — file was not modified in this session",
-        })
-        return
-
-    # Generate unified diff for modified files
-    original_lines = original_content.splitlines(keepends=True)
-    current_lines = (current_content or "").splitlines(keepends=True)
-    diff_lines = list(difflib.unified_diff(
-        original_lines,
-        current_lines,
-        fromfile=f"a/{file_path}",
-        tofile=f"b/{file_path}",
-        lineterm="",
-    ))
-    diff_text = "\n".join(diff_lines) if diff_lines else None
-    has_diff = bool(diff_text)
-    _log(f"[files:diff] ok has_diff={has_diff} lines={len(diff_lines)} path={file_path}")
-
-    _result(req_id, {
-        "path": file_path,
-        "diff": diff_text,
-        "has_diff": has_diff,
-        "original_content": original_content,
-        "current_content": current_content,
-    })
-
-
-def handle_files_revert(req_id: str, params: dict) -> None:
-    """Revert a file to its pre-session snapshot (no git required)."""
-    file_path = params.get("path", "").strip()
-    session_key = params.get("session_key")
-    _log(f"[files:revert] req={req_id} path={file_path} session_key={session_key}")
-    if not file_path:
-        _error(req_id, "path is required")
-        return
-
-    try:
-        resolved = _validate_file_path(file_path, session_key)
-    except ValueError as exc:
-        _log(f"[files:revert] path validation failed: {exc}")
-        _error(req_id, str(exc))
-        return
-
-    snapshot_key = str(resolved)
-    snapshot_dir = _get_snapshot_dir_for_session(session_key)
-    with _snapshots_lock:
-        has_snapshot = _read_snapshot(snapshot_key, snapshot_dir=snapshot_dir) is not None
-
-    if not has_snapshot:
-        # Also check global snapshots dir (snapshot may have been written there
-        # if snapshot_dir was None during _maybe_snapshot)
-        has_snapshot = _read_snapshot(snapshot_key) is not None
-        if has_snapshot:
-            snapshot_dir = None  # use global dir for restore/delete
-            _log(f"[files:revert] found snapshot in global dir for {snapshot_key}")
-
-    if not has_snapshot:
-        _log(f"[files:revert] no snapshot for {snapshot_key}")
-        _error(req_id, "No snapshot found — cannot revert (file was not modified in this session)")
-        return
-
-    ok = _restore_snapshot(resolved, snapshot_dir=snapshot_dir)
-    if not ok:
-        _log(f"[files:revert] restore failed for {snapshot_key}")
-        _error(req_id, "Revert failed — could not write original content")
-        return
-
-    # Remove snapshot so the file is treated as clean again
-    with _snapshots_lock:
-        _delete_snapshot(snapshot_key, snapshot_dir=snapshot_dir)
-
-    _log(f"[files:revert] ok path={file_path}")
-    # Remove tracked file entry from tracked_files.json
-    if session_key:
-        _remove_tracked_file(session_key, file_path)
-
-    _result(req_id, {"reverted": True, "path": file_path})
-
-
-def _get_session_manager():
-    """Get a SessionManager for the current workspace."""
-    from miqi.session.manager import SessionManager
-    config = _state.load_config()
-    return SessionManager(config.workspace_path)
-
-
-def _reset_tracked_file_op(session_key: str, file_path: str) -> None:
-    """Reset a tracked file entry's op to 'read' instead of removing it."""
-    try:
-        sm = _get_session_manager()
-        sm.reset_tracked_file_op(session_key, file_path, op="read")
-    except Exception as exc:
-        _log(f"[files] reset_tracked_file_op failed: {exc}")
-
-
-def handle_files_accept(req_id: str, params: dict) -> None:
-    """Accept all changes for a file — keep current content, delete its snapshot."""
-    file_path = params.get("path", "").strip()
-    session_key = params.get("session_key")
-    if not file_path:
-        _error(req_id, "path is required")
-        return
-
-    _log(f"[files:accept] req={req_id} path={file_path} session_key={session_key}")
-
-    # Reset tracked file entry to 'read' (keep it in the list, just clear mod status)
-    if session_key:
-        _reset_tracked_file_op(session_key, file_path)
-
-    try:
-        resolved = _validate_file_path(file_path, session_key)
-    except ValueError as exc:
-        _log(f"[files:accept] path validation failed: {exc}")
-        _result(req_id, {"accepted": True, "path": file_path})
-        return
-
-    snapshot_key = str(resolved)
-    snapshot_dir = _get_snapshot_dir_for_session(session_key)
-
-    # Delete snapshot from session dir
-    with _snapshots_lock:
-        _delete_snapshot(snapshot_key, snapshot_dir=snapshot_dir)
-
-    # Also clean global dir if snapshot landed there
-    with _snapshots_lock:
-        _delete_snapshot(snapshot_key)
-
-    _log(f"[files:accept] ok path={file_path}")
-    _result(req_id, {"accepted": True, "path": file_path})
-
 
 def handle_skills_open_folder(req_id: str, params: dict) -> None:
     """Open the skill's containing folder in the system file manager."""
@@ -2020,14 +1302,10 @@ def handle_skills_open_folder(req_id: str, params: dict) -> None:
     import subprocess
     import sys as _sys
 
-    _sp_kwargs: dict = {}
-    if _sys.platform == "win32":
-        _sp_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-
     folder = str(skill_path.parent if skill_path.is_file() else skill_path)
     try:
         if _sys.platform == "win32":
-            subprocess.run(["explorer", folder], check=False, **_sp_kwargs)
+            subprocess.run(["explorer", folder], check=False)
         elif _sys.platform == "darwin":
             subprocess.run(["open", folder], check=False)
         else:
@@ -2114,8 +1392,8 @@ def handle_mcp_list(req_id: str, params: dict) -> None:
 
 def handle_mcp_upsert(req_id: str, params: dict) -> None:
     """Create or update an MCP server entry by name."""
-    from miqi.config.loader import save_config
     from miqi.config.schema import MCPServerConfig
+    from miqi.config.loader import save_config
 
     name = str(params.pop("name", "")).strip()
     if not name:
@@ -2151,6 +1429,7 @@ def handle_mcp_delete(req_id: str, params: dict) -> None:
 def handle_python_check(req_id: str, params: dict) -> None:
     """Check if Python and MiQi are available."""
     import importlib
+    from miqi.paths import get_config_path
 
     issues = []
 
@@ -2170,7 +1449,7 @@ def handle_python_check(req_id: str, params: dict) -> None:
         "ok": len(issues) == 0,
         "python_version": f"{py_ver.major}.{py_ver.minor}.{py_ver.micro}",
         "issues": issues,
-        "config_exists": (Path.home() / ".miqi" / "config.json").exists(),
+        "config_exists": get_config_path().exists(),
     })
 
 
@@ -2207,67 +1486,292 @@ def _deep_merge(base: dict, updates: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Permissions handlers (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+def handle_permissions_get(req_id: str, params: dict) -> None:
+    """Return current permission engine configuration."""
+    orch = _state._orchestrator
+    if orch is not None:
+        pe = orch.permissions
+        _result(req_id, {
+            "filesystem": {"rules": [], "default_mode": "read"},
+            "network": "allow_all",
+            "exec_approval": "dangerous",
+            "permanent_allowlist": list(pe.permanent_allowlist),
+            "deny_patterns": list(pe.deny_patterns),
+        })
+    else:
+        _result(req_id, {
+            "filesystem": {"rules": [], "default_mode": "read"},
+            "network": "allow_all",
+            "exec_approval": "dangerous",
+            "permanent_allowlist": [],
+            "deny_patterns": [],
+        })
+
+
+def handle_permissions_update(req_id: str, params: dict) -> None:
+    """Update permission engine deny/allow patterns."""
+    config = params.get("config", {})
+    orch = _state._orchestrator
+    if orch is not None:
+        pe = orch.permissions
+        if "permanent_allowlist" in config:
+            pe.permanent_allowlist = set(config["permanent_allowlist"])
+        if "deny_patterns" in config:
+            pe.deny_patterns = set(config["deny_patterns"])
+    _result(req_id, {"saved": True})
+
+
+def handle_permissions_permanent_add(req_id: str, params: dict) -> None:
+    """Add a pattern to the permanent allowlist."""
+    pattern = params.get("pattern", "")
+    orch = _state._orchestrator
+    if orch is not None and pattern:
+        orch.permissions.permanent_allowlist.add(pattern)
+    _result(req_id, {"added": bool(pattern)})
+
+
+def handle_permissions_permanent_remove(req_id: str, params: dict) -> None:
+    """Remove a pattern from the permanent allowlist."""
+    pattern = params.get("pattern", "")
+    orch = _state._orchestrator
+    if orch is not None and pattern:
+        orch.permissions.permanent_allowlist.discard(pattern)
+    _result(req_id, {"removed": bool(pattern)})
+
+
+# ---------------------------------------------------------------------------
+# Plugin handlers (Phase 4)
+# ---------------------------------------------------------------------------
+
+
+def handle_plugins_list(req_id: str, params: dict) -> None:
+    """List installed plugins."""
+    pm = getattr(_state, '_plugin_manager', None)
+    if pm is None:
+        _result(req_id, {"plugins": []})
+        return
+    plugins = []
+    for p in pm.list_plugins():
+        plugins.append({
+            "name": p.manifest.name,
+            "version": p.manifest.version,
+            "description": p.manifest.description,
+            "author": p.manifest.author,
+            "scope": p.scope,
+            "status": p.status,
+            "error": p.error,
+            "mcp_servers": p.manifest.mcp_servers,
+            "skills": p.manifest.skills,
+            "slash_commands": p.manifest.slash_commands,
+        })
+    _result(req_id, {"plugins": plugins})
+
+
+def handle_plugins_install(req_id: str, params: dict) -> None:
+    """Install a plugin from a GitHub URL or local path."""
+    name = params.get("name", "")
+    url = params.get("url", "")
+    pm = getattr(_state, '_plugin_manager', None)
+    if pm is None:
+        _result(req_id, {"ok": False, "error": "Plugin manager not initialized"})
+        return
+
+    # Validate plugin name: no path separators, no traversal, no '..'
+    import re as _re
+    if not _re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', name):
+        _result(req_id, {"ok": False, "error": "Invalid plugin name"})
+        return
+    if ".." in name:
+        _result(req_id, {"ok": False, "error": "Invalid plugin name"})
+        return
+
+    import subprocess
+    import shutil
+    target_dir = (pm.user_dir / name).resolve()
+    # Ensure resolved path stays within the plugins directory — use relative_to for robust containment
+    try:
+        target_dir.relative_to(pm.user_dir.resolve())
+    except ValueError:
+        _result(req_id, {"ok": False, "error": "Invalid plugin path"})
+        return
+    if target_dir.exists():
+        _result(req_id, {"ok": False, "error": f"Plugin '{name}' already installed"})
+        return
+
+    try:
+        if url:
+            # Validate URL: HTTPS only, known hosts only
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            ALLOWED_HOSTS = {"github.com", "gitlab.com", "bitbucket.org"}
+            if parsed.scheme != "https":
+                _result(req_id, {"ok": False, "error": "Only HTTPS URLs are supported"})
+                return
+            if parsed.hostname not in ALLOWED_HOSTS:
+                _result(req_id, {"ok": False, "error": f"Unsupported host: {parsed.hostname}"})
+                return
+            # Prevent credential injection in URL
+            if "@" in parsed.netloc:
+                _result(req_id, {"ok": False, "error": "Credentials in URL are not allowed"})
+                return
+
+            subprocess.run(
+                ["git", "clone", "--depth=1", "--", url, str(target_dir)],
+                check=True, capture_output=True, text=True, timeout=60,
+            )
+            # Reload plugins (safe async call from sync handler)
+            from miqi.utils.async_utils import run_async_safely
+            run_async_safely(pm.discover())
+            # Update MCP servers from newly installed plugin
+            new_servers = pm.get_mcp_servers()
+            if new_servers and hasattr(_state, '_mcp_servers'):
+                _state._mcp_servers.update({s.get("name", ""): s for s in new_servers})
+            _result(req_id, {"ok": True, "name": name})
+        else:
+            _result(req_id, {"ok": False, "error": "url is required for plugin installation"})
+    except subprocess.CalledProcessError as e:
+        if target_dir.exists():
+            shutil.rmtree(target_dir, ignore_errors=True)
+        _result(req_id, {"ok": False, "error": f"Clone failed: {e.stderr}"})
+    except Exception as e:
+        if target_dir.exists():
+            shutil.rmtree(target_dir, ignore_errors=True)
+        _result(req_id, {"ok": False, "error": str(e)})
+
+
+def handle_plugins_uninstall(req_id: str, params: dict) -> None:
+    """Uninstall a plugin by name."""
+    name = params.get("name", "")
+    pm = getattr(_state, '_plugin_manager', None)
+    if pm is None:
+        _result(req_id, {"ok": False, "error": "Plugin manager not initialized"})
+        return
+
+    # Validate plugin name: no path separators, no traversal
+    import re as _re2
+    if not _re2.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', name):
+        _result(req_id, {"ok": False, "error": "Invalid plugin name"})
+        return
+    if ".." in name:
+        _result(req_id, {"ok": False, "error": "Invalid plugin name"})
+        return
+
+    import shutil
+    for base in [pm.user_dir, pm.system_dir]:
+        target = (base / name).resolve()
+        base_resolved = base.resolve()
+        # Ensure resolved path stays within the plugins directory — use relative_to for robust containment
+        try:
+            target.relative_to(base_resolved)
+        except ValueError:
+            continue
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
+            if name in pm._plugins:
+                del pm._plugins[name]
+            _result(req_id, {"ok": True, "name": name})
+            return
+    _result(req_id, {"ok": False, "error": f"Plugin '{name}' not found"})
+
+
+def handle_plugins_toggle(req_id: str, params: dict) -> None:
+    """Toggle a plugin enabled/disabled."""
+    name = params.get("name", "")
+    enabled = params.get("enabled", False)
+    pm = getattr(_state, '_plugin_manager', None)
+    if pm is None:
+        _result(req_id, {"ok": False, "error": "Plugin manager not initialized"})
+        return
+
+    # Validate plugin name
+    import re as _re3
+    if not _re3.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', name):
+        _result(req_id, {"ok": False, "error": "Invalid plugin name"})
+        return
+    if ".." in name:
+        _result(req_id, {"ok": False, "error": "Invalid plugin name"})
+        return
+
+    plugin = pm._plugins.get(name)
+    if plugin is None:
+        _result(req_id, {"ok": False, "error": f"Plugin '{name}' not found"})
+        return
+    plugin.status = "active" if enabled else "disabled"
+    _result(req_id, {"ok": True, "name": name, "enabled": enabled})
+
+
+# ---------------------------------------------------------------------------
+# Agent + Plan handlers (Phase 2/3 bridge)
+# ---------------------------------------------------------------------------
+
+
+def handle_agent_list(req_id: str, params: dict) -> None:
+    """List all agents and their status."""
+    ac = _state._agent_control
+    if ac is not None:
+        agents = ac.list_agents()
+        _result(req_id, {"agents": agents})
+    else:
+        _result(req_id, {"agents": []})
+
+
+def handle_agent_get(req_id: str, params: dict) -> None:
+    """Get detailed information about an agent."""
+    ac = _state._agent_control
+    if ac is None:
+        _result(req_id, {"error": "Agent control not initialized"})
+        return
+    agent_id = params.get("agent_id", "")
+    try:
+        detail = ac.get_agent_detail(agent_id)
+        _result(req_id, {"agent": detail})
+    except KeyError:
+        _result(req_id, {"error": f"Unknown agent: {agent_id}"})
+
+
+# Phase 27.4: handle_agent_spawn and handle_agent_kill removed.
+# agent.spawn and agent.kill now route through AppServer handlers
+# registered by BridgeRuntimeLoop._init_app_server().
+
+
+def handle_plan_get(req_id: str, params: dict) -> None:
+    """Get current plan for a thread."""
+    plan_id = params.get("plan_id", "")
+    tracker = getattr(_state, '_plan_tracker', None)
+    if tracker is not None and plan_id:
+        plan = tracker.get(plan_id)
+        if plan is not None:
+            _result(req_id, {"plan": tracker.to_dict(plan)})
+            return
+    _result(req_id, {"plan": None})
+
+
+# ---------------------------------------------------------------------------
 # Main dispatch
 # ---------------------------------------------------------------------------
 
 _METHODS = {
     "status": handle_status,
-    "chat.send": handle_chat_send,
-    "chat.abort": handle_chat_abort,
-    "sessions.list": handle_sessions_list,
-    "sessions.get": handle_sessions_get,
-    "sessions.delete": handle_sessions_delete,
-    "sessions.archive": handle_sessions_archive,
-    "sessions.unarchive": handle_sessions_unarchive,
-    "sessions.list_archived": handle_sessions_list_archived,
-    "sessions.get_tracked_files": handle_sessions_get_tracked_files,
-    "sessions.clear_tracked_files": handle_sessions_clear_tracked_files,
-    "config.get": handle_config_get,
-    "config.update": handle_config_update,
-    "providers.list": handle_providers_list,
-    "providers.test": handle_providers_test,
-    "providers.update": handle_providers_update,
-    "channels.list": handle_channels_list,
-    "channels.update": handle_channels_update,
-    "approvals.list": handle_approvals_list,
-    "approvals.resolve": handle_approvals_resolve,
-    "approvals.clear_permanent": handle_approvals_clear_permanent,
-    "approvals.add_permanent": handle_approvals_add_permanent,
-    "approvals.history": handle_approvals_history,
-    "cron.list": handle_cron_list,
-    "cron.create": handle_cron_create,
-    "cron.update": handle_cron_update,
-    "cron.delete": handle_cron_delete,
-    "cron.toggle": handle_cron_toggle,
-    "cron.run": handle_cron_run,
-    "cron.runs": handle_cron_runs,
-    "memory.list": handle_memory_list,
-    "memory.get": handle_memory_get,
-    "memory.update": handle_memory_update,
-    "memory.delete": handle_memory_delete,
-    "memory.lessons": handle_memory_lessons,
-    "memory.lesson.unlearn": handle_memory_lesson_unlearn,
-    "experience:list":   handle_experience_list,
-    "experience:delete": handle_experience_delete,
-    "experience:toggle": handle_experience_toggle,
-    "experience:search": handle_experience_search,
-    "skills.list": handle_skills_list,
-    "skills.get": handle_skills_get,
-    "skills.open_folder": handle_skills_open_folder,
-    "skills.create": handle_skills_create,
-    "skills.upload": handle_skills_upload,
-    "skills.delete": handle_skills_delete,
-    "mcp.list": handle_mcp_list,
-    "mcp.upsert": handle_mcp_upsert,
-    "mcp.delete": handle_mcp_delete,
-    "files.tree": handle_files_tree,
-    "files.read": handle_files_read,
-    "files.write": handle_files_write,
-    "files.delete": handle_files_delete,
-    "files.diff": handle_files_diff,
-    "files.revert": handle_files_revert,
-    "files.accept": handle_files_accept,
-    "python.check": handle_python_check,
+    # chat.send and chat.abort are now AppServer methods (Phase 27.3)
+    # sessions.* are now AppServer methods (Phase 28.4)
+    # config.get/config.update are now AppServer methods (Phase 28.3)
+    # providers.* are now AppServer methods (Phase 35.2)
+    # channels.* are now AppServer methods (Phase 35.2)
+    # approvals.* are now AppServer methods (Phase 28.2)
+    # cron.* are now AppServer methods (Phase 35.6)
+    # memory.* are now AppServer methods (Phase 35.7)
+    # experience:* are now AppServer methods (Phase 35.7)
+    # skills.* are now AppServer methods (Phase 35.5)
+    # mcp.* are now AppServer methods (Phase 35.4)
+    # python.check is now an AppServer method (Phase 35.8)
+    # plugins.* are now AppServer methods (Phase 35.3)
+    # permissions.* are now AppServer methods (Phase 35.2)
+    # agent.* are now AppServer methods (Phases 27.4 + 28.5)
+    "plan.get": handle_plan_get,
 }
 
 
@@ -2277,6 +1781,28 @@ def _dispatch(req_id: str, method: str, params: dict) -> None:
         _error(req_id, f"Unknown method: {method}")
         return
     handler(req_id, params)
+
+
+# ── Phase 26: AppServer-backed dispatch ──────────────────────────────────
+
+_app_server: Any = None  # lazily created AppServer
+
+
+def _ensure_app_server() -> Any:
+    """Return the AppServer instance created by BridgeRuntimeLoop.
+
+    Phase 27.2: AppServer is now owned by BridgeRuntimeLoop
+    (miqi/bridge/loop.py). This function returns the global
+    reference for backward compatibility with tests.
+    """
+    global _app_server
+    return _app_server
+
+
+# Phase 27.2: _register_app_server_methods removed. Handler registration
+# now happens in BridgeRuntimeLoop._init_app_server() in miqi/bridge/loop.py.
+# Phase 27.1: _dispatch_via_appserver removed. All dispatch now goes through
+# BridgeRuntimeLoop._drain_loop() which uses the persistent event loop.
 
 
 def _ensure_workspace_init() -> None:
@@ -2335,10 +1861,10 @@ def _graceful_shutdown() -> None:
             loop = None
 
         if loop and loop.is_running():
-            # We're inside a running loop — schedule the cleanup
+            # Phase 27.6: persistent loop running — schedule cleanup
             asyncio.ensure_future(sandbox_mgr.destroy_all())
         else:
-            # No running loop — create one
+            # No running loop (signal/atexit after loop closed) — create one
             asyncio.run(sandbox_mgr.destroy_all())
     except Exception as exc:
         _log(f"Sandbox cleanup on shutdown failed (non-fatal): {exc}")
@@ -2356,13 +1882,12 @@ def main() -> None:
     _init_logging()
     _log("Bridge server starting")
     _ensure_workspace_init()
-    # Report current runtime mode
-    _state.load_config()
-    _log(f"Runtime mode: {_state.runtime_mode}")
+
     # Persist approval history so records survive bridge restarts
     try:
         from miqi.agent.command_approval import init_history_file
         from miqi.config.loader import get_data_dir
+
         init_history_file(get_data_dir() / "approval_history.jsonl")
     except Exception as exc:
         _log(f"Approval history init warning (non-fatal): {exc}")
@@ -2380,64 +1905,22 @@ def main() -> None:
         # signal.signal can fail if not in main thread or not supported
         pass
 
-    # Signal readiness — the Electron side waits for this instead of a
-    # fixed timeout.  This is critical for PyInstaller onefile builds where
-    # the first-run extraction to %TEMP% can take 5-15+ seconds.
-    _send({"type": "ready"})
-    _log("Bridge ready — listening on stdin")
+    # Phase 27.1: use BridgeRuntimeLoop with persistent asyncio event loop
+    # instead of per-request asyncio.run(). Legacy handlers continue to
+    # work via the _dispatch fallback path.
+    from miqi.bridge.loop import BridgeRuntimeLoop
 
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            req = json.loads(line)
-            _dispatch(req["id"], req["method"], req.get("params", {}))
-        except json.JSONDecodeError as exc:
-            _log(f"Invalid JSON: {exc}")
-        except Exception:
-            _log(f"Unhandled error: {traceback.format_exc()}")
-            try:
-                _error(req.get("id", "?"), "Internal bridge error")
-            except Exception:
-                pass
+    bridge = BridgeRuntimeLoop(
+        send_func=_send,
+        dispatch_legacy_func=_dispatch,
+        bridge_state=_state,
+        dev_mode=False,
+    )
+    bridge.start()
 
     # stdin closed — graceful exit
     _graceful_shutdown()
     _log("Bridge server stopped")
-
-
-def _run_self_check() -> None:
-    """Self-check mode: verify Python version and key dependencies, then exit.
-
-    Used by the Electron setup wizard to validate the bundled exe
-    without starting the full bridge server.  Outputs a single JSON
-    line to stdout so the caller can parse it easily.
-
-    NOTE: The actual --check handling is at the top of this file (before
-    heavy imports) so it works even when project modules are unavailable.
-    This function is kept as a reference / fallback.
-    """
-    issues: list[str] = []
-    py_ver = sys.version_info
-    python_version = f"{py_ver.major}.{py_ver.minor}.{py_ver.micro}"
-
-    if py_ver < (3, 11):
-        issues.append(f"Python {python_version} is too old (need >= 3.11)")
-
-    for mod in ("pydantic", "httpx", "loguru"):
-        try:
-            importlib.import_module(mod)
-        except ImportError:
-            issues.append(f"Missing dependency: {mod}")
-
-    result = {
-        "ok": len(issues) == 0,
-        "python_version": python_version,
-        "issues": issues,
-    }
-    print(json.dumps(result), flush=True)
-    sys.exit(0 if result["ok"] else 1)
 
 
 if __name__ == "__main__":

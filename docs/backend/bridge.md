@@ -2,6 +2,8 @@
 
 `miqi/bridge/server.py`（约 2300 行，57 个 handler）是连接 Electron 前端和 Python 后端的核心通信层。
 
+> **AppServer 层**: Bridge Server 内部运行 AppServer（`miqi/runtime/app_server.py`），提供传输无关的类型化协议层。详见 [架构文档](../architecture.md)。
+
 ## 通信协议
 
 Bridge 通过 **stdin/stdout** 使用 **JSON-line** 格式进行双向通信：

@@ -5,8 +5,30 @@ import { Button } from '../../components/ui/Button'
 import { ScrollArea } from '../../components/ui/ScrollArea'
 import { ContextMenu } from '../../components/ContextMenu'
 import { cn } from '../../lib/utils'
-import { MessageSquare, Trash2, RefreshCw, Loader2, Clock } from 'lucide-react'
-import type { SessionInfo, SessionDetail } from '../../../shared/ipc'
+import { MessageSquare, Trash2, RefreshCw, Loader2, Clock, Bot, ShieldAlert, KeyRound } from 'lucide-react'
+import type { SessionInfo, SessionDetail, LiveAgentInfo } from '../../../shared/ipc'
+
+/** Structured error info extracted from a rejected bridge call. */
+export interface SessionLoadError {
+  code: string
+  message: string
+  /** 'requires_claim' | 'unauthorized' | 'generic' */
+  kind: 'requires_claim' | 'unauthorized' | 'generic'
+}
+
+export function classifySessionError(e: unknown): SessionLoadError {
+  const msg = (e as any)?.message ?? String(e ?? '')
+  const code = (e as any)?.code ?? ''
+  const combined = `${code} ${msg}`.toLowerCase()
+
+  if (combined.includes('requires_claim') || combined.includes('unowned')) {
+    return { kind: 'requires_claim', code, message: msg }
+  }
+  if (combined.includes('unauthorized') || combined.includes('not authorized')) {
+    return { kind: 'unauthorized', code, message: msg }
+  }
+  return { kind: 'generic', code, message: msg }
+}
 
 export function SessionExplorer({
   onOpenSession,
@@ -20,6 +42,22 @@ export function SessionExplorer({
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<SessionDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState<SessionLoadError | null>(null)
+  const [claiming, setClaiming] = useState(false)
+  // Agent status polling (Phase 7.8)
+  const [agents, setAgents] = useState<LiveAgentInfo[]>([])
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const r = await window.miqi.agents.list()
+        setAgents(r?.agents || [])
+      } catch { /* bridge not ready */ }
+    }
+    load()
+    const interval = setInterval(load, 5000)
+    return () => clearInterval(interval)
+  }, [])
 
   const loadSessions = useCallback(async () => {
     setLoading(true)
@@ -41,19 +79,35 @@ export function SessionExplorer({
     const unsub = window.miqi.runtime.onStateChange((status) => {
       if (status.state === 'running') loadSessions()
     })
-    return unsub
+    return () => { unsub() }
   }, [loadSessions])
 
   const loadDetail = async (key: string) => {
     setSelected(key)
     setDetailLoading(true)
+    setDetailError(null)
     try {
       const d = await window.miqi.sessions.get(key)
       setDetail(d)
-    } catch {
+      setDetailError(null)
+    } catch (e: unknown) {
       setDetail(null)
+      setDetailError(classifySessionError(e))
     }
     setDetailLoading(false)
+  }
+
+  const handleClaim = async (key: string) => {
+    setClaiming(true)
+    try {
+      await window.miqi.sessions.claimLegacy(key)
+      // Reload after successful claim
+      await loadDetail(key)
+    } catch {
+      setDetailError({ kind: 'generic', code: '', message: 'Claim failed. Check runtime logs.' })
+    } finally {
+      setClaiming(false)
+    }
   }
 
   const handleDelete = async (key: string) => {
@@ -134,7 +188,32 @@ export function SessionExplorer({
                     >
                       <MessageSquare size={16} className="text-[var(--text-muted)] shrink-0 mt-0.5" />
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm text-[var(--text)] truncate">{s.key}</div>
+                        <div className="text-sm text-[var(--text)] truncate flex items-center gap-1.5">
+                          {s.key}
+                          {(() => {
+                            const agent = agents.find((a) =>
+                              a.thread_id === s.key ||
+                              a.thread_id.endsWith(':' + s.key) ||
+                              s.key.includes(a.agent_id),
+                            )
+                            if (!agent) return null
+                            const colors: Record<string, string> = {
+                              idle: 'bg-gray-400',
+                              thinking: 'bg-yellow-400 animate-pulse',
+                              executing: 'bg-blue-400 animate-pulse',
+                              waiting_approval: 'bg-purple-400 animate-pulse',
+                              completed: 'bg-green-500',
+                              error: 'bg-red-500',
+                              aborted: 'bg-orange-500',
+                            }
+                            return (
+                              <span className="flex items-center gap-1 shrink-0" title={`${agent.type}: ${agent.status}`}>
+                                <Bot size={11} className="text-[var(--text-muted)]" />
+                                <span className={`w-2 h-2 rounded-full ${colors[agent.status] || 'bg-gray-400'}`} />
+                              </span>
+                            )
+                          })()}
+                        </div>
                         {s.updated_at && (
                           <div className="flex items-center gap-1 text-xs text-[var(--text-faint)] mt-0.5">
                             <Clock size={10} />
@@ -219,9 +298,52 @@ export function SessionExplorer({
               })}
             </div>
           </ScrollArea>
+        ) : detailError ? (
+          <div className="flex flex-col items-center justify-center h-full px-6 text-center gap-3">
+            {detailError.kind === 'requires_claim' ? (
+              <>
+                <KeyRound size={28} className="text-[var(--warning)]" />
+                <div>
+                  <p className="text-sm font-medium text-[var(--text)] mb-1">旧版未认领会话</p>
+                  <p className="text-xs text-[var(--text-muted)]">
+                    此会话创建于旧版 MiQi，尚未认领到当前桌面客户端。
+                  </p>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={claiming}
+                  onClick={() => handleClaim(selected)}
+                  className="mt-1"
+                >
+                  {claiming ? '认领中...' : '认领此会话'}
+                </Button>
+              </>
+            ) : detailError.kind === 'unauthorized' ? (
+              <>
+                <ShieldAlert size={28} className="text-[var(--danger)]" />
+                <div>
+                  <p className="text-sm font-medium text-[var(--text)] mb-1">无权访问此会话</p>
+                  <p className="text-xs text-[var(--text-muted)]">
+                    该会话属于其他客户端，当前桌面客户端无权访问。
+                  </p>
+                </div>
+              </>
+            ) : (
+              <>
+                <ShieldAlert size={28} className="text-[var(--danger)]" />
+                <div>
+                  <p className="text-sm font-medium text-[var(--text)] mb-1">加载会话失败</p>
+                  <p className="text-xs text-[var(--text-muted)] max-w-xs break-all">
+                    {detailError.message || '未知错误'}
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
         ) : (
           <div className="flex items-center justify-center h-full text-xs text-[var(--text-muted)]">
-            Failed to load session
+            Select a session to view messages
           </div>
         )}
       </div>

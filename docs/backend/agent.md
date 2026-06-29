@@ -1,69 +1,74 @@
-# Agent 引擎
+# Runtime 引擎
 
-`miqi/agent/` 是 MiQi 的核心处理引擎，负责接收消息、构建上下文、调用 LLM 并执行工具。
+`miqi/runtime/` 是 MiQi 的核心运行时引擎，负责管理会话生命周期、将任务映射到执行、驱动 LLM 调用与工具循环。
 
-## AgentLoop
+> **Historical**: 旧版 `AgentLoop` (`miqi/agent/loop.py`) 已在 Phase 48 移除，由 RuntimeSession / TaskRunner / TurnRunner 取代。
 
-`AgentLoop`（`miqi/agent/loop.py`）是整个系统的中枢，管理一次对话的完整生命周期。
+## RuntimeSession
+
+`RuntimeSession` (`miqi/runtime/session.py`) 管理一次会话的完整运行时生命周期。
+
+### 核心职责
+
+- 通过 `RuntimeServices` 构造运行时服务图（工具注册表、上下文运行时、工具运行时、TurnRunner 等）
+- 通过 `RuntimeClient.ask()` 接收用户消息并返回响应
+- 管理会话级锁以序列化同一会话内的请求
 
 ### 核心参数
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `provider` | Provider | (必填) | LLM 提供商实例 |
-| `workspace` | Path | (必填) | 工作区目录 |
-| `model` | str | "gpt-4o" | 使用的模型名称 |
-| `temperature` | float | 0.1 | 生成多样性控制 |
-| `max_tool_iterations` | int | 100 | 最大工具调用轮次 |
-| `max_tokens` | int | 16000 | 单次响应最大 Token |
-| `memory_window` | int | 100 | 对话记忆窗口 |
-| `agent_name` | str | "miqi" | Agent 名称 |
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `provider` | Provider | LLM 提供商实例 |
+| `workspace` | Path | 工作区目录 |
+| `model` | str | 使用的模型名称 |
+| `temperature` | float | 生成多样性控制 |
+| `max_tool_iterations` | int | 最大工具调用轮次 |
+| `max_tokens` | int | 单次响应最大 Token |
+
+## TaskRunner
+
+`TaskRunner` (`miqi/runtime/task_runner.py`) 将用户任务映射到 TurnRunner 的执行。
+
+### 核心职责
+
+- 接收 UserMessage，管理任务级状态
+- 协调多次 TurnRunner 调用以完成一个任务
+- 管理任务上下文与结果收集
+
+## TurnRunner
+
+`TurnRunner` (`miqi/runtime/turn_runner.py`) 拥有 provider.chat + 工具调用循环。从旧版 `AgentLoop._run_agent_loop` 提取而来。
+
+### 核心职责
+
+- 调用 LLM provider 进行流式响应
+- 将工具调用路由至 ToolRuntime
+- 通过 ContextRuntime 构建和压紧消息
+- 返回 TurnResult 给 TaskRunner
 
 ### 处理流程
 
-1. **接收消息**：从 Bridge 或 CLI 接收用户输入
-2. **构建上下文**：调用 `ContextBuilder` 组装系统提示词
-3. **LLM 调用**：向配置的 Provider 发送请求
-4. **工具执行**：解析 Function Calling 响应，通过 `ToolRegistry` 执行
+1. **接收消息**：从 Bridge 或 CLI 接收用户输入，通过 RuntimeSession 进入
+2. **构建上下文**：调用 `ContextRuntime` 组装 `system_prompt`、历史消息与用户输入
+3. **TurnRunner LLM 调用**：向配置的 Provider 发送请求，流式接收响应
+4. **工具执行**：解析 Function Calling 响应，通过 `ToolRuntime` 和 `ToolRegistry` 执行
 5. **循环迭代**：将工具结果反馈给 LLM，直到任务完成或达到最大轮次
-6. **记忆持久化**：通过 Nudge 系统触发记忆和技能的持久化
 
-### 子代理支持
+> **Phase 48 退役说明**: 旧版 AgentLoop 在第 5 步之后会自动触发记忆/技能持久化（Nudge）、自动调用 `task_begin`/`task_end` 标记任务边界、自动将工具调用链记录到 TraceStore。这些 AgentLoop-only 自动能力已在 Phase 48 退役，当前 RuntimeSession / TaskRunner / TurnRunner 尚未实现。后续如需要这些能力，必须从旧 AgentLoop 中单独迁移到 RuntimeSession / TaskRunner / TurnRunner。
 
-`SubagentManager` 允许 Agent 通过 `SpawnTool` 启动子代理处理子任务：
+## ContextRuntime
 
-- 独立的上下文窗口
-- 受限的工具权限
-- 异步并发执行
-- 自动结果收集
+`ContextRuntime` (`miqi/runtime/context_runtime.py`) 接收调用方传入的 `system_prompt`、历史消息和用户当前输入，并将它们组装成符合 provider 要求的消息列表；同时负责上下文压紧。
 
-## ContextBuilder
+它**不**负责读取 `SOUL.md`、技能或记忆，也**不**负责注入 Memory System 指南、Skills System 指南、FTS5 跨会话搜索提示、TraceStore 相似历史任务上下文或 Nudge 提醒。旧版 AgentLoop 的这些注入由 `ContextBuilder`（`miqi/agent/context.py`）在每次 turn 构建 system prompt 时驱动，不是 ContextRuntime 自身的行为。上述旧注入能力已在 Phase 48 随 AgentLoop 退役。
 
-`ContextBuilder`（`miqi/agent/context.py`）负责构建发送给 LLM 的系统提示词，注入以下内容：
+## 子代理支持
 
-### 注入项
-
-| 注入项 | 来源 | 说明 |
-|--------|------|------|
-| 工作区模板 | SOUL.md, IDENTITY.md, AGENTS.md | Agent 人格与行为定义 |
-| 记忆指导 | Memory System | 长期记忆使用说明 |
-| 技能列表 | Skills System | 可用技能清单与使用指导 |
-| 会话搜索 | FTS5 Index | 跨会话上下文召回指导 |
-| 历史追踪 | TraceStore | 最多 3 条相似历史任务上下文 |
-| Nudge 提醒 | Nudge System | 定期提醒持久化记忆和技能 |
-
-## TaskTracker
-
-集成在 `AgentLoop` 中的任务追踪器，负责：
-
-- 自动调用 `task_begin` / `task_end` 标记任务边界
-- 记录工具调用链到 `TraceStore`
-- 任务结束时自动触发嵌入和索引
-- Nudge 间隔可配置（默认 8 轮）
+当前执行路径的子代理入口为 **SpawnTool → AgentControl → AgentJobRuntime**。`SpawnTool` 触发 `miqi.runtime.agent_control.AgentControl.spawn_agent()`，后者将任务调度给 `miqi.runtime.agent_job_runtime.AgentJobRuntime` 并发执行。legacy `SubagentManager` fallback 已在 Phase 48 禁用。
 
 ## 错误处理
 
 - **重试机制**：LLM 调用失败自动重试
-- **工具超时**：每个工具有独立超时控制
+- **工具超时**：每个工具有独立超时控制，由 `ToolRuntime` 管理
 - **优雅降级**：工具执行失败不中断对话流程
 - **异常上报**：通过 Bridge 事件向 UI 报告错误

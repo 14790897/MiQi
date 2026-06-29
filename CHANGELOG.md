@@ -24,6 +24,90 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+
+### Added (2026-06-23) — Plan 62: Turn API Typed Validation
+- **Typed turn request models** (`miqi/runtime/turn_request_models.py`):
+  - 5 Pydantic v2 `BaseModel` subclasses with `validation_alias` for camelCase/snake_case interop: `TurnStartParams`, `TurnInterruptParams`, `TurnSteerParams`, `ThreadCompactStartParams`, `ThreadInjectItemsParams`.
+  - Legacy snake_case alias compatibility via `_with_aliases()` helper + `populate_by_name=True`.
+  - Field validators for non-empty `threadId`, `turnId`, `expectedTurnId`, `clientUserMessageId`; model-level content validation for text input requirements.
+  - `TURN_METHOD_PARAM_MODELS` lookup dict and `required_fields_for_model()` helper for catalog alignment.
+  - `validate_turn_params()` converts Pydantic `ValidationError` and `TurnProtocolError` to `AppServerError(code="INVALID_PARAMS")`.
+- **Typed validation at handler boundaries** (`miqi/runtime/turn_app_handlers.py`):
+  - All 5 turn handlers now validate params BEFORE any runtime state mutation (turn reservation, session.submit, interrupt_turn, steer_turn, history/ledger writes).
+  - Validation ordering: typed validate → check session auth → atomically reserve turn slot → validate thread exists → submit.
+
+### Added (2026-06-23) — Plan 61: Typed App Server Protocol
+- **Typed envelope models** (`miqi/runtime/app_protocol.py`): `AppServerRequest`, `AppServerResponse`, `AppServerSuccess`, `AppServerError` (Pydantic v2).
+- **Protocol registry** (`miqi/runtime/protocol_registry.py`):
+  - `MethodStability` enum: `stable`, `experimental`, `deprecated`, `legacy`.
+  - `MethodScope` enum: `connection`, `session`, `thread`, `turn`, `process`, `filesystem`, `debug`.
+  - `ProtocolMethodSpec` frozen dataclass with method name, stability, scope, description, params schema, result/error schemas.
+  - `ProtocolRegistry` — in-memory registry with `add()`, `get()`, `methods()`, `to_catalog()`, `to_json_schema()` (JSON Schema Draft 2020-12).
+- **31 typed protocol method specs** (`miqi/runtime/protocol_specs.py`): All AppServer methods now have typed `ProtocolMethodSpec` constants with accurate `required` fields matching real handler parameters.
+- **Protocol catalog** (`miqi/runtime/app_server.py`):
+  - `protocol/catalog` self-describing endpoint returning full method catalog.
+  - `protocol/method_names` returning sorted method name list.
+  - `protocol/schema` returning JSON Schema Draft 2020-12 export.
+  - `register_method()` accepts optional `spec` parameter; all 9 handler registration files updated.
+
+### Added (2026-06-22-23) — Plan 60: Trustworthy Test Baseline
+- **Cross-platform test infrastructure**:
+  - `pytest` markers: `self_managed_env`, `subprocess`, `sandbox`, `wsl`, `bwrap` for platform-dependent test classification.
+  - `miqi/paths.py` — canonical `get_miqi_home()` resolver with `_LEGACY_HOME` fallback for backward compat.
+  - GitHub Actions CI: `python-tests.yml` for cross-platform Python runtime tests.
+- **Test isolation hardening**:
+  - Writable pytest `basetemp` bootstrap; automatic cleanup in `tmp_path`-based fixtures.
+  - Safe subprocess/sandbox test teardown (orphaned process cleanup, real bwrap sandbox cleanup).
+  - Legacy data directory compatibility preserved (`~/.miqi` vs old `~/miqi` paths).
+- **bwrap/WSL acceptance**: Criterion 10 (real Ubuntu/WSL bwrap) marked as **PENDING** — WSL not functional on this host.
+
+### Added (2026-06-20-21) — Plans 48-59: Execution Hardening
+- **Legacy AgentLoop removal** (Plan 48): `AgentLoop` class, `RuntimeAgentLoopCompat`, `configure_agent_orchestrator` retired. `RuntimeModelSettings` replaces `agent_loop` references. See Removed section below for migration notes.
+- **Declarative permission policy DSL** (Plan 49): `miqi/execution/exec_policy.py` — permission profiles with allow/deny rules.
+- **Granular approval policy** (Plan 50): `miqi/execution/approval_policy.py` — `AskForApproval` modes with category-based routing.
+- **Lifecycle hook system** (Plan 51): `miqi/execution/hook_runtime.py` — complete before/after hook pipeline.
+- **Agent graph store** (Plan 52): `miqi/runtime/agent_graph_store.py` — SQLite persistence for agent jobs and spawn edges.
+- **Unified diff patch tool** (Plan 54): `miqi/agent/tools/apply_patch.py` — apply unified-diff patches to workspace files.
+- **Provider resilience hardening** (Plans 56-57): OpenAI and Anthropic providers — retry with exponential backoff, error → failed turn propagation.
+- **OTEL observability** (Plans 58-59): OpenTelemetry SDK integration (`miqi/observability/otel.py`) — span lifecycle, error terminal state handling.
+
+### Added (2026-06-14-20) — Plans 31-47: Runtime Platform
+- **AppServer runtime** (Plans 35, 39-47): Codex-style application server with `ClientSessionRegistry`, event subscription/fanout, typed dispatch, background task management, client/session isolation with TTL eviction.
+- **Turn API** (Plan 41): `turn/start`, `turn/interrupt`, `turn/steer`, `thread/inject_items`, `thread/compact/start` handlers with preallocated turn reservation, Codex event projection, background drain tasks.
+- **Replay debug** (Plan 40): Deterministic replay documents, stored-aware replay inspector, `replay/turns`, `replay/timeline`, `replay/messages` APIs.
+- **Stored threads** (Plan 39): Ledger-backed thread import/export, rollback/fork support, store-aware reader.
+- **Thread rollout** (Plan 36): Codex-style thread API — rollback, fork, metadata persistence, provider history copy, thread notifications.
+- **Plugin/Skills/MCP ecology** (Plan 37): `plugin/*`, `skills/*`, `mcp/*` AppServer handlers with deterministic plugin catalog, skills create/upload/delete, MCP status runtime.
+- **Config/Feature/Model profiles** (Plan 38): `config/*`, `model/*`, `feature/*` AppServer handlers — config read/batch write, model catalog with provider capabilities, feature runtime with experimental API gate.
+- **Workbench processes** (Plans 43-44): `command/exec` and `process/*` handlers with env sanitization (blocklist), timeout/output-cap semantics, client-scoped process runtime, streaming stdin/stderr, PTY resize (marked experimental), process state APIs, bounded history snapshots.
+- **Shell commands in turns** (Plan 42): User shell commands during active turns — `command/exec` from within turn context, event projection, ledger recording.
+- **FS watch & fuzzy search** (Plan 46): `fs/watch`, `fs/unwatch` with polling-based file change detection; `fuzzyFileSearch/*` with two-tier scoring (substring ≥1000, subsequence ≥500), session-based search.
+- **Initialize handshake** (Plan 45): Codex-style `initialize` with client capabilities negotiation, notification opt-out, experimental API gate.
+- **Desktop alpha release** (Plan 47): Internal alpha smoke checklist, alpha diagnostics, workflow pages, bridge transport initialization, desktop error handling.
+
+### Added (2026-06-10-14) — Plans 9-30: Runtime Core
+- **Runtime protocol & events** (Plan 9-10): Typed event system — turn, stream, tool, approval, multi-agent, plan, system events; command/submission types; permission policy types.
+- **Session runtime** (Plan 11): `RuntimeSession` core with caller isolation, event sink, session cross-access prevention.
+- **Turn/Tool/Context runtime** (Plan 12): `TurnRunner` with LLM calling loop, `ContextBuilder` for context injection, tool-call message ordering.
+- **Multi-agent runtime** (Plan 13-14): `AgentRegistry` with 4 built-in types, `AgentStateMachine` with validated transitions, `InputQueue`, `AgentControl` with lifecycle, `ThreadManager`, `PlanTracker`, frontend-as-RuntimeSession-client.
+- **Execution engine** (Plans 15-34): `ToolOrchestrator` with approval→sandbox→execute pipeline, `PermissionEngine`, `SandboxPolicyEngine`, `HookRuntime`. Per-session bwrap sandbox isolation with FIFO eviction (max 10), LANDLOCK file system ruleset, streaming stdin/stderr, subprocess cancellation. Office document read/write tools (docx, pptx, xlsx) with workspace path enforcement.
+- **History & Ledger** (Plans 23-25): Persistent `HistoryRuntime` and `LedgerRuntime` with SQLite/aiosqlite; turn/streaming/tool/exec/approval event mirroring into append-only ledger; ledger-history comparison acceptance tests.
+- **Frontend migration** (Plans 26-30): Bridge handlers migrated to AppServer — `chat.send/abort`, `agent.spawn/kill`, `sessions.*`, `config.*`, `approvals.*`, `agent.list/get`; `BridgeRuntimeLoop` with persistent asyncio event loop; client-scoped sandbox namespace; session ownership model (`owner_client_id`).
+- **Desktop & TUI** (June 10): Electron desktop: 15 feature pages (Agents, Plan, Permissions, Plugins, Approvals, Sessions, Settings, Cron, Channels, Experience, MCPs, Memory, Provider, Skills, Workspace). Textual-based TUI app skeleton. Collapsible plan sidebar, thread tabs, agent status indicators, inline tool progress, category filter tabs.
+
+### Added (2026-06-08)
+- **Collapse tool call messages in chat**: Collapse tool call messages for cleaner conversation view.
+- **Per-session bwrap sandbox isolation** (`miqi/sandbox/manager.py`): FIFO-based sandbox eviction policy (max 10).
+
+### Removed (2026-06-20)
+- **Legacy AgentLoop module and imports** (`miqi/agent/loop.py`):
+  - Removed the `AgentLoop` class and `miqi/agent/loop.py` module. The `miqi/agent/__init__.py` no longer exports `AgentLoop`.
+  - Removed `RuntimeAgentLoopCompat` and `RuntimeServices.agent_loop` property; replaced by `RuntimeModelSettings`.
+  - Removed `configure_agent_orchestrator` from `miqi/execution/factory.py`.
+  - All `services.agent_loop` references replaced with `services.model_settings` across the codebase.
+  - **Public Python API break**: code that directly imported `AgentLoop` from `miqi.agent` or accessed `RuntimeServices.agent_loop` / `RuntimeAgentLoopCompat` must migrate to `RuntimeModelSettings`.
+  - **Intentional retirement** of unreachable AgentLoop-only behaviors including `_run_agent_loop`, `_call_llm_for_summary`, `_register_default_tools`, and `flush_if_needed` instance methods. These behaviors are explicitly retired, not migrated: `_run_agent_loop` was replaced by `TurnRunner`, `_call_llm_for_summary` by `ContextRuntime`, and `_register_default_tools` by `ToolRegistryFactory` during earlier phases. `flush_if_needed` is retired without a direct replacement; a runtime nudge mechanism does not yet exist.
+
 ### Added (2026-06-08)
 - **Collapse tool call messages in chat**:
   - Added ability to collapse tool call messages in chat interface for cleaner conversation view

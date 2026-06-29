@@ -4,10 +4,11 @@ import type {
   RuntimeStatus,
   SessionInfo,
   SessionDetail,
+  SessionClaimLegacyResult,
   ProviderInfo,
   ProviderUpdateResult,
   ChannelsConfig,
-  ApprovalRequest,
+  PendingApproval,
   ApprovalCleared,
   ApprovalsListResult,
   ApprovalsAddPermanentResult,
@@ -47,6 +48,17 @@ import type {
   ChatSubagentResult,
   PythonCheckResult,
   WslCheckResult,
+  LiveAgentInfo,
+  AgentSpawnedEvent,
+  AgentCompletedEvent,
+  Plan,
+  PlanUpdatedEvent,
+  ThreadStartResult,
+  ThreadListResult,
+  ThreadReadResult,
+  ThreadStartedEvent,
+  TurnStartResult,
+  TurnInterruptResult,
 } from '../shared/ipc'
 
 // ---------------------------------------------------------------------------
@@ -78,12 +90,10 @@ const api = {
 
   // -- Chat -------------------------------------------------------------------
   chat: {
-    /** Send a message.  Returns ``{ accepted: true, req_id: string }``. */
-    send: (content: string, sessionKey?: string, reqId?: string): Promise<{ accepted: boolean; req_id: string }> =>
-      ipcRenderer.invoke(IPC.CHAT_SEND, { content, session_key: sessionKey, req_id: reqId }),
-    /** Abort a specific in-flight request by req_id. */
-    abort: (targetReqId?: string): Promise<{ aborted: boolean }> =>
-      ipcRenderer.invoke(IPC.CHAT_ABORT, { target_req_id: targetReqId }),
+    send: (content: string, sessionKey?: string, threadId?: string): Promise<unknown> =>
+      ipcRenderer.invoke(IPC.CHAT_SEND, { content, session_key: sessionKey, thread_id: threadId }),
+    abort: (sessionKey?: string): Promise<unknown> =>
+      ipcRenderer.invoke(IPC.CHAT_ABORT, { session_key: sessionKey }),
     onProgress: (callback: (data: ChatProgress) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: ChatProgress) => callback(data)
       ipcRenderer.on(IPC_EVENTS.CHAT_PROGRESS, handler)
@@ -129,6 +139,8 @@ const api = {
       ipcRenderer.invoke(IPC.SESSIONS_GET_TRACKED_FILES, { session_key: sessionKey }),
     clearTrackedFiles: (sessionKey: string): Promise<{ cleared: boolean }> =>
       ipcRenderer.invoke(IPC.SESSIONS_CLEAR_TRACKED_FILES, { session_key: sessionKey }),
+    claimLegacy: (sessionKey: string): Promise<SessionClaimLegacyResult> =>
+      ipcRenderer.invoke(IPC.SESSIONS_CLAIM_LEGACY, { session_key: sessionKey }),
   },
 
   // -- Config -----------------------------------------------------------------
@@ -181,8 +193,8 @@ const api = {
       ipcRenderer.invoke(IPC.APPROVALS_ADD_PERMANENT, { pattern }),
     history: (limit?: number): Promise<ApprovalsHistoryResult> =>
       ipcRenderer.invoke(IPC.APPROVALS_HISTORY, limit ? { limit } : {}),
-    onRequest: (callback: (data: ApprovalRequest) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: ApprovalRequest) => callback(data)
+    onRequest: (callback: (data: PendingApproval) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: PendingApproval) => callback(data)
       ipcRenderer.on(IPC_EVENTS.APPROVAL_REQUEST, handler)
       return () => { ipcRenderer.removeListener(IPC_EVENTS.APPROVAL_REQUEST, handler) }
     },
@@ -313,6 +325,86 @@ const api = {
   dialog: {
     openFile: (): Promise<string | null> =>
       ipcRenderer.invoke(IPC.DIALOG_OPEN_FILE),
+  },
+
+  // -- Agents (Phase 1) --------------------------------------------------------
+  agents: {
+    list: (sessionKey?: string): Promise<{ agents: LiveAgentInfo[] }> =>
+      ipcRenderer.invoke(IPC.AGENT_LIST, { session_key: sessionKey }),
+    spawn: (agentType: string, task: string, label?: string): Promise<{ agent: LiveAgentInfo }> =>
+      ipcRenderer.invoke(IPC.AGENT_SPAWN, { agent_type: agentType, task, label }),
+    kill: (agentId: string): Promise<{ killed: boolean }> =>
+      ipcRenderer.invoke(IPC.AGENT_KILL, { agent_id: agentId }),
+    onSpawned: (callback: (data: AgentSpawnedEvent) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: AgentSpawnedEvent) => callback(data)
+      ipcRenderer.on(IPC_EVENTS.AGENT_SPAWNED, handler)
+      return () => ipcRenderer.removeListener(IPC_EVENTS.AGENT_SPAWNED, handler)
+    },
+    onCompleted: (callback: (data: AgentCompletedEvent) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: AgentCompletedEvent) => callback(data)
+      ipcRenderer.on(IPC_EVENTS.AGENT_COMPLETED, handler)
+      return () => ipcRenderer.removeListener(IPC_EVENTS.AGENT_COMPLETED, handler)
+    },
+  },
+
+  // -- Plan (Phase 2) ----------------------------------------------------------
+  plan: {
+    get: (threadId: string): Promise<{ plan: Plan | null }> =>
+      ipcRenderer.invoke(IPC.PLAN_GET, { thread_id: threadId }),
+    onUpdated: (callback: (data: PlanUpdatedEvent) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: PlanUpdatedEvent) => callback(data)
+      ipcRenderer.on(IPC_EVENTS.PLAN_UPDATED, handler)
+      return () => ipcRenderer.removeListener(IPC_EVENTS.PLAN_UPDATED, handler)
+    },
+  },
+
+  // -- Permissions (Phase 1) ---------------------------------------------------
+  permissions: {
+    get: (): Promise<Record<string, unknown>> =>
+      ipcRenderer.invoke(IPC.PERMISSIONS_GET),
+    update: (config: Record<string, unknown>): Promise<{ saved: boolean }> =>
+      ipcRenderer.invoke(IPC.PERMISSIONS_UPDATE, { config }),
+    addPermanent: (pattern: string): Promise<{ added: boolean }> =>
+      ipcRenderer.invoke(IPC.PERMISSIONS_PERMANENT_ADD, { pattern }),
+    removePermanent: (pattern: string): Promise<{ removed: boolean }> =>
+      ipcRenderer.invoke(IPC.PERMISSIONS_PERMANENT_REMOVE, { pattern }),
+  },
+
+  // -- Plugins (Phase 4) -------------------------------------------------------
+  plugins: {
+    list: (): Promise<{ plugins: Record<string, unknown>[] }> =>
+      ipcRenderer.invoke(IPC.PLUGINS_LIST),
+    install: (name: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.PLUGINS_INSTALL, { name }),
+    uninstall: (name: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.PLUGINS_UNINSTALL, { name }),
+    toggle: (name: string, enabled: boolean): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.PLUGINS_TOGGLE, { name, enabled }),
+  },
+
+  // -- Threads (Phase 36+) -----------------------------------------------------
+  threads: {
+    start: (params: { title?: string; session_key?: string; thread_id?: string }): Promise<ThreadStartResult> =>
+      ipcRenderer.invoke(IPC.THREAD_START, params),
+    list: (params?: { session_key?: string }): Promise<ThreadListResult> =>
+      ipcRenderer.invoke(IPC.THREAD_LIST, params ?? {}),
+    read: (threadId: string, sessionKey?: string): Promise<ThreadReadResult> =>
+      ipcRenderer.invoke(IPC.THREAD_READ, { thread_id: threadId, session_key: sessionKey }),
+    nameSet: (threadId: string, name: string, sessionKey?: string): Promise<{ thread: Record<string, unknown> }> =>
+      ipcRenderer.invoke(IPC.THREAD_NAME_SET, { thread_id: threadId, name, session_key: sessionKey }),
+    onStarted: (callback: (data: ThreadStartedEvent) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: ThreadStartedEvent) => callback(data)
+      ipcRenderer.on(IPC_EVENTS.THREAD_STARTED, handler)
+      return () => ipcRenderer.removeListener(IPC_EVENTS.THREAD_STARTED, handler)
+    },
+  },
+
+  // -- Turns (Phase 37+) --------------------------------------------------------
+  turns: {
+    start: (params: { thread_id: string; content: string; session_key?: string; model?: string; effort?: string }): Promise<TurnStartResult> =>
+      ipcRenderer.invoke(IPC.TURN_START, params),
+    interrupt: (threadId: string, turnId: string, sessionKey?: string): Promise<TurnInterruptResult> =>
+      ipcRenderer.invoke(IPC.TURN_INTERRUPT, { thread_id: threadId, turn_id: turnId, session_key: sessionKey }),
   },
 }
 

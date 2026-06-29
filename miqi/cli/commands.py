@@ -128,7 +128,8 @@ def _init_prompt_session() -> None:
     except Exception:
         pass
 
-    history_file = Path.home() / ".miqi" / "history" / "cli_history"
+    from miqi.paths import get_miqi_home
+    history_file = get_miqi_home() / "history" / "cli_history"
     history_file.parent.mkdir(parents=True, exist_ok=True)
 
     _PROMPT_SESSION = PromptSession(
@@ -711,48 +712,13 @@ def _create_workspace_templates(
 
 
 def _make_provider(config: Config):
-    """Create the appropriate LLM provider from config."""
-    from miqi.providers.custom_provider import CustomProvider
-    from miqi.providers.registry import find_by_name
-
-    model = config.agents.defaults.model
-    provider_name = config.get_provider_name(model)
-    p = config.get_provider(model)
-
-    # Custom: direct OpenAI-compatible endpoint
-    if provider_name == "custom":
-        return CustomProvider(
-            api_key=p.api_key if p else "no-key",
-            api_base=config.get_api_base(model) or "http://localhost:8000/v1",
-            default_model=model,
-        )
-
-    spec = find_by_name(provider_name)
-    if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and spec.is_local):
-        console.print("[red]Error: No API key configured.[/red]")
-        console.print("Set one in your config file under providers section")
+    """Create the appropriate LLM provider from config (CLI-friendly wrapper)."""
+    from miqi.providers.factory import make_provider as _factory_make_provider
+    try:
+        return _factory_make_provider(config)
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
-
-    provider_type = spec.provider_type if spec else "openai"
-
-    common_kwargs = dict(
-        api_key=p.api_key if p else None,
-        api_base=config.get_api_base(model),
-        default_model=model,
-        extra_headers=p.extra_headers if p else None,
-        provider_name=provider_name,
-    )
-
-    if provider_type == "anthropic":
-        from miqi.providers.anthropic_provider import AnthropicProvider
-        return AnthropicProvider(**common_kwargs)
-
-    if provider_type == "gemini":
-        from miqi.providers.gemini_provider import GeminiProvider
-        return GeminiProvider(**common_kwargs)
-
-    from miqi.providers.openai_provider import OpenAIProvider
-    return OpenAIProvider(**common_kwargs)
 
 
 # Register split command modules.

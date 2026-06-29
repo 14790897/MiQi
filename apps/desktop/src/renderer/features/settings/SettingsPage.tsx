@@ -3,7 +3,7 @@ import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { ScrollArea } from '../../components/ui/ScrollArea'
 import { cn } from '../../lib/utils'
-import { RefreshCw, Download, Save, Eye, EyeOff, Check, RotateCcw, Archive, RotateCcw as Unarchive, ExternalLink } from 'lucide-react'
+import { RefreshCw, Download, Save, Eye, EyeOff, Check, RotateCcw, Archive, RotateCcw as Unarchive, ExternalLink, Copy } from 'lucide-react'
 import { useRuntime } from '../../contexts/RuntimeContext'
 import * as Tabs from '@radix-ui/react-tabs'
 import { ProvidersPage } from '../providers/ProvidersPage'
@@ -523,6 +523,7 @@ function AppearanceTab() {
 function LogsTab() {
   const { logs, refreshLogs } = useRuntime()
   const [autoScroll, setAutoScroll] = useState(true)
+  const [copiedLogs, setCopiedLogs] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -530,6 +531,12 @@ function LogsTab() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [logs, autoScroll])
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(logs.join('\n'))
+    setCopiedLogs(true)
+    setTimeout(() => setCopiedLogs(false), 1500)
+  }
 
   const handleExport = () => {
     const text = logs.join('\n')
@@ -559,6 +566,10 @@ function LogsTab() {
             <RefreshCw size={14} />
           </Button>
         </div>
+        <Button variant="outline" size="sm" onClick={handleCopy}>
+          {copiedLogs ? <Check size={14} /> : <Copy size={14} />}
+          {copiedLogs ? '已复制' : '复制日志'}
+        </Button>
         <Button variant="outline" size="sm" onClick={handleExport}>
           <Download size={14} /> 导出日志
         </Button>

@@ -7,6 +7,33 @@ Concurrent execution logic ported from Hermes Agent's run_agent.py:
     their target paths do not overlap
   - _NEVER_PARALLEL_TOOLS: tools that must always run sequentially
   - Path overlap detection prevents concurrent writes to the same file
+
+.. admonition:: Production-path audit (Phase 63)
+
+   ``ToolRegistry.execute()`` and ``ToolRegistry.execute_concurrent()`` are
+   **never** called in production.  All runtime tool invocations flow through
+   ``ToolOrchestrator.execute()`` → ``_execute_in_sandbox()`` (see
+   ``miqi/runtime/services.py:157-158`` and ``miqi/runtime/tool_runtime.py``).
+   The ``ToolRegistry`` instance is created by ``create_runtime_tool_registry()``
+   and passed into the orchestrator as its ``tools`` dependency — it is used
+   only for schema definitions and as a lookup table, never for direct execution.
+
+   The only remaining callers of ``ToolRegistry.execute()`` /
+   ``execute_concurrent()`` are in test files (``test_file_mutation_approval.py``,
+   ``test_phase31_acceptance.py``, ``test_phase32_office_path_enforcement.py``,
+   ``test_tool_validation.py``).  These tests construct ad-hoc registries and
+   bypass the orchestrator — they are not representative of production flows.
+
+   If you add a new production call site that calls ``ToolRegistry.execute()``
+   or ``execute_concurrent()`` directly, you are bypassing:
+   - Permission checks
+   - Sandbox policy enforcement
+   - Approval lifecycle
+   - Hook pipeline
+   - Replay ledger mirroring
+   - Structured error sanitization (``_sanitize_exc_for_ui()``)
+
+   **Do not do that.**  Wire through ``ToolOrchestrator.execute()`` instead.
 """
 from __future__ import annotations
 
@@ -107,6 +134,16 @@ class ToolRegistry:
         """
         Execute a tool by name with given parameters.
 
+        .. warning::
+           This is an **internal** API.  Production runtime tool calls MUST
+           go through ``ToolRuntime`` → ``ToolOrchestrator``, not directly
+           through ``ToolRegistry.execute()``.  Direct calls bypass
+           permission checks, sandbox policy, approval lifecycle, hooks,
+           and ledger/replay mirroring.
+
+           The only internal caller is ``execute_concurrent()``, which is
+           itself deprecated (no production call sites as of Phase 32).
+
         Args:
             name: Tool name.
             params: Tool parameters.
@@ -194,6 +231,22 @@ class ToolRegistry:
         default_kwargs: dict[str, Any] | None = None,
     ) -> list[tuple[str, str]]:
         """Execute multiple tool calls concurrently using asyncio.gather.
+
+        .. deprecated::
+           This method has **no production call sites** (Phase 32 audit).
+           All concurrent tool dispatch goes through ``ToolRuntime.execute_many()``
+           → ``ToolOrchestrator.execute()`` so that permission checks,
+           sandbox policy, approval lifecycle, hooks, and ledger/replay
+           mirroring are uniformly applied.
+
+           This method is retained for:
+           - Legacy test code that constructs ad-hoc ``ToolRegistry`` instances.
+           - Documentation examples (docs/backend/tools.md).
+           - Emergency debugging / REPL exploration.
+
+           Do NOT add new production call sites in ``miqi/runtime``,
+           ``miqi/bridge``, ``miqi/cli``, ``miqi/tui``, ``miqi/channels``,
+           or ``miqi/cron``.
 
         Args:
             tool_calls: List of dicts with keys 'id', 'name', 'arguments'.

@@ -524,8 +524,6 @@ def register_management_commands(
     ):
         from loguru import logger
 
-        from miqi.agent.loop import AgentLoop
-        from miqi.bus.queue import MessageBus
         from miqi.config.loader import get_data_dir, load_config
         from miqi.cron.service import CronService
         from miqi.cron.types import CronJob
@@ -544,52 +542,36 @@ def register_management_commands(
         store_path = get_data_dir() / "cron" / "jobs.json"
         service = CronService(store_path)
         provider = make_provider_getter()(config)
-        bus = MessageBus()
-        agent_loop = AgentLoop(
-            bus=bus,
-            provider=provider,
-            workspace=config.workspace_path,
-            agent_name=config.agents.defaults.name,
-            model=config.agents.defaults.model,
-            temperature=config.agents.defaults.temperature,
-            max_tokens=config.agents.defaults.max_tokens,
-            max_iterations=config.agents.defaults.max_tool_iterations,
-            reflect_after_tool_calls=config.agents.defaults.reflect_after_tool_calls,
-            web_config=config.tools.web,
-            paper_config=config.tools.papers,
-            memory_window=config.agents.defaults.memory_window,
-            max_tool_result_chars=config.agents.defaults.max_tool_result_chars,
-            context_limit_chars=config.agents.defaults.context_limit_chars,
-            exec_config=config.tools.exec,
-            memory_config=config.agents.memory,
-            self_improvement_config=config.agents.self_improvement,
-            session_config=config.agents.sessions,
-            cron_service=service,
-            restrict_to_workspace=config.tools.restrict_to_workspace,
-            mcp_servers=config.tools.mcp_servers,
-            channels_config=config.channels,
-        )
 
+        # Historical (Phase 14): use RuntimeSession, not AgentLoop
         result_holder = []
 
         async def on_job(job: CronJob) -> str | None:
-            response = await agent_loop.process_direct(
-                job.payload.message,
-                session_key=f"cron:{job.id}",
-                channel=job.payload.channel or "cli",
-                chat_id=job.payload.to or "direct",
+            from miqi.runtime.client import RuntimeClient
+            from miqi.runtime.session import RuntimeSession
+
+            session_id = f"cron:{job.id}"
+            runtime = RuntimeSession.create(
+                config=config,
+                provider=provider,
+                session_id=session_id,
+                workspace=config.workspace_path,
             )
-            result_holder.append(response)
-            return response
+            await runtime.start()
+            try:
+                response = await RuntimeClient(runtime).ask(
+                    job.payload.message,
+                    thread_id=session_id,
+                )
+                result_holder.append(response)
+                return response
+            finally:
+                await runtime.stop()
 
         service.on_job = on_job
 
         async def run():
-            try:
-                return await service.run_job(job_id, force=force)
-            finally:
-                agent_loop.stop()
-                await agent_loop.close_mcp()
+            return await service.run_job(job_id, force=force)
 
         if asyncio.run(run()):
             console.print("[green]✓[/green] Job executed")

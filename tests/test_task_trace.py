@@ -2,20 +2,13 @@ import importlib.util
 import json
 import time
 from pathlib import Path
-from unittest.mock import MagicMock
-
 import pytest
 
 from miqi.agent.context import ContextBuilder
-from miqi.agent.loop import AgentLoop
 from miqi.agent.trace.migrate import migrate_lessons_to_traces
 from miqi.agent.trace import store as trace_store_module
 from miqi.agent.trace.model import TaskStep
 from miqi.agent.trace.store import TraceStore
-from miqi.bus.events import InboundMessage
-from miqi.bus.queue import MessageBus
-from miqi.config.schema import AgentSelfImprovementConfig
-from miqi.providers.base import LLMResponse
 
 
 class _UnavailableEmbedder:
@@ -89,26 +82,6 @@ def test_embedding_semantic_search(tmp_path: Path):
     assert results[0].similarity_score > 0.5
 
 
-def test_auto_close_on_session_end(tmp_path: Path):
-    provider = MagicMock()
-    provider.get_default_model.return_value = "test-model"
-    loop = AgentLoop(
-        bus=MessageBus(),
-        provider=provider,
-        workspace=tmp_path,
-        model="test-model",
-    )
-
-    sid = "sess-5"
-    loop.trace_store.begin_task(sid, "long-task", "do work")
-    loop.stop()
-
-    assert loop.trace_store.get_current_task(sid) is None
-    traces = loop.trace_store.list_recent(n=1)
-    assert traces[0].outcome == "partial"
-    assert traces[0].outcome_notes == "Agent stopped without explicit task_end."
-
-
 def test_context_injection(store: TraceStore, tmp_path: Path):
     sid = "sess-6"
     store.begin_task(sid, "paper-download", "download arxiv papers")
@@ -128,40 +101,6 @@ def test_context_injection(store: TraceStore, tmp_path: Path):
     assert "## Similar Task History" in prompt
     assert "paper-download" in prompt
     assert "paper_search" in prompt
-
-
-@pytest.mark.asyncio
-async def test_nudge_injection(tmp_path: Path):
-    calls: list[list[dict]] = []
-
-    async def _chat(messages, **_):
-        calls.append(messages)
-        return LLMResponse(content="ok", tool_calls=[])
-
-    provider = MagicMock()
-    provider.get_default_model.return_value = "test-model"
-    provider.chat = _chat
-    loop = AgentLoop(
-        bus=MessageBus(),
-        provider=provider,
-        workspace=tmp_path,
-        model="test-model",
-        self_improvement_config=AgentSelfImprovementConfig(trace_nudge_interval=1),
-    )
-
-    await loop._process_message(
-        InboundMessage(channel="cli", sender_id="user", chat_id="trace", content="first")
-    )
-    await loop._process_message(
-        InboundMessage(channel="cli", sender_id="user", chat_id="trace", content="second")
-    )
-
-    # Trace nudge is removed — auto-instrumentation replaces it
-    assert not any(
-        msg.get("role") == "system"
-        and "record it now via task_end(outcome, notes)" in str(msg.get("content", ""))
-        for msg in calls[1]
-    )
 
 
 def test_lesson_migration(store: TraceStore, tmp_path: Path):

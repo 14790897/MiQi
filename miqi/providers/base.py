@@ -1,6 +1,9 @@
 """Base LLM provider interface."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,11 +24,29 @@ class LLMResponse:
     finish_reason: str = "stop"
     usage: dict[str, int] = field(default_factory=dict)
     reasoning_content: str | None = None  # Kimi, DeepSeek-R1 etc.
+    error_kind: str | None = None
 
     @property
     def has_tool_calls(self) -> bool:
         """Check if response contains tool calls."""
         return len(self.tool_calls) > 0
+
+
+@dataclass
+class LLMStreamEvent:
+    """A single event in the streaming chat response.
+
+    - content_delta: a piece of assistant text.
+    - reasoning_delta: a piece of model reasoning/thinking.
+    - tool_calls: accumulated tool calls (sent with completed).
+    - completed: full LLMResponse is available.
+    - error: an error occurred during streaming.
+    """
+
+    kind: str  # "content_delta" | "reasoning_delta" | "tool_calls" | "completed" | "error"
+    delta: str = ""
+    tool_calls: list[ToolCallRequest] = field(default_factory=list)
+    response: LLMResponse | None = None
 
 
 class LLMProvider(ABC):
@@ -103,6 +124,33 @@ class LLMProvider(ABC):
             LLMResponse with content and/or tool calls.
         """
         pass
+
+    async def stream_chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+    ) -> AsyncGenerator[LLMStreamEvent, None]:
+        """Stream a chat completion, yielding LLMStreamEvents.
+
+        Default implementation wraps chat() — calls it once and yields a
+        single "completed" event. Providers that support native streaming
+        (e.g. OpenAIProvider) override this to emit content_delta,
+        reasoning_delta, and completed events.
+
+        Non-streaming providers work without changes because this fallback
+        guarantees every call yields at least one completed event.
+        """
+        response = await self.chat(
+            messages=messages,
+            tools=tools,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        yield LLMStreamEvent(kind="completed", response=response)
 
     @abstractmethod
     def get_default_model(self) -> str:

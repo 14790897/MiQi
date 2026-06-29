@@ -1,6 +1,11 @@
 """Spawn tool for creating background subagents."""
 
+from __future__ import annotations
+
+import uuid
 from typing import TYPE_CHECKING, Any
+
+from loguru import logger
 
 from miqi.agent.tools.base import Tool
 
@@ -16,8 +21,15 @@ class SpawnTool(Tool):
     to the main agent when complete.
     """
 
-    def __init__(self, manager: "SubagentManager"):
+    def __init__(
+        self,
+        manager: "SubagentManager",
+        agent_control: Any = None,
+        event_emitter: Any = None,
+    ):
         self._manager = manager
+        self._agent_control = agent_control
+        self._event_emitter = event_emitter
         self._origin_channel = "cli"
         self._origin_chat_id = "direct"
 
@@ -56,10 +68,29 @@ class SpawnTool(Tool):
         }
 
     async def execute(self, task: str, label: str | None = None, **kwargs: Any) -> str:
-        """Spawn a subagent to execute the given task."""
-        return await self._manager.spawn(
+        """Spawn a subagent to execute the given task.
+
+        Requires AgentControl to be wired. The legacy SubagentManager
+        fallback has been removed (Phase 13).
+        """
+        display_label = label or (task[:30] + "..." if len(task) > 30 else task)
+
+        if self._agent_control is None:
+            raise RuntimeError(
+                "SpawnTool requires AgentControl. "
+                "Legacy SubagentManager fallback is disabled."
+            )
+
+        agent = await self._agent_control.spawn(
+            agent_type="code-agent",
             task=task,
-            label=label,
-            origin_channel=self._origin_channel,
-            origin_chat_id=self._origin_chat_id,
+            label=display_label,
+        )
+        logger.info(
+            "Subagent spawned via AgentControl: {} ({})",
+            agent.agent_id, display_label,
+        )
+        return (
+            f"Spawned sub-agent {agent.agent_id} "
+            f"(thread: {agent.thread_id}) to handle: {display_label}"
         )
