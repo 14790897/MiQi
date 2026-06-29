@@ -129,6 +129,4 @@ jobs:
         run: |
           xvfb-run --auto-servernum \
             npx playwright test --config=playwright.config.ts --project=electron
-        env:
-          HOME: /root
         timeout-minutes: 20
