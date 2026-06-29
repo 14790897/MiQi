@@ -152,10 +152,12 @@ function createMockProcess() {
   const stdout = new PassThrough()
   const stderr = new PassThrough()
   const proc = {
-    stdin: { write: vi.fn(), end: vi.fn() },
+    stdin: { write: vi.fn(), end: vi.fn(), writable: true, destroyed: false },
     stdout,
     stderr,
     on: vi.fn(),
+    once: vi.fn(),
+    removeListener: vi.fn(),
     kill: vi.fn(),
     exitCode: null as number | null,
   }
@@ -180,6 +182,32 @@ function findRequestId(proc: ReturnType<typeof createMockProcess>, method: strin
   return null
 }
 
+/** Complete the full bridge startup sequence:
+ *  spawn → ready handshake → 250ms exit check → initialize.
+ *
+ *  bridge.ts start() now waits for a {"type":"ready"} line before
+ *  proceeding to initializeConnection().  This helper feeds that
+ *  ready signal, waits for the 250ms alive-check, then feeds the
+ *  initialize response.
+ */
+async function startBridge(
+  proc: ReturnType<typeof createMockProcess>,
+  bridge: InstanceType<Awaited<ReturnType<typeof importBridgeManager>>>,
+  initResult: Record<string, unknown> = { clientId: 'test', serverInfo: { version: '1' } },
+): Promise<void> {
+  const startPromise = bridge.start()
+  // Wait for spawn + readline + ready-handshake handlers to be set up
+  await new Promise((r) => setTimeout(r, 300))
+  // Resolve the ready handshake
+  feedLine(proc, { type: 'ready' })
+  // Wait for the 250ms exit-check + initializeConnection() to send initialize
+  await new Promise((r) => setTimeout(r, 350))
+  // Feed the initialize response
+  const initId = findRequestId(proc, 'initialize')
+  feedLine(proc, { id: initId, result: initResult })
+  await startPromise
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   watcherCloses.length = 0
@@ -197,21 +225,7 @@ describe('BridgeManager lifecycle', () => {
     const proc = createMockProcess()
     const bridge = new BridgeManager('/fake/root')
 
-    const startPromise = bridge.start()
-
-    // Wait for the 250ms alive-check + a tick for initializeConnection
-    await new Promise((r) => setTimeout(r, 300))
-    expect(mockSpawn).toHaveBeenCalled()
-
-    // Feed the initialize response
-    const initId = findRequestId(proc, 'initialize')
-    expect(initId).toBeTruthy()
-    feedLine(proc, {
-      id: initId,
-      result: { clientId: 'alpha-1', serverInfo: { version: '0.2.0' } },
-    })
-
-    await startPromise
+    await startBridge(proc, bridge, { clientId: 'alpha-1', serverInfo: { version: '0.2.0' } })
 
     expect(bridge.isInitialized()).toBe(true)
     expect(bridge.isRunning()).toBe(true)
@@ -231,7 +245,16 @@ describe('BridgeManager lifecycle', () => {
     proc.exitCode = 1
 
     const bridge = new BridgeManager('/fake/root')
-    await expect(bridge.start()).rejects.toThrow(/exited immediately/)
+    const startPromise = bridge.start()
+
+    // Wait for ready-handshake handlers to be set up
+    await new Promise((r) => setTimeout(r, 300))
+
+    // Feed ready signal — ready handshake resolves, then the 250ms
+    // exit check will reject because exitCode=1
+    feedLine(proc, { type: 'ready' })
+
+    await expect(startPromise).rejects.toThrow(/exited immediately/)
     expect(bridge.getStatus().state).toBe('error')
   })
 
@@ -244,6 +267,8 @@ describe('BridgeManager lifecycle', () => {
 
     const startPromise = bridge.start()
     await new Promise((r) => setTimeout(r, 300))
+    feedLine(proc, { type: 'ready' })
+    await new Promise((r) => setTimeout(r, 350))
 
     const initId = findRequestId(proc, 'initialize')
     feedLine(proc, {
@@ -279,13 +304,7 @@ describe('BridgeManager lifecycle', () => {
     const bridge = new BridgeManager('/fake/root')
 
     // Complete initialize
-    const startPromise = bridge.start()
-    await new Promise((r) => setTimeout(r, 300))
-    feedLine(proc, {
-      id: findRequestId(proc, 'initialize'),
-      result: { clientId: 'ac', serverInfo: { version: '1' } },
-    })
-    await startPromise
+    await startBridge(proc, bridge, { clientId: 'ac', serverInfo: { version: '1' } })
 
     // Send a streaming request
     const events: { type: string; data: unknown }[] = []
@@ -332,13 +351,7 @@ describe('BridgeManager lifecycle', () => {
     const proc = createMockProcess()
     const bridge = new BridgeManager('/fake/root')
 
-    const startPromise = bridge.start()
-    await new Promise((r) => setTimeout(r, 300))
-    feedLine(proc, {
-      id: findRequestId(proc, 'initialize'),
-      result: { clientId: 'err-test', serverInfo: { version: '1' } },
-    })
-    await startPromise
+    await startBridge(proc, bridge, { clientId: 'err-test', serverInfo: { version: '1' } })
 
     const events: string[] = []
     const sendPromise = bridge.send('chat.send', { message: 'hi' }, (type) => {
@@ -363,13 +376,7 @@ describe('BridgeManager lifecycle', () => {
     const proc = createMockProcess()
     const bridge = new BridgeManager('/fake/root')
 
-    const startPromise = bridge.start()
-    await new Promise((r) => setTimeout(r, 300))
-    feedLine(proc, {
-      id: findRequestId(proc, 'initialize'),
-      result: { clientId: 'sc-test', serverInfo: { version: '1' } },
-    })
-    await startPromise
+    await startBridge(proc, bridge, { clientId: 'sc-test', serverInfo: { version: '1' } })
 
     // Track all onEvent calls
     const onEventCalls: Array<{ type: string; data: unknown }> = []
@@ -398,13 +405,7 @@ describe('BridgeManager lifecycle', () => {
     const proc = createMockProcess()
     const bridge = new BridgeManager('/fake/root')
 
-    const startPromise = bridge.start()
-    await new Promise((r) => setTimeout(r, 300))
-    feedLine(proc, {
-      id: findRequestId(proc, 'initialize'),
-      result: { clientId: 'exit-test', serverInfo: { version: '1' } },
-    })
-    await startPromise
+    await startBridge(proc, bridge, { clientId: 'exit-test', serverInfo: { version: '1' } })
 
     // Start a streaming request
     const events: string[] = []
@@ -435,13 +436,7 @@ describe('BridgeManager lifecycle', () => {
     const proc = createMockProcess()
     const bridge = new BridgeManager('/fake/root')
 
-    const startPromise = bridge.start()
-    await new Promise((r) => setTimeout(r, 300))
-    feedLine(proc, {
-      id: findRequestId(proc, 'initialize'),
-      result: { clientId: 'abort-test', serverInfo: { version: '1' } },
-    })
-    await startPromise
+    await startBridge(proc, bridge, { clientId: 'abort-test', serverInfo: { version: '1' } })
 
     const events: string[] = []
     const sendPromise = bridge.send('chat.send', { message: 'abort-me' }, (type) => {
@@ -488,13 +483,7 @@ describe('BridgeManager typed app client', () => {
     const proc = createMockProcess()
     const bridge = new BridgeManager('/fake/root')
 
-    const startPromise = bridge.start()
-    await new Promise((r) => setTimeout(r, 300))
-    feedLine(proc, {
-      id: findRequestId(proc, 'initialize'),
-      result: { clientId: 'timeout-test', serverInfo: { version: '1' } },
-    })
-    await startPromise
+    await startBridge(proc, bridge, { clientId: 'timeout-test', serverInfo: { version: '1' } })
 
     // Use a custom timeout
     const origSendRequest = (bridge as any).sendRequest.bind(bridge)

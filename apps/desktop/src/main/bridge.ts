@@ -378,21 +378,19 @@ export class BridgeManager extends EventEmitter {
       this.emitState()
 
       // Install the permanent request-response line handler
+      // NOTE: The primary line handler (registered before the ready
+      // handshake) already processes all responses and streaming events
+      // for tracked requests.  This secondary handler ONLY forwards
+      // orphan events (no pending request) to renderer windows so late
+      // events are not dropped.  Do NOT process tracked responses/events
+      // here — the primary handler already does that.
       this.rl.on('line', (line: string) => {
         try {
           const resp: BridgeResponse = JSON.parse(line)
           const normalized = normalizeBridgeMessage(resp)
           const pending = normalized.requestId ? this.pending.get(normalized.requestId) : undefined
 
-          if (pending) {
-            if (resp.type) {
-              pending.onEvent?.(resp.type, resp.data)
-            } else if (resp.error) {
-              pending.reject(new Error(resp.error))
-            } else {
-              pending.resolve(resp.result)
-            }
-          } else if (resp.type && resp.data) {
+          if (!pending && resp.type && resp.data) {
             // Orphan event (e.g. subagent_result after main agent finished)
             // Forward to all renderer windows so late events are not dropped.
             const eventKey = `CHAT_${resp.type.toUpperCase()}`
@@ -401,8 +399,8 @@ export class BridgeManager extends EventEmitter {
               const allWindows = BrowserWindow.getAllWindows()
               for (const win of allWindows) {
                 if (!win.isDestroyed()) {
-                  win.webContents.send(channel, resp.data)
-                }
+                    win.webContents.send(channel, resp.data)
+                  }
               }
             }
           }
