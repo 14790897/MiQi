@@ -56,9 +56,11 @@ class PermissionEngine:
     })
 
     # Safe shell commands: auto-allow (metacharacter-free commands only)
+    # Trailing spaces allow exact match; the matcher strips input before
+    # comparing, so bare "ls" matches "ls " and "pwd" matches "pwd ".
     SAFE_COMMAND_PREFIXES: tuple[str, ...] = (
         "ls ", "cat ", "head ", "tail ", "wc ", "grep ",
-        "find ", "which ", "pwd", "echo ", "date", "whoami",
+        "find ", "which ", "pwd ", "echo ", "date ", "whoami ",
         "git status", "git log", "git diff", "git branch",
         "python --version", "node --version",
         "cargo --version", "npm --version", "pip list",
