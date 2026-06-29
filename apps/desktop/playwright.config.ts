@@ -23,7 +23,7 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         baseURL: 'http://localhost:3458',
-        headless: false,
+        headless: true,  // CI runs headless; use --headed locally
       },
     },
     // ② Electron E2E: launches real desktop app via _electron.launch()
