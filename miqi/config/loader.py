@@ -6,13 +6,13 @@ from pathlib import Path
 from loguru import logger
 
 from miqi.config.schema import Config
+from miqi.paths import get_config_path, get_legacy_config_path
 
 
-def get_config_path() -> Path:
-    """Get default config path, preferring ~/.miqi/config.json with legacy fallback."""
-    home = Path.home()
-    preferred = home / ".miqi" / "config.json"
-    legacy = home / ".assistant" / "config.json"
+def _get_load_path() -> Path:
+    """Return the preferred config path, falling back to legacy for reads only."""
+    preferred = get_config_path()
+    legacy = get_legacy_config_path()
     if preferred.exists() or not legacy.exists():
         return preferred
     return legacy
@@ -34,7 +34,7 @@ def load_config(config_path: Path | None = None) -> Config:
     Returns:
         Loaded configuration object.
     """
-    path = config_path or get_config_path()
+    path = config_path or _get_load_path()
 
     if path.exists():
         try:

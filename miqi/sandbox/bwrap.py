@@ -14,14 +14,30 @@ Each conversation gets its own mount namespace with:
 Usage:
     sandbox = BwrapSandbox(session_key="feishu:oc_123", workspace="/path/to/workspace")
     await sandbox.start()
+
+    # Batch (legacy) — returns everything at once:
     exit_code, stdout, stderr = await sandbox.run_command("ls -la")
+
+    # Streaming (Phase 33.2) — incremental stdout/stderr, cancel support:
+    handle = await sandbox.run_command_streaming("long-running-cmd")
+    while True:
+        chunk = await handle.stdout.read(4096)
+        if not chunk:
+            break
+        print(chunk.decode())
+    await handle.wait()
+    await handle.cleanup()
+
     await sandbox.stop()
 """
+
+from __future__ import annotations
 
 import asyncio
 import os
 import platform
 import shutil
+import signal
 import subprocess
 import tempfile
 import uuid
@@ -30,19 +46,122 @@ from typing import Any
 
 from loguru import logger
 
-# Windows: hide child process console window
-_SUBPROCESS_KWARGS: dict = {}
-if platform.system() == "Windows":
-    _SUBPROCESS_KWARGS["creationflags"] = subprocess.CREATE_NO_WINDOW
-
-
-def _win_hide() -> dict:
-    """Return kwargs to hide console window on Windows."""
-    return _SUBPROCESS_KWARGS
-
 
 class BwrapSandboxError(Exception):
     """Error raised when bwrap operations fail."""
+
+
+class BwrapCommandHandle:
+    """Handle to a running command inside the bwrap sandbox.
+
+    Provides incremental access to stdout/stderr via :class:`asyncio.StreamReader`
+    and lifecycle control (wait, kill, cleanup).
+
+    Created by :meth:`BwrapSandbox.run_command_streaming`.  The caller MUST call
+    :meth:`cleanup` after the process exits (or after calling :meth:`kill`) to
+    release temporary resources (e.g. the WSL script file).
+
+    Usage::
+
+        handle = await sandbox.run_command_streaming("ls -la")
+        # ... read handle.stdout, handle.stderr incrementally ...
+        exit_code = await handle.wait()
+        await handle.cleanup()
+    """
+
+    __slots__ = ("_process", "_pgid", "_use_wsl", "_script_path", "_sandbox_ref")
+
+    def __init__(
+        self,
+        process: asyncio.subprocess.Process,
+        *,
+        pgid: int | None = None,
+        use_wsl: bool = False,
+    ):
+        self._process = process
+        self._pgid: int | None = pgid
+        self._use_wsl: bool = use_wsl
+        self._script_path: str | None = None
+        self._sandbox_ref: BwrapSandbox | None = None
+
+    @property
+    def stdout(self) -> asyncio.StreamReader | None:
+        """stdout stream for incremental reading (4096-byte chunks)."""
+        return self._process.stdout
+
+    @property
+    def stderr(self) -> asyncio.StreamReader | None:
+        """stderr stream for incremental reading (4096-byte chunks)."""
+        return self._process.stderr
+
+    @property
+    def returncode(self) -> int | None:
+        """Process return code (None if still running)."""
+        return self._process.returncode
+
+    async def wait(self) -> int:
+        """Wait for the command to exit.  Returns the exit code."""
+        await self._process.wait()
+        return self._process.returncode if self._process.returncode is not None else -1
+
+    async def kill(self) -> None:
+        """Kill the running command.
+
+        On native Linux, tries SIGTERM then SIGKILL against the process group
+        (bwrap creates a PID namespace but the outer bwrap process itself is
+        in the process group created with ``start_new_session=True``).
+
+        On WSL, terminates the wsl.exe wrapper — the inner bwrap processes
+        should be cleaned up via ``--die-with-parent`` when the wrapper bash
+        receives SIGHUP.
+
+        After calling this, call :meth:`cleanup` to release temporary resources.
+        """
+        if self._pgid is not None:
+            # Native Linux — kill the process group (bwrap + children)
+            try:
+                os.killpg(self._pgid, signal.SIGTERM)
+            except (ProcessLookupError, OSError):
+                pass
+        else:
+            try:
+                self._process.terminate()
+            except ProcessLookupError:
+                return
+
+        try:
+            await asyncio.wait_for(self._process.wait(), timeout=3.0)
+        except asyncio.TimeoutError:
+            # Force kill
+            try:
+                if self._pgid is not None:
+                    try:
+                        os.killpg(self._pgid, signal.SIGKILL)
+                    except (ProcessLookupError, OSError):
+                        pass
+                else:
+                    self._process.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                await asyncio.wait_for(self._process.wait(), timeout=5.0)
+            except (asyncio.TimeoutError, ProcessLookupError):
+                pass
+
+    async def cleanup(self) -> None:
+        """Release temporary resources (script file, etc.).
+
+        Must be called after the process exits — either naturally, via
+        :meth:`kill`, or after a timeout.
+        """
+        if self._script_path is not None and self._sandbox_ref is not None:
+            try:
+                await self._sandbox_ref._run_linux_command(
+                    f"rm -f '{self._script_path}'", timeout=5.0,
+                )
+            except Exception:
+                pass
+            self._script_path = None
 
 
 def _shell_quote(s: str) -> str:
@@ -110,7 +229,6 @@ class BwrapSandbox:
         self.sandbox_home: str = f"{self._linux_base_dir}/home/miqi"
         self.sandbox_workspace: str = f"{self._linux_base_dir}/home/miqi/workspace"
         self.sandbox_rootfs: str = f"{self._linux_base_dir}/rootfs"
-        self.sandbox_etc: str = f"{self._linux_base_dir}/etc"  # writable /etc copy
 
         self._process: asyncio.subprocess.Process | None = None
         self._running = False
@@ -141,7 +259,6 @@ class BwrapSandbox:
                 *full_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-            **_win_hide(),
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -181,7 +298,6 @@ class BwrapSandbox:
                 *full_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-            **_win_hide(),
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -228,7 +344,6 @@ class BwrapSandbox:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-            **_win_hide(),
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -251,10 +366,6 @@ class BwrapSandbox:
 
     def _wsl_prefix(self) -> list[str]:
         """Build the wsl.exe prefix for command execution."""
-        # If a dedicated sandbox distro is configured, always use it
-        # This avoids sudo requirement because sandbox uses --unshare-user-try
-        if self.sandbox_distro_name:
-            return ["wsl.exe", "-d", self.sandbox_distro_name, "--"]
         distro = self._detected_distro or self.wsl_distro
         if distro:
             return ["wsl.exe", "-d", distro, "--"]
@@ -276,7 +387,6 @@ class BwrapSandbox:
                     "wsl.exe", "-d", preferred, "--", "bash", "-c", "which bwrap",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
-                **_win_hide(),
                 )
                 await proc.communicate()
                 if proc.returncode == 0:
@@ -290,7 +400,6 @@ class BwrapSandbox:
                 "wsl.exe", "-l", "-q",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-            **_win_hide(),
             )
             stdout_data, _ = await proc.communicate()
             if proc.returncode != 0:
@@ -312,7 +421,6 @@ class BwrapSandbox:
                         "wsl.exe", "-d", distro, "--", "bash", "-c", "which bwrap",
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
-                    **_win_hide(),
                     )
                     await check.communicate()
                     if check.returncode == 0:
@@ -381,36 +489,6 @@ class BwrapSandbox:
         else:
             self._linux_workspace = None
 
-        # ── Copy host /etc into a writable sandbox-local copy ───────
-        # bwrap's --ro-bind-try /etc /etc can silently fail in WSL (the
-        # source directory may not be bind-mountable).  Instead, copy the
-        # entire /etc into the sandbox base directory and bind-mount that
-        # copy.  This also lets us inject custom resolv.conf / nsswitch.conf
-        # without dealing with read-only overlay ordering.
-        rc, _, err = await self._run_linux_command(
-            f"cp -a /etc/. '{self.sandbox_etc}/' 2>/dev/null || mkdir -p '{self.sandbox_etc}'"
-        )
-        if rc != 0:
-            logger.warning("Failed to copy /etc: {}", err)
-            # Fallback: create empty /etc and populate only essentials
-            await self._run_linux_command(f"mkdir -p '{self.sandbox_etc}'")
-
-        # Inject DNS configuration into the sandbox /etc copy
-        rc, _, err = await self._run_linux_command(
-            f"cp /etc/resolv.conf '{self.sandbox_etc}/resolv.conf' 2>/dev/null || "
-            f"echo 'nameserver 8.8.8.8' > '{self.sandbox_etc}/resolv.conf'; "
-            f"echo 'nameserver 114.114.114.114' >> '{self.sandbox_etc}/resolv.conf'"
-        )
-        if rc != 0:
-            logger.warning("Failed to create resolv.conf: {}", err)
-
-        rc, _, err = await self._run_linux_command(
-            f"cp /etc/nsswitch.conf '{self.sandbox_etc}/nsswitch.conf' 2>/dev/null || "
-            f"printf 'hosts: files dns\n' > '{self.sandbox_etc}/nsswitch.conf'"
-        )
-        if rc != 0:
-            logger.warning("Failed to create nsswitch.conf: {}", err)
-
         self._running = True
         logger.info(
             "Sandbox prepared for session {}: {}",
@@ -473,7 +551,6 @@ class BwrapSandbox:
                     *full_args,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
-                **_win_hide(),
                 )
 
                 try:
@@ -494,6 +571,111 @@ class BwrapSandbox:
 
         except Exception as exc:
             return (-1, "", f"Failed to run bwrap: {exc}")
+
+    async def run_command_streaming(
+        self,
+        command: str,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+    ) -> BwrapCommandHandle:
+        """Run a command inside the bwrap sandbox with streaming I/O.
+
+        Unlike :meth:`run_command` which buffers all output and returns it
+        at once, this method returns a :class:`BwrapCommandHandle` that
+        provides incremental stdout/stderr access via
+        :class:`asyncio.StreamReader`.  The **caller** is responsible for:
+
+        * reading from ``handle.stdout`` / ``handle.stderr``,
+        * calling ``await handle.wait()`` to await the exit code, and
+        * calling ``await handle.cleanup()`` to release temporary resources.
+
+        The caller also owns timeout and cancellation — use
+        :meth:`BwrapCommandHandle.kill` to stop a running command.
+
+        Returns:
+            BwrapCommandHandle with .stdout, .stderr, .wait(), .kill(),
+            and .cleanup().
+
+        Raises:
+            BwrapSandboxError: if the sandbox is not started.
+        """
+        if not self._running or not self._bwrap_path:
+            raise BwrapSandboxError("Sandbox not started")
+
+        bwrap_args = self._build_bwrap_args(command, env=env, cwd=cwd)
+
+        if self._use_wsl:
+            return await self._run_bwrap_streaming_via_script(bwrap_args)
+        else:
+            return await self._run_bwrap_streaming_native(bwrap_args)
+
+    async def _run_bwrap_streaming_native(
+        self, bwrap_args: list[str],
+    ) -> BwrapCommandHandle:
+        """Launch bwrap natively with streaming stdout/stderr.
+
+        Uses ``start_new_session=True`` so that :meth:`BwrapCommandHandle.kill`
+        can target the entire process group (bwrap + children).
+        """
+        process = await asyncio.create_subprocess_exec(
+            *bwrap_args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+        try:
+            pgid = os.getpgid(process.pid)
+        except (ProcessLookupError, OSError):
+            pgid = None
+
+        return BwrapCommandHandle(
+            process, pgid=pgid, use_wsl=False,
+        )
+
+    async def _run_bwrap_streaming_via_script(
+        self, bwrap_args: list[str],
+    ) -> BwrapCommandHandle:
+        """Launch bwrap via WSL script with streaming stdout/stderr.
+
+        Writes a temp shell script inside WSL (via stdin pipe to avoid the
+        32 767-char command-line limit), then executes it with
+        ``wsl.exe -d distro -- bash script``.
+
+        The script path is stored on the handle so :meth:`BwrapCommandHandle.cleanup`
+        can remove it after the process exits.
+        """
+        script_id = uuid.uuid4().hex[:12]
+        script_path = f"{self._linux_base_dir}/_bwrap_{script_id}.sh"
+
+        escaped_args = " ".join(
+            _shell_quote(a) for a in bwrap_args
+        )
+        script_content = f"#!/bin/bash\n{escaped_args}\n"
+
+        write_rc, _, write_err = await self._write_wsl_file_via_stdin(
+            script_path, script_content,
+        )
+        if write_rc != 0:
+            raise BwrapSandboxError(
+                f"Failed to write bwrap streaming script: {write_err}"
+            )
+
+        await self._run_linux_command(f"chmod +x '{script_path}'")
+
+        full_args = self._wsl_prefix() + ["bash", script_path]
+
+        process = await asyncio.create_subprocess_exec(
+            *full_args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        handle = BwrapCommandHandle(
+            process, pgid=None, use_wsl=True,
+        )
+        handle._script_path = script_path
+        handle._sandbox_ref = self
+        return handle
 
     # ── WSL script-based execution ─────────────────────────────────────
 
@@ -540,7 +722,6 @@ class BwrapSandbox:
                 *full_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-            **_win_hide(),
             )
 
             try:
@@ -571,7 +752,7 @@ class BwrapSandbox:
     # mount-point directories (like /home/miqi) for subsequent --bind mounts.
     _RO_BIND_DIRS: list[str] = [
         "/usr", "/bin", "/lib", "/lib64", "/lib32",
-        "/sbin", "/var", "/opt", "/snap",
+        "/etc", "/sbin", "/var", "/opt", "/snap",
     ]
 
     def _build_bwrap_args(
@@ -641,11 +822,10 @@ class BwrapSandbox:
         else:
             args.extend(["--bind", self.sandbox_workspace, "/home/miqi/workspace"])
 
-        # ── /etc — writable copy from sandbox base dir ─────────────
-        # We copy the host's /etc during start() and inject custom DNS
-        # files.  Binding the entire copy avoids the ro-bind-try /etc /etc
-        # silent-failure problem in WSL and gives us full control.
-        args.extend(["--bind", self.sandbox_etc, "/etc"])
+        # ── /etc/resolv.conf (writable copy for DNS if network shared) ─
+        if self.share_net:
+            resolv_copy = f"{self._linux_base_dir}/resolv.conf"
+            args.extend(["--bind", resolv_copy, "/etc/resolv.conf"])
 
         # ── Extra bind mounts ───────────────────────────────────────
         for src in self.extra_ro_binds:
@@ -762,7 +942,6 @@ class BwrapSandbox:
                     "which", candidate,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
-                **_win_hide(),
                 )
                 await proc.wait()
                 if proc.returncode == 0:
@@ -820,7 +999,6 @@ class BwrapSandbox:
                 *prefix, "rm", "-rf", linux_dir,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-            **_win_hide(),
             )
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 process.communicate(), timeout=15.0

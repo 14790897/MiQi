@@ -76,14 +76,16 @@ function createWindow(): void {
   // 添加右键菜单，支持打开开发者工具
   mainWindow.webContents.on('context-menu', (_event, props) => {
     const { x, y } = props
+    const win = mainWindow
+    if (!win) return
     Menu.buildFromTemplate([
       {
         label: '开发者工具',
         click: () => {
-          mainWindow?.webContents.openDevTools()
+          win.webContents.openDevTools()
         },
       },
-    ]).popup({ window: mainWindow, x, y })
+    ]).popup({ window: win, x, y })
   })
 
   if (process.env['ELECTRON_RENDERER_URL']) {

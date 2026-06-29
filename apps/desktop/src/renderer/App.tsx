@@ -15,15 +15,29 @@ import { MemoryPage } from './features/memory/MemoryPage'
 import { ExperiencePage } from './features/experience/ExperiencePage'
 import { SkillsPage } from './features/skills/SkillsPage'
 import WslStatusPage from './features/wsl/WslStatusPage'
+import AgentPanel from './features/agents/AgentPanel'
+import PlanTracker from './features/plan/PlanTracker'
+import { ApprovalsPage } from './features/approvals/ApprovalsPage'
+import { PermissionsPage } from './features/permissions/PermissionsPage'
+import { PluginMarket } from './features/plugins/PluginMarket'
+import { SessionExplorer } from './features/sessions/SessionExplorer'
+import { WorkspacePage } from './features/workspace/WorkspacePage'
 
 type NavId =
   | 'chat'
+  | 'workspace'
+  | 'agents'
+  | 'plan'
   | 'mcps'
   | 'cron'
   | 'memory'
   | 'experience'
   | 'skills'
   | 'wsl'
+  | 'permissions'
+  | 'plugins'
+  | 'approvals'
+  | 'sessions'
   | 'settings'
 
 const PRELOAD_OK = typeof window !== 'undefined' && !!(window as any).miqi
@@ -240,12 +254,21 @@ function AppShell() {
                     onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
                   />
                 </div>
+                {activeNav === 'workspace' && <WorkspacePage />}
                 {activeNav === 'mcps' && <MCPsPage />}
                 {activeNav === 'cron' && <CronPage />}
                 {activeNav === 'memory' && <MemoryPage />}
                 {activeNav === 'experience' && <ExperiencePage />}
                 {activeNav === 'skills' && <SkillsPage />}
                 {activeNav === 'wsl' && <WslStatusPage />}
+                {activeNav === 'agents' && <AgentPanel />}
+                {activeNav === 'plan' && <PlanTracker />}
+                {activeNav === 'approvals' && <ApprovalsPage />}
+                {activeNav === 'permissions' && <PermissionsPage />}
+                {activeNav === 'plugins' && <PluginMarket />}
+                {activeNav === 'sessions' && <SessionExplorer
+                  onOpenSession={(key: string) => { setSessionKey(key); setActiveNav('chat') }}
+                />}
                 {activeNav === 'settings' && <SettingsPage onReopenSetup={() => { setCanSkipSetup(true); setNeedsSetup(true) }} />}
               </main>
             </div>

@@ -656,22 +656,28 @@ function HistoryTab() {
             </div>
             {expandedId === entry.id && (
               <div className="px-4 pb-3 pl-11 space-y-2">
-                {entry.metadata?.outcome_notes && (
-                  <div className="text-xs text-[var(--muted-foreground)]">{entry.metadata.outcome_notes as string}</div>
-                )}
-                {entry.metadata?.tool_calls && Array.isArray(entry.metadata.tool_calls) && (entry.metadata.tool_calls as Array<{tool_name: string; args_summary: string; result_summary: string}>).map((step: any, i: number) => (
-                  <div key={i} className="bg-[var(--muted)]/5 rounded-md p-2 text-xs">
-                    <div className="font-medium text-[var(--accent)]">{step.tool_name}</div>
-                    <div className="text-[var(--muted-foreground)] mt-0.5">
-                      <span className="text-[11px] text-[var(--muted-foreground)]">args: </span>
-                      {step.args_summary}
+                {(() => {
+                  const n = entry.metadata?.outcome_notes
+                  if (n == null) return null
+                  return <div className="text-xs text-[var(--muted-foreground)]">{String(n)}</div>
+                })()}
+                {(() => {
+                  const calls = entry.metadata?.tool_calls
+                  if (!Array.isArray(calls)) return null
+                  return (calls as Array<{tool_name: string; args_summary: string; result_summary: string}>).map((step, i) => (
+                    <div key={i} className="bg-[var(--muted)]/5 rounded-md p-2 text-xs">
+                      <div className="font-medium text-[var(--accent)]">{step.tool_name}</div>
+                      <div className="text-[var(--muted-foreground)] mt-0.5">
+                        <span className="text-[11px] text-[var(--muted-foreground)]">args: </span>
+                        {step.args_summary}
+                      </div>
+                      <div className="text-[var(--muted-foreground)] mt-0.5">
+                        <span className="text-[11px] text-[var(--muted-foreground)]">result: </span>
+                        {step.result_summary}
+                      </div>
                     </div>
-                    <div className="text-[var(--muted-foreground)] mt-0.5">
-                      <span className="text-[11px] text-[var(--muted-foreground)]">result: </span>
-                      {step.result_summary}
-                    </div>
-                  </div>
-                ))}
+                  ))
+                })()}
               </div>
             )}
           </div>

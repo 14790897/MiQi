@@ -1,8 +1,46 @@
 # 会话管理
 
-`SessionManager`（`miqi/session/manager.py`）负责对话会话的完整生命周期管理。
+MiQi 的会话管理分为两层：底层的 `SessionManager`（`miqi/session/manager.py`）负责磁盘持久化，上层的 `RuntimeSession`（`miqi/runtime/session.py`）负责运行时服务图构造和执行。
 
-## 存储结构
+## RuntimeSession
+
+`RuntimeSession` (`miqi/runtime/session.py`) 管理一次会话的完整运行时生命周期。
+
+### 核心职责
+
+- 通过 `RuntimeServices` 构造运行时服务图（工具注册表、上下文运行时、工具运行时、TurnRunner 等）
+- 通过 `RuntimeClient.ask()` 接收用户消息并返回响应
+- 管理会话级锁以序列化同一会话内的请求
+- 维护提交队列 (`submission_queue`) 和事件队列 (`event_queue`)
+
+### 核心参数
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `provider` | Provider | LLM 提供商实例 |
+| `workspace` | Path | 工作区目录 |
+| `model` | str | 使用的模型名称 |
+| `temperature` | float | 生成多样性控制 |
+| `max_tool_iterations` | int | 最大工具调用轮次 |
+| `max_tokens` | int | 单次响应最大 Token |
+
+## ClientSessionRegistry (AppServer)
+
+`ClientSessionRegistry` (`miqi/runtime/app_server.py`) 管理 AppServer 层的客户端/会话隔离：
+
+- **客户端隔离**：按 `client_id` 区分不同前端客户端
+- **会话隔离**：每个客户端可有多个会话
+- **TTL 驱逐**：空闲会话自动清理
+
+## SessionManager
+
+`SessionManager` (`miqi/session/manager.py`) 负责会话的磁盘持久化管理。
+
+### 存储结构
+
+会话数据支持两种后端：
+- **JSONL 文件存储**：`SessionManager` — 传统磁盘存储
+- **SQLite 存储**：`miqi/session/sqlite_store.py` — SQLite 后端
 
 ```
 sessions/
@@ -15,8 +53,6 @@ sessions/
 └── feishu:oc_xxx/              # 飞书等外部通道会话
     └── ...
 ```
-
-## 核心功能
 
 ### 会话生命周期
 
@@ -65,7 +101,7 @@ sessions/
 
 - **窗口截断**：`memory_window` 参数控制保留的最近 N 轮对话
 - **摘要生成**：LLM 生成对话摘要替代完整历史
-- **上下文注入**：将摘要注入到新对话的系统提示词中
+- **上下文压缩**：`ContextCompressor` 5 阶段压缩算法
 
 ## CLI 命令
 
@@ -76,3 +112,8 @@ miqi session delete <id>       # 删除会话
 miqi session archive <id>      # 归档会话
 miqi session search <query>    # 搜索会话内容
 ```
+
+## 相关文档
+
+- [Runtime 引擎](agent.md) — RuntimeSession / TaskRunner / TurnRunner
+- [Bridge 通信](bridge.md) — Bridge Server 会话处理

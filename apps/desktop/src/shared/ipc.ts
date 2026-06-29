@@ -15,6 +15,16 @@ export const IPC = {
   CHAT_SEND: 'chat:send',
   CHAT_ABORT: 'chat:abort',
 
+  // Threads (Codex-style, Phase 36+)
+  THREAD_START: 'thread:start',
+  THREAD_LIST: 'thread:list',
+  THREAD_READ: 'thread:read',
+  THREAD_NAME_SET: 'thread:name:set',
+
+  // Turns (Codex-style, Phase 37+)
+  TURN_START: 'turn:start',
+  TURN_INTERRUPT: 'turn:interrupt',
+
   // Sessions
   SESSIONS_LIST: 'sessions:list',
   SESSIONS_GET: 'sessions:get',
@@ -24,6 +34,7 @@ export const IPC = {
   SESSIONS_LIST_ARCHIVED: 'sessions:list_archived',
   SESSIONS_GET_TRACKED_FILES: 'sessions:get_tracked_files',
   SESSIONS_CLEAR_TRACKED_FILES: 'sessions:clear_tracked_files',
+  SESSIONS_CLAIM_LEGACY: 'sessions:claim_legacy',
 
   // Config
   CONFIG_GET: 'config:get',
@@ -93,6 +104,26 @@ export const IPC = {
 
   // Dialog
   DIALOG_OPEN_FILE: 'dialog:openFile',
+
+  // New: Multi-Agent (Phase 1)
+  AGENT_LIST: 'agent:list',
+  AGENT_KILL: 'agent:kill',
+  AGENT_SPAWN: 'agent:spawn',
+
+  // New: Plan tracking (Phase 2)
+  PLAN_GET: 'plan:get',
+
+  // New: Permissions (Phase 1)
+  PERMISSIONS_GET: 'permissions:get',
+  PERMISSIONS_UPDATE: 'permissions:update',
+  PERMISSIONS_PERMANENT_ADD: 'permissions:permanent:add',
+  PERMISSIONS_PERMANENT_REMOVE: 'permissions:permanent:remove',
+
+  // New: Plugin management (Phase 4)
+  PLUGINS_LIST: 'plugins:list',
+  PLUGINS_INSTALL: 'plugins:install',
+  PLUGINS_UNINSTALL: 'plugins:uninstall',
+  PLUGINS_TOGGLE: 'plugins:toggle',
 } as const
 
 // ---------------------------------------------------------------------------
@@ -110,6 +141,14 @@ export const IPC_EVENTS = {
   CHAT_SUBAGENT_RESULT: 'chat:subagent_result',
   APPROVAL_REQUEST: 'approval:request',
   APPROVAL_CLEARED: 'approval:cleared',
+
+  // New events (Phase 1)
+  AGENT_SPAWNED: 'agent:spawned',
+  AGENT_COMPLETED: 'agent:completed',
+  PLAN_UPDATED: 'plan:updated',
+  TURN_STARTED: 'turn:started',
+  TURN_COMPLETED: 'turn:completed',
+  THREAD_STARTED: 'thread:started',
 } as const
 
 // ---------------------------------------------------------------------------
@@ -119,6 +158,7 @@ export const IPC_EVENTS = {
 export const ChatSendInput = z.object({
   content: z.string().min(1),
   session_key: z.string().optional(),
+  thread_id: z.string().optional(),
 })
 
 export const SessionGetInput = z.object({
@@ -128,6 +168,17 @@ export const SessionGetInput = z.object({
 export const SessionDeleteInput = z.object({
   session_key: z.string().min(1),
 })
+
+export const SessionClaimLegacyInput = z.object({
+  session_key: z.string().min(1),
+})
+
+export interface SessionClaimLegacyResult {
+  claimed: boolean
+  session_key: string
+  owner_client_id: string
+  error?: string
+}
 
 export const ConfigUpdateInput = z.object({
   config: z.record(z.unknown()),
@@ -145,6 +196,26 @@ export const ProviderUpdateInput = z.object({
   api_base: z.string().nullable().optional(),
   extra_headers: z.record(z.string()).nullable().optional(),
   model: z.string().optional(),
+})
+
+// New Phase 1 schemas
+export const AgentSpawnInput = z.object({
+  agent_type: z.string().min(1),
+  task: z.string().min(1),
+  label: z.string().optional(),
+})
+
+export const PermissionsUpdateInput = z.object({
+  filesystem: z.object({
+    rules: z.array(z.object({
+      path: z.string(),
+      mode: z.enum(['read', 'write', 'none']),
+      recursive: z.boolean().optional(),
+    })),
+    default_mode: z.enum(['read', 'write', 'none']).optional(),
+  }).optional(),
+  network: z.enum(['allow_all', 'block_all', 'allow_list']).optional(),
+  exec_approval: z.enum(['never', 'dangerous', 'always']).optional(),
 })
 
 // ---------------------------------------------------------------------------
@@ -230,15 +301,19 @@ export const ChannelsUpdateInput = z.object({
 
 export interface ApprovalRequest {
   approval_id: string
-  command: string
+  command?: string      // may be empty for non-exec approvals
   description: string
   allow_permanent: boolean
+  category?: string  // "exec" | "file_write" | "unknown_tool" | ...
+  details?: Record<string, unknown>  // e.g. { command, path, operation, tool_name }
 }
 
 export interface PendingApproval {
   approval_id: string
-  command: string
+  command?: string     // may be empty for non-exec approvals
   description: string
+  category?: string  // "exec" | "file_write" | "network" | "patch_apply"
+  details?: Record<string, unknown>  // structured approval metadata
   allow_permanent: boolean
   created_at: number
   age_seconds: number
@@ -686,4 +761,140 @@ export interface WslStatsResult {
     used_pct: number
   }
   uptime_sec: number
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1: New types for multi-agent, plan, permissions
+// ---------------------------------------------------------------------------
+
+export interface LiveAgentInfo {
+  agent_id: string
+  thread_id: string
+  type: string
+  status: 'idle' | 'thinking' | 'executing' | 'waiting_approval' | 'completed' | 'error' | 'aborted'
+  parent: string | null
+  label: string
+  spawned_at: number
+}
+
+export interface PlanStep {
+  id: string
+  description: string
+  status: 'pending' | 'in_progress' | 'completed' | 'skipped'
+  depends_on: string[]
+}
+
+export interface Plan {
+  plan_id: string
+  title: string
+  steps: PlanStep[]
+  created_at: number
+  updated_at: number
+}
+
+export interface AgentSpawnedEvent {
+  sub_agent_id: string
+  sub_thread_id: string
+  agent_type: string
+  task_label: string
+}
+
+export interface AgentCompletedEvent {
+  sub_agent_id: string
+  sub_thread_id: string
+  outcome: string
+  summary: string
+}
+
+export interface PlanUpdatedEvent {
+  plan: Plan
+}
+
+export interface TurnStartedEvent {
+  turn_id: string
+  agent_name: string
+  thread_id: string
+}
+
+export interface TurnCompletedEvent {
+  turn_id: string
+  thread_id: string
+  outcome: string
+  tools_used: string[]
+  token_usage: Record<string, number>
+}
+
+// ── Thread / Turn types (Phase 36+) ───────────────────────────────────────
+
+export const ThreadStartInput = z.object({
+  title: z.string().optional(),
+  session_key: z.string().optional(),
+  thread_id: z.string().optional(),
+})
+
+export const ThreadReadInput = z.object({
+  thread_id: z.string().min(1),
+  session_key: z.string().optional(),
+})
+
+export const ThreadNameSetInput = z.object({
+  thread_id: z.string().min(1),
+  name: z.string().min(1),
+  session_key: z.string().optional(),
+})
+
+export const TurnStartInput = z.object({
+  thread_id: z.string().min(1),
+  content: z.string().min(1),
+  session_key: z.string().optional(),
+  model: z.string().optional(),
+  effort: z.string().optional(),
+})
+
+export const TurnInterruptInput = z.object({
+  thread_id: z.string().min(1),
+  turn_id: z.string().min(1),
+  session_key: z.string().optional(),
+})
+
+export const ChatAbortInput = z.object({
+  session_key: z.string().optional(),
+  thread_id: z.string().optional(),
+})
+
+export const AgentListInput = z.object({
+  session_key: z.string().optional(),
+})
+
+export interface ThreadInfo {
+  id: string
+  title: string
+  created_at: number
+  updated_at: number
+  turn_count: number
+}
+
+export interface ThreadStartResult {
+  thread: Record<string, unknown>
+}
+
+export interface ThreadListResult {
+  items: Record<string, unknown>[]
+  nextCursor?: null | string
+}
+
+export interface ThreadReadResult {
+  thread: Record<string, unknown>
+}
+
+export interface TurnStartResult {
+  turn: Record<string, unknown>
+}
+
+export interface TurnInterruptResult {
+  interrupted: boolean
+}
+
+export interface ThreadStartedEvent {
+  thread: Record<string, unknown>
 }

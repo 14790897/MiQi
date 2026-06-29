@@ -27,7 +27,9 @@ _snapshots_lock = threading.Lock()
 
 
 def _snapshots_dir() -> Path:
-    d = Path.home() / ".miqi" / "snapshots"
+    from miqi.paths import get_miqi_home
+
+    d = get_miqi_home() / "snapshots"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
