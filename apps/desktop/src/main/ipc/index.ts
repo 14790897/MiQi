@@ -1150,17 +1150,17 @@ for m in ("pydantic", "httpx", "loguru"):
 
   ipcMain.handle(IPC.THREAD_LIST, async (_event, payload: unknown) => {
     const p = (payload ?? {}) as { session_key?: string }
-    return bridge.sendSafe('thread/list', { sessionKey: p.session_key })
+    return bridge.sendSafe('thread/list', { sessionId: p.session_key })
   })
 
   ipcMain.handle(IPC.THREAD_READ, async (_event, payload: unknown) => {
     const input = ThreadReadInput.parse(payload)
-    return bridge.sendSafe('thread/read', { threadId: input.thread_id, sessionKey: input.session_key })
+    return bridge.sendSafe('thread/read', { threadId: input.thread_id, sessionId: input.session_key })
   })
 
   ipcMain.handle(IPC.THREAD_NAME_SET, async (_event, payload: unknown) => {
     const input = ThreadNameSetInput.parse(payload)
-    return bridge.send('thread/name/set', { threadId: input.thread_id, name: input.name, sessionKey: input.session_key })
+    return bridge.send('thread/name/set', { threadId: input.thread_id, name: input.name, sessionId: input.session_key })
   })
 
   // -- Turns (Phase 37+) ----------------------------------------------------
@@ -1173,7 +1173,6 @@ for m in ("pydantic", "httpx", "loguru"):
     return bridge.send('turn/start', {
       threadId: input.thread_id,
       input: [{ type: 'message', content: input.content }],
-      sessionKey: input.session_key,
       model: input.model,
       effort: input.effort,
     }, (type: string, data: unknown) => {
@@ -1196,7 +1195,6 @@ for m in ("pydantic", "httpx", "loguru"):
     return bridge.send('turn/interrupt', {
       threadId: input.thread_id,
       turnId: input.turn_id,
-      sessionKey: input.session_key,
     })
   })
 }
