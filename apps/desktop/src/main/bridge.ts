@@ -650,19 +650,19 @@ export class BridgeManager extends EventEmitter {
     onEvent?: (type: string, data: unknown) => void,
     options: SendOptions = {},
   ): Promise<unknown> {
-    const canSend =
-      this.isRunning() ||
-      (options.allowStarting === true && this.process !== null && this.state === 'starting')
-
-    if (!canSend) {
-      throw new Error('Bridge not running')
+    // Auto-start the bridge if it's not running yet (prevents startup races)
+    if (!this.isInitialized()) {
+      await this.start()
+      if (!this.isRunning()) {
+        throw new Error('Bridge failed to start')
+      }
     }
 
     const id = randomUUID()
     const request: BridgeRequest = { id, method, params }
     const timeoutMs =
       options.timeoutMs ??
-      (method === 'chat.send' ? 300_000 : 30_000)
+      (method === 'chat.send' ? 300_000 : 60_000)
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
