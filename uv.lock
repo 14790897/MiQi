@@ -1054,7 +1054,7 @@ wheels = [
 
 [[package]]
 name = "miqi"
-version = "0.2.0"
+version = "0.2.0.dev7"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
