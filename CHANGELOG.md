@@ -1,3 +1,48 @@
+# [0.3.0](https://github.com/14790897/MiQi/compare/v0.2.2...v0.3.0) (2026-06-30)
+
+
+### Features
+
+* **diagnose:** add diagnostic scripts for bug reports ([a38c1d1](https://github.com/14790897/MiQi/commit/a38c1d1a4a6836fe9e42d46f815920fb41160dfd))
+
+## [0.2.2](https://github.com/14790897/MiQi/compare/v0.2.1...v0.2.2) (2026-06-29)
+
+
+### Bug Fixes
+
+* **ci:** add workflow_dispatch trigger ([4f4c0c1](https://github.com/14790897/MiQi/commit/4f4c0c150e272c24a91560369db3a82843875329))
+* **ci:** exclude real-e2e from vitest, allow passWithNoTests ([4849a50](https://github.com/14790897/MiQi/commit/4849a503844557bc6908f7ba86f76b174e96d257))
+* **ci:** increase electron test timeout to 5min ([07b6f12](https://github.com/14790897/MiQi/commit/07b6f1247a71cc8564c0473d60f7f843d147dcec))
+* **ci:** remove HOME=/root to fix config.json path mismatch ([cd90fb3](https://github.com/14790897/MiQi/commit/cd90fb3025ccec247433a5fccca80f2b4dc4020b))
+* **ci:** set headless: true for CI smoke tests ([0d8bfad](https://github.com/14790897/MiQi/commit/0d8bfad889fd078d6b24137adf06fc0053b0db05))
+* **test:** separate vitest and playwright configs ([501c6b6](https://github.com/14790897/MiQi/commit/501c6b610ce7001d99f50aa905eb3622499621e9))
+
+## [0.2.1](https://github.com/14790897/MiQi/compare/v0.2.0...v0.2.1) (2026-06-26)
+
+
+### Bug Fixes
+
+* **desktop:** add predev script to auto-install Python deps ([2e05e40](https://github.com/14790897/MiQi/commit/2e05e408acfa2dc11c077bf2b0bb8ac5cd35bb2f))
+
+# [0.2.0](https://github.com/14790897/MiQi/compare/v0.1.19...v0.2.0) (2026-06-26)
+
+
+### Bug Fixes
+
+* **bridge:** handle stdin write errors gracefully ([b642627](https://github.com/14790897/MiQi/commit/b64262781314e35bfafc52363f5f21ab69723a59))
+* **chat:** persist user message immediately so it survives session switch ([5498057](https://github.com/14790897/MiQi/commit/54980577226dc974841ddd6f24fbd74a81d14f8e))
+* **chat:** scroll to bottom on session open ([2fce763](https://github.com/14790897/MiQi/commit/2fce763fd7d395b959789600e060717ad0aba16c))
+* **desktop:** stop scroll jank — sidebar list reset & chat stream lock ([2644787](https://github.com/14790897/MiQi/commit/264478766b7a94c83f1b222920badae380d4b1bf))
+* handle cross-thread safety and prevent duplicate messages ([44a77fc](https://github.com/14790897/MiQi/commit/44a77fc9133f27402f53669e0b90a23b3f00428d))
+
+
+### Features
+
+* **chat:** persist and render subagent results ([1cd30ec](https://github.com/14790897/MiQi/commit/1cd30ec1dea918f06bcbe5dadca61611950befb1))
+* **desktop:** persist and restore last active session ([2545c40](https://github.com/14790897/MiQi/commit/2545c4087daea5a027b62e599a459609e25c399e))
+* **subagent:** support background execution in desktop mode ([e71c92d](https://github.com/14790897/MiQi/commit/e71c92d83caffa66ccd4c0dac4696a1aae124e32))
+* 添加 SLURM 技能支持 ([53f649e](https://github.com/14790897/MiQi/commit/53f649e70c6342ed6f6d1115099e86b77346f772))
+
 # [0.2.0-dev.7](https://github.com/14790897/MiQi/compare/v0.2.0-dev.6...v0.2.0-dev.7) (2026-06-24)
 
 
