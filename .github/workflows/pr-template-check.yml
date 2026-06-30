@@ -1,0 +1,76 @@
+name: PR 模板校验
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 检查 PR 模板是否完整填写
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request.body || '';
+
+            // 去掉 HTML 注释（<!-- xxx -->）
+            const withoutComments = body.replace(/<!--[\s\S]*?-->/g, '').trim();
+
+            const checks = [
+              {
+                label: '类型',
+                // 至少勾选了一项
+                check: () => /\[x\]/.test(withoutComments),
+              },
+              {
+                label: '变更概述',
+                check: () => {
+                  const m = withoutComments.match(/## 变更概述\s*\n+(.+?)(?=\n##|\n*$)/s);
+                  return m && m[1].trim().length > 0;
+                },
+              },
+              {
+                label: '背景/问题',
+                check: () => {
+                  const m = withoutComments.match(/## 背景\/问题\s*\n+(.+?)(?=\n##|\n*$)/s);
+                  return m && m[1].trim().length > 0;
+                },
+              },
+              {
+                label: '变更内容',
+                check: () => {
+                  const m = withoutComments.match(/## 变更内容\s*\n+(.+?)(?=\n##|\n*$)/s);
+                  return m && m[1].trim().length > 0;
+                },
+              },
+              {
+                label: '日志/验证证据',
+                check: () => {
+                  const m = withoutComments.match(/## 日志\/验证证据\s*\n+```\s*\n([\s\S]*?)```/);
+                  if (!m) return false;
+                  const content = m[1].trim();
+                  return content.length > 0 && content !== '（粘贴日志/截图）';
+                },
+              },
+              {
+                label: '测试情况',
+                check: () => {
+                  const m = withoutComments.match(/## 测试情况\s*\n+(.+?)(?=\n##|\n*$)/s);
+                  return m && m[1].trim().length > 0;
+                },
+              }
+            ];
+
+            const failures = checks.filter(c => !c.check()).map(c => c.label);
+
+            if (failures.length > 0) {
+              core.setFailed(
+                `PR 模板以下必填节为空，请补充：\n${failures.map(f => `  - ${f}`).join('\n')}\n\n` +
+                `不允许空白节，必须有日志/证据。`
+              );
+            } else {
+              console.log('✅ PR 模板填写完整');
+            }
