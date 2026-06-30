@@ -35,6 +35,12 @@ dependencies = [
     "lark-oapi>=1.5.0,<2.0.0",
     "tzdata>=2024.1 ; sys_platform == 'win32'",
     "pyinstaller>=6.20.0",
+    "pyyaml>=6.0.3",
+    "aiosqlite>=0.22.1",
+    "python-docx>=1.2.0",
+    "python-pptx>=1.0.2",
+    "openpyxl>=3.1.5",
+    "textual>=8.2.7",
 ]
 
 [project.optional-dependencies]
@@ -47,6 +53,10 @@ trace = [
     "fastembed>=0.6.0,<1.0.0",
     "numpy>=1.24.0",
     "blake3>=0.4.0,<1.0.0",
+]
+otel = [
+    "opentelemetry-sdk>=1.27.0",
+    "opentelemetry-exporter-otlp>=1.27.0",
 ]
 
 [project.scripts]
@@ -88,6 +98,13 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "self_managed_env: test fully isolates and manages its own home and temp environment",
+    "subprocess: requires permission to start a normal local subprocess",
+    "sandbox: requires a real OS sandbox adapter",
+    "wsl: requires Windows Subsystem for Linux and a usable distribution",
+    "bwrap: requires a usable bubblewrap executable on Linux or WSL",
+]
 
 [dependency-groups]
 dev = [

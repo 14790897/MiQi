@@ -1,45 +1,59 @@
 # 更新日志
 
-完整版本更新日志请参见项目根目录的 [CHANGELOG.md](https://github.com/14790897/MiQi/blob/electronUI/CHANGELOG.md)。
+完整版本更新日志请参见项目根目录的 [CHANGELOG.md](../CHANGELOG.md)。
 
-## 最新更新 (2026-05)
+## 最新更新 (2026-06)
 
-### 2026-05-25
-- **过滤 `think` 推理块**：ChatConsole 新增 `stripThinkBlocks()`，自动去除 DeepSeek-R1 等推理模型的思考块
+### 2026-06-23 — Plan 62: Turn API 类型化验证
+- **类型化 Turn 请求模型**：5 个 Pydantic v2 模型，支持 camelCase/snake_case 互操作，字段级和模型级验证
+- **处理器边界验证**：所有 5 个 turn 处理器在修改运行时状态之前先执行类型化验证
+- 验证错误转换为 `AppServerError(code="INVALID_PARAMS")`
 
-### 2026-05-22
-- **文件快照修复**：修复快照失败静默吞异常、合并错误删除新建文件、切换会话文件重新出现等问题
-- **SkillHub**：CSP 修复 + 技能文件扩展名修复（`.yml` → `.md`）
+### 2026-06-23 — Plan 61: 类型化 App Server 协议
+- **类型化信封模型**：`AppServerRequest`、`AppServerResponse`、`AppServerSuccess`、`AppServerError`
+- **ProtocolRegistry**：带 `MethodStability`/`MethodScope` 枚举的方法注册表
+- **31 个类型化协议方法规范**：`required` 字段与真实处理器参数完全对齐
+- **Protocol Catalog**：自描述 `protocol/catalog` 端点 + JSON Schema Draft 2020-12 导出
 
-### 2026-05-22
-- **SkillHub 注册中心集成**：新增 SkillHub 标签页，支持浏览/搜索/一键安装公开技能
-- **会话归档**：新增存档按钮 + Settings 中的 Archived 标签页
+### 2026-06-22-23 — Plan 60: 可信测试基线
+- **跨平台测试基础设施**：pytest 标记 (`subprocess`, `sandbox`, `wsl`, `bwrap`)，GitHub Actions CI
+- **测试隔离强化**：可写 pytest basetemp，安全的子进程/沙箱清理
+- **路径规范化**：`get_miqi_home()` 规范路径解析器，保留旧路径兼容
+- **bwrap/WSL**：Criterion 10 标记为 PENDING — 当前主机 WSL 不可用
 
-### 2026-05-20
-- **WSL2 安装引导**：设置向导新增 WSL2 自动检测和一键安装步骤
-- **重新运行配置向导**：Settings 页面新增 Reconfigure 按钮
+### 2026-06-20-21 — Plans 48-59: 执行强化
+- **遗留 AgentLoop 移除** (Plan 48)：`AgentLoop` 类退役，`RuntimeModelSettings` 替代
+- **声明式权限策略 DSL** (Plan 49) + **细粒度审批策略** (Plan 50) + **生命周期钩子系统** (Plan 51)
+- **Agent Graph Store** (Plan 52)：SQLite 持久化 agent 任务和 spawn 边
+- **Unified Diff Patch 工具** (Plan 54)
+- **提供商容错强化** (Plans 56-57)：OpenAI/Anthropic 指数退避重试
+- **OTEL 可观测性** (Plans 58-59)：OpenTelemetry SDK 集成
 
-### 2026-05-18
-- **经验面板**：Facts / Rules / History 三标签页
-- **MCP 管理页面**：MCP 服务增删改查
-- **技能 CRUD**：本地技能创建/上传/删除操作
-- **会话管理改进**：目录隔离、文件追踪、标题支持
+### 2026-06-14-20 — Plans 31-47: 运行时平台
+- **AppServer 运行时** (Plan 35)：类型化应用服务器，客户端/会话隔离，TTL 驱逐
+- **Turn API** (Plan 41)：turn/start、turn/interrupt、turn/steer 处理器
+- **Replay 调试** (Plan 40)：确定性回放文档、检查器
+- **存储线程** (Plan 39)：Ledger 支持的线程导入/导出、rollback/fork
+- **插件/技能/MCP 生态** (Plan 37)：市场、技能 CRUD、MCP 状态
+- **Workbench 进程** (Plans 43-44)：command/exec、process/* 处理器，环境变量消毒
+- **FS Watch & 模糊搜索** (Plan 46)：文件监听、两层评分模糊搜索
+- **Initialize 握手** (Plan 45)：客户端能力协商
+- **桌面 Alpha 发布** (Plan 47)：内部冒烟测试清单
 
-### 2026-05-15
-- **任务追踪系统**：Git 风格的 Task Trace 系统上线（SQLite + FTS5 + 向量嵌入）
-- **self_improvement 配置**：新增 `trace_enabled`、`lessons_legacy_inject_enabled` 等配置项
-- **CLI 命令**：`miqi trace log/show/search/export/import`
+### 2026-06-10-14 — Plans 9-30: 运行时核心
+- 类型化事件系统、RuntimeSession、TurnRunner
+- Multi-Agent 运行时、执行引擎 (沙箱、权限、审批)
+- History/Ledger 持久化 (SQLite)、前端迁移至 AppServer
+- 桌面 15+ 功能页面、TUI 骨架
 
-### 2026-05-14
-- **记忆系统重构**：新增 memory/session_search/skill_manage 工具
-- **Nudge 系统**：轮次级别的记忆和技能持久化提醒
-- **SkillCurator**：LLM 驱动的技能生命周期管理
-- **经验教训状态机**：active → stale → archived 自动转换
+### 2026-06-08
+- 折叠工具调用消息、per-session bwrap 沙箱隔离
 
 ## 版本历史
 
 | 版本 | 日期 | 主要变更 |
 |------|------|----------|
+| v0.1.4.post1 | 2026-06 | 运行时 v2 Phase 0-2: 类型化协议、Turn 验证、测试基线 |
 | v0.1.4 | 2026-05 | 任务追踪、SkillHub、WSL2 集成、记忆系统重构 |
 | v0.1.3 | 2026-04 | 前端 15 页面完整、MCP 集成、Bridge 协议稳定 |
 | v0.1.0 | 2026-03 | 初始 Alpha 版本：聊天、提供商、会话管理 |

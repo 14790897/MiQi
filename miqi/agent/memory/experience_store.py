@@ -14,6 +14,15 @@ class ExperienceStore:
         self._memory = memory_store
         self._trace = trace_store
 
+    def close(self) -> None:
+        """Close the underlying trace store (SQLite) and release resources.
+
+        Safe to call multiple times — subsequent calls are no-ops.
+        """
+        if self._trace is not None:
+            self._trace.close()
+            self._trace = None
+
     def list_entries(
         self,
         type: EntryType | None = None,

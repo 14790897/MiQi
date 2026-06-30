@@ -11,8 +11,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.job }}
+  cancel-in-progress: false
 
 jobs:
   # ────────────────────────────────────────────────────────────
@@ -84,6 +84,9 @@ jobs:
           pip install uv
           uv sync
 
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
       - name: Build renderer
         run: npm run build
 
@@ -126,4 +129,4 @@ jobs:
         run: |
           xvfb-run --auto-servernum \
             npx playwright test --config=playwright.config.ts --project=electron
-        timeout-minutes: 20
+        timeout-minutes: 30

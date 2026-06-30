@@ -1,5 +1,6 @@
 """Configuration schema using Pydantic."""
 
+import os
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -411,6 +412,23 @@ class MCPServerConfig(Base):
     lazy: bool = False  # If true, register a single gateway tool instead of all tools upfront; activate on demand
 
 
+class ObservabilityConfig(Base):
+    """OpenTelemetry observability configuration (Plan 59).
+
+    Default disabled. When enabled and opentelemetry-sdk is installed,
+    runtime events are exported as traces/metrics to an OTLP endpoint
+    (or console for dev). The entire feature is a no-op when disabled
+    or when the optional dependency is missing.
+    """
+
+    enabled: bool = False
+    endpoint: str | None = None  # OTLP gRPC/HTTP endpoint URL
+    service_name: str = "miqi"
+    console_export: bool = False  # Console exporter for dev
+    sample_ratio: float = 1.0
+    capture_content: bool = False  # Never put message text on spans unless this is true
+
+
 class ToolsConfig(Base):
     """Tools configuration."""
 
@@ -432,11 +450,28 @@ class Config(BaseSettings):
     heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
     cron: CronConfig = Field(default_factory=CronConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    # Opaque Desktop-owned settings (e.g. theme, layout).  Not validated —
+    # the Desktop UI reads/writes this via config/batchWrite desktop.* paths.
+    desktop: dict[str, object] = Field(default_factory=dict)
 
     @property
     def workspace_path(self) -> Path:
-        """Get expanded workspace path."""
-        return Path(self.agents.defaults.workspace).expanduser()
+        """Get expanded workspace path.
+
+        When the raw workspace equals the serialized default
+        ``~/.miqi/workspace`` *and* MIQI_HOME is explicitly set to a
+        non-blank value, the runtime path is rebased to
+        ``<MIQI_HOME>/workspace`` so that the default follows the
+        configured MiQi home.  An explicit (non-default) workspace is
+        never rebased — it is expanded as-is.
+        """
+        raw = self.agents.defaults.workspace
+        if raw == "~/.miqi/workspace" and os.environ.get("MIQI_HOME", "").strip():
+            from miqi.paths import get_miqi_home
+
+            return get_miqi_home() / "workspace"
+        return Path(raw).expanduser().resolve()
 
     def _match_provider(self, model: str | None = None) -> tuple["ProviderConfig | None", str | None]:
         """Match provider config and its registry name. Returns (config, spec_name)."""

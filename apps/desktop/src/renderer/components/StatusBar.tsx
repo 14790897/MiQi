@@ -26,9 +26,9 @@ export function StatusBar() {
       await stop()
       await new Promise((r) => setTimeout(r, 800))
       const result = await start()
-      if (result.state === 'running') {
+      if (result?.state === 'running') {
         clearRestartRequired()
-      } else {
+      } else if (result) {
         setRestartError(`Runtime is ${result.state}`)
       }
     } catch (err: unknown) {

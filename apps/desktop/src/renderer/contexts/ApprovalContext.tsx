@@ -1,8 +1,8 @@
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react'
-import type { ApprovalRequest } from '../../shared/ipc'
+import type { PendingApproval } from '../../shared/ipc'
 
 interface ApprovalContextValue {
-  pending: ApprovalRequest | null
+  pending: PendingApproval | null
   resolve: (decision: 'once' | 'session' | 'always' | 'deny') => Promise<void>
   timeout: number
   remainingSeconds: number | null
@@ -16,7 +16,7 @@ const ApprovalContext = createContext<ApprovalContextValue>({
 })
 
 export function ApprovalProvider({ children }: { children: ReactNode }) {
-  const [pending, setPending] = useState<ApprovalRequest | null>(null)
+  const [pending, setPending] = useState<PendingApproval | null>(null)
   const [timeout, setTimeout_] = useState(60)
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null)
   const arrivedAtRef = useRef<number>(0)
@@ -32,7 +32,7 @@ export function ApprovalProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!(window as any).miqi?.approvals) return
-    const unsubReq = window.miqi.approvals.onRequest((data: ApprovalRequest) => {
+    const unsubReq = window.miqi.approvals.onRequest((data: PendingApproval) => {
       arrivedAtRef.current = Date.now()
       setPending(data)
       setRemainingSeconds(timeout)

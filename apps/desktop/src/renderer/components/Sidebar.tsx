@@ -11,6 +11,11 @@ import {
   Plug,
   Archive,
   Cpu,
+  Bot,
+  ListChecks,
+  Shield,
+  Package,
+  CheckSquare,
   type LucideIcon,
 } from 'lucide-react'
 import type { SessionInfo } from '../../shared/ipc'
@@ -23,13 +28,20 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'chat', label: '对话', icon: MessageSquare },
+  { id: 'workspace', label: '文件', icon: FolderOpen },
+  { id: 'sessions', label: '会话', icon: Archive },
+  { id: 'approvals', label: '审批', icon: CheckSquare },
+  { id: 'settings', label: '设置', icon: Settings },
+  { id: 'agents', label: 'Agents', icon: Bot },
+  { id: 'plan', label: 'Plan', icon: ListChecks },
   { id: 'mcps', label: 'MCPs', icon: Plug },
   { id: 'cron', label: '定时任务', icon: Clock },
   { id: 'memory', label: '记忆', icon: BookOpen },
   { id: 'experience', label: '经验', icon: BookOpen },
   { id: 'skills', label: '技能', icon: Wrench },
   { id: 'wsl', label: 'WSL', icon: Cpu },
-  { id: 'settings', label: '设置', icon: Settings },
+  { id: 'permissions', label: 'Permissions', icon: Shield },
+  { id: 'plugins', label: 'Plugins', icon: Package },
 ]
 
 function formatTimestampKey(key: string): string {
@@ -89,7 +101,7 @@ export function Sidebar({
     const unsub = window.miqi.runtime.onStateChange((status) => {
       if (status.state === 'running') loadSessions()
     })
-    return unsub
+    return () => { unsub() }
   }, [loadSessions])
 
   return (

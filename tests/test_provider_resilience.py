@@ -1,0 +1,559 @@
+"""Tests for the shared provider resilience layer (Plan 56)."""
+
+from __future__ import annotations
+
+import asyncio
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+import miqi.providers.resilience as resilience
+from miqi.providers.anthropic_provider import AnthropicProvider
+from miqi.providers.base import LLMResponse
+from miqi.providers.openai_provider import OpenAIProvider
+from miqi.providers.resilience import (
+    ErrorKind,
+    ProviderError,
+    classify_error,
+    compute_backoff,
+    is_retryable,
+    retry_after_seconds,
+    with_retry,
+)
+
+# ---------------------------------------------------------------------------
+# Exception fixtures
+# ---------------------------------------------------------------------------
+
+
+class _StatusError(Exception):
+    """Generic exception carrying an HTTP status code."""
+
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class _RateLimitError(Exception):
+    status_code = 429
+
+
+class _AuthError(Exception):
+    status_code = 401
+
+
+class _ContextLength400Error(Exception):
+    status_code = 400
+
+
+class _NotFoundError(Exception):
+    status_code = 404
+
+
+class _FakeHeaders:
+    def __init__(self, data: dict[str, str]):
+        self._data = {k.lower(): v for k, v in data.items()}
+
+    def get(self, name: str) -> str | None:
+        return self._data.get(name.lower())
+
+
+# ---------------------------------------------------------------------------
+# classify_error
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("keyword", [
+    "apiconnectionerror",
+    "connection reset",
+    "connection aborted",
+    "temporary failure",
+    "timed out",
+    "timeout",
+    "502",
+    "503",
+    "504",
+    "bad gateway",
+    "service unavailable",
+    "overloaded",
+])
+def test_classify_error_transient_keywords(keyword: str) -> None:
+    assert classify_error(Exception(f"something {keyword} happened")) == ErrorKind.TRANSIENT
+
+
+def test_classify_error_rate_limit_status_code() -> None:
+    assert classify_error(_RateLimitError("rate limited")) == ErrorKind.RATE_LIMIT
+
+
+def test_classify_error_rate_limit_message() -> None:
+    assert classify_error(Exception("you are being rate limit")) == ErrorKind.RATE_LIMIT
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_classify_error_auth(status: int) -> None:
+    assert classify_error(_StatusError("auth failed", status_code=status)) == ErrorKind.AUTH
+
+
+def test_classify_error_auth_message() -> None:
+    assert classify_error(Exception("invalid api key")) == ErrorKind.AUTH
+
+
+def test_classify_error_context_length_message() -> None:
+    assert classify_error(Exception("context length exceeded")) == ErrorKind.CONTEXT_LENGTH
+
+
+def test_classify_error_context_length_status_400() -> None:
+    exc = _ContextLength400Error("context length is too large")
+    assert classify_error(exc) == ErrorKind.CONTEXT_LENGTH
+
+
+@pytest.mark.parametrize("status", [400, 404])
+def test_classify_error_invalid_request(status: int) -> None:
+    assert classify_error(_StatusError("bad", status_code=status)) == ErrorKind.INVALID_REQUEST
+
+
+def test_classify_error_model_not_found() -> None:
+    assert classify_error(Exception("NotFoundError: model not found")) == ErrorKind.INVALID_REQUEST
+
+
+def test_classify_error_unknown_fatal() -> None:
+    assert classify_error(Exception("something weird")) == ErrorKind.FATAL
+
+
+# ---------------------------------------------------------------------------
+# is_retryable
+# ---------------------------------------------------------------------------
+
+
+def test_is_retryable() -> None:
+    assert is_retryable(ErrorKind.TRANSIENT) is True
+    assert is_retryable(ErrorKind.RATE_LIMIT) is True
+    assert is_retryable(ErrorKind.AUTH) is False
+    assert is_retryable(ErrorKind.CONTEXT_LENGTH) is False
+    assert is_retryable(ErrorKind.INVALID_REQUEST) is False
+    assert is_retryable(ErrorKind.FATAL) is False
+
+
+# ---------------------------------------------------------------------------
+# retry_after_seconds
+# ---------------------------------------------------------------------------
+
+
+def test_retry_after_seconds_header() -> None:
+    response = SimpleNamespace(headers=_FakeHeaders({"Retry-After": "5"}))
+    exc = SimpleNamespace(response=response)
+    assert retry_after_seconds(exc) == 5.0
+
+
+def test_retry_after_seconds_attribute() -> None:
+    assert retry_after_seconds(SimpleNamespace(retry_after=7)) == 7.0
+
+
+def test_retry_after_seconds_ms_attribute() -> None:
+    assert retry_after_seconds(SimpleNamespace(retry_after_ms=2500)) == 2.5
+
+
+# ---------------------------------------------------------------------------
+# compute_backoff
+# ---------------------------------------------------------------------------
+
+
+def test_compute_backoff_with_retry_after() -> None:
+    result = compute_backoff(2, retry_after=10.0, base=0.5, cap=30.0)
+    assert result >= 10.0
+    assert result <= 60.0
+
+
+def test_compute_backoff_without_retry_after() -> None:
+    first = compute_backoff(1, base=0.5, cap=30.0)
+    second = compute_backoff(2, base=0.5, cap=30.0)
+    third = compute_backoff(5, base=0.5, cap=30.0)
+
+    assert first >= 0.5
+    assert second >= 1.0
+    assert third <= 30.0  # capped
+    assert third >= 8.0   # attempt 5 base growth before cap
+
+
+# ---------------------------------------------------------------------------
+# with_retry
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_with_retry_cancelled_error_propagates_untouched() -> None:
+    """CancelledError must propagate immediately without classification or sleep.
+
+    Plan 58.1: with_retry catches Exception, not BaseException, so
+    asyncio.CancelledError passes through cleanly.
+    """
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    class _FakeCancelled(asyncio.CancelledError):
+        pass
+
+    async def factory() -> str:
+        raise _FakeCancelled()
+
+    with pytest.raises(_FakeCancelled):
+        await with_retry(factory, max_attempts=3, sleep=fake_sleep)
+
+    # CancelledError propagates on the first attempt without sleeping.
+    assert len(sleeps) == 0
+
+
+@pytest.mark.asyncio
+async def test_with_retry_succeeds_after_failures() -> None:
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    attempts = 0
+
+    async def factory() -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts <= 2:
+            raise Exception("connection reset")
+        return "ok"
+
+    result = await with_retry(factory, max_attempts=3, sleep=fake_sleep)
+    assert result == "ok"
+    assert attempts == 3
+    assert len(sleeps) == 2
+
+
+@pytest.mark.asyncio
+async def test_with_retry_no_retry_on_auth() -> None:
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    async def factory() -> str:
+        raise _AuthError("invalid key")
+
+    with pytest.raises(_AuthError):
+        await with_retry(factory, max_attempts=3, sleep=fake_sleep)
+
+    assert len(sleeps) == 0
+
+
+@pytest.mark.asyncio
+async def test_with_retry_exhaustion() -> None:
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    attempts = 0
+
+    async def factory() -> str:
+        nonlocal attempts
+        attempts += 1
+        raise Exception("connection reset")
+
+    with pytest.raises(Exception, match="connection reset"):
+        await with_retry(factory, max_attempts=3, sleep=fake_sleep)
+
+    assert attempts == 3
+    assert len(sleeps) == 2
+
+
+# ---------------------------------------------------------------------------
+# OpenAI provider integration
+# ---------------------------------------------------------------------------
+
+
+class _FakeOpenAIResponse:
+    def __init__(self, content: str = "hello") -> None:
+        self.choices = [
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content=content,
+                    tool_calls=None,
+                    reasoning_content=None,
+                ),
+                finish_reason="stop",
+            )
+        ]
+        self.usage = SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2)
+
+
+class _FakeStreamChunk:
+    def __init__(self, content: str = "", finish_reason: str | None = None) -> None:
+        self.choices = [
+            SimpleNamespace(
+                delta=SimpleNamespace(
+                    content=content or None,
+                    reasoning_content=None,
+                    tool_calls=None,
+                ),
+                finish_reason=finish_reason,
+            )
+        ]
+
+
+class _FakeStream:
+    """Async iterable yielding pre-defined chunks."""
+
+    def __init__(self, chunks: list[_FakeStreamChunk], *, hang: bool = False) -> None:
+        self._chunks = chunks
+        self._index = 0
+        self._hang = hang
+
+    def __aiter__(self) -> "_FakeStream":
+        return self
+
+    async def __anext__(self) -> _FakeStreamChunk:
+        if self._hang:
+            await asyncio.Event().wait()
+        if self._index >= len(self._chunks):
+            raise StopAsyncIteration
+        chunk = self._chunks[self._index]
+        self._index += 1
+        return chunk
+
+
+def _make_openai_provider() -> OpenAIProvider:
+    provider = OpenAIProvider(api_key="sk-test")
+    return provider
+
+
+def _patch_provider_sleep(monkeypatch: Any) -> list[tuple[int, ErrorKind, float]]:
+    """Replace the provider module's with_retry so retries happen instantly."""
+    retries: list[tuple[int, ErrorKind, float]] = []
+
+    async def no_sleep(seconds: float) -> None:
+        pass
+
+    async def with_retry_no_sleep(
+        factory,
+        *,
+        max_attempts: int = 3,
+        sleep=None,
+        on_retry=None,
+    ):
+        last_exc = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return await factory()
+            except BaseException as e:
+                last_exc = e
+                kind = resilience.classify_error(e)
+                if attempt < max_attempts and resilience.is_retryable(kind):
+                    delay = 0.0
+                    retries.append((attempt, kind, delay))
+                    if on_retry:
+                        on_retry(attempt, kind, delay)
+                    continue
+                raise
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("exhausted")
+
+    monkeypatch.setattr("miqi.providers.openai_provider.resilience.with_retry", with_retry_no_sleep)
+    monkeypatch.setattr("miqi.providers.anthropic_provider.resilience.with_retry", with_retry_no_sleep)
+    return retries
+
+
+@pytest.mark.asyncio
+async def test_openai_chat_retries_rate_limit(monkeypatch: Any) -> None:
+    _patch_provider_sleep(monkeypatch)
+    provider = _make_openai_provider()
+    calls: list[dict[str, Any]] = []
+
+    responses: list[Any] = [_RateLimitError("rate limited"), _RateLimitError("rate limited"), _FakeOpenAIResponse("yay")]
+
+    async def fake_create(**kw: Any) -> Any:
+        calls.append(kw)
+        result = responses.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    provider._client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create)),
+        timeout=600.0,
+    )
+
+    response = await provider.chat(messages=[{"role": "user", "content": "hi"}])
+    assert response.content == "yay"
+    assert response.finish_reason == "stop"
+    assert len(calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_openai_chat_returns_error_kind_auth(monkeypatch: Any) -> None:
+    _patch_provider_sleep(monkeypatch)
+    provider = _make_openai_provider()
+
+    async def fake_create(**kw: Any) -> Any:
+        raise _AuthError("invalid key")
+
+    provider._client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create)),
+        timeout=600.0,
+    )
+
+    response = await provider.chat(messages=[{"role": "user", "content": "hi"}])
+    assert response.finish_reason == "error"
+    assert response.error_kind == "auth"
+
+
+@pytest.mark.asyncio
+async def test_openai_stream_preconnect_retry(monkeypatch: Any) -> None:
+    _patch_provider_sleep(monkeypatch)
+    provider = _make_openai_provider()
+    calls: list[bool] = []
+
+    stream = _FakeStream([
+        _FakeStreamChunk("hel"),
+        _FakeStreamChunk("lo"),
+        _FakeStreamChunk("", finish_reason="stop"),
+    ])
+
+    async def fake_create(**kw: Any) -> Any:
+        calls.append(True)
+        if len(calls) == 1:
+            raise Exception("connection reset")
+        return stream
+
+    provider._client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create)),
+        timeout=600.0,
+    )
+
+    events = [event async for event in provider.stream_chat(messages=[{"role": "user", "content": "hi"}])]
+    kinds = [e.kind for e in events]
+
+    assert "content_delta" in kinds
+    assert kinds[-1] == "completed"
+    final = events[-1].response
+    assert final is not None
+    assert final.content == "hello"
+    assert final.finish_reason == "stop"
+
+
+@pytest.mark.asyncio
+async def test_openai_stream_idle_timeout_yields_terminal_error(monkeypatch: Any) -> None:
+    _patch_provider_sleep(monkeypatch)
+    provider = OpenAIProvider(api_key="sk-test", stream_idle_timeout=0.01)
+
+    async def fake_create(**kw: Any) -> Any:
+        return _FakeStream([], hang=True)
+
+    provider._client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create)),
+        timeout=600.0,
+    )
+
+    events = [event async for event in provider.stream_chat(messages=[{"role": "user", "content": "hi"}])]
+    assert len(events) == 1
+    assert events[0].kind == "completed"
+    assert events[0].response.finish_reason == "error"
+    assert events[0].response.error_kind == "transient"
+
+
+# ---------------------------------------------------------------------------
+# Anthropic provider integration
+# ---------------------------------------------------------------------------
+
+
+class _FakeAnthropicResponse:
+    def __init__(self, content: str = "hello") -> None:
+        self.content = [SimpleNamespace(type="text", text=content)]
+        self.stop_reason = "end_turn"
+        self.usage = SimpleNamespace(input_tokens=1, output_tokens=1)
+
+
+@pytest.mark.asyncio
+async def test_anthropic_chat_retries_rate_limit(monkeypatch: Any) -> None:
+    _patch_provider_sleep(monkeypatch)
+    provider = AnthropicProvider(api_key="sk-test")
+    calls: list[dict[str, Any]] = []
+
+    responses: list[Any] = [_RateLimitError("rate limited"), _RateLimitError("rate limited"), _FakeAnthropicResponse("yay")]
+
+    async def fake_create(**kw: Any) -> Any:
+        calls.append(kw)
+        result = responses.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    provider._client = SimpleNamespace(messages=SimpleNamespace(create=fake_create), timeout=600.0)
+
+    response = await provider.chat(messages=[{"role": "user", "content": "hi"}])
+    assert response.content == "yay"
+    assert response.finish_reason == "stop"
+    assert len(calls) == 3
+
+
+# ---------------------------------------------------------------------------
+# Base response
+# ---------------------------------------------------------------------------
+
+
+def test_llm_response_error_kind_default() -> None:
+    response = LLMResponse(content="hi")
+    assert response.error_kind is None
+
+
+def test_openai_request_timeout_set() -> None:
+    provider = OpenAIProvider(api_key="sk-test")
+    assert isinstance(provider._client.timeout, (int, float))
+    assert provider._client.timeout > 0
+
+
+def test_anthropic_request_timeout_set() -> None:
+    provider = AnthropicProvider(api_key="sk-test")
+    assert isinstance(provider._client.timeout, (int, float))
+    assert provider._client.timeout > 0
+
+
+# ---------------------------------------------------------------------------
+# ProviderError (Plan 57)
+# ---------------------------------------------------------------------------
+
+
+def test_provider_error_exposes_kind_message_and_str() -> None:
+    err = ProviderError(kind=ErrorKind.RATE_LIMIT, message="slow down")
+    assert err.kind is ErrorKind.RATE_LIMIT
+    assert err.message == "slow down"
+    assert "slow down" in str(err)
+
+
+def test_provider_error_recoverable_true_for_retryable_kinds() -> None:
+    """recoverable mirrors is_retryable: True for TRANSIENT and RATE_LIMIT."""
+    assert ProviderError(kind=ErrorKind.RATE_LIMIT, message="x").recoverable is True
+    assert ProviderError(kind=ErrorKind.TRANSIENT, message="x").recoverable is True
+
+
+def test_provider_error_recoverable_false_for_non_retryable_kinds() -> None:
+    assert ProviderError(kind=ErrorKind.AUTH, message="x").recoverable is False
+    assert ProviderError(kind=ErrorKind.CONTEXT_LENGTH, message="x").recoverable is False
+    assert (
+        ProviderError(kind=ErrorKind.INVALID_REQUEST, message="x").recoverable is False
+    )
+    assert ProviderError(kind=ErrorKind.FATAL, message="x").recoverable is False
+
+
+def test_provider_error_recovers_matches_is_retryable() -> None:
+    """ProviderError.recoverable must be consistent with is_retryable(kind)."""
+    for kind in ErrorKind:
+        err = ProviderError(kind=kind, message="m")
+        assert err.recoverable is is_retryable(kind)
+
+
+def test_provider_error_is_an_exception() -> None:
+    err = ProviderError(kind=ErrorKind.AUTH, message="bad key")
+    assert isinstance(err, Exception)
+    with pytest.raises(ProviderError):
+        raise err
+

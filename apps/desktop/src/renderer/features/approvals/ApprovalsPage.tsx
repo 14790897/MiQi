@@ -47,6 +47,15 @@ export function ApprovalsPage() {
   const [editValue, setEditValue] = useState('')
   const [saving, setSaving] = useState(false)
 
+  // Category filter for pending tab
+  const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  const CATEGORIES = [
+    { key: 'all', label: 'All' },
+    { key: 'exec', label: 'Shell' },
+    { key: 'file_write', label: 'Files' },
+    { key: 'network', label: 'Network' },
+  ]
+
   // Expand
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set())
@@ -209,7 +218,7 @@ export function ApprovalsPage() {
             >
               <Icon size={13} />
               {t.label}
-              {t.key === 'pending' && data?.pending?.length > 0 && (
+              {t.key === 'pending' && (data?.pending?.length ?? 0) > 0 && (
                 <span className="ml-0.5 bg-[var(--danger)] text-white text-[10px] rounded-full px-1.5 py-0.5 leading-none">
                   {data?.pending?.length}
                 </span>
@@ -513,23 +522,42 @@ export function ApprovalsPage() {
             )}
 
             {/* ── TAB: Pending ────────────────────────────────────────── */}
-            {tab === 'pending' && (
+            {tab === 'pending' && (() => {
+              const filtered = (data.pending || []).filter(
+                (p) => categoryFilter === 'all' || p.category === categoryFilter,
+              )
+              return (
               <div
                 data-tick={tick}
                 className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden"
               >
-                <div className="px-5 py-2 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)]">
+                <div className="px-5 py-2 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)] flex items-center justify-between">
                   <span className="text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">
-                    待审批（{data.pending?.length ?? 0}）
+                    待审批（{filtered.length}）
                   </span>
+                  <div className="flex gap-1">
+                    {CATEGORIES.map((c) => (
+                      <button
+                        key={c.key}
+                        onClick={() => setCategoryFilter(c.key)}
+                        className={`px-2 py-0.5 text-[10px] rounded-full transition-colors ${
+                          categoryFilter === c.key
+                            ? 'bg-[var(--accent)] text-white'
+                            : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'
+                        }`}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                {!data.pending || data.pending.length === 0 ? (
+                {filtered.length === 0 ? (
                   <div className="px-5 py-8 text-sm text-[var(--text-faint)] text-center">
                     暂无待审批命令
                   </div>
                 ) : (
                   <div className="divide-y divide-[var(--border-subtle)]">
-                    {data.pending.map((p) => {
+                    {filtered.map((p) => {
                       const isExpanded = expandedPending.has(p.approval_id)
                       const remaining = Math.max(
                         0,
@@ -635,7 +663,7 @@ export function ApprovalsPage() {
                   </div>
                 )}
               </div>
-            )}
+            )})()}
           </>
         )}
       </div>

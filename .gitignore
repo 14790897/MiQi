@@ -20,7 +20,6 @@ poetry.lock
 .pytest-basetemp*/
 site/
 botpy.log
-tests/
 .ruff_cache/
 featherflow/agent/memory.py.bak
 .miqi/
@@ -41,3 +40,10 @@ apps/desktop/test-results/
 # Keep desktop test files (exclude from root-level tests/ rule)
 !apps/desktop/tests/
 .pytest*
+plan/*
+.agent/
+.superpower/
+.claude/
+.debug/
+.playwright-mcp/
+*.png

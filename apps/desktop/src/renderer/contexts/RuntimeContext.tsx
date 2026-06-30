@@ -6,15 +6,17 @@ import {
   useCallback,
   type ReactNode,
 } from 'react'
-import type { RuntimeState, RuntimeStatus } from '../../shared/ipc'
+import type { RuntimeStatus } from '../../shared/ipc'
+import { sanitizeUiMessage } from '../lib/sanitizeUiMessage'
 
 const hasApi = typeof window !== 'undefined' && !!(window as any).miqi?.runtime
 
 interface RuntimeContextValue {
   status: RuntimeStatus
   logs: string[]
-  start: () => Promise<void>
-  stop: () => Promise<void>
+  lastError: string | null
+  start: () => Promise<RuntimeStatus | undefined>
+  stop: () => Promise<RuntimeStatus | undefined>
   refreshStatus: () => Promise<void>
   refreshLogs: () => Promise<void>
 }
@@ -28,14 +30,22 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       : { state: 'error', configured: false, error: 'Preload API 不可用' },
   )
   const [logs, setLogs] = useState<string[]>([])
+  const [lastError, setLastError] = useState<string | null>(null)
 
   const refreshStatus = useCallback(async () => {
     if (!hasApi) return
     try {
       const s = await window.miqi.runtime.status()
       setStatus(s)
-    } catch {
-      // Bridge not available yet
+      setLastError(null)
+    } catch (e: any) {
+      const safe = sanitizeUiMessage(e?.message ?? 'Bridge status fetch failed')
+      setStatus((prev) => ({
+        ...prev,
+        state: 'error' as const,
+        error: safe,
+      }))
+      setLastError(safe)
     }
   }, [])
 
@@ -44,8 +54,9 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     try {
       const l = await window.miqi.runtime.logs()
       setLogs(l)
-    } catch {
-      // Bridge not available yet
+    } catch (e: any) {
+      // Log fetch failure is less critical; don't overwrite status
+      setLastError(sanitizeUiMessage(e?.message ?? 'Failed to fetch runtime logs'))
     }
   }, [])
 
@@ -53,12 +64,14 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     if (!hasApi) return
     const s = await window.miqi.runtime.start()
     setStatus(s)
+    return s
   }, [])
 
   const stop = useCallback(async () => {
     if (!hasApi) return
     const s = await window.miqi.runtime.stop()
     setStatus(s)
+    return s
   }, [])
 
   useEffect(() => {
@@ -77,7 +90,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
 
   return (
     <RuntimeContext.Provider
-      value={{ status, logs, start, stop, refreshStatus, refreshLogs }}
+      value={{ status, logs, start, stop, refreshStatus, refreshLogs, lastError }}
     >
       {children}
     </RuntimeContext.Provider>
