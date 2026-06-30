@@ -1,76 +1,24 @@
 /**
- * Full Electron E2E Test (CDP-based)
+ * Full Electron E2E Test (_electron.launch based)
  *
- * Launches the complete MiQi Desktop app via Electron binary with CDP
- * debugging enabled through app.commandLine.appendSwitch().
- *
- * Electron 34+ removed --remote-debugging-port CLI flag support, so we
- * can no longer use Playwright's _electron.launch().  Instead:
- *   1. Spawn Electron binary with MIQI_E2E_TEST=1 env var
- *   2. Main process calls app.commandLine.appendSwitch('remote-debugging-port','8315')
- *   3. Playwright connects via chromium.connectOverCDP('http://localhost:8315')
+ * Uses Playwright's built-in _electron.launch(), which since v1.58
+ * (PR #39012) uses app.commandLine.appendSwitch() instead of the
+ * removed --remote-debugging-port CLI flag.  No manual CDP needed.
  *
  * User config at ~/.miqi/config.json is used automatically.
  *
  * Run: cd apps/desktop && npx playwright test --config=playwright.config.ts --project=electron
  */
 
-import { test, expect, chromium } from '@playwright/test';
-import type { Browser, Page } from '@playwright/test';
-import { spawn, execSync, type ChildProcess } from 'node:child_process';
+import { _electron as electron, test, expect } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
 import { resolve } from 'node:path';
 
 const APPS_DESKTOP = resolve(__dirname, '../..');
-const CDP_PORT = 8315;
-const CDP_URL = `http://localhost:${CDP_PORT}`;
 
 const LLM_TIMEOUT = 180_000;   // real AI call
-const BOOT_TIMEOUT = 90_000;   // Electron + bridge startup
-
-// Resolve the Electron binary path from node_modules
-const ELECTRON_BIN = require('electron') as string;
 
 // ─── Helpers ──────────────────────────────────────────────────────
-
-/** Wait for CDP endpoint to become available by polling /json/version */
-async function waitForCDP(timeout = 60_000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    try {
-      const res = await fetch(`${CDP_URL}/json/version`, {
-        signal: AbortSignal.timeout(2000),
-      });
-      if (res.ok) {
-        console.log('[test] CDP endpoint available');
-        return;
-      }
-    } catch {
-      // Not ready yet
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  throw new Error(`CDP endpoint at ${CDP_URL} not available within ${timeout}ms`);
-}
-
-/** Kill a process tree (cross-platform) */
-function killProcessTree(proc: ChildProcess): void {
-  if (!proc || proc.killed) return;
-  const pid = proc.pid;
-  if (!pid) return;
-  try {
-    if (process.platform === 'win32') {
-      // Windows: taskkill kills the entire process tree
-      execSync(`taskkill /pid ${pid} /T /F`, { stdio: 'ignore' });
-    } else {
-      proc.kill('SIGTERM');
-      setTimeout(() => {
-        try { proc.kill('SIGKILL'); } catch {}
-      }, 3000);
-    }
-  } catch {
-    try { proc.kill('SIGKILL'); } catch {}
-  }
-}
 
 /** Wait for the chat input textarea to be present and enabled */
 async function waitForInputReady(page: Page, timeout = 60_000) {
@@ -135,9 +83,7 @@ async function createNewConversationViaSidebar(page: Page): Promise<string> {
 }
 
 /** Wait for sidebar to refresh after session creation/deletion */
-async function waitForSidebarRefresh(page: Page, timeout = 10_000) {
-  // The sidebar shows a spinner while loading; wait for it to disappear
-  // Then wait a bit more for the session list to populate
+async function waitForSidebarRefresh(page: Page, _timeout = 10_000) {
   await page.waitForTimeout(1500);
 }
 
@@ -145,19 +91,12 @@ async function waitForSidebarRefresh(page: Page, timeout = 10_000) {
  *  given marker text becomes visible in the chat area.
  *  This is more reliable than matching by title because the sidebar
  *  displays formatted timestamps (via formatTimestampKey) while the
- *  ChatConsole header shows the raw timestamp.
- *
- * Strategy:
- *  1. Click each sidebar session item
- *  2. Wait for history to load (spinner disappears, then messages appear)
- *  3. Check if marker is visible in the message area */
+ *  ChatConsole header shows the raw timestamp. */
 async function switchToSessionWithMarker(page: Page, marker: string): Promise<boolean> {
-  // Ensure we're on the chat tab so messages are visible
   const chatNav = page.getByRole('button', { name: '对话', exact: true });
   await chatNav.click();
   await page.waitForTimeout(500);
 
-  // Scroll the Tasks section into view so all sessions are clickable
   const tasksHeader = page.getByText('Tasks').first();
   await tasksHeader.scrollIntoViewIfNeeded().catch(() => {});
 
@@ -166,14 +105,9 @@ async function switchToSessionWithMarker(page: Page, marker: string): Promise<bo
   console.log(`[test] Searching ${count} sidebar sessions for marker: ${marker}`);
 
   for (let i = 0; i < count; i++) {
-    // Click session item
     await items.nth(i).click();
 
-    // Wait for ChatConsole to finish loading history
-    // The component shows a spinner while loading, then messages or empty state
     try {
-      // Wait for either messages to appear or empty state to show
-      // (both indicate loading is complete)
       await expect(
         page.locator('div.max-w-[\\760px] > div.flex-col')
       ).toBeVisible({ timeout: 8000 });
@@ -182,10 +116,8 @@ async function switchToSessionWithMarker(page: Page, marker: string): Promise<bo
       continue;
     }
 
-    // Extra wait for message rendering
     await page.waitForTimeout(1000);
 
-    // Check if marker is visible anywhere on the page
     const markerVisible = await page.getByText(marker).isVisible().catch(() => false);
     if (markerVisible) {
       console.log(`[test] Found marker "${marker}" in session #${i}`);
@@ -200,52 +132,27 @@ async function switchToSessionWithMarker(page: Page, marker: string): Promise<bo
 // ─── Test Suite ───────────────────────────────────────────────────
 
 test.describe('Native Electron E2E', () => {
-  let proc: ChildProcess | null = null;
-  let browser: Browser | null = null;
+  let electronApp: ElectronApplication;
   let page: Page;
 
   test.beforeAll(async () => {
-    // Spawn Electron binary directly with E2E test env var.
-    // CRITICAL: Remove ELECTRON_RUN_AS_NODE — it may be inherited from
-    // the host environment (e.g. when running inside an Electron-based
-    // IDE like WorkBuddy/VSCode) and causes Electron to run as plain
-    // Node.js, bypassing the Chromium runtime entirely.
-    const env = { ...process.env, MIQI_E2E_TEST: '1' };
+    // Delete ELECTRON_RUN_AS_NODE inherited from Electron-based IDEs
+    // (WorkBuddy / VSCode).  Otherwise Electron runs as plain Node.js.
+    const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
 
-    // --no-sandbox must be a CLI arg, NOT app.commandLine.appendSwitch(),
-    // because Chromium's SUID sandbox check runs before JS initialisation.
-    // On CI (root user) the sandbox helper is not configured correctly,
-    // causing SIGTRAP.  --disable-gpu and --disable-dev-shm-usage are
-    // also needed for headless CI containers.
-    const electronArgs = ['.', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'];
-
-    proc = spawn(ELECTRON_BIN, electronArgs, {
-      cwd: APPS_DESKTOP,
+    electronApp = await electron.launch({
+      args: [APPS_DESKTOP],
+      executablePath: require('electron') as string,
       env,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      // chromiumSandbox: false covers --no-sandbox + --disable-gpu
+      // needed on CI (root user).  No-op on Windows.
+      chromiumSandbox: false,
     });
 
-    // Log Electron stdout/stderr for debugging
-    proc.stdout?.on('data', (d) => process.stdout.write(`[electron:out] ${d}`));
-    proc.stderr?.on('data', (d) => process.stderr.write(`[electron:err] ${d}`));
-
-    proc.on('exit', (code, sig) => {
-      console.log(`[electron] exited code=${code} sig=${sig}`);
-    });
-
-    // Wait for CDP endpoint
-    await waitForCDP(BOOT_TIMEOUT);
-
-    // Connect via CDP
-    browser = await chromium.connectOverCDP(CDP_URL);
-    const context = browser.contexts()[0];
-    page = context.pages()[0] || (await context.newPage());
-
+    page = await electronApp.firstWindow();
     await page.waitForLoadState('domcontentloaded');
 
-    // Wait for bridge to connect and runtime to start
-    // The app shows "Loading MiQi…" then transitions to main UI
     try {
       await page.getByText('MiQi Workbench').waitFor({ timeout: 30_000 });
       console.log('[test] App UI loaded');
@@ -253,13 +160,9 @@ test.describe('Native Electron E2E', () => {
       console.log('[test] App UI may still be loading — continuing');
     }
 
-    // Wait for chat input to be ready (bridge must be running)
-    await waitForInputReady(page, BOOT_TIMEOUT);
+    await waitForInputReady(page);
 
-    // Wait for bridge to truly be running before sending messages.
-    // The UI input may be ready before the bridge's AppServer finishes
-    // registering all 152 methods.  Without this, the first chat.send
-    // gets "Bridge not running" and crashes the bridge process.
+    // Wait for bridge AppServer to finish registering methods
     const bridgeReady = await page.evaluate(async () => {
       for (let i = 0; i < 60; i++) {
         try {
@@ -272,14 +175,11 @@ test.describe('Native Electron E2E', () => {
     })
     if (!bridgeReady) console.log('[test] Warning: bridge did not reach running state')
 
-    console.log('[test] Chat input ready — bridge is running');
-  }, BOOT_TIMEOUT + 60000);
+    console.log('[test] Ready');
+  }, 120_000);
 
   test.afterAll(async () => {
-    await browser?.close().catch(() => {});
-    if (proc) {
-      killProcessTree(proc);
-    }
+    await electronApp?.close().catch(() => {});
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -297,21 +197,18 @@ test.describe('Native Electron E2E', () => {
     await expect(page.getByRole('button', { name: '会话', exact: true })).toBeVisible();
     await expect(page.getByText('Tasks').first()).toBeVisible();
 
-    // "New Chat" button and sidebar "+" button exist
     await expect(page.getByRole('button', { name: 'New Chat' })).toBeVisible();
     await expect(page.locator('button[title="New Session"]')).toBeVisible();
   });
 
   test('basic AI responds to simple prompt', { timeout: LLM_TIMEOUT }, async () => {
     await sendMessage(page, '只回复一个英文单词：TestOK');
-    // Use .first() to avoid strict-mode conflict with sidebar session preview
     await expect(page.getByText('TestOK').first()).toBeVisible({ timeout: 120_000 });
     await waitForResponseComplete(page);
   });
 
   test('web search with real search tool', { timeout: LLM_TIMEOUT }, async () => {
     await sendMessage(page, '搜索今天北京的天气，简要回复');
-    // Real web_search → web_fetch → response
     await expect(
       page.getByText(/天气|℃|温度|Weather|Beijing/i).first()
     ).toBeVisible({ timeout: 120_000 });
@@ -327,14 +224,11 @@ test.describe('Native Electron E2E', () => {
     const initialCount = await getSidebarSessionCount(page);
     const newTitle = await createNewConversation(page);
 
-    // Session title should be a timestamp string (desktop: prefix stripped)
     expect(newTitle).toMatch(/^\d+$/);
     console.log(`[test] New session title: ${newTitle}`);
 
-    // Messages from previous tests should NOT be visible
     await expect(page.getByText('TestOK')).not.toBeVisible({ timeout: 5_000 });
 
-    // Sidebar session count should increase or stay at initial count
     const newCount = await getSidebarSessionCount(page);
     expect(newCount).toBeGreaterThanOrEqual(initialCount);
     console.log(`[test] Sidebar sessions: ${initialCount} → ${newCount}`);
@@ -353,20 +247,16 @@ test.describe('Native Electron E2E', () => {
   });
 
   test('New Chat button clears message history', { timeout: LLM_TIMEOUT }, async () => {
-    // Ensure we're on the chat tab
     const chatNav = page.getByRole('button', { name: '对话', exact: true });
     await chatNav.click();
     await waitForInputReady(page, 15_000);
 
-    // Send a quick message
     await sendMessage(page, '只回复一个单词：ClearTest');
     await expect(page.getByText('ClearTest').first()).toBeVisible({ timeout: 120_000 });
     await waitForResponseComplete(page);
 
-    // Create new conversation
     await createNewConversation(page);
 
-    // Previous message should be gone
     await expect(page.getByText('ClearTest')).not.toBeVisible({ timeout: 5_000 });
   });
 
@@ -375,7 +265,6 @@ test.describe('Native Electron E2E', () => {
   // ═══════════════════════════════════════════════════════════════
 
   test('conversation isolation: messages do not leak between sessions', { timeout: LLM_TIMEOUT }, async () => {
-    // Phase 1: Create Session A with unique marker
     const markerA = `IsolationA_${Date.now()}`;
     await sendMessage(page, `请只回复这个编号：${markerA}`);
     await expect(page.getByText(markerA)).toBeVisible({ timeout: 120_000 });
@@ -384,7 +273,6 @@ test.describe('Native Electron E2E', () => {
     const titleA = await getSessionTitle(page).textContent();
     console.log(`[test] Session A title: ${titleA}`);
 
-    // Phase 2: Create Session B with different marker
     await createNewConversation(page);
 
     const markerB = `IsolationB_${Date.now()}`;
@@ -392,20 +280,13 @@ test.describe('Native Electron E2E', () => {
     await expect(page.getByText(markerB)).toBeVisible({ timeout: 120_000 });
     await waitForResponseComplete(page);
 
-    // Phase 3: In Session B, Session A's marker should NOT be visible
     await expect(page.getByText(markerA)).not.toBeVisible({ timeout: 5_000 });
 
-    // Phase 4: Verify isolation via Sessions page (more reliable than sidebar switching)
-    // Navigate to Sessions page to confirm both sessions exist independently
     const sessionsNav = page.getByRole('button', { name: '会话', exact: true });
     await sessionsNav.click();
     await expect(page.getByText('Sessions').first()).toBeVisible({ timeout: 10_000 });
 
-    // Wait for session list to load
     await page.waitForTimeout(3000);
-
-    // The Sessions page should show at least the two sessions we just interacted with
-    // (plus any pre-existing sessions)
     const sessionList = page.locator('div[role="button"]');
     const sessionCount = await sessionList.count();
     console.log(`[test] Sessions page has ${sessionCount} entries`);
@@ -413,14 +294,12 @@ test.describe('Native Electron E2E', () => {
 
     console.log('[test] Conversation isolation verified via Sessions page');
 
-    // Navigate back to chat
     const chatNav = page.getByRole('button', { name: '对话', exact: true });
     await chatNav.click();
     await waitForInputReady(page, 15_000);
   });
 
   test('switch between conversations via sidebar preserves history', { timeout: LLM_TIMEOUT }, async () => {
-    // Setup: Create a session with a memorable message
     const markerSwitch = `SwitchBack_${Date.now()}`;
     await sendMessage(page, `请只回复：${markerSwitch}`);
     await expect(page.getByText(markerSwitch)).toBeVisible({ timeout: 120_000 });
@@ -429,16 +308,13 @@ test.describe('Native Electron E2E', () => {
     const sessionTitle = await getSessionTitle(page).textContent();
     console.log(`[test] Session with marker: ${sessionTitle}`);
 
-    // Create 2 more new conversations to ensure sidebar has multiple entries
     await createNewConversation(page);
     await createNewConversation(page);
 
-    // Verify the session is still listed in sidebar (it should persist)
     const sessionCount = await getSidebarSessionCount(page);
     expect(sessionCount).toBeGreaterThan(0);
     console.log(`[test] Sidebar has ${sessionCount} sessions after creating new ones`);
 
-    // Navigate to Sessions page to confirm original session exists with messages
     const sessionsNav = page.getByRole('button', { name: '会话', exact: true });
     await sessionsNav.click();
     await expect(page.getByText('Sessions').first()).toBeVisible({ timeout: 10_000 });
@@ -448,7 +324,6 @@ test.describe('Native Electron E2E', () => {
     expect(await sessionList.count()).toBeGreaterThan(0);
     console.log('[test] Verified sessions persist after switching');
 
-    // Go back to chat
     const chatNav = page.getByRole('button', { name: '对话', exact: true });
     await chatNav.click();
     await waitForInputReady(page, 15_000);
@@ -457,12 +332,10 @@ test.describe('Native Electron E2E', () => {
   test('multiple new conversations all appear in sidebar', { timeout: 60_000 }, async () => {
     const countBefore = await getSidebarSessionCount(page);
 
-    // Create 3 new conversations
     await createNewConversation(page);
     await createNewConversation(page);
     await createNewConversation(page);
 
-    // Wait for sidebar to fully refresh (sessions are persisted async)
     await waitForSidebarRefresh(page);
     await page.waitForTimeout(2000);
     const countAfter = await getSidebarSessionCount(page);
@@ -490,11 +363,9 @@ test.describe('Native Electron E2E', () => {
     await expect(page.getByText(persistMarker)).toBeVisible({ timeout: 120_000 });
     await waitForResponseComplete(page);
 
-    // Create new chat (leaves previous session)
     await createNewConversation(page);
     await expect(page.getByText(persistMarker)).not.toBeVisible({ timeout: 5_000 });
 
-    // Verify via Sessions page that the original session still exists
     const sessionsNav = page.getByRole('button', { name: '会话', exact: true });
     await sessionsNav.click();
     await expect(page.getByText('Sessions').first()).toBeVisible({ timeout: 10_000 });
@@ -505,7 +376,6 @@ test.describe('Native Electron E2E', () => {
     console.log(`[test] Sessions page has ${sessionCount} entries (original session should be there)`);
     expect(sessionCount).toBeGreaterThan(0);
 
-    // Navigate back to chat
     const chatNav = page.getByRole('button', { name: '对话', exact: true });
     await chatNav.click();
     await waitForInputReady(page, 15_000);
@@ -517,14 +387,11 @@ test.describe('Native Electron E2E', () => {
   // ═══════════════════════════════════════════════════════════════
 
   test('sessions page shows conversation history', { timeout: 30_000 }, async () => {
-    // Navigate to Sessions page via sidebar
     const sessionsNav = page.getByRole('button', { name: '会话', exact: true });
     await sessionsNav.click();
 
-    // SessionExplorer should be visible
     await expect(page.getByText('Sessions').first()).toBeVisible({ timeout: 10_000 });
 
-    // Wait for session list to load (bridge call is async)
     await page.waitForTimeout(5000);
 
     const sessionList = page.locator('div[role="button"]');
@@ -532,13 +399,11 @@ test.describe('Native Electron E2E', () => {
     console.log(`[test] Sessions page has ${sessionCount} entries`);
     expect(sessionCount).toBeGreaterThan(0);
 
-    // Click on first session to view its details
     await sessionList.first().click();
-    await page.waitForTimeout(5000); // Wait for detail load
+    await page.waitForTimeout(5000);
 
     console.log('[test] Sessions page shows conversation history');
 
-    // Navigate back to chat
     const chatNav = page.getByRole('button', { name: '对话', exact: true });
     await chatNav.click();
     await waitForInputReady(page, 15_000);
