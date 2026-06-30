@@ -16,7 +16,7 @@
 ## Overview
 
 MiQi Desktop is an Electron-based desktop application that provides a modern graphical interface for the MiQi AI agent. It combines powerful AI agent capabilities with an intuitive user interface, supporting chat interaction, memory management, task scheduling, and more.
-
+![interface](interface.png)
 ## Key Features
 
 | Feature | Description |
