@@ -155,6 +155,7 @@ async def sessions_get_handler(
     sm = _get_session_manager()
     try:
         session = sm.get_or_create(session_key, client_id=client_id)
+        sm.save(session)  # 立即持久化到磁盘，确保新会话可被 sidebar 列出 (fix #34)
         return {
             "result": {
                 "key": session.key,
