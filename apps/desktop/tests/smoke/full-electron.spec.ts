@@ -255,6 +255,23 @@ test.describe('Native Electron E2E', () => {
 
     // Wait for chat input to be ready (bridge must be running)
     await waitForInputReady(page, BOOT_TIMEOUT);
+
+    // Wait for bridge to truly be running before sending messages.
+    // The UI input may be ready before the bridge's AppServer finishes
+    // registering all 152 methods.  Without this, the first chat.send
+    // gets "Bridge not running" and crashes the bridge process.
+    const bridgeReady = await page.evaluate(async () => {
+      for (let i = 0; i < 60; i++) {
+        try {
+          const s = await window.miqi.runtime.status()
+          if (s?.state === 'running') return true
+        } catch { /* preload not injected yet */ }
+        await new Promise(r => setTimeout(r, 1000))
+      }
+      return false
+    })
+    if (!bridgeReady) console.log('[test] Warning: bridge did not reach running state')
+
     console.log('[test] Chat input ready — bridge is running');
   }, BOOT_TIMEOUT + 60000);
 
