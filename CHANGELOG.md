@@ -1,3 +1,10 @@
+# [0.3.0](https://github.com/14790897/MiQi/compare/v0.2.2...v0.3.0) (2026-06-30)
+
+
+### Features
+
+* **diagnose:** add diagnostic scripts for bug reports ([a38c1d1](https://github.com/14790897/MiQi/commit/a38c1d1a4a6836fe9e42d46f815920fb41160dfd))
+
 ## [0.2.2](https://github.com/14790897/MiQi/compare/v0.2.1...v0.2.2) (2026-06-29)
 
 
