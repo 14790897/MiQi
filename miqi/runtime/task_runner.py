@@ -698,6 +698,13 @@ class TaskRunner:
                 recoverable=recoverable,
                 error_kind=error_kind,
             ))
+            await self._events.put(TurnCompleteEvent(
+                turn_id=turn_id,
+                thread_id=thread_id,
+                outcome="error",
+                tools_used=[],
+                token_usage={},
+            ))
         finally:
             self._turn_cancel_events.pop(thread_id, None)
             self._active_turn_ids.pop(thread_id, None)
