@@ -158,7 +158,7 @@ renderer.invoke("chat:send", message)
     → bridge.send("chat:send", params)
       → JSON.stringify → Python stdin
         → Bridge Server handle_chat_send()
-          → AgentLoop.process_direct()
+          → RuntimeSession → TurnRunner (LLM + tool loop)
             → [流式事件 → stdout JSON]
               → BridgeManager.parseLine()
                 → ipcMain.emit("chat:progress", data)

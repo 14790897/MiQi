@@ -9,7 +9,8 @@ from typing import Any
 
 from loguru import logger
 
-from miqi.utils.helpers import LEGACY_DATA_DIR, ensure_dir, safe_filename
+from miqi.paths import get_legacy_data_dir
+from miqi.utils.helpers import ensure_dir, safe_filename
 
 
 @dataclass
@@ -73,6 +74,19 @@ class Session:
         # Keep saved_count so save() can detect history shrink and rewrite safely.
 
 
+class OwnershipError(Exception):
+    """Raised when a client attempts to access a session it does not own.
+
+    Codes:
+    - UNAUTHORIZED: session is owned by a different client
+    - REQUIRES_CLAIM: session is unowned (legacy) and must be explicitly claimed
+    """
+
+    def __init__(self, message: str, *, code: str = "UNAUTHORIZED"):
+        super().__init__(message)
+        self.code = code
+
+
 class SessionManager:
     """Manages conversation sessions stored as JSONL files."""
 
@@ -82,10 +96,16 @@ class SessionManager:
         compact_threshold_messages: int = 400,
         compact_threshold_bytes: int = 2_000_000,
         compact_keep_messages: int = 300,
+        *,
+        legacy_sessions_dir: Path | None = None,
     ):
         self.workspace = workspace
         self.sessions_dir = ensure_dir(self.workspace / "sessions")
-        self.legacy_sessions_dir = Path.home() / LEGACY_DATA_DIR / "sessions"
+        self.legacy_sessions_dir = (
+            legacy_sessions_dir
+            if legacy_sessions_dir is not None
+            else get_legacy_data_dir() / "sessions"
+        )
         self.compact_threshold_messages = max(1, compact_threshold_messages)
         self.compact_threshold_bytes = max(1, compact_threshold_bytes)
         self.compact_keep_messages = max(1, compact_keep_messages)
@@ -113,14 +133,59 @@ class SessionManager:
         safe_key = safe_filename(key.replace(":", "_"))
         return self.legacy_sessions_dir / f"{safe_key}.jsonl"
 
-    def get_or_create(self, key: str) -> Session:
-        """Get an existing session from cache/disk or create a new one."""
+    def get_or_create(self, key: str, *, client_id: str | None = None) -> Session:
+        """Get an existing session from cache/disk or create a new one.
+
+        Ownership semantics (when client_id is provided):
+        - NEW session: owner_client_id is set to client_id automatically.
+        - EXISTING, owned by client_id: returned normally.
+        - EXISTING, owned by DIFFERENT client: raises OwnershipError(UNAUTHORIZED).
+        - EXISTING, UNOWNED (legacy): raises OwnershipError(REQUIRES_CLAIM) —
+          auto-claim is NOT performed. The caller must use claim_session().
+
+        When client_id is None (Historical: backward compat, CLI/AgentLoop only):
+        - No ownership checks are performed.
+        - New sessions are created without owner_client_id.
+        """
         if key in self._cache:
-            return self._cache[key]
+            session = self._cache[key]
+            if client_id is not None:
+                owner = session.metadata.get("owner_client_id")
+                if owner is None:
+                    raise OwnershipError(
+                        f"Session '{key}' is a legacy session with no owner. "
+                        "It must be explicitly claimed before access.",
+                        code="REQUIRES_CLAIM",
+                    )
+                if owner != client_id:
+                    raise OwnershipError(
+                        f"Session '{key}' is owned by client '{owner}', not '{client_id}'",
+                        code="UNAUTHORIZED",
+                    )
+            return session
 
         session = self._load(key)
         if session is None:
+            # New session
             session = Session(key=key)
+            if client_id is not None:
+                session.metadata["owner_client_id"] = client_id
+        else:
+            # Existing session on disk
+            if client_id is not None:
+                owner = session.metadata.get("owner_client_id")
+                if owner is None:
+                    # Unowned legacy session — DO NOT auto-claim
+                    raise OwnershipError(
+                        f"Session '{key}' is a legacy session with no owner. "
+                        "It must be explicitly claimed before access.",
+                        code="REQUIRES_CLAIM",
+                    )
+                if owner != client_id:
+                    raise OwnershipError(
+                        f"Session '{key}' is owned by client '{owner}', not '{client_id}'",
+                        code="UNAUTHORIZED",
+                    )
 
         self._cache[key] = session
         return session
@@ -157,6 +222,12 @@ class SessionManager:
                     data = json.loads(line)
                     if data.get("_type") == "metadata":
                         metadata = data.get("metadata", {})
+                        # Propagate owner_client_id from top-level
+                        # (top-level is used by get_owner() for fast queries;
+                        #  metadata sub-dict is used by Session.metadata.get())
+                        owner_from_top = data.get("owner_client_id")
+                        if owner_from_top and "owner_client_id" not in metadata:
+                            metadata["owner_client_id"] = owner_from_top
                         if data.get("created_at"):
                             created_at = datetime.fromisoformat(data["created_at"])
                         if data.get("updated_at"):
@@ -193,11 +264,18 @@ class SessionManager:
 
         should_rewrite = not path.exists() or len(session.messages) < session.saved_count
 
+        # Force rewrite if owner_client_id was set but not yet on disk
+        if not should_rewrite and session.metadata.get("owner_client_id"):
+            owner_on_disk = self._read_owner(session.key)
+            if owner_on_disk is None:
+                should_rewrite = True
+
         if should_rewrite:
             with open(path, "w", encoding="utf-8") as f:
                 metadata_line = {
                     "_type": "metadata",
                     "key": session.key,
+                    "owner_client_id": session.metadata.get("owner_client_id"),
                     "created_at": session.created_at.isoformat(),
                     "updated_at": session.updated_at.isoformat(),
                     "metadata": session.metadata,
@@ -227,11 +305,16 @@ class SessionManager:
         self._migrate_flat_to_dir(key)
         return self.get_session_dir(key) / "tracked_files.json"
 
-    def load_tracked_files(self, key: str) -> dict[str, dict]:
+    def load_tracked_files(
+        self, key: str, *, client_id: str | None = None,
+    ) -> dict[str, dict]:
         """Load tracked files map {normalized_path: {op, name, lastSeen}}.
 
+        When client_id is provided, ownership is verified first.
         Returns an empty dict if the file doesn't exist or is corrupt.
         """
+        if client_id is not None:
+            self._verify_ownership_for_mutation(key, client_id)
         path = self._get_tracked_files_path(key)
         if not path.exists():
             return {}
@@ -241,13 +324,19 @@ class SessionManager:
         except Exception:
             return {}
 
-    def save_tracked_file(self, key: str, file_path: str, op: str = "read",
-                          name: str = "") -> None:
+    def save_tracked_file(
+        self, key: str, file_path: str, op: str = "read",
+        name: str = "", *, client_id: str | None = None,
+    ) -> None:
         """Upsert a single tracked file entry.
 
         ``file_path`` is normalised to forward-slash internally.
         ``op`` is one of: read, write, edit, delete.
+
+        When client_id is provided, ownership is verified first.
         """
+        if client_id is not None:
+            self._verify_ownership_for_mutation(key, client_id)
         files = self.load_tracked_files(key)
         norm = file_path.replace("\\", "/")
         existing = files.get(norm, {})
@@ -271,12 +360,19 @@ class SessionManager:
         )
         tmp.replace(path)
 
-    def reset_tracked_file_op(self, key: str, file_path: str, op: str = "read") -> None:
+    def reset_tracked_file_op(
+        self, key: str, file_path: str, op: str = "read",
+        *, client_id: str | None = None,
+    ) -> None:
         """Force-reset the op of a tracked file entry (ignoring rank).
 
         Unlike ``save_tracked_file`` this bypasses the rank guard so a
         ``write`` entry can be downgraded back to ``read`` after accept.
+
+        When client_id is provided, ownership is verified first.
         """
+        if client_id is not None:
+            self._verify_ownership_for_mutation(key, client_id)
         files = self.load_tracked_files(key)
         norm = file_path.replace("\\", "/")
         if norm not in files:
@@ -293,8 +389,15 @@ class SessionManager:
         )
         tmp.replace(path)
 
-    def remove_tracked_file(self, key: str, file_path: str) -> None:
-        """Remove a single tracked file entry."""
+    def remove_tracked_file(
+        self, key: str, file_path: str, *, client_id: str | None = None,
+    ) -> None:
+        """Remove a single tracked file entry.
+
+        When client_id is provided, ownership is verified first.
+        """
+        if client_id is not None:
+            self._verify_ownership_for_mutation(key, client_id)
         files = self.load_tracked_files(key)
         norm = file_path.replace("\\", "/")
         files.pop(norm, None)
@@ -309,8 +412,15 @@ class SessionManager:
         )
         tmp.replace(path)
 
-    def clear_tracked_files(self, key: str) -> None:
-        """Remove the entire tracked_files.json for a session."""
+    def clear_tracked_files(
+        self, key: str, *, client_id: str | None = None,
+    ) -> None:
+        """Remove the entire tracked_files.json for a session.
+
+        When client_id is provided, ownership is verified first.
+        """
+        if client_id is not None:
+            self._verify_ownership_for_mutation(key, client_id)
         path = self._get_tracked_files_path(key)
         path.unlink(missing_ok=True)
 
@@ -325,24 +435,44 @@ class SessionManager:
         """Remove a session from in-memory cache."""
         self._cache.pop(key, None)
 
-    def archive(self, key: str) -> None:
-        """Mark a session as archived."""
+    def archive(self, key: str, *, client_id: str | None = None) -> None:
+        """Mark a session as archived.
+
+        When client_id is provided, ownership is verified first.
+        """
+        if client_id is not None:
+            self._verify_ownership_for_mutation(key, client_id)
         path = self._get_archived_marker(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
         self.invalidate(key)
 
-    def unarchive(self, key: str) -> None:
-        """Remove archived marker from a session."""
+    def unarchive(self, key: str, *, client_id: str | None = None) -> None:
+        """Remove archived marker from a session.
+
+        When client_id is provided, ownership is verified first.
+        """
+        if client_id is not None:
+            self._verify_ownership_for_mutation(key, client_id)
         path = self._get_archived_marker(key)
         path.unlink(missing_ok=True)
         self.invalidate(key)
 
-    def list_sessions(self, include_archived: bool = False) -> list[dict[str, Any]]:
+    def list_sessions(
+        self,
+        include_archived: bool = False,
+        *,
+        client_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         """List sessions sorted by updated time descending.
 
         Args:
             include_archived: If False (default), exclude archived sessions.
+            client_id: If provided, filter by ownership:
+                - Sessions owned by client_id: included with ownership="owned".
+                - Unowned legacy sessions: included with ownership="unowned".
+                - Sessions owned by other clients: EXCLUDED.
+                - If None (backward compat): all sessions included, no ownership field.
         """
         sessions: list[dict[str, Any]] = []
 
@@ -355,15 +485,29 @@ class SessionManager:
                 if not include_archived and (path.parent / ".archived").exists():
                     continue
                 key = data.get("key") or path.parent.name.replace("_", ":", 1)
-                sessions.append(
-                    {
-                        "key": key,
-                        "title": self._extract_title(path) or key,
-                        "created_at": data.get("created_at"),
-                        "updated_at": data.get("updated_at"),
-                        "path": str(path),
-                    }
-                )
+
+                # Ownership filtering
+                if client_id is not None:
+                    owner = data.get("owner_client_id")
+                    if owner is None:
+                        ownership = "unowned"
+                    elif owner == client_id:
+                        ownership = "owned"
+                    else:
+                        continue  # Owned by different client — exclude
+                else:
+                    ownership = None  # Not set for backward compat
+
+                entry = {
+                    "key": key,
+                    "title": self._extract_title(path) or key,
+                    "created_at": data.get("created_at"),
+                    "updated_at": data.get("updated_at"),
+                    "path": str(path),
+                }
+                if ownership is not None:
+                    entry["ownership"] = ownership
+                sessions.append(entry)
             except Exception:
                 continue
 
@@ -374,24 +518,43 @@ class SessionManager:
                 if data is None:
                     continue
                 key = data.get("key") or path.stem.replace("_", ":", 1)
-                sessions.append(
-                    {
-                        "key": key,
-                        "title": self._extract_title(path) or key,
-                        "created_at": data.get("created_at"),
-                        "updated_at": data.get("updated_at"),
-                        "path": str(path),
-                    }
-                )
+
+                # Ownership filtering
+                if client_id is not None:
+                    owner = data.get("owner_client_id")
+                    if owner is None:
+                        ownership = "unowned"
+                    elif owner == client_id:
+                        ownership = "owned"
+                    else:
+                        continue
+                else:
+                    ownership = None
+
+                entry = {
+                    "key": key,
+                    "title": self._extract_title(path) or key,
+                    "created_at": data.get("created_at"),
+                    "updated_at": data.get("updated_at"),
+                    "path": str(path),
+                }
+                if ownership is not None:
+                    entry["ownership"] = ownership
+                sessions.append(entry)
             except Exception:
                 continue
 
         return sorted(sessions, key=lambda item: item.get("updated_at", ""), reverse=True)
-        """Remove a session from in-memory cache."""
-        self._cache.pop(key, None)
 
-    def delete(self, key: str) -> bool:
-        """Delete a session from cache and disk."""
+    def delete(self, key: str, *, client_id: str | None = None) -> bool:
+        """Delete a session from cache and disk.
+
+        When client_id is provided, ownership is verified first.
+        Unowned sessions raise REQUIRES_CLAIM.
+        Sessions owned by other clients raise UNAUTHORIZED.
+        """
+        if client_id is not None:
+            self._verify_ownership_for_mutation(key, client_id)
         self._cache.pop(key, None)
         self._migrate_flat_to_dir(key)
         session_dir = self.get_session_dir(key)
@@ -463,6 +626,90 @@ class SessionManager:
         except Exception:
             return None
 
+    # ── Ownership ──────────────────────────────────────────────────────
+
+    def _read_owner(self, key: str) -> str | None:
+        """Read owner_client_id from the metadata line of a session file.
+
+        Returns None if the session doesn't exist or has no owner_client_id.
+        """
+        path = self._get_session_path(key)
+        if not path.exists():
+            return None
+        data = self._read_metadata(path)
+        if data is None:
+            return None
+        return data.get("owner_client_id")
+
+    def get_owner(self, key: str) -> str | None:
+        """Return the owner_client_id for a session, or None if unowned."""
+        return self._read_owner(key)
+
+    def claim_session(self, key: str, client_id: str) -> bool:
+        """Explicitly claim an unowned legacy session.
+
+        Returns True if the session was successfully claimed.
+        Returns False if the session is already claimed by this client
+        (idempotent — no error) or if the session does not exist on disk
+        (cannot claim nonexistent sessions).
+        Raises OwnershipError if the session is owned by a different client.
+        """
+        owner = self.get_owner(key)
+        if owner is not None and owner != client_id:
+            raise OwnershipError(
+                f"Session '{key}' is owned by client '{owner}', not '{client_id}'",
+                code="UNAUTHORIZED",
+            )
+        if owner == client_id:
+            return False  # Already claimed, idempotent
+
+        # Session is unowned — load it from disk (do NOT create new)
+        session = self._load(key)
+        if session is None:
+            return False  # Cannot claim a nonexistent session
+
+        session.metadata["owner_client_id"] = client_id
+        self.save(session)
+        self._cache[key] = session
+        logger.info(
+            "Session {} claimed by client {}", key, client_id,
+        )
+        return True
+
+    def _verify_ownership_for_mutation(
+        self, key: str, client_id: str,
+    ) -> None:
+        """Verify ownership for destructive operations.
+
+        If the session does not exist on disk at all, the check passes
+        (there is nothing to protect). This handles sessions that exist
+        only in the AppServer registry and have no disk metadata yet.
+
+        For disk-resident sessions:
+        - Unowned sessions are REJECTED (REQUIRES_CLAIM).
+        - Sessions owned by other clients are REJECTED (UNAUTHORIZED).
+
+        This is the strict check used by delete/archive/unarchive/
+        clear_tracked_files — unowned sessions cannot be mutated
+        without an explicit claim first.
+        """
+        path = self._get_session_path(key)
+        if not path.exists():
+            # No disk session to protect — mutation is a no-op
+            return
+        owner = self.get_owner(key)
+        if owner is None:
+            raise OwnershipError(
+                f"Session '{key}' is a legacy session with no owner. "
+                "It must be explicitly claimed before modification.",
+                code="REQUIRES_CLAIM",
+            )
+        if owner != client_id:
+            raise OwnershipError(
+                f"Session '{key}' is owned by client '{owner}', not '{client_id}'",
+                code="UNAUTHORIZED",
+            )
+
     def compact_if_needed(self, key: str) -> bool:
         """Compact a session file if thresholds are exceeded."""
         session = self.get_or_create(key)
@@ -498,6 +745,7 @@ class SessionManager:
             metadata_line = {
                 "_type": "metadata",
                 "key": session.key,
+                "owner_client_id": session.metadata.get("owner_client_id"),
                 "created_at": session.created_at.isoformat(),
                 "updated_at": session.updated_at.isoformat(),
                 "metadata": session.metadata,

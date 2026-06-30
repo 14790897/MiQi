@@ -27,6 +27,7 @@ import {
   BookOpen,
   GitCompare,
   Undo2,
+  ListChecks,
 } from 'lucide-react'
 import type {
   ChatProgress,
@@ -35,6 +36,8 @@ import type {
   ChatAborted,
   ChatSubagentResult,
 } from '../../../shared/ipc'
+import { extractProgressMessage, type ProgressPayload } from './progressUtils'
+import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage'
 
 interface Attachment {
   name: string
@@ -49,6 +52,7 @@ interface Message {
   content: string
   attachments?: Attachment[]
   toolHint?: boolean
+  toolCallId?: string
   /** When true the message is collapsed by default (user can click to expand) */
   collapsed?: boolean
   /** Short label shown when collapsed (e.g. "exec" or "write_file → /path/to/file") */
@@ -277,6 +281,10 @@ export function ChatConsole({
   } | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
   const [reverting, setReverting] = useState(false)
+  // Inline exec output: tool_call_id → accumulated stdout/stderr
+  const [execOutputs, setExecOutputs] = useState<
+    Record<string, { stdout: string; stderr: string; running: boolean }>
+  >({})
   const [merging, setMerging] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const userScrolledUp = useRef(false)
@@ -285,6 +293,69 @@ export function ChatConsole({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const unsubsRef = useRef<Array<() => void>>([])
   const currentSessionRef = useRef(sessionKey)
+  // Track the active thread ID for new-protocol thread-aware conversations
+  const currentThreadIdRef = useRef<string | null>(null)
+
+  // ── Thread tabs for multi-agent support ──
+  interface ThreadTab {
+    threadId: string
+    agentType: string
+    label: string
+  }
+  const [threads, setThreads] = useState<ThreadTab[]>([
+    { threadId: 'main', agentType: 'main', label: 'Main' },
+  ])
+  const [activeThreadId, setActiveThreadId] = useState('main')
+
+  useEffect(() => {
+    const unsub = window.miqi.agents?.onSpawned((data) => {
+      setThreads((prev) => {
+        if (prev.find((t) => t.threadId === data.sub_thread_id)) return prev
+        return [
+          ...prev,
+          {
+            threadId: data.sub_thread_id,
+            agentType: data.agent_type,
+            label: data.task_label || data.agent_type,
+          },
+        ]
+      })
+    })
+    return () => { if (unsub) unsub() }
+  }, [])
+
+  useEffect(() => {
+    const unsub = window.miqi.agents?.onCompleted((data) => {
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.threadId === data.sub_thread_id
+            ? { ...t, label: `${t.label.replace(/ ✓$/, '')} ✓` }
+            : t,
+        ),
+      )
+    })
+    return () => { if (unsub) unsub() }
+  }, [])
+
+  // ── Plan sidebar state ──
+  interface PlanStep {
+    id: string
+    description: string
+    status: 'pending' | 'in_progress' | 'completed' | 'skipped'
+    depends_on: string[]
+  }
+  const [plan, setPlan] = useState<{ title: string; steps: PlanStep[] } | null>(null)
+  const [planOpen, setPlanOpen] = useState(false)
+
+  useEffect(() => {
+    const unsub = window.miqi.plan?.onUpdated((data) => {
+      if (data.plan) {
+        setPlan(data.plan)
+        setPlanOpen(true)
+      }
+    })
+    return () => { if (unsub) unsub() }
+  }, [])
 
   /** Upsert a file into trackedFiles */
   const trackFile = useCallback((path: string, op: TrackedFile['op'], truncated = false) => {
@@ -302,6 +373,7 @@ export function ChatConsole({
 
   useEffect(() => {
     currentSessionRef.current = sessionKey
+    currentThreadIdRef.current = null  // Reset on session change
     setHistoryLoaded(false)
     setMessages([])
     setTrackedFiles([])
@@ -414,12 +486,7 @@ export function ChatConsole({
 
   const handleAbort = useCallback(async () => {
     cleanupListeners()
-    // Abort the specific request if we have its req_id
-    if (currentReqId) {
-      await window.miqi.chat.abort(currentReqId)
-    } else {
-      await window.miqi.chat.abort()
-    }
+    try { await window.miqi.chat.abort(currentSessionRef.current) } catch { /* ignore */ }
     setStreaming(false)
     setCurrentReqId(null)
     setMessages((prev) => [
@@ -431,6 +498,7 @@ export function ChatConsole({
   const handleNewSession = useCallback(async () => {
     if (streaming) return
     const newKey = `desktop:${Date.now()}`
+    currentThreadIdRef.current = null
     cleanupListeners()
     onNewSession?.(newKey)
   }, [streaming, cleanupListeners, onNewSession])
@@ -445,7 +513,15 @@ export function ChatConsole({
 
   const handleSend = useCallback(async () => {
     const text = input.trim()
-    if ((!text && attachments.length === 0) || streaming) return
+    if (!text && attachments.length === 0) return
+
+    // If a reveal animation is still running from the previous response,
+    // cancel it and abort the in-flight request so we can start fresh.
+    if (streaming) {
+      cleanupListeners()
+      setStreaming(false)
+      try { await window.miqi.chat.abort() } catch { /* ignore */ }
+    }
 
     // Generate a client-side req_id so we can abort this specific request
     const reqId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -496,16 +572,91 @@ export function ChatConsole({
         animId = requestAnimationFrame(revealNext)
       } else if (finalDone) {
         setStreaming(false)
-        cleanupListeners()
+        sendCleanup()
         if (onChatFinished) onChatFinished()
       }
     }
 
-    const unsubProgress = window.miqi.chat.onProgress((data: ChatProgress) => {
+    // Track last progress event time for watchdog
+    let lastEventAt = Date.now()
+    const NO_PROGRESS_WARN_MS = 25_000  // 25s — show "still waiting" warning
+    const NO_PROGRESS_STRONG_MS = 60_000 // 60s — stronger warning
+    let warnMsgId: number | null = null   // timestamp of the last warning message
+    let watchdogTimer: ReturnType<typeof setInterval> | null = null
+
+    // Helper: append watchdog message (idempotent — deduplicates via warnMsgId ref)
+    const appendWatchdogMsg = (content: string) => {
+      if (warnMsgId !== null) return // already shown
+      warnMsgId = Date.now()
       setMessages((prev) => [
         ...prev,
-        { role: 'progress', content: data.text, toolHint: data.tool_hint, timestamp: Date.now() },
+        { role: 'error' as const, content, timestamp: warnMsgId! },
       ])
+    }
+
+    // Start watchdog timer
+    watchdogTimer = setInterval(() => {
+      if (finalDone) {
+        if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null }
+        return
+      }
+      const elapsed = Date.now() - lastEventAt
+      if (elapsed >= NO_PROGRESS_STRONG_MS) {
+        appendWatchdogMsg('⚠️ No response from backend for 60s. You can abort and check runtime logs.')
+      } else if (elapsed >= NO_PROGRESS_WARN_MS) {
+        appendWatchdogMsg('⏳ Still waiting for backend response…')
+      }
+    }, 5_000) // check every 5s
+
+    const sendCleanup = () => {
+      if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null }
+      cleanupListeners()
+    }
+
+    const unsubProgress = window.miqi.chat.onProgress((data: any) => {
+      lastEventAt = Date.now()
+      // Handle stream deltas from exec (Phase 7 inline tool progress)
+      if (data.stream && data.delta && data.tool_call_id) {
+        setExecOutputs((prev) => {
+          const current = prev[data.tool_call_id] || { stdout: '', stderr: '', running: true }
+          return {
+            ...prev,
+            [data.tool_call_id]: {
+              ...current,
+              [data.stream === 'stdout' ? 'stdout' : 'stderr']:
+                current[data.stream === 'stdout' ? 'stdout' : 'stderr'] + data.delta,
+            },
+          }
+        })
+        return
+      }
+
+      // Try structured extraction first, then fall back to raw text
+      const extracted = extractProgressMessage(data as ProgressPayload)
+
+      if (extracted) {
+        const msgRole = extracted.role === 'error' ? 'error' as const
+          : extracted.role === 'warning' ? 'progress' as const  // warnings render as progress with warning style
+          : 'progress' as const
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: msgRole,
+            content: extracted.role === 'warning'
+              ? `⚠️ ${extracted.message}`
+              : extracted.message,
+            toolHint: data.tool_hint,
+            toolCallId: data.tool_call_id,
+            timestamp: Date.now(),
+          },
+        ])
+      } else if (data.tool_hint || data.stream) {
+        // tool_hint without text still deserves a line (old behavior for exec hints)
+        // but skip completely empty/stream-only events
+        return
+      }
+      // Otherwise skip — no displayable content
+
       // Parse file operations from tool hints
       if (data.tool_hint && data.text) {
         const parsed = parseToolHint(data.text)
@@ -531,8 +682,7 @@ export function ChatConsole({
         { role: 'error', content: data.message, timestamp: Date.now() },
       ])
       setStreaming(false)
-      setCurrentReqId(null)
-      cleanupListeners()
+      sendCleanup()
     })
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
@@ -543,27 +693,64 @@ export function ChatConsole({
         ...prev,
         { role: 'progress', content: 'Aborted.', timestamp: Date.now() },
       ])
-      cleanupListeners()
+      sendCleanup()
     })
 
     unsubsRef.current = [unsubProgress, unsubFinal, unsubError, unsubAborted]
 
     try {
-      const result = await window.miqi.chat.send(content, currentSessionRef.current, reqId) as { req_id?: string }
-      // Update reqId with the server-confirmed one (should match)
-      if (result?.req_id) setCurrentReqId(result.req_id)
-      // Refresh sidebar session order immediately (the bridge pre-persists
-      // the user message, so updated_at is already fresh by this point)
-      if (onChatFinished) onChatFinished()
+      // On first message for a new conversation, create a thread with
+      // a title derived from the user's first prompt.
+      let threadId = currentThreadIdRef.current
+      if (threadId == null) {
+        try {
+          const title = (text || 'New conversation').trim().slice(0, 60)
+          // Non-blocking: start thread with a short timeout so chat.send
+          // isn't delayed by a slow bridge restart.  Falls through to
+          // chat.send without thread_id on failure.
+          const threadResult = await Promise.race([
+            window.miqi.threads.start({
+              title,
+              session_key: currentSessionRef.current,
+            }),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('thread/start timeout')), 5000),
+            ),
+          ])
+          // Extract thread id from the result
+          const thread = (threadResult as any)?.thread
+          if (thread) {
+            threadId = thread.id || thread.threadId
+            if (threadId) {
+              currentThreadIdRef.current = threadId
+            }
+          }
+        } catch {
+          // If thread/start fails, fall through to chat.send without thread_id
+        }
+      }
+
+      const key = activeThreadId === 'main'
+        ? currentSessionRef.current
+        : `desktop:${activeThreadId}`
+      await window.miqi.chat.send(content, key, threadId ?? undefined)
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId)
-      setMessages((prev) => [
-        ...prev,
-        { role: 'error', content: e.message ?? String(e), timestamp: Date.now() },
-      ])
+      const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? 'Unknown error'))
+      const detail = `chat.send failed: ${errMsg}`
+      if (e?.code) {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'error' as const, content: `${detail} (code: ${e.code})`, timestamp: Date.now() },
+        ])
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'error' as const, content: detail, timestamp: Date.now() },
+        ])
+      }
       setStreaming(false)
-      cleanupListeners()
-      setCurrentReqId(null)
+      sendCleanup()
     }
   }, [input, attachments, streaming, cleanupListeners, onChatFinished])
 
@@ -702,6 +889,38 @@ export function ChatConsole({
         onChange={handleFileChange}
       />
 
+      {/* ── Thread tabs ── */}
+      {threads.length > 1 && (
+        <div className="flex gap-1 px-2 pt-1 overflow-x-auto border-b border-[var(--border)] shrink-0">
+          {threads.map((t) => (
+            <button
+              key={t.threadId}
+              onClick={() => setActiveThreadId(t.threadId)}
+              className={cn(
+                'px-3 py-1.5 text-xs rounded-t whitespace-nowrap transition-colors',
+                activeThreadId === t.threadId
+                  ? 'bg-[var(--surface)] text-[var(--text)] border-t border-x border-[var(--border)]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)]',
+              )}
+            >
+              {t.label}
+              {t.threadId !== 'main' && (
+                <button
+                  className="ml-1.5 text-[var(--text-muted)] hover:text-[var(--danger)]"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setThreads((prev) => prev.filter((th) => th.threadId !== t.threadId))
+                    if (activeThreadId === t.threadId) setActiveThreadId('main')
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ── Task header bar ── */}
       <div
         className="flex items-center justify-between px-5 h-12 border-b shrink-0"
@@ -745,6 +964,18 @@ export function ChatConsole({
               </button>
             )}
           </ContextMenu>
+          <button
+            onClick={() => setPlanOpen(!planOpen)}
+            className={cn(
+              'p-1.5 rounded transition-colors',
+              planOpen
+                ? 'text-[var(--accent)] bg-[var(--accent)]/10'
+                : 'text-[var(--text-muted)] hover:text-[var(--text)]',
+            )}
+            title="Toggle plan"
+          >
+            <ListChecks size={16} />
+          </button>
           <button
             onClick={handleNewSession}
             disabled={streaming}
@@ -796,6 +1027,7 @@ export function ChatConsole({
                   <MessageBubble
                     key={`${msg.timestamp}-${i}`}
                     msg={msg}
+                    execOutputs={execOutputs}
                     isLast={i === messages.length - 1}
                     onCopy={(text) => handleCopy(text, i)}
                     isCopied={copiedIdx === i}
@@ -803,9 +1035,7 @@ export function ChatConsole({
                   />
                 ))
               )}
-              {streaming &&
-                messages.length > 0 &&
-                messages[messages.length - 1].role === 'progress' && (
+              {streaming && (
                   <div
                     className="flex items-center gap-2 text-xs px-1"
                     style={{ color: 'var(--text-muted)' }}
@@ -917,6 +1147,42 @@ export function ChatConsole({
             </div>
           </div>
         </div>
+
+        {/* ── Plan Sidebar ── */}
+        {planOpen && plan && (
+          <div className="w-72 border-l border-[var(--border)] bg-[var(--surface)] flex flex-col shrink-0">
+            <div className="flex items-center justify-between p-2 border-b border-[var(--border)]">
+              <span className="text-sm font-semibold truncate">{plan.title}</span>
+              <button
+                onClick={() => setPlanOpen(false)}
+                className="text-[var(--text-muted)] hover:text-[var(--text)]"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {plan.steps.map((step) => (
+                <div key={step.id} className="flex items-start gap-2 text-xs py-1">
+                  <span className={cn(
+                    'mt-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[10px] shrink-0',
+                    step.status === 'completed' && 'bg-green-500 text-white',
+                    step.status === 'in_progress' && 'bg-blue-500 text-white animate-pulse',
+                    step.status === 'pending' && 'bg-gray-300 text-gray-600',
+                    step.status === 'skipped' && 'bg-gray-200 text-gray-400',
+                  )}>
+                    {step.status === 'completed' ? '✓' : step.status === 'in_progress' ? '●' : '○'}
+                  </span>
+                  <span className={cn(
+                    step.status === 'skipped' && 'line-through text-[var(--text-muted)]',
+                    step.status === 'in_progress' && 'font-medium',
+                  )}>
+                    {step.description}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── Right panel: Task Assets ── */}
         {panelOpen && (
@@ -1523,8 +1789,9 @@ function TrackedFileCard({
   )
 }
 
-function MessageBubble({ msg, isLast, onCopy, isCopied, onRetry }: {
+function MessageBubble({ msg, execOutputs, isLast, onCopy, isCopied, onRetry }: {
   msg: Message
+  execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>
   isLast: boolean
   onCopy: (text: string) => void
   isCopied: boolean
@@ -1550,6 +1817,20 @@ function MessageBubble({ msg, isLast, onCopy, isCopied, onRetry }: {
           <span>{msg.summary || msg.content}</span>
         ) : (
           <span className="whitespace-pre-wrap break-all">{msg.content}</span>
+        )}
+        {/* Inline exec output (Phase 7.4) */}
+        {msg.toolCallId && execOutputs[msg.toolCallId] && (
+          <div className="ml-5 mt-1 p-2 bg-black/80 text-green-400 text-[11px] font-mono rounded max-h-48 overflow-y-auto border border-gray-700">
+            <pre className="whitespace-pre-wrap">
+              {execOutputs[msg.toolCallId].stdout}
+              {execOutputs[msg.toolCallId].stderr ? (
+                <span className="text-red-400">{execOutputs[msg.toolCallId].stderr}</span>
+              ) : null}
+            </pre>
+            {execOutputs[msg.toolCallId].running && (
+              <span className="inline-block w-1.5 h-3 bg-green-400 animate-pulse ml-0.5 align-middle" />
+            )}
+          </div>
         )}
       </div>
     )

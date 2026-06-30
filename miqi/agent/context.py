@@ -93,6 +93,8 @@ class ContextBuilder:
         self.agent_name = agent_name.strip() or "miqi"
         self.trace_store = trace_store
         self.session_work_dir = session_work_dir
+        # Phase 4: SkillsManager for typed skill injection
+        self._skills_manager: Any = None
 
     def build_system_prompt(
         self,
@@ -290,6 +292,24 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         if channel and chat_id:
             system_prompt += f"\n\n## Current Session\nChannel: {channel}\nChat ID: {chat_id}"
         messages.append({"role": "system", "content": system_prompt})
+
+        # Phase 4: inject skill instructions from SkillsManager
+        if self._skills_manager is not None:
+            try:
+                outcome = self._skills_manager.load_all()
+                injections = self._skills_manager.build_injections(outcome)
+                if injections.system_skills:
+                    messages.append({
+                        "role": "system",
+                        "content": injections.system_skills,
+                    })
+                if injections.workspace_skills:
+                    messages.append({
+                        "role": "system",
+                        "content": injections.workspace_skills,
+                    })
+            except Exception:
+                pass  # Skill injection is best-effort; never crash the agent
 
         # History
         messages.extend(history)

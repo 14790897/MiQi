@@ -117,6 +117,21 @@ MiQi Desktop 的全局配置存储在 `~/.miqi/config.json` 中。
 | `lazy` | bool | 延迟加载 |
 | `progressIntervalSeconds` | int | 心跳间隔 (秒) |
 
+### observability — OpenTelemetry 可观测性
+
+默认关闭。启用并安装可选依赖后，运行时事件将导出为 OpenTelemetry traces 和 metrics。
+
+安装依赖: `pip install miqi[otel]`
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | bool | false | 启用 OTel 导出 |
+| `endpoint` | string | null | OTLP gRPC/HTTP 端点 URL |
+| `serviceName` | string | "miqi" | 服务名称标签 |
+| `consoleExport` | bool | false | 输出到控制台 (开发调试用) |
+| `sampleRatio` | float | 1.0 | 采样率 (0-1) |
+| `captureContent` | bool | false | 捕获消息文本到 Span 属性 (隐私敏感，默认不捕获) |
+
 ## 环境变量
 
 | 变量 | 说明 | 示例 |

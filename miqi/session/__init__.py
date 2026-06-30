@@ -1,5 +1,5 @@
 """Session management module."""
 
-from miqi.session.manager import Session, SessionManager
+from miqi.session.manager import OwnershipError, Session, SessionManager
 
-__all__ = ["SessionManager", "Session"]
+__all__ = ["OwnershipError", "SessionManager", "Session"]

@@ -1,5 +1,15 @@
-import { Shield, Terminal, X, Clock } from 'lucide-react'
+import { Shield, Terminal, FileText, AlertTriangle, X, Clock } from 'lucide-react'
 import { useApproval } from '../../contexts/ApprovalContext'
+import { getApprovalDisplay, getApprovalTitle } from './approvalDisplayUtils'
+
+/**
+ * Choose an icon based on approval category.
+ */
+function ApprovalIcon({ category }: { category?: string }) {
+  if (category === 'exec') return <Terminal size={13} className="text-[var(--text-faint)] mt-1 shrink-0" />
+  if (category === 'file_write') return <FileText size={13} className="text-[var(--text-faint)] mt-1 shrink-0" />
+  return <AlertTriangle size={13} className="text-[var(--text-faint)] mt-1 shrink-0" />
+}
 
 export function ApprovalModal() {
   const { pending, resolve, timeout, remainingSeconds } = useApproval()
@@ -7,6 +17,8 @@ export function ApprovalModal() {
 
   const pct = remainingSeconds != null ? (remainingSeconds / timeout) * 100 : 100
   const isLow = remainingSeconds != null && remainingSeconds <= 5
+  const displayText = getApprovalDisplay(pending)
+  const title = getApprovalTitle(pending.category)
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center pb-8 px-4 pointer-events-none">
@@ -23,7 +35,7 @@ export function ApprovalModal() {
             id="approval-title"
             className="text-sm font-semibold text-[var(--danger)]"
           >
-            危险命令审批
+            {title}
           </span>
           <span className="ml-2 text-xs text-[var(--text-muted)] font-normal">
             {pending.description}
@@ -57,15 +69,12 @@ export function ApprovalModal() {
           </div>
         )}
 
-        {/* Command */}
+        {/* Command / Action display */}
         <div className="px-5 py-3">
           <div className="flex items-start gap-2">
-            <Terminal
-              size={13}
-              className="text-[var(--text-faint)] mt-1 shrink-0"
-            />
+            <ApprovalIcon category={pending.category} />
             <pre className="text-xs font-mono text-[var(--text)] bg-[var(--surface-muted)] rounded-lg px-3 py-2 flex-1 overflow-x-auto whitespace-pre-wrap break-all">
-              {pending.command}
+              {displayText}
             </pre>
           </div>
         </div>

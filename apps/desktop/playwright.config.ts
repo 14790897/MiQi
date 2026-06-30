@@ -27,14 +27,12 @@ export default defineConfig({
       },
     },
     // ② Electron E2E: launches real desktop app via _electron.launch()
+    //    Playwright 1.58+ (PR #39012) fixed the Electron 34 compatibility
+    //    issue by switching from CLI flag to appendSwitch().
     {
       name: 'electron',
       testMatch: ['full-electron.spec.ts'],
       timeout: 300000,  // 5 min — Electron boot + bridge + LLM are slow
-      use: {
-        // Electron tests manage their own launch; no browser device needed
-        headless: false,
-      },
     },
   ],
 
@@ -42,6 +40,6 @@ export default defineConfig({
   webServer: {
     command: 'python -m http.server 3458 --directory out/renderer',
     url: 'http://localhost:3458',
-    reuseExistingServer: false,
+    reuseExistingServer: true,
   },
 });
