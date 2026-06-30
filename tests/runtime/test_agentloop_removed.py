@@ -30,8 +30,14 @@ def test_agent_loop_is_not_public_api() -> None:
 
 
 def test_production_code_has_no_legacy_agent_loop_import_or_construction() -> None:
+    # Exclude kun_runtime — it uses the *new* AgentLoop from
+    # miqi.kun_runtime.loop, not the legacy miqi.agent.loop one.
+    excluded_prefixes = ("miqi/kun_runtime/", "miqi\\kun_runtime\\")
     violations: list[str] = []
     for path in _python_files():
+        rel = str(path.relative_to(ROOT))
+        if any(rel.startswith(p) for p in excluded_prefixes):
+            continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module == "miqi.agent.loop":
