@@ -17,23 +17,23 @@ body:
     id: environment
     attributes:
       label: 环境
-      description: 填写完整的运行环境信息
+      description: |
+        在终端中运行以下命令，将**完整输出**粘贴到下方（替代手填）：
+
+        ```
+        # PowerShell
+        irm https://raw.githubusercontent.com/14790897/MiQi/main/scripts/diagnose.ps1 | iex
+
+        # WSL / Git Bash / macOS / Linux
+        curl -sSL https://raw.githubusercontent.com/14790897/MiQi/main/scripts/diagnose.sh | bash
+        ```
       placeholder: |
-        - OS: Windows 11 24H2
-        - MiQi 版本: 0.2.0-dev.7
-        - Electron 版本: 34.5.8
-        - Node 版本: 22
-        - Python 版本: 3.12
-        - 是否 WSL: 是/否
-        - 是否沙箱模式: 是/否
+        --- MIQI DIAGNOSTIC ---
+        ## OS
+        ...
+        --- END DIAGNOSTIC ---
       value: |
-        - OS:
-        - MiQi 版本:
-        - Electron 版本:
-        - Node 版本:
-        - Python 版本:
-        - 是否 WSL:
-        - 是否沙箱模式:
+        （运行上方命令后将输出粘贴到这里）
     validations:
       required: true
 
