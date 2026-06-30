@@ -9,7 +9,7 @@ echo "--- MIQI DIAGNOSTIC ---"
 echo ""
 
 # ---- OS ----
-echo "## OS"
+echo "**OS**"
 uname -a 2>/dev/null || echo "N/A"
 if [ -f /etc/os-release ]; then
     grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d'"' -f2 || true
@@ -17,13 +17,13 @@ fi
 echo ""
 
 # ---- Python ----
-echo "## Python"
+echo "**Python**"
 python3 --version 2>/dev/null || python --version 2>/dev/null || echo "NOT FOUND"
 which python3 2>/dev/null || which python 2>/dev/null || echo "(path unknown)"
 echo ""
 
 # ---- MiQi ----
-echo "## MiQi"
+echo "**MiQi**"
 if python3 -c "import miqi" >/dev/null 2>&1; then
     python3 -c "import miqi; print('version:', miqi.__version__)"
 elif python -c "import miqi" >/dev/null 2>&1; then
@@ -34,25 +34,25 @@ fi
 echo ""
 
 # ---- pip key deps ----
-echo "## pip (key deps)"
+echo "**pip (key deps)**"
 python3 -m pip show miqi pydantic httpx loguru 2>/dev/null \
     || python -m pip show miqi pydantic httpx loguru 2>/dev/null \
     || echo "(pip not available)"
 echo ""
 
 # ---- Node ----
-echo "## Node.js"
+echo "**Node.js**"
 node --version 2>/dev/null || echo "NOT FOUND"
 npm --version 2>/dev/null || echo "(npm not found)"
 echo ""
 
 # ---- WSL (if on Windows) ----
-echo "## WSL"
+echo "**WSL**"
 wsl.exe --list --verbose 2>/dev/null | tr -d '\0\015' || echo "NOT AVAILABLE (no WSL or not Windows)"
 echo ""
 
 # ---- bwrap ----
-echo "## bwrap"
+echo "**bwrap**"
 FOUND=false
 if which bwrap >/dev/null 2>&1; then
     bwrap --version 2>/dev/null && FOUND=true
@@ -73,7 +73,7 @@ $FOUND || echo "NOT FOUND"
 echo ""
 
 # ---- Sandbox State ----
-echo "## Sandbox State"
+echo "**Sandbox State**"
 if [ -f ~/.miqi/sandbox_state.json ]; then
     cat ~/.miqi/sandbox_state.json 2>/dev/null || echo "(read failed)"
 else
@@ -82,12 +82,12 @@ fi
 echo ""
 
 # ---- Disk ----
-echo "## Disk"
+echo "**Disk**"
 df -h / 2>/dev/null || df -h . 2>/dev/null || echo "(df not available)"
 echo ""
 
 # ---- Git ----
-echo "## Git"
+echo "**Git**"
 git log --oneline -1 2>/dev/null || echo "(not a git repo or git not found)"
 echo ""
 
