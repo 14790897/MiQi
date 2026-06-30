@@ -15,7 +15,8 @@
 
 ## Overview
 
-MiQi is a personal AI agent framework that combines a powerful **Python runtime engine** with an **Electron desktop application**. It provides a typed application server protocol, request validation, multi-provider LLM support, sandboxed command execution, and a plugin/skills ecology — all with a local-first, privacy-respecting architecture.
+MiQi Desktop is an Electron-based desktop application that provides a modern graphical interface for the MiQi AI agent. It combines powerful AI agent capabilities with an intuitive user interface, supporting chat interaction, memory management, task scheduling, and more.
+![interface](interface.png)
 
 ### Core Positioning
 
