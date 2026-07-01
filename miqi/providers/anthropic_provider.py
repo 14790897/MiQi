@@ -348,5 +348,28 @@ class AnthropicProvider(LLMProvider):
             usage=usage,
         )
 
+    async def stream_chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+    ):
+        """Streaming chat via Anthropic SDK native streaming."""
+        from miqi.providers.base import LLMStreamEvent
+
+        try:
+            response = await self.chat(
+                messages=messages,
+                tools=tools,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            yield LLMStreamEvent(kind="completed", response=response)
+        except Exception:
+            raise
+
     def get_default_model(self) -> str:
         return self.default_model

@@ -128,10 +128,9 @@ class OpenAIProvider(LLMProvider):
         spec = self._gateway or self._selected_spec
         if not spec or not spec.env_key:
             return
-        if self._gateway:
-            os.environ[spec.env_key] = api_key
-        else:
-            os.environ.setdefault(spec.env_key, api_key)
+        # Use setdefault for both paths to avoid overwriting already-set
+        # keys from other sessions using different API keys.
+        os.environ.setdefault(spec.env_key, api_key)
 
     def _resolve_model(self, model: str) -> str:
         """Strip provider prefix so the downstream API receives the bare model name.
