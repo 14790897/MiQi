@@ -17,9 +17,12 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const body = context.payload.issue.body || '';
+            let body = context.payload.issue.body || '';
             const issueNumber = context.issue.number;
             const repo = context.repo;
+
+            // 统一换行符：\r\n → \n，避免 Windows 行尾导致正则匹配失败
+            body = body.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
             // 去掉 HTML 注释（<!-- xxx -->）
             const withoutComments = body.replace(/<!--[\s\S]*?-->/g, '').trim();
