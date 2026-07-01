@@ -73,6 +73,7 @@ class ClientSessionRegistry:
         self._sessions: dict[str, Any] = {}               # session_id → RuntimeSession
         self._last_activity: dict[str, float] = {}         # session_id → timestamp
         self._idle_timeout = idle_timeout_seconds
+        self._lock = asyncio.Lock()
         # Phase 35 hardening: bridge_context holds shared state for handler DI.
         # Populated by BridgeRuntimeLoop during init. Handlers read from here
         # instead of importing miqi.bridge.server directly.
@@ -112,26 +113,27 @@ class ClientSessionRegistry:
         # In Phase 27, switch to a pure opaque session_id with display name.
         session_id = f"{client_id}:{session_key}"
 
-        existing = self._sessions.get(session_id)
-        if existing is not None:
-            # Session already exists — ensure client is authorized
+        async with self._lock:
+            existing = self._sessions.get(session_id)
+            if existing is not None:
+                # Session already exists — ensure client is authorized
+                self._client_sessions.setdefault(client_id, set()).add(session_id)
+                self._session_clients.setdefault(session_id, set()).add(client_id)
+                self._last_activity[session_id] = time.time()
+                return existing
+
+            runtime = RuntimeSession.create(
+                config=config,
+                provider=provider,
+                session_id=session_id,
+                workspace=workspace,
+            )
+            await runtime.start()
+
+            self._sessions[session_id] = runtime
             self._client_sessions.setdefault(client_id, set()).add(session_id)
-            self._session_clients.setdefault(session_id, set()).add(client_id)
+            self._session_clients[session_id] = {client_id}
             self._last_activity[session_id] = time.time()
-            return existing
-
-        runtime = RuntimeSession.create(
-            config=config,
-            provider=provider,
-            session_id=session_id,
-            workspace=workspace,
-        )
-        await runtime.start()
-
-        self._sessions[session_id] = runtime
-        self._client_sessions.setdefault(client_id, set()).add(session_id)
-        self._session_clients[session_id] = {client_id}
-        self._last_activity[session_id] = time.time()
         logger.info(
             "ClientSessionRegistry: created session {} for client {}",
             session_id, client_id,
