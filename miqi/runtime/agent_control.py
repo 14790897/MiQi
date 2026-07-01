@@ -490,21 +490,20 @@ class AgentControl:
                             },
                         })
 
-                    # Add assistant message with tool calls (must come BEFORE tool results)
-                    messages.append({
-                        "role": "assistant",
-                        "content": response.content or "",
-                        "tool_calls": tool_call_dicts,
-                    })
-
-                    # Add tool results for each tool call
-                    for tc, result in zip(tool_calls, tool_results):
+                        # Add tool result to messages
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tc.id,
                             "name": tc.name,
                             "content": result or "",
                         })
+
+                    # Add assistant message with tool calls
+                    messages.append({
+                        "role": "assistant",
+                        "content": response.content or "",
+                        "tool_calls": tool_call_dicts,
+                    })
 
                     # Reflect prompt for next iteration
                     messages.append({
