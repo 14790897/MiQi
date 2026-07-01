@@ -107,18 +107,10 @@ async function switchToSessionWithMarker(page: Page, marker: string): Promise<bo
   for (let i = 0; i < count; i++) {
     await items.nth(i).click();
 
-    try {
-      await expect(
-        page.locator('div.max-w-[\\760px] > div.flex-col')
-      ).toBeVisible({ timeout: 8000 });
-    } catch {
-      console.log(`[test] Session #${i} did not load within timeout, continuing`);
-      continue;
-    }
+    // Wait for chat area to render messages
+    await page.waitForTimeout(4000);
 
-    await page.waitForTimeout(1000);
-
-    const markerVisible = await page.getByText(marker).isVisible().catch(() => false);
+    const markerVisible = await page.getByText(marker, { exact: false }).isVisible().catch(() => false);
     if (markerVisible) {
       console.log(`[test] Found marker "${marker}" in session #${i}`);
       return true;
@@ -199,6 +191,27 @@ test.describe('Native Electron E2E', () => {
 
     await expect(page.getByRole('button', { name: 'New Chat' })).toBeVisible();
     await expect(page.locator('button[title="New Session"]')).toBeVisible();
+  });
+
+  test('right panel shows Task Assets', async () => {
+    // The right panel should show "Task Assets" header with LayoutGrid icon.
+    // Default state is panelOpen=true, showing the empty-state message.
+    await expect(page.getByText('Task Assets')).toBeVisible({ timeout: 10_000 });
+
+    // Toggle button exists
+    const toggleBtn = page.locator('button[title="Toggle assets panel"]');
+    await expect(toggleBtn).toBeVisible();
+
+    // Empty state message when no agent operations
+    await expect(page.getByText(/No files yet/)).toBeVisible({ timeout: 5_000 });
+
+    // Toggle panel closed and verify it hides
+    await toggleBtn.click();
+    await expect(page.getByText('Task Assets')).not.toBeVisible({ timeout: 5_000 });
+
+    // Toggle panel back open
+    await toggleBtn.click();
+    await expect(page.getByText('Task Assets')).toBeVisible({ timeout: 5_000 });
   });
 
   test('basic AI responds to simple prompt', { timeout: LLM_TIMEOUT }, async () => {
@@ -344,7 +357,88 @@ test.describe('Native Electron E2E', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════
-  //  SECTION 4: Multi-turn & Persistence
+  //  SECTION 4: Sidebar Switching & History
+  // ═══════════════════════════════════════════════════════════════
+
+  test('sidebar switch back to previous session loads history', { timeout: LLM_TIMEOUT }, async () => {
+    // Phase 1: Build history in Session A
+    const markerA = `SidebarHistory_${Date.now()}`;
+    await sendMessage(page, `只回复这个单词：${markerA}`);
+    await expect(page.getByText(markerA)).toBeVisible({ timeout: 120_000 });
+    await waitForResponseComplete(page);
+
+    // Capture Session A title (timestamp key)
+    const titleA = await getSessionTitle(page).textContent();
+    console.log(`[test] Session A title: ${titleA}`);
+
+    // Phase 2: Create Session B and send a different message
+    await createNewConversation(page);
+    const markerB = `SidebarB_${Date.now()}`;
+    await sendMessage(page, `只回复这个单词：${markerB}`);
+    await expect(page.getByText(markerB)).toBeVisible({ timeout: 120_000 });
+    await waitForResponseComplete(page);
+
+    // Marker A should NOT be visible in Session B
+    await expect(page.getByText(markerA)).not.toBeVisible({ timeout: 3_000 });
+
+    // Phase 3: Switch back to Session A via sidebar.
+    // Use the session title (a numeric timestamp) to find it in the sidebar.
+    const chatNav = page.getByRole('button', { name: '对话', exact: true });
+    await chatNav.click();
+    await page.waitForTimeout(500);
+
+    if (!titleA) throw new Error('Could not capture session title');
+    const titleKey = titleA;
+    const sessionBtn = page.getByRole('button', { name: titleKey }).first();
+    await expect(sessionBtn).toBeVisible({ timeout: 5_000 });
+    await sessionBtn.click();
+
+    // Wait for history to load, then check marker is visible
+    await page.waitForTimeout(4000);
+    await expect(page.getByText(markerA).first()).toBeVisible({ timeout: 10_000 });
+    console.log('[test] Sidebar switch loaded history for marker:', markerA);
+  });
+
+  test('create conversation then switch back sees full history', { timeout: LLM_TIMEOUT }, async () => {
+    // Phase 1: Multi-turn conversation in Session A
+    await sendMessage(page, '请回复：第一轮');
+    await expect(page.getByText('第一轮')).toBeVisible({ timeout: 120_000 });
+    await waitForResponseComplete(page);
+
+    await sendMessage(page, '请回复：第二轮');
+    await expect(page.getByText('第二轮')).toBeVisible({ timeout: 120_000 });
+    await waitForResponseComplete(page);
+
+    const titleA = await getSessionTitle(page).textContent();
+    console.log(`[test] Session A title: ${titleA}`);
+
+    // Phase 2: Create Session B
+    await createNewConversation(page);
+    const markerB = `MultiSwitch_${Date.now()}`;
+    await sendMessage(page, `请只回复：${markerB}`);
+    await expect(page.getByText(markerB)).toBeVisible({ timeout: 120_000 });
+    await waitForResponseComplete(page);
+
+    // Phase 3: Switch back to Session A
+    const chatNav = page.getByRole('button', { name: '对话', exact: true });
+    await chatNav.click();
+    await page.waitForTimeout(500);
+
+    if (!titleA) throw new Error('Could not capture session title');
+    const sessionBtn = page.getByRole('button', { name: titleA }).first();
+    await expect(sessionBtn).toBeVisible({ timeout: 5_000 });
+    await sessionBtn.click();
+
+    await page.waitForTimeout(4000);
+
+    // Both rounds should be visible
+    await expect(page.getByText('第一轮').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('第二轮').first()).toBeVisible({ timeout: 10_000 });
+    console.log('[test] Full history visible after switching back');
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  //  SECTION 5: Multi-turn & Persistence
   // ═══════════════════════════════════════════════════════════════
 
   test('multi-turn memory recall within same session', { timeout: LLM_TIMEOUT }, async () => {
