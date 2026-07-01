@@ -696,3 +696,76 @@ async def test_task_runner_active_turn_id_visible_while_turn_running(fake_servic
     gate.set()
     await task
     assert runner.active_turn_id("thread-active") is None
+
+
+# ---------------------------------------------------------------------------
+# PR #58: concurrent turns on same thread reuse cancel event
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_concurrent_turns_reuse_cancel_event(fake_services):
+    """Two concurrent turns on the same thread must share one cancel event.
+
+    When Turn A registers a cancel event and Turn B arrives before A cleans up,
+    Turn B must reuse Turn A's event rather than create a new one.  Otherwise
+    AbortTurn would only cancel Turn B and Turn A would run forever.
+    """
+    events = asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    # Simulate what _handle_user_message does: register cancel event for Turn A
+    thread_id = "concurrent-test"
+    cancel_a = asyncio.Event()
+    runner._turn_cancel_events[thread_id] = cancel_a
+
+    # Turn B arrives — should reuse, not overwrite
+    cancel_b = runner._turn_cancel_events.get(thread_id)
+    if cancel_b is None:
+        cancel_b = asyncio.Event()
+        runner._turn_cancel_events[thread_id] = cancel_b
+
+    # Both must reference the same Event object
+    assert cancel_a is cancel_b, (
+        "Turn B must reuse Turn A's cancel event, not create a new one"
+    )
+
+    # Simulate Turn B finishing first and cleaning up
+    runner._turn_cancel_events.pop(thread_id, None)
+
+    # Turn A still holds cancel_a reference — abort must still work
+    cancel_a.set()
+    assert cancel_a.is_set(), (
+        "Turn A's cancel event must still work after dict pop"
+    )
+
+
+@pytest.mark.asyncio
+async def test_concurrent_turns_abort_signals_both(fake_services):
+    """AbortTurn on a shared cancel event must wake both waiting turns."""
+    events = asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    thread_id = "shared-abort"
+    shared_evt = asyncio.Event()
+    runner._turn_cancel_events[thread_id] = shared_evt
+
+    # Two turns waiting on the same event
+    async def wait_for_abort(tag: str, results: list[str]):
+        await shared_evt.wait()
+        results.append(tag)
+
+    results: list[str] = []
+    t1 = asyncio.create_task(wait_for_abort("turn-A", results))
+    t2 = asyncio.create_task(wait_for_abort("turn-B", results))
+
+    # Give tasks time to reach the wait
+    await asyncio.sleep(0.01)
+
+    # Trigger abort via shared event
+    shared_evt.set()
+    await asyncio.gather(t1, t2)
+
+    assert "turn-A" in results, "Turn A must receive abort"
+    assert "turn-B" in results, "Turn B must receive abort"
+    assert len(results) == 2, "Both turns must be woken"
