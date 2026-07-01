@@ -1,0 +1,135 @@
+name: Issue 模板校验
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 校验 Issue 模板是否完整填写
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body || '';
+            const issueNumber = context.issue.number;
+            const repo = context.repo;
+
+            // 去掉 HTML 注释（<!-- xxx -->）
+            const withoutComments = body.replace(/<!--[\s\S]*?-->/g, '').trim();
+
+            // 跳过 feature 请求（校验规则不同）
+            if (context.payload.issue.title?.startsWith('[FEATURE]')) {
+              console.log('Feature request — 跳过 bug 模板校验');
+              return;
+            }
+
+            const failures = [];
+
+            // ── 必填字段检查 ──────────────────────────────────────
+
+            // 1. Bug 描述
+            {
+              const m = withoutComments.match(/### Bug 描述\s*\n+(.+?)(?=\n###|\n*$)/s);
+              const val = m?.[1]?.trim();
+              if (!val || val.length < 10) {
+                failures.push('Bug 描述：未填写或内容过短（需至少 10 个字符）');
+              }
+            }
+
+            // 2. 环境（diagnostic 日志）—— 必须替换掉模板默认值
+            {
+              const m = withoutComments.match(/### 环境\s*\n+(.+?)(?=\n###|\n*$)/s);
+              const val = m?.[1]?.trim();
+              const hasDiagnostic = val && val.includes('MIQI DIAGNOSTIC') && val.includes('END DIAGNOSTIC');
+              const stillDefault = val?.includes('运行上方命令后将输出粘贴到这里');
+              if (!val || val.length < 30 || !hasDiagnostic || stillDefault) {
+                failures.push('环境信息：必须运行 diagnose 脚本并将完整输出粘贴到此处');
+              }
+            }
+
+            // 3. 复现步骤 —— 必须替换掉模板默认值
+            {
+              const m = withoutComments.match(/### 复现步骤\s*\n+(.+?)(?=\n###|\n*$)/s);
+              const val = m?.[1]?.trim();
+              // 过滤只有数字列表标记的空行
+              const actualSteps = val?.split('\n').filter(l => {
+                const trimmed = l.replace(/^\d+\.\s*/, '').trim();
+                return trimmed.length > 0;
+              }).join('\n').trim();
+              if (!actualSteps || actualSteps.length < 20) {
+                failures.push('复现步骤：必须填写具体操作步骤');
+              }
+            }
+
+            // 4. 复现频率
+            {
+              const m = withoutComments.match(/### 复现频率\s*\n+(.+?)(?=\n###|\n*$)/s);
+              const val = m?.[1]?.trim();
+              if (!val || !['必现', '偶现', '特定'].some(kw => val.includes(kw))) {
+                failures.push('复现频率：必须填写（必现/偶现/特定条件下必现）');
+              }
+            }
+
+            // 5. 期望行为
+            {
+              const m = withoutComments.match(/### 期望行为\s*\n+(.+?)(?=\n###|\n*$)/s);
+              const val = m?.[1]?.trim();
+              if (!val || val.length < 10) {
+                failures.push('期望行为：未填写');
+              }
+            }
+
+            // 6. 实际行为
+            {
+              const m = withoutComments.match(/### 实际行为\s*\n+(.+?)(?=\n###|\n*$)/s);
+              const val = m?.[1]?.trim();
+              if (!val || val.length < 10) {
+                failures.push('实际行为：未填写');
+              }
+            }
+
+            // 7. 日志 —— 最关键的字段，必须不为空
+            {
+              const m = withoutComments.match(/### 日志\s*\n+(.+?)(?=\n###|\n*$)/s);
+              const val = m?.[1]?.trim();
+              if (!val || val.length < 20) {
+                failures.push('日志：必须粘贴完整的报错日志或堆栈信息');
+              }
+            }
+
+            // ── 结果处理 ──────────────────────────────────────────
+
+            if (failures.length > 0) {
+              const comment = [
+                '### ⚠️ Issue 信息不完整',
+                '',
+                '以下必填项未正确填写，请 **编辑此 Issue** 补充后重新提交：',
+                '',
+                ...failures.map((f, i) => `${i + 1}. ❌ ${f}`),
+                '',
+                '> 💡 提示：请查看 [Bug 报告指南](https://github.com/14790897/miqi/blob/main/.github/ISSUE_TEMPLATE/bug_report.yml) 了解每项的具体要求。',
+              ].join('\n');
+
+              await github.rest.issues.createComment({
+                ...repo,
+                issue_number: issueNumber,
+                body: comment,
+              });
+
+              // 添加 "incomplete" 标签
+              try {
+                await github.rest.issues.addLabels({
+                  ...repo,
+                  issue_number: issueNumber,
+                  labels: ['incomplete'],
+                });
+              } catch {}
+
+              console.log(`[校验失败] ${failures.length} 项未通过:\n${failures.join('\n')}`);
+            } else {
+              console.log('[校验通过] 所有必填项已完整填写');
+            }
