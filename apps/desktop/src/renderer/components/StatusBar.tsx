@@ -42,9 +42,9 @@ export function StatusBar() {
     <div
       className="flex items-center gap-3 h-7 px-4 shrink-0 text-xs"
       style={{
-        background: 'var(--topbar-bg)',
-        borderTop: '1px solid var(--topbar-border)',
-        color: 'rgba(255,255,255,0.4)',
+        background: 'var(--surface-muted)',
+        borderTop: '1px solid var(--border-subtle)',
+        color: 'var(--text-faint)',
       }}
     >
       <span className="flex items-center gap-1.5">
@@ -57,24 +57,25 @@ export function StatusBar() {
             backgroundColor: restartRequired ? 'var(--warning)' : s.color,
           }}
         />
-        <span style={{ color: 'rgba(255,255,255,0.5)' }}>
+        <span style={{ color: 'var(--text-muted)' }}>
           {restartRequired ? '需要重启' : s.label}
         </span>
       </span>
 
       {status.configured && !restartRequired && (
-        <span style={{ color: 'rgba(255,255,255,0.3)' }}>已配置</span>
+        <span style={{ color: 'var(--text-faint)' }}>已配置</span>
       )}
 
       {restartRequired && (
-        <span className="flex items-center gap-2" style={{ color: '#f0c060' }}>
+        <span className="flex items-center gap-2" style={{ color: 'var(--warning)' }}>
           配置已变更
           <button
             onClick={handleRestart}
             disabled={restarting}
             className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition-all disabled:opacity-60"
-            style={{ background: 'var(--warning)', color: 'white' }}
+            style={{ background: 'var(--accent)', color: 'var(--accent-text)' }}
           >
+
             {restarting ? (
               <Loader2 size={10} className="animate-spin" />
             ) : (
@@ -89,7 +90,7 @@ export function StatusBar() {
         <span style={{ color: 'var(--danger)' }}>{restartError}</span>
       )}
 
-      <span className="ml-auto" style={{ color: 'rgba(255,255,255,0.2)' }}>
+      <span className="ml-auto" style={{ color: 'var(--text-faint)' }}>
         MiQi Desktop v0.8
       </span>
     </div>

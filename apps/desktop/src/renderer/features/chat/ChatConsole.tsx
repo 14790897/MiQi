@@ -1014,7 +1014,7 @@ export function ChatConsole({
                 <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center gap-3">
                   <div
                     className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-bold text-white"
-                    style={{ background: 'var(--topbar-bg)' }}
+                    style={{ background: 'var(--accent)' }}
                   >
                     A
                   </div>
@@ -1970,7 +1970,7 @@ function AgentAvatar() {
   return (
     <div
       className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold text-white mt-0.5"
-      style={{ background: 'var(--topbar-bg)' }}
+      style={{ background: 'var(--accent)' }}
     >
       A
     </div>
@@ -1981,7 +1981,7 @@ function UserAvatar() {
   return (
     <div
       className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold text-white mt-0.5"
-      style={{ background: 'var(--topbar-bg)' }}
+      style={{ background: 'var(--avatar-dark)' }}
     >
       U
     </div>
