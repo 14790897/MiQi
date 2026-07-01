@@ -1,6 +1,7 @@
 """Tests for workbench command/exec* AppServer handlers (Phase 43.4)."""
 
 import asyncio
+import sys
 
 import pytest
 
@@ -388,6 +389,7 @@ async def test_env_allows_safe_vars(server_and_registry):
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform != "win32", reason="SystemRoot is Windows-only env var")
 async def test_env_preserves_inherited_environment(server_and_registry):
     """env={"MY_VAR":"hello"} preserves inherited PATH, SystemRoot, etc."""
     server, registry = server_and_registry

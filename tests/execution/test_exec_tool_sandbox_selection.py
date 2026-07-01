@@ -4,6 +4,7 @@ These tests verify that ExecTool no longer makes independent sandbox decisions
 and instead follows the SandboxSelection injected by ToolOrchestrator.
 """
 
+import sys
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -785,6 +786,7 @@ async def test_restricted_allows_inside_workspace_absolute_path(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows path traversal syntax (backslash separators)")
 async def test_restricted_rejects_traversal_path(tmp_path):
     """RESTRICTED must reject commands using ../ traversal."""
     tool = ExecTool(timeout=5, working_dir=str(tmp_path))
