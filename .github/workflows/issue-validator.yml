@@ -1,0 +1,21 @@
+name: Issue 模板校验
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Issue 校验 & AI 日志审核
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          ai-api-key: ${{ secrets.DEEPSEEK_API_KEY }}
+          ai-api-base: ${{ secrets.DEEPSEEK_API_BASE }}

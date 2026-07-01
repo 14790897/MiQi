@@ -8,14 +8,14 @@
  */
 
 /** Maximum length for a user-visible error message. */
-const MAX_LEN = 300
+const MAX_LEN = 300;
 
 /**
  * Matches http(s) URLs.
  * Applied BEFORE the path regex so URLs are replaced as a whole unit,
  * rather than having their path segments fragmented into [path] markers.
  */
-const RE_URL = /https?:\/\/[^\s"'<>]{1,200}/g
+const RE_URL = /https?:\/\/[^\s"'<>]{1,200}/g;
 
 /**
  * Matches Unix / Windows absolute paths.
@@ -29,25 +29,25 @@ const RE_URL = /https?:\/\/[^\s"'<>]{1,200}/g
  *   3) Unix absolute:  /dir/.../file
  */
 const RE_PATH =
-  /(?:\\\\\?\\[A-Za-z]:[\\/](?:[^\s"'<>|:]+[\\/])*[^\s"'<>|:]+)|(?:[A-Za-z]:[\\/](?:[^\s"'<>|:]+[\\/])*[^\s"'<>|:]+)|(?:\/(?:[^\s"'<>|:]+[\/])*[^\s"'<>|:]+)/g
+  /(?:\\\\\?\\[A-Za-z]:[\\/](?:[^\s"'<>|:]+[\\/])*[^\s"'<>|:]+)|(?:[A-Za-z]:[\\/](?:[^\s"'<>|:]+[\\/])*[^\s"'<>|:]+)|(?:\/(?:[^\s"'<>|:]+[\/])*[^\s"'<>|:]+)/g;
 
 /** Matches long Base64-like tokens (40+ contiguous base64 chars). */
-const RE_TOKEN = /\b[A-Za-z0-9+/=]{40,}\b/g
+const RE_TOKEN = /\b[A-Za-z0-9+/=]{40,}\b/g;
 
 export function sanitizeUiMessage(raw: string): string {
-  if (!raw) return ''
+  if (!raw) return '';
 
-  let s = raw
+  let s = raw;
   // 1) Truncate first (same order as Python _sanitize_exc_for_ui)
   if (s.length > MAX_LEN) {
-    s = s.slice(0, MAX_LEN) + '…' // horizontal ellipsis (one char)
+    s = s.slice(0, MAX_LEN) + '…'; // horizontal ellipsis (one char)
   }
   // 2) Strip URLs before paths (avoids path regex fragmenting URL segments)
-  s = s.replace(RE_URL, '[url]')
+  s = s.replace(RE_URL, '[url]');
   // 3) Strip paths
-  s = s.replace(RE_PATH, '[path]')
+  s = s.replace(RE_PATH, '[path]');
   // 4) Strip long tokens
-  s = s.replace(RE_TOKEN, '[token]')
+  s = s.replace(RE_TOKEN, '[token]');
 
-  return s
+  return s;
 }

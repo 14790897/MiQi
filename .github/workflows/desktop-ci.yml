@@ -2,12 +2,7 @@ name: Desktop CI
 
 on:
   push:
-    paths:
-      - 'apps/desktop/**'
-      - '.github/workflows/desktop-ci.yml'
   pull_request:
-    paths:
-      - 'apps/desktop/**'
   workflow_dispatch:
 
 concurrency:
@@ -98,7 +93,7 @@ jobs:
             "providers": {
               "siliconflow": {
                 "apiKey": "${{ secrets.DEEPSEEK_API_KEY }}",
-                "apiBase": "https://api.deepseek.com",
+                "apiBase": "${{ secrets.DEEPSEEK_API_BASE }}",
                 "extraHeaders": null
               }
             },

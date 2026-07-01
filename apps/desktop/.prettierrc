@@ -1,5 +1,50 @@
 {
-    "semi": false,
+    "printWidth": 100,
+    "tabWidth": 2,
+    "useTabs": false,
+    "semi": true,
     "singleQuote": true,
-    "printWidth": 80
+    "quoteProps": "as-needed",
+    "jsxSingleQuote": false,
+    "trailingComma": "es5",
+    "bracketSpacing": true,
+    "bracketSameLine": false,
+    "arrowParens": "always",
+    "endOfLine": "lf",
+    "htmlWhitespaceSensitivity": "css",
+    "vueIndentScriptAndStyle": false,
+    "singleAttributePerLine": false,
+    "proseWrap": "preserve",
+    "embeddedLanguageFormatting": "auto",
+    "overrides": [
+        {
+            "files": [
+                "*.json",
+                "package.json",
+                "tsconfig*.json"
+            ],
+            "options": {
+                "trailingComma": "none",
+                "printWidth": 120
+            }
+        },
+        {
+            "files": [
+                "*.md",
+                "*.mdx"
+            ],
+            "options": {
+                "proseWrap": "always",
+                "printWidth": 80
+            }
+        },
+        {
+            "files": [
+                "*.config.{js,ts,mjs,cjs}"
+            ],
+            "options": {
+                "printWidth": 120
+            }
+        }
+    ]
 }

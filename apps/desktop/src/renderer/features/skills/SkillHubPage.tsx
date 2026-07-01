@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react';
 import {
   Search,
   Download,
@@ -7,122 +7,126 @@ import {
   RefreshCw,
   Package,
   AlertCircle,
-} from 'lucide-react'
-import type { SkillSummary } from '../../../shared/ipc'
+} from 'lucide-react';
+import type { SkillSummary } from '../../../shared/ipc';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 interface RegistrySkill {
-  name: string
-  description: string
-  [key: string]: unknown
+  name: string;
+  description: string;
+  [key: string]: unknown;
 }
 
 interface RegistryIndexEntry {
-  name: string
-  description?: string
-  [key: string]: unknown
+  name: string;
+  description?: string;
+  [key: string]: unknown;
 }
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const REGISTRY_BASE = 'https://skills.sixiangjia.de'
-const REGISTRY_INDEX = `${REGISTRY_BASE}/index.json`
-const REGISTRY_SEARCH = `${REGISTRY_BASE}/api/search`
-const SKILL_URL = (name: string) => `${REGISTRY_BASE}/${name}/SKILL.md`
+const REGISTRY_BASE = 'https://skills.sixiangjia.de';
+const REGISTRY_INDEX = `${REGISTRY_BASE}/index.json`;
+const REGISTRY_SEARCH = `${REGISTRY_BASE}/api/search`;
+const SKILL_URL = (name: string) => `${REGISTRY_BASE}/${name}/SKILL.md`;
 
 // ---------------------------------------------------------------------------
 // SkillHubPage
 // ---------------------------------------------------------------------------
 
 interface SkillHubPageProps {
-  installedSkills: SkillSummary[]
-  onSkillInstalled: () => void
+  installedSkills: SkillSummary[];
+  onSkillInstalled: () => void;
 }
 
 export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPageProps) {
-  const [query, setQuery] = useState('')
-  const [skills, setSkills] = useState<RegistryIndexEntry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [installing, setInstalling] = useState<Set<string>>(new Set())
-  const [installErrors, setInstallErrors] = useState<Map<string, string>>(new Map())
+  const [query, setQuery] = useState('');
+  const [skills, setSkills] = useState<RegistryIndexEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [installing, setInstalling] = useState<Set<string>>(new Set());
+  const [installErrors, setInstallErrors] = useState<Map<string, string>>(new Map());
 
-  const installedNames = new Set(installedSkills.map((s) => s.name))
+  const installedNames = new Set(installedSkills.map((s) => s.name));
 
   // Load all skills from registry
   const loadSkills = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
     try {
       if (query.trim()) {
-        const url = `${REGISTRY_SEARCH}?q=${encodeURIComponent(query.trim())}`
-        const res = await fetch(url)
-        if (!res.ok) throw new Error(`搜索失败 (${res.status})`)
-        const data = await res.json()
+        const url = `${REGISTRY_SEARCH}?q=${encodeURIComponent(query.trim())}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`搜索失败 (${res.status})`);
+        const data = await res.json();
         // Search API might return { results: [...] } or just an array
-        const results: RegistryIndexEntry[] = Array.isArray(data) ? data : (data.results ?? data.skills ?? [])
-        setSkills(results)
+        const results: RegistryIndexEntry[] = Array.isArray(data)
+          ? data
+          : (data.results ?? data.skills ?? []);
+        setSkills(results);
       } else {
-        const res = await fetch(REGISTRY_INDEX)
-        if (!res.ok) throw new Error(`加载失败 (${res.status})`)
-        const data = await res.json()
-        const items: RegistryIndexEntry[] = Array.isArray(data) ? data : (data.skills ?? data.results ?? [])
-        setSkills(items)
+        const res = await fetch(REGISTRY_INDEX);
+        if (!res.ok) throw new Error(`加载失败 (${res.status})`);
+        const data = await res.json();
+        const items: RegistryIndexEntry[] = Array.isArray(data)
+          ? data
+          : (data.skills ?? data.results ?? []);
+        setSkills(items);
       }
     } catch (e: any) {
-      setError(e?.message ?? '加载失败')
+      setError(e?.message ?? '加载失败');
     }
-    setLoading(false)
-  }, [query])
+    setLoading(false);
+  }, [query]);
 
   // Load on mount and when query changes (debounced)
   useEffect(() => {
-    const timer = setTimeout(loadSkills, 300)
-    return () => clearTimeout(timer)
-  }, [loadSkills])
+    const timer = setTimeout(loadSkills, 300);
+    return () => clearTimeout(timer);
+  }, [loadSkills]);
 
   // Install a skill
   const handleInstall = async (skill: RegistryIndexEntry) => {
-    if (installing.has(skill.name)) return
+    if (installing.has(skill.name)) return;
 
-    setInstalling((prev) => new Set(prev).add(skill.name))
+    setInstalling((prev) => new Set(prev).add(skill.name));
     setInstallErrors((prev) => {
-      const next = new Map(prev)
-      next.delete(skill.name)
-      return next
-    })
+      const next = new Map(prev);
+      next.delete(skill.name);
+      return next;
+    });
 
     try {
-      const url = SKILL_URL(skill.name)
-      const res = await fetch(url)
-      if (!res.ok) throw new Error(`下载失败 (${res.status})`)
-      const content = await res.text()
+      const url = SKILL_URL(skill.name);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`下载失败 (${res.status})`);
+      const content = await res.text();
 
-      const uploadRes = await window.miqi.skills.upload(skill.name, content)
+      const uploadRes = await window.miqi.skills.upload(skill.name, content);
       if (!uploadRes.ok) {
-        throw new Error(uploadRes.error ?? '安装失败')
+        throw new Error(uploadRes.error ?? '安装失败');
       }
 
-      onSkillInstalled()
+      onSkillInstalled();
     } catch (e: any) {
       setInstallErrors((prev) => {
-        const next = new Map(prev)
-        next.set(skill.name, e?.message ?? '安装失败')
-        return next
-      })
+        const next = new Map(prev);
+        next.set(skill.name, e?.message ?? '安装失败');
+        return next;
+      });
     }
 
     setInstalling((prev) => {
-      const next = new Set(prev)
-      next.delete(skill.name)
-      return next
-    })
-  }
+      const next = new Set(prev);
+      next.delete(skill.name);
+      return next;
+    });
+  };
 
   // -----------------------------------------------------------------------
   // Render
@@ -136,9 +140,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
           <Package size={20} className="text-[var(--accent)]" />
           <div>
             <h2 className="text-lg font-semibold text-[var(--text)]">SkillHub</h2>
-            <p className="text-xs text-[var(--text-muted)]">
-              浏览并安装来自社区注册表的技能
-            </p>
+            <p className="text-xs text-[var(--text-muted)]">浏览并安装来自社区注册表的技能</p>
           </div>
         </div>
 
@@ -196,9 +198,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
         {!loading && !error && skills.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-[var(--text-muted)]">
             <Package size={32} strokeWidth={1.5} />
-            <div className="text-sm">
-              {query.trim() ? '未找到匹配的技能' : '注册表中暂无技能'}
-            </div>
+            <div className="text-sm">{query.trim() ? '未找到匹配的技能' : '注册表中暂无技能'}</div>
           </div>
         )}
 
@@ -206,9 +206,9 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
         {!loading && !error && skills.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {skills.map((skill) => {
-              const isInstalled = installedNames.has(skill.name)
-              const isInstalling = installing.has(skill.name)
-              const installError = installErrors.get(skill.name)
+              const isInstalled = installedNames.has(skill.name);
+              const isInstalling = installing.has(skill.name);
+              const installError = installErrors.get(skill.name);
 
               return (
                 <div
@@ -294,7 +294,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
                     查看源文件
                   </a>
                 </div>
-              )
+              );
             })}
           </div>
         )}
@@ -317,5 +317,5 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
         )}
       </div>
     </div>
-  )
+  );
 }

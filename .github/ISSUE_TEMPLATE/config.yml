@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 文档
+    url: https://github.com/14790897/miqi/tree/main/docs
+    about: 先查看文档，可能已经有答案
+  - name: 💬 讨论
+    url: https://github.com/14790897/miqi/discussions
+    about: 使用讨论区进行一般问题交流

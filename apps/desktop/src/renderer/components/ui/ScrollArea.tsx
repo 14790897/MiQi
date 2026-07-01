@@ -1,6 +1,6 @@
-import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area'
-import { cn } from '../../lib/utils'
-import { type ComponentPropsWithoutRef, forwardRef } from 'react'
+import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area';
+import { cn } from '../../lib/utils';
+import { type ComponentPropsWithoutRef, forwardRef } from 'react';
 
 export const ScrollArea = forwardRef<
   HTMLDivElement,
@@ -22,5 +22,5 @@ export const ScrollArea = forwardRef<
     </ScrollAreaPrimitive.Scrollbar>
     <ScrollAreaPrimitive.Corner />
   </ScrollAreaPrimitive.Root>
-))
-ScrollArea.displayName = 'ScrollArea'
+));
+ScrollArea.displayName = 'ScrollArea';

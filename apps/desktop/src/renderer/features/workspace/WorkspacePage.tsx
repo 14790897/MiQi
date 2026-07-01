@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { useState, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   FolderOpen,
   FileText,
@@ -16,9 +16,9 @@ import {
   Copy,
   Check,
   RefreshCw,
-} from 'lucide-react'
-import { ContextMenu } from '../../components/ContextMenu'
-import type { FileNode } from '../../../shared/ipc'
+} from 'lucide-react';
+import { ContextMenu } from '../../components/ContextMenu';
+import type { FileNode } from '../../../shared/ipc';
 
 // ---------------------------------------------------------------------------
 // Confirm dialog
@@ -31,28 +31,36 @@ function ConfirmDialog({
   onCancel,
   danger = false,
 }: {
-  title: string
-  message: string
-  onConfirm: () => void
-  onCancel: () => void
-  danger?: boolean
+  title: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  danger?: boolean;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
       <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[400px]">
         <div className="flex items-center gap-2 px-5 py-4 border-b border-[var(--border-subtle)]">
-          <AlertCircle size={16} className={danger ? 'text-[var(--danger)]' : 'text-[var(--warning)]'} />
+          <AlertCircle
+            size={16}
+            className={danger ? 'text-[var(--danger)]' : 'text-[var(--warning)]'}
+          />
           <h2 className="text-sm font-semibold text-[var(--text)]">{title}</h2>
         </div>
         <div className="px-5 py-4 text-sm text-[var(--text-muted)]">{message}</div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
-          <button onClick={onCancel} className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+          >
             取消
           </button>
           <button
             onClick={onConfirm}
             className={`px-4 py-1.5 rounded-lg text-white text-sm font-medium transition-all ${
-              danger ? 'bg-[var(--danger)] hover:brightness-110' : 'bg-[var(--accent)] hover:bg-[var(--accent-hover)]'
+              danger
+                ? 'bg-[var(--danger)] hover:brightness-110'
+                : 'bg-[var(--accent)] hover:bg-[var(--accent-hover)]'
             }`}
           >
             确认
@@ -60,7 +68,7 @@ function ConfirmDialog({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -74,13 +82,13 @@ function InputDialog({
   onConfirm,
   onCancel,
 }: {
-  title: string
-  label: string
-  defaultValue?: string
-  onConfirm: (value: string) => void
-  onCancel: () => void
+  title: string;
+  label: string;
+  defaultValue?: string;
+  onConfirm: (value: string) => void;
+  onCancel: () => void;
 }) {
-  const [value, setValue] = useState(defaultValue)
+  const [value, setValue] = useState(defaultValue);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
@@ -93,18 +101,25 @@ function InputDialog({
             type="text"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && value.trim()) onConfirm(value.trim()) }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && value.trim()) onConfirm(value.trim());
+            }}
             placeholder={label}
             className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)]"
             autoFocus
           />
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
-          <button onClick={onCancel} className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+          >
             取消
           </button>
           <button
-            onClick={() => { if (value.trim()) onConfirm(value.trim()) }}
+            onClick={() => {
+              if (value.trim()) onConfirm(value.trim());
+            }}
             disabled={!value.trim()}
             className="px-4 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-all disabled:opacity-50"
           >
@@ -113,7 +128,7 @@ function InputDialog({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -121,171 +136,191 @@ function InputDialog({
 // ---------------------------------------------------------------------------
 
 export function WorkspacePage() {
-  const [tree, setTree] = useState<FileNode | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [currentPath, setCurrentPath] = useState<string | null>(null)
-  const [content, setContent] = useState('')
-  const [savedContent, setSavedContent] = useState('')
-  const [fileLoading, setFileLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [pendingPath, setPendingPath] = useState<string | null>(null)
-  const [showConfirm, setShowConfirm] = useState(false)
-  const [previewMode, setPreviewMode] = useState(false)
-  const [copiedAll, setCopiedAll] = useState(false)
+  const [tree, setTree] = useState<FileNode | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [currentPath, setCurrentPath] = useState<string | null>(null);
+  const [content, setContent] = useState('');
+  const [savedContent, setSavedContent] = useState('');
+  const [fileLoading, setFileLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pendingPath, setPendingPath] = useState<string | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [previewMode, setPreviewMode] = useState(false);
+  const [copiedAll, setCopiedAll] = useState(false);
 
   // File operations state
-  const [actionTarget, setActionTarget] = useState<{ type: 'newFile' | 'newFolder' | 'rename'; parentPath?: string; nodePath?: string; currentName?: string } | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<{ path: string; isDir: boolean } | null>(null)
+  const [actionTarget, setActionTarget] = useState<{
+    type: 'newFile' | 'newFolder' | 'rename';
+    parentPath?: string;
+    nodePath?: string;
+    currentName?: string;
+  } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ path: string; isDir: boolean } | null>(null);
 
-  const isUnsaved = content !== savedContent
+  const isUnsaved = content !== savedContent;
 
   const loadTree = useCallback(async () => {
     try {
-      const res = await window.miqi.files.tree()
-      setTree(res.root)
+      const res = await window.miqi.files.tree();
+      setTree(res.root);
     } catch {
       // ignore
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    loadTree().then(() => setLoading(false))
-  }, [loadTree])
+    loadTree().then(() => setLoading(false));
+  }, [loadTree]);
 
-  const openFile = useCallback((path: string) => {
-    if (isUnsaved && path !== currentPath) {
-      setPendingPath(path)
-      setShowConfirm(true)
-      return
-    }
-    loadFile(path)
-  }, [isUnsaved, currentPath])
+  const openFile = useCallback(
+    (path: string) => {
+      if (isUnsaved && path !== currentPath) {
+        setPendingPath(path);
+        setShowConfirm(true);
+        return;
+      }
+      loadFile(path);
+    },
+    [isUnsaved, currentPath]
+  );
 
   const loadFile = useCallback((path: string) => {
-    setFileLoading(true)
-    setError(null)
-    setCurrentPath(path)
-    window.miqi.files.read(path).then((res) => {
-      setContent(res.content)
-      setSavedContent(res.content)
-      setFileLoading(false)
-    }).catch((err) => {
-      setError(String(err?.message ?? err))
-      setContent('')
-      setSavedContent('')
-      setFileLoading(false)
-    })
-  }, [])
+    setFileLoading(true);
+    setError(null);
+    setCurrentPath(path);
+    window.miqi.files
+      .read(path)
+      .then((res) => {
+        setContent(res.content);
+        setSavedContent(res.content);
+        setFileLoading(false);
+      })
+      .catch((err) => {
+        setError(String(err?.message ?? err));
+        setContent('');
+        setSavedContent('');
+        setFileLoading(false);
+      });
+  }, []);
 
-  const confirmSwitch = useCallback((ok: boolean) => {
-    setShowConfirm(false)
-    if (ok && pendingPath) {
-      loadFile(pendingPath)
-    }
-    setPendingPath(null)
-  }, [pendingPath, loadFile])
+  const confirmSwitch = useCallback(
+    (ok: boolean) => {
+      setShowConfirm(false);
+      if (ok && pendingPath) {
+        loadFile(pendingPath);
+      }
+      setPendingPath(null);
+    },
+    [pendingPath, loadFile]
+  );
 
   const handleSave = useCallback(() => {
-    if (!currentPath) return
-    setSaving(true)
-    setError(null)
-    window.miqi.files.write(currentPath, content).then(() => {
-      setSavedContent(content)
-      setSaving(false)
-    }).catch((err) => {
-      setError(String(err?.message ?? err))
-      setSaving(false)
-    })
-  }, [currentPath, content])
+    if (!currentPath) return;
+    setSaving(true);
+    setError(null);
+    window.miqi.files
+      .write(currentPath, content)
+      .then(() => {
+        setSavedContent(content);
+        setSaving(false);
+      })
+      .catch((err) => {
+        setError(String(err?.message ?? err));
+        setSaving(false);
+      });
+  }, [currentPath, content]);
 
   // Copy all
   const handleCopyAll = () => {
-    navigator.clipboard.writeText(content)
-    setCopiedAll(true)
-    setTimeout(() => setCopiedAll(false), 2000)
-  }
+    navigator.clipboard.writeText(content);
+    setCopiedAll(true);
+    setTimeout(() => setCopiedAll(false), 2000);
+  };
 
   // Create file/folder
   const handleCreate = async (name: string) => {
-    if (!actionTarget) return
-    const parentPath = actionTarget.parentPath || '.'
-    const fullPath = parentPath === '.' ? name : `${parentPath}/${name}`
+    if (!actionTarget) return;
+    const parentPath = actionTarget.parentPath || '.';
+    const fullPath = parentPath === '.' ? name : `${parentPath}/${name}`;
 
     try {
       if (actionTarget.type === 'newFolder') {
         // Create folder by creating a .gitkeep file inside it
-        await window.miqi.files.write(`${fullPath}/.gitkeep`, '')
+        await window.miqi.files.write(`${fullPath}/.gitkeep`, '');
       } else {
-        await window.miqi.files.write(fullPath, '')
+        await window.miqi.files.write(fullPath, '');
       }
-      await loadTree()
+      await loadTree();
     } catch (err: unknown) {
-      setError(String(err instanceof Error ? err.message : err))
+      setError(String(err instanceof Error ? err.message : err));
     }
-    setActionTarget(null)
-  }
+    setActionTarget(null);
+  };
 
   // Rename file/folder
   const handleRename = async (newName: string) => {
-    if (!actionTarget?.nodePath || !actionTarget.currentName) return
-    const nodePath = actionTarget.nodePath
-    const parentPath = nodePath.substring(0, nodePath.lastIndexOf('/'))
-    const oldName = nodePath.substring(nodePath.lastIndexOf('/') + 1)
-    const newPath = parentPath ? `${parentPath}/${newName}` : newName
+    if (!actionTarget?.nodePath || !actionTarget.currentName) return;
+    const nodePath = actionTarget.nodePath;
+    const parentPath = nodePath.substring(0, nodePath.lastIndexOf('/'));
+    const oldName = nodePath.substring(nodePath.lastIndexOf('/') + 1);
+    const newPath = parentPath ? `${parentPath}/${newName}` : newName;
 
     try {
       // Read old content, write to new path, delete old
-      const oldContent = await window.miqi.files.read(nodePath).then(r => r.content).catch(() => '')
-      await window.miqi.files.write(newPath, oldContent)
-      await window.miqi.files.delete(nodePath)
+      const oldContent = await window.miqi.files
+        .read(nodePath)
+        .then((r) => r.content)
+        .catch(() => '');
+      await window.miqi.files.write(newPath, oldContent);
+      await window.miqi.files.delete(nodePath);
       if (currentPath === nodePath) {
-        setCurrentPath(newPath)
+        setCurrentPath(newPath);
       }
-      await loadTree()
+      await loadTree();
     } catch (err: unknown) {
-      setError(String(err instanceof Error ? err.message : err))
+      setError(String(err instanceof Error ? err.message : err));
     }
-    setActionTarget(null)
-  }
+    setActionTarget(null);
+  };
 
   // Delete
   const handleDelete = async () => {
-    if (!deleteTarget) return
+    if (!deleteTarget) return;
     try {
-      await window.miqi.files.delete(deleteTarget.path)
+      await window.miqi.files.delete(deleteTarget.path);
       if (currentPath === deleteTarget.path || currentPath?.startsWith(deleteTarget.path + '/')) {
-        setCurrentPath(null)
-        setContent('')
-        setSavedContent('')
+        setCurrentPath(null);
+        setContent('');
+        setSavedContent('');
       }
-      await loadTree()
+      await loadTree();
     } catch (err: unknown) {
-      setError(String(err instanceof Error ? err.message : err))
+      setError(String(err instanceof Error ? err.message : err));
     }
-    setDeleteTarget(null)
-  }
+    setDeleteTarget(null);
+  };
 
   // Keyboard shortcut: Ctrl+S to save
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault()
-        if (isUnsaved && currentPath) handleSave()
+        e.preventDefault();
+        if (isUnsaved && currentPath) handleSave();
       }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [isUnsaved, currentPath, handleSave])
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [isUnsaved, currentPath, handleSave]);
 
-  const isMdFile = currentPath?.endsWith('.md')
+  const isMdFile = currentPath?.endsWith('.md');
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-sm text-[var(--text-muted)]">正在加载工作区…</div>
       </div>
-    )
+    );
   }
 
   return (
@@ -312,13 +347,13 @@ export function WorkspacePage() {
               selectedPath={currentPath}
               onNewFile={(parentPath) => setActionTarget({ type: 'newFile', parentPath })}
               onNewFolder={(parentPath) => setActionTarget({ type: 'newFolder', parentPath })}
-              onRename={(nodePath, currentName) => setActionTarget({ type: 'rename', nodePath, currentName })}
+              onRename={(nodePath, currentName) =>
+                setActionTarget({ type: 'rename', nodePath, currentName })
+              }
               onDelete={(path, isDir) => setDeleteTarget({ path, isDir })}
             />
           ) : (
-            <div className="text-xs text-[var(--text-muted)] text-center mt-8">
-              未找到文件
-            </div>
+            <div className="text-xs text-[var(--text-muted)] text-center mt-8">未找到文件</div>
           )}
         </div>
       </div>
@@ -421,7 +456,8 @@ export function WorkspacePage() {
           <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-lg p-5 max-w-sm w-full mx-4">
             <h3 className="text-sm font-semibold text-[var(--text)] mb-2">有未保存的更改</h3>
             <p className="text-xs text-[var(--text-muted)] mb-4">
-              文件 <span className="font-mono">{currentPath}</span> 有未保存的更改，确认丢弃并打开其他文件？
+              文件 <span className="font-mono">{currentPath}</span>{' '}
+              有未保存的更改，确认丢弃并打开其他文件？
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -470,7 +506,7 @@ export function WorkspacePage() {
         />
       )}
     </div>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -487,19 +523,19 @@ function FileTree({
   onDelete,
   depth = 0,
 }: {
-  node: FileNode
-  onSelect: (path: string) => void
-  selectedPath: string | null
-  onNewFile: (parentPath: string) => void
-  onNewFolder: (parentPath: string) => void
-  onRename: (nodePath: string, currentName: string) => void
-  onDelete: (path: string, isDir: boolean) => void
-  depth?: number
+  node: FileNode;
+  onSelect: (path: string) => void;
+  selectedPath: string | null;
+  onNewFile: (parentPath: string) => void;
+  onNewFolder: (parentPath: string) => void;
+  onRename: (nodePath: string, currentName: string) => void;
+  onDelete: (path: string, isDir: boolean) => void;
+  depth?: number;
 }) {
-  const [open, setOpen] = useState(depth < 1)
+  const [open, setOpen] = useState(depth < 1);
 
   if (node.is_dir) {
-    const children = node.children ?? []
+    const children = node.children ?? [];
     return (
       <div>
         <ContextMenu
@@ -508,7 +544,12 @@ function FileTree({
             { label: '新建文件夹', onSelect: () => onNewFolder(node.path) },
             { label: '重命名', divider: true, onSelect: () => onRename(node.path, node.name) },
             { label: '复制路径', onSelect: () => navigator.clipboard.writeText(node.path) },
-            { label: '删除', danger: true, divider: true, onSelect: () => onDelete(node.path, true) },
+            {
+              label: '删除',
+              danger: true,
+              divider: true,
+              onSelect: () => onDelete(node.path, true),
+            },
           ]}
         >
           {({ onContextMenu }) => (
@@ -524,28 +565,40 @@ function FileTree({
               {/* Action buttons on hover */}
               <div className="hidden group-hover:flex items-center gap-0.5 pr-1 shrink-0">
                 <button
-                  onClick={(e) => { e.stopPropagation(); onNewFile(node.path) }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onNewFile(node.path);
+                  }}
                   className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--accent)] hover:bg-[var(--surface-muted)] transition-colors"
                   title="新建文件"
                 >
                   <FilePlus size={11} />
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); onNewFolder(node.path) }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onNewFolder(node.path);
+                  }}
                   className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--accent)] hover:bg-[var(--surface-muted)] transition-colors"
                   title="新建文件夹"
                 >
                   <FolderPlus size={11} />
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); onRename(node.path, node.name) }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRename(node.path, node.name);
+                  }}
                   className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--info)] hover:bg-[var(--surface-muted)] transition-colors"
                   title="重命名"
                 >
                   <Pencil size={11} />
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(node.path, true) }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(node.path, true);
+                  }}
                   className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--danger)] hover:bg-[var(--surface-muted)] transition-colors"
                   title="删除"
                 >
@@ -576,10 +629,10 @@ function FileTree({
           <div className="ml-7 text-[10px] text-[var(--text-faint)] py-0.5">（空）</div>
         )}
       </div>
-    )
+    );
   }
 
-  const isSelected = selectedPath === node.path
+  const isSelected = selectedPath === node.path;
   return (
     <ContextMenu
       items={[
@@ -605,14 +658,20 @@ function FileTree({
           {/* Action buttons on hover */}
           <div className="hidden group-hover:flex items-center gap-0.5 pr-1 shrink-0">
             <button
-              onClick={(e) => { e.stopPropagation(); onRename(node.path, node.name) }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRename(node.path, node.name);
+              }}
               className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--info)] hover:bg-[var(--surface-muted)] transition-colors"
               title="重命名"
             >
               <Pencil size={11} />
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); onDelete(node.path, false) }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(node.path, false);
+              }}
               className="p-0.5 rounded text-[var(--text-faint)] hover:text-[var(--danger)] hover:bg-[var(--surface-muted)] transition-colors"
               title="删除"
             >
@@ -622,5 +681,5 @@ function FileTree({
         </div>
       )}
     </ContextMenu>
-  )
+  );
 }

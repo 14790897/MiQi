@@ -1,39 +1,48 @@
-import React, { useEffect, useState } from 'react'
-import type { LiveAgentInfo } from '../../../shared/ipc'
+import React, { useEffect, useState } from 'react';
+import type { LiveAgentInfo } from '../../../shared/ipc';
 
 export default function AgentPanel() {
-  const [agents, setAgents] = useState<LiveAgentInfo[]>([])
-  const [loading, setLoading] = useState(true)
+  const [agents, setAgents] = useState<LiveAgentInfo[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const result = await window.miqi.agents.list()
-        setAgents(result.agents || [])
+        const result = await window.miqi.agents.list();
+        setAgents(result.agents || []);
       } catch (e) {
-        console.error('Failed to load agents:', e)
+        console.error('Failed to load agents:', e);
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
-    load()
-    const unsub = window.miqi.agents.onSpawned(() => load())
-    return () => { unsub() }
-  }, [])
+    };
+    load();
+    const unsub = window.miqi.agents.onSpawned(() => load());
+    return () => {
+      unsub();
+    };
+  }, []);
 
   const statusColor = (s: string) => {
     switch (s) {
-      case 'idle': return 'bg-gray-400'
-      case 'thinking': return 'bg-yellow-400 animate-pulse'
-      case 'executing': return 'bg-blue-400 animate-pulse'
-      case 'completed': return 'bg-green-500'
-      case 'error': return 'bg-red-500'
-      case 'aborted': return 'bg-orange-500'
-      default: return 'bg-gray-400'
+      case 'idle':
+        return 'bg-gray-400';
+      case 'thinking':
+        return 'bg-yellow-400 animate-pulse';
+      case 'executing':
+        return 'bg-blue-400 animate-pulse';
+      case 'completed':
+        return 'bg-green-500';
+      case 'error':
+        return 'bg-red-500';
+      case 'aborted':
+        return 'bg-orange-500';
+      default:
+        return 'bg-gray-400';
     }
-  }
+  };
 
-  if (loading) return <div className="p-4">Loading agents...</div>
+  if (loading) return <div className="p-4">Loading agents...</div>;
 
   return (
     <div className="p-4">
@@ -56,5 +65,5 @@ export default function AgentPanel() {
         </div>
       )}
     </div>
-  )
+  );
 }

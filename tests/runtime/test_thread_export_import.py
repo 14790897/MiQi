@@ -372,7 +372,10 @@ async def test_import_uses_provider_messages_fallback_when_no_ledger_messages(tm
         await reader.resolve_thread("fallback-1"),
     )
     assert len(msgs) == 2
-    assert msgs[0]["content"] == "fallback-msg"
+    # Order is nondeterministic — items are created with the same timestamp
+    # and sorted by UUID as tiebreaker.  Check presence, not order.
+    contents = {m["content"] for m in msgs}
+    assert contents == {"fallback-msg", "fallback-reply"}
 
 
 @pytest.mark.asyncio

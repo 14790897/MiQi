@@ -346,7 +346,8 @@ class SandboxManager:
         """
         sandbox_key = self._sandbox_key(session_key, client_id=client_id)
         sandbox = await self.get_or_create(session_key, client_id=client_id)
-        self._active_key = sandbox_key
+        with self._lock:
+            self._active_key = sandbox_key
         return sandbox
 
     async def destroy(
