@@ -702,8 +702,13 @@ class TaskRunner:
                 error_kind=error_kind,
             ))
         finally:
-            self._turn_cancel_events.pop(thread_id, None)
-            self._active_turn_ids.pop(thread_id, None)
+            # Only clear entries this turn still owns — a concurrent turn
+            # on the same thread may have reused the cancel event and
+            # overwritten the active turn id (PR #58 fix).
+            if self._turn_cancel_events.get(thread_id) is cancel_evt:
+                self._turn_cancel_events.pop(thread_id, None)
+            if self._active_turn_ids.get(thread_id) == turn_id:
+                self._active_turn_ids.pop(thread_id, None)
             self._turn_steer_queues.pop(turn_id, None)
 
     async def _handle_thread_command(self, cmd: ThreadCommand) -> None:
