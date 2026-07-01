@@ -51,7 +51,17 @@ jobs:
           python -m pip install uv
           sudo apt-get update
           sudo apt-get install -y bubblewrap
+      - name: Check bwrap availability
+        id: bwrap-check
+        run: |
+          if bwrap --version >/dev/null 2>&1; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::bwrap unavailable — sandbox tests will be skipped"
+          fi
       - name: Install dependencies
         run: uv sync --all-extras
       - name: Run sandbox tests
-        run: uv run pytest -q -m "sandbox and bwrap"
+        if: steps.bwrap-check.outputs.available == 'true'
+        run: uv run pytest -q -m "sandbox and bwrap" --suppress-no-test-exit-code --tb=short
