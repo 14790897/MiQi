@@ -19,6 +19,7 @@ Key semantics:
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from loguru import logger
@@ -122,6 +123,80 @@ async def sessions_list_handler(
 # ── sessions.get ───────────────────────────────────────────────────────────
 
 
+async def _load_messages_from_stored_runtime(
+    workspace: Any,
+    client_id: str,
+    namespaced_session_id: str,
+) -> list[dict[str, Any]]:
+    """Try to load conversation messages from the SQLite stored runtime.
+
+    This is a fallback for sessions whose messages were written to the
+    runtime.db by HistoryRuntime but never mirrored to the SessionManager
+    JSONL file (the two storage systems are independent).
+    """
+    from pathlib import Path as _Path
+
+    try:
+        from miqi.runtime.stored_runtime import StoredRuntimeReader
+
+        runtime_db = _Path(workspace) / ".miqi-runtime" / "runtime.db"
+        if not runtime_db.exists():
+            return []
+
+        reader = StoredRuntimeReader(runtime_db, client_id=client_id)
+        stored_threads = await reader.list_threads()
+        if not stored_threads:
+            return []
+
+        messages: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+
+        for thread in stored_threads:
+            # Only include threads belonging to the requested session
+            if thread.session_id != namespaced_session_id:
+                continue
+
+            try:
+                history_items = await reader.load_history_items(thread)
+            except Exception:
+                continue
+
+            for item in history_items:
+                # Deduplicate by item_id (a thread may appear in multiple queries)
+                if item.item_id in seen_ids:
+                    continue
+                seen_ids.add(item.item_id)
+
+                # SQLite stores created_at as Unix seconds (float); the
+                # frontend sessionMsgsToUi expects ISO-format strings
+                # matching the SessionManager JSONL convention.
+                try:
+                    ts_str = datetime.fromtimestamp(item.created_at).isoformat()
+                except (OSError, ValueError):
+                    ts_str = datetime.now().isoformat()
+
+                msg: dict[str, Any] = {
+                    "role": item.role,
+                    "content": item.content,
+                    "timestamp": ts_str,
+                }
+                # Merge any extra message fields from the payload (e.g. tool_calls, name)
+                extra = item.payload.get("message_fields", {})
+                if isinstance(extra, dict):
+                    msg.update(extra)
+                messages.append(msg)
+
+        # Sort by timestamp so the frontend renders messages in order
+        messages.sort(key=lambda m: m.get("timestamp", ""))
+        return messages
+
+    except Exception:
+        # Best-effort: don't break sessions.get if the stored runtime is
+        # unavailable or has an incompatible schema version.
+        logger.debug("Failed to load messages from stored runtime for {}", namespaced_session_id)
+        return []
+
+
 async def sessions_get_handler(
     request_id: str,
     params: dict[str, Any],
@@ -131,40 +206,58 @@ async def sessions_get_handler(
 ) -> dict[str, Any]:
     """Get session detail from AppServer registry or disk.
 
-    If the session is active in AppServer, returns runtime info.
-    Otherwise, falls back to SessionManager disk data.
+    Always returns the full message list.  Messages are loaded from the
+    SessionManager JSONL first; if that is empty, the handler falls back
+    to the SQLite stored runtime (runtime.db) where HistoryRuntime
+    persists turn messages.
     """
     typed = validate_session_params("sessions.get", params)
     session_key = typed.session_key
 
     sid = _client_session_id(client_id, session_key)
 
-    # Check AppServer registry first
+    # Check AppServer registry for runtime status (don't short-circuit —
+    # we still need to load messages regardless of liveness).
     runtime = await registry.get_session(client_id, sid)
-    if runtime is not None:
-        return {
-            "result": {
-                "key": session_key,
-                "session_id": sid,
-                "status": "running",
-                "agent_count": len(getattr(getattr(runtime.services, "agent_control", None), "_agents", {})),
-            },
-        }
+    is_running = runtime is not None
+    agent_count = (
+        len(getattr(getattr(runtime.services, "agent_control", None), "_agents", {}))
+        if runtime
+        else 0
+    )
 
-    # Fall back to SessionManager (client-scoped)
+    # Always load from SessionManager first (JSONL on disk).
     sm = _get_session_manager()
     try:
         session = sm.get_or_create(session_key, client_id=client_id)
+        messages: list[dict[str, Any]] = list(session.messages)
+
+        # If the JSONL has no messages, the conversation may have been
+        # persisted solely to the SQLite stored runtime.  Try loading
+        # from there as a fallback.
+        if not messages:
+            stored_msgs = await _load_messages_from_stored_runtime(
+                sm.workspace, client_id, sid,
+            )
+            if stored_msgs:
+                messages = stored_msgs
+                # Mirror back into the SessionManager in-memory state so
+                # subsequent calls don't need the fallback again.
+                session.messages = messages
+                session.saved_count = 0  # force a full rewrite on next save
+
         sm.save(session)  # 立即持久化到磁盘，确保新会话可被 sidebar 列出 (fix #34)
+
         return {
             "result": {
                 "key": session.key,
-                "messages": session.messages,
+                "messages": messages,
                 "created_at": session.created_at.isoformat(),
                 "updated_at": session.updated_at.isoformat(),
                 "metadata": session.metadata,
-                "status": "inactive",
+                "status": "running" if is_running else "inactive",
                 "ownership": "owned",
+                "agent_count": agent_count,
             },
         }
     except OwnershipError as exc:
