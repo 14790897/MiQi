@@ -329,6 +329,15 @@ class CodexTurnEventAdapter:
                 self._with_location({"item": agent_message_item(self.turn_id, text)}),
             ))
 
+        # Complete pending reasoning item if needed
+        if self._reasoning_started:
+            self._reasoning_started = False
+            ri = reasoning_item(self.turn_id, "".join(self._reasoning_text_parts))
+            result.append(self._notification(
+                "item/completed",
+                self._with_location({"item": ri}),
+            ))
+
         # Token usage
         if event.token_usage:
             result.append(self._notification(

@@ -231,7 +231,6 @@ class ContextRuntime:
         replacement = await self.compress_messages(
             messages,
             model=model,
-            session_id=thread_id,
         )
         after_tokens = self.estimate_tokens(replacement)
         await history_runtime.replace_messages_with_compaction(
