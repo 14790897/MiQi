@@ -171,7 +171,9 @@ class CodexTurnEventAdapter:
                     "item": {"type": "reasoning", "id": f"{self.turn_id}:reasoning"},
                 }),
             ))
-        self._reasoning_text_parts.append(event.content)
+        # Overwrite with latest cumulative content — each event.content is
+        # the full reasoning text so far, not incremental.
+        self._reasoning_text_parts[:] = [event.content]
         # Only send the incremental portion since last delta (not the full text each time)
         delta = event.content[self._reasoning_sent_len:]
         self._reasoning_sent_len = len(event.content)
@@ -325,7 +327,7 @@ class CodexTurnEventAdapter:
 
         # Complete pending reasoning item if needed
         if self._reasoning_started:
-            ri = reasoning_item(self.turn_id, "".join(self._reasoning_text_parts) if self._reasoning_text_parts else "")
+            ri = reasoning_item(self.turn_id, self._reasoning_text_parts[-1] if self._reasoning_text_parts else "")
             result.append(self._notification(
                 "item/completed",
                 self._with_location({"item": ri}),
