@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
-import { Plug, Plus, Pencil, Trash2, X } from 'lucide-react'
-import type { McpServerInfo, McpServerConfig } from '../../../shared/ipc'
+import { useState, useEffect } from 'react';
+import { Plug, Plus, Pencil, Trash2, X } from 'lucide-react';
+import type { McpServerInfo, McpServerConfig } from '../../../shared/ipc';
 
 function MCPServerModal({
   open,
@@ -8,80 +8,81 @@ function MCPServerModal({
   onSave,
   initial,
 }: {
-  open: boolean
-  onClose: () => void
-  onSave: (name: string, config: McpServerConfig) => Promise<void>
-  initial?: McpServerInfo | null
+  open: boolean;
+  onClose: () => void;
+  onSave: (name: string, config: McpServerConfig) => Promise<void>;
+  initial?: McpServerInfo | null;
 }) {
-  const isEdit = !!initial
-  const [name, setName] = useState(initial?.name ?? '')
+  const isEdit = !!initial;
+  const [name, setName] = useState(initial?.name ?? '');
   const [type, setType] = useState<'stdio' | 'http'>(
-    initial?.command ? 'stdio' : initial?.url ? 'http' : 'stdio',
-  )
-  const [command, setCommand] = useState(initial?.command ?? '')
-  const [argsStr, setArgsStr] = useState(initial?.args?.join(', ') ?? '')
-  const [url, setUrl] = useState(initial?.url ?? '')
+    initial?.command ? 'stdio' : initial?.url ? 'http' : 'stdio'
+  );
+  const [command, setCommand] = useState(initial?.command ?? '');
+  const [argsStr, setArgsStr] = useState(initial?.args?.join(', ') ?? '');
+  const [url, setUrl] = useState(initial?.url ?? '');
   const [envStr, setEnvStr] = useState(
     initial?.env
       ? Object.entries(initial.env)
           .map(([k, v]) => `${k}=${v}`)
           .join('\n')
-      : '',
-  )
+      : ''
+  );
   const [headersStr, setHeadersStr] = useState(
     initial?.headers
       ? Object.entries(initial.headers)
           .map(([k, v]) => `${k}: ${v}`)
           .join('\n')
-      : '',
-  )
-  const [description, setDescription] = useState(initial?.description ?? '')
-  const [toolTimeout, setToolTimeout] = useState(initial?.tool_timeout ?? 30)
-  const [lazy, setLazy] = useState(initial?.lazy ?? false)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+      : ''
+  );
+  const [description, setDescription] = useState(initial?.description ?? '');
+  const [toolTimeout, setToolTimeout] = useState(initial?.tool_timeout ?? 30);
+  const [lazy, setLazy] = useState(initial?.lazy ?? false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
-  if (!open) return null
+  if (!open) return null;
 
   const handleSave = async () => {
-    setError('')
+    setError('');
     if (!isEdit && !/^[a-z][a-z0-9-]*$/.test(name)) {
-      setError('Name must start with a letter, use lowercase letters, digits, and hyphens')
-      return
+      setError('Name must start with a letter, use lowercase letters, digits, and hyphens');
+      return;
     }
-    setSaving(true)
+    setSaving(true);
     try {
-      const config: McpServerConfig = { description, tool_timeout: toolTimeout, lazy }
+      const config: McpServerConfig = { description, tool_timeout: toolTimeout, lazy };
       if (type === 'stdio') {
-        config.command = command
+        config.command = command;
         config.args = argsStr
           .split(',')
           .map((s) => s.trim())
-          .filter(Boolean)
+          .filter(Boolean);
         if (envStr.trim()) {
-          config.env = {}
+          config.env = {};
           for (const line of envStr.split('\n')) {
-            const eq = line.indexOf('=')
-            if (eq > 0) config.env[line.slice(0, eq).trim()] = line.slice(eq + 1).trim()
+            const eq = line.indexOf('=');
+            if (eq > 0) config.env[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
           }
         }
       } else {
-        config.url = url
+        config.url = url;
         if (headersStr.trim()) {
-          config.headers = {}
+          config.headers = {};
           for (const line of headersStr.split('\n')) {
-            const colon = line.indexOf(':')
-            if (colon > 0) config.headers[line.slice(0, colon).trim()] = line.slice(colon + 1).trim()
+            const colon = line.indexOf(':');
+            if (colon > 0)
+              config.headers[line.slice(0, colon).trim()] = line.slice(colon + 1).trim();
           }
         }
       }
-      await onSave(name, config)
-      onClose()
+      await onSave(name, config);
+      onClose();
     } catch (e: any) {
-      setError(e?.message ?? 'Save failed')
+      setError(e?.message ?? 'Save failed');
     }
-    setSaving(false)
-  }
+    setSaving(false);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -108,7 +109,10 @@ function MCPServerModal({
         <div className="p-5 space-y-4">
           {/* Name */}
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+            <label
+              className="block text-xs font-medium mb-1"
+              style={{ color: 'var(--text-muted)' }}
+            >
               名称
             </label>
             <input
@@ -128,7 +132,10 @@ function MCPServerModal({
 
           {/* Type toggle */}
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+            <label
+              className="block text-xs font-medium mb-1"
+              style={{ color: 'var(--text-muted)' }}
+            >
               连接类型
             </label>
             <div className="flex gap-2">
@@ -152,7 +159,10 @@ function MCPServerModal({
           {type === 'stdio' && (
             <>
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                <label
+                  className="block text-xs font-medium mb-1"
+                  style={{ color: 'var(--text-muted)' }}
+                >
                   Command
                 </label>
                 <input
@@ -169,7 +179,10 @@ function MCPServerModal({
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                <label
+                  className="block text-xs font-medium mb-1"
+                  style={{ color: 'var(--text-muted)' }}
+                >
                   Args (逗号分隔)
                 </label>
                 <input
@@ -186,7 +199,10 @@ function MCPServerModal({
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                <label
+                  className="block text-xs font-medium mb-1"
+                  style={{ color: 'var(--text-muted)' }}
+                >
                   Env (key=value, 每行一个)
                 </label>
                 <textarea
@@ -209,7 +225,10 @@ function MCPServerModal({
           {type === 'http' && (
             <>
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                <label
+                  className="block text-xs font-medium mb-1"
+                  style={{ color: 'var(--text-muted)' }}
+                >
                   URL
                 </label>
                 <input
@@ -226,7 +245,10 @@ function MCPServerModal({
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                <label
+                  className="block text-xs font-medium mb-1"
+                  style={{ color: 'var(--text-muted)' }}
+                >
                   Headers (key: value, 每行一个)
                 </label>
                 <textarea
@@ -247,7 +269,10 @@ function MCPServerModal({
 
           {/* Description */}
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+            <label
+              className="block text-xs font-medium mb-1"
+              style={{ color: 'var(--text-muted)' }}
+            >
               描述 (可选)
             </label>
             <input
@@ -266,7 +291,10 @@ function MCPServerModal({
 
           {/* Tool timeout */}
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+            <label
+              className="block text-xs font-medium mb-1"
+              style={{ color: 'var(--text-muted)' }}
+            >
               工具超时 (秒)
             </label>
             <input
@@ -296,7 +324,10 @@ function MCPServerModal({
           </label>
 
           {error && (
-            <div className="text-xs px-3 py-2 rounded" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>
+            <div
+              className="text-xs px-3 py-2 rounded"
+              style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}
+            >
               {error}
             </div>
           )}
@@ -324,49 +355,49 @@ function MCPServerModal({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 export function MCPsPage() {
-  const [servers, setServers] = useState<McpServerInfo[]>([])
-  const [loading, setLoading] = useState(true)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editingServer, setEditingServer] = useState<McpServerInfo | null>(null)
+  const [servers, setServers] = useState<McpServerInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingServer, setEditingServer] = useState<McpServerInfo | null>(null);
 
   const loadServers = async () => {
     try {
-      const res = await window.miqi.mcps.list()
-      setServers(res.servers ?? [])
+      const res = await window.miqi.mcps.list();
+      setServers(res.servers ?? []);
     } catch {
       // bridge not available
     }
-    setLoading(false)
-  }
+    setLoading(false);
+  };
 
   useEffect(() => {
-    loadServers()
-  }, [])
+    loadServers();
+  }, []);
 
   const handleSave = async (name: string, config: McpServerConfig) => {
-    await window.miqi.mcps.upsert(name, config)
-    await loadServers()
-  }
+    await window.miqi.mcps.upsert(name, config);
+    await loadServers();
+  };
 
   const handleDelete = async (name: string) => {
-    if (!window.confirm(`确认删除 MCP 服务器 "${name}"？`)) return
-    await window.miqi.mcps.delete(name)
-    await loadServers()
-  }
+    if (!window.confirm(`确认删除 MCP 服务器 "${name}"？`)) return;
+    await window.miqi.mcps.delete(name);
+    await loadServers();
+  };
 
   const handleEdit = (s: McpServerInfo) => {
-    setEditingServer(s)
-    setModalOpen(true)
-  }
+    setEditingServer(s);
+    setModalOpen(true);
+  };
 
   const handleAdd = () => {
-    setEditingServer(null)
-    setModalOpen(true)
-  }
+    setEditingServer(null);
+    setModalOpen(true);
+  };
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -442,7 +473,7 @@ export function MCPsPage() {
                     >
                       {srv.command
                         ? `${srv.command} ${(srv.args ?? []).join(' ')}`
-                        : srv.url ?? ''}
+                        : (srv.url ?? '')}
                     </p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -477,5 +508,5 @@ export function MCPsPage() {
         initial={editingServer}
       />
     </div>
-  )
+  );
 }

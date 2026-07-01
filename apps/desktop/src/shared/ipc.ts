@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from 'zod';
 
 // ---------------------------------------------------------------------------
 // IPC channel names (invoke)
@@ -66,7 +66,7 @@ export const IPC = {
   MEMORY_LESSON_UNLEARN: 'memory:lesson:unlearn',
 
   // Experience store
-  EXPERIENCE_LIST:   'experience:list',
+  EXPERIENCE_LIST: 'experience:list',
   EXPERIENCE_DELETE: 'experience:delete',
   EXPERIENCE_TOGGLE: 'experience:toggle',
   EXPERIENCE_SEARCH: 'experience:search',
@@ -124,7 +124,7 @@ export const IPC = {
   PLUGINS_INSTALL: 'plugins:install',
   PLUGINS_UNINSTALL: 'plugins:uninstall',
   PLUGINS_TOGGLE: 'plugins:toggle',
-} as const
+} as const;
 
 // ---------------------------------------------------------------------------
 // IPC event channels (main → renderer)
@@ -149,7 +149,7 @@ export const IPC_EVENTS = {
   TURN_STARTED: 'turn:started',
   TURN_COMPLETED: 'turn:completed',
   THREAD_STARTED: 'thread:started',
-} as const
+} as const;
 
 // ---------------------------------------------------------------------------
 // Zod schemas for IPC payload validation
@@ -159,36 +159,36 @@ export const ChatSendInput = z.object({
   content: z.string().min(1),
   session_key: z.string().optional(),
   thread_id: z.string().optional(),
-})
+});
 
 export const SessionGetInput = z.object({
   session_key: z.string().min(1),
-})
+});
 
 export const SessionDeleteInput = z.object({
   session_key: z.string().min(1),
-})
+});
 
 export const SessionClaimLegacyInput = z.object({
   session_key: z.string().min(1),
-})
+});
 
 export interface SessionClaimLegacyResult {
-  claimed: boolean
-  session_key: string
-  owner_client_id: string
-  error?: string
+  claimed: boolean;
+  session_key: string;
+  owner_client_id: string;
+  error?: string;
 }
 
 export const ConfigUpdateInput = z.object({
   config: z.record(z.unknown()),
-})
+});
 
 export const ProviderTestInput = z.object({
   provider_name: z.string().min(1),
   api_key: z.string().optional(),
   api_base: z.string().nullable().optional(),
-})
+});
 
 export const ProviderUpdateInput = z.object({
   provider_name: z.string().min(1),
@@ -196,44 +196,43 @@ export const ProviderUpdateInput = z.object({
   api_base: z.string().nullable().optional(),
   extra_headers: z.record(z.string()).nullable().optional(),
   model: z.string().optional(),
-})
+});
 
 // New Phase 1 schemas
 export const AgentSpawnInput = z.object({
   agent_type: z.string().min(1),
   task: z.string().min(1),
   label: z.string().optional(),
-})
+});
 
 export const PermissionsUpdateInput = z.object({
-  filesystem: z.object({
-    rules: z.array(z.object({
-      path: z.string(),
-      mode: z.enum(['read', 'write', 'none']),
-      recursive: z.boolean().optional(),
-    })),
-    default_mode: z.enum(['read', 'write', 'none']).optional(),
-  }).optional(),
+  filesystem: z
+    .object({
+      rules: z.array(
+        z.object({
+          path: z.string(),
+          mode: z.enum(['read', 'write', 'none']),
+          recursive: z.boolean().optional(),
+        })
+      ),
+      default_mode: z.enum(['read', 'write', 'none']).optional(),
+    })
+    .optional(),
   network: z.enum(['allow_all', 'block_all', 'allow_list']).optional(),
   exec_approval: z.enum(['never', 'dangerous', 'always']).optional(),
-})
+});
 
 // ---------------------------------------------------------------------------
 // Runtime state
 // ---------------------------------------------------------------------------
 
-export type RuntimeState =
-  | 'stopped'
-  | 'starting'
-  | 'running'
-  | 'stopping'
-  | 'error'
+export type RuntimeState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
 
 export interface RuntimeStatus {
-  state: RuntimeState
-  configured: boolean
-  python_version?: string
-  error?: string
+  state: RuntimeState;
+  configured: boolean;
+  python_version?: string;
+  error?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -241,19 +240,19 @@ export interface RuntimeStatus {
 // ---------------------------------------------------------------------------
 
 export interface SessionInfo {
-  key: string
-  title?: string
-  created_at?: string
-  updated_at?: string
-  path?: string
+  key: string;
+  title?: string;
+  created_at?: string;
+  updated_at?: string;
+  path?: string;
 }
 
 export interface SessionDetail {
-  key: string
-  messages: Record<string, unknown>[]
-  created_at: string
-  updated_at: string
-  metadata: Record<string, unknown>
+  key: string;
+  messages: Record<string, unknown>[];
+  created_at: string;
+  updated_at: string;
+  metadata: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -261,103 +260,103 @@ export interface SessionDetail {
 // ---------------------------------------------------------------------------
 
 export interface ProviderInfo {
-  name: string
-  display_name: string
-  env_key: string
-  provider_type: string
-  is_gateway: boolean
-  is_local: boolean
-  default_api_base: string
-  configured: boolean
-  api_key_hint?: string | null
-  api_base: string | null
-  configured_model?: string
+  name: string;
+  display_name: string;
+  env_key: string;
+  provider_type: string;
+  is_gateway: boolean;
+  is_local: boolean;
+  default_api_base: string;
+  configured: boolean;
+  api_key_hint?: string | null;
+  api_base: string | null;
+  configured_model?: string;
 }
 
 export interface ProviderUpdateResult {
-  saved: boolean
-  provider_name: string
+  saved: boolean;
+  provider_name: string;
 }
 
 export interface FeishuChannelConfig {
-  enabled: boolean
-  app_id: string
-  app_secret: string
-  allow_from: string[]
-  reply_delay_ms: number
-  require_mention_in_groups: boolean
+  enabled: boolean;
+  app_id: string;
+  app_secret: string;
+  allow_from: string[];
+  reply_delay_ms: number;
+  require_mention_in_groups: boolean;
 }
 
 export interface ChannelsConfig {
-  send_progress: boolean
-  send_tool_hints: boolean
-  send_queue_notifications: boolean
-  feishu: FeishuChannelConfig
+  send_progress: boolean;
+  send_tool_hints: boolean;
+  send_queue_notifications: boolean;
+  feishu: FeishuChannelConfig;
 }
 
 export const ChannelsUpdateInput = z.object({
   channels: z.record(z.unknown()),
-})
+});
 
 export interface ApprovalRequest {
-  approval_id: string
-  command?: string      // may be empty for non-exec approvals
-  description: string
-  allow_permanent: boolean
-  category?: string  // "exec" | "file_write" | "unknown_tool" | ...
-  details?: Record<string, unknown>  // e.g. { command, path, operation, tool_name }
+  approval_id: string;
+  command?: string; // may be empty for non-exec approvals
+  description: string;
+  allow_permanent: boolean;
+  category?: string; // "exec" | "file_write" | "unknown_tool" | ...
+  details?: Record<string, unknown>; // e.g. { command, path, operation, tool_name }
 }
 
 export interface PendingApproval {
-  approval_id: string
-  command?: string     // may be empty for non-exec approvals
-  description: string
-  category?: string  // "exec" | "file_write" | "network" | "patch_apply"
-  details?: Record<string, unknown>  // structured approval metadata
-  allow_permanent: boolean
-  created_at: number
-  age_seconds: number
+  approval_id: string;
+  command?: string; // may be empty for non-exec approvals
+  description: string;
+  category?: string; // "exec" | "file_write" | "network" | "patch_apply"
+  details?: Record<string, unknown>; // structured approval metadata
+  allow_permanent: boolean;
+  created_at: number;
+  age_seconds: number;
 }
 
 export interface PermanentEntry {
-  pattern: string
-  added_at: number
+  pattern: string;
+  added_at: number;
 }
 
 export interface ApprovalHistoryEntry {
-  id: string
-  pattern_key: string
-  description: string
-  command: string
-  decision: string
-  timestamp: number
-  session_key: string
+  id: string;
+  pattern_key: string;
+  description: string;
+  command: string;
+  decision: string;
+  timestamp: number;
+  session_key: string;
 }
 
 export interface ApprovalsListResult {
-  pending: PendingApproval[]
-  pending_ids: string[]
-  permanent_allowlist: string[]
-  permanent_entries: PermanentEntry[]
-  enabled: boolean
-  timeout: number
+  pending: PendingApproval[];
+  pending_ids: string[];
+  permanent_allowlist: string[];
+  permanent_entries: PermanentEntry[];
+  enabled: boolean;
+  timeout: number;
 }
 
 export interface ApprovalsAddPermanentResult {
-  added: boolean
-  pattern: string
+  added: boolean;
+  pattern: string;
 }
 
 export interface ApprovalsHistoryResult {
-  history: ApprovalHistoryEntry[]
+  history: ApprovalHistoryEntry[];
 }
 
 export const ApprovalsAddPermanentInput = z.object({
   pattern: z.string().min(1),
-})
+});
 
 export interface ApprovalCleared {
-  reason: 'abort' | 'resolved' | 'timeout'
+  reason: 'abort' | 'resolved' | 'timeout';
 }
 
 // ---------------------------------------------------------------------------
@@ -375,7 +374,7 @@ export const CronCreateInput = z.object({
   deliver: z.boolean().optional(),
   channel: z.string().nullable().optional(),
   to: z.string().nullable().optional(),
-})
+});
 
 export const CronUpdateInput = z.object({
   jobId: z.string().min(1),
@@ -389,82 +388,82 @@ export const CronUpdateInput = z.object({
   deliver: z.boolean().optional(),
   channel: z.string().nullable().optional(),
   to: z.string().nullable().optional(),
-})
+});
 
 export const CronToggleInput = z.object({
   jobId: z.string().min(1),
   enabled: z.boolean(),
-})
+});
 
 export const CronDeleteInput = z.object({
   jobId: z.string().min(1),
-})
+});
 
 export const CronRunInput = z.object({
   jobId: z.string().min(1),
-})
+});
 
 export const CronRunsInput = z.object({
   jobId: z.string().optional(),
-})
+});
 
 export interface CronSchedule {
-  kind: 'at' | 'every' | 'cron'
-  atMs: number | null
-  everyMs: number | null
-  expr: string | null
-  tz: string | null
+  kind: 'at' | 'every' | 'cron';
+  atMs: number | null;
+  everyMs: number | null;
+  expr: string | null;
+  tz: string | null;
 }
 
 export interface CronPayload {
-  kind: 'system_event' | 'agent_turn'
-  message: string
-  deliver: boolean
-  channel: string | null
-  to: string | null
+  kind: 'system_event' | 'agent_turn';
+  message: string;
+  deliver: boolean;
+  channel: string | null;
+  to: string | null;
 }
 
 export interface CronState {
-  nextRunAtMs: number | null
-  lastRunAtMs: number | null
-  lastStatus: 'ok' | 'error' | 'skipped' | null
-  lastError: string | null
+  nextRunAtMs: number | null;
+  lastRunAtMs: number | null;
+  lastStatus: 'ok' | 'error' | 'skipped' | null;
+  lastError: string | null;
 }
 
 export interface CronJob {
-  id: string
-  name: string
-  enabled: boolean
-  schedule: CronSchedule
-  payload: CronPayload
-  state: CronState
-  createdAtMs: number
-  updatedAtMs: number
-  deleteAfterRun: boolean
+  id: string;
+  name: string;
+  enabled: boolean;
+  schedule: CronSchedule;
+  payload: CronPayload;
+  state: CronState;
+  createdAtMs: number;
+  updatedAtMs: number;
+  deleteAfterRun: boolean;
 }
 
 export interface CronRunEntry {
-  jobId: string
-  jobName: string
-  startedAtMs: number
-  status: 'ok' | 'error' | 'skipped' | null
-  error: string | null
+  jobId: string;
+  jobName: string;
+  startedAtMs: number;
+  status: 'ok' | 'error' | 'skipped' | null;
+  error: string | null;
 }
 
 export interface CronListResult {
-  jobs: CronJob[]
+  jobs: CronJob[];
 }
 
 export interface CronCreateResult {
-  job: CronJob
+  job: CronJob;
 }
 
 export interface CronUpdateResult {
-  job: CronJob
+  job: CronJob;
 }
 
 export interface CronRunsResult {
-  runs: CronRunEntry[]
+  runs: CronRunEntry[];
 }
 
 // ---------------------------------------------------------------------------
@@ -473,57 +472,57 @@ export interface CronRunsResult {
 
 export const MemoryGetInput = z.object({
   path: z.string().min(1),
-})
+});
 
 export const MemoryUpdateInput = z.object({
   path: z.string().min(1),
   content: z.string(),
-})
+});
 
 export interface MemoryFileInfo {
-  path: string
-  scope: 'workspace' | 'agent'
-  size: number
-  updatedAtMs: number
+  path: string;
+  scope: 'workspace' | 'agent';
+  size: number;
+  updatedAtMs: number;
 }
 
 export interface MemoryListResult {
-  files: MemoryFileInfo[]
+  files: MemoryFileInfo[];
 }
 
 export interface MemoryGetResult {
-  path: string
-  content: string
-  size: number
+  path: string;
+  content: string;
+  size: number;
 }
 
 export interface MemoryLessonEntry {
-  id: string
-  trigger: string
-  badAction: string
-  betterAction: string
-  scope: string
-  sessionKey: string | null
-  confidence: number
-  effectiveConfidence: number
-  hits: number
-  state: string
-  enabled: boolean
-  source: string
-  createdAt: string
-  updatedAt: string
+  id: string;
+  trigger: string;
+  badAction: string;
+  betterAction: string;
+  scope: string;
+  sessionKey: string | null;
+  confidence: number;
+  effectiveConfidence: number;
+  hits: number;
+  state: string;
+  enabled: boolean;
+  source: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface MemoryLessonsResult {
-  lessons: MemoryLessonEntry[]
+  lessons: MemoryLessonEntry[];
 }
 
 export const MemoryLessonUnlearnInput = z.object({
   lesson_id: z.string().min(1),
-})
+});
 
 export interface MemoryLessonUnlearnResult {
-  unlearned: string[]
+  unlearned: string[];
 }
 
 export interface ExperienceEntry {
@@ -547,30 +546,30 @@ export interface ExperienceEntry {
 
 export const SkillsGetInput = z.object({
   name: z.string().min(1),
-})
+});
 
 export interface SkillSummary {
-  name: string
-  source: 'builtin' | 'workspace'
-  path: string
-  description: string
-  available: boolean
-  missingRequirements: string | null
+  name: string;
+  source: 'builtin' | 'workspace';
+  path: string;
+  description: string;
+  available: boolean;
+  missingRequirements: string | null;
 }
 
 export interface SkillsListResult {
-  skills: SkillSummary[]
+  skills: SkillSummary[];
 }
 
 export interface SkillDetail {
-  name: string
-  source: 'builtin' | 'workspace'
-  path: string
-  description: string
-  available: boolean
-  missingRequirements: string | null
-  content: string
-  metadata: Record<string, unknown> | null
+  name: string;
+  source: 'builtin' | 'workspace';
+  path: string;
+  description: string;
+  available: boolean;
+  missingRequirements: string | null;
+  content: string;
+  metadata: Record<string, unknown> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -578,19 +577,19 @@ export interface SkillDetail {
 // ---------------------------------------------------------------------------
 
 export interface McpServerConfig {
-  command?: string
-  args?: string[]
-  env?: Record<string, string>
-  url?: string
-  headers?: Record<string, string>
-  tool_timeout?: number
-  progress_interval_seconds?: number
-  description?: string
-  lazy?: boolean
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  tool_timeout?: number;
+  progress_interval_seconds?: number;
+  description?: string;
+  lazy?: boolean;
 }
 
 export interface McpServerInfo extends McpServerConfig {
-  name: string
+  name: string;
 }
 
 export const McpUpsertInput = z.object({
@@ -604,11 +603,11 @@ export const McpUpsertInput = z.object({
   progress_interval_seconds: z.number().optional(),
   description: z.string().optional(),
   lazy: z.boolean().optional(),
-})
+});
 
 export const McpDeleteInput = z.object({
   name: z.string().min(1),
-})
+});
 
 // ---------------------------------------------------------------------------
 // Files schemas
@@ -616,57 +615,57 @@ export const McpDeleteInput = z.object({
 
 export const FilesReadInput = z.object({
   path: z.string().min(1),
-})
+});
 
 export const FilesWriteInput = z.object({
   path: z.string().min(1),
   content: z.string(),
   session_key: z.string().optional(),
-})
+});
 
 export interface FileNode {
-  name: string
-  path: string
-  is_dir: boolean
-  children?: FileNode[]
+  name: string;
+  path: string;
+  is_dir: boolean;
+  children?: FileNode[];
 }
 
 export interface FilesTreeResult {
-  root: FileNode
-  workspace_path: string
+  root: FileNode;
+  workspace_path: string;
 }
 
 export interface FilesReadResult {
-  path: string
-  content: string
-  size: number
+  path: string;
+  content: string;
+  size: number;
 }
 
 export interface FilesWriteResult {
-  saved: boolean
-  path: string
+  saved: boolean;
+  path: string;
 }
 
 export interface FilesDiffResult {
-  path: string
-  diff: string | null
-  has_diff: boolean
-  original_content: string | null
-  current_content: string | null
-  error?: string
-  is_new_file?: boolean
+  path: string;
+  diff: string | null;
+  has_diff: boolean;
+  original_content: string | null;
+  current_content: string | null;
+  error?: string;
+  is_new_file?: boolean;
 }
 
 export interface FilesRevertResult {
-  reverted: boolean
-  path: string
+  reverted: boolean;
+  path: string;
 }
 
 export interface TrackedFileInfo {
-  path: string
-  op: 'read' | 'write' | 'edit' | 'delete'
-  name: string
-  lastSeen: number
+  path: string;
+  op: 'read' | 'write' | 'edit' | 'delete';
+  name: string;
+  lastSeen: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -674,30 +673,30 @@ export interface TrackedFileInfo {
 // ---------------------------------------------------------------------------
 
 export interface ChatProgress {
-  text: string
-  tool_hint: boolean
+  text: string;
+  tool_hint: boolean;
 }
 
 export interface ChatFinal {
-  content: string
-  aborted?: boolean
+  content: string;
+  aborted?: boolean;
 }
 
 export interface ChatError {
-  message: string
+  message: string;
 }
 
 export interface ChatAborted {
-  message: string
+  message: string;
 }
 
 export interface ChatSubagentResult {
-  task_id: string
-  label: string
-  task: string
-  result: string
-  status: string   // "ok" | "error"
-  session_key: string
+  task_id: string;
+  label: string;
+  task: string;
+  result: string;
+  status: string; // "ok" | "error"
+  session_key: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -705,10 +704,10 @@ export interface ChatSubagentResult {
 // ---------------------------------------------------------------------------
 
 export interface PythonCheckResult {
-  ok: boolean
-  python_version: string
-  issues: string[]
-  config_exists: boolean
+  ok: boolean;
+  python_version: string;
+  issues: string[];
+  config_exists: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -716,24 +715,24 @@ export interface PythonCheckResult {
 // ---------------------------------------------------------------------------
 
 export interface WslCheckResult {
-  isWindows: boolean
-  installed: boolean
-  version: string | null   // e.g. "2" or "1"
-  distros: string[]        // e.g. ["Ubuntu"]
-  defaultDistro: string | null
-  running: boolean         // whether WSL is currently active
+  isWindows: boolean;
+  installed: boolean;
+  version: string | null; // e.g. "2" or "1"
+  distros: string[]; // e.g. ["Ubuntu"]
+  defaultDistro: string | null;
+  running: boolean; // whether WSL is currently active
 }
 export interface WslExportDistroResult {
-  exported: boolean
-  distro: string | null      // exported distro name
-  tarPath: string | null     // path to exported tar file
-  error: string | null
+  exported: boolean;
+  distro: string | null; // exported distro name
+  tarPath: string | null; // path to exported tar file
+  error: string | null;
 }
 export interface WslImportDistroResult {
-  imported: boolean
-  distro: string | null      // imported distro name
-  installLocation: string | null // where the distro was installed
-  error: string | null
+  imported: boolean;
+  distro: string | null; // imported distro name
+  installLocation: string | null; // where the distro was installed
+  error: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -741,26 +740,26 @@ export interface WslImportDistroResult {
 // ---------------------------------------------------------------------------
 
 export interface WslStatsResult {
-  ok: boolean
-  error?: string
-  distro: string              // which distro was queried
+  ok: boolean;
+  error?: string;
+  distro: string; // which distro was queried
   memory: {
-    total_mb: number
-    used_mb: number
-    free_mb: number
-    used_pct: number          // 0-100
-  }
+    total_mb: number;
+    used_mb: number;
+    free_mb: number;
+    used_pct: number; // 0-100
+  };
   cpu: {
-    usage_pct: number        // 0-100, instantaneous snapshot
-    cores: number
-  }
+    usage_pct: number; // 0-100, instantaneous snapshot
+    cores: number;
+  };
   disk: {
-    total_gb: number
-    used_gb: number
-    free_gb: number
-    used_pct: number
-  }
-  uptime_sec: number
+    total_gb: number;
+    used_gb: number;
+    free_gb: number;
+    used_pct: number;
+  };
+  uptime_sec: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -768,60 +767,61 @@ export interface WslStatsResult {
 // ---------------------------------------------------------------------------
 
 export interface LiveAgentInfo {
-  agent_id: string
-  thread_id: string
-  type: string
-  status: 'idle' | 'thinking' | 'executing' | 'waiting_approval' | 'completed' | 'error' | 'aborted'
-  parent: string | null
-  label: string
-  spawned_at: number
+  agent_id: string;
+  thread_id: string;
+  type: string;
+  status:
+    'idle' | 'thinking' | 'executing' | 'waiting_approval' | 'completed' | 'error' | 'aborted';
+  parent: string | null;
+  label: string;
+  spawned_at: number;
 }
 
 export interface PlanStep {
-  id: string
-  description: string
-  status: 'pending' | 'in_progress' | 'completed' | 'skipped'
-  depends_on: string[]
+  id: string;
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'skipped';
+  depends_on: string[];
 }
 
 export interface Plan {
-  plan_id: string
-  title: string
-  steps: PlanStep[]
-  created_at: number
-  updated_at: number
+  plan_id: string;
+  title: string;
+  steps: PlanStep[];
+  created_at: number;
+  updated_at: number;
 }
 
 export interface AgentSpawnedEvent {
-  sub_agent_id: string
-  sub_thread_id: string
-  agent_type: string
-  task_label: string
+  sub_agent_id: string;
+  sub_thread_id: string;
+  agent_type: string;
+  task_label: string;
 }
 
 export interface AgentCompletedEvent {
-  sub_agent_id: string
-  sub_thread_id: string
-  outcome: string
-  summary: string
+  sub_agent_id: string;
+  sub_thread_id: string;
+  outcome: string;
+  summary: string;
 }
 
 export interface PlanUpdatedEvent {
-  plan: Plan
+  plan: Plan;
 }
 
 export interface TurnStartedEvent {
-  turn_id: string
-  agent_name: string
-  thread_id: string
+  turn_id: string;
+  agent_name: string;
+  thread_id: string;
 }
 
 export interface TurnCompletedEvent {
-  turn_id: string
-  thread_id: string
-  outcome: string
-  tools_used: string[]
-  token_usage: Record<string, number>
+  turn_id: string;
+  thread_id: string;
+  outcome: string;
+  tools_used: string[];
+  token_usage: Record<string, number>;
 }
 
 // ── Thread / Turn types (Phase 36+) ───────────────────────────────────────
@@ -830,18 +830,18 @@ export const ThreadStartInput = z.object({
   title: z.string().optional(),
   session_key: z.string().optional(),
   thread_id: z.string().optional(),
-})
+});
 
 export const ThreadReadInput = z.object({
   thread_id: z.string().min(1),
   session_key: z.string().optional(),
-})
+});
 
 export const ThreadNameSetInput = z.object({
   thread_id: z.string().min(1),
   name: z.string().min(1),
   session_key: z.string().optional(),
-})
+});
 
 export const TurnStartInput = z.object({
   thread_id: z.string().min(1),
@@ -849,52 +849,52 @@ export const TurnStartInput = z.object({
   session_key: z.string().optional(),
   model: z.string().optional(),
   effort: z.string().optional(),
-})
+});
 
 export const TurnInterruptInput = z.object({
   thread_id: z.string().min(1),
   turn_id: z.string().min(1),
   session_key: z.string().optional(),
-})
+});
 
 export const ChatAbortInput = z.object({
   session_key: z.string().optional(),
   thread_id: z.string().optional(),
-})
+});
 
 export const AgentListInput = z.object({
   session_key: z.string().optional(),
-})
+});
 
 export interface ThreadInfo {
-  id: string
-  title: string
-  created_at: number
-  updated_at: number
-  turn_count: number
+  id: string;
+  title: string;
+  created_at: number;
+  updated_at: number;
+  turn_count: number;
 }
 
 export interface ThreadStartResult {
-  thread: Record<string, unknown>
+  thread: Record<string, unknown>;
 }
 
 export interface ThreadListResult {
-  items: Record<string, unknown>[]
-  nextCursor?: null | string
+  items: Record<string, unknown>[];
+  nextCursor?: null | string;
 }
 
 export interface ThreadReadResult {
-  thread: Record<string, unknown>
+  thread: Record<string, unknown>;
 }
 
 export interface TurnStartResult {
-  turn: Record<string, unknown>
+  turn: Record<string, unknown>;
 }
 
 export interface TurnInterruptResult {
-  interrupted: boolean
+  interrupted: boolean;
 }
 
 export interface ThreadStartedEvent {
-  thread: Record<string, unknown>
+  thread: Record<string, unknown>;
 }

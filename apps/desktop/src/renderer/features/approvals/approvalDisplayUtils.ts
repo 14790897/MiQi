@@ -7,25 +7,25 @@
  *   5. pending.description (always available)
  */
 export function getApprovalDisplay(pending: {
-  command?: string
-  description: string
-  details?: Record<string, unknown>
+  command?: string;
+  description: string;
+  details?: Record<string, unknown>;
 }): string {
-  if (pending.command && pending.command.trim()) return pending.command.trim()
-  const d = pending.details
+  if (pending.command && pending.command.trim()) return pending.command.trim();
+  const d = pending.details;
   if (d) {
-    if (typeof d.command === 'string' && d.command.trim()) return d.command.trim()
-    if (typeof d.path === 'string' && d.path.trim()) return d.path.trim()
-    if (typeof d.tool_name === 'string' && d.tool_name.trim()) return d.tool_name.trim()
+    if (typeof d.command === 'string' && d.command.trim()) return d.command.trim();
+    if (typeof d.path === 'string' && d.path.trim()) return d.path.trim();
+    if (typeof d.tool_name === 'string' && d.tool_name.trim()) return d.tool_name.trim();
   }
-  return pending.description || '(no details)'
+  return pending.description || '(no details)';
 }
 
 /**
  * Choose an appropriate title based on approval category.
  */
 export function getApprovalTitle(category?: string): string {
-  if (category === 'exec') return '命令审批'
-  if (category === 'file_write') return '文件操作审批'
-  return '操作审批'
+  if (category === 'exec') return '命令审批';
+  if (category === 'file_write') return '文件操作审批';
+  return '操作审批';
 }

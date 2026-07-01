@@ -1,41 +1,37 @@
-import { Component, type ReactNode, type ErrorInfo } from 'react'
+import { Component, type ReactNode, type ErrorInfo } from 'react';
 
 interface Props {
-  children: ReactNode
-  fallback?: (error: Error, reset: () => void) => ReactNode
+  children: ReactNode;
+  fallback?: (error: Error, reset: () => void) => ReactNode;
 }
 
 interface State {
-  error: Error | null
+  error: Error | null;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
-    super(props)
-    this.state = { error: null }
+    super(props);
+    this.state = { error: null };
   }
 
   static getDerivedStateFromError(error: Error): State {
-    return { error }
+    return { error };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error(
-      '[MiQi] React error caught by boundary:',
-      error,
-      info.componentStack,
-    )
+    console.error('[MiQi] React error caught by boundary:', error, info.componentStack);
   }
 
   reset = () => {
-    this.setState({ error: null })
-  }
+    this.setState({ error: null });
+  };
 
   render() {
-    const { error } = this.state
+    const { error } = this.state;
     if (error) {
       if (this.props.fallback) {
-        return this.props.fallback(error, this.reset)
+        return this.props.fallback(error, this.reset);
       }
       return (
         <div
@@ -78,9 +74,7 @@ export class ErrorBoundary extends Component<Props, State> {
               !
             </div>
             <div>
-              <h2
-                style={{ margin: '0 0 8px', fontSize: '16px', fontWeight: 600 }}
-              >
+              <h2 style={{ margin: '0 0 8px', fontSize: '16px', fontWeight: 600 }}>
                 渲染错误 / Render Error
               </h2>
               <p
@@ -130,8 +124,8 @@ export class ErrorBoundary extends Component<Props, State> {
             </p>
           </div>
         </div>
-      )
+      );
     }
-    return this.props.children
+    return this.props.children;
   }
 }

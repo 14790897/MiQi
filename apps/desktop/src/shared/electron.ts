@@ -7,12 +7,10 @@
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const g = globalThis as any
+const g = globalThis as any;
 
 if (!g.__ELECTRON__) {
-  throw new Error(
-    'electron runtime not injected — electron-trampoline.js must be the entry point',
-  )
+  throw new Error('electron runtime not injected — electron-trampoline.js must be the entry point');
 }
 
-export const electron: typeof import('electron') = g.__ELECTRON__
+export const electron: typeof import('electron') = g.__ELECTRON__;

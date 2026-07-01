@@ -1,33 +1,33 @@
 /** Extended progress payload with structured runtime events. */
 export interface ProgressPayload {
-  text?: string | null
-  tool_hint?: boolean
-  tool_call_id?: string
-  stream?: string
-  delta?: string
-  event?: string
+  text?: string | null;
+  tool_hint?: boolean;
+  tool_call_id?: string;
+  stream?: string;
+  delta?: string;
+  event?: string;
   data?: {
-    message?: string
-    error_kind?: string
-    reason?: string
-    error?: { message?: string }
-    code?: string
-    [key: string]: unknown
-  }
+    message?: string;
+    error_kind?: string;
+    reason?: string;
+    error?: { message?: string };
+    code?: string;
+    [key: string]: unknown;
+  };
 }
 
 /** Parse a displayable message from a progress payload that may lack `text`. */
 export function extractProgressMessage(
-  payload: ProgressPayload,
+  payload: ProgressPayload
 ): { message: string; role: 'progress' | 'error' | 'warning' } | null {
   // 1) Direct text is the happy path
   if (payload.text && payload.text.trim()) {
-    return { message: payload.text, role: 'progress' }
+    return { message: payload.text, role: 'progress' };
   }
 
   // 2) Structured runtime events (ErrorEvent, WarningEvent, etc.)
-  const eventName = payload.event ?? ''
-  const data = payload.data ?? {}
+  const eventName = payload.event ?? '';
+  const data = payload.data ?? {};
 
   if (eventName.toLowerCase().includes('error') || data.error_kind) {
     const msg =
@@ -35,24 +35,21 @@ export function extractProgressMessage(
       data.error?.message ??
       data.reason ??
       payload.text ??
-      `${eventName || 'Error'}`
-    if (msg) return { message: String(msg), role: 'error' }
+      `${eventName || 'Error'}`;
+    if (msg) return { message: String(msg), role: 'error' };
   }
 
-  if (
-    eventName.toLowerCase().includes('warning') ||
-    eventName.toLowerCase().includes('warn')
-  ) {
-    const msg = data.message ?? data.reason ?? `${eventName}`
-    if (msg) return { message: String(msg), role: 'warning' }
+  if (eventName.toLowerCase().includes('warning') || eventName.toLowerCase().includes('warn')) {
+    const msg = data.message ?? data.reason ?? `${eventName}`;
+    if (msg) return { message: String(msg), role: 'warning' };
   }
 
   // 3) Unknown structured event: render as compact debug info
   if (eventName) {
-    const msg = data.message ?? data.reason ?? `[${eventName}]`
-    return { message: String(msg), role: 'progress' }
+    const msg = data.message ?? data.reason ?? `[${eventName}]`;
+    return { message: String(msg), role: 'progress' };
   }
 
   // 4) Nothing displayable
-  return null
+  return null;
 }

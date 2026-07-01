@@ -1,17 +1,17 @@
-import * as TooltipPrimitive from '@radix-ui/react-tooltip'
-import { cn } from '../../lib/utils'
-import { type ComponentPropsWithoutRef, forwardRef } from 'react'
+import * as TooltipPrimitive from '@radix-ui/react-tooltip';
+import { cn } from '../../lib/utils';
+import { type ComponentPropsWithoutRef, forwardRef } from 'react';
 
-export const TooltipProvider = TooltipPrimitive.Provider
+export const TooltipProvider = TooltipPrimitive.Provider;
 
 export const Tooltip = ({
   children,
   content,
   side = 'top',
 }: {
-  children: React.ReactNode
-  content: string
-  side?: 'top' | 'bottom' | 'left' | 'right'
+  children: React.ReactNode;
+  content: string;
+  side?: 'top' | 'bottom' | 'left' | 'right';
 }) => (
   <TooltipPrimitive.Root delayDuration={300}>
     <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
@@ -26,4 +26,4 @@ export const Tooltip = ({
       </TooltipPrimitive.Content>
     </TooltipPrimitive.Portal>
   </TooltipPrimitive.Root>
-)
+);

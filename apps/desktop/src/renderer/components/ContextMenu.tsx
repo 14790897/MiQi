@@ -1,103 +1,110 @@
-import { useState, useEffect, useCallback, useRef, type MouseEvent, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useRef, type MouseEvent, type ReactNode } from 'react';
 
 export interface ContextMenuAction {
-  label: string
+  label: string;
   /** Optional keyboard shortcut hint */
-  shortcut?: string
+  shortcut?: string;
   /** Optional disabled state */
-  disabled?: boolean
+  disabled?: boolean;
   /** Danger action (renders in red) */
-  danger?: boolean
+  danger?: boolean;
   /** Divider before this item */
-  divider?: boolean
-  onSelect: () => void
+  divider?: boolean;
+  onSelect: () => void;
 }
 
 interface Position {
-  x: number
-  y: number
+  x: number;
+  y: number;
 }
 
 interface Props {
   /** Render prop: pass the onContextMenu handler to your element */
-  children: (props: { onContextMenu: (e: MouseEvent) => void }) => ReactNode
+  children: (props: { onContextMenu: (e: MouseEvent) => void }) => ReactNode;
   /** Menu items */
-  items: ContextMenuAction[]
+  items: ContextMenuAction[];
   /** Optional min width (default 180) */
-  minWidth?: number
+  minWidth?: number;
 }
 
 export function ContextMenu({ children, items, minWidth = 180 }: Props) {
-  const [open, setOpen] = useState(false)
-  const [position, setPosition] = useState<Position>({ x: 0, y: 0 })
-  const menuRef = useRef<HTMLDivElement>(null)
-  const [adjustedPos, setAdjustedPos] = useState<Position>({ x: 0, y: 0 })
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<Position>({ x: 0, y: 0 });
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [adjustedPos, setAdjustedPos] = useState<Position>({ x: 0, y: 0 });
 
   const onContextMenu = useCallback((e: MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setPosition({ x: e.clientX, y: e.clientY })
-    setOpen(true)
-  }, [])
+    e.preventDefault();
+    e.stopPropagation();
+    setPosition({ x: e.clientX, y: e.clientY });
+    setOpen(true);
+  }, []);
 
   const close = useCallback(() => {
-    setOpen(false)
-  }, [])
+    setOpen(false);
+  }, []);
 
   // Adjust position after render to avoid screen edges
   useEffect(() => {
-    if (!open || !menuRef.current) return
-    const rect = menuRef.current.getBoundingClientRect()
-    const { innerWidth, innerHeight } = window
-    let x = position.x
-    let y = position.y
+    if (!open || !menuRef.current) return;
+    const rect = menuRef.current.getBoundingClientRect();
+    const { innerWidth, innerHeight } = window;
+    let x = position.x;
+    let y = position.y;
 
     if (x + rect.width > innerWidth - 8) {
-      x = innerWidth - rect.width - 8
+      x = innerWidth - rect.width - 8;
     }
     if (y + rect.height > innerHeight - 8) {
-      y = innerHeight - rect.height - 8
+      y = innerHeight - rect.height - 8;
     }
-    if (x < 4) x = 4
-    if (y < 4) y = 4
+    if (x < 4) x = 4;
+    if (y < 4) y = 4;
 
-    setAdjustedPos({ x, y })
-  }, [open, position])
+    setAdjustedPos({ x, y });
+  }, [open, position]);
 
   // Close on Escape
   useEffect(() => {
-    if (!open) return
+    if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close()
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [open, close])
+      if (e.key === 'Escape') close();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [open, close]);
 
   // Close on click outside
   useEffect(() => {
-    if (!open) return
+    if (!open) return;
     const handler = (e: Event) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        close()
+        close();
       }
-    }
+    };
     const id = setTimeout(() => {
-      document.addEventListener('click', handler)
-      document.addEventListener('contextmenu', handler)
-    }, 0)
+      document.addEventListener('click', handler);
+      document.addEventListener('contextmenu', handler);
+    }, 0);
     return () => {
-      clearTimeout(id)
-      document.removeEventListener('click', handler)
-      document.removeEventListener('contextmenu', handler)
-    }
-  }, [open, close])
+      clearTimeout(id);
+      document.removeEventListener('click', handler);
+      document.removeEventListener('contextmenu', handler);
+    };
+  }, [open, close]);
 
   return (
     <>
       {children({ onContextMenu })}
       {open && (
-        <div className="fixed inset-0 z-50" onClick={close} onContextMenu={(e) => { e.preventDefault(); close() }}>
+        <div
+          className="fixed inset-0 z-50"
+          onClick={close}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            close();
+          }}
+        >
           <div
             ref={menuRef}
             className="absolute bg-[var(--surface-elevated)] border border-[var(--border)] rounded-lg shadow-lg py-1 overflow-hidden"
@@ -108,7 +115,12 @@ export function ContextMenu({ children, items, minWidth = 180 }: Props) {
               <div key={i}>
                 {item.divider && <div className="my-1 border-t border-[var(--border-subtle)]" />}
                 <button
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); item.onSelect(); close() }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    item.onSelect();
+                    close();
+                  }}
                   disabled={item.disabled}
                   className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between gap-4 ${
                     item.disabled
@@ -129,5 +141,5 @@ export function ContextMenu({ children, items, minWidth = 180 }: Props) {
         </div>
       )}
     </>
-  )
+  );
 }

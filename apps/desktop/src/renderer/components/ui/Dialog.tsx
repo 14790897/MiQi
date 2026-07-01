@@ -1,15 +1,15 @@
-import * as DialogPrimitive from '@radix-ui/react-dialog'
-import { cn } from '../../lib/utils'
-import { type ComponentPropsWithoutRef, forwardRef } from 'react'
-import { X } from 'lucide-react'
+import * as DialogPrimitive from '@radix-ui/react-dialog';
+import { cn } from '../../lib/utils';
+import { type ComponentPropsWithoutRef, forwardRef } from 'react';
+import { X } from 'lucide-react';
 
-export const Dialog = DialogPrimitive.Root
-export const DialogTrigger = DialogPrimitive.Trigger
+export const Dialog = DialogPrimitive.Root;
+export const DialogTrigger = DialogPrimitive.Trigger;
 
 export const DialogContent = forwardRef<
   HTMLDivElement,
   ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
-    hideClose?: boolean
+    hideClose?: boolean;
   }
 >(({ className, children, hideClose, ...props }, ref) => (
   <DialogPrimitive.Portal>
@@ -18,7 +18,7 @@ export const DialogContent = forwardRef<
       ref={ref}
       className={cn(
         'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] shadow-lg p-6 w-full max-w-md',
-        className,
+        className
       )}
       {...props}
     >
@@ -30,32 +30,23 @@ export const DialogContent = forwardRef<
       )}
     </DialogPrimitive.Content>
   </DialogPrimitive.Portal>
-))
-DialogContent.displayName = 'DialogContent'
+));
+DialogContent.displayName = 'DialogContent';
 
-export const DialogHeader = ({
-  className,
-  ...props
-}: ComponentPropsWithoutRef<'div'>) => (
+export const DialogHeader = ({ className, ...props }: ComponentPropsWithoutRef<'div'>) => (
   <div className={cn('mb-4', className)} {...props} />
-)
+);
 
-export const DialogTitle = ({
-  className,
-  ...props
-}: ComponentPropsWithoutRef<'h2'>) => (
+export const DialogTitle = ({ className, ...props }: ComponentPropsWithoutRef<'h2'>) => (
   <DialogPrimitive.Title
     className={cn('text-lg font-semibold text-[var(--text)]', className)}
     {...props}
   />
-)
+);
 
-export const DialogDescription = ({
-  className,
-  ...props
-}: ComponentPropsWithoutRef<'p'>) => (
+export const DialogDescription = ({ className, ...props }: ComponentPropsWithoutRef<'p'>) => (
   <DialogPrimitive.Description
     className={cn('text-sm text-[var(--text-muted)]', className)}
     {...props}
   />
-)
+);

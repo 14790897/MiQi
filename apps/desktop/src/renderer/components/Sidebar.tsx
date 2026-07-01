@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { cn } from '../lib/utils'
+import { useState, useEffect, useCallback } from 'react';
+import { cn } from '../lib/utils';
 import {
   MessageSquare,
   Clock,
@@ -20,12 +20,12 @@ import {
   ChevronRight,
   type LucideIcon,
 } from 'lucide-react';
-import type { SessionInfo } from '../../shared/ipc'
+import type { SessionInfo } from '../../shared/ipc';
 
 interface NavItem {
-  id: string
-  label: string
-  icon: LucideIcon
+  id: string;
+  label: string;
+  icon: LucideIcon;
 }
 
 interface NavGroup {
@@ -72,30 +72,35 @@ const NAV_GROUPS: NavGroup[] = [
 ];
 
 function formatTimestampKey(key: string): string {
-  const ts = parseInt(key, 10)
-  if (isNaN(ts)) return key
-  return new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(ts))
+  const ts = parseInt(key, 10);
+  if (isNaN(ts)) return key;
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(ts));
 }
 
 function relativeTime(iso?: string): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  const now = new Date()
-  const diff = now.getTime() - d.getTime()
-  if (diff < 60_000) return 'Just now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} mins ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} hours ago`
-  if (diff < 2 * 86_400_000) return 'Yesterday'
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = now.getTime() - d.getTime();
+  if (diff < 60_000) return 'Just now';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} mins ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} hours ago`;
+  if (diff < 2 * 86_400_000) return 'Yesterday';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 interface SidebarProps {
-  activeNav: string
-  onNavChange: (id: string) => void
-  currentSession?: string
-  onSessionSelect?: (key: string) => void
-  refreshKey?: number
-  onNewSession?: () => void
+  activeNav: string;
+  onNavChange: (id: string) => void;
+  currentSession?: string;
+  onSessionSelect?: (key: string) => void;
+  refreshKey?: number;
+  onNewSession?: () => void;
 }
 
 export function Sidebar({
@@ -109,7 +114,7 @@ export function Sidebar({
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    new Set(['核心功能', '业务流程', 'AI能力', '系统管理']),
+    new Set(['核心功能', '业务流程', 'AI能力', '系统管理'])
   );
 
   const toggleGroup = (groupTitle: string) => {
@@ -168,10 +173,7 @@ export function Sidebar({
         >
           M
         </div>
-        <span
-          className="text-sm font-semibold"
-          style={{ color: 'var(--text)' }}
-        >
+        <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
           MiQi Workbench
         </span>
       </div>
@@ -190,15 +192,9 @@ export function Sidebar({
                 className="flex items-center gap-1 px-3 py-1 w-full text-left"
               >
                 {isExpanded ? (
-                  <ChevronDown
-                    size={12}
-                    style={{ color: 'var(--text-faint)' }}
-                  />
+                  <ChevronDown size={12} style={{ color: 'var(--text-faint)' }} />
                 ) : (
-                  <ChevronRight
-                    size={12}
-                    style={{ color: 'var(--text-faint)' }}
-                  />
+                  <ChevronRight size={12} style={{ color: 'var(--text-faint)' }} />
                 )}
                 <span
                   className="text-xs font-semibold uppercase tracking-wider"
@@ -218,14 +214,10 @@ export function Sidebar({
                         onClick={() => onNavChange(item.id)}
                         className={cn(
                           'flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors text-left w-full',
-                          isActive
-                            ? 'font-medium'
-                            : 'hover:bg-[var(--surface-muted)]',
+                          isActive ? 'font-medium' : 'hover:bg-[var(--surface-muted)]'
                         )}
                         style={{
-                          background: isActive
-                            ? 'var(--surface-muted)'
-                            : undefined,
+                          background: isActive ? 'var(--surface-muted)' : undefined,
                           color: isActive ? 'var(--text)' : 'var(--text-muted)',
                         }}
                       >
@@ -265,10 +257,7 @@ export function Sidebar({
             <div className="w-4 h-4 border-2 border-[var(--border)] border-t-[var(--accent)] rounded-full animate-spin" />
           </div>
         ) : sessions.length === 0 ? (
-          <div
-            className="text-xs text-center py-6"
-            style={{ color: 'var(--text-faint)' }}
-          >
+          <div className="text-xs text-center py-6" style={{ color: 'var(--text-faint)' }}>
             No sessions
           </div>
         ) : (
@@ -281,9 +270,7 @@ export function Sidebar({
                   key={s.key}
                   className={cn(
                     'w-full flex items-start gap-2 px-2 py-1.5 rounded text-left transition-colors group',
-                    isActive
-                      ? 'bg-[var(--surface-muted)]'
-                      : 'hover:bg-[var(--surface-elevated)]',
+                    isActive ? 'bg-[var(--surface-muted)]' : 'hover:bg-[var(--surface-elevated)]'
                   )}
                 >
                   <button
@@ -298,16 +285,10 @@ export function Sidebar({
                       style={{ background: 'var(--text-faint)' }}
                     />
                     <div className="flex-1 min-w-0 text-left">
-                      <p
-                        className="text-sm truncate text-left"
-                        style={{ color: 'var(--text)' }}
-                      >
+                      <p className="text-sm truncate text-left" style={{ color: 'var(--text)' }}>
                         {displayName}
                       </p>
-                      <p
-                        className="text-xs text-left"
-                        style={{ color: 'var(--text-muted)' }}
-                      >
+                      <p className="text-xs text-left" style={{ color: 'var(--text-muted)' }}>
                         {relativeTime(s.updated_at)}
                       </p>
                     </div>
@@ -315,11 +296,7 @@ export function Sidebar({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (
-                        !window.confirm(
-                          `归档对话「${displayName}」？归档后可在设置中找回。`,
-                        )
-                      )
+                      if (!window.confirm(`归档对话「${displayName}」？归档后可在设置中找回。`))
                         return;
                       window.miqi.sessions.archive(s.key).then(() => {
                         loadSessions();

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Cpu,
   HardDrive,
@@ -8,55 +8,48 @@ import {
   TriangleAlert,
   CheckCircle2,
   Activity,
-} from 'lucide-react'
-import { cn } from '../../lib/utils'
-import type { WslStatsResult } from '../../../shared/ipc'
+} from 'lucide-react';
+import { cn } from '../../lib/utils';
+import type { WslStatsResult } from '../../../shared/ipc';
 
-const REFRESH_MS = 3_000
+const REFRESH_MS = 3_000;
 
 // ─── Helpers ─────────────────────────────────────────────
 //
 function pctColor(p: number) {
-  if (p > 85) return 'bg-[var(--danger)]'
-  if (p > 60) return 'bg-[var(--warning)]'
-  return 'bg-[var(--accent)]'
+  if (p > 85) return 'bg-[var(--danger)]';
+  if (p > 60) return 'bg-[var(--warning)]';
+  return 'bg-[var(--accent)]';
 }
 
 function pctColorText(p: number) {
-  if (p > 85) return 'text-[var(--danger)]'
-  if (p > 60) return 'text-[var(--warning)]'
-  return 'text-[var(--accent)]'
+  if (p > 85) return 'text-[var(--danger)]';
+  if (p > 60) return 'text-[var(--warning)]';
+  return 'text-[var(--accent)]';
 }
 
 function fmtUptime(s: number): string {
-  if (s < 60) return `${Math.round(s)}s`
-  if (s < 3600) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  if (s < 86400) return `${h}h ${m}m`
-  const d = Math.floor(s / 86400)
-  return `${d}d ${Math.floor((s % 86400) / 3600)}h`
+  if (s < 60) return `${Math.round(s)}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (s < 86400) return `${h}h ${m}m`;
+  const d = Math.floor(s / 86400);
+  return `${d}d ${Math.floor((s % 86400) / 3600)}h`;
 }
 
 function fmtMem(mb: number): string {
-  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`
-  return `${mb} MB`
+  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+  return `${mb} MB`;
 }
 
 // ─── Circular progress ring ───────────────────────────────
 //
-function CircleRing({
-  pct,
-  size = 112,
-}: {
-  pct: number
-  size?: number
-}) {
-  const r = (size - 10) / 2
-  const c = 2 * Math.PI * r
-  const offset = c * (1 - Math.min(pct, 100) / 100)
-  const color =
-    pct > 85 ? 'var(--danger)' : pct > 60 ? 'var(--warning)' : 'var(--accent)'
+function CircleRing({ pct, size = 112 }: { pct: number; size?: number }) {
+  const r = (size - 10) / 2;
+  const c = 2 * Math.PI * r;
+  const offset = c * (1 - Math.min(pct, 100) / 100);
+  const color = pct > 85 ? 'var(--danger)' : pct > 60 ? 'var(--warning)' : 'var(--accent)';
 
   return (
     <svg width={size} height={size} className="-rotate-90">
@@ -81,88 +74,92 @@ function CircleRing({
         className="transition-all duration-700"
       />
     </svg>
-  )
+  );
 }
 
 // ─── Main page ─────────────────────────────────────────────
 //
-const AISHADOW_PREFIX = 'AIShadow'
+const AISHADOW_PREFIX = 'AIShadow';
 
 export default function WslStatusPage() {
-  const [stats, setStats] = useState<WslStatsResult | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [distros, setDistros] = useState<string[]>([])
-  const [selected, setSelected] = useState('')
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [stats, setStats] = useState<WslStatsResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [distros, setDistros] = useState<string[]>([]);
+  const [selected, setSelected] = useState('');
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Fetch distro list (AIShadowSandbox first) ──────────
   const fetchDistros = useCallback(async () => {
     try {
-      const r = await window.miqi.wsl.check()
+      const r = await window.miqi.wsl.check();
       if (r?.installed && r.distros?.length > 0) {
         // Prioritize AIShadowSandbox: move it to index 0
-        const sorted = [...r.distros]
+        const sorted = [...r.distros];
         const idx = sorted.findIndex(
           (d: string) => d === AISHADOW_PREFIX || d.startsWith(AISHADOW_PREFIX)
-        )
+        );
         if (idx > 0) {
-          const [target] = sorted.splice(idx, 1)
-          sorted.unshift(target)
+          const [target] = sorted.splice(idx, 1);
+          sorted.unshift(target);
         }
-        setDistros(sorted)
+        setDistros(sorted);
 
         // Auto-select: AIShadowSandbox > defaultDistro
         if (!selected) {
           const auto =
             sorted.find((d: string) => d === AISHADOW_PREFIX || d.startsWith(AISHADOW_PREFIX)) ??
-            r.defaultDistro
-          if (auto) setSelected(auto)
+            r.defaultDistro;
+          if (auto) setSelected(auto);
         }
       }
-    } catch { /* ignore */ }
-  }, [selected])
+    } catch {
+      /* ignore */
+    }
+  }, [selected]);
 
   // ── Fetch stats ───────────────────────────────
   const fetchStats = useCallback(async () => {
-    if (!selected) return
-    setLoading(true)
+    if (!selected) return;
+    setLoading(true);
     try {
-      const r = await window.miqi.wsl.getStats(selected)
+      const r = await window.miqi.wsl.getStats(selected);
       if (r?.ok) {
-        setStats(r)
-        setError(null)
+        setStats(r);
+        setError(null);
       } else {
-        setError(r?.error ?? '无法获取 WSL 状态')
+        setError(r?.error ?? '无法获取 WSL 状态');
       }
     } catch (e: any) {
-      setError(e?.message ?? 'IPC 调用失败')
+      setError(e?.message ?? 'IPC 调用失败');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [selected])
+  }, [selected]);
 
   // Init: load distro list
-  useEffect(() => { fetchDistros() }, [fetchDistros])
+  useEffect(() => {
+    fetchDistros();
+  }, [fetchDistros]);
 
   // When selected distro changes
   useEffect(() => {
-    if (selected) fetchStats()
-  }, [selected, fetchStats])
+    if (selected) fetchStats();
+  }, [selected, fetchStats]);
 
   // Polling: refresh every REFRESH_MS
   useEffect(() => {
-    if (!selected) return
-    timerRef.current = setInterval(fetchStats, REFRESH_MS)
+    if (!selected) return;
+    timerRef.current = setInterval(fetchStats, REFRESH_MS);
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current)
-    }
-  }, [selected, fetchStats])
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [selected, fetchStats]);
 
   // ── Derived values ──────────────────────────────────
-  const mem = stats?.memory
-  const cpu = stats?.cpu
-  const dsk = stats?.disk
+  const mem = stats?.memory;
+  const cpu = stats?.cpu;
+  const dsk = stats?.disk;
 
   return (
     <div className="flex flex-col h-full bg-[var(--background)] overflow-y-auto">
@@ -184,12 +181,14 @@ export default function WslStatusPage() {
           {distros.length > 1 && (
             <select
               value={selected}
-              onChange={e => setSelected(e.target.value)}
+              onChange={(e) => setSelected(e.target.value)}
               className="text-xs px-3 py-1.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)]"
             >
               <option value="">选择发行版</option>
-              {distros.map(d => (
-                <option key={d} value={d}>{d}</option>
+              {distros.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
               ))}
             </select>
           )}
@@ -240,7 +239,9 @@ export default function WslStatusPage() {
                   <div className="relative">
                     <CircleRing pct={mem.used_pct} size={112} />
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className={`text-xl font-bold tabular-nums ${pctColorText(mem.used_pct)}`}>
+                      <span
+                        className={`text-xl font-bold tabular-nums ${pctColorText(mem.used_pct)}`}
+                      >
                         {mem.used_pct}%
                       </span>
                       <span className="text-[10px] text-[var(--text-faint)]">内存</span>
@@ -261,7 +262,9 @@ export default function WslStatusPage() {
                   <div className="relative">
                     <CircleRing pct={cpu.usage_pct} size={112} />
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className={`text-xl font-bold tabular-nums ${pctColorText(cpu.usage_pct)}`}>
+                      <span
+                        className={`text-xl font-bold tabular-nums ${pctColorText(cpu.usage_pct)}`}
+                      >
                         {cpu.usage_pct}%
                       </span>
                       <span className="text-[10px] text-[var(--text-faint)]">CPU</span>
@@ -269,9 +272,7 @@ export default function WslStatusPage() {
                   </div>
                   <div className="text-center">
                     <div className="text-xs text-[var(--text-muted)]">CPU 使用率</div>
-                    <div className="text-xs font-mono text-[var(--text)]">
-                      {cpu.cores} 核
-                    </div>
+                    <div className="text-xs font-mono text-[var(--text)]">{cpu.cores} 核</div>
                   </div>
                 </div>
               )}
@@ -282,7 +283,9 @@ export default function WslStatusPage() {
                   <div className="relative">
                     <CircleRing pct={dsk.used_pct} size={112} />
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className={`text-xl font-bold tabular-nums ${pctColorText(dsk.used_pct)}`}>
+                      <span
+                        className={`text-xl font-bold tabular-nums ${pctColorText(dsk.used_pct)}`}
+                      >
                         {dsk.used_pct}%
                       </span>
                       <span className="text-[10px] text-[var(--text-faint)]">磁盘</span>
@@ -307,7 +310,12 @@ export default function WslStatusPage() {
                 <tbody>
                   {[
                     ['发行版', stats.distro],
-                    ['状态', <span className="flex items-center gap-1 text-[var(--accent)]"><CheckCircle2 size={11} /> 运行中</span>],
+                    [
+                      '状态',
+                      <span className="flex items-center gap-1 text-[var(--accent)]">
+                        <CheckCircle2 size={11} /> 运行中
+                      </span>,
+                    ],
                     ['运行时间', fmtUptime(stats.uptime_sec)],
                     ['CPU 核心数', `${cpu?.cores ?? 0} 核`],
                     ['内存总量', fmtMem(mem?.total_mb ?? 0)],
@@ -317,7 +325,10 @@ export default function WslStatusPage() {
                     ['磁盘已用', `${dsk?.used_gb ?? 0} GB (${dsk?.used_pct ?? 0}%)`],
                     ['磁盘可用', `${dsk?.free_gb ?? 0} GB`],
                   ].map(([k, v], i) => (
-                    <tr key={k} className={i % 2 === 0 ? 'bg-[var(--surface)]' : 'bg-[var(--surface-muted)]'}>
+                    <tr
+                      key={k}
+                      className={i % 2 === 0 ? 'bg-[var(--surface)]' : 'bg-[var(--surface-muted)]'}
+                    >
                       <td className="px-5 py-2.5 text-xs text-[var(--text-muted)] w-40">{k}</td>
                       <td className="px-5 py-2.5 text-xs text-[var(--text)] font-mono">{v}</td>
                     </tr>
@@ -329,5 +340,5 @@ export default function WslStatusPage() {
         )}
       </div>
     </div>
-  )
+  );
 }
