@@ -15,6 +15,7 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:smoke": "npx playwright test --config=playwright.config.ts --project=smoke",
@@ -48,12 +49,16 @@
     "electron": "39.8.5",
     "electron-builder": "^26.0.12",
     "electron-vite": "^3.1.0",
+    "prettier": "^3.9.4",
     "tailwindcss": "^4.1.6",
     "typescript": "^5.8.3",
     "vite": "^6.4.3",
     "vitest": "^3.2.6"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["electron", "esbuild"]
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
   }
 }
