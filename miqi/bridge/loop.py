@@ -608,10 +608,14 @@ class BridgeRuntimeLoop:
             from dataclasses import asdict, is_dataclass
 
             from miqi.protocol.events import (
+                AgentMessageDeltaEvent,
                 AgentMessageEvent,
+                AgentReasoningEvent,
+                ApprovalResolvedEvent,
                 ErrorEvent,
                 TurnAbortedEvent,
                 TurnCompleteEvent,
+                TurnStartedEvent,
             )
 
             while True:
@@ -655,6 +659,16 @@ class BridgeRuntimeLoop:
                             "status": "completed",
                         })
                     break
+
+                # Internal runtime events that should never appear in
+                # the chat message stream.  See Issue #35.
+                if isinstance(event, (
+                    AgentMessageDeltaEvent,   # streaming delta; final content via AgentMessageEvent
+                    AgentReasoningEvent,       # model reasoning; no user-visible rendering target yet
+                    TurnStartedEvent,          # turn lifecycle; not chat content
+                    ApprovalResolvedEvent,     # approval lifecycle; not chat content
+                )):
+                    continue
 
                 # Forward all other events as progress
                 event_name = event.__class__.__name__
