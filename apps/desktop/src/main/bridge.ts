@@ -320,6 +320,11 @@ export class BridgeManager extends EventEmitter {
         this.state = 'error'
         this.process = null
         this.emitState()
+        // Reject all pending requests so callers don't hang
+        for (const [id, entry] of this.pending) {
+          entry.reject(new Error(`Bridge process error: ${err.message}`))
+        }
+        this.pending.clear()
       })
 
       // ── Ready handshake ────────────────────────────────────────────
@@ -557,8 +562,10 @@ export class BridgeManager extends EventEmitter {
     this.addLog(`[Hot Reload] Detected change in: ${filename}`)
 
     // Schedule restart after a short delay to allow multiple files to change
-    setTimeout(async () => {
-      await this.restart()
+    setTimeout(() => {
+      this.restart().catch(err => {
+        this.addLog(`[Hot Reload] Restart error: ${err}`)
+      })
     }, 500)
   }
 
