@@ -2,12 +2,7 @@ name: Desktop CI
 
 on:
   push:
-    paths:
-      - 'apps/desktop/**'
-      - '.github/workflows/desktop-ci.yml'
   pull_request:
-    paths:
-      - 'apps/desktop/**'
   workflow_dispatch:
 
 concurrency:
