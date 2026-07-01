@@ -59,6 +59,7 @@ class CodexTurnEventAdapter:
         self._agent_text_parts: list[str] = []
         self._reasoning_started = False
         self._reasoning_text_parts: list[str] = []
+        self._reasoning_sent_len = 0  # Track how much reasoning text was already sent as delta
         self._commands: dict[str, dict[str, Any]] = {}
         self._command_output: dict[str, list[str]] = {}
         self._tool_items: dict[str, dict[str, Any]] = {}
@@ -171,12 +172,14 @@ class CodexTurnEventAdapter:
                 }),
             ))
         self._reasoning_text_parts.append(event.content)
-        ri = reasoning_item(self.turn_id, event.content)
+        # Only send the incremental portion since last delta (not the full text each time)
+        delta = event.content[self._reasoning_sent_len:]
+        self._reasoning_sent_len = len(event.content)
         result.append(self._notification(
             "item/reasoning/summaryTextDelta",
             self._with_location({
                 "itemId": f"{self.turn_id}:reasoning",
-                "delta": ri.get("summary", event.content),
+                "delta": delta,
             }),
         ))
         return result
@@ -319,6 +322,14 @@ class CodexTurnEventAdapter:
 
     def _on_TurnCompleteEvent(self, event: TurnCompleteEvent) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
+
+        # Complete pending reasoning item if needed
+        if self._reasoning_started:
+            ri = reasoning_item(self.turn_id, "".join(self._reasoning_text_parts) if self._reasoning_text_parts else "")
+            result.append(self._notification(
+                "item/completed",
+                self._with_location({"item": ri}),
+            ))
 
         # Complete pending agent item if needed
         if self._agent_started and not self._agent_completed:
