@@ -51,9 +51,11 @@ jobs:
             {
               const m = withoutComments.match(/### 环境\s*\n+(.+?)(?=\n###|\n*$)/s);
               const val = m?.[1]?.trim();
-              const hasDiagnostic = val && val.includes('MIQI DIAGNOSTIC') && val.includes('END DIAGNOSTIC');
               const stillDefault = val?.includes('运行上方命令后将输出粘贴到这里');
-              if (!val || val.length < 30 || !hasDiagnostic || stillDefault) {
+              // 检查是否包含至少 3 项系统信息（兼容有无 DIAGNOSTIC 标记的诊断脚本）
+              const sysKeywords = ['OS', 'Python', 'CPU', 'Hardware', 'MiQi', 'Node', 'WSL', 'bwrap', 'Disk'];
+              const matchedSys = sysKeywords.filter(kw => val?.includes(kw)).length;
+              if (!val || val.length < 30 || stillDefault || matchedSys < 3) {
                 failures.push('环境信息：必须运行 diagnose 脚本并将完整输出粘贴到此处');
               }
             }
@@ -67,7 +69,7 @@ jobs:
                 const trimmed = l.replace(/^\d+\.\s*/, '').trim();
                 return trimmed.length > 0;
               }).join('\n').trim();
-              if (!actualSteps || actualSteps.length < 20) {
+              if (!actualSteps || actualSteps.length < 10) {
                 failures.push('复现步骤：必须填写具体操作步骤');
               }
             }
@@ -121,11 +123,24 @@ jobs:
                 '> 💡 提示：请查看 [Bug 报告指南](https://github.com/14790897/miqi/blob/main/.github/ISSUE_TEMPLATE/bug_report.yml) 了解每项的具体要求。',
               ].join('\n');
 
-              await github.rest.issues.createComment({
-                ...repo,
-                issue_number: issueNumber,
-                body: comment,
+              // 去重：有则更新，无则创建
+              const existingComments = await github.rest.issues.listComments({
+                ...repo, issue_number: issueNumber, per_page: 50,
               });
+              const existing = existingComments.data.find(
+                c => c.user?.login === 'github-actions[bot]' && c.body?.includes('### ⚠️ Issue 信息不完整')
+              );
+
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  ...repo, comment_id: existing.id, body: comment,
+                });
+                console.log('[去重] 已更新已有模板校验评论');
+              } else {
+                await github.rest.issues.createComment({
+                  ...repo, issue_number: issueNumber, body: comment,
+                });
+              }
 
               // 添加 "incomplete" 标签
               try {
@@ -236,6 +251,14 @@ jobs:
               const hasFake = aiResult.includes('❌');
               const hasSuspicious = aiResult.includes('⚠️');
 
+              // 去重：有则更新，无则创建
+              const existingComments = await github.rest.issues.listComments({
+                ...repo, issue_number: issueNumber, per_page: 50,
+              });
+              const existing = existingComments.data.find(
+                c => c.user?.login === 'github-actions[bot]' && c.body?.includes('### 🤖 AI 日志审核')
+              );
+
               const comment = [
                 '### 🤖 AI 日志审核',
                 '',
@@ -246,11 +269,16 @@ jobs:
                   : '> ✅ AI 审核通过，日志看起来真实可信。',
               ].join('\n');
 
-              await github.rest.issues.createComment({
-                ...repo,
-                issue_number: issueNumber,
-                body: comment,
-              });
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  ...repo, comment_id: existing.id, body: comment,
+                });
+                console.log('[去重] 已更新已有 AI 审核评论');
+              } else {
+                await github.rest.issues.createComment({
+                  ...repo, issue_number: issueNumber, body: comment,
+                });
+              }
 
               if (hasFake) {
                 try {
