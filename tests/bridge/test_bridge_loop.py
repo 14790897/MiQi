@@ -306,6 +306,69 @@ async def test_shutdown_cancels_pending_tasks():
 
 
 @pytest.mark.asyncio
+async def test_drain_chat_events_converts_tool_begin_to_tool_hint_progress():
+    from miqi.bridge.loop import BridgeRuntimeLoop
+    from miqi.protocol.events import ToolCallBeginEvent, TurnCompleteEvent
+
+    class FakeAppServer:
+        def __init__(self):
+            self.events = []
+
+        async def emit_event(self, session_id, event_type, data, request_id=None):
+            self.events.append({
+                "session_id": session_id,
+                "event_type": event_type,
+                "data": data,
+                "request_id": request_id,
+            })
+
+    class FakeRuntime:
+        def __init__(self):
+            self.events = [
+                ToolCallBeginEvent(
+                    turn_id="turn-asset",
+                    tool_call_id="tc-asset",
+                    tool_name="write_file",
+                    tool_display='write_file("/tmp/asset.txt")',
+                    arguments={"path": "/tmp/asset.txt"},
+                ),
+                TurnCompleteEvent(
+                    turn_id="turn-asset",
+                    thread_id="thread-asset",
+                    outcome="success",
+                    tools_used=["write_file"],
+                    token_usage={},
+                ),
+            ]
+
+        async def next_event(self, timeout=None):
+            return self.events.pop(0)
+
+    loop = BridgeRuntimeLoop(send_func=_CaptureSend().send)
+    loop._app_server = FakeAppServer()
+
+    await loop._drain_chat_events(
+        request_id="req-asset",
+        runtime=FakeRuntime(),
+        thread_id="thread-asset",
+        session_id="session-asset",
+        client_id="client-asset",
+    )
+
+    progress = loop._app_server.events[0]
+    assert progress == {
+        "session_id": "session-asset",
+        "event_type": "progress",
+        "data": {
+            "text": 'write_file("/tmp/asset.txt")',
+            "tool_hint": True,
+            "tool_call_id": "tc-asset",
+        },
+        "request_id": "req-asset",
+    }
+
+
+@pytest.mark.asyncio
 async def test_phase41_turn_handlers_registered_on_bridge_app_server():
     from miqi.bridge.loop import BridgeRuntimeLoop
 
