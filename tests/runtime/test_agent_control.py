@@ -1,12 +1,12 @@
 """Tests for miqi.runtime.agent_control."""
 
-import asyncio
-import pytest
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
-from miqi.runtime.agent_registry import AgentRegistry
-from miqi.runtime.agent_control import AgentControl, LiveAgent
+
+import pytest
+
 from miqi.protocol.events import AgentStatus
+from miqi.runtime.agent_control import AgentControl
+from miqi.runtime.agent_registry import AgentRegistry
 
 
 @pytest.fixture
@@ -114,6 +114,7 @@ async def test_fork_unknown_thread_raises(agent_control):
 # Phase 10: Tool definitions, orchestrator enforcement, result persistence
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def fake_tool_registry():
     """Create a minimal ToolRegistry mock with get_definitions for testing."""
@@ -140,12 +141,14 @@ def fake_tool_registry():
 @pytest.fixture
 def fake_provider():
     """Create a provider that records its calls and returns responses."""
-    from unittest.mock import MagicMock
 
     class FakeProvider:
         def __init__(self):
             self.chat_calls: list[dict] = []
             self.response_sequence: list = []
+
+        def get_default_model(self) -> str:
+            return "gpt-4o"
 
         async def chat(self, **kwargs):
             self.chat_calls.append(kwargs)
@@ -157,6 +160,7 @@ def fake_provider():
         async def stream_chat(self, **kwargs):
             """Phase 20: streaming fallback wrapping chat()."""
             from miqi.providers.base import LLMStreamEvent
+
             response = await self.chat(**kwargs)
             yield LLMStreamEvent(kind="completed", response=response)
 
@@ -165,6 +169,7 @@ def fake_provider():
 
 class _FakeToolCall:
     """Minimal fake for response.tool_calls entries."""
+
     def __init__(self, name, args, tc_id="tcid"):
         self.name = name
         self.arguments = args
@@ -173,6 +178,7 @@ class _FakeToolCall:
 
 class _FakeResponse:
     """Minimal fake response object."""
+
     def __init__(self, content="", tool_calls=None, finish_reason="stop"):
         self.content = content
         self.tool_calls = tool_calls or []
@@ -187,11 +193,14 @@ class _FakeResponse:
 # Task 10.3: Sub-agents receive role-filtered tool definitions
 @pytest.mark.asyncio
 async def test_sub_agent_receives_role_filtered_tools(
-    tmp_path, event_emitter, fake_provider, fake_tool_registry,
+    tmp_path,
+    event_emitter,
+    fake_provider,
+    fake_tool_registry,
 ):
     """code-agent should only see code tools, not doc tools."""
-    from miqi.runtime.agent_registry import AgentRegistry
     from miqi.runtime.agent_control import AgentControl
+    from miqi.runtime.agent_registry import AgentRegistry
 
     control = AgentControl(
         session_id="test-session",
@@ -230,11 +239,14 @@ async def test_sub_agent_receives_role_filtered_tools(
 # Task 10.4: Orchestrator required before sub-agent tool execution
 @pytest.mark.asyncio
 async def test_sub_agent_raises_when_no_orchestrator_for_tools(
-    tmp_path, event_emitter, fake_provider, fake_tool_registry,
+    tmp_path,
+    event_emitter,
+    fake_provider,
+    fake_tool_registry,
 ):
     """Sub-agent must raise RuntimeError when tools are called but no orchestrator."""
-    from miqi.runtime.agent_registry import AgentRegistry
     from miqi.runtime.agent_control import AgentControl
+    from miqi.runtime.agent_registry import AgentRegistry
 
     control = AgentControl(
         session_id="test-session",
@@ -268,11 +280,14 @@ async def test_sub_agent_raises_when_no_orchestrator_for_tools(
 # Task 10.5: Sub-agent results are persisted and exposed via list/detail
 @pytest.mark.asyncio
 async def test_sub_agent_result_persisted(
-    tmp_path, event_emitter, fake_provider, fake_tool_registry,
+    tmp_path,
+    event_emitter,
+    fake_provider,
+    fake_tool_registry,
 ):
     """After completion, sub-agent result/error/messages are stored on LiveAgent."""
-    from miqi.runtime.agent_registry import AgentRegistry
     from miqi.runtime.agent_control import AgentControl
+    from miqi.runtime.agent_registry import AgentRegistry
 
     control = AgentControl(
         session_id="test-session",
@@ -320,8 +335,8 @@ async def test_sub_agent_result_persisted(
 @pytest.mark.asyncio
 async def test_get_agent_detail_unknown_raises(tmp_path, event_emitter):
     """get_agent_detail should raise KeyError for unknown agent IDs."""
-    from miqi.runtime.agent_registry import AgentRegistry
     from miqi.runtime.agent_control import AgentControl
+    from miqi.runtime.agent_registry import AgentRegistry
 
     control = AgentControl(
         session_id="test-session",
@@ -343,12 +358,15 @@ async def test_get_agent_detail_unknown_raises(tmp_path, event_emitter):
 async def test_kill_cancels_running_task(tmp_path, event_emitter, fake_tool_registry):
     """kill() must cancel the background asyncio Task so the sub-agent stops."""
     import asyncio as _asyncio
-    from unittest.mock import MagicMock
-    from miqi.runtime.agent_registry import AgentRegistry
+
     from miqi.runtime.agent_control import AgentControl
+    from miqi.runtime.agent_registry import AgentRegistry
 
     # Blocking provider — never returns, so task stays running until cancelled
     class BlockingProvider:
+        def get_default_model(self) -> str:
+            return "gpt-4o"
+
         async def chat(self, **kwargs):
             await _asyncio.sleep(10)
             return _FakeResponse(content="done")
@@ -391,14 +409,19 @@ async def test_killed_agent_not_marked_completed(tmp_path, event_emitter):
     """A killed agent should not be marked COMPLETED after kill()."""
     import asyncio as _asyncio
     from unittest.mock import AsyncMock, MagicMock
-    from miqi.runtime.agent_registry import AgentRegistry
+
     from miqi.runtime.agent_control import AgentControl
+    from miqi.runtime.agent_registry import AgentRegistry
 
     # Fake provider that blocks until cancelled
     class BlockingProvider:
+        def get_default_model(self) -> str:
+            return "gpt-4o"
+
         async def chat(self, **kwargs):
             await _asyncio.sleep(10)  # long-running
             return _FakeResponse(content="done")
+
     blocking = BlockingProvider()
 
     # Tool registry that returns empty definitions
@@ -449,8 +472,8 @@ async def test_killed_agent_not_marked_completed(tmp_path, event_emitter):
 @pytest.mark.asyncio
 async def test_spawn_records_edge_when_store_present(tmp_path, event_emitter):
     """AgentControl.spawn must persist a parent→child edge when a store is given."""
-    from miqi.runtime.agent_graph_store import AgentGraphStore
     from miqi.runtime.agent_control import AgentControl
+    from miqi.runtime.agent_graph_store import AgentGraphStore
     from miqi.runtime.agent_registry import AgentRegistry
 
     store = AgentGraphStore(tmp_path / "agent_graph.db")
@@ -499,9 +522,10 @@ async def test_spawn_emits_event_with_job_ids(tmp_path, event_emitter):
     (not temporary IDs), and returned LiveAgent matches them."""
     import asyncio as _asyncio
     from unittest.mock import MagicMock
-    from miqi.runtime.agent_registry import AgentRegistry
+
     from miqi.runtime.agent_control import AgentControl
     from miqi.runtime.agent_jobs import AgentJobRuntime
+    from miqi.runtime.agent_registry import AgentRegistry
 
     # Simple services mock for AgentJobRuntime
     services = MagicMock()
@@ -560,9 +584,10 @@ async def test_kill_with_agent_jobs_cancels_job(tmp_path, event_emitter):
     and the job status must be aborted."""
     import asyncio as _asyncio
     from unittest.mock import MagicMock
-    from miqi.runtime.agent_registry import AgentRegistry
+
     from miqi.runtime.agent_control import AgentControl
     from miqi.runtime.agent_jobs import AgentJobRuntime
+    from miqi.runtime.agent_registry import AgentRegistry
 
     services = MagicMock()
     services.session_id = "test-session"

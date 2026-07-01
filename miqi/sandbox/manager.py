@@ -298,7 +298,7 @@ class SandboxManager:
 
         sandbox_key = self._sandbox_key(session_key, client_id=client_id)
 
-        async with self._lock:
+        with self._lock:
             if sandbox_key in self._sandboxes:
                 sandbox = self._sandboxes[sandbox_key]
                 if sandbox.is_running:
@@ -306,35 +306,45 @@ class SandboxManager:
                 # Sandbox was stopped, remove and recreate
                 del self._sandboxes[sandbox_key]
 
-            # Enforce max sandboxes limit
-            if len(self._sandboxes) >= self.max_sandboxes:
-                await self._evict_oldest()
+            need_evict = len(self._sandboxes) >= self.max_sandboxes
 
-            sandbox = BwrapSandbox(
-                session_key=sandbox_key,
-                workspace=self.workspace,
-                sandbox_base_dir=self.sandbox_base_dir if not self.wsl_distro else None,
-                share_net=self.share_net,
-                wsl_distro=self.wsl_distro,
-                wsl_base_dir=self.wsl_base_dir,
-                sandbox_distro_name=self.sandbox_distro_name,
-            )
+        # Evict outside the lock: _evict_oldest() acquires self._lock internally
+        if need_evict:
+            await self._evict_oldest()
 
-            try:
-                await sandbox.start()
+        # Re-check after eviction (another thread may have created this sandbox)
+        with self._lock:
+            if sandbox_key in self._sandboxes:
+                sandbox = self._sandboxes[sandbox_key]
+                if sandbox.is_running:
+                    return sandbox
+
+        sandbox = BwrapSandbox(
+            session_key=sandbox_key,
+            workspace=self.workspace,
+            sandbox_base_dir=self.sandbox_base_dir if not self.wsl_distro else None,
+            share_net=self.share_net,
+            wsl_distro=self.wsl_distro,
+            wsl_base_dir=self.wsl_base_dir,
+            sandbox_distro_name=self.sandbox_distro_name,
+        )
+
+        try:
+            await sandbox.start()
+            with self._lock:
                 self._sandboxes[sandbox_key] = sandbox
                 self._save_state()
-                logger.info(
-                    "Created sandbox for session: {} (client={})",
-                    session_key, client_id,
-                )
-                return sandbox
-            except BwrapSandboxError as exc:
-                logger.error(
-                    "Failed to create sandbox for {} (client={}): {}",
-                    session_key, client_id, exc,
-                )
-                return None
+            logger.info(
+                "Created sandbox for session: {} (client={})",
+                session_key, client_id,
+            )
+            return sandbox
+        except BwrapSandboxError as exc:
+            logger.error(
+                "Failed to create sandbox for {} (client={}): {}",
+                session_key, client_id, exc,
+            )
+            return None
 
     async def activate(
         self, session_key: str, *, client_id: str | None = None,
@@ -355,7 +365,7 @@ class SandboxManager:
     ) -> bool:
         """Stop and remove a sandbox for the given session."""
         sandbox_key = self._sandbox_key(session_key, client_id=client_id)
-        async with self._lock:
+        with self._lock:
             sandbox = self._sandboxes.pop(sandbox_key, None)
             if sandbox is None:
                 return False
