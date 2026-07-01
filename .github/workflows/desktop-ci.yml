@@ -98,7 +98,7 @@ jobs:
             "providers": {
               "siliconflow": {
                 "apiKey": "${{ secrets.DEEPSEEK_API_KEY }}",
-                "apiBase": "https://api.deepseek.com",
+                "apiBase": "https://new.sixiangjia.de/v1",
                 "extraHeaders": null
               }
             },
