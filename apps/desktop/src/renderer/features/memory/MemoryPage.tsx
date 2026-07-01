@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { useState, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   BookOpen,
   FileText,
@@ -17,10 +17,10 @@ import {
   Check,
   ChevronRight,
   type LucideIcon,
-} from 'lucide-react'
-import { ContextMenu } from '../../components/ContextMenu'
-import { cn } from '../../lib/utils'
-import type { MemoryFileInfo, MemoryLessonEntry } from '../../../shared/ipc'
+} from 'lucide-react';
+import { ContextMenu } from '../../components/ContextMenu';
+import { cn } from '../../lib/utils';
+import type { MemoryFileInfo, MemoryLessonEntry } from '../../../shared/ipc';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -29,22 +29,22 @@ import type { MemoryFileInfo, MemoryLessonEntry } from '../../../shared/ipc'
 const SCOPE_ICONS: Record<string, LucideIcon> = {
   workspace: FileText,
   agent: BookOpen,
-}
+};
 
 const SCOPE_LABELS: Record<string, string> = {
   workspace: '日常笔记',
   agent: 'Agent 记忆',
-}
+};
 
 function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} kB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} kB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function formatTime(ms: number): string {
-  const d = new Date(ms)
-  return d.toLocaleString()
+  const d = new Date(ms);
+  return d.toLocaleString();
 }
 
 // ---------------------------------------------------------------------------
@@ -56,9 +56,9 @@ function SaveConfirmDialog({
   onConfirm,
   onCancel,
 }: {
-  filePath: string
-  onConfirm: () => void
-  onCancel: () => void
+  filePath: string;
+  onConfirm: () => void;
+  onCancel: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
@@ -68,8 +68,7 @@ function SaveConfirmDialog({
           <h2 className="text-sm font-semibold text-[var(--text)]">覆盖文件</h2>
         </div>
         <div className="px-5 py-4 text-sm text-[var(--text-muted)]">
-          此操作将覆盖{' '}
-          <code className="text-[var(--text)] font-mono">{filePath}</code>{' '}
+          此操作将覆盖 <code className="text-[var(--text)] font-mono">{filePath}</code>{' '}
           的内容，此操作不可撤销。
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
@@ -88,7 +87,7 @@ function SaveConfirmDialog({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -102,11 +101,11 @@ function ConfirmDialog({
   onCancel,
   danger = false,
 }: {
-  title: string
-  message: string
-  onConfirm: () => void
-  onCancel: () => void
-  danger?: boolean
+  title: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  danger?: boolean;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
@@ -114,15 +113,11 @@ function ConfirmDialog({
         <div className="flex items-center gap-2 px-5 py-4 border-b border-[var(--border-subtle)]">
           <AlertTriangle
             size={16}
-            className={
-              danger ? 'text-[var(--danger)]' : 'text-[var(--warning)]'
-            }
+            className={danger ? 'text-[var(--danger)]' : 'text-[var(--warning)]'}
           />
           <h2 className="text-sm font-semibold text-[var(--text)]">{title}</h2>
         </div>
-        <div className="px-5 py-4 text-sm text-[var(--text-muted)]">
-          {message}
-        </div>
+        <div className="px-5 py-4 text-sm text-[var(--text-muted)]">{message}</div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
           <button
             onClick={onCancel}
@@ -136,7 +131,7 @@ function ConfirmDialog({
               'px-4 py-1.5 rounded-lg text-white text-sm font-medium transition-all',
               danger
                 ? 'bg-[var(--danger)] hover:brightness-110'
-                : 'bg-[var(--accent)] hover:bg-[var(--accent-hover)]',
+                : 'bg-[var(--accent)] hover:bg-[var(--accent-hover)]'
             )}
           >
             确认
@@ -144,7 +139,7 @@ function ConfirmDialog({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -152,152 +147,150 @@ function ConfirmDialog({
 // ---------------------------------------------------------------------------
 
 export function MemoryPage() {
-  const [files, setFiles] = useState<MemoryFileInfo[]>([])
-  const [lessons, setLessons] = useState<MemoryLessonEntry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [activeFile, setActiveFile] = useState<MemoryFileInfo | null>(null)
-  const [fileContent, setFileContent] = useState<string | null>(null)
-  const [editorContent, setEditorContent] = useState('')
-  const [dirty, setDirty] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
-  const [showSaveConfirm, setShowSaveConfirm] = useState(false)
-  const [previewMode, setPreviewMode] = useState(false)
-  const [showNewFileDialog, setShowNewFileDialog] = useState(false)
-  const [newFileName, setNewFileName] = useState('')
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(
-    null,
-  )
-  const [copiedAll, setCopiedAll] = useState(false)
+  const [files, setFiles] = useState<MemoryFileInfo[]>([]);
+  const [lessons, setLessons] = useState<MemoryLessonEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeFile, setActiveFile] = useState<MemoryFileInfo | null>(null);
+  const [fileContent, setFileContent] = useState<string | null>(null);
+  const [editorContent, setEditorContent] = useState('');
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [previewMode, setPreviewMode] = useState(false);
+  const [showNewFileDialog, setShowNewFileDialog] = useState(false);
+  const [newFileName, setNewFileName] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [copiedAll, setCopiedAll] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      const [fl, ll] = await Promise.all([
-        window.miqi.memory.list(),
-        window.miqi.memory.lessons(),
-      ])
-      setFiles(fl.files)
-      setLessons(ll.lessons)
+      const [fl, ll] = await Promise.all([window.miqi.memory.list(), window.miqi.memory.lessons()]);
+      setFiles(fl.files);
+      setLessons(ll.lessons);
     } catch {
       // runtime not running
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
-  const unlearnLesson = useCallback(async (lessonId: string) => {
-    try {
-      await window.miqi.memory.lessonUnlearn(lessonId)
-      await load()
-    } catch {
-      // runtime not running
-    }
-  }, [load])
+  const unlearnLesson = useCallback(
+    async (lessonId: string) => {
+      try {
+        await window.miqi.memory.lessonUnlearn(lessonId);
+        await load();
+      } catch {
+        // runtime not running
+      }
+    },
+    [load]
+  );
 
   useEffect(() => {
-    load()
-  }, [load])
+    load();
+  }, [load]);
 
   // Load file content when switching active file
   const selectFile = useCallback(
     async (info: MemoryFileInfo) => {
       if (dirty && activeFile && info.path !== activeFile.path) {
-        const ok = confirm(`文件 ${activeFile.path} 有未保存的更改，确认丢弃？`)
-        if (!ok) return
+        const ok = confirm(`文件 ${activeFile.path} 有未保存的更改，确认丢弃？`);
+        if (!ok) return;
       }
 
-      setActiveFile(info)
-      setDirty(false)
-      setEditorContent('')
-      setError(null)
-      setSuccess(null)
+      setActiveFile(info);
+      setDirty(false);
+      setEditorContent('');
+      setError(null);
+      setSuccess(null);
 
       try {
-        const result = await window.miqi.memory.get(info.path)
-        setFileContent(result.content)
-        setEditorContent(result.content)
+        const result = await window.miqi.memory.get(info.path);
+        setFileContent(result.content);
+        setEditorContent(result.content);
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : '加载文件失败')
+        setError(err instanceof Error ? err.message : '加载文件失败');
       }
     },
-    [dirty, activeFile],
-  )
+    [dirty, activeFile]
+  );
 
   const handleSave = async () => {
-    if (!activeFile) return
-    setSaving(true)
-    setError(null)
-    setSuccess(null)
+    if (!activeFile) return;
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
     try {
-      await window.miqi.memory.update(activeFile.path, editorContent)
-      setFileContent(editorContent)
-      setDirty(false)
-      setSuccess(`已保存 ${activeFile.path}`)
-      setTimeout(() => setSuccess(null), 2000)
+      await window.miqi.memory.update(activeFile.path, editorContent);
+      setFileContent(editorContent);
+      setDirty(false);
+      setSuccess(`已保存 ${activeFile.path}`);
+      setTimeout(() => setSuccess(null), 2000);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '保存失败')
+      setError(err instanceof Error ? err.message : '保存失败');
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   const requestSave = () => {
-    setShowSaveConfirm(true)
-  }
+    setShowSaveConfirm(true);
+  };
 
   // Create new file
   const handleCreateFile = async () => {
-    const name = newFileName.trim()
-    if (!name) return
-    const path = name.endsWith('.md') ? name : `${name}.md`
+    const name = newFileName.trim();
+    if (!name) return;
+    const path = name.endsWith('.md') ? name : `${name}.md`;
     try {
-      await window.miqi.memory.update(path, '')
-      await load()
+      await window.miqi.memory.update(path, '');
+      await load();
       const newFile = files.find((f) => f.path === path) ?? {
         path,
         scope: 'workspace',
         size: 0,
         updatedAtMs: Date.now(),
-      }
-      selectFile(newFile)
+      };
+      selectFile(newFile);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '创建文件失败')
+      setError(err instanceof Error ? err.message : '创建文件失败');
     }
-    setShowNewFileDialog(false)
-    setNewFileName('')
-  }
+    setShowNewFileDialog(false);
+    setNewFileName('');
+  };
 
   // Delete file
   const handleDeleteFile = async (path: string) => {
     try {
-      await window.miqi.memory.delete(path)
+      await window.miqi.memory.delete(path);
       if (activeFile?.path === path) {
-        setActiveFile(null)
-        setFileContent(null)
-        setEditorContent('')
-        setDirty(false)
+        setActiveFile(null);
+        setFileContent(null);
+        setEditorContent('');
+        setDirty(false);
       }
-      await load()
+      await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '删除文件失败')
+      setError(err instanceof Error ? err.message : '删除文件失败');
     }
-    setShowDeleteConfirm(null)
-  }
+    setShowDeleteConfirm(null);
+  };
 
   // Copy all content
   const handleCopyAll = () => {
-    navigator.clipboard.writeText(editorContent)
-    setCopiedAll(true)
-    setTimeout(() => setCopiedAll(false), 2000)
-  }
+    navigator.clipboard.writeText(editorContent);
+    setCopiedAll(true);
+    setTimeout(() => setCopiedAll(false), 2000);
+  };
 
   // Group files by scope
-  const workspaceFiles = files.filter((f) => f.scope === 'workspace')
-  const agentFiles = files.filter((f) => f.scope === 'agent')
+  const workspaceFiles = files.filter((f) => f.scope === 'workspace');
+  const agentFiles = files.filter((f) => f.scope === 'agent');
 
-  const hasUnsaved = dirty && activeFile
+  const hasUnsaved = dirty && activeFile;
 
   return (
     <div className="flex flex-col h-full bg-[var(--background)]">
@@ -306,22 +299,15 @@ export function MemoryPage() {
         <div>
           <h1 className="text-base font-semibold text-[var(--text)]">记忆</h1>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
-            {loading
-              ? '加载中…'
-              : `${files.length} 个文件，${lessons.length} 条 Lesson`}
+            {loading ? '加载中…' : `${files.length} 个文件，${lessons.length} 条 Lesson`}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {success && (
-            <span className="text-xs text-[var(--success)]">{success}</span>
-          )}
+          {success && <span className="text-xs text-[var(--success)]">{success}</span>}
           {error && (
             <span className="text-xs text-[var(--danger)] flex items-center gap-1">
               <AlertTriangle size={12} /> {error}
-              <button
-                onClick={() => setError(null)}
-                className="hover:text-[var(--text)]"
-              >
+              <button onClick={() => setError(null)} className="hover:text-[var(--text)]">
                 <X size={12} />
               </button>
             </span>
@@ -340,14 +326,10 @@ export function MemoryPage() {
               hasUnsaved
                 ? 'bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)]'
                 : 'bg-[var(--surface-muted)] text-[var(--text-faint)]',
-              'disabled:opacity-50',
+              'disabled:opacity-50'
             )}
           >
-            {saving ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Save size={14} />
-            )}
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
             {hasUnsaved ? '保存 *' : '保存'}
           </button>
         </div>
@@ -411,9 +393,7 @@ export function MemoryPage() {
             <>
               {/* Editor header */}
               <div className="flex items-center gap-2 px-5 py-2 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)] shrink-0">
-                <span className="text-xs font-medium text-[var(--text)]">
-                  {activeFile.path}
-                </span>
+                <span className="text-xs font-medium text-[var(--text)]">{activeFile.path}</span>
                 <span className="text-xs text-[var(--text-faint)]">
                   {formatSize(activeFile.size)}
                 </span>
@@ -421,9 +401,7 @@ export function MemoryPage() {
                   {formatTime(activeFile.updatedAtMs)}
                 </span>
                 {dirty && (
-                  <span className="text-xs text-[var(--warning)] font-medium ml-auto">
-                    未保存
-                  </span>
+                  <span className="text-xs text-[var(--warning)] font-medium ml-auto">未保存</span>
                 )}
                 {/* Copy all button */}
                 <button
@@ -441,7 +419,7 @@ export function MemoryPage() {
                         'px-2 py-0.5 text-xs',
                         !previewMode
                           ? 'bg-[var(--accent)] text-white'
-                          : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]',
+                          : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'
                       )}
                     >
                       编辑
@@ -452,7 +430,7 @@ export function MemoryPage() {
                         'px-2 py-0.5 text-xs',
                         previewMode
                           ? 'bg-[var(--accent)] text-white'
-                          : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]',
+                          : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'
                       )}
                     >
                       预览
@@ -465,16 +443,14 @@ export function MemoryPage() {
               <div className="flex-1 overflow-hidden">
                 {previewMode ? (
                   <div className="w-full h-full px-5 py-4 overflow-y-auto text-sm bg-[var(--background)] text-[var(--text)] prose prose-sm max-w-none leading-relaxed">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {editorContent}
-                    </ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{editorContent}</ReactMarkdown>
                   </div>
                 ) : (
                   <textarea
                     value={editorContent}
                     onChange={(e) => {
-                      setEditorContent(e.target.value)
-                      setDirty(e.target.value !== fileContent)
+                      setEditorContent(e.target.value);
+                      setDirty(e.target.value !== fileContent);
                     }}
                     className="w-full h-full px-5 py-4 resize-none text-sm font-mono bg-[var(--background)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none leading-relaxed"
                     spellCheck={false}
@@ -521,9 +497,7 @@ export function MemoryPage() {
           <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[360px]">
             <div className="flex items-center gap-2 px-5 py-4 border-b border-[var(--border-subtle)]">
               <Plus size={16} className="text-[var(--accent)]" />
-              <h2 className="text-sm font-semibold text-[var(--text)]">
-                新建记忆文件
-              </h2>
+              <h2 className="text-sm font-semibold text-[var(--text)]">新建记忆文件</h2>
             </div>
             <div className="px-5 py-4">
               <input
@@ -531,7 +505,7 @@ export function MemoryPage() {
                 value={newFileName}
                 onChange={(e) => setNewFileName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreateFile()
+                  if (e.key === 'Enter') handleCreateFile();
                 }}
                 placeholder="文件名（自动添加 .md）"
                 className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)]"
@@ -541,8 +515,8 @@ export function MemoryPage() {
             <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
               <button
                 onClick={() => {
-                  setShowNewFileDialog(false)
-                  setNewFileName('')
+                  setShowNewFileDialog(false);
+                  setNewFileName('');
                 }}
                 className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
               >
@@ -576,14 +550,14 @@ export function MemoryPage() {
         <SaveConfirmDialog
           filePath={activeFile.path}
           onConfirm={() => {
-            setShowSaveConfirm(false)
-            handleSave()
+            setShowSaveConfirm(false);
+            handleSave();
           }}
           onCancel={() => setShowSaveConfirm(false)}
         />
       )}
     </div>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -598,14 +572,14 @@ function FileGroup({
   onSelect,
   onDelete,
 }: {
-  label: string
-  icon: LucideIcon
-  files: MemoryFileInfo[]
-  activePath: string | null
-  onSelect: (f: MemoryFileInfo) => void
-  onDelete: (path: string) => void
+  label: string;
+  icon: LucideIcon;
+  files: MemoryFileInfo[];
+  activePath: string | null;
+  onSelect: (f: MemoryFileInfo) => void;
+  onDelete: (path: string) => void;
 }) {
-  if (files.length === 0) return null
+  if (files.length === 0) return null;
   return (
     <div>
       <div className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">
@@ -614,26 +588,36 @@ function FileGroup({
       </div>
       <div>
         {files.map((f) => {
-          const isActive = activePath === f.path
+          const isActive = activePath === f.path;
           return (
             <ContextMenu
               key={f.path}
               items={[
                 { label: '打开编辑', onSelect: () => onSelect(f) },
-                { label: '复制文件内容', onSelect: async () => {
-                  try {
-                    const r = await window.miqi.memory.get(f.path)
-                    navigator.clipboard.writeText(r.content)
-                  } catch { /* ignore */ }
-                }},
-                { label: '删除文件', danger: true, divider: true, onSelect: () => onDelete(f.path) },
+                {
+                  label: '复制文件内容',
+                  onSelect: async () => {
+                    try {
+                      const r = await window.miqi.memory.get(f.path);
+                      navigator.clipboard.writeText(r.content);
+                    } catch {
+                      /* ignore */
+                    }
+                  },
+                },
+                {
+                  label: '删除文件',
+                  danger: true,
+                  divider: true,
+                  onSelect: () => onDelete(f.path),
+                },
               ]}
             >
               {({ onContextMenu }) => (
                 <div
                   className={cn(
                     'flex items-center gap-1 group w-full',
-                    isActive ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--surface-muted)]',
+                    isActive ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--surface-muted)]'
                   )}
                   onContextMenu={onContextMenu}
                 >
@@ -643,12 +627,20 @@ function FileGroup({
                       'flex items-center gap-2 flex-1 px-3 py-1.5 text-left text-sm transition-colors min-w-0',
                       isActive
                         ? 'text-[var(--accent)] font-medium'
-                        : 'text-[var(--text-muted)] hover:text-[var(--text)]',
+                        : 'text-[var(--text-muted)] hover:text-[var(--text)]'
                     )}
                   >
-                    <ChevronRight size={10} className={cn('shrink-0', isActive ? 'text-[var(--accent)]' : 'text-[var(--text-faint)]')} />
+                    <ChevronRight
+                      size={10}
+                      className={cn(
+                        'shrink-0',
+                        isActive ? 'text-[var(--accent)]' : 'text-[var(--text-faint)]'
+                      )}
+                    />
                     <span className="truncate flex-1">{f.path}</span>
-                    <span className="text-xs text-[var(--text-faint)] shrink-0">{formatSize(f.size)}</span>
+                    <span className="text-xs text-[var(--text-faint)] shrink-0">
+                      {formatSize(f.size)}
+                    </span>
                   </button>
                   <button
                     onClick={() => onDelete(f.path)}
@@ -660,11 +652,11 @@ function FileGroup({
                 </div>
               )}
             </ContextMenu>
-          )
+          );
         })}
       </div>
     </div>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -675,23 +667,23 @@ const STATE_COLORS: Record<string, string> = {
   active: 'bg-[var(--success)]',
   stale: 'bg-[var(--warning)]',
   archived: 'bg-[var(--text-faint)]',
-}
+};
 
 const STATE_LABELS: Record<string, string> = {
   active: 'active',
   stale: 'stale',
   archived: 'archived',
-}
+};
 
 function LessonRow({
   lesson,
   onUnlearn,
 }: {
-  lesson: MemoryLessonEntry
-  onUnlearn: (id: string) => void
+  lesson: MemoryLessonEntry;
+  onUnlearn: (id: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(false)
-  const stateColor = STATE_COLORS[lesson.state] ?? STATE_COLORS.active
+  const [expanded, setExpanded] = useState(false);
+  const stateColor = STATE_COLORS[lesson.state] ?? STATE_COLORS.active;
 
   return (
     <div className="hover:bg-[var(--surface-muted)] transition-colors">
@@ -702,14 +694,10 @@ function LessonRow({
         <div
           className={cn(
             'w-1.5 h-1.5 rounded-full shrink-0',
-            lesson.scope === 'global'
-              ? 'bg-[var(--accent)]'
-              : 'bg-[var(--text-faint)]',
+            lesson.scope === 'global' ? 'bg-[var(--accent)]' : 'bg-[var(--text-faint)]'
           )}
         />
-        <span className="flex-1 text-[var(--text)] truncate">
-          {lesson.trigger}
-        </span>
+        <span className="flex-1 text-[var(--text)] truncate">{lesson.trigger}</span>
         <span className={cn('text-xs shrink-0 px-1 rounded', stateColor)}>
           {STATE_LABELS[lesson.state] ?? lesson.state}
         </span>
@@ -720,46 +708,34 @@ function LessonRow({
               ? 'text-[var(--success)]'
               : lesson.effectiveConfidence >= 1
                 ? 'text-[var(--warning)]'
-                : 'text-[var(--text-faint)]',
+                : 'text-[var(--text-faint)]'
           )}
         >
           c:{lesson.effectiveConfidence}
         </span>
-        <span className="text-[var(--text-faint)] shrink-0">
-          {lesson.hits}h
-        </span>
-        {!lesson.enabled && (
-          <Shield size={11} className="text-[var(--text-faint)]" />
-        )}
+        <span className="text-[var(--text-faint)] shrink-0">{lesson.hits}h</span>
+        {!lesson.enabled && <Shield size={11} className="text-[var(--text-faint)]" />}
       </button>
       {expanded && (
         <div className="px-8 pb-2 flex flex-col gap-1 text-xs text-[var(--text-muted)]">
           {lesson.badAction && (
             <div>
-              <span className="text-[var(--text-faint)]">Bad:</span>{' '}
-              {lesson.badAction}
+              <span className="text-[var(--text-faint)]">Bad:</span> {lesson.badAction}
             </div>
           )}
           <div>
-            <span className="text-[var(--text-faint)]">Better:</span>{' '}
-            {lesson.betterAction}
+            <span className="text-[var(--text-faint)]">Better:</span> {lesson.betterAction}
           </div>
           <div className="flex items-center gap-3 mt-1">
-            <span className="text-[var(--text-faint)]">
-              Scope: {lesson.scope}
-            </span>
-            <span className="text-[var(--text-faint)]">
-              Source: {lesson.source}
-            </span>
-            <span className="text-[var(--text-faint)]">
-              Confidence: {lesson.confidence}
-            </span>
+            <span className="text-[var(--text-faint)]">Scope: {lesson.scope}</span>
+            <span className="text-[var(--text-faint)]">Source: {lesson.source}</span>
+            <span className="text-[var(--text-faint)]">Confidence: {lesson.confidence}</span>
           </div>
           {lesson.state !== 'archived' && (
             <button
               onClick={(e) => {
-                e.stopPropagation()
-                onUnlearn(lesson.id)
+                e.stopPropagation();
+                onUnlearn(lesson.id);
               }}
               className="mt-1 px-2 py-0.5 text-xs rounded border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-muted)] self-start"
             >
@@ -769,5 +745,5 @@ function LessonRow({
         </div>
       )}
     </div>
-  )
+  );
 }

@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Search,
   Wrench,
@@ -16,46 +16,46 @@ import {
   Lock,
   X,
   Package,
-} from 'lucide-react'
-import type { SkillSummary, SkillDetail } from '../../../shared/ipc'
-import { SkillHubPage } from './SkillHubPage'
+} from 'lucide-react';
+import type { SkillSummary, SkillDetail } from '../../../shared/ipc';
+import { SkillHubPage } from './SkillHubPage';
 
 function CreateSkillModal({
   open,
   onClose,
   onCreated,
 }: {
-  open: boolean
-  onClose: () => void
-  onCreated: (name: string) => void
+  open: boolean;
+  onClose: () => void;
+  onCreated: (name: string) => void;
 }) {
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [error, setError] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  if (!open) return null
+  if (!open) return null;
 
   const handleCreate = async () => {
-    setError('')
+    setError('');
     if (!/^[a-z][a-z0-9-]*$/.test(name)) {
-      setError('名称必须以字母开头，仅可使用小写字母、数字和连字符')
-      return
+      setError('名称必须以字母开头，仅可使用小写字母、数字和连字符');
+      return;
     }
-    setSaving(true)
+    setSaving(true);
     try {
-      const res = await window.miqi.skills.create(name, description)
+      const res = await window.miqi.skills.create(name, description);
       if (res.ok) {
-        onCreated(name)
-        onClose()
+        onCreated(name);
+        onClose();
       } else {
-        setError(res.error ?? '创建失败')
+        setError(res.error ?? '创建失败');
       }
     } catch (e: any) {
-      setError(e?.message ?? '创建失败')
+      setError(e?.message ?? '创建失败');
     }
-    setSaving(false)
-  }
+    setSaving(false);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -80,7 +80,10 @@ function CreateSkillModal({
         </div>
         <div className="p-5 space-y-4">
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+            <label
+              className="block text-xs font-medium mb-1"
+              style={{ color: 'var(--text-muted)' }}
+            >
               技能名称
             </label>
             <input
@@ -97,7 +100,10 @@ function CreateSkillModal({
             />
           </div>
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+            <label
+              className="block text-xs font-medium mb-1"
+              style={{ color: 'var(--text-muted)' }}
+            >
               描述 (可选)
             </label>
             <input
@@ -114,12 +120,18 @@ function CreateSkillModal({
             />
           </div>
           {error && (
-            <div className="text-xs px-3 py-2 rounded" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>
+            <div
+              className="text-xs px-3 py-2 rounded"
+              style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}
+            >
               {error}
             </div>
           )}
         </div>
-        <div className="flex justify-end gap-2 px-5 py-4 border-t" style={{ borderColor: 'var(--border)' }}>
+        <div
+          className="flex justify-end gap-2 px-5 py-4 border-t"
+          style={{ borderColor: 'var(--border)' }}
+        >
           <button
             onClick={onClose}
             className="px-4 py-2 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--surface-muted)]"
@@ -138,124 +150,121 @@ function CreateSkillModal({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 export function SkillsPage() {
-  const [tab, setTab] = useState<'local' | 'skillhub'>('local')
-  const [skills, setSkills] = useState<SkillSummary[]>([])
-  const [selectedName, setSelectedName] = useState<string | null>(null)
-  const [detail, setDetail] = useState<SkillDetail | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [query, setQuery] = useState('')
-  const [copied, setCopied] = useState(false)
-  const [openingFolder, setOpeningFolder] = useState(false)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [tab, setTab] = useState<'local' | 'skillhub'>('local');
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [detail, setDetail] = useState<SkillDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [query, setQuery] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [openingFolder, setOpeningFolder] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadSkills = () => {
     window.miqi.skills
       .list()
       .then((res) => setSkills(res.skills))
-      .catch(() => {})
-  }
+      .catch(() => {});
+  };
 
   useEffect(() => {
-    loadSkills()
-    setLoading(false)
-  }, [])
+    loadSkills();
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
     if (!selectedName) {
-      setDetail(null)
-      return
+      setDetail(null);
+      return;
     }
-    setDetailLoading(true)
+    setDetailLoading(true);
     window.miqi.skills
       .get(selectedName)
       .then((d) => {
-        setDetail(d)
-        setDetailLoading(false)
+        setDetail(d);
+        setDetailLoading(false);
       })
-      .catch(() => setDetailLoading(false))
-  }, [selectedName])
+      .catch(() => setDetailLoading(false));
+  }, [selectedName]);
 
   const filtered = skills.filter((s) => {
-    if (!query.trim()) return true
-    const q = query.toLowerCase()
-    return (
-      s.name.toLowerCase().includes(q) ||
-      s.description.toLowerCase().includes(q)
-    )
-  })
+    if (!query.trim()) return true;
+    const q = query.toLowerCase();
+    return s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q);
+  });
 
-  const builtin = filtered.filter((s) => s.source === 'builtin')
-  const workspace = filtered.filter((s) => s.source === 'workspace')
+  const builtin = filtered.filter((s) => s.source === 'builtin');
+  const workspace = filtered.filter((s) => s.source === 'workspace');
 
   const handleCopyContent = () => {
-    if (!detail) return
-    navigator.clipboard.writeText(detail.content)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
+    if (!detail) return;
+    navigator.clipboard.writeText(detail.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const handleOpenFolder = async () => {
-    if (!selectedName) return
-    setOpeningFolder(true)
+    if (!selectedName) return;
+    setOpeningFolder(true);
     try {
-      await window.miqi.skills.openFolder(selectedName)
+      await window.miqi.skills.openFolder(selectedName);
     } catch {
       // ignore
     }
-    setOpeningFolder(false)
-  }
+    setOpeningFolder(false);
+  };
 
   const handleCreated = (name: string) => {
-    loadSkills()
-    setSelectedName(name)
-  }
+    loadSkills();
+    setSelectedName(name);
+  };
 
   const handleDelete = async (name: string) => {
-    if (!window.confirm(`确认删除技能 "${name}"？`)) return
+    if (!window.confirm(`确认删除技能 "${name}"？`)) return;
     try {
-      await window.miqi.skills.delete(name)
+      await window.miqi.skills.delete(name);
       if (selectedName === name) {
-        setSelectedName(null)
-        setDetail(null)
+        setSelectedName(null);
+        setDetail(null);
       }
-      loadSkills()
+      loadSkills();
     } catch {
       // ignore
     }
-  }
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setUploading(true)
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
     try {
-      const content = await file.text()
-      const name = file.name.replace(/\.(yml|yaml|md)$/i, '')
-      const res = await window.miqi.skills.upload(name, content)
+      const content = await file.text();
+      const name = file.name.replace(/\.(yml|yaml|md)$/i, '');
+      const res = await window.miqi.skills.upload(name, content);
       if (res.ok) {
-        loadSkills()
-        setSelectedName(name)
+        loadSkills();
+        setSelectedName(name);
       }
     } catch {
       // ignore
     }
-    setUploading(false)
-    if (fileInputRef.current) fileInputRef.current.value = ''
-  }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   if (loading && tab === 'local') {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-sm text-[var(--text-muted)]">正在加载技能…</div>
       </div>
-    )
+    );
   }
 
   return (
@@ -288,10 +297,7 @@ export function SkillsPage() {
 
       {/* SkillHub view */}
       {tab === 'skillhub' && (
-        <SkillHubPage
-          installedSkills={skills}
-          onSkillInstalled={loadSkills}
-        />
+        <SkillHubPage installedSkills={skills} onSkillInstalled={loadSkills} />
       )}
 
       {/* Local skills view */}
@@ -374,9 +380,7 @@ export function SkillsPage() {
           <div className="flex-1 flex flex-col overflow-hidden bg-[var(--background)]">
             {detailLoading ? (
               <div className="flex items-center justify-center h-full">
-                <div className="text-sm text-[var(--text-muted)]">
-                  正在加载技能详情…
-                </div>
+                <div className="text-sm text-[var(--text-muted)]">正在加载技能详情…</div>
               </div>
             ) : detail ? (
               <div className="flex flex-col h-full overflow-auto">
@@ -384,9 +388,7 @@ export function SkillsPage() {
                 <div className="shrink-0 px-6 py-4 border-b border-[var(--border-subtle)]">
                   <div className="flex items-center gap-2.5 mb-1">
                     <Wrench size={20} className="text-[var(--accent)]" />
-                    <h2 className="text-lg font-semibold text-[var(--text)]">
-                      {detail.name}
-                    </h2>
+                    <h2 className="text-lg font-semibold text-[var(--text)]">{detail.name}</h2>
                     <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[var(--surface-muted)] text-[var(--text-muted)] uppercase">
                       {detail.source}
                     </span>
@@ -441,9 +443,7 @@ export function SkillsPage() {
                     </div>
                   </div>
                   {detail.description && (
-                    <p className="text-sm text-[var(--text-muted)] mb-2">
-                      {detail.description}
-                    </p>
+                    <p className="text-sm text-[var(--text-muted)] mb-2">{detail.description}</p>
                   )}
                   {!detail.available && detail.missingRequirements && (
                     <div className="text-xs text-[var(--danger)] mt-1">
@@ -458,9 +458,7 @@ export function SkillsPage() {
                 {/* Content */}
                 <div className="flex-1 overflow-auto p-6">
                   <div className="text-sm text-[var(--text)] leading-relaxed bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg p-4 prose prose-sm max-w-none">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {detail.content}
-                    </ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{detail.content}</ReactMarkdown>
                   </div>
                 </div>
 
@@ -475,9 +473,7 @@ export function SkillsPage() {
                         <div key={key} className="text-xs">
                           <span className="text-[var(--text-faint)]">{key}:</span>{' '}
                           <span className="text-[var(--text)] font-mono">
-                            {typeof value === 'object'
-                              ? JSON.stringify(value)
-                              : String(value)}
+                            {typeof value === 'object' ? JSON.stringify(value) : String(value)}
                           </span>
                         </div>
                       ))}
@@ -501,7 +497,7 @@ export function SkillsPage() {
         </div>
       )}
     </div>
-  )
+  );
 }
 
 function SkillGroup({
@@ -510,10 +506,10 @@ function SkillGroup({
   selectedName,
   onSelect,
 }: {
-  label: string
-  skills: SkillSummary[]
-  selectedName: string | null
-  onSelect: (name: string) => void
+  label: string;
+  skills: SkillSummary[];
+  selectedName: string | null;
+  onSelect: (name: string) => void;
 }) {
   return (
     <div className="mb-3">
@@ -532,9 +528,7 @@ function SkillGroup({
         >
           <div className="flex items-center gap-2">
             <span className="truncate flex-1">{s.name}</span>
-            {!s.available && (
-              <XCircle size={12} className="text-[var(--danger)] shrink-0" />
-            )}
+            {!s.available && <XCircle size={12} className="text-[var(--danger)] shrink-0" />}
           </div>
           {s.description && (
             <div className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">
@@ -544,5 +538,5 @@ function SkillGroup({
         </button>
       ))}
     </div>
-  )
+  );
 }

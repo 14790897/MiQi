@@ -1,129 +1,142 @@
-import { useState, useEffect, useCallback } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import { Button } from '../../components/ui/Button'
-import { ScrollArea } from '../../components/ui/ScrollArea'
-import { ContextMenu } from '../../components/ContextMenu'
-import { cn } from '../../lib/utils'
-import { MessageSquare, Trash2, RefreshCw, Loader2, Clock, Bot, ShieldAlert, KeyRound } from 'lucide-react'
-import type { SessionInfo, SessionDetail, LiveAgentInfo } from '../../../shared/ipc'
+import { useState, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Button } from '../../components/ui/Button';
+import { ScrollArea } from '../../components/ui/ScrollArea';
+import { ContextMenu } from '../../components/ContextMenu';
+import { cn } from '../../lib/utils';
+import {
+  MessageSquare,
+  Trash2,
+  RefreshCw,
+  Loader2,
+  Clock,
+  Bot,
+  ShieldAlert,
+  KeyRound,
+} from 'lucide-react';
+import type { SessionInfo, SessionDetail, LiveAgentInfo } from '../../../shared/ipc';
 
 /** Structured error info extracted from a rejected bridge call. */
 export interface SessionLoadError {
-  code: string
-  message: string
+  code: string;
+  message: string;
   /** 'requires_claim' | 'unauthorized' | 'generic' */
-  kind: 'requires_claim' | 'unauthorized' | 'generic'
+  kind: 'requires_claim' | 'unauthorized' | 'generic';
 }
 
 export function classifySessionError(e: unknown): SessionLoadError {
-  const msg = (e as any)?.message ?? String(e ?? '')
-  const code = (e as any)?.code ?? ''
-  const combined = `${code} ${msg}`.toLowerCase()
+  const msg = (e as any)?.message ?? String(e ?? '');
+  const code = (e as any)?.code ?? '';
+  const combined = `${code} ${msg}`.toLowerCase();
 
   if (combined.includes('requires_claim') || combined.includes('unowned')) {
-    return { kind: 'requires_claim', code, message: msg }
+    return { kind: 'requires_claim', code, message: msg };
   }
   if (combined.includes('unauthorized') || combined.includes('not authorized')) {
-    return { kind: 'unauthorized', code, message: msg }
+    return { kind: 'unauthorized', code, message: msg };
   }
-  return { kind: 'generic', code, message: msg }
+  return { kind: 'generic', code, message: msg };
 }
 
 export function SessionExplorer({
   onOpenSession,
   refreshKey,
 }: {
-  onOpenSession: (key: string) => void
-  refreshKey?: number
+  onOpenSession: (key: string) => void;
+  refreshKey?: number;
 }) {
-  const [sessions, setSessions] = useState<SessionInfo[]>([])
-  const [loading, setLoading] = useState(true)
-  const [selected, setSelected] = useState<string | null>(null)
-  const [detail, setDetail] = useState<SessionDetail | null>(null)
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [detailError, setDetailError] = useState<SessionLoadError | null>(null)
-  const [claiming, setClaiming] = useState(false)
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [detail, setDetail] = useState<SessionDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<SessionLoadError | null>(null);
+  const [claiming, setClaiming] = useState(false);
   // Agent status polling (Phase 7.8)
-  const [agents, setAgents] = useState<LiveAgentInfo[]>([])
+  const [agents, setAgents] = useState<LiveAgentInfo[]>([]);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const r = await window.miqi.agents.list()
-        setAgents(r?.agents || [])
-      } catch { /* bridge not ready */ }
-    }
-    load()
-    const interval = setInterval(load, 5000)
-    return () => clearInterval(interval)
-  }, [])
+        const r = await window.miqi.agents.list();
+        setAgents(r?.agents || []);
+      } catch {
+        /* bridge not ready */
+      }
+    };
+    load();
+    const interval = setInterval(load, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const loadSessions = useCallback(async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      const r = await window.miqi.sessions.list()
-      setSessions(r?.sessions ?? [])
+      const r = await window.miqi.sessions.list();
+      setSessions(r?.sessions ?? []);
     } catch {
       // Bridge not available
     }
-    setLoading(false)
-  }, [])
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    loadSessions()
-  }, [loadSessions, refreshKey])
+    loadSessions();
+  }, [loadSessions, refreshKey]);
 
   // Re-load when bridge becomes running (app startup race condition)
   useEffect(() => {
     const unsub = window.miqi.runtime.onStateChange((status) => {
-      if (status.state === 'running') loadSessions()
-    })
-    return () => { unsub() }
-  }, [loadSessions])
+      if (status.state === 'running') loadSessions();
+    });
+    return () => {
+      unsub();
+    };
+  }, [loadSessions]);
 
   const loadDetail = async (key: string) => {
-    setSelected(key)
-    setDetailLoading(true)
-    setDetailError(null)
+    setSelected(key);
+    setDetailLoading(true);
+    setDetailError(null);
     try {
-      const d = await window.miqi.sessions.get(key)
-      setDetail(d)
-      setDetailError(null)
+      const d = await window.miqi.sessions.get(key);
+      setDetail(d);
+      setDetailError(null);
     } catch (e: unknown) {
-      setDetail(null)
-      setDetailError(classifySessionError(e))
+      setDetail(null);
+      setDetailError(classifySessionError(e));
     }
-    setDetailLoading(false)
-  }
+    setDetailLoading(false);
+  };
 
   const handleClaim = async (key: string) => {
-    setClaiming(true)
+    setClaiming(true);
     try {
-      await window.miqi.sessions.claimLegacy(key)
+      await window.miqi.sessions.claimLegacy(key);
       // Reload after successful claim
-      await loadDetail(key)
+      await loadDetail(key);
     } catch {
-      setDetailError({ kind: 'generic', code: '', message: 'Claim failed. Check runtime logs.' })
+      setDetailError({ kind: 'generic', code: '', message: 'Claim failed. Check runtime logs.' });
     } finally {
-      setClaiming(false)
+      setClaiming(false);
     }
-  }
+  };
 
   const handleDelete = async (key: string) => {
-    await window.miqi.sessions.delete(key)
+    await window.miqi.sessions.delete(key);
     if (selected === key) {
-      setSelected(null)
-      setDetail(null)
+      setSelected(null);
+      setDetail(null);
     }
-    loadSessions()
-  }
+    loadSessions();
+  };
 
   const formatTime = (iso?: string) => {
-    if (!iso) return ''
-    const d = new Date(iso)
-    return d.toLocaleString()
-  }
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleString();
+  };
 
   return (
     <div className="flex h-full">
@@ -131,12 +144,7 @@ export function SessionExplorer({
       <div className="w-[320px] shrink-0 border-r border-[var(--border-subtle)] flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)]">
           <h2 className="text-sm font-semibold text-[var(--text)]">Sessions</h2>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={loadSessions}
-            disabled={loading}
-          >
+          <Button variant="ghost" size="icon" onClick={loadSessions} disabled={loading}>
             <RefreshCw size={14} className={cn(loading && 'animate-spin')} />
           </Button>
         </div>
@@ -144,20 +152,13 @@ export function SessionExplorer({
         <ScrollArea className="flex-1">
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2
-                size={16}
-                className="animate-spin text-[var(--text-muted)]"
-              />
+              <Loader2 size={16} className="animate-spin text-[var(--text-muted)]" />
             </div>
           ) : sessions.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-12 text-center px-4">
               <MessageSquare size={24} className="text-[var(--text-faint)]" />
-              <p className="text-xs text-[var(--text-muted)]">
-                No sessions yet
-              </p>
-              <p className="text-xs text-[var(--text-faint)]">
-                Start a chat to create one
-              </p>
+              <p className="text-xs text-[var(--text-muted)]">No sessions yet</p>
+              <p className="text-xs text-[var(--text-faint)]">Start a chat to create one</p>
             </div>
           ) : (
             <div className="flex flex-col">
@@ -165,9 +166,23 @@ export function SessionExplorer({
                 <ContextMenu
                   key={s.key}
                   items={[
-                    { label: '打开会话', onSelect: () => { loadDetail(s.key); onOpenSession?.(s.key) } },
-                    { label: '复制 session key', onSelect: () => navigator.clipboard.writeText(s.key) },
-                    { label: '删除会话', danger: true, divider: true, onSelect: () => handleDelete(s.key) },
+                    {
+                      label: '打开会话',
+                      onSelect: () => {
+                        loadDetail(s.key);
+                        onOpenSession?.(s.key);
+                      },
+                    },
+                    {
+                      label: '复制 session key',
+                      onSelect: () => navigator.clipboard.writeText(s.key),
+                    },
+                    {
+                      label: '删除会话',
+                      danger: true,
+                      divider: true,
+                      onSelect: () => handleDelete(s.key),
+                    },
                   ]}
                 >
                   {({ onContextMenu }) => (
@@ -176,27 +191,34 @@ export function SessionExplorer({
                       tabIndex={0}
                       onClick={() => loadDetail(s.key)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadDetail(s.key) }
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          loadDetail(s.key);
+                        }
                       }}
                       onContextMenu={onContextMenu}
                       className={cn(
                         'flex items-start gap-3 px-4 py-3 text-left transition-colors border-b border-[var(--border-subtle)] w-full cursor-pointer',
                         selected === s.key
                           ? 'bg-[var(--accent-soft)]/50'
-                          : 'hover:bg-[var(--surface-muted)]',
+                          : 'hover:bg-[var(--surface-muted)]'
                       )}
                     >
-                      <MessageSquare size={16} className="text-[var(--text-muted)] shrink-0 mt-0.5" />
+                      <MessageSquare
+                        size={16}
+                        className="text-[var(--text-muted)] shrink-0 mt-0.5"
+                      />
                       <div className="flex-1 min-w-0">
                         <div className="text-sm text-[var(--text)] truncate flex items-center gap-1.5">
                           {s.key}
                           {(() => {
-                            const agent = agents.find((a) =>
-                              a.thread_id === s.key ||
-                              a.thread_id.endsWith(':' + s.key) ||
-                              s.key.includes(a.agent_id),
-                            )
-                            if (!agent) return null
+                            const agent = agents.find(
+                              (a) =>
+                                a.thread_id === s.key ||
+                                a.thread_id.endsWith(':' + s.key) ||
+                                s.key.includes(a.agent_id)
+                            );
+                            if (!agent) return null;
                             const colors: Record<string, string> = {
                               idle: 'bg-gray-400',
                               thinking: 'bg-yellow-400 animate-pulse',
@@ -205,13 +227,18 @@ export function SessionExplorer({
                               completed: 'bg-green-500',
                               error: 'bg-red-500',
                               aborted: 'bg-orange-500',
-                            }
+                            };
                             return (
-                              <span className="flex items-center gap-1 shrink-0" title={`${agent.type}: ${agent.status}`}>
+                              <span
+                                className="flex items-center gap-1 shrink-0"
+                                title={`${agent.type}: ${agent.status}`}
+                              >
                                 <Bot size={11} className="text-[var(--text-muted)]" />
-                                <span className={`w-2 h-2 rounded-full ${colors[agent.status] || 'bg-gray-400'}`} />
+                                <span
+                                  className={`w-2 h-2 rounded-full ${colors[agent.status] || 'bg-gray-400'}`}
+                                />
                               </span>
-                            )
+                            );
                           })()}
                         </div>
                         {s.updated_at && (
@@ -222,7 +249,10 @@ export function SessionExplorer({
                         )}
                       </div>
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleDelete(s.key) }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(s.key);
+                        }}
                         className="text-[var(--text-faint)] hover:text-[var(--danger)] transition-colors shrink-0"
                         tabIndex={-1}
                       >
@@ -245,10 +275,7 @@ export function SessionExplorer({
           </div>
         ) : detailLoading ? (
           <div className="flex items-center justify-center h-full">
-            <Loader2
-              size={16}
-              className="animate-spin text-[var(--text-muted)]"
-            />
+            <Loader2 size={16} className="animate-spin text-[var(--text-muted)]" />
           </div>
         ) : detail ? (
           <ScrollArea className="flex-1">
@@ -257,10 +284,10 @@ export function SessionExplorer({
                 Session: {detail.key} • Messages: {detail.messages?.length ?? 0}
               </div>
               {(detail.messages ?? []).map((msg, i) => {
-                const role = String(msg.role ?? '')
-                const content = String(msg.content ?? '')
-                const isUser = role === 'user'
-                const isTool = role === 'tool'
+                const role = String(msg.role ?? '');
+                const content = String(msg.content ?? '');
+                const isUser = role === 'user';
+                const isTool = role === 'tool';
                 return (
                   <div
                     key={i}
@@ -270,7 +297,7 @@ export function SessionExplorer({
                         ? 'bg-[var(--accent-soft)] text-[var(--text)] self-end'
                         : isTool
                           ? 'bg-[var(--surface-muted)] text-[var(--text-muted)] text-xs self-start italic'
-                          : 'bg-[var(--surface)] border border-[var(--border-subtle)] text-[var(--text)] self-start',
+                          : 'bg-[var(--surface)] border border-[var(--border-subtle)] text-[var(--text)] self-start'
                     )}
                   >
                     {isTool ? (
@@ -287,14 +314,13 @@ export function SessionExplorer({
                       ) : (
                         <div className="prose prose-sm max-w-none text-[var(--text)]">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {content.slice(0, 1000) +
-                              (content.length > 1000 ? '\n\n...' : '')}
+                            {content.slice(0, 1000) + (content.length > 1000 ? '\n\n...' : '')}
                           </ReactMarkdown>
                         </div>
                       )}
                     </div>
                   </div>
-                )
+                );
               })}
             </div>
           </ScrollArea>
@@ -348,5 +374,5 @@ export function SessionExplorer({
         )}
       </div>
     </div>
-  )
+  );
 }

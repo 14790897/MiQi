@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import { Button } from '../../components/ui/Button'
-import { Textarea } from '../../components/ui/Textarea'
-import { ContextMenu, type ContextMenuAction } from '../../components/ContextMenu'
-import { cn } from '../../lib/utils'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Button } from '../../components/ui/Button';
+import { Textarea } from '../../components/ui/Textarea';
+import { ContextMenu, type ContextMenuAction } from '../../components/ContextMenu';
+import { cn } from '../../lib/utils';
 import {
   Send,
   Square,
@@ -28,47 +28,47 @@ import {
   GitCompare,
   Undo2,
   ListChecks,
-} from 'lucide-react'
+} from 'lucide-react';
 import type {
   ChatProgress,
   ChatFinal,
   ChatError,
   ChatAborted,
   ChatSubagentResult,
-} from '../../../shared/ipc'
-import { extractProgressMessage, type ProgressPayload } from './progressUtils'
-import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage'
+} from '../../../shared/ipc';
+import { extractProgressMessage, type ProgressPayload } from './progressUtils';
+import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
 
 interface Attachment {
-  name: string
-  type: 'image' | 'text'
-  dataUrl?: string
-  content?: string
-  size: number
+  name: string;
+  type: 'image' | 'text';
+  dataUrl?: string;
+  content?: string;
+  size: number;
 }
 
 interface Message {
-  role: 'user' | 'assistant' | 'progress' | 'error' | 'subagent'
-  content: string
-  attachments?: Attachment[]
-  toolHint?: boolean
-  toolCallId?: string
+  role: 'user' | 'assistant' | 'progress' | 'error' | 'subagent';
+  content: string;
+  attachments?: Attachment[];
+  toolHint?: boolean;
+  toolCallId?: string;
   /** When true the message is collapsed by default (user can click to expand) */
-  collapsed?: boolean
+  collapsed?: boolean;
   /** Short label shown when collapsed (e.g. "exec" or "write_file → /path/to/file") */
-  summary?: string
-  timestamp: number
+  summary?: string;
+  timestamp: number;
 }
 
 /* ─── Tracked file from tool hints ───────────────────────────────── */
 interface TrackedFile {
-  path: string
-  name: string
-  op: 'read' | 'write' | 'edit' | 'delete'
+  path: string;
+  name: string;
+  op: 'read' | 'write' | 'edit' | 'delete';
   /** epoch ms of last operation */
-  lastSeen: number
+  lastSeen: number;
   /** path was truncated in the progress message (ends with ...) */
-  truncated?: boolean
+  truncated?: boolean;
 }
 
 /** Extract file path + operation from a tool-hint progress text.
@@ -80,7 +80,9 @@ interface TrackedFile {
  *    "Reading file src/foo.ts …"
  *    "Writing file /path/to/bar.py"
  */
-function parseToolHint(text: string): { path: string; op: TrackedFile['op']; truncated: boolean } | null {
+function parseToolHint(
+  text: string
+): { path: string; op: TrackedFile['op']; truncated: boolean } | null {
   const patterns: Array<[RegExp, TrackedFile['op']]> = [
     // "Read: /abs/path/to/file.ts"  or  "Reading file src/foo.ts …"
     [/^(?:Read|Reading(?:\s+file)?)[:\s]+(.+?)(?:\s*….*)?$/i, 'read'],
@@ -91,57 +93,63 @@ function parseToolHint(text: string): { path: string; op: TrackedFile['op']; tru
     [/(?:write|edit|delete|read)_file\s*\(\s*["'](.+?)["']\s*\)/i, 'write'],
     // Generic fallback: any mention of a path-like string after a colon
     [/(?:file|path)[:\s]+([^\s,]+\.[a-zA-Z]{1,6})/i, 'read'],
-  ]
+  ];
   for (const [re, op] of patterns) {
-    const m = text.match(re)
+    const m = text.match(re);
     if (m) {
-      let raw = m[1].trim().replace(/['"]/g, '')
+      let raw = m[1].trim().replace(/['"]/g, '');
       // Detect truncation (ends with ...)
-      const truncated = raw.endsWith('...') || raw.endsWith('…')
+      const truncated = raw.endsWith('...') || raw.endsWith('…');
       // Strip trailing ellipsis / quotes
-      raw = raw.replace(/\.{3,}$/g, '').replace(/…$/g, '').trim()
+      raw = raw
+        .replace(/\.{3,}$/g, '')
+        .replace(/…$/g, '')
+        .trim();
       // Must look like a file path (contains '/' or '\' or has extension)
       if (raw && /[/\\.]/.test(raw)) {
         // For the _file() pattern, try to infer a more specific op from the verb
-        let inferredOp = op
-        if (re.source.includes('write')) inferredOp = 'write'
-        else if (re.source.includes('edit')) inferredOp = 'edit'
-        else if (re.source.includes('delete')) inferredOp = 'delete'
-        else if (re.source.includes('read')) inferredOp = 'read'
-        return { path: raw, op: inferredOp, truncated }
+        let inferredOp = op;
+        if (re.source.includes('write')) inferredOp = 'write';
+        else if (re.source.includes('edit')) inferredOp = 'edit';
+        else if (re.source.includes('delete')) inferredOp = 'delete';
+        else if (re.source.includes('read')) inferredOp = 'read';
+        return { path: raw, op: inferredOp, truncated };
       }
     }
   }
-  return null
+  return null;
 }
 
 function basename(path: string): string {
-  return path.replace(/\\/g, '/').split('/').pop() ?? path
+  return path.replace(/\\/g, '/').split('/').pop() ?? path;
 }
 
-const DEFAULT_SESSION = 'desktop:default'
+const DEFAULT_SESSION = 'desktop:default';
 
 function sessionMsgsToUi(rawMsgs: any[]): Message[] {
-  const result: Message[] = []
+  const result: Message[] = [];
   for (const m of rawMsgs) {
-    const ts = m.timestamp ? new Date(m.timestamp).getTime() : Date.now()
+    const ts = m.timestamp ? new Date(m.timestamp).getTime() : Date.now();
 
     if (m.role === 'user' || m.role === 'assistant') {
       // For assistant messages with tool_calls, emit a progress indicator first
       if (m.role === 'assistant' && m.tool_calls?.length) {
-        const hintText = m._tool_hint_text
-          || m.tool_calls.map((tc: any) => {
-              const fn = tc.function?.name || tc.name || '?'
-              const args = tc.function?.arguments || tc.arguments || ''
-              const argStr = typeof args === 'string' ? args : JSON.stringify(args)
-              return `${fn}(${argStr.slice(0, 80)})`
-            }).join(', ')
+        const hintText =
+          m._tool_hint_text ||
+          m.tool_calls
+            .map((tc: any) => {
+              const fn = tc.function?.name || tc.name || '?';
+              const args = tc.function?.arguments || tc.arguments || '';
+              const argStr = typeof args === 'string' ? args : JSON.stringify(args);
+              return `${fn}(${argStr.slice(0, 80)})`;
+            })
+            .join(', ');
         // Short summary: just tool names, or parse file path from _tool_hint_text
         const summaryParts = m.tool_calls.map((tc: any) => {
-          const fn = tc.function?.name || tc.name || '?'
-          return fn
-        })
-        const summary = summaryParts.join(', ')
+          const fn = tc.function?.name || tc.name || '?';
+          return fn;
+        });
+        const summary = summaryParts.join(', ');
         result.push({
           role: 'progress',
           content: hintText,
@@ -149,18 +157,17 @@ function sessionMsgsToUi(rawMsgs: any[]): Message[] {
           toolHint: true,
           collapsed: true,
           timestamp: ts,
-        })
+        });
       }
 
       // Skip assistant messages that have no text content (only tool_calls)
-      const hasContent = m.content && String(m.content).trim().length > 0
+      const hasContent = m.content && String(m.content).trim().length > 0;
       if (m.role === 'user' || hasContent) {
         result.push({
           role: m.role as 'user' | 'assistant',
-          content:
-            typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
           timestamp: ts,
-        })
+        });
       }
     } else if (m.role === 'subagent') {
       // Subagent result messages — render with the subagent style
@@ -168,12 +175,12 @@ function sessionMsgsToUi(rawMsgs: any[]): Message[] {
         role: 'subagent',
         content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
         timestamp: ts,
-      })
+      });
     } else if (m.role === 'tool') {
       // Tool result messages → show as collapsed progress with toolHint
-      const toolName = m.name || 'tool'
-      const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
-      const preview = content.length > 120 ? content.slice(0, 120) + '…' : content
+      const toolName = m.name || 'tool';
+      const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+      const preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
       result.push({
         role: 'progress',
         content: `${toolName}: ${preview}`,
@@ -181,54 +188,54 @@ function sessionMsgsToUi(rawMsgs: any[]): Message[] {
         toolHint: true,
         collapsed: true,
         timestamp: ts,
-      })
+      });
     }
     // Ignore other roles (system, etc.)
   }
 
   // Merge consecutive collapsed progress messages into a single group
-  const merged: Message[] = []
+  const merged: Message[] = [];
   for (const msg of result) {
     if (msg.collapsed && merged.length > 0 && merged[merged.length - 1].collapsed) {
-      const prev = merged[merged.length - 1]
+      const prev = merged[merged.length - 1];
       // Append content and summary
-      prev.content += '\n' + msg.content
+      prev.content += '\n' + msg.content;
       prev.summary = prev.summary!.includes(',')
         ? prev.summary // already a group, keep it
-        : `${prev.summary}, ${msg.summary}` // merge two single items
+        : `${prev.summary}, ${msg.summary}`; // merge two single items
       // Use the later timestamp
-      prev.timestamp = msg.timestamp
+      prev.timestamp = msg.timestamp;
     } else {
-      merged.push({ ...msg })
+      merged.push({ ...msg });
     }
   }
 
   // When a group has multiple items, rewrite summary to show count
   for (const msg of merged) {
     if (msg.collapsed && msg.summary && msg.summary.includes(',')) {
-      const names = msg.summary.split(', ').filter(Boolean)
+      const names = msg.summary.split(', ').filter(Boolean);
       // Deduplicate tool names
-      const unique = [...new Set(names)]
-      msg.summary = `${unique.length} tool calls: ${unique.join(', ')}`
+      const unique = [...new Set(names)];
+      msg.summary = `${unique.length} tool calls: ${unique.join(', ')}`;
     }
   }
 
-  return merged
+  return merged;
 }
 
 /** Parse tracked files from raw session messages (includes progress entries with _tool_hint). */
 function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
-  const fileMap = new Map<string, TrackedFile>()
-  const rank: Record<TrackedFile['op'], number> = { read: 0, edit: 1, write: 2, delete: 3 }
+  const fileMap = new Map<string, TrackedFile>();
+  const rank: Record<TrackedFile['op'], number> = { read: 0, edit: 1, write: 2, delete: 3 };
 
   for (const msg of rawMsgs) {
     // Prefer _tool_hint_text (full path, from persisted session) over content (may be truncated)
-    const hintText = msg._tool_hint_text || msg.content
+    const hintText = msg._tool_hint_text || msg.content;
     if (msg._tool_hint && hintText) {
-      const parsed = parseToolHint(hintText)
+      const parsed = parseToolHint(hintText);
       if (parsed) {
-        const key = parsed.path
-        const existing = fileMap.get(key)
+        const key = parsed.path;
+        const existing = fileMap.get(key);
         if (!existing || rank[parsed.op] > rank[existing.op]) {
           fileMap.set(key, {
             path: key,
@@ -236,12 +243,12 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
             op: parsed.op,
             lastSeen: msg.timestamp ? new Date(msg.timestamp).getTime() : Date.now(),
             truncated: parsed.truncated,
-          })
+          });
         }
       }
     }
   }
-  return Array.from(fileMap.values())
+  return Array.from(fileMap.values());
 }
 
 /* ─── Main component ─────────────────────────────────────────────── */
@@ -251,66 +258,66 @@ export function ChatConsole({
   onNewSession,
   onChatFinished,
 }: {
-  sessionKey?: string
+  sessionKey?: string;
   /** Increment to force a session history reload (e.g. after bridge becomes ready) */
-  loadTrigger?: number
-  onNewSession?: (newKey: string) => void
-  onChatFinished?: () => void
+  loadTrigger?: number;
+  onNewSession?: (newKey: string) => void;
+  onChatFinished?: () => void;
 }) {
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState('')
-  const [streaming, setStreaming] = useState(false)
-  const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
-  const [attachments, setAttachments] = useState<Attachment[]>([])
-  const [historyLoaded, setHistoryLoaded] = useState(false)
-  const [panelOpen, setPanelOpen] = useState(true)
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const [streaming, setStreaming] = useState(false);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(true);
   /** Current in-flight request ID (for abort) */
-  const [currentReqId, setCurrentReqId] = useState<string | null>(null)
+  const [currentReqId, setCurrentReqId] = useState<string | null>(null);
   /** files touched by the agent during this session */
-  const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([])
+  const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([]);
   /** preview modal */
-  const [previewFile, setPreviewFile] = useState<{ path: string; content: string } | null>(null)
+  const [previewFile, setPreviewFile] = useState<{ path: string; content: string } | null>(null);
   /** diff modal */
   const [diffFile, setDiffFile] = useState<{
-    path: string
-    diff: string | null
-    original_content: string | null
-    current_content: string | null
-    has_diff: boolean
-    is_new_file?: boolean
-  } | null>(null)
-  const [diffLoading, setDiffLoading] = useState(false)
-  const [reverting, setReverting] = useState(false)
+    path: string;
+    diff: string | null;
+    original_content: string | null;
+    current_content: string | null;
+    has_diff: boolean;
+    is_new_file?: boolean;
+  } | null>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [reverting, setReverting] = useState(false);
   // Inline exec output: tool_call_id → accumulated stdout/stderr
   const [execOutputs, setExecOutputs] = useState<
     Record<string, { stdout: string; stderr: string; running: boolean }>
-  >({})
-  const [merging, setMerging] = useState(false)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const userScrolledUp = useRef(false)
-  const justOpened = useRef(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const unsubsRef = useRef<Array<() => void>>([])
-  const currentSessionRef = useRef(sessionKey)
+  >({});
+  const [merging, setMerging] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const userScrolledUp = useRef(false);
+  const justOpened = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const unsubsRef = useRef<Array<() => void>>([]);
+  const currentSessionRef = useRef(sessionKey);
   // Track the active thread ID for new-protocol thread-aware conversations
-  const currentThreadIdRef = useRef<string | null>(null)
+  const currentThreadIdRef = useRef<string | null>(null);
 
   // ── Thread tabs for multi-agent support ──
   interface ThreadTab {
-    threadId: string
-    agentType: string
-    label: string
+    threadId: string;
+    agentType: string;
+    label: string;
   }
   const [threads, setThreads] = useState<ThreadTab[]>([
     { threadId: 'main', agentType: 'main', label: 'Main' },
-  ])
-  const [activeThreadId, setActiveThreadId] = useState('main')
+  ]);
+  const [activeThreadId, setActiveThreadId] = useState('main');
 
   useEffect(() => {
     const unsub = window.miqi.agents?.onSpawned((data) => {
       setThreads((prev) => {
-        if (prev.find((t) => t.threadId === data.sub_thread_id)) return prev
+        if (prev.find((t) => t.threadId === data.sub_thread_id)) return prev;
         return [
           ...prev,
           {
@@ -318,221 +325,241 @@ export function ChatConsole({
             agentType: data.agent_type,
             label: data.task_label || data.agent_type,
           },
-        ]
-      })
-    })
-    return () => { if (unsub) unsub() }
-  }, [])
+        ];
+      });
+    });
+    return () => {
+      if (unsub) unsub();
+    };
+  }, []);
 
   useEffect(() => {
     const unsub = window.miqi.agents?.onCompleted((data) => {
       setThreads((prev) =>
         prev.map((t) =>
-          t.threadId === data.sub_thread_id
-            ? { ...t, label: `${t.label.replace(/ ✓$/, '')} ✓` }
-            : t,
-        ),
-      )
-    })
-    return () => { if (unsub) unsub() }
-  }, [])
+          t.threadId === data.sub_thread_id ? { ...t, label: `${t.label.replace(/ ✓$/, '')} ✓` } : t
+        )
+      );
+    });
+    return () => {
+      if (unsub) unsub();
+    };
+  }, []);
 
   // ── Plan sidebar state ──
   interface PlanStep {
-    id: string
-    description: string
-    status: 'pending' | 'in_progress' | 'completed' | 'skipped'
-    depends_on: string[]
+    id: string;
+    description: string;
+    status: 'pending' | 'in_progress' | 'completed' | 'skipped';
+    depends_on: string[];
   }
-  const [plan, setPlan] = useState<{ title: string; steps: PlanStep[] } | null>(null)
-  const [planOpen, setPlanOpen] = useState(false)
+  const [plan, setPlan] = useState<{ title: string; steps: PlanStep[] } | null>(null);
+  const [planOpen, setPlanOpen] = useState(false);
 
   useEffect(() => {
     const unsub = window.miqi.plan?.onUpdated((data) => {
       if (data.plan) {
-        setPlan(data.plan)
-        setPlanOpen(true)
+        setPlan(data.plan);
+        setPlanOpen(true);
       }
-    })
-    return () => { if (unsub) unsub() }
-  }, [])
+    });
+    return () => {
+      if (unsub) unsub();
+    };
+  }, []);
 
   /** Upsert a file into trackedFiles */
   const trackFile = useCallback((path: string, op: TrackedFile['op'], truncated = false) => {
     setTrackedFiles((prev) => {
-      const existing = prev.find((f) => f.path === path)
+      const existing = prev.find((f) => f.path === path);
       if (existing) {
         // Upgrade: read < edit < write
-        const rank: Record<TrackedFile['op'], number> = { read: 0, edit: 1, write: 2, delete: 3 }
-        const nextOp = rank[op] > rank[existing.op] ? op : existing.op
-        return prev.map((f) => f.path === path ? { ...f, op: nextOp, lastSeen: Date.now(), truncated: f.truncated && truncated } : f)
+        const rank: Record<TrackedFile['op'], number> = { read: 0, edit: 1, write: 2, delete: 3 };
+        const nextOp = rank[op] > rank[existing.op] ? op : existing.op;
+        return prev.map((f) =>
+          f.path === path
+            ? { ...f, op: nextOp, lastSeen: Date.now(), truncated: f.truncated && truncated }
+            : f
+        );
       }
-      return [...prev, { path, name: basename(path), op, lastSeen: Date.now(), truncated }]
-    })
-  }, [])
+      return [...prev, { path, name: basename(path), op, lastSeen: Date.now(), truncated }];
+    });
+  }, []);
 
   useEffect(() => {
-    currentSessionRef.current = sessionKey
-    currentThreadIdRef.current = null  // Reset on session change
-    setHistoryLoaded(false)
-    setMessages([])
-    setTrackedFiles([])
-    justOpened.current = true
-    userScrolledUp.current = false  // reset for new session
+    currentSessionRef.current = sessionKey;
+    currentThreadIdRef.current = null; // Reset on session change
+    setHistoryLoaded(false);
+    setMessages([]);
+    setTrackedFiles([]);
+    justOpened.current = true;
+    userScrolledUp.current = false; // reset for new session
     const load = async () => {
       try {
-        const detail = await window.miqi.sessions.get(sessionKey)
-        if (currentSessionRef.current !== sessionKey) return
-        const rawMsgs: any[] = (detail as any)?.messages ?? []
-        const uiMsgs = sessionMsgsToUi(rawMsgs)
-        setMessages(uiMsgs)
+        const detail = await window.miqi.sessions.get(sessionKey);
+        if (currentSessionRef.current !== sessionKey) return;
+        const rawMsgs: any[] = (detail as any)?.messages ?? [];
+        const uiMsgs = sessionMsgsToUi(rawMsgs);
+        setMessages(uiMsgs);
         // Restore tracked files from dedicated tracked_files.json
-        const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey)
-        if (currentSessionRef.current !== sessionKey) return
-        const tfList = (tfResult as any)?.tracked_files ?? []
-        setTrackedFiles(tfList.map((f: any) => ({
-          path: f.path,
-          name: f.name,
-          op: f.op,
-          lastSeen: f.lastSeen,
-        })))
-      } catch { /* session doesn't exist yet */ }
-      setHistoryLoaded(true)
-    }
-    load()
-  // loadTrigger lets the parent force a reload (e.g. after bridge becomes ready)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionKey, loadTrigger])
+        const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
+        if (currentSessionRef.current !== sessionKey) return;
+        const tfList = (tfResult as any)?.tracked_files ?? [];
+        setTrackedFiles(
+          tfList.map((f: any) => ({
+            path: f.path,
+            name: f.name,
+            op: f.op,
+            lastSeen: f.lastSeen,
+          }))
+        );
+      } catch {
+        /* session doesn't exist yet */
+      }
+      setHistoryLoaded(true);
+    };
+    load();
+    // loadTrigger lets the parent force a reload (e.g. after bridge becomes ready)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionKey, loadTrigger]);
 
   // Scroll to bottom: (a) unconditionally after opening a session,
   // (b) during streaming only if the user hasn't manually scrolled up.
   useEffect(() => {
-    if (!historyLoaded) return
-    const el = scrollRef.current
-    if (!el) return
+    if (!historyLoaded) return;
+    const el = scrollRef.current;
+    if (!el) return;
     if (justOpened.current) {
-      justOpened.current = false
-      el.scrollTop = el.scrollHeight + el.clientHeight  // clamped to max
-      userScrolledUp.current = false
+      justOpened.current = false;
+      el.scrollTop = el.scrollHeight + el.clientHeight; // clamped to max
+      userScrolledUp.current = false;
     } else if (!userScrolledUp.current) {
-      el.scrollTop = el.scrollHeight
+      el.scrollTop = el.scrollHeight;
     }
-  }, [historyLoaded, messages])
+  }, [historyLoaded, messages]);
 
   // Detect manual scroll-up / scroll-back-to-bottom
   useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
+    const el = scrollRef.current;
+    if (!el) return;
     const onScroll = () => {
-      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
       if (distFromBottom < 40) {
-        userScrolledUp.current = false
+        userScrolledUp.current = false;
       } else if (distFromBottom > 80) {
-        userScrolledUp.current = true
+        userScrolledUp.current = true;
       }
-    }
-    el.addEventListener('scroll', onScroll, { passive: true })
-    return () => el.removeEventListener('scroll', onScroll)
-  }, [])
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
 
   // Persistent listener for subagent results — must NOT be cleaned up
   // when the main chat completes, because subagents finish asynchronously.
   useEffect(() => {
     const unsub = window.miqi.chat.onSubagentResult((data: ChatSubagentResult) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return
-      const statusIcon = data.status === 'ok' ? '✅' : '❌'
-      const label = data.label || data.task_id
-      const content = `${statusIcon} Subagent "${label}" ${data.status === 'ok' ? 'completed' : 'failed'}:\n\n${data.result}`
-      setMessages((prev) => [
-        ...prev,
-        { role: 'subagent', content, timestamp: Date.now() },
-      ])
-    })
-    return unsub
-  }, [])
+      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      const statusIcon = data.status === 'ok' ? '✅' : '❌';
+      const label = data.label || data.task_id;
+      const content = `${statusIcon} Subagent "${label}" ${data.status === 'ok' ? 'completed' : 'failed'}:\n\n${data.result}`;
+      setMessages((prev) => [...prev, { role: 'subagent', content, timestamp: Date.now() }]);
+    });
+    return unsub;
+  }, []);
 
   const cleanupListeners = useCallback(() => {
-    for (const unsub of unsubsRef.current) unsub()
-    unsubsRef.current = []
-  }, [])
+    for (const unsub of unsubsRef.current) unsub();
+    unsubsRef.current = [];
+  }, []);
 
-  const handleAttachClick = () => fileInputRef.current?.click()
+  const handleAttachClick = () => fileInputRef.current?.click();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     Array.from(e.target.files ?? []).forEach((file) => {
-      const isImage = file.type.startsWith('image/')
-      const reader = new FileReader()
+      const isImage = file.type.startsWith('image/');
+      const reader = new FileReader();
       if (isImage) {
         reader.onload = () =>
           setAttachments((prev) => [
             ...prev,
             { name: file.name, type: 'image', dataUrl: reader.result as string, size: file.size },
-          ])
-        reader.readAsDataURL(file)
+          ]);
+        reader.readAsDataURL(file);
       } else {
         reader.onload = () =>
           setAttachments((prev) => [
             ...prev,
             { name: file.name, type: 'text', content: reader.result as string, size: file.size },
-          ])
-        reader.readAsText(file)
+          ]);
+        reader.readAsText(file);
       }
-    })
-    e.target.value = ''
-  }
+    });
+    e.target.value = '';
+  };
 
   const removeAttachment = (idx: number) =>
-    setAttachments((prev) => prev.filter((_, i) => i !== idx))
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
 
   const handleAbort = useCallback(async () => {
-    cleanupListeners()
-    try { await window.miqi.chat.abort(currentSessionRef.current) } catch { /* ignore */ }
-    setStreaming(false)
-    setCurrentReqId(null)
+    cleanupListeners();
+    try {
+      await window.miqi.chat.abort(currentSessionRef.current);
+    } catch {
+      /* ignore */
+    }
+    setStreaming(false);
+    setCurrentReqId(null);
     setMessages((prev) => [
       ...prev,
       { role: 'progress', content: 'Aborted.', timestamp: Date.now() },
-    ])
-  }, [cleanupListeners, currentReqId])
+    ]);
+  }, [cleanupListeners, currentReqId]);
 
   const handleNewSession = useCallback(async () => {
-    if (streaming) return
-    const newKey = `desktop:${Date.now()}`
-    currentThreadIdRef.current = null
-    cleanupListeners()
-    onNewSession?.(newKey)
-  }, [streaming, cleanupListeners, onNewSession])
+    if (streaming) return;
+    const newKey = `desktop:${Date.now()}`;
+    currentThreadIdRef.current = null;
+    cleanupListeners();
+    onNewSession?.(newKey);
+  }, [streaming, cleanupListeners, onNewSession]);
 
   const handleDeleteSession = useCallback(async () => {
-    const key = currentSessionRef.current
-    if (!key) return
-    if (!window.confirm('Delete this conversation? This cannot be undone.')) return
-    try { await window.miqi.sessions.delete(key) } catch { /* ignore */ }
-    handleNewSession()
-  }, [handleNewSession])
+    const key = currentSessionRef.current;
+    if (!key) return;
+    if (!window.confirm('Delete this conversation? This cannot be undone.')) return;
+    try {
+      await window.miqi.sessions.delete(key);
+    } catch {
+      /* ignore */
+    }
+    handleNewSession();
+  }, [handleNewSession]);
 
   const handleSend = useCallback(async () => {
-    const text = input.trim()
-    if (!text && attachments.length === 0) return
+    const text = input.trim();
+    if (!text && attachments.length === 0) return;
 
     // If a reveal animation is still running from the previous response,
     // cancel it and abort the in-flight request so we can start fresh.
     if (streaming) {
-      cleanupListeners()
-      setStreaming(false)
-      try { await window.miqi.chat.abort() } catch { /* ignore */ }
+      cleanupListeners();
+      setStreaming(false);
+      try {
+        await window.miqi.chat.abort();
+      } catch {
+        /* ignore */
+      }
     }
 
     // Generate a client-side req_id so we can abort this specific request
-    const reqId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-    setCurrentReqId(reqId)
+    const reqId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    setCurrentReqId(reqId);
 
-    let content = text
+    let content = text;
     for (const att of attachments) {
       if (att.type === 'text' && att.content)
-        content += `\n\n[Attachment: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\``
-      else if (att.type === 'image' && att.dataUrl)
-        content += `\n\n[Image: ${att.name}]`
+        content += `\n\n[Attachment: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\``;
+      else if (att.type === 'image' && att.dataUrl) content += `\n\n[Image: ${att.name}]`;
     }
 
     const userMsg: Message = {
@@ -540,85 +567,90 @@ export function ChatConsole({
       content: text || '(attachment)',
       attachments: [...attachments],
       timestamp: Date.now(),
-    }
-    setMessages((prev) => [...prev, userMsg])
-    userScrolledUp.current = false  // user sent a message — resume auto-scroll
-    setInput('')
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    userScrolledUp.current = false; // user sent a message — resume auto-scroll
+    setInput('');
     // Reset textarea height after sending
     setTimeout(() => {
       if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto'
+        textareaRef.current.style.height = 'auto';
       }
-    }, 0)
-    setAttachments([])
-    setStreaming(true)
-    cleanupListeners()
+    }, 0);
+    setAttachments([]);
+    setStreaming(true);
+    cleanupListeners();
 
-    let fullContent = ''
-    let displayed = ''
-    let animId: number | null = null
-    let finalDone = false
+    let fullContent = '';
+    let displayed = '';
+    let animId: number | null = null;
+    let finalDone = false;
 
     const revealNext = () => {
       if (displayed.length < fullContent.length) {
-        displayed += fullContent.slice(displayed.length, displayed.length + 4)
-        const snap = displayed
+        displayed += fullContent.slice(displayed.length, displayed.length + 4);
+        const snap = displayed;
         setMessages((prev) => {
-          const last = prev[prev.length - 1]
+          const last = prev[prev.length - 1];
           if (last?.role === 'assistant' && last.timestamp === userMsg.timestamp + 1)
-            return [...prev.slice(0, -1), { ...last, content: snap }]
-          return prev
-        })
-        animId = requestAnimationFrame(revealNext)
+            return [...prev.slice(0, -1), { ...last, content: snap }];
+          return prev;
+        });
+        animId = requestAnimationFrame(revealNext);
       } else if (finalDone) {
-        setStreaming(false)
-        sendCleanup()
-        if (onChatFinished) onChatFinished()
+        setStreaming(false);
+        sendCleanup();
+        if (onChatFinished) onChatFinished();
       }
-    }
+    };
 
     // Track last progress event time for watchdog
-    let lastEventAt = Date.now()
-    const NO_PROGRESS_WARN_MS = 25_000  // 25s — show "still waiting" warning
-    const NO_PROGRESS_STRONG_MS = 60_000 // 60s — stronger warning
-    let warnMsgId: number | null = null   // timestamp of the last warning message
-    let watchdogTimer: ReturnType<typeof setInterval> | null = null
+    let lastEventAt = Date.now();
+    const NO_PROGRESS_WARN_MS = 25_000; // 25s — show "still waiting" warning
+    const NO_PROGRESS_STRONG_MS = 60_000; // 60s — stronger warning
+    let warnMsgId: number | null = null; // timestamp of the last warning message
+    let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 
     // Helper: append watchdog message (idempotent — deduplicates via warnMsgId ref)
     const appendWatchdogMsg = (content: string) => {
-      if (warnMsgId !== null) return // already shown
-      warnMsgId = Date.now()
-      setMessages((prev) => [
-        ...prev,
-        { role: 'error' as const, content, timestamp: warnMsgId! },
-      ])
-    }
+      if (warnMsgId !== null) return; // already shown
+      warnMsgId = Date.now();
+      setMessages((prev) => [...prev, { role: 'error' as const, content, timestamp: warnMsgId! }]);
+    };
 
     // Start watchdog timer
     watchdogTimer = setInterval(() => {
       if (finalDone) {
-        if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null }
-        return
+        if (watchdogTimer) {
+          clearInterval(watchdogTimer);
+          watchdogTimer = null;
+        }
+        return;
       }
-      const elapsed = Date.now() - lastEventAt
+      const elapsed = Date.now() - lastEventAt;
       if (elapsed >= NO_PROGRESS_STRONG_MS) {
-        appendWatchdogMsg('⚠️ No response from backend for 60s. You can abort and check runtime logs.')
+        appendWatchdogMsg(
+          '⚠️ No response from backend for 60s. You can abort and check runtime logs.'
+        );
       } else if (elapsed >= NO_PROGRESS_WARN_MS) {
-        appendWatchdogMsg('⏳ Still waiting for backend response…')
+        appendWatchdogMsg('⏳ Still waiting for backend response…');
       }
-    }, 5_000) // check every 5s
+    }, 5_000); // check every 5s
 
     const sendCleanup = () => {
-      if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null }
-      cleanupListeners()
-    }
+      if (watchdogTimer) {
+        clearInterval(watchdogTimer);
+        watchdogTimer = null;
+      }
+      cleanupListeners();
+    };
 
     const unsubProgress = window.miqi.chat.onProgress((data: any) => {
-      lastEventAt = Date.now()
+      lastEventAt = Date.now();
       // Handle stream deltas from exec (Phase 7 inline tool progress)
       if (data.stream && data.delta && data.tool_call_id) {
         setExecOutputs((prev) => {
-          const current = prev[data.tool_call_id] || { stdout: '', stderr: '', running: true }
+          const current = prev[data.tool_call_id] || { stdout: '', stderr: '', running: true };
           return {
             ...prev,
             [data.tool_call_id]: {
@@ -626,85 +658,86 @@ export function ChatConsole({
               [data.stream === 'stdout' ? 'stdout' : 'stderr']:
                 current[data.stream === 'stdout' ? 'stdout' : 'stderr'] + data.delta,
             },
-          }
-        })
-        return
+          };
+        });
+        return;
       }
 
       // Try structured extraction first, then fall back to raw text
-      const extracted = extractProgressMessage(data as ProgressPayload)
+      const extracted = extractProgressMessage(data as ProgressPayload);
 
       if (extracted) {
-        const msgRole = extracted.role === 'error' ? 'error' as const
-          : extracted.role === 'warning' ? 'progress' as const  // warnings render as progress with warning style
-          : 'progress' as const
+        const msgRole =
+          extracted.role === 'error'
+            ? ('error' as const)
+            : extracted.role === 'warning'
+              ? ('progress' as const) // warnings render as progress with warning style
+              : ('progress' as const);
         setMessages((prev) => [
           ...prev,
           {
             role: msgRole,
-            content: extracted.role === 'warning'
-              ? `⚠️ ${extracted.message}`
-              : extracted.message,
+            content: extracted.role === 'warning' ? `⚠️ ${extracted.message}` : extracted.message,
             toolHint: data.tool_hint,
             toolCallId: data.tool_call_id,
             timestamp: Date.now(),
           },
-        ])
+        ]);
       } else if (data.tool_hint || data.stream) {
         // tool_hint without text still deserves a line (old behavior for exec hints)
         // but skip completely empty/stream-only events
-        return
+        return;
       }
       // Otherwise skip — no displayable content
 
       // Parse file operations from tool hints
       if (data.tool_hint && data.text) {
-        const parsed = parseToolHint(data.text)
-        if (parsed) trackFile(parsed.path, parsed.op, parsed.truncated)
+        const parsed = parseToolHint(data.text);
+        if (parsed) trackFile(parsed.path, parsed.op, parsed.truncated);
       }
-    })
+    });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
-      fullContent = data.content
-      finalDone = true
+      fullContent = data.content;
+      finalDone = true;
       setMessages((prev) => [
         ...prev,
         { role: 'assistant', content: '', timestamp: userMsg.timestamp + 1 },
-      ])
-      setCurrentReqId(null)
-      animId = requestAnimationFrame(revealNext)
-    })
+      ]);
+      setCurrentReqId(null);
+      animId = requestAnimationFrame(revealNext);
+    });
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
-      if (animId !== null) cancelAnimationFrame(animId)
+      if (animId !== null) cancelAnimationFrame(animId);
       setMessages((prev) => [
         ...prev,
         { role: 'error', content: data.message, timestamp: Date.now() },
-      ])
-      setStreaming(false)
-      sendCleanup()
-    })
+      ]);
+      setStreaming(false);
+      sendCleanup();
+    });
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
-      if (animId !== null) cancelAnimationFrame(animId)
-      setStreaming(false)
-      setCurrentReqId(null)
+      if (animId !== null) cancelAnimationFrame(animId);
+      setStreaming(false);
+      setCurrentReqId(null);
       setMessages((prev) => [
         ...prev,
         { role: 'progress', content: 'Aborted.', timestamp: Date.now() },
-      ])
-      sendCleanup()
-    })
+      ]);
+      sendCleanup();
+    });
 
-    unsubsRef.current = [unsubProgress, unsubFinal, unsubError, unsubAborted]
+    unsubsRef.current = [unsubProgress, unsubFinal, unsubError, unsubAborted];
 
     try {
       // On first message for a new conversation, create a thread with
       // a title derived from the user's first prompt.
-      let threadId = currentThreadIdRef.current
+      let threadId = currentThreadIdRef.current;
       if (threadId == null) {
         try {
-          const title = (text || 'New conversation').trim().slice(0, 60)
+          const title = (text || 'New conversation').trim().slice(0, 60);
           // Non-blocking: start thread with a short timeout so chat.send
           // isn't delayed by a slow bridge restart.  Falls through to
           // chat.send without thread_id on failure.
@@ -714,15 +747,15 @@ export function ChatConsole({
               session_key: currentSessionRef.current,
             }),
             new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('thread/start timeout')), 5000),
+              setTimeout(() => reject(new Error('thread/start timeout')), 5000)
             ),
-          ])
+          ]);
           // Extract thread id from the result
-          const thread = (threadResult as any)?.thread
+          const thread = (threadResult as any)?.thread;
           if (thread) {
-            threadId = thread.id || thread.threadId
+            threadId = thread.id || thread.threadId;
             if (threadId) {
-              currentThreadIdRef.current = threadId
+              currentThreadIdRef.current = threadId;
             }
           }
         } catch {
@@ -730,60 +763,59 @@ export function ChatConsole({
         }
       }
 
-      const key = activeThreadId === 'main'
-        ? currentSessionRef.current
-        : `desktop:${activeThreadId}`
-      await window.miqi.chat.send(content, key, threadId ?? undefined)
+      const key =
+        activeThreadId === 'main' ? currentSessionRef.current : `desktop:${activeThreadId}`;
+      await window.miqi.chat.send(content, key, threadId ?? undefined);
     } catch (e: any) {
-      if (animId !== null) cancelAnimationFrame(animId)
-      const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? 'Unknown error'))
-      const detail = `chat.send failed: ${errMsg}`
+      if (animId !== null) cancelAnimationFrame(animId);
+      const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? 'Unknown error'));
+      const detail = `chat.send failed: ${errMsg}`;
       if (e?.code) {
         setMessages((prev) => [
           ...prev,
           { role: 'error' as const, content: `${detail} (code: ${e.code})`, timestamp: Date.now() },
-        ])
+        ]);
       } else {
         setMessages((prev) => [
           ...prev,
           { role: 'error' as const, content: detail, timestamp: Date.now() },
-        ])
+        ]);
       }
-      setStreaming(false)
-      sendCleanup()
+      setStreaming(false);
+      sendCleanup();
     }
-  }, [input, attachments, streaming, cleanupListeners, onChatFinished])
+  }, [input, attachments, streaming, cleanupListeners, onChatFinished]);
 
   /** Auto-resize textarea to fit content */
   const adjustTextareaHeight = useCallback(() => {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight}px`
-  }, [])
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
+      e.preventDefault();
+      handleSend();
     }
-  }
+  };
 
   const handlePreview = useCallback(async (path: string) => {
     try {
-      const result = await window.miqi.files.read(path)
-      setPreviewFile({ path, content: result.content })
+      const result = await window.miqi.files.read(path);
+      setPreviewFile({ path, content: result.content });
     } catch {
-      setPreviewFile({ path, content: `(Could not read file: ${path})` })
+      setPreviewFile({ path, content: `(Could not read file: ${path})` });
     }
-  }, [])
+  }, []);
 
-  const closePreview = () => setPreviewFile(null)
+  const closePreview = () => setPreviewFile(null);
 
   const handleShowDiff = useCallback(async (path: string) => {
-    setDiffLoading(true)
+    setDiffLoading(true);
     try {
-      const result = await window.miqi.files.diff(path, currentSessionRef.current)
+      const result = await window.miqi.files.diff(path, currentSessionRef.current);
       setDiffFile({
         path,
         diff: result.diff,
@@ -791,88 +823,97 @@ export function ChatConsole({
         current_content: result.current_content,
         has_diff: result.has_diff,
         is_new_file: (result as any).is_new_file,
-      })
+      });
     } catch {
-      setDiffFile({ path, diff: null, original_content: null, current_content: null, has_diff: false })
+      setDiffFile({
+        path,
+        diff: null,
+        original_content: null,
+        current_content: null,
+        has_diff: false,
+      });
     } finally {
-      setDiffLoading(false)
+      setDiffLoading(false);
     }
-  }, [])
+  }, []);
 
-  const closeDiff = () => setDiffFile(null)
+  const closeDiff = () => setDiffFile(null);
 
   const handleRevert = useCallback(async () => {
-    if (!diffFile || reverting) return
-    setReverting(true)
+    if (!diffFile || reverting) return;
+    setReverting(true);
     try {
-      const result = await window.miqi.files.revert(diffFile.path, currentSessionRef.current)
+      const result = await window.miqi.files.revert(diffFile.path, currentSessionRef.current);
       if (result.reverted) {
         // Refresh the diff view
-        await handleShowDiff(diffFile.path)
+        await handleShowDiff(diffFile.path);
         // Update tracked files list (file is now back to HEAD)
-        setTrackedFiles((prev) => prev.filter((f) => f.path !== diffFile.path))
+        setTrackedFiles((prev) => prev.filter((f) => f.path !== diffFile.path));
         // Refresh preview if open
         if (previewFile?.path === diffFile.path) {
-          const content = await window.miqi.files.read(diffFile.path)
-          setPreviewFile({ path: diffFile.path, content: content.content })
+          const content = await window.miqi.files.read(diffFile.path);
+          setPreviewFile({ path: diffFile.path, content: content.content });
         }
       }
     } catch {
       // Silently fail - revert button is best-effort
     } finally {
-      setReverting(false)
+      setReverting(false);
     }
-  }, [diffFile, reverting, handleShowDiff, previewFile])
+  }, [diffFile, reverting, handleShowDiff, previewFile]);
 
   /** Accept ALL tracked file changes at once — keep files, discard snapshots. */
   const handleMergeAll = useCallback(async () => {
-    if (merging) return
-    const toAccept = trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit' || f.op === 'delete')
-    if (toAccept.length === 0) return
-    setMerging(true)
+    if (merging) return;
+    const toAccept = trackedFiles.filter(
+      (f) => f.op === 'write' || f.op === 'edit' || f.op === 'delete'
+    );
+    if (toAccept.length === 0) return;
+    setMerging(true);
     try {
       await Promise.allSettled(
-        toAccept.map((f) => window.miqi.files.accept(f.path, currentSessionRef.current)),
-      )
+        toAccept.map((f) => window.miqi.files.accept(f.path, currentSessionRef.current))
+      );
       // Reset accepted files to 'read' so they stay visible in Referenced Context
-      const acceptedPaths = new Set(toAccept.map((f) => f.path))
+      const acceptedPaths = new Set(toAccept.map((f) => f.path));
       setTrackedFiles((prev) =>
-        prev.map((f) =>
-          acceptedPaths.has(f.path) ? { ...f, op: "read" as const } : f,
-        ),
-      )
+        prev.map((f) => (acceptedPaths.has(f.path) ? { ...f, op: 'read' as const } : f))
+      );
     } finally {
-      setMerging(false)
+      setMerging(false);
     }
-  }, [merging, trackedFiles])
+  }, [merging, trackedFiles]);
 
   const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    const files = Array.from(e.dataTransfer.files)
-    if (!files.length || !fileInputRef.current) return
-    const dt = new DataTransfer()
-    files.forEach((f) => dt.items.add(f))
-    fileInputRef.current.files = dt.files
-    fileInputRef.current.dispatchEvent(new Event('change', { bubbles: true }))
-  }
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files);
+    if (!files.length || !fileInputRef.current) return;
+    const dt = new DataTransfer();
+    files.forEach((f) => dt.items.add(f));
+    fileInputRef.current.files = dt.files;
+    fileInputRef.current.dispatchEvent(new Event('change', { bubbles: true }));
+  };
 
   const handleCopy = (text: string, idx: number) => {
-    navigator.clipboard.writeText(text)
-    setCopiedIdx(idx)
-    setTimeout(() => setCopiedIdx(null), 2000)
-  }
+    navigator.clipboard.writeText(text);
+    setCopiedIdx(idx);
+    setTimeout(() => setCopiedIdx(null), 2000);
+  };
 
-  const handleRetry = useCallback(async (msg: Message) => {
-    if (streaming) return
-    cleanupListeners()
-    const idx = messages.indexOf(msg)
-    if (idx >= 0) setMessages((prev) => prev.slice(0, idx))
-    setInput(msg.content)
-    setAttachments(msg.attachments ?? [])
-  }, [streaming, cleanupListeners, messages])
+  const handleRetry = useCallback(
+    async (msg: Message) => {
+      if (streaming) return;
+      cleanupListeners();
+      const idx = messages.indexOf(msg);
+      if (idx >= 0) setMessages((prev) => prev.slice(0, idx));
+      setInput(msg.content);
+      setAttachments(msg.attachments ?? []);
+    },
+    [streaming, cleanupListeners, messages]
+  );
 
   /* session display name */
-  const sessionTitle = sessionKey.replace(/^desktop:/, '').replace(/_/g, ' ') || 'New Task'
+  const sessionTitle = sessionKey.replace(/^desktop:/, '').replace(/_/g, ' ') || 'New Task';
 
   return (
     <div
@@ -900,7 +941,7 @@ export function ChatConsole({
                 'px-3 py-1.5 text-xs rounded-t whitespace-nowrap transition-colors',
                 activeThreadId === t.threadId
                   ? 'bg-[var(--surface)] text-[var(--text)] border-t border-x border-[var(--border)]'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)]',
+                  : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)]'
               )}
             >
               {t.label}
@@ -908,9 +949,9 @@ export function ChatConsole({
                 <button
                   className="ml-1.5 text-[var(--text-muted)] hover:text-[var(--danger)]"
                   onClick={(e) => {
-                    e.stopPropagation()
-                    setThreads((prev) => prev.filter((th) => th.threadId !== t.threadId))
-                    if (activeThreadId === t.threadId) setActiveThreadId('main')
+                    e.stopPropagation();
+                    setThreads((prev) => prev.filter((th) => th.threadId !== t.threadId));
+                    if (activeThreadId === t.threadId) setActiveThreadId('main');
                   }}
                 >
                   ×
@@ -930,10 +971,7 @@ export function ChatConsole({
         }}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <h2
-            className="text-sm font-semibold truncate"
-            style={{ color: 'var(--text)' }}
-          >
+          <h2 className="text-sm font-semibold truncate" style={{ color: 'var(--text)' }}>
             {sessionTitle}
           </h2>
           <span className="tag-review shrink-0">REVIEW</span>
@@ -949,11 +987,13 @@ export function ChatConsole({
             <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
           </button>
           <ContextMenu
-            items={[{
-              label: 'Delete conversation',
-              danger: true,
-              onSelect: handleDeleteSession,
-            }]}
+            items={[
+              {
+                label: 'Delete conversation',
+                danger: true,
+                onSelect: handleDeleteSession,
+              },
+            ]}
           >
             {({ onContextMenu }) => (
               <button
@@ -970,7 +1010,7 @@ export function ChatConsole({
               'p-1.5 rounded transition-colors',
               planOpen
                 ? 'text-[var(--accent)] bg-[var(--accent)]/10'
-                : 'text-[var(--text-muted)] hover:text-[var(--text)]',
+                : 'text-[var(--text-muted)] hover:text-[var(--text)]'
             )}
             title="Toggle plan"
           >
@@ -1036,14 +1076,14 @@ export function ChatConsole({
                 ))
               )}
               {streaming && (
-                  <div
-                    className="flex items-center gap-2 text-xs px-1"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
-                    <Loader2 size={12} className="animate-spin" />
-                    Thinking…
-                  </div>
-                )}
+                <div
+                  className="flex items-center gap-2 text-xs px-1"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  <Loader2 size={12} className="animate-spin" />
+                  Thinking…
+                </div>
+              )}
             </div>
           </div>
 
@@ -1069,11 +1109,7 @@ export function ChatConsole({
                       }}
                     >
                       {att.type === 'image' ? (
-                        <Image
-                          size={12}
-                          className="shrink-0"
-                          style={{ color: 'var(--info)' }}
-                        />
+                        <Image size={12} className="shrink-0" style={{ color: 'var(--info)' }} />
                       ) : (
                         <FileText
                           size={12}
@@ -1111,7 +1147,10 @@ export function ChatConsole({
                 <Textarea
                   ref={textareaRef}
                   value={input}
-                  onChange={(e) => { setInput(e.target.value); adjustTextareaHeight() }}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    adjustTextareaHeight();
+                  }}
                   onKeyDown={handleKeyDown}
                   placeholder="Ask Agent to analyze or edit files..."
                   rows={1}
@@ -1138,10 +1177,7 @@ export function ChatConsole({
                   </button>
                 )}
               </div>
-              <p
-                className="text-center text-[10px] mt-1.5"
-                style={{ color: 'var(--text-faint)' }}
-              >
+              <p className="text-center text-[10px] mt-1.5" style={{ color: 'var(--text-faint)' }}>
                 SHIFT + ENTER FOR NEW LINE • CTRL + ENTER TO SEND
               </p>
             </div>
@@ -1163,19 +1199,23 @@ export function ChatConsole({
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
               {plan.steps.map((step) => (
                 <div key={step.id} className="flex items-start gap-2 text-xs py-1">
-                  <span className={cn(
-                    'mt-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[10px] shrink-0',
-                    step.status === 'completed' && 'bg-green-500 text-white',
-                    step.status === 'in_progress' && 'bg-blue-500 text-white animate-pulse',
-                    step.status === 'pending' && 'bg-gray-300 text-gray-600',
-                    step.status === 'skipped' && 'bg-gray-200 text-gray-400',
-                  )}>
+                  <span
+                    className={cn(
+                      'mt-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[10px] shrink-0',
+                      step.status === 'completed' && 'bg-green-500 text-white',
+                      step.status === 'in_progress' && 'bg-blue-500 text-white animate-pulse',
+                      step.status === 'pending' && 'bg-gray-300 text-gray-600',
+                      step.status === 'skipped' && 'bg-gray-200 text-gray-400'
+                    )}
+                  >
                     {step.status === 'completed' ? '✓' : step.status === 'in_progress' ? '●' : '○'}
                   </span>
-                  <span className={cn(
-                    step.status === 'skipped' && 'line-through text-[var(--text-muted)]',
-                    step.status === 'in_progress' && 'font-medium',
-                  )}>
+                  <span
+                    className={cn(
+                      step.status === 'skipped' && 'line-through text-[var(--text-muted)]',
+                      step.status === 'in_progress' && 'font-medium'
+                    )}
+                  >
                     {step.description}
                   </span>
                 </div>
@@ -1200,31 +1240,19 @@ export function ChatConsole({
             >
               <div className="flex items-center gap-1.5">
                 <LayoutGrid size={13} style={{ color: 'var(--text-muted)' }} />
-                <span
-                  className="text-xs font-semibold"
-                  style={{ color: 'var(--text)' }}
-                >
+                <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
                   Task Assets
                 </span>
               </div>
-              <span
-                className="text-xs font-medium"
-                style={{ color: 'var(--text-faint)' }}
-              >
+              <span className="text-xs font-medium" style={{ color: 'var(--text-faint)' }}>
                 {trackedFiles.length}
               </span>
             </div>
 
             {trackedFiles.length === 0 ? (
               <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center gap-2">
-                <FileText
-                  size={24}
-                  style={{ color: 'var(--text-faint)', opacity: 0.4 }}
-                />
-                <p
-                  className="text-[11px]"
-                  style={{ color: 'var(--text-faint)' }}
-                >
+                <FileText size={24} style={{ color: 'var(--text-faint)', opacity: 0.4 }} />
+                <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
                   No files yet.
                   <br />
                   Agent operations will appear here.
@@ -1233,8 +1261,7 @@ export function ChatConsole({
             ) : (
               <>
                 {/* Written / Edited files → Active for Edit */}
-                {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit')
-                  .length > 0 && (
+                {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length > 0 && (
                   <>
                     <SectionLabel label="ACTIVE FOR EDIT" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
@@ -1292,8 +1319,7 @@ export function ChatConsole({
 
             {/* Proposed changes summary */}
             <div className="flex-1" />
-            {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit')
-              .length > 0 && (
+            {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length > 0 && (
               <div
                 className="border-t mx-3 mt-2 pt-3 pb-3"
                 style={{ borderColor: 'var(--panel-border)' }}
@@ -1304,23 +1330,12 @@ export function ChatConsole({
                       className="w-1.5 h-1.5 rounded-full"
                       style={{ background: 'var(--warning)' }}
                     />
-                    <span
-                      className="text-xs font-semibold"
-                      style={{ color: 'var(--text)' }}
-                    >
+                    <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
                       Proposed Changes
                     </span>
                   </div>
-                  <span
-                    className="text-[10px]"
-                    style={{ color: 'var(--text-faint)' }}
-                  >
-                    {
-                      trackedFiles.filter(
-                        (f) => f.op === 'write' || f.op === 'edit',
-                      ).length
-                    }{' '}
-                    file(s)
+                  <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
+                    {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length} file(s)
                   </span>
                 </div>
                 <div className="flex flex-col gap-1.5 mb-3">
@@ -1336,11 +1351,7 @@ export function ChatConsole({
                           border: '1px solid var(--border-subtle)',
                         }}
                       >
-                        <FileText
-                          size={11}
-                          style={{ color: 'var(--info)' }}
-                          className="shrink-0"
-                        />
+                        <FileText size={11} style={{ color: 'var(--info)' }} className="shrink-0" />
                         <span
                           className="text-[11px] truncate flex-1"
                           style={{ color: 'var(--text)' }}
@@ -1351,14 +1362,8 @@ export function ChatConsole({
                         <span
                           className="text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0"
                           style={{
-                            background:
-                              f.op === 'write'
-                                ? 'var(--accent)'
-                                : 'rgba(234,179,8,0.15)',
-                            color:
-                              f.op === 'write'
-                                ? 'var(--accent-text)'
-                                : 'var(--warning)',
+                            background: f.op === 'write' ? 'var(--accent)' : 'rgba(234,179,8,0.15)',
+                            color: f.op === 'write' ? 'var(--accent-text)' : 'var(--warning)',
                           }}
                         >
                           {f.op.toUpperCase()}
@@ -1385,20 +1390,14 @@ export function ChatConsole({
                 className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
                 style={{
                   background:
-                    merging || trackedFiles.length === 0
-                      ? 'var(--surface-muted)'
-                      : 'var(--accent)',
+                    merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'var(--accent)',
                   color:
                     merging || trackedFiles.length === 0
                       ? 'var(--text-faint)'
                       : 'var(--accent-text)',
                 }}
               >
-                {merging ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <GitMerge size={13} />
-                )}
+                {merging ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
                 {merging ? 'MERGING...' : 'MERGE ALL CHANGES'}
               </button>
             </div>
@@ -1428,11 +1427,7 @@ export function ChatConsole({
               style={{ borderColor: 'var(--border-subtle)' }}
             >
               <div className="flex items-center gap-2 min-w-0 flex-1">
-                <FileText
-                  size={14}
-                  style={{ color: 'var(--info)' }}
-                  className="shrink-0"
-                />
+                <FileText size={14} style={{ color: 'var(--info)' }} className="shrink-0" />
                 <span
                   className="text-[11px] font-mono break-all leading-relaxed"
                   style={{ color: 'var(--text-muted)' }}
@@ -1483,11 +1478,7 @@ export function ChatConsole({
               style={{ borderColor: 'var(--border-subtle)' }}
             >
               <div className="flex items-center gap-2 min-w-0">
-                <GitCompare
-                  size={14}
-                  style={{ color: 'var(--warning)' }}
-                  className="shrink-0"
-                />
+                <GitCompare size={14} style={{ color: 'var(--warning)' }} className="shrink-0" />
                 <span
                   className="text-sm font-medium truncate"
                   style={{ color: 'var(--text)' }}
@@ -1536,18 +1527,13 @@ export function ChatConsole({
                     disabled={reverting}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
                     style={{
-                      background: reverting
-                        ? 'var(--surface-muted)'
-                        : 'rgba(239,68,68,0.15)',
+                      background: reverting ? 'var(--surface-muted)' : 'rgba(239,68,68,0.15)',
                       color: reverting ? 'var(--text-faint)' : 'var(--danger)',
                       border: '1px solid var(--danger)',
                     }}
                     title="Revert to HEAD (undo changes)"
                   >
-                    <Undo2
-                      size={12}
-                      className={reverting ? 'animate-spin' : ''}
-                    />
+                    <Undo2 size={12} className={reverting ? 'animate-spin' : ''} />
                     {reverting ? 'Reverting...' : 'Revert'}
                   </button>
                 )}
@@ -1569,17 +1555,13 @@ export function ChatConsole({
                     className="animate-spin"
                     style={{ color: 'var(--text-faint)' }}
                   />
-                  <span
-                    className="ml-2 text-sm"
-                    style={{ color: 'var(--text-faint)' }}
-                  >
+                  <span className="ml-2 text-sm" style={{ color: 'var(--text-faint)' }}>
                     Loading diff...
                   </span>
                 </div>
               ) : diffFile.diff ? (
                 <DiffView diff={diffFile.diff} />
-              ) : diffFile.original_content !== null &&
-                diffFile.current_content !== null ? (
+              ) : diffFile.original_content !== null && diffFile.current_content !== null ? (
                 /* No snapshot diff but we have both versions — show side by side */
                 <div className="flex h-full" style={{ minHeight: 400 }}>
                   <div
@@ -1616,12 +1598,8 @@ export function ChatConsole({
                 </div>
               ) : (
                 <div className="flex items-center justify-center h-48">
-                  <span
-                    className="text-sm"
-                    style={{ color: 'var(--text-faint)' }}
-                  >
-                    {diffFile.original_content === null &&
-                    diffFile.current_content === null
+                  <span className="text-sm" style={{ color: 'var(--text-faint)' }}>
+                    {diffFile.original_content === null && diffFile.current_content === null
                       ? 'No snapshot available — file was not modified in this session'
                       : 'No changes detected'}
                   </span>
@@ -1632,56 +1610,67 @@ export function ChatConsole({
         </div>
       )}
     </div>
-  )
+  );
 }
 
 /* ─── Sub-components ──────────────────────────────────────────────── */
 
 /** Renders a unified diff string with syntax-highlighted +/- lines. */
 function DiffView({ diff }: { diff: string }) {
-  const lines = diff.split('\n')
+  const lines = diff.split('\n');
   // Detect if this is a new file diff (starts with --- /dev/null)
-  const isNewFile = lines.some(l => l.startsWith('--- /dev/null'))
+  const isNewFile = lines.some((l) => l.startsWith('--- /dev/null'));
   return (
-    <div className="overflow-x-auto text-xs font-mono leading-5" style={{ background: 'var(--surface)' }}>
+    <div
+      className="overflow-x-auto text-xs font-mono leading-5"
+      style={{ background: 'var(--surface)' }}
+    >
       {lines.map((line, i) => {
-        let bg = 'transparent'
-        let color = 'var(--text-muted)'
-        let prefix = ' '
+        let bg = 'transparent';
+        let color = 'var(--text-muted)';
+        let prefix = ' ';
 
         if (line.startsWith('+++ b/')) {
           // New file: show +++ as green
-          bg = 'rgba(34,197,94,0.08)'
-          color = '#4ade80'
+          bg = 'rgba(34,197,94,0.08)';
+          color = '#4ade80';
         } else if (line.startsWith('--- /dev/null')) {
           // New file: show --- /dev/null as gray (context for empty original)
-          color = 'var(--text-faint)'
+          color = 'var(--text-faint)';
         } else if (line.startsWith('---')) {
-          color = 'var(--text-faint)'
+          color = 'var(--text-faint)';
         } else if (line.startsWith('@@')) {
-          bg = isNewFile ? 'rgba(34,197,94,0.08)' : 'rgba(96,165,250,0.08)'
-          color = isNewFile ? '#4ade80' : 'var(--info)'
+          bg = isNewFile ? 'rgba(34,197,94,0.08)' : 'rgba(96,165,250,0.08)';
+          color = isNewFile ? '#4ade80' : 'var(--info)';
         } else if (line.startsWith('+')) {
-          bg = 'rgba(34,197,94,0.10)'
-          color = '#4ade80'
-          prefix = '+'
+          bg = 'rgba(34,197,94,0.10)';
+          color = '#4ade80';
+          prefix = '+';
         } else if (line.startsWith('-')) {
-          bg = 'rgba(239,68,68,0.10)'
-          color = '#f87171'
-          prefix = '-'
+          bg = 'rgba(239,68,68,0.10)';
+          color = '#f87171';
+          prefix = '-';
         }
 
         return (
           <div
             key={i}
-            style={{ background: bg, color, paddingLeft: 12, paddingRight: 12, whiteSpace: 'pre', minWidth: '100%', display: 'block' }}
+            style={{
+              background: bg,
+              color,
+              paddingLeft: 12,
+              paddingRight: 12,
+              whiteSpace: 'pre',
+              minWidth: '100%',
+              display: 'block',
+            }}
           >
             {line || '\u00a0'}
           </div>
-        )
+        );
       })}
     </div>
-  )
+  );
 }
 
 function SectionLabel({ label }: { label: string }) {
@@ -1692,7 +1681,7 @@ function SectionLabel({ label }: { label: string }) {
     >
       {label}
     </div>
-  )
+  );
 }
 
 function TrackedFileCard({
@@ -1700,18 +1689,18 @@ function TrackedFileCard({
   onPreview,
   onDiff,
 }: {
-  file: TrackedFile
-  onPreview: () => void
-  onDiff?: () => void
+  file: TrackedFile;
+  onPreview: () => void;
+  onDiff?: () => void;
 }) {
   const opColor: Record<TrackedFile['op'], string> = {
     read: 'var(--info)',
     edit: 'var(--warning)',
     write: 'var(--accent)',
     delete: 'var(--danger)',
-  }
-  const OpIcon = file.op === 'read' ? BookOpen : file.op === 'delete' ? X : Pencil
-  const displayPath = file.path.replace(/\\/g, '/')
+  };
+  const OpIcon = file.op === 'read' ? BookOpen : file.op === 'delete' ? X : Pencil;
+  const displayPath = file.path.replace(/\\/g, '/');
 
   return (
     <div
@@ -1786,33 +1775,44 @@ function TrackedFileCard({
         </div>
       )}
     </div>
-  )
+  );
 }
 
-function MessageBubble({ msg, execOutputs, isLast, onCopy, isCopied, onRetry }: {
-  msg: Message
-  execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>
-  isLast: boolean
-  onCopy: (text: string) => void
-  isCopied: boolean
-  onRetry?: () => void
+function MessageBubble({
+  msg,
+  execOutputs,
+  isLast,
+  onCopy,
+  isCopied,
+  onRetry,
+}: {
+  msg: Message;
+  execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
+  isLast: boolean;
+  onCopy: (text: string) => void;
+  isCopied: boolean;
+  onRetry?: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(false);
 
   if (msg.role === 'progress') {
-    const isCollapsed = msg.collapsed && !expanded
+    const isCollapsed = msg.collapsed && !expanded;
     return (
       <div
-        className={cn('flex items-center gap-2 text-xs py-1 px-1', msg.collapsed && 'cursor-pointer select-none')}
+        className={cn(
+          'flex items-center gap-2 text-xs py-1 px-1',
+          msg.collapsed && 'cursor-pointer select-none'
+        )}
         style={{ color: msg.toolHint ? 'var(--info)' : 'var(--text-muted)' }}
         onClick={msg.collapsed ? () => setExpanded((v) => !v) : undefined}
       >
         {msg.toolHint ? <Wrench size={12} /> : <Loader2 size={12} className="animate-spin" />}
-        {msg.collapsed && (
-          isCollapsed
-            ? <ChevronRight size={10} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
-            : <ChevronDown size={10} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
-        )}
+        {msg.collapsed &&
+          (isCollapsed ? (
+            <ChevronRight size={10} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
+          ) : (
+            <ChevronDown size={10} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
+          ))}
         {isCollapsed ? (
           <span>{msg.summary || msg.content}</span>
         ) : (
@@ -1833,7 +1833,7 @@ function MessageBubble({ msg, execOutputs, isLast, onCopy, isCopied, onRetry }: 
           </div>
         )}
       </div>
-    )
+    );
   }
   if (msg.role === 'error') {
     return (
@@ -1850,7 +1850,7 @@ function MessageBubble({ msg, execOutputs, isLast, onCopy, isCopied, onRetry }: 
           {msg.content}
         </div>
       </div>
-    )
+    );
   }
 
   if (msg.role === 'subagent') {
@@ -1869,11 +1869,11 @@ function MessageBubble({ msg, execOutputs, isLast, onCopy, isCopied, onRetry }: 
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
         </div>
       </div>
-    )
+    );
   }
 
-  const isUser = msg.role === 'user'
-  const hasCodeBlock = /```[\s\S]*?```/.test(msg.content)
+  const isUser = msg.role === 'user';
+  const hasCodeBlock = /```[\s\S]*?```/.test(msg.content);
 
   const contextItems: ContextMenuAction[] = isUser
     ? [
@@ -1882,14 +1882,23 @@ function MessageBubble({ msg, execOutputs, isLast, onCopy, isCopied, onRetry }: 
       ]
     : [
         { label: 'Copy text', onSelect: () => onCopy(msg.content) },
-        ...(hasCodeBlock ? [{ label: 'Copy code', onSelect: () => {
-          const codeMatch = msg.content.match(/```[\s\S]*?```/g)
-          if (codeMatch) {
-            const code = codeMatch.map(b => b.replace(/```\w*\n?/g, '').replace(/```$/g, '')).join('\n\n')
-            navigator.clipboard.writeText(code).catch(() => {})
-          }
-        } }] : []),
-      ]
+        ...(hasCodeBlock
+          ? [
+              {
+                label: 'Copy code',
+                onSelect: () => {
+                  const codeMatch = msg.content.match(/```[\s\S]*?```/g);
+                  if (codeMatch) {
+                    const code = codeMatch
+                      .map((b) => b.replace(/```\w*\n?/g, '').replace(/```$/g, ''))
+                      .join('\n\n');
+                    navigator.clipboard.writeText(code).catch(() => {});
+                  }
+                },
+              },
+            ]
+          : []),
+      ];
 
   return (
     <ContextMenu items={contextItems}>
@@ -1900,32 +1909,41 @@ function MessageBubble({ msg, execOutputs, isLast, onCopy, isCopied, onRetry }: 
         >
           {!isUser && <AgentAvatar />}
 
-          <div className={cn('group flex flex-col gap-1.5', isUser ? 'items-end max-w-[70%]' : 'max-w-[82%]')}>
+          <div
+            className={cn(
+              'group flex flex-col gap-1.5',
+              isUser ? 'items-end max-w-[70%]' : 'max-w-[82%]'
+            )}
+          >
             {/* image attachments */}
-            {msg.attachments?.filter(a => a.type === 'image').map((att, i) => (
-              <img
-                key={i}
-                src={att.dataUrl}
-                alt={att.name}
-                className="rounded-xl max-w-[280px] max-h-[200px] object-cover"
-                style={{ border: '1px solid var(--border-subtle)' }}
-              />
-            ))}
+            {msg.attachments
+              ?.filter((a) => a.type === 'image')
+              .map((att, i) => (
+                <img
+                  key={i}
+                  src={att.dataUrl}
+                  alt={att.name}
+                  className="rounded-xl max-w-[280px] max-h-[200px] object-cover"
+                  style={{ border: '1px solid var(--border-subtle)' }}
+                />
+              ))}
             {/* text attachments */}
-            {msg.attachments?.filter(a => a.type === 'text').map((att, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
-                style={{
-                  background: 'var(--surface-muted)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-muted)',
-                }}
-              >
-                <FileText size={12} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
-                <span>{att.name}</span>
-              </div>
-            ))}
+            {msg.attachments
+              ?.filter((a) => a.type === 'text')
+              .map((att, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+                  style={{
+                    background: 'var(--surface-muted)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-muted)',
+                  }}
+                >
+                  <FileText size={12} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
+                  <span>{att.name}</span>
+                </div>
+              ))}
 
             {/* Main bubble */}
             <div
@@ -1940,11 +1958,13 @@ function MessageBubble({ msg, execOutputs, isLast, onCopy, isCopied, onRetry }: 
                     }
               }
             >
-              {msg.role === 'assistant' && msg.content === ''
-                ? <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
-                : msg.role === 'assistant'
-                  ? <MarkdownContent content={msg.content} />
-                  : renderContent(msg.content)}
+              {msg.role === 'assistant' && msg.content === '' ? (
+                <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
+              ) : msg.role === 'assistant' ? (
+                <MarkdownContent content={msg.content} />
+              ) : (
+                renderContent(msg.content)
+              )}
             </div>
 
             {/* copy button */}
@@ -1963,7 +1983,7 @@ function MessageBubble({ msg, execOutputs, isLast, onCopy, isCopied, onRetry }: 
         </div>
       )}
     </ContextMenu>
-  )
+  );
 }
 
 function AgentAvatar() {
@@ -1974,7 +1994,7 @@ function AgentAvatar() {
     >
       A
     </div>
-  )
+  );
 }
 
 function UserAvatar() {
@@ -1985,7 +2005,7 @@ function UserAvatar() {
     >
       U
     </div>
-  )
+  );
 }
 
 /** Strip <think>...</think> reasoning blocks before rendering.
@@ -1993,31 +2013,42 @@ function UserAvatar() {
  *  (tags split across streaming chunks). */
 function stripThinkBlocks(text: string): string {
   // let result = text.replace(/<think>[\s\S]*?<\/think>/gi, '')  // complete blocks
-  let result = text.replace(/<\/?think>/gi, '')                    // orphan tags
-  return result.trim()
+  let result = text.replace(/<\/?think>/gi, ''); // orphan tags
+  return result.trim();
 }
 
 function MarkdownContent({ content }: { content: string }) {
-  const [copiedCode, setCopiedCode] = useState<string | null>(null)
-  const displayContent = stripThinkBlocks(content)
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const displayContent = stripThinkBlocks(content);
 
   const handleCopyCode = (code: string) => {
-    navigator.clipboard.writeText(code)
-    setCopiedCode(code)
-    setTimeout(() => setCopiedCode(null), 2000)
-  }
+    navigator.clipboard.writeText(code);
+    setCopiedCode(code);
+    setTimeout(() => setCopiedCode(null), 2000);
+  };
 
   const components = useMemo(
     () => ({
       p: ({ children }: any) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
-      h1: ({ children }: any) => <h1 className="text-base font-bold mt-3 mb-1.5 first:mt-0">{children}</h1>,
-      h2: ({ children }: any) => <h2 className="text-sm font-bold mt-3 mb-1 first:mt-0">{children}</h2>,
-      h3: ({ children }: any) => <h3 className="text-sm font-semibold mt-2 mb-0.5 first:mt-0">{children}</h3>,
+      h1: ({ children }: any) => (
+        <h1 className="text-base font-bold mt-3 mb-1.5 first:mt-0">{children}</h1>
+      ),
+      h2: ({ children }: any) => (
+        <h2 className="text-sm font-bold mt-3 mb-1 first:mt-0">{children}</h2>
+      ),
+      h3: ({ children }: any) => (
+        <h3 className="text-sm font-semibold mt-2 mb-0.5 first:mt-0">{children}</h3>
+      ),
       ul: ({ children }: any) => <ul className="list-disc pl-5 my-1.5 space-y-0.5">{children}</ul>,
-      ol: ({ children }: any) => <ol className="list-decimal pl-5 my-1.5 space-y-0.5">{children}</ol>,
+      ol: ({ children }: any) => (
+        <ol className="list-decimal pl-5 my-1.5 space-y-0.5">{children}</ol>
+      ),
       li: ({ children }: any) => <li className="leading-relaxed">{children}</li>,
       blockquote: ({ children }: any) => (
-        <blockquote className="border-l-2 pl-3 my-2 italic" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+        <blockquote
+          className="border-l-2 pl-3 my-2 italic"
+          style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+        >
           {children}
         </blockquote>
       ),
@@ -2029,7 +2060,10 @@ function MarkdownContent({ content }: { content: string }) {
           href={href}
           className="underline cursor-pointer"
           style={{ color: 'var(--accent)' }}
-          onClick={(e) => { e.preventDefault(); if (href) window.open(href, '_blank') }}
+          onClick={(e) => {
+            e.preventDefault();
+            if (href) window.open(href, '_blank');
+          }}
         >
           {children}
         </a>
@@ -2040,7 +2074,10 @@ function MarkdownContent({ content }: { content: string }) {
         </div>
       ),
       th: ({ children }: any) => (
-        <th className="border px-2 py-1.5 text-left font-medium" style={{ borderColor: 'var(--border)', background: 'var(--surface-muted)' }}>
+        <th
+          className="border px-2 py-1.5 text-left font-medium"
+          style={{ borderColor: 'var(--border)', background: 'var(--surface-muted)' }}
+        >
           {children}
         </th>
       ),
@@ -2050,75 +2087,101 @@ function MarkdownContent({ content }: { content: string }) {
         </td>
       ),
       pre: ({ children }: any) => (
-        <pre className="relative group my-2 rounded-lg overflow-x-auto" style={{ background: 'rgba(0,0,0,0.06)' }}>
+        <pre
+          className="relative group my-2 rounded-lg overflow-x-auto"
+          style={{ background: 'rgba(0,0,0,0.06)' }}
+        >
           {children}
         </pre>
       ),
       code: ({ className, children, ...props }: any) => {
-        const codeStr = String(children)
-        const isBlock = codeStr.endsWith('\n')
+        const codeStr = String(children);
+        const isBlock = codeStr.endsWith('\n');
         if (isBlock) {
-          const code = codeStr.replace(/\n$/, '')
+          const code = codeStr.replace(/\n$/, '');
           return (
             <code className={cn('block text-xs font-mono p-3', className)} {...props}>
               <button
                 onClick={() => handleCopyCode(code)}
                 className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity rounded px-1.5 py-0.5 text-[10px] leading-none"
-                style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
+                style={{
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-muted)',
+                }}
               >
                 {copiedCode === code ? 'Copied' : 'Copy'}
               </button>
               {code}
             </code>
-          )
+          );
         }
         return (
-          <code className="text-xs font-mono px-1.5 py-0.5 rounded" style={{ background: 'rgba(0,0,0,0.08)' }} {...props}>
+          <code
+            className="text-xs font-mono px-1.5 py-0.5 rounded"
+            style={{ background: 'rgba(0,0,0,0.08)' }}
+            {...props}
+          >
             {children}
           </code>
-        )
+        );
       },
     }),
-    [copiedCode],
-  )
+    [copiedCode]
+  );
 
   return (
     <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
       {displayContent}
     </ReactMarkdown>
-  )
+  );
 }
 
 function renderContent(text: string) {
-  const parts = text.split(/(```[\s\S]*?```)/g)
+  const parts = text.split(/(```[\s\S]*?```)/g);
   return parts.map((part, i) => {
     if (part.startsWith('```') && part.endsWith('```')) {
-      const inner = part.slice(3, -3)
-      const langEnd = inner.indexOf('\n')
-      const code = langEnd > 0 ? inner.slice(langEnd + 1) : inner
+      const inner = part.slice(3, -3);
+      const langEnd = inner.indexOf('\n');
+      const code = langEnd > 0 ? inner.slice(langEnd + 1) : inner;
       return (
-        <pre key={i} className="my-2 text-xs rounded-lg px-3 py-2 overflow-x-auto" style={{ background: 'rgba(0,0,0,0.06)' }}>
+        <pre
+          key={i}
+          className="my-2 text-xs rounded-lg px-3 py-2 overflow-x-auto"
+          style={{ background: 'rgba(0,0,0,0.06)' }}
+        >
           <code>{code}</code>
         </pre>
-      )
+      );
     }
-    const segments = part.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
+    const segments = part.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
     return (
       <span key={i}>
         {segments.map((seg, j) => {
           if (seg.startsWith('**') && seg.endsWith('**'))
-            return <strong key={j}>{seg.slice(2, -2)}</strong>
+            return <strong key={j}>{seg.slice(2, -2)}</strong>;
           if (seg.startsWith('`') && seg.endsWith('`'))
-            return <code key={j} className="text-xs font-mono px-1 rounded" style={{ background: 'rgba(0,0,0,0.08)' }}>{seg.slice(1, -1)}</code>
+            return (
+              <code
+                key={j}
+                className="text-xs font-mono px-1 rounded"
+                style={{ background: 'rgba(0,0,0,0.08)' }}
+              >
+                {seg.slice(1, -1)}
+              </code>
+            );
           return (
             <span key={j}>
               {seg.split('\n').map((line, k, arr) => (
-                <span key={k}>{line}{k < arr.length - 1 && <br />}</span>
+                <span key={k}>
+                  {line}
+                  {k < arr.length - 1 && <br />}
+                </span>
               ))}
             </span>
-          )
+          );
         })}
       </span>
-    )
-  })
+    );
+  });
 }

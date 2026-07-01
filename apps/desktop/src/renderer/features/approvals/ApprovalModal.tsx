@@ -1,24 +1,26 @@
-import { Shield, Terminal, FileText, AlertTriangle, X, Clock } from 'lucide-react'
-import { useApproval } from '../../contexts/ApprovalContext'
-import { getApprovalDisplay, getApprovalTitle } from './approvalDisplayUtils'
+import { Shield, Terminal, FileText, AlertTriangle, X, Clock } from 'lucide-react';
+import { useApproval } from '../../contexts/ApprovalContext';
+import { getApprovalDisplay, getApprovalTitle } from './approvalDisplayUtils';
 
 /**
  * Choose an icon based on approval category.
  */
 function ApprovalIcon({ category }: { category?: string }) {
-  if (category === 'exec') return <Terminal size={13} className="text-[var(--text-faint)] mt-1 shrink-0" />
-  if (category === 'file_write') return <FileText size={13} className="text-[var(--text-faint)] mt-1 shrink-0" />
-  return <AlertTriangle size={13} className="text-[var(--text-faint)] mt-1 shrink-0" />
+  if (category === 'exec')
+    return <Terminal size={13} className="text-[var(--text-faint)] mt-1 shrink-0" />;
+  if (category === 'file_write')
+    return <FileText size={13} className="text-[var(--text-faint)] mt-1 shrink-0" />;
+  return <AlertTriangle size={13} className="text-[var(--text-faint)] mt-1 shrink-0" />;
 }
 
 export function ApprovalModal() {
-  const { pending, resolve, timeout, remainingSeconds } = useApproval()
-  if (!pending) return null
+  const { pending, resolve, timeout, remainingSeconds } = useApproval();
+  if (!pending) return null;
 
-  const pct = remainingSeconds != null ? (remainingSeconds / timeout) * 100 : 100
-  const isLow = remainingSeconds != null && remainingSeconds <= 5
-  const displayText = getApprovalDisplay(pending)
-  const title = getApprovalTitle(pending.category)
+  const pct = remainingSeconds != null ? (remainingSeconds / timeout) * 100 : 100;
+  const isLow = remainingSeconds != null && remainingSeconds <= 5;
+  const displayText = getApprovalDisplay(pending);
+  const title = getApprovalTitle(pending.category);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center pb-8 px-4 pointer-events-none">
@@ -31,10 +33,7 @@ export function ApprovalModal() {
         {/* Header */}
         <div className="flex items-center gap-2 px-5 py-3 bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] border-b border-[var(--danger)]">
           <Shield size={16} className="text-[var(--danger)] shrink-0" />
-          <span
-            id="approval-title"
-            className="text-sm font-semibold text-[var(--danger)]"
-          >
+          <span id="approval-title" className="text-sm font-semibold text-[var(--danger)]">
             {title}
           </span>
           <span className="ml-2 text-xs text-[var(--text-muted)] font-normal">
@@ -53,8 +52,13 @@ export function ApprovalModal() {
         {remainingSeconds != null && (
           <div className="px-5 pt-3">
             <div className="flex items-center gap-2 mb-1.5">
-              <Clock size={11} className={isLow ? 'text-[var(--danger)]' : 'text-[var(--text-faint)]'} />
-              <span className={`text-xs font-mono tabular-nums ${isLow ? 'text-[var(--danger)] font-semibold' : 'text-[var(--text-muted)]'}`}>
+              <Clock
+                size={11}
+                className={isLow ? 'text-[var(--danger)]' : 'text-[var(--text-faint)]'}
+              />
+              <span
+                className={`text-xs font-mono tabular-nums ${isLow ? 'text-[var(--danger)] font-semibold' : 'text-[var(--text-muted)]'}`}
+              >
                 {remainingSeconds > 0 ? `${remainingSeconds}秒` : '已超时'}
               </span>
             </div>
@@ -81,9 +85,7 @@ export function ApprovalModal() {
 
         {/* Actions */}
         <div className="flex items-center gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
-          <span className="text-xs text-[var(--text-faint)] flex-1">
-            选择如何处理此命令：
-          </span>
+          <span className="text-xs text-[var(--text-faint)] flex-1">选择如何处理此命令：</span>
           <button
             onClick={() => resolve('deny')}
             className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_25%,transparent)] transition-colors"
@@ -113,5 +115,5 @@ export function ApprovalModal() {
         </div>
       </div>
     </div>
-  )
+  );
 }

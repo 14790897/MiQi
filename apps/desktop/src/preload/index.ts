@@ -1,5 +1,5 @@
-import { contextBridge, ipcRenderer } from 'electron'
-import { IPC, IPC_EVENTS } from '../shared/ipc'
+import { contextBridge, ipcRenderer } from 'electron';
+import { IPC, IPC_EVENTS } from '../shared/ipc';
 import type {
   RuntimeStatus,
   SessionInfo,
@@ -59,7 +59,7 @@ import type {
   ThreadStartedEvent,
   TurnStartResult,
   TurnInterruptResult,
-} from '../shared/ipc'
+} from '../shared/ipc';
 
 // ---------------------------------------------------------------------------
 // Typed API exposed to the renderer via contextBridge
@@ -68,23 +68,20 @@ import type {
 const api = {
   // -- Runtime ----------------------------------------------------------------
   runtime: {
-    start: (): Promise<RuntimeStatus> =>
-      ipcRenderer.invoke(IPC.RUNTIME_START),
-    stop: (): Promise<RuntimeStatus> =>
-      ipcRenderer.invoke(IPC.RUNTIME_STOP),
-    status: (): Promise<RuntimeStatus> =>
-      ipcRenderer.invoke(IPC.RUNTIME_STATUS),
-    logs: (): Promise<string[]> =>
-      ipcRenderer.invoke(IPC.RUNTIME_LOGS),
+    start: (): Promise<RuntimeStatus> => ipcRenderer.invoke(IPC.RUNTIME_START),
+    stop: (): Promise<RuntimeStatus> => ipcRenderer.invoke(IPC.RUNTIME_STOP),
+    status: (): Promise<RuntimeStatus> => ipcRenderer.invoke(IPC.RUNTIME_STATUS),
+    logs: (): Promise<string[]> => ipcRenderer.invoke(IPC.RUNTIME_LOGS),
     onStateChange: (callback: (status: RuntimeStatus) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, status: RuntimeStatus) => callback(status)
-      ipcRenderer.on(IPC_EVENTS.RUNTIME_STATE, handler)
-      return () => ipcRenderer.removeListener(IPC_EVENTS.RUNTIME_STATE, handler)
+      const handler = (_event: Electron.IpcRendererEvent, status: RuntimeStatus) =>
+        callback(status);
+      ipcRenderer.on(IPC_EVENTS.RUNTIME_STATE, handler);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.RUNTIME_STATE, handler);
     },
     onLog: (callback: (message: string) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, message: string) => callback(message)
-      ipcRenderer.on(IPC_EVENTS.RUNTIME_LOG, handler)
-      return () => ipcRenderer.removeListener(IPC_EVENTS.RUNTIME_LOG, handler)
+      const handler = (_event: Electron.IpcRendererEvent, message: string) => callback(message);
+      ipcRenderer.on(IPC_EVENTS.RUNTIME_LOG, handler);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.RUNTIME_LOG, handler);
     },
   },
 
@@ -95,36 +92,36 @@ const api = {
     abort: (sessionKey?: string): Promise<unknown> =>
       ipcRenderer.invoke(IPC.CHAT_ABORT, { session_key: sessionKey }),
     onProgress: (callback: (data: ChatProgress) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: ChatProgress) => callback(data)
-      ipcRenderer.on(IPC_EVENTS.CHAT_PROGRESS, handler)
-      return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_PROGRESS, handler)
+      const handler = (_event: Electron.IpcRendererEvent, data: ChatProgress) => callback(data);
+      ipcRenderer.on(IPC_EVENTS.CHAT_PROGRESS, handler);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_PROGRESS, handler);
     },
     onFinal: (callback: (data: ChatFinal) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: ChatFinal) => callback(data)
-      ipcRenderer.on(IPC_EVENTS.CHAT_FINAL, handler)
-      return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_FINAL, handler)
+      const handler = (_event: Electron.IpcRendererEvent, data: ChatFinal) => callback(data);
+      ipcRenderer.on(IPC_EVENTS.CHAT_FINAL, handler);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_FINAL, handler);
     },
     onError: (callback: (data: ChatError) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: ChatError) => callback(data)
-      ipcRenderer.on(IPC_EVENTS.CHAT_ERROR, handler)
-      return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_ERROR, handler)
+      const handler = (_event: Electron.IpcRendererEvent, data: ChatError) => callback(data);
+      ipcRenderer.on(IPC_EVENTS.CHAT_ERROR, handler);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_ERROR, handler);
     },
     onAborted: (callback: (data: ChatAborted) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: ChatAborted) => callback(data)
-      ipcRenderer.on(IPC_EVENTS.CHAT_ABORTED, handler)
-      return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_ABORTED, handler)
+      const handler = (_event: Electron.IpcRendererEvent, data: ChatAborted) => callback(data);
+      ipcRenderer.on(IPC_EVENTS.CHAT_ABORTED, handler);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_ABORTED, handler);
     },
     onSubagentResult: (callback: (data: ChatSubagentResult) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: ChatSubagentResult) => callback(data)
-      ipcRenderer.on(IPC_EVENTS.CHAT_SUBAGENT_RESULT, handler)
-      return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_SUBAGENT_RESULT, handler)
+      const handler = (_event: Electron.IpcRendererEvent, data: ChatSubagentResult) =>
+        callback(data);
+      ipcRenderer.on(IPC_EVENTS.CHAT_SUBAGENT_RESULT, handler);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_SUBAGENT_RESULT, handler);
     },
   },
 
   // -- Sessions ---------------------------------------------------------------
   sessions: {
-    list: (): Promise<{ sessions: SessionInfo[] }> =>
-      ipcRenderer.invoke(IPC.SESSIONS_LIST),
+    list: (): Promise<{ sessions: SessionInfo[] }> => ipcRenderer.invoke(IPC.SESSIONS_LIST),
     get: (sessionKey: string): Promise<SessionDetail> =>
       ipcRenderer.invoke(IPC.SESSIONS_GET, { session_key: sessionKey }),
     delete: (sessionKey: string): Promise<{ deleted: boolean }> =>
@@ -145,24 +142,26 @@ const api = {
 
   // -- Config -----------------------------------------------------------------
   config: {
-    get: (): Promise<Record<string, unknown>> =>
-      ipcRenderer.invoke(IPC.CONFIG_GET),
+    get: (): Promise<Record<string, unknown>> => ipcRenderer.invoke(IPC.CONFIG_GET),
     update: (config: Record<string, unknown>): Promise<unknown> =>
       ipcRenderer.invoke(IPC.CONFIG_UPDATE, { config }),
   },
 
   // -- Providers --------------------------------------------------------------
   providers: {
-    list: (): Promise<{ providers: ProviderInfo[] }> =>
-      ipcRenderer.invoke(IPC.PROVIDERS_LIST),
+    list: (): Promise<{ providers: ProviderInfo[] }> => ipcRenderer.invoke(IPC.PROVIDERS_LIST),
     test: (providerName: string, apiKey?: string, apiBase?: string): Promise<{ ok: boolean }> =>
-      ipcRenderer.invoke(IPC.PROVIDERS_TEST, { provider_name: providerName, api_key: apiKey, api_base: apiBase ?? null }),
+      ipcRenderer.invoke(IPC.PROVIDERS_TEST, {
+        provider_name: providerName,
+        api_key: apiKey,
+        api_base: apiBase ?? null,
+      }),
     update: (
       providerName: string,
       apiKey?: string,
       apiBase?: string | null,
       extraHeaders?: Record<string, string> | null,
-      model?: string,
+      model?: string
     ): Promise<ProviderUpdateResult> =>
       ipcRenderer.invoke(IPC.PROVIDERS_UPDATE, {
         provider_name: providerName,
@@ -175,16 +174,14 @@ const api = {
 
   // -- Channels ---------------------------------------------------------------
   channels: {
-    list: (): Promise<{ channels: ChannelsConfig }> =>
-      ipcRenderer.invoke(IPC.CHANNELS_LIST),
+    list: (): Promise<{ channels: ChannelsConfig }> => ipcRenderer.invoke(IPC.CHANNELS_LIST),
     update: (channels: Partial<Record<string, unknown>>): Promise<{ saved: boolean }> =>
       ipcRenderer.invoke(IPC.CHANNELS_UPDATE, { channels }),
   },
 
   // -- Approvals --------------------------------------------------------------
   approvals: {
-    list: (): Promise<ApprovalsListResult> =>
-      ipcRenderer.invoke(IPC.APPROVALS_LIST),
+    list: (): Promise<ApprovalsListResult> => ipcRenderer.invoke(IPC.APPROVALS_LIST),
     resolve: (approvalId: string, decision: string): Promise<{ resolved: boolean }> =>
       ipcRenderer.invoke(IPC.APPROVALS_RESOLVE, { approval_id: approvalId, decision }),
     clearPermanent: (pattern?: string): Promise<{ cleared: boolean }> =>
@@ -194,21 +191,24 @@ const api = {
     history: (limit?: number): Promise<ApprovalsHistoryResult> =>
       ipcRenderer.invoke(IPC.APPROVALS_HISTORY, limit ? { limit } : {}),
     onRequest: (callback: (data: PendingApproval) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: PendingApproval) => callback(data)
-      ipcRenderer.on(IPC_EVENTS.APPROVAL_REQUEST, handler)
-      return () => { ipcRenderer.removeListener(IPC_EVENTS.APPROVAL_REQUEST, handler) }
+      const handler = (_event: Electron.IpcRendererEvent, data: PendingApproval) => callback(data);
+      ipcRenderer.on(IPC_EVENTS.APPROVAL_REQUEST, handler);
+      return () => {
+        ipcRenderer.removeListener(IPC_EVENTS.APPROVAL_REQUEST, handler);
+      };
     },
     onCleared: (callback: (data: ApprovalCleared) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: ApprovalCleared) => callback(data)
-      ipcRenderer.on(IPC_EVENTS.APPROVAL_CLEARED, handler)
-      return () => { ipcRenderer.removeListener(IPC_EVENTS.APPROVAL_CLEARED, handler) }
+      const handler = (_event: Electron.IpcRendererEvent, data: ApprovalCleared) => callback(data);
+      ipcRenderer.on(IPC_EVENTS.APPROVAL_CLEARED, handler);
+      return () => {
+        ipcRenderer.removeListener(IPC_EVENTS.APPROVAL_CLEARED, handler);
+      };
     },
   },
 
   // -- Cron --------------------------------------------------------------------
   cron: {
-    list: (): Promise<CronListResult> =>
-      ipcRenderer.invoke(IPC.CRON_LIST),
+    list: (): Promise<CronListResult> => ipcRenderer.invoke(IPC.CRON_LIST),
     create: (payload: Record<string, unknown>): Promise<CronCreateResult> =>
       ipcRenderer.invoke(IPC.CRON_CREATE, payload),
     update: (payload: Record<string, unknown>): Promise<CronUpdateResult> =>
@@ -217,49 +217,55 @@ const api = {
       ipcRenderer.invoke(IPC.CRON_DELETE, { jobId }),
     toggle: (jobId: string, enabled: boolean): Promise<CronUpdateResult> =>
       ipcRenderer.invoke(IPC.CRON_TOGGLE, { jobId, enabled }),
-    run: (jobId: string): Promise<CronUpdateResult> =>
-      ipcRenderer.invoke(IPC.CRON_RUN, { jobId }),
+    run: (jobId: string): Promise<CronUpdateResult> => ipcRenderer.invoke(IPC.CRON_RUN, { jobId }),
     runs: (jobId?: string): Promise<CronRunsResult> =>
       ipcRenderer.invoke(IPC.CRON_RUNS, jobId ? { jobId } : {}),
   },
 
   // -- Memory ------------------------------------------------------------------
   memory: {
-    list: (): Promise<MemoryListResult> =>
-      ipcRenderer.invoke(IPC.MEMORY_LIST),
-    get: (path: string): Promise<MemoryGetResult> =>
-      ipcRenderer.invoke(IPC.MEMORY_GET, { path }),
+    list: (): Promise<MemoryListResult> => ipcRenderer.invoke(IPC.MEMORY_LIST),
+    get: (path: string): Promise<MemoryGetResult> => ipcRenderer.invoke(IPC.MEMORY_GET, { path }),
     update: (path: string, content: string): Promise<{ saved: boolean; path: string }> =>
       ipcRenderer.invoke(IPC.MEMORY_UPDATE, { path, content }),
     delete: (path: string): Promise<{ deleted: boolean; path: string }> =>
       ipcRenderer.invoke(IPC.MEMORY_DELETE, { path }),
-    lessons: (): Promise<MemoryLessonsResult> =>
-      ipcRenderer.invoke(IPC.MEMORY_LESSONS),
+    lessons: (): Promise<MemoryLessonsResult> => ipcRenderer.invoke(IPC.MEMORY_LESSONS),
     lessonUnlearn: (lesson_id: string): Promise<MemoryLessonUnlearnResult> =>
       ipcRenderer.invoke(IPC.MEMORY_LESSON_UNLEARN, { lesson_id }),
   },
 
   // -- Experience ---------------------------------------------------------------
   experience: {
-    list: (params?: { type?: string; scope?: string; session_key?: string; limit?: number }): Promise<{ entries: ExperienceEntry[] }> =>
+    list: (params?: {
+      type?: string;
+      scope?: string;
+      session_key?: string;
+      limit?: number;
+    }): Promise<{ entries: ExperienceEntry[] }> =>
       ipcRenderer.invoke(IPC.EXPERIENCE_LIST, params ?? {}),
     delete: (type: string, id: string): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke(IPC.EXPERIENCE_DELETE, { type, id }),
     toggle: (type: string, id: string, enabled: boolean): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke(IPC.EXPERIENCE_TOGGLE, { type, id, enabled }),
-    search: (query: string, type?: string, limit?: number): Promise<{ entries: ExperienceEntry[] }> =>
+    search: (
+      query: string,
+      type?: string,
+      limit?: number
+    ): Promise<{ entries: ExperienceEntry[] }> =>
       ipcRenderer.invoke(IPC.EXPERIENCE_SEARCH, { query, type, limit }),
   },
 
   // -- Skills ------------------------------------------------------------------
   skills: {
-    list: (): Promise<SkillsListResult> =>
-      ipcRenderer.invoke(IPC.SKILLS_LIST),
-    get: (name: string): Promise<SkillDetail> =>
-      ipcRenderer.invoke(IPC.SKILLS_GET, { name }),
+    list: (): Promise<SkillsListResult> => ipcRenderer.invoke(IPC.SKILLS_LIST),
+    get: (name: string): Promise<SkillDetail> => ipcRenderer.invoke(IPC.SKILLS_GET, { name }),
     openFolder: (name: string): Promise<{ opened: boolean; path: string }> =>
       ipcRenderer.invoke(IPC.SKILLS_OPEN_FOLDER, { name }),
-    create: (name: string, description: string): Promise<{ ok: boolean; error?: string; path?: string }> =>
+    create: (
+      name: string,
+      description: string
+    ): Promise<{ ok: boolean; error?: string; path?: string }> =>
       ipcRenderer.invoke(IPC.SKILLS_CREATE, { name, description }),
     upload: (name: string, content: string): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.SKILLS_UPLOAD, { name, content }),
@@ -269,8 +275,7 @@ const api = {
 
   // -- MCP --------------------------------------------------------------------
   mcps: {
-    list: (): Promise<{ servers: McpServerInfo[] }> =>
-      ipcRenderer.invoke(IPC.MCP_LIST),
+    list: (): Promise<{ servers: McpServerInfo[] }> => ipcRenderer.invoke(IPC.MCP_LIST),
     upsert: (name: string, config: McpServerConfig): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.MCP_UPSERT, { name, ...config }),
     delete: (name: string): Promise<{ ok: boolean }> =>
@@ -279,10 +284,8 @@ const api = {
 
   // -- Files (Workspace Editor) ------------------------------------------------
   files: {
-    tree: (): Promise<FilesTreeResult> =>
-      ipcRenderer.invoke(IPC.FILES_TREE),
-    read: (path: string): Promise<FilesReadResult> =>
-      ipcRenderer.invoke(IPC.FILES_READ, { path }),
+    tree: (): Promise<FilesTreeResult> => ipcRenderer.invoke(IPC.FILES_TREE),
+    read: (path: string): Promise<FilesReadResult> => ipcRenderer.invoke(IPC.FILES_READ, { path }),
     write: (path: string, content: string, sessionKey?: string): Promise<FilesWriteResult> =>
       ipcRenderer.invoke(IPC.FILES_WRITE, { path, content, session_key: sessionKey }),
     delete: (path: string): Promise<{ deleted: boolean; path: string }> =>
@@ -297,34 +300,35 @@ const api = {
 
   // -- Python check -----------------------------------------------------------
   python: {
-    check: (): Promise<PythonCheckResult> =>
-      ipcRenderer.invoke(IPC.PYTHON_CHECK),
+    check: (): Promise<PythonCheckResult> => ipcRenderer.invoke(IPC.PYTHON_CHECK),
   },
 
   // -- WSL2 check & install (Windows only) ------------------------------------
   wsl: {
-    check: (): Promise<WslCheckResult> =>
-      ipcRenderer.invoke(IPC.WSL_CHECK),
+    check: (): Promise<WslCheckResult> => ipcRenderer.invoke(IPC.WSL_CHECK),
     install: (): Promise<{ launched: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.WSL_INSTALL),
     exportDistro: (distroName: string): Promise<WslExportDistroResult> =>
       ipcRenderer.invoke(IPC.WSL_EXPORT_DISTRO, distroName),
-    importDistro: (options: { tarPath: string; distroName: string }): Promise<WslImportDistroResult> =>
-      ipcRenderer.invoke(IPC.WSL_IMPORT_DISTRO, options),
+    importDistro: (options: {
+      tarPath: string;
+      distroName: string;
+    }): Promise<WslImportDistroResult> => ipcRenderer.invoke(IPC.WSL_IMPORT_DISTRO, options),
     getStats: (distroName?: string): Promise<WslStatsResult> =>
       ipcRenderer.invoke(IPC.WSL_GET_STATS, distroName ?? undefined),
   },
 
   // -- Initial config write (no bridge needed) --------------------------------
   setup: {
-    writeInitialConfig: (config: Record<string, unknown>): Promise<{ saved: boolean; path: string }> =>
+    writeInitialConfig: (
+      config: Record<string, unknown>
+    ): Promise<{ saved: boolean; path: string }> =>
       ipcRenderer.invoke(IPC.CONFIG_WRITE_INITIAL, config),
   },
 
   // -- Dialog -----------------------------------------------------------------
   dialog: {
-    openFile: (): Promise<string | null> =>
-      ipcRenderer.invoke(IPC.DIALOG_OPEN_FILE),
+    openFile: (): Promise<string | null> => ipcRenderer.invoke(IPC.DIALOG_OPEN_FILE),
   },
 
   // -- Agents (Phase 1) --------------------------------------------------------
@@ -336,14 +340,16 @@ const api = {
     kill: (agentId: string): Promise<{ killed: boolean }> =>
       ipcRenderer.invoke(IPC.AGENT_KILL, { agent_id: agentId }),
     onSpawned: (callback: (data: AgentSpawnedEvent) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: AgentSpawnedEvent) => callback(data)
-      ipcRenderer.on(IPC_EVENTS.AGENT_SPAWNED, handler)
-      return () => ipcRenderer.removeListener(IPC_EVENTS.AGENT_SPAWNED, handler)
+      const handler = (_event: Electron.IpcRendererEvent, data: AgentSpawnedEvent) =>
+        callback(data);
+      ipcRenderer.on(IPC_EVENTS.AGENT_SPAWNED, handler);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.AGENT_SPAWNED, handler);
     },
     onCompleted: (callback: (data: AgentCompletedEvent) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: AgentCompletedEvent) => callback(data)
-      ipcRenderer.on(IPC_EVENTS.AGENT_COMPLETED, handler)
-      return () => ipcRenderer.removeListener(IPC_EVENTS.AGENT_COMPLETED, handler)
+      const handler = (_event: Electron.IpcRendererEvent, data: AgentCompletedEvent) =>
+        callback(data);
+      ipcRenderer.on(IPC_EVENTS.AGENT_COMPLETED, handler);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.AGENT_COMPLETED, handler);
     },
   },
 
@@ -352,16 +358,15 @@ const api = {
     get: (threadId: string): Promise<{ plan: Plan | null }> =>
       ipcRenderer.invoke(IPC.PLAN_GET, { thread_id: threadId }),
     onUpdated: (callback: (data: PlanUpdatedEvent) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: PlanUpdatedEvent) => callback(data)
-      ipcRenderer.on(IPC_EVENTS.PLAN_UPDATED, handler)
-      return () => ipcRenderer.removeListener(IPC_EVENTS.PLAN_UPDATED, handler)
+      const handler = (_event: Electron.IpcRendererEvent, data: PlanUpdatedEvent) => callback(data);
+      ipcRenderer.on(IPC_EVENTS.PLAN_UPDATED, handler);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.PLAN_UPDATED, handler);
     },
   },
 
   // -- Permissions (Phase 1) ---------------------------------------------------
   permissions: {
-    get: (): Promise<Record<string, unknown>> =>
-      ipcRenderer.invoke(IPC.PERMISSIONS_GET),
+    get: (): Promise<Record<string, unknown>> => ipcRenderer.invoke(IPC.PERMISSIONS_GET),
     update: (config: Record<string, unknown>): Promise<{ saved: boolean }> =>
       ipcRenderer.invoke(IPC.PERMISSIONS_UPDATE, { config }),
     addPermanent: (pattern: string): Promise<{ added: boolean }> =>
@@ -384,31 +389,56 @@ const api = {
 
   // -- Threads (Phase 36+) -----------------------------------------------------
   threads: {
-    start: (params: { title?: string; session_key?: string; thread_id?: string }): Promise<ThreadStartResult> =>
-      ipcRenderer.invoke(IPC.THREAD_START, params),
+    start: (params: {
+      title?: string;
+      session_key?: string;
+      thread_id?: string;
+    }): Promise<ThreadStartResult> => ipcRenderer.invoke(IPC.THREAD_START, params),
     list: (params?: { session_key?: string }): Promise<ThreadListResult> =>
       ipcRenderer.invoke(IPC.THREAD_LIST, params ?? {}),
     read: (threadId: string, sessionKey?: string): Promise<ThreadReadResult> =>
       ipcRenderer.invoke(IPC.THREAD_READ, { thread_id: threadId, session_key: sessionKey }),
-    nameSet: (threadId: string, name: string, sessionKey?: string): Promise<{ thread: Record<string, unknown> }> =>
-      ipcRenderer.invoke(IPC.THREAD_NAME_SET, { thread_id: threadId, name, session_key: sessionKey }),
+    nameSet: (
+      threadId: string,
+      name: string,
+      sessionKey?: string
+    ): Promise<{ thread: Record<string, unknown> }> =>
+      ipcRenderer.invoke(IPC.THREAD_NAME_SET, {
+        thread_id: threadId,
+        name,
+        session_key: sessionKey,
+      }),
     onStarted: (callback: (data: ThreadStartedEvent) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: ThreadStartedEvent) => callback(data)
-      ipcRenderer.on(IPC_EVENTS.THREAD_STARTED, handler)
-      return () => ipcRenderer.removeListener(IPC_EVENTS.THREAD_STARTED, handler)
+      const handler = (_event: Electron.IpcRendererEvent, data: ThreadStartedEvent) =>
+        callback(data);
+      ipcRenderer.on(IPC_EVENTS.THREAD_STARTED, handler);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.THREAD_STARTED, handler);
     },
   },
 
   // -- Turns (Phase 37+) --------------------------------------------------------
   turns: {
-    start: (params: { thread_id: string; content: string; session_key?: string; model?: string; effort?: string }): Promise<TurnStartResult> =>
-      ipcRenderer.invoke(IPC.TURN_START, params),
-    interrupt: (threadId: string, turnId: string, sessionKey?: string): Promise<TurnInterruptResult> =>
-      ipcRenderer.invoke(IPC.TURN_INTERRUPT, { thread_id: threadId, turn_id: turnId, session_key: sessionKey }),
+    start: (params: {
+      thread_id: string;
+      content: string;
+      session_key?: string;
+      model?: string;
+      effort?: string;
+    }): Promise<TurnStartResult> => ipcRenderer.invoke(IPC.TURN_START, params),
+    interrupt: (
+      threadId: string,
+      turnId: string,
+      sessionKey?: string
+    ): Promise<TurnInterruptResult> =>
+      ipcRenderer.invoke(IPC.TURN_INTERRUPT, {
+        thread_id: threadId,
+        turn_id: turnId,
+        session_key: sessionKey,
+      }),
   },
-}
+};
 
-contextBridge.exposeInMainWorld('miqi', api)
+contextBridge.exposeInMainWorld('miqi', api);
 
 // Type declaration for renderer
-export type MiQiAPI = typeof api
+export type MiQiAPI = typeof api;
