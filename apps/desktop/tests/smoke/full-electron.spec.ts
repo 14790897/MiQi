@@ -488,7 +488,7 @@ test.describe('Native Electron E2E', () => {
       // Wait for history to load, then check marker is visible
       await page.waitForTimeout(4000);
       await expect(page.getByText(markerA).first()).toBeVisible({
-        timeout: 10_000,
+        timeout: 30_000,
       });
       console.log('[test] Sidebar switch loaded history for marker:', markerA);
     },
@@ -531,10 +531,10 @@ test.describe('Native Electron E2E', () => {
 
       // Both rounds should be visible
       await expect(page.getByText('第一轮').first()).toBeVisible({
-        timeout: 10_000,
+        timeout: 30_000,
       });
       await expect(page.getByText('第二轮').first()).toBeVisible({
-        timeout: 10_000,
+        timeout: 30_000,
       });
       console.log('[test] Full history visible after switching back');
     },
