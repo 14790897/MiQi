@@ -2,98 +2,104 @@
 @import '@fontsource/inter';
 
 /* ------------------------------------------------------------------ */
-/* MiQi Desktop — Design Tokens (WorkBench style)                     */
+/* MiQi Desktop — Design Tokens (原型配色)                              */
 /* ------------------------------------------------------------------ */
 
 :root {
   /* Backgrounds */
-  --background: #f5f0e8;
-  --surface: #faf7f2;
-  --surface-muted: #ede8e0;
-  --surface-elevated: #ffffff;
+  --background: #F8F7E0;          /* chat area — 浅米奶油黄 */
+  --surface: #FFFFFF;             /* sidebar / nav — 纯白 */
+  --surface-muted: #F2F2F0;       /* input area / muted — 浅灰 */
+  --surface-elevated: #FFFFFF;
 
-  /* Top nav */
-  --topbar-bg: #1e1b18;
-  --topbar-text: #d6cfc5;
-  --topbar-border: #2e2a26;
+  /* Top nav — 纯白底色 */
+  --topbar-bg: #FFFFFF;
+  --topbar-text: #121212;
+  --topbar-border: #E4E4E0;
+  --topbar-muted-text: #888888;
+
+  /* Avatar / Logo 深色块 */
+  --avatar-dark: #2A2A48;        /* 用户头像 / Logo 深靛蓝 */
 
   /* Sidebar */
-  --sidebar-bg: #ffffff;
-  --sidebar-border: #e8e2d8;
+  --sidebar-bg: #FFFFFF;
+  --sidebar-border: #E4E4E0;
 
   /* Right panel */
-  --panel-bg: #ffffff;
-  --panel-border: #e8e2d8;
+  --panel-bg: #FFFFFF;
+  --panel-border: #E4E4E0;
 
   /* Borders */
-  --border: #d4cdc3;
-  --border-subtle: #e8e2d8;
+  --border: #D0D0D0;             /* 输入框边框 */
+  --border-subtle: #E4E4E0;      /* 侧边分割线 / 卡片边框 */
 
   /* Text */
-  --text: #1a1714;
-  --text-muted: #6b6258;
-  --text-faint: #9a9088;
+  --text: #121212;               /* 主标题 / 菜单文字 */
+  --text-muted: #555555;         /* 次要描述文字 */
+  --text-faint: #888888;         /* 辅助小字 / 时间 */
 
-  /* Accent — warm amber/orange */
-  --accent: #e8a020;
-  --accent-hover: #d4901a;
-  --accent-soft: #fef3d0;
-  --accent-text: #7a4e00;
+  /* Accent — 亮黄色 */
+  --accent: #F9D048;             /* 高亮操作按钮 (SHARE TASK / EDIT) */
+  --accent-hover: #e0b830;
+  --accent-soft: #F9E8B0;        /* MERGE ALL CHANGES 底部按钮 */
+  --accent-text: #121212;        /* 深色文字配亮黄底 */
 
   /* Status colors */
-  --success: #2d7a4a;
-  --success-bg: #d4f0e0;
-  --warning: #b07010;
-  --warning-bg: #fef3cc;
+  --success: #36C860;            /* 绿色同步标记 */
+  --success-bg: #d4f5e0;
+  --warning: #F9D048;
+  --warning-bg: #F9E8B0;
   --danger: #c04040;
-  --danger-bg: #fde8e8;
-  --info: #3060a0;
-  --info-bg: #dceeff;
+  --danger-bg: #F8E8E8;          /* ACTIVE FOR EDIT 文件卡片 */
+  --info: #2066D0;               /* 链接 / 高亮提示蓝 */
+  --info-bg: #E0EDFF;            /* IN-PROGRESS 标签底色 */
 
   /* Chat bubbles */
-  --bubble-user-bg: #1e1b18;
-  --bubble-user-text: #f0ece4;
-  --bubble-ai-bg: #ffffff;
-  --bubble-ai-text: #1a1714;
-  --bubble-ai-border: #e8e2d8;
+  --bubble-user-bg: #2A2A48;     /* 用户发送气泡 — 深靛蓝黑 */
+  --bubble-user-text: #FFFFFF;
+  --bubble-ai-bg: #FFFFFF;       /* Agent 回复气泡 — 纯白 */
+  --bubble-ai-text: #222222;
+  --bubble-ai-border: #E4E4E0;
 
   /* Task status tags */
-  --tag-review-bg: #fef3d0;
-  --tag-review-text: #a06000;
-  --tag-completed-bg: #d4f0e0;
-  --tag-completed-text: #1a6030;
-  --tag-inprogress-bg: #dceeff;
-  --tag-inprogress-text: #1848a0;
+  --tag-review-bg: #F8E8E8;      /* ACTIVE FOR EDIT 卡片 */
+  --tag-review-text: #c04040;
+  --tag-completed-bg: #222222;   /* DONE 按钮 */
+  --tag-completed-text: #FFFFFF;
+  --tag-inprogress-bg: #E0EDFF;  /* IN-PROGRESS 标签 */
+  --tag-inprogress-text: #1A5BB8;
 
   --radius: 8px;
 }
 
 .dark {
-  --background: #191714;
-  --surface: #211e1a;
-  --surface-muted: #2a261f;
-  --surface-elevated: #302b24;
-  --topbar-bg: #0e0d0b;
-  --topbar-text: #b8aa99;
-  --topbar-border: #1e1a16;
-  --sidebar-bg: #211e1a;
-  --sidebar-border: #332d27;
-  --panel-bg: #211e1a;
-  --panel-border: #332d27;
-  --border: #443b32;
-  --border-subtle: #332d27;
-  --text: #f3eadf;
-  --text-muted: #b8aa99;
-  --text-faint: #8f8173;
-  --accent: #e8a020;
-  --accent-hover: #d4901a;
-  --accent-soft: #4a3010;
-  --accent-text: #ffd080;
-  --bubble-user-bg: #0e0d0b;
-  --bubble-user-text: #f0ece4;
-  --bubble-ai-bg: #2a261f;
-  --bubble-ai-text: #f3eadf;
-  --bubble-ai-border: #443b32;
+  --background: #1a1a1a;
+  --surface: #242424;
+  --surface-muted: #2e2e2e;
+  --surface-elevated: #333333;
+  --topbar-bg: #242424;
+  --topbar-text: #E4E4E0;
+  --topbar-muted-text: #888888;
+  --topbar-border: #3a3a3a;
+  --avatar-dark: #5a5a7a;
+  --sidebar-bg: #242424;
+  --sidebar-border: #3a3a3a;
+  --panel-bg: #242424;
+  --panel-border: #3a3a3a;
+  --border: #444444;
+  --border-subtle: #3a3a3a;
+  --text: #E4E4E0;
+  --text-muted: #A0A0A0;
+  --text-faint: #707070;
+  --accent: #F9D048;
+  --accent-hover: #e0b830;
+  --accent-soft: #4a3a10;
+  --accent-text: #121212;
+  --bubble-user-bg: #3a3a5a;
+  --bubble-user-text: #FFFFFF;
+  --bubble-ai-bg: #2e2e2e;
+  --bubble-ai-text: #E4E4E0;
+  --bubble-ai-border: #444444;
 }
 
 /* ------------------------------------------------------------------ */

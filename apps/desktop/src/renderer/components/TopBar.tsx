@@ -41,11 +41,11 @@ export function TopBar() {
           )}
           style={{
             background: isRunning
-              ? 'rgba(45, 122, 74, 0.3)'
+              ? 'var(--success-bg)'
               : isStarting
-                ? 'rgba(180, 120, 20, 0.3)'
-                : 'rgba(180, 60, 60, 0.3)',
-            color: isRunning ? '#6ee09a' : isStarting ? '#f0c060' : '#f08080',
+                ? 'var(--warning-bg)'
+                : 'var(--danger-bg)',
+            color: isRunning ? 'var(--success)' : isStarting ? 'var(--warning)' : 'var(--danger)',
           }}
         >
           {isStarting ? (
@@ -64,13 +64,13 @@ export function TopBar() {
         <div className="text-right hidden sm:block">
           <div
             className="text-xs font-medium"
-            style={{ color: 'rgba(255,255,255,0.75)' }}
+            style={{ color: 'var(--topbar-text)' }}
           >
             MiQi Agent
           </div>
           <div
             className="text-[10px]"
-            style={{ color: 'rgba(255,255,255,0.4)' }}
+            style={{ color: 'var(--topbar-muted-text)' }}
           >
             Core Agent
           </div>
@@ -78,8 +78,8 @@ export function TopBar() {
         <div
           className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold"
           style={{
-            background: 'rgba(255,255,255,0.15)',
-            color: 'rgba(255,255,255,0.8)',
+            background: 'var(--avatar-dark)',
+            color: '#fff',
           }}
         >
           M

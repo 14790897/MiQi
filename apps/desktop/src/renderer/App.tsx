@@ -121,7 +121,7 @@ function AppShell() {
           alignItems: 'center',
           justifyContent: 'center',
           height: '100vh',
-          background: '#1e1b18',
+          background: 'var(--avatar-dark)',
           fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
         }}
       >

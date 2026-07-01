@@ -120,7 +120,7 @@ export function Sidebar({
       >
         <div
           className="w-7 h-7 rounded-md flex items-center justify-center text-white text-sm font-bold shrink-0"
-          style={{ background: 'var(--topbar-bg)' }}
+          style={{ background: 'var(--avatar-dark)' }}
         >
           M
         </div>

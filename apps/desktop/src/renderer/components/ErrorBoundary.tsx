@@ -47,8 +47,8 @@ export class ErrorBoundary extends Component<Props, State> {
             height: '100vh',
             padding: '24px',
             fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
-            background: '#f7f3ea',
-            color: '#2b2621',
+            background: 'var(--background)',
+            color: 'var(--text)',
           }}
         >
           <div
@@ -65,7 +65,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 width: '48px',
                 height: '48px',
                 borderRadius: '12px',
-                background: '#fce8e8',
+                background: 'var(--danger-bg)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -98,12 +98,12 @@ export class ErrorBoundary extends Component<Props, State> {
               style={{
                 margin: 0,
                 padding: '12px',
-                background: '#ede8e0',
+                background: 'var(--surface-muted)',
                 borderRadius: '8px',
                 fontSize: '11px',
                 textAlign: 'left',
                 overflowX: 'auto',
-                color: '#2b2621',
+                color: 'var(--text)',
                 maxHeight: '200px',
                 overflowY: 'auto',
               }}
@@ -114,7 +114,7 @@ export class ErrorBoundary extends Component<Props, State> {
               onClick={this.reset}
               style={{
                 padding: '8px 20px',
-                background: '#c96442',
+                background: 'var(--danger)',
                 color: 'white',
                 border: 'none',
                 borderRadius: '8px',
