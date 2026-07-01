@@ -390,9 +390,12 @@ class TaskRunner:
         thread_id = msg.thread_id or "cli:default"
 
         # Phase 14 follow-up: register a cancel event so AbortTurn can
-        # signal this specific turn to stop.
-        cancel_evt = asyncio.Event()
-        self._turn_cancel_events[thread_id] = cancel_evt
+        # signal this specific turn to stop. Reuse existing event if a
+        # previous turn on the same thread hasn't been cleaned up yet.
+        cancel_evt = self._turn_cancel_events.get(thread_id)
+        if cancel_evt is None:
+            cancel_evt = asyncio.Event()
+            self._turn_cancel_events[thread_id] = cancel_evt
 
         # Phase 41: register steer queue and active turn id
         steer_queue: asyncio.Queue = asyncio.Queue()
@@ -706,8 +709,13 @@ class TaskRunner:
                 token_usage={},
             ))
         finally:
-            self._turn_cancel_events.pop(thread_id, None)
-            self._active_turn_ids.pop(thread_id, None)
+            # Only clear entries this turn still owns — a concurrent turn
+            # on the same thread may have reused the cancel event and
+            # overwritten the active turn id (PR #58 fix).
+            if self._turn_cancel_events.get(thread_id) is cancel_evt:
+                self._turn_cancel_events.pop(thread_id, None)
+            if self._active_turn_ids.get(thread_id) == turn_id:
+                self._active_turn_ids.pop(thread_id, None)
             self._turn_steer_queues.pop(turn_id, None)
 
     async def _handle_thread_command(self, cmd: ThreadCommand) -> None:
