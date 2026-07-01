@@ -274,8 +274,11 @@ runs:
           const MAX_LEN = 8000;
           const truncated = prompt.length > MAX_LEN ? prompt.substring(0, MAX_LEN - 100) + '\n...(内容过长已截断)' : prompt;
 
+          // 兼容基地址是否已包含 /v1：去掉末尾 /v1 和多余斜杠
+          const cleanBase = apiBase.replace(/\/+$/, '').replace(/\/v1$/, '');
+
           try {
-            const response = await fetch(`${apiBase}/v1/chat/completions`, {
+            const response = await fetch(`${cleanBase}/v1/chat/completions`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
