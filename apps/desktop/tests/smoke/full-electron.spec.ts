@@ -16,13 +16,15 @@ import { resolve } from 'node:path';
 
 const APPS_DESKTOP = resolve(__dirname, '../..');
 
-const LLM_TIMEOUT = 180_000;   // real AI call
+const LLM_TIMEOUT = 180_000; // real AI call
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
 /** Wait for the chat input textarea to be present and enabled */
 async function waitForInputReady(page: Page, timeout = 60_000) {
-  const textarea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
+  const textarea = page.getByPlaceholder(
+    'Ask Agent to analyze or edit files...',
+  );
   await expect(textarea).toBeEnabled({ timeout });
   return textarea;
 }
@@ -63,7 +65,9 @@ async function createNewConversation(page: Page): Promise<string> {
   await expect(newChatBtn).toBeVisible();
   await newChatBtn.click();
   const titleEl = getSessionTitle(page);
-  await expect(titleEl).not.toHaveText(oldTitle || '__NONEXISTENT__', { timeout: 10_000 });
+  await expect(titleEl).not.toHaveText(oldTitle || '__NONEXISTENT__', {
+    timeout: 10_000,
+  });
   await waitForInputReady(page, 15_000);
   await waitForSidebarRefresh(page);
   return (await titleEl.textContent()) || '';
@@ -76,7 +80,9 @@ async function createNewConversationViaSidebar(page: Page): Promise<string> {
   await expect(sidebarPlusBtn).toBeVisible();
   await sidebarPlusBtn.click();
   const titleEl = getSessionTitle(page);
-  await expect(titleEl).not.toHaveText(oldTitle || '__NONEXISTENT__', { timeout: 10_000 });
+  await expect(titleEl).not.toHaveText(oldTitle || '__NONEXISTENT__', {
+    timeout: 10_000,
+  });
   await waitForInputReady(page, 15_000);
   await waitForSidebarRefresh(page);
   return (await titleEl.textContent()) || '';
@@ -92,7 +98,10 @@ async function waitForSidebarRefresh(page: Page, _timeout = 10_000) {
  *  This is more reliable than matching by title because the sidebar
  *  displays formatted timestamps (via formatTimestampKey) while the
  *  ChatConsole header shows the raw timestamp. */
-async function switchToSessionWithMarker(page: Page, marker: string): Promise<boolean> {
+async function switchToSessionWithMarker(
+  page: Page,
+  marker: string,
+): Promise<boolean> {
   const chatNav = page.getByRole('button', { name: '对话', exact: true });
   await chatNav.click();
   await page.waitForTimeout(500);
@@ -102,7 +111,9 @@ async function switchToSessionWithMarker(page: Page, marker: string): Promise<bo
 
   const items = getSidebarSessionItems(page);
   const count = await items.count();
-  console.log(`[test] Searching ${count} sidebar sessions for marker: ${marker}`);
+  console.log(
+    `[test] Searching ${count} sidebar sessions for marker: ${marker}`,
+  );
 
   for (let i = 0; i < count; i++) {
     await items.nth(i).click();
@@ -110,14 +121,19 @@ async function switchToSessionWithMarker(page: Page, marker: string): Promise<bo
     // Wait for chat area to render messages
     await page.waitForTimeout(4000);
 
-    const markerVisible = await page.getByText(marker, { exact: false }).isVisible().catch(() => false);
+    const markerVisible = await page
+      .getByText(marker, { exact: false })
+      .isVisible()
+      .catch(() => false);
     if (markerVisible) {
       console.log(`[test] Found marker "${marker}" in session #${i}`);
       return true;
     }
   }
 
-  console.log(`[test] Marker "${marker}" not found in any of ${count} sessions`);
+  console.log(
+    `[test] Marker "${marker}" not found in any of ${count} sessions`,
+  );
   return false;
 }
 
@@ -158,14 +174,17 @@ test.describe('Native Electron E2E', () => {
     const bridgeReady = await page.evaluate(async () => {
       for (let i = 0; i < 60; i++) {
         try {
-          const s = await window.miqi.runtime.status()
-          if (s?.state === 'running') return true
-        } catch { /* preload not injected yet */ }
-        await new Promise(r => setTimeout(r, 1000))
+          const s = await window.miqi.runtime.status();
+          if (s?.state === 'running') return true;
+        } catch {
+          /* preload not injected yet */
+        }
+        await new Promise((r) => setTimeout(r, 1000));
       }
-      return false
-    })
-    if (!bridgeReady) console.log('[test] Warning: bridge did not reach running state')
+      return false;
+    });
+    if (!bridgeReady)
+      console.log('[test] Warning: bridge did not reach running state');
 
     console.log('[test] Ready');
   }, 120_000);
@@ -179,14 +198,22 @@ test.describe('Native Electron E2E', () => {
   // ═══════════════════════════════════════════════════════════════
 
   test('app launches and renders correctly', async () => {
-    await expect(page.getByText('MiQi Workbench')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('MiQi Workbench')).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(
-      page.getByPlaceholder('Ask Agent to analyze or edit files...')
+      page.getByPlaceholder('Ask Agent to analyze or edit files...'),
     ).toBeVisible({ timeout: 10_000 });
 
-    await expect(page.getByRole('button', { name: '对话', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: '设置', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: '会话', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: '对话', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: '设置', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: '会话', exact: true }),
+    ).toBeVisible();
     await expect(page.getByText('Tasks').first()).toBeVisible();
 
     await expect(page.getByRole('button', { name: 'New Chat' })).toBeVisible();
@@ -196,310 +223,418 @@ test.describe('Native Electron E2E', () => {
   test('right panel shows Task Assets', async () => {
     // The right panel should show "Task Assets" header with LayoutGrid icon.
     // Default state is panelOpen=true, showing the empty-state message.
-    await expect(page.getByText('Task Assets')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Task Assets')).toBeVisible({
+      timeout: 10_000,
+    });
 
     // Toggle button exists
     const toggleBtn = page.locator('button[title="Toggle assets panel"]');
     await expect(toggleBtn).toBeVisible();
 
     // Empty state message when no agent operations
-    await expect(page.getByText(/No files yet/)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/No files yet/)).toBeVisible({
+      timeout: 5_000,
+    });
 
     // Toggle panel closed and verify it hides
     await toggleBtn.click();
-    await expect(page.getByText('Task Assets')).not.toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('Task Assets')).not.toBeVisible({
+      timeout: 5_000,
+    });
 
     // Toggle panel back open
     await toggleBtn.click();
     await expect(page.getByText('Task Assets')).toBeVisible({ timeout: 5_000 });
   });
 
-  test('basic AI responds to simple prompt', { timeout: LLM_TIMEOUT }, async () => {
-    await sendMessage(page, '只回复一个英文单词：TestOK');
-    await expect(page.getByText('TestOK').first()).toBeVisible({ timeout: 120_000 });
-    await waitForResponseComplete(page);
-  });
+  test(
+    'basic AI responds to simple prompt',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      await sendMessage(page, '只回复一个英文单词：TestOK');
+      await expect(page.getByText('TestOK').first()).toBeVisible({
+        timeout: 120_000,
+      });
+      await waitForResponseComplete(page);
+    },
+  );
 
-  test('web search with real search tool', { timeout: LLM_TIMEOUT }, async () => {
-    await sendMessage(page, '搜索今天北京的天气，简要回复');
-    await expect(
-      page.getByText(/天气|℃|温度|Weather|Beijing/i).first()
-    ).toBeVisible({ timeout: 120_000 });
-    await waitForResponseComplete(page);
-    console.log('[test] Web search completed');
-  });
+  test(
+    'web search with real search tool',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      await sendMessage(page, '搜索今天北京的天气，简要回复');
+      await expect(
+        page.getByText(/天气|℃|温度|Weather|Beijing/i).first(),
+      ).toBeVisible({ timeout: 120_000 });
+      await waitForResponseComplete(page);
+      console.log('[test] Web search completed');
+    },
+  );
 
   // ═══════════════════════════════════════════════════════════════
   //  SECTION 2: Conversation Creation
   // ═══════════════════════════════════════════════════════════════
 
-  test('create new conversation via "New Chat" button', { timeout: 60_000 }, async () => {
-    const initialCount = await getSidebarSessionCount(page);
-    const newTitle = await createNewConversation(page);
+  test(
+    'create new conversation via "New Chat" button',
+    { timeout: 60_000 },
+    async () => {
+      const initialCount = await getSidebarSessionCount(page);
+      const newTitle = await createNewConversation(page);
 
-    expect(newTitle).toMatch(/^\d+$/);
-    console.log(`[test] New session title: ${newTitle}`);
+      expect(newTitle).toMatch(/^\d+$/);
+      console.log(`[test] New session title: ${newTitle}`);
 
-    await expect(page.getByText('TestOK')).not.toBeVisible({ timeout: 5_000 });
+      await expect(page.getByText('TestOK')).not.toBeVisible({
+        timeout: 5_000,
+      });
 
-    const newCount = await getSidebarSessionCount(page);
-    expect(newCount).toBeGreaterThanOrEqual(initialCount);
-    console.log(`[test] Sidebar sessions: ${initialCount} → ${newCount}`);
-  });
+      const newCount = await getSidebarSessionCount(page);
+      expect(newCount).toBeGreaterThanOrEqual(initialCount);
+      console.log(`[test] Sidebar sessions: ${initialCount} → ${newCount}`);
+    },
+  );
 
-  test('create new conversation via sidebar "+" button', { timeout: 60_000 }, async () => {
-    const initialCount = await getSidebarSessionCount(page);
-    const newTitle = await createNewConversationViaSidebar(page);
+  test(
+    'create new conversation via sidebar "+" button',
+    { timeout: 60_000 },
+    async () => {
+      const initialCount = await getSidebarSessionCount(page);
+      const newTitle = await createNewConversationViaSidebar(page);
 
-    expect(newTitle).toMatch(/^\d+$/);
-    console.log(`[test] Sidebar-created session title: ${newTitle}`);
+      expect(newTitle).toMatch(/^\d+$/);
+      console.log(`[test] Sidebar-created session title: ${newTitle}`);
 
-    const newCount = await getSidebarSessionCount(page);
-    expect(newCount).toBeGreaterThanOrEqual(initialCount);
-    console.log(`[test] Sidebar sessions after "+": ${initialCount} → ${newCount}`);
-  });
+      const newCount = await getSidebarSessionCount(page);
+      expect(newCount).toBeGreaterThanOrEqual(initialCount);
+      console.log(
+        `[test] Sidebar sessions after "+": ${initialCount} → ${newCount}`,
+      );
+    },
+  );
 
-  test('New Chat button clears message history', { timeout: LLM_TIMEOUT }, async () => {
-    const chatNav = page.getByRole('button', { name: '对话', exact: true });
-    await chatNav.click();
-    await waitForInputReady(page, 15_000);
+  test(
+    'New Chat button clears message history',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      const chatNav = page.getByRole('button', { name: '对话', exact: true });
+      await chatNav.click();
+      await waitForInputReady(page, 15_000);
 
-    await sendMessage(page, '只回复一个单词：ClearTest');
-    await expect(page.getByText('ClearTest').first()).toBeVisible({ timeout: 120_000 });
-    await waitForResponseComplete(page);
+      await sendMessage(page, '只回复一个单词：ClearTest');
+      await expect(page.getByText('ClearTest').first()).toBeVisible({
+        timeout: 120_000,
+      });
+      await waitForResponseComplete(page);
 
-    await createNewConversation(page);
+      await createNewConversation(page);
 
-    await expect(page.getByText('ClearTest')).not.toBeVisible({ timeout: 5_000 });
-  });
+      await expect(page.getByText('ClearTest')).not.toBeVisible({
+        timeout: 5_000,
+      });
+    },
+  );
 
   // ═══════════════════════════════════════════════════════════════
   //  SECTION 3: Conversation Switching & History
   // ═══════════════════════════════════════════════════════════════
 
-  test('conversation isolation: messages do not leak between sessions', { timeout: LLM_TIMEOUT }, async () => {
-    const markerA = `IsolationA_${Date.now()}`;
-    await sendMessage(page, `请只回复这个编号：${markerA}`);
-    await expect(page.getByText(markerA)).toBeVisible({ timeout: 120_000 });
-    await waitForResponseComplete(page);
+  test(
+    'conversation isolation: messages do not leak between sessions',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      const markerA = `IsolationA_${Date.now()}`;
+      await sendMessage(page, `请只回复这个编号：${markerA}`);
+      await expect(page.getByText(markerA)).toBeVisible({ timeout: 120_000 });
+      await waitForResponseComplete(page);
 
-    const titleA = await getSessionTitle(page).textContent();
-    console.log(`[test] Session A title: ${titleA}`);
+      const titleA = await getSessionTitle(page).textContent();
+      console.log(`[test] Session A title: ${titleA}`);
 
-    await createNewConversation(page);
+      await createNewConversation(page);
 
-    const markerB = `IsolationB_${Date.now()}`;
-    await sendMessage(page, `请只回复这个编号：${markerB}`);
-    await expect(page.getByText(markerB)).toBeVisible({ timeout: 120_000 });
-    await waitForResponseComplete(page);
+      const markerB = `IsolationB_${Date.now()}`;
+      await sendMessage(page, `请只回复这个编号：${markerB}`);
+      await expect(page.getByText(markerB)).toBeVisible({ timeout: 120_000 });
+      await waitForResponseComplete(page);
 
-    await expect(page.getByText(markerA)).not.toBeVisible({ timeout: 5_000 });
+      await expect(page.getByText(markerA)).not.toBeVisible({ timeout: 5_000 });
 
-    const sessionsNav = page.getByRole('button', { name: '会话', exact: true });
-    await sessionsNav.click();
-    await expect(page.getByText('Sessions').first()).toBeVisible({ timeout: 10_000 });
+      const sessionsNav = page.getByRole('button', {
+        name: '会话',
+        exact: true,
+      });
+      await sessionsNav.click();
+      await expect(page.getByText('Sessions').first()).toBeVisible({
+        timeout: 10_000,
+      });
 
-    await page.waitForTimeout(3000);
-    const sessionList = page.locator('div[role="button"]');
-    const sessionCount = await sessionList.count();
-    console.log(`[test] Sessions page has ${sessionCount} entries`);
-    expect(sessionCount).toBeGreaterThan(0);
+      await page.waitForTimeout(3000);
+      const sessionList = page.locator('div[role="button"]');
+      const sessionCount = await sessionList.count();
+      console.log(`[test] Sessions page has ${sessionCount} entries`);
+      expect(sessionCount).toBeGreaterThan(0);
 
-    console.log('[test] Conversation isolation verified via Sessions page');
+      console.log('[test] Conversation isolation verified via Sessions page');
 
-    const chatNav = page.getByRole('button', { name: '对话', exact: true });
-    await chatNav.click();
-    await waitForInputReady(page, 15_000);
-  });
+      const chatNav = page.getByRole('button', { name: '对话', exact: true });
+      await chatNav.click();
+      await waitForInputReady(page, 15_000);
+    },
+  );
 
-  test('switch between conversations via sidebar preserves history', { timeout: LLM_TIMEOUT }, async () => {
-    const markerSwitch = `SwitchBack_${Date.now()}`;
-    await sendMessage(page, `请只回复：${markerSwitch}`);
-    await expect(page.getByText(markerSwitch)).toBeVisible({ timeout: 120_000 });
-    await waitForResponseComplete(page);
+  test(
+    'switch between conversations via sidebar preserves history',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      const markerSwitch = `SwitchBack_${Date.now()}`;
+      await sendMessage(page, `请只回复：${markerSwitch}`);
+      await expect(page.getByText(markerSwitch)).toBeVisible({
+        timeout: 120_000,
+      });
+      await waitForResponseComplete(page);
 
-    const sessionTitle = await getSessionTitle(page).textContent();
-    console.log(`[test] Session with marker: ${sessionTitle}`);
+      const sessionTitle = await getSessionTitle(page).textContent();
+      console.log(`[test] Session with marker: ${sessionTitle}`);
 
-    await createNewConversation(page);
-    await createNewConversation(page);
+      await createNewConversation(page);
+      await createNewConversation(page);
 
-    const sessionCount = await getSidebarSessionCount(page);
-    expect(sessionCount).toBeGreaterThan(0);
-    console.log(`[test] Sidebar has ${sessionCount} sessions after creating new ones`);
+      const sessionCount = await getSidebarSessionCount(page);
+      expect(sessionCount).toBeGreaterThan(0);
+      console.log(
+        `[test] Sidebar has ${sessionCount} sessions after creating new ones`,
+      );
 
-    const sessionsNav = page.getByRole('button', { name: '会话', exact: true });
-    await sessionsNav.click();
-    await expect(page.getByText('Sessions').first()).toBeVisible({ timeout: 10_000 });
+      const sessionsNav = page.getByRole('button', {
+        name: '会话',
+        exact: true,
+      });
+      await sessionsNav.click();
+      await expect(page.getByText('Sessions').first()).toBeVisible({
+        timeout: 10_000,
+      });
 
-    await page.waitForTimeout(3000);
-    const sessionList = page.locator('div[role="button"]');
-    expect(await sessionList.count()).toBeGreaterThan(0);
-    console.log('[test] Verified sessions persist after switching');
+      await page.waitForTimeout(3000);
+      const sessionList = page.locator('div[role="button"]');
+      expect(await sessionList.count()).toBeGreaterThan(0);
+      console.log('[test] Verified sessions persist after switching');
 
-    const chatNav = page.getByRole('button', { name: '对话', exact: true });
-    await chatNav.click();
-    await waitForInputReady(page, 15_000);
-  });
+      const chatNav = page.getByRole('button', { name: '对话', exact: true });
+      await chatNav.click();
+      await waitForInputReady(page, 15_000);
+    },
+  );
 
-  test('multiple new conversations all appear in sidebar', { timeout: 60_000 }, async () => {
-    const countBefore = await getSidebarSessionCount(page);
+  test(
+    'multiple new conversations all appear in sidebar',
+    { timeout: 60_000 },
+    async () => {
+      const countBefore = await getSidebarSessionCount(page);
 
-    await createNewConversation(page);
-    await createNewConversation(page);
-    await createNewConversation(page);
+      await createNewConversation(page);
+      await createNewConversation(page);
+      await createNewConversation(page);
 
-    await waitForSidebarRefresh(page);
-    await page.waitForTimeout(2000);
-    const countAfter = await getSidebarSessionCount(page);
-    expect(countAfter).toBeGreaterThanOrEqual(countBefore);
-    console.log(`[test] Sidebar sessions: ${countBefore} → ${countAfter}`);
-  });
+      await waitForSidebarRefresh(page);
+      await page.waitForTimeout(2000);
+      const countAfter = await getSidebarSessionCount(page);
+      expect(countAfter).toBeGreaterThanOrEqual(countBefore);
+      console.log(`[test] Sidebar sessions: ${countBefore} → ${countAfter}`);
+    },
+  );
 
   // ═══════════════════════════════════════════════════════════════
   //  SECTION 4: Sidebar Switching & History
   // ═══════════════════════════════════════════════════════════════
 
-  test('sidebar switch back to previous session loads history', { timeout: LLM_TIMEOUT }, async () => {
-    // Phase 1: Build history in Session A
-    const markerA = `SidebarHistory_${Date.now()}`;
-    await sendMessage(page, `只回复这个单词：${markerA}`);
-    await expect(page.getByText(markerA)).toBeVisible({ timeout: 120_000 });
-    await waitForResponseComplete(page);
+  test(
+    'sidebar switch back to previous session loads history',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      // Phase 1: Build history in Session A
+      const markerA = `SidebarHistory_${Date.now()}`;
+      await sendMessage(page, `只回复这个单词：${markerA}`);
+      await expect(page.getByText(markerA)).toBeVisible({ timeout: 120_000 });
+      await waitForResponseComplete(page);
 
-    // Capture Session A title (timestamp key)
-    const titleA = await getSessionTitle(page).textContent();
-    console.log(`[test] Session A title: ${titleA}`);
+      // Capture Session A title (timestamp key)
+      const titleA = await getSessionTitle(page).textContent();
+      console.log(`[test] Session A title: ${titleA}`);
 
-    // Phase 2: Create Session B and send a different message
-    await createNewConversation(page);
-    const markerB = `SidebarB_${Date.now()}`;
-    await sendMessage(page, `只回复这个单词：${markerB}`);
-    await expect(page.getByText(markerB)).toBeVisible({ timeout: 120_000 });
-    await waitForResponseComplete(page);
+      // Phase 2: Create Session B and send a different message
+      await createNewConversation(page);
+      const markerB = `SidebarB_${Date.now()}`;
+      await sendMessage(page, `只回复这个单词：${markerB}`);
+      await expect(page.getByText(markerB)).toBeVisible({ timeout: 120_000 });
+      await waitForResponseComplete(page);
 
-    // Marker A should NOT be visible in Session B
-    await expect(page.getByText(markerA)).not.toBeVisible({ timeout: 3_000 });
+      // Marker A should NOT be visible in Session B
+      await expect(page.getByText(markerA)).not.toBeVisible({ timeout: 3_000 });
 
-    // Phase 3: Switch back to Session A via sidebar.
-    // Use the session title (a numeric timestamp) to find it in the sidebar.
-    const chatNav = page.getByRole('button', { name: '对话', exact: true });
-    await chatNav.click();
-    await page.waitForTimeout(500);
+      // Phase 3: Switch back to Session A via sidebar.
+      // Use the session title (a numeric timestamp) to find it in the sidebar.
+      const chatNav = page.getByRole('button', { name: '对话', exact: true });
+      await chatNav.click();
+      await page.waitForTimeout(500);
 
-    if (!titleA) throw new Error('Could not capture session title');
-    const titleKey = titleA;
-    const sessionBtn = page.getByRole('button', { name: titleKey }).first();
-    await expect(sessionBtn).toBeVisible({ timeout: 5_000 });
-    await sessionBtn.click();
+      if (!titleA) throw new Error('Could not capture session title');
+      const titleKey = titleA;
+      const sessionBtn = page.getByRole('button', { name: titleKey }).first();
+      await expect(sessionBtn).toBeVisible({ timeout: 5_000 });
+      await sessionBtn.click();
 
-    // Wait for history to load, then check marker is visible
-    await page.waitForTimeout(4000);
-    await expect(page.getByText(markerA).first()).toBeVisible({ timeout: 10_000 });
-    console.log('[test] Sidebar switch loaded history for marker:', markerA);
-  });
+      // Wait for history to load, then check marker is visible
+      await page.waitForTimeout(4000);
+      await expect(page.getByText(markerA).first()).toBeVisible({
+        timeout: 10_000,
+      });
+      console.log('[test] Sidebar switch loaded history for marker:', markerA);
+    },
+  );
 
-  test('create conversation then switch back sees full history', { timeout: LLM_TIMEOUT }, async () => {
-    // Phase 1: Multi-turn conversation in Session A
-    await sendMessage(page, '请回复：第一轮');
-    await expect(page.getByText('第一轮')).toBeVisible({ timeout: 120_000 });
-    await waitForResponseComplete(page);
+  test(
+    'create conversation then switch back sees full history',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      // Phase 1: Multi-turn conversation in Session A
+      await sendMessage(page, '请回复：第一轮');
+      await expect(page.getByText('第一轮')).toBeVisible({ timeout: 120_000 });
+      await waitForResponseComplete(page);
 
-    await sendMessage(page, '请回复：第二轮');
-    await expect(page.getByText('第二轮')).toBeVisible({ timeout: 120_000 });
-    await waitForResponseComplete(page);
+      await sendMessage(page, '请回复：第二轮');
+      await expect(page.getByText('第二轮')).toBeVisible({ timeout: 120_000 });
+      await waitForResponseComplete(page);
 
-    const titleA = await getSessionTitle(page).textContent();
-    console.log(`[test] Session A title: ${titleA}`);
+      const titleA = await getSessionTitle(page).textContent();
+      console.log(`[test] Session A title: ${titleA}`);
 
-    // Phase 2: Create Session B
-    await createNewConversation(page);
-    const markerB = `MultiSwitch_${Date.now()}`;
-    await sendMessage(page, `请只回复：${markerB}`);
-    await expect(page.getByText(markerB)).toBeVisible({ timeout: 120_000 });
-    await waitForResponseComplete(page);
+      // Phase 2: Create Session B
+      await createNewConversation(page);
+      const markerB = `MultiSwitch_${Date.now()}`;
+      await sendMessage(page, `请只回复：${markerB}`);
+      await expect(page.getByText(markerB)).toBeVisible({ timeout: 120_000 });
+      await waitForResponseComplete(page);
 
-    // Phase 3: Switch back to Session A
-    const chatNav = page.getByRole('button', { name: '对话', exact: true });
-    await chatNav.click();
-    await page.waitForTimeout(500);
+      // Phase 3: Switch back to Session A
+      const chatNav = page.getByRole('button', { name: '对话', exact: true });
+      await chatNav.click();
+      await page.waitForTimeout(500);
 
-    if (!titleA) throw new Error('Could not capture session title');
-    const sessionBtn = page.getByRole('button', { name: titleA }).first();
-    await expect(sessionBtn).toBeVisible({ timeout: 5_000 });
-    await sessionBtn.click();
+      if (!titleA) throw new Error('Could not capture session title');
+      const sessionBtn = page.getByRole('button', { name: titleA }).first();
+      await expect(sessionBtn).toBeVisible({ timeout: 5_000 });
+      await sessionBtn.click();
 
-    await page.waitForTimeout(4000);
+      await page.waitForTimeout(4000);
 
-    // Both rounds should be visible
-    await expect(page.getByText('第一轮').first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('第二轮').first()).toBeVisible({ timeout: 10_000 });
-    console.log('[test] Full history visible after switching back');
-  });
+      // Both rounds should be visible
+      await expect(page.getByText('第一轮').first()).toBeVisible({
+        timeout: 10_000,
+      });
+      await expect(page.getByText('第二轮').first()).toBeVisible({
+        timeout: 10_000,
+      });
+      console.log('[test] Full history visible after switching back');
+    },
+  );
 
   // ═══════════════════════════════════════════════════════════════
   //  SECTION 5: Multi-turn & Persistence
   // ═══════════════════════════════════════════════════════════════
 
-  test('multi-turn memory recall within same session', { timeout: LLM_TIMEOUT }, async () => {
-    await sendMessage(page, '记住：我的名字是测试员，请只回复"已记住"');
-    await expect(page.getByText(/已记住/).first()).toBeVisible({ timeout: 120_000 });
-    await waitForResponseComplete(page);
+  test(
+    'multi-turn memory recall within same session',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      await sendMessage(page, '记住：我的名字是测试员，请只回复"已记住"');
+      await expect(page.getByText(/已记住/).first()).toBeVisible({
+        timeout: 120_000,
+      });
+      await waitForResponseComplete(page);
 
-    await sendMessage(page, '我叫什么名字？请只回复名字');
-    await expect(page.getByText(/测试员/).first()).toBeVisible({ timeout: 120_000 });
-    await waitForResponseComplete(page);
-  });
+      await sendMessage(page, '我叫什么名字？请只回复名字');
+      await expect(page.getByText(/测试员/).first()).toBeVisible({
+        timeout: 120_000,
+      });
+      await waitForResponseComplete(page);
+    },
+  );
 
-  test('session persists after New Chat and visible in Sessions page', { timeout: LLM_TIMEOUT }, async () => {
-    const persistMarker = `Persist_${Date.now()}`;
-    await sendMessage(page, `请只回复：${persistMarker}`);
-    await expect(page.getByText(persistMarker)).toBeVisible({ timeout: 120_000 });
-    await waitForResponseComplete(page);
+  test(
+    'session persists after New Chat and visible in Sessions page',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      const persistMarker = `Persist_${Date.now()}`;
+      await sendMessage(page, `请只回复：${persistMarker}`);
+      await expect(page.getByText(persistMarker)).toBeVisible({
+        timeout: 120_000,
+      });
+      await waitForResponseComplete(page);
 
-    await createNewConversation(page);
-    await expect(page.getByText(persistMarker)).not.toBeVisible({ timeout: 5_000 });
+      await createNewConversation(page);
+      await expect(page.getByText(persistMarker)).not.toBeVisible({
+        timeout: 5_000,
+      });
 
-    const sessionsNav = page.getByRole('button', { name: '会话', exact: true });
-    await sessionsNav.click();
-    await expect(page.getByText('Sessions').first()).toBeVisible({ timeout: 10_000 });
+      const sessionsNav = page.getByRole('button', {
+        name: '会话',
+        exact: true,
+      });
+      await sessionsNav.click();
+      await expect(page.getByText('Sessions').first()).toBeVisible({
+        timeout: 10_000,
+      });
 
-    await page.waitForTimeout(3000);
-    const sessionList = page.locator('div[role="button"]');
-    const sessionCount = await sessionList.count();
-    console.log(`[test] Sessions page has ${sessionCount} entries (original session should be there)`);
-    expect(sessionCount).toBeGreaterThan(0);
+      await page.waitForTimeout(3000);
+      const sessionList = page.locator('div[role="button"]');
+      const sessionCount = await sessionList.count();
+      console.log(
+        `[test] Sessions page has ${sessionCount} entries (original session should be there)`,
+      );
+      expect(sessionCount).toBeGreaterThan(0);
 
-    const chatNav = page.getByRole('button', { name: '对话', exact: true });
-    await chatNav.click();
-    await waitForInputReady(page, 15_000);
-    console.log('[test] Session persistence verified');
-  });
+      const chatNav = page.getByRole('button', { name: '对话', exact: true });
+      await chatNav.click();
+      await waitForInputReady(page, 15_000);
+      console.log('[test] Session persistence verified');
+    },
+  );
 
   // ═══════════════════════════════════════════════════════════════
   //  SECTION 5: Sessions Page
   // ═══════════════════════════════════════════════════════════════
 
-  test('sessions page shows conversation history', { timeout: 30_000 }, async () => {
-    const sessionsNav = page.getByRole('button', { name: '会话', exact: true });
-    await sessionsNav.click();
+  test(
+    'sessions page shows conversation history',
+    { timeout: 30_000 },
+    async () => {
+      const sessionsNav = page.getByRole('button', {
+        name: '会话',
+        exact: true,
+      });
+      await sessionsNav.click();
 
-    await expect(page.getByText('Sessions').first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText('Sessions').first()).toBeVisible({
+        timeout: 10_000,
+      });
 
-    await page.waitForTimeout(5000);
+      await page.waitForTimeout(5000);
 
-    const sessionList = page.locator('div[role="button"]');
-    const sessionCount = await sessionList.count();
-    console.log(`[test] Sessions page has ${sessionCount} entries`);
-    expect(sessionCount).toBeGreaterThan(0);
+      const sessionList = page.locator('div[role="button"]');
+      const sessionCount = await sessionList.count();
+      console.log(`[test] Sessions page has ${sessionCount} entries`);
+      expect(sessionCount).toBeGreaterThan(0);
 
-    await sessionList.first().click();
-    await page.waitForTimeout(5000);
+      await sessionList.first().click();
+      await page.waitForTimeout(5000);
 
-    console.log('[test] Sessions page shows conversation history');
+      console.log('[test] Sessions page shows conversation history');
 
-    const chatNav = page.getByRole('button', { name: '对话', exact: true });
-    await chatNav.click();
-    await waitForInputReady(page, 15_000);
-  });
+      const chatNav = page.getByRole('button', { name: '对话', exact: true });
+      await chatNav.click();
+      await waitForInputReady(page, 15_000);
+    },
+  );
 });
