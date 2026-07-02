@@ -660,10 +660,16 @@ class TaskRunner:
                     },
                 )
 
+            tool_calls: list[dict[str, Any]] = []
+            for message in result.messages_delta:
+                if message.get("role") == "assistant":
+                    tool_calls.extend(message.get("tool_calls") or [])
+
             await self._events.put(AgentMessageEvent(
                 turn_id=turn_id,
                 content=result.final_content or "",
                 finish_reason="stop",
+                tool_calls=tool_calls,
             ))
             await self._events.put(TurnCompleteEvent(
                 turn_id=turn_id,
