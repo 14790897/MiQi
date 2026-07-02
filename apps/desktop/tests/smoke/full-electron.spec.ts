@@ -94,10 +94,7 @@ async function waitForSidebarRefresh(page: Page, _timeout = 10_000) {
 }
 
 /** Switch to a sidebar session by clicking through sessions until the
- *  given marker text becomes visible in the chat area.
- *  This is more reliable than matching by title because the sidebar
- *  displays formatted timestamps (via formatTimestampKey) while the
- *  ChatConsole header shows the raw timestamp. */
+ *  given marker text becomes visible in the main chat area. */
 async function switchToSessionWithMarker(
   page: Page,
   marker: string,
@@ -117,11 +114,11 @@ async function switchToSessionWithMarker(
 
   for (let i = 0; i < count; i++) {
     await items.nth(i).click();
-
-    // Wait for chat area to render messages
     await page.waitForTimeout(4000);
 
+    // Only check the <main> chat area, not the sidebar，否则就会误识别，因为sidebar也会显示marker
     const markerVisible = await page
+      .locator('main')
       .getByText(marker, { exact: false })
       .isVisible()
       .catch(() => false);
@@ -449,25 +446,25 @@ test.describe('Native Electron E2E', () => {
   //  SECTION 4: Sidebar Switching & History
   // ═══════════════════════════════════════════════════════════════
 
-  test(
-    'sidebar switch back loads history',
-    { timeout: LLM_TIMEOUT },
-    async () => {
-      // Session A
-      await createNewConversation(page);
-      const m = `M_${Date.now()}`;
-      await sendMessage(page, m);
-      await waitForResponseComplete(page);
+  test('sidebar switch back loads history', { timeout: LLM_TIMEOUT }, async () => {
+    await createNewConversation(page);
+    const m = `M_${Date.now()}`;
+    await sendMessage(page, m);
+    await waitForResponseComplete(page);
 
-      // Session B
-      await createNewConversation(page);
-      await sendMessage(page, 'hi');
-      await waitForResponseComplete(page);
+    await createNewConversation(page);
+    await sendMessage(page, 'hi');
+    await waitForResponseComplete(page);
 
-      // Switch back → history should load
-      expect(await switchToSessionWithMarker(page, m)).toBe(true);
-    },
-  );
+    // Switch back to the first session by clicking its sidebar button
+    const btn = page.getByRole('button', { name: m }).first();
+    await expect(btn).toBeVisible({ timeout: 5000 });
+    await btn.click();
+    await page.waitForTimeout(5000);
+
+    // Marker should be visible in the main chat area
+    await expect(page.locator('main').getByText(m).first()).toBeVisible({ timeout: 15000 });
+  });
 
   test(
     'switch back sees full multi-turn history',
