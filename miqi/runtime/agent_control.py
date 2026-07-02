@@ -445,7 +445,10 @@ class AgentControl:
                         ))
 
                         # Route through ToolOrchestrator (sole execution path — no fallback)
-                        from miqi.execution.orchestrator import ToolExecutionContext
+                        from miqi.execution.orchestrator import (
+                            OrchestrationResult,
+                            ToolExecutionContext,
+                        )
                         ctx = ToolExecutionContext(
                             tool_name=tc.name,
                             tool_call_id=tc.id,
@@ -460,10 +463,7 @@ class AgentControl:
                         )
                         ctx = await self._orchestrator.execute(ctx)
                         result = ctx.result or ""
-                        success = not (
-                            isinstance(result, str)
-                            and result.startswith("Error")
-                        )
+                        success = ctx.status == OrchestrationResult.SUCCESS
                         duration = ctx.duration_ms
 
                         # Emit tool end event

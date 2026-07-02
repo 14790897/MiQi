@@ -19,11 +19,13 @@ class _FakeToolRuntime:
 
     async def execute_one(self, turn, tool_call):
         self.calls.append((turn, tool_call))
+        from miqi.execution.orchestrator import OrchestrationResult
         return SimpleNamespace(
             result="hello\n",
             duration_ms=12,
             tool_name="exec",
             tool_call_id=tool_call.id,
+            status=OrchestrationResult.SUCCESS,
         )
 
 
