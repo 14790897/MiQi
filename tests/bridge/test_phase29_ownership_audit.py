@@ -261,7 +261,7 @@ async def test_sessions_claim_legacy_rejects_foreign_owned(fake_config, fake_pro
 
 @pytest.mark.asyncio
 async def test_app_server_path_cannot_auto_claim_legacy(fake_config, fake_provider, tmp_path):
-    """AppServer session handlers do NOT auto-claim unowned legacy sessions."""
+    """AppServer session handlers read unowned sessions without auto-claiming."""
     from miqi.runtime.app_server import ClientSessionRegistry
     from miqi.runtime.session_handlers import sessions_get_handler
 
@@ -275,12 +275,15 @@ async def test_app_server_path_cannot_auto_claim_legacy(fake_config, fake_provid
         sm.save(s)
         sm.invalidate(key)
 
-        with pytest.raises(AppServerError) as exc_info:
-            await sessions_get_handler(
-                "req-1", {"session_key": key},
-                "client-A", None, registry,
-            )
-        assert exc_info.value.code == "REQUIRES_CLAIM"
+        # Handler should return messages even for unowned sessions
+        result = await sessions_get_handler(
+            "req-1", {"session_key": key},
+            "client-A", None, registry,
+        )
+        assert result["result"]["key"] == key
+        assert len(result["result"]["messages"]) == 1
+        assert result["result"]["messages"][0]["content"] == "old data"
+        assert result["result"]["ownership"] == "unowned"
 
         # Verify it's still unowned (wasn't auto-claimed)
         assert sm.get_owner(key) is None

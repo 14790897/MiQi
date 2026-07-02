@@ -145,6 +145,12 @@ async def sessions_get_handler(
     # Always load messages from SessionManager so history is visible even
     # when the session is still active in the AppServer registry.
     sm = _get_session_manager()
+    messages: list[dict[str, Any]] = []
+    created_at: str | None = None
+    updated_at: str | None = None
+    metadata: dict[str, Any] = {}
+    ownership: str = "owned"
+
     try:
         disk_session = sm.get_or_create(session_key, client_id=client_id)
         sm.save(disk_session)
@@ -153,7 +159,18 @@ async def sessions_get_handler(
         updated_at = disk_session.updated_at.isoformat()
         metadata = disk_session.metadata
     except OwnershipError as exc:
-        raise AppServerError(exc.args[0], code=exc.code) from exc
+        if exc.code == "REQUIRES_CLAIM":
+            # Legacy session with no owner — still allow reading messages.
+            # Fall back to get_or_create without client_id so history
+            # survives app restarts after runtime migration.
+            disk_session = sm.get_or_create(session_key)
+            messages = disk_session.messages
+            created_at = disk_session.created_at.isoformat()
+            updated_at = disk_session.updated_at.isoformat()
+            metadata = disk_session.metadata
+            ownership = "unowned"
+        else:
+            raise AppServerError(exc.args[0], code=exc.code) from exc
     except Exception as exc:
         raise AppServerError(f"Failed to get session: {exc}", code="INTERNAL") from exc
 
@@ -179,7 +196,7 @@ async def sessions_get_handler(
             "updated_at": updated_at,
             "metadata": metadata,
             "status": "inactive",
-            "ownership": "owned",
+            "ownership": ownership,
         },
     }
 
