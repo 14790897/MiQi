@@ -111,16 +111,7 @@ function findBridgeExecutable(projectRoot: string): {
     return { command: envPath, args: [bridgeScript] };
   }
 
-  // Check for bundled miqi-bridge executable (packaged app)
-  // In asar, __dirname is inside the archive, so use process.resourcesPath
-  const bundledBridge = process.resourcesPath
-    ? join(process.resourcesPath, 'miqi-bridge.exe')
-    : null;
-  if (bundledBridge && existsSync(bundledBridge)) {
-    return { command: bundledBridge, args: [] };
-  }
-
-  // If project has uv.lock, use uv run python
+  // If project has uv.lock, use uv run python (source mode, prefer over stale exe)
   if (existsSync(join(projectRoot, 'uv.lock')) || existsSync(join(projectRoot, 'pyproject.toml'))) {
     try {
       execSync('uv --version', { stdio: 'ignore', windowsHide: true });
@@ -129,6 +120,15 @@ function findBridgeExecutable(projectRoot: string): {
     } catch {
       // uv not available, fall through
     }
+  }
+
+  // Check for bundled miqi-bridge executable (packaged app)
+  // In asar, __dirname is inside the archive, so use process.resourcesPath
+  const bundledBridge = process.resourcesPath
+    ? join(process.resourcesPath, 'miqi-bridge.exe')
+    : null;
+  if (bundledBridge && existsSync(bundledBridge)) {
+    return { command: bundledBridge, args: [] };
   }
 
   // Try .venv

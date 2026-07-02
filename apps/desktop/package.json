@@ -19,7 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:smoke": "npx playwright test --config=playwright.config.ts --project=smoke",
-    "test:electron": "npx playwright test --config=playwright.config.ts --project=electron",
+    "test:electron": "npm run build && npx playwright test --config=playwright.config.ts --project=electron",
     "test:real-e2e": "npx vitest run tests/smoke/real-e2e.test.ts",
     "test:real-ui": "npx playwright test --config=playwright.config.ts --project=electron --grep \"Real Agent E2E\""
   },
