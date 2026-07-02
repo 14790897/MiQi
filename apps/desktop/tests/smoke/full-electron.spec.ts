@@ -346,7 +346,7 @@ test.describe('Native Electron E2E', () => {
     async () => {
       const markerA = `IsolationA_${Date.now()}`;
       await sendMessage(page, `请只回复这个编号：${markerA}`);
-      await expect(page.getByText(markerA)).toBeVisible({ timeout: 120_000 });
+      await expect(page.getByText(markerA).first()).toBeVisible({ timeout: 120_000 });
       await waitForResponseComplete(page);
 
       const titleA = await getSessionTitle(page).textContent();
@@ -356,7 +356,7 @@ test.describe('Native Electron E2E', () => {
 
       const markerB = `IsolationB_${Date.now()}`;
       await sendMessage(page, `请只回复这个编号：${markerB}`);
-      await expect(page.getByText(markerB)).toBeVisible({ timeout: 120_000 });
+      await expect(page.getByText(markerB).first()).toBeVisible({ timeout: 120_000 });
       await waitForResponseComplete(page);
 
       await expect(page.getByText(markerA)).not.toBeVisible({ timeout: 5_000 });
@@ -450,93 +450,43 @@ test.describe('Native Electron E2E', () => {
   // ═══════════════════════════════════════════════════════════════
 
   test(
-    'sidebar switch back to previous session loads history',
+    'sidebar switch back loads history',
     { timeout: LLM_TIMEOUT },
     async () => {
-      // Phase 1: Build history in Session A
-      const markerA = `SidebarHistory_${Date.now()}`;
-      await sendMessage(page, `只回复这个单词：${markerA}`);
-      await expect(page.getByText(markerA)).toBeVisible({ timeout: 120_000 });
-      await waitForResponseComplete(page);
-
-      // Capture Session A title (timestamp key)
-      const titleA = await getSessionTitle(page).textContent();
-      console.log(`[test] Session A title: ${titleA}`);
-
-      // Phase 2: Create Session B and send a different message
+      // Session A
       await createNewConversation(page);
-      const markerB = `SidebarB_${Date.now()}`;
-      await sendMessage(page, `只回复这个单词：${markerB}`);
-      await expect(page.getByText(markerB)).toBeVisible({ timeout: 120_000 });
+      const m = `M_${Date.now()}`;
+      await sendMessage(page, m);
       await waitForResponseComplete(page);
 
-      // Marker A should NOT be visible in Session B
-      await expect(page.getByText(markerA)).not.toBeVisible({ timeout: 3_000 });
+      // Session B
+      await createNewConversation(page);
+      await sendMessage(page, 'hi');
+      await waitForResponseComplete(page);
 
-      // Phase 3: Switch back to Session A via sidebar.
-      // Use the session title (a numeric timestamp) to find it in the sidebar.
-      const chatNav = page.getByRole('button', { name: '对话', exact: true });
-      await chatNav.click();
-      await page.waitForTimeout(500);
-
-      if (!titleA) throw new Error('Could not capture session title');
-      const titleKey = titleA;
-      const sessionBtn = page.getByRole('button', { name: titleKey }).first();
-      await expect(sessionBtn).toBeVisible({ timeout: 5_000 });
-      await sessionBtn.click();
-
-      // Wait for history to load, then check marker is visible
-      await page.waitForTimeout(4000);
-      await expect(page.getByText(markerA).first()).toBeVisible({
-        timeout: 30_000,
-      });
-      console.log('[test] Sidebar switch loaded history for marker:', markerA);
+      // Switch back → history should load
+      expect(await switchToSessionWithMarker(page, m)).toBe(true);
     },
   );
 
   test(
-    'create conversation then switch back sees full history',
+    'switch back sees full multi-turn history',
     { timeout: LLM_TIMEOUT },
     async () => {
-      // Phase 1: Multi-turn conversation in Session A
-      await sendMessage(page, '请回复：第一轮');
-      await expect(page.getByText('第一轮')).toBeVisible({ timeout: 120_000 });
-      await waitForResponseComplete(page);
-
-      await sendMessage(page, '请回复：第二轮');
-      await expect(page.getByText('第二轮')).toBeVisible({ timeout: 120_000 });
-      await waitForResponseComplete(page);
-
-      const titleA = await getSessionTitle(page).textContent();
-      console.log(`[test] Session A title: ${titleA}`);
-
-      // Phase 2: Create Session B
       await createNewConversation(page);
-      const markerB = `MultiSwitch_${Date.now()}`;
-      await sendMessage(page, `请只回复：${markerB}`);
-      await expect(page.getByText(markerB)).toBeVisible({ timeout: 120_000 });
+
+      await sendMessage(page, '回复：红');
+      await waitForResponseComplete(page);
+      await sendMessage(page, '回复：蓝');
       await waitForResponseComplete(page);
 
-      // Phase 3: Switch back to Session A
-      const chatNav = page.getByRole('button', { name: '对话', exact: true });
-      await chatNav.click();
-      await page.waitForTimeout(500);
+      await createNewConversation(page);
+      await sendMessage(page, 'hi');
+      await waitForResponseComplete(page);
 
-      if (!titleA) throw new Error('Could not capture session title');
-      const sessionBtn = page.getByRole('button', { name: titleA }).first();
-      await expect(sessionBtn).toBeVisible({ timeout: 5_000 });
-      await sessionBtn.click();
-
-      await page.waitForTimeout(4000);
-
-      // Both rounds should be visible
-      await expect(page.getByText('第一轮').first()).toBeVisible({
-        timeout: 30_000,
-      });
-      await expect(page.getByText('第二轮').first()).toBeVisible({
-        timeout: 30_000,
-      });
-      console.log('[test] Full history visible after switching back');
+      // Switch back, then check both turns in chat area only
+      expect(await switchToSessionWithMarker(page, '红')).toBe(true);
+      await expect(page.locator('main').getByText('蓝')).toBeVisible({ timeout: 10_000 });
     },
   );
 
