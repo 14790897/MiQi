@@ -173,7 +173,7 @@ async def sessions_get_handler(
             raise AppServerError(exc.args[0], code=exc.code) from exc
     except Exception as exc:
         logger.warning("Failed to load session %s: %s", session_key, exc)
-        raise AppServerError(f"Failed to get session: {exc}", code="INTERNAL") from exc
+        raise AppServerError("Failed to get session", code="INTERNAL") from exc
 
     if runtime is not None:
         return {
