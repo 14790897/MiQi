@@ -246,6 +246,24 @@ Electron 启动时通过 `PYTHON_CHECK` IPC 检测 Python 环境：
 
 ### 生产构建
 
+三个 npm 命令的区别：
+
+```bash
+cd apps/desktop
+
+npm run build        # 只构建前端（electron-vite），Bridge 仍用 uv run python 启动源码
+npm run build:bridge # 用 PyInstaller 打包 Python 后端 → miqi-bridge.exe
+npm run build:all    # 全量构建：Python 后端 + 前端 + electron-builder 打包
+```
+
+| 命令 | 前端 | Python | 适用场景 |
+|------|------|--------|----------|
+| `build` | ✅ 构建 | ❌ 源码 | 日常开发、改前端 |
+| `build:bridge` | ❌ | ✅ 打包 exe | 只改 Python、生产打包 |
+| `build:all` | ✅ 构建 | ✅ 打包 | 发布安装包 |
+
+### 生产构建
+
 ```bash
 cd apps/desktop
 npm run build        # Vite 构建渲染进程
