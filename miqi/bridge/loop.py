@@ -633,6 +633,7 @@ class BridgeRuntimeLoop:
                     await _emit_terminal("final", {
                         "content": event.content,
                         "aborted": False,
+                        "tool_calls": event.tool_calls,
                     })
                     # Do NOT break — consume the TurnCompleteEvent that
                     # follows so the next drain task starts with a clean queue.
