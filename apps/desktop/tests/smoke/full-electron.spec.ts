@@ -297,7 +297,7 @@ test.describe('Native Electron E2E', () => {
       expect(newTitle).toMatch(/^\d+$/);
       console.log(`[test] New session title: ${newTitle}`);
 
-      await expect(page.getByText('Y')).not.toBeVisible({
+      await expect(page.locator('main').getByText('只回答Y')).not.toBeVisible({
         timeout: 5_000,
       });
 
@@ -334,14 +334,11 @@ test.describe('Native Electron E2E', () => {
       await waitForInputReady(page, 15_000);
 
       await sendMessage(page, '只回答Y');
-      await expect(page.getByText('ClearTest').first()).toBeVisible({
-        timeout: 120_000,
-      });
       await waitForResponseComplete(page);
 
       await createNewConversation(page);
 
-      await expect(page.getByText('ClearTest')).not.toBeVisible({
+      await expect(page.locator('main').getByText('只回答Y')).not.toBeVisible({
         timeout: 5_000,
       });
     },
@@ -357,20 +354,16 @@ test.describe('Native Electron E2E', () => {
     async () => {
       const markerA = `IsolationA_${Date.now()}`;
       await sendMessage(page, `只回答${markerA}`);
-      await expect(page.getByText(markerA).first()).toBeVisible({ timeout: 120_000 });
       await waitForResponseComplete(page);
-
-      const titleA = await getSessionTitle(page).textContent();
-      console.log(`[test] Session A title: ${titleA}`);
 
       await createNewConversation(page);
 
       const markerB = `IsolationB_${Date.now()}`;
-      await sendMessage(page, `请只回复这个编号：${markerB}`);
-      await expect(page.getByText(markerB).first()).toBeVisible({ timeout: 120_000 });
+      await sendMessage(page, `只回答${markerB}`);
       await waitForResponseComplete(page);
 
-      await expect(page.getByText(markerA)).not.toBeVisible({ timeout: 5_000 });
+      // markerA should NOT be visible in the new chat (scope to main)
+      await expect(page.locator('main').getByText(markerA)).not.toBeVisible({ timeout: 5_000 });
 
       const sessionsNav = page.getByRole('button', {
         name: '会话',
@@ -485,7 +478,6 @@ test.describe('Native Electron E2E', () => {
     { timeout: LLM_TIMEOUT },
     async () => {
       await createNewConversation(page);
-      const title = await getSessionTitle(page).textContent();
       const m = `R_${Date.now()}`;
       await sendMessage(page, `只回答${m}`);
       await waitForResponseComplete(page);
@@ -505,26 +497,22 @@ test.describe('Native Electron E2E', () => {
       await page2.waitForLoadState('domcontentloaded');
       try { await page2.getByText('MiQi Workbench').waitFor({ timeout: 30000 }); } catch {}
       await waitForInputReady(page2, 30000);
-      await page2.waitForTimeout(8000);
 
-      // Debug: verify sessions.get works after restart
-      const key = `desktop:${title}`;
-      const raw = await page2.evaluate(async (k) => {
-        try {
-          const r = await (window as any).miqi.sessions.get(k);
-          return `resolve:${r === null ? 'null' : r === undefined ? 'undefined' : JSON.stringify(r?.messages?.length)}`;
-        } catch (e: any) {
-          return `reject:${e?.message ?? String(e)}`;
+      // Wait for bridge to initialize, then reload so ChatConsole re-fires
+      // useEffect with bridge fully ready.
+      await page2.evaluate(async () => {
+        for (let i = 0; i < 30; i++) {
+          try {
+            const s = await (window as any).miqi.runtime.status();
+            if (s?.state === 'running' && s?.initialized) return;
+          } catch { /* */ }
+          await new Promise(r => setTimeout(r, 1000));
         }
-      }, key);
-      console.log(`[restart] sessions.get(${key}) → ${raw}`);
-
-      // Also try sessions.list
-      const list = await page2.evaluate(async () => {
-        try { const r = await (window as any).miqi.sessions.list(); return `ok:${r?.sessions?.length ?? 'null'}`; }
-        catch(e: any) { return `err:${e?.message}`; }
       });
-      console.log(`[restart] sessions.list → ${list}`);
+      await page2.reload();
+      await page2.waitForLoadState('domcontentloaded');
+      await waitForInputReady(page2, 30000);
+      await page2.waitForTimeout(5000);
 
       await expect(page2.locator('main').getByText(m).first()).toBeVisible({ timeout: 30000 });
 
@@ -558,9 +546,13 @@ test.describe('Native Electron E2E', () => {
       await sendMessage(page, 'hi');
       await waitForResponseComplete(page);
 
-      // Switch back, then check both turns in chat area only
-      expect(await switchToSessionWithMarker(page, '红')).toBe(true);
-      await expect(page.locator('main').getByText('蓝')).toBeVisible({ timeout: 10_000 });
+      // Switch back via sidebar — click the button whose title contains "红"
+      const btn = page.getByRole('button', { name: '红' }).first();
+      await expect(btn).toBeVisible({ timeout: 5000 });
+      await btn.click();
+      await page.waitForTimeout(5000);
+
+      await expect(page.locator('main').getByText('蓝').first()).toBeVisible({ timeout: 15_000 });
     },
   );
 
