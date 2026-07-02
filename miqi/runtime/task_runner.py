@@ -49,6 +49,36 @@ class TaskRunner:
         # Phase 41: active turn tracking
         self._active_turn_ids: dict[str, str] = {}
         self._turn_steer_queues: dict[str, asyncio.Queue] = {}
+        # Lazily initialised SessionManager for dual-write compatibility
+        self._legacy_sm: Any = None
+
+    async def _save_to_session_manager(self, *, role: str, content: str) -> None:
+        """Dual-write a message to the legacy SessionManager JSONL store.
+
+        AppServer-managed sessions use HistoryRuntime (SQLite), but the
+        sessions.get handler reads from SessionManager (JSONL).  This mirror
+        write keeps both stores in sync so sidebar switching works.
+        """
+        try:
+            session_id: str = self.services.session_id
+            # session_id format: "{client_id}:{session_key}"
+            if ":" not in session_id:
+                return  # Unknown format — skip
+            client_id, session_key = session_id.split(":", 1)
+            workspace = getattr(self.services, "workspace", None)
+            if workspace is None:
+                return
+            from miqi.session.manager import SessionManager
+            if self._legacy_sm is None:
+                self._legacy_sm = SessionManager(workspace)
+            # Pass client_id so the session gets owner_client_id in metadata.
+            # The sessions_get_handler calls get_or_create with client_id and
+            # raises REQUIRES_CLAIM for unowned sessions.
+            session = self._legacy_sm.get_or_create(session_key, client_id=client_id)
+            session.add_message(role, content)
+            self._legacy_sm.save(session)
+        except Exception:
+            logger.debug("Failed to mirror message to legacy SessionManager", exc_info=True)
 
     # ── Phase 41: active turn and steering ────────────────────────────────
 
@@ -524,6 +554,10 @@ class TaskRunner:
                     content=msg.content,
                     payload={"message_fields": payload_fields},
                 )
+            # Dual-write to legacy SessionManager JSONL so sessions.get
+            # (which reads JSONL) finds messages created via AppServer flow.
+            await self._save_to_session_manager(
+                role="user", content=msg.content)
             # Phase 24: record user message in ledger
             if ledger is not None:
                 await ledger.append_item(
@@ -589,6 +623,12 @@ class TaskRunner:
                     tools_used=result.tools_used,
                     token_usage=result.token_usage,
                 )
+            # Dual-write assistant messages to legacy SessionManager (runs
+            # independently of history_runtime so fallback JSONL is always populated).
+            for message in result.messages_delta:
+                await self._save_to_session_manager(
+                    role=message["role"],
+                    content=message.get("content") or "")
             # Phase 24: record assistant messages and turn completion in ledger
             if ledger is not None:
                 for message in result.messages_delta:
