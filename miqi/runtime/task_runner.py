@@ -78,7 +78,7 @@ class TaskRunner:
             session.add_message(role, content)
             self._legacy_sm.save(session)
         except Exception:
-            pass  # Best-effort; history_runtime is the authoritative store
+            logger.debug("Failed to mirror message to legacy SessionManager", exc_info=True)
 
     # ── Phase 41: active turn and steering ────────────────────────────────
 
@@ -617,16 +617,18 @@ class TaskRunner:
                             },
                         },
                     )
-                    # Dual-write each assistant message to legacy SessionManager
-                    await self._save_to_session_manager(
-                        role=message["role"],
-                        content=message.get("content") or "")
                 await history_runtime.complete_turn(
                     turn_id,
                     status="completed",
                     tools_used=result.tools_used,
                     token_usage=result.token_usage,
                 )
+            # Dual-write assistant messages to legacy SessionManager (runs
+            # independently of history_runtime so fallback JSONL is always populated).
+            for message in result.messages_delta:
+                await self._save_to_session_manager(
+                    role=message["role"],
+                    content=message.get("content") or "")
             # Phase 24: record assistant messages and turn completion in ledger
             if ledger is not None:
                 for message in result.messages_delta:
