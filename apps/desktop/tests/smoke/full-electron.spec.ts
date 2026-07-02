@@ -467,6 +467,51 @@ test.describe('Native Electron E2E', () => {
   });
 
   test(
+    'history persists after app restart',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      await createNewConversation(page);
+      const m = `Restart_${Date.now()}`;
+      await sendMessage(page, m);
+      await waitForResponseComplete(page);
+
+      // Verify persisted before restart
+      const list = await page.evaluate(() => (window as any).miqi.sessions.list());
+      const our = (list as any)?.sessions?.find((s: any) => s.title?.includes(m));
+      expect(our).toBeTruthy();
+
+      await electronApp.close();
+      const env = { ...process.env };
+      delete env.ELECTRON_RUN_AS_NODE;
+      const app2 = await electron.launch({
+        args: [APPS_DESKTOP],
+        executablePath: require('electron') as string,
+        env,
+        chromiumSandbox: false,
+      });
+      const page2 = await app2.firstWindow();
+      await page2.waitForLoadState('domcontentloaded');
+      try { await page2.getByText('MiQi Workbench').waitFor({ timeout: 30000 }); } catch {}
+      await waitForInputReady(page2, 30000);
+      await page2.waitForTimeout(5000);
+
+      await expect(page2.locator('main').getByText(m).first()).toBeVisible({ timeout: 30000 });
+
+      await app2.close();
+      electronApp = await electron.launch({
+        args: [APPS_DESKTOP],
+        executablePath: require('electron') as string,
+        env,
+        chromiumSandbox: false,
+      });
+      page = await electronApp.firstWindow();
+      await page.waitForLoadState('domcontentloaded');
+      try { await page.getByText('MiQi Workbench').waitFor({ timeout: 30000 }); } catch {}
+      await waitForInputReady(page, 30000);
+    },
+  );
+
+  test(
     'switch back sees full multi-turn history',
     { timeout: LLM_TIMEOUT },
     async () => {
