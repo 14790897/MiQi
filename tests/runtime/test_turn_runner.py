@@ -52,6 +52,9 @@ def fake_tool_runtime():
         def __init__(self, tc):
             self.tool_call_id = tc.id
             self.result = f"result-for-{tc.name}"
+            # Mirror real orchestrator output: a successful tool call.
+            from miqi.execution.orchestrator import OrchestrationResult
+            self.status = OrchestrationResult.SUCCESS
 
     async def _fake_execute_many(turn, calls):
         return [_Ctx(c) for c in calls]
@@ -150,6 +153,81 @@ async def test_turn_runner_handles_tool_calls(turn_runner, fake_turn_context, fa
     assert "read_file" in result.tools_used
     assert call_count == 2  # stream_chat was called twice
     fake_tool_runtime.execute_many.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_turn_runner_emits_tool_call_lifecycle_events(
+    turn_runner, fake_turn_context, fake_tool_runtime
+):
+    from miqi.protocol.events import ToolCallBeginEvent, ToolCallEndEvent
+    from miqi.providers.base import LLMStreamEvent
+
+    runner, provider = turn_runner
+    emitted = []
+    runner._events.emit.side_effect = lambda event: emitted.append(event)
+
+    tc = _FakeToolCall("write_file", {"path": "/tmp/asset.txt"}, "tc-write")
+    tc.arguments_json = '{"path": "/tmp/asset.txt"}'
+
+    async def _execute_many(turn, calls):
+        emitted.append("execute_many")
+
+        class _Ctx:
+            tool_call_id = "tc-write"
+            result = "created"
+            duration_ms = 12
+            # Mirror real orchestrator output: write_file succeeded.
+            from miqi.execution.orchestrator import OrchestrationResult
+            status = OrchestrationResult.SUCCESS
+
+        return [_Ctx()]
+
+    fake_tool_runtime.execute_many.side_effect = _execute_many
+
+    call_count = 0
+
+    async def _stream_side_effect(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            yield LLMStreamEvent(
+                kind="completed",
+                response=_FakeResponse(tool_calls=[tc]),
+            )
+        else:
+            yield LLMStreamEvent(
+                kind="completed",
+                response=_FakeResponse(content="done after tools"),
+            )
+
+    provider.stream_chat = _stream_side_effect
+
+    result = await runner.run(
+        turn=fake_turn_context,
+        user_content="create a file",
+        system_prompt="sys",
+        tools=[{"type": "function", "function": {"name": "write_file", "parameters": {}}}],
+    )
+
+    assert result.final_content == "done after tools"
+    assert [type(event).__name__ if event != "execute_many" else event for event in emitted] == [
+        "ToolCallBeginEvent",
+        "execute_many",
+        "ToolCallEndEvent",
+    ]
+    begin = emitted[0]
+    end = emitted[2]
+    assert isinstance(begin, ToolCallBeginEvent)
+    assert begin.tool_name == "write_file"
+    assert begin.tool_call_id == "tc-write"
+    assert begin.arguments == {"path": "/tmp/asset.txt"}
+    assert begin.tool_display == 'write_file("/tmp/asset.txt")'
+    assert isinstance(end, ToolCallEndEvent)
+    assert end.tool_name == "write_file"
+    assert end.success is True
+    assert end.output_preview == "created"
+    assert end.output_size == len("created")
+    assert end.duration_ms == 12
 
 
 @pytest.mark.asyncio

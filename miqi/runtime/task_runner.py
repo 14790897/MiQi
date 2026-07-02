@@ -363,7 +363,12 @@ class TaskRunner:
 
             ctx = await tool_runtime.execute_one(turn, call)
             if cmd.standalone:
-                outcome = "success" if not str(ctx.result or "").startswith("Error:") else "error"
+                from miqi.execution.orchestrator import OrchestrationResult
+                outcome = (
+                    "success"
+                    if ctx.status == OrchestrationResult.SUCCESS
+                    else "error"
+                )
                 if ledger is not None:
                     await ledger.append_item(
                         thread_id=thread_id,

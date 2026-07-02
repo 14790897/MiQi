@@ -613,6 +613,8 @@ class BridgeRuntimeLoop:
                 AgentReasoningEvent,
                 ApprovalResolvedEvent,
                 ErrorEvent,
+                ToolCallBeginEvent,
+                ToolCallEndEvent,
                 TurnAbortedEvent,
                 TurnCompleteEvent,
                 TurnStartedEvent,
@@ -679,6 +681,18 @@ class BridgeRuntimeLoop:
 
                 if event_name == "ApprovalRequestedEvent":
                     await _emit("approval_request", payload)
+                elif isinstance(event, ToolCallBeginEvent):
+                    await _emit("progress", {
+                        "text": event.tool_display or event.tool_name,
+                        "tool_hint": True,
+                        "tool_call_id": event.tool_call_id,
+                    })
+                elif isinstance(event, ToolCallEndEvent):
+                    await _emit("progress", {
+                        "text": f"{event.tool_name} ({event.duration_ms}ms)",
+                        "tool_hint": True,
+                        "tool_call_id": event.tool_call_id,
+                    })
                 else:
                     await _emit("progress", {
                         "event": event_name,
