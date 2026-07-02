@@ -102,7 +102,8 @@ jobs:
                 "model": "deepseek-v4-pro",
                 "maxTokens": 8000,
                 "temperature": 0.1,
-                "maxToolIterations": 10
+                "maxToolIterations": 10,
+                "runtime": "app_server"
               },
               "commandApproval": { "enabled": false }
             },
