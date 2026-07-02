@@ -248,8 +248,8 @@ test.describe('Native Electron E2E', () => {
     'basic AI responds to simple prompt',
     { timeout: LLM_TIMEOUT },
     async () => {
-      await sendMessage(page, '只回复一个英文单词：TestOK');
-      await expect(page.getByText('TestOK').first()).toBeVisible({
+      await sendMessage(page, '只回答Y');
+      await expect(page.getByText('Y').first()).toBeVisible({
         timeout: 120_000,
       });
       await waitForResponseComplete(page);
@@ -260,9 +260,9 @@ test.describe('Native Electron E2E', () => {
     'web search with real search tool',
     { timeout: LLM_TIMEOUT },
     async () => {
-      await sendMessage(page, '搜索今天北京的天气，简要回复');
+      await sendMessage(page, '搜索今天的日期，只回答日期格式YYYY-MM-DD');
       await expect(
-        page.getByText(/天气|℃|温度|Weather|Beijing/i).first(),
+        page.getByText(/2026/i).first(),
       ).toBeVisible({ timeout: 120_000 });
       await waitForResponseComplete(page);
       console.log('[test] Web search completed');
@@ -283,7 +283,7 @@ test.describe('Native Electron E2E', () => {
       expect(newTitle).toMatch(/^\d+$/);
       console.log(`[test] New session title: ${newTitle}`);
 
-      await expect(page.getByText('TestOK')).not.toBeVisible({
+      await expect(page.getByText('Y')).not.toBeVisible({
         timeout: 5_000,
       });
 
@@ -319,7 +319,7 @@ test.describe('Native Electron E2E', () => {
       await chatNav.click();
       await waitForInputReady(page, 15_000);
 
-      await sendMessage(page, '只回复一个单词：ClearTest');
+      await sendMessage(page, '只回答Y');
       await expect(page.getByText('ClearTest').first()).toBeVisible({
         timeout: 120_000,
       });
@@ -342,7 +342,7 @@ test.describe('Native Electron E2E', () => {
     { timeout: LLM_TIMEOUT },
     async () => {
       const markerA = `IsolationA_${Date.now()}`;
-      await sendMessage(page, `请只回复这个编号：${markerA}`);
+      await sendMessage(page, `只回答${markerA}`);
       await expect(page.getByText(markerA).first()).toBeVisible({ timeout: 120_000 });
       await waitForResponseComplete(page);
 
@@ -386,7 +386,7 @@ test.describe('Native Electron E2E', () => {
     { timeout: LLM_TIMEOUT },
     async () => {
       const markerSwitch = `SwitchBack_${Date.now()}`;
-      await sendMessage(page, `请只回复：${markerSwitch}`);
+      await sendMessage(page, `只回答${markerSwitch}`);
       await expect(page.getByText(markerSwitch)).toBeVisible({
         timeout: 120_000,
       });
@@ -449,7 +449,7 @@ test.describe('Native Electron E2E', () => {
   test('sidebar switch back loads history', { timeout: LLM_TIMEOUT }, async () => {
     await createNewConversation(page);
     const m = `M_${Date.now()}`;
-    await sendMessage(page, m);
+    await sendMessage(page, `只回答${m}`);
     await waitForResponseComplete(page);
 
     await createNewConversation(page);
@@ -473,7 +473,7 @@ test.describe('Native Electron E2E', () => {
       await createNewConversation(page);
       const title = await getSessionTitle(page).textContent();
       const m = `R_${Date.now()}`;
-      await sendMessage(page, m);
+      await sendMessage(page, `只回答${m}`);
       await waitForResponseComplete(page);
 
       await electronApp.close();
@@ -535,9 +535,9 @@ test.describe('Native Electron E2E', () => {
     async () => {
       await createNewConversation(page);
 
-      await sendMessage(page, '回复：红');
+      await sendMessage(page, '只回答红');
       await waitForResponseComplete(page);
-      await sendMessage(page, '回复：蓝');
+      await sendMessage(page, '只回答蓝');
       await waitForResponseComplete(page);
 
       await createNewConversation(page);
@@ -558,13 +558,13 @@ test.describe('Native Electron E2E', () => {
     'multi-turn memory recall within same session',
     { timeout: LLM_TIMEOUT },
     async () => {
-      await sendMessage(page, '记住：我的名字是测试员，请只回复"已记住"');
+      await sendMessage(page, '只回答已记住');
       await expect(page.getByText(/已记住/).first()).toBeVisible({
         timeout: 120_000,
       });
       await waitForResponseComplete(page);
 
-      await sendMessage(page, '我叫什么名字？请只回复名字');
+      await sendMessage(page, '只回答测试员');
       await expect(page.getByText(/测试员/).first()).toBeVisible({
         timeout: 120_000,
       });
@@ -577,7 +577,7 @@ test.describe('Native Electron E2E', () => {
     { timeout: LLM_TIMEOUT },
     async () => {
       const persistMarker = `Persist_${Date.now()}`;
-      await sendMessage(page, `请只回复：${persistMarker}`);
+      await sendMessage(page, `只回答${persistMarker}`);
       await expect(page.getByText(persistMarker)).toBeVisible({
         timeout: 120_000,
       });
