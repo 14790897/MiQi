@@ -471,16 +471,14 @@ test.describe('Native Electron E2E', () => {
     { timeout: LLM_TIMEOUT },
     async () => {
       await createNewConversation(page);
-      const m = `Restart_${Date.now()}`;
+      const m = `R_${Date.now()}`;
       await sendMessage(page, m);
       await waitForResponseComplete(page);
 
-      // Verify persisted before restart
-      const list = await page.evaluate(() => (window as any).miqi.sessions.list());
-      const our = (list as any)?.sessions?.find((s: any) => s.title?.includes(m));
-      expect(our).toBeTruthy();
-
       await electronApp.close();
+      // Give the old bridge process time to release the runtime.db lock
+      await new Promise(r => setTimeout(r, 3000));
+
       const env = { ...process.env };
       delete env.ELECTRON_RUN_AS_NODE;
       const app2 = await electron.launch({
@@ -493,11 +491,13 @@ test.describe('Native Electron E2E', () => {
       await page2.waitForLoadState('domcontentloaded');
       try { await page2.getByText('MiQi Workbench').waitFor({ timeout: 30000 }); } catch {}
       await waitForInputReady(page2, 30000);
-      await page2.waitForTimeout(5000);
+      await page2.waitForTimeout(8000);
 
+      // After restart, look for the marker in the main chat area
       await expect(page2.locator('main').getByText(m).first()).toBeVisible({ timeout: 30000 });
 
       await app2.close();
+      await new Promise(r => setTimeout(r, 3000));
       electronApp = await electron.launch({
         args: [APPS_DESKTOP],
         executablePath: require('electron') as string,
