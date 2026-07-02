@@ -225,6 +225,7 @@ runs:
         AI_MODEL: ${{ inputs.ai-model }}
         BOT_LOGIN: ${{ inputs.comment-bot-login }}
         SUSPICIOUS_LABEL: ${{ inputs.suspicious-label }}
+        FEATURE_PREFIX: ${{ inputs.feature-title-prefix }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
@@ -243,10 +244,24 @@ runs:
 
           let body = context.payload.issue.body || '';
           body = body.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+          // Skip feature requests — they don't have bug-report sections
+          const featurePrefix = process.env.FEATURE_PREFIX || '[FEATURE]';
+          if (context.payload.issue.title?.startsWith(featurePrefix)) {
+            console.log('Feature request — skipping AI log review');
+            return;
+          }
+
           const extract = (label) => {
             const m = body.match(new RegExp('### ' + label + '\\s*\\n+(.+?)(?=\\n###|\\n*$)', 's'));
             return m?.[1]?.trim() || '';
           };
+
+          const logSection = extract('日志');
+          if (!logSection || logSection.length === 0) {
+            console.log('No log section found — skipping AI log review');
+            return;
+          }
 
           const prompt = [
             '你是一个 Bug Report 审核助手。请审查以下 Issue 中的"日志"字段是否真实、有效。',
@@ -268,7 +283,7 @@ runs:
             `Bug 描述: ${extract('Bug 描述')}`,
             `环境: ${extract('环境')}`,
             `复现步骤: ${extract('复现步骤')}`,
-            `日志: ${extract('日志')}`,
+            `日志: ${logSection}`,
           ].join('\n');
 
           const MAX_LEN = 8000;
