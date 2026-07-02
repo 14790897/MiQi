@@ -148,3 +148,101 @@ async def test_openai_streaming_emits_reasoning_deltas():
     # Final content should still be in the completed response
     assert events[-1].response is not None
     assert events[-1].response.content == "answer"
+
+
+# ── Issue #24: stream tool-call args need json_repair fallback ────────────
+
+
+class _FakeFunction:
+    """Simulates an OpenAI streaming tool-call function delta."""
+
+    def __init__(self, name="", arguments=""):
+        self.name = name
+        self.arguments = arguments
+
+
+class _FakeToolCall:
+    """Simulates an OpenAI streaming tool-call delta with an index."""
+
+    def __init__(self, index=0, id="call_1", name="", arguments=""):
+        self.index = index
+        self.id = id
+        self.type = "function"
+        self.function = _FakeFunction(name=name, arguments=arguments)
+
+
+async def _stream_with_tool_args(provider, arguments_str: str) -> list[LLMStreamEvent]:
+    """Stream a single tool call whose accumulated arguments = arguments_str."""
+    chunks = [
+        [_FakeChoice(_FakeDelta(tool_calls=[_FakeToolCall(
+            index=0, id="call_1", name="web_search", arguments=arguments_str,
+        )]))],
+        [_FakeChoice(_FakeDelta(), finish_reason="tool_calls")],
+    ]
+
+    async def _fake_create(**kw):
+        return _FakeStream(chunks)
+
+    provider._client.chat.completions.create = _fake_create
+    return await _stream_events(
+        provider,
+        messages=[{"role": "user", "content": "search the news"}],
+        model="gpt-4o",
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_malformed_tool_args_repaired_not_dropped():
+    """Issue #24: slightly malformed tool-call args must be repaired by
+    json_repair (matching the non-stream path), not silently fall back to {}."""
+    from miqi.providers.openai_provider import OpenAIProvider
+
+    provider = OpenAIProvider(api_key="sk-test")
+    # Single-quoted JSON: json.loads fails, json_repair recovers the real args.
+    events = await _stream_with_tool_args(provider, "{'query': '今日要闻'}")
+
+    completed = events[-1]
+    assert completed.kind == "completed"
+    assert completed.response is not None
+    assert len(completed.response.tool_calls) == 1
+    args = completed.response.tool_calls[0].arguments
+    # Must recover the real query, not silently become {}.
+    assert args == {"query": "今日要闻"}, f"json_repair should recover args, got {args!r}"
+
+
+@pytest.mark.asyncio
+async def test_stream_valid_tool_args_unchanged():
+    """Valid tool-call args parse as before (regression guard)."""
+    from miqi.providers.openai_provider import OpenAIProvider
+
+    provider = OpenAIProvider(api_key="sk-test")
+    events = await _stream_with_tool_args(provider, '{"query": "今日要闻"}')
+
+    completed = events[-1]
+    assert completed.response.tool_calls[0].arguments == {"query": "今日要闻"}
+
+
+@pytest.mark.asyncio
+async def test_stream_malformed_tool_args_logs_warning():
+    """Issue #24: malformed args must also log a warning (parity with non-stream)."""
+    from loguru import logger as loguru_logger
+
+    from miqi.providers.openai_provider import OpenAIProvider
+
+    messages: list[str] = []
+
+    def _sink(message):
+        messages.append(str(message.record["message"]))
+
+    # loguru uses its own sinks (not stdlib logging), so capture via a test
+    # sink instead of pytest's caplog.
+    handler_id = loguru_logger.add(_sink, level="WARNING")
+    try:
+        provider = OpenAIProvider(api_key="sk-test")
+        await _stream_with_tool_args(provider, "{'query': '今日要闻'}")
+    finally:
+        loguru_logger.remove(handler_id)
+
+    assert any("malformed tool args" in m for m in messages), (
+        f"expected a malformed-tool-args warning, got: {messages}"
+    )

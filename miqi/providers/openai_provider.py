@@ -490,12 +490,22 @@ class OpenAIProvider(LLMProvider):
         parsed_tool_calls: list[ToolCallRequest] = []
         for idx in sorted(tool_call_accum.keys()):
             acc = tool_call_accum[idx]
+            raw_args = acc["function"]["arguments"]
+            # Issue #24: parity with the non-stream path — repair malformed
+            # JSON with json_repair and warn, instead of silently falling
+            # back to {}.
+            repaired = json_repair.loads(raw_args) if raw_args else {}
             try:
-                args = json.loads(acc["function"]["arguments"])
+                args = json.loads(raw_args)
             except (json.JSONDecodeError, ValueError):
-                args = {}
+                logger.warning(
+                    "json_repair fixed malformed tool args for '{}': {}",
+                    acc["function"]["name"],
+                    str(raw_args)[:200],
+                )
+                args = repaired
             if not isinstance(args, dict):
-                args = {}
+                args = repaired if isinstance(repaired, dict) else {}
             parsed_tool_calls.append(ToolCallRequest(
                 id=acc["id"],
                 name=acc["function"]["name"],
