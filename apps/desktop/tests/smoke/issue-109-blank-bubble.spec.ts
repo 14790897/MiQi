@@ -80,7 +80,11 @@ test.describe('Issue #109 — no blank bubble before AI reply', () => {
     await textarea.fill('hi');
     await textarea.press('Enter');
 
-    await page.evaluate(() => (window as any).__miqiMock.final(''));
+    // Fire the final reply with an EMPTY content directly via the mock's
+    // internal _fire. We can't use __miqiMock.final('') because that helper
+    // does `content || 'default response'`, swallowing the empty string.
+    await page.evaluate(() => (window as any).__miqiMock._fireFinal(''));
+    // NOTE: __miqiMock._fireFinal must preserve an explicit '' (no fallback).
 
     await page.waitForTimeout(500);
 
