@@ -158,6 +158,20 @@ test.describe('Native Electron E2E', () => {
     page = await electronApp.firstWindow();
     await page.waitForLoadState('domcontentloaded');
 
+    // Capture bridge stderr and app console errors for CI debugging
+    page.on('console', (msg) => {
+      const t = msg.text();
+      if (
+        msg.type() === 'error' ||
+        t.includes('[MIQI BRIDGE STDERR]') ||
+        t.includes('[miqi-bridge]') ||
+        t.includes('[Bridge]') ||
+        t.includes('[MiQi]')
+      ) {
+        console.log(`[e2e-console] ${t}`);
+      }
+    });
+
     try {
       await page.getByText('MiQi Workbench').waitFor({ timeout: 30_000 });
       console.log('[test] App UI loaded');
