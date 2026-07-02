@@ -357,7 +357,7 @@ class HistoryRuntime:
                         thread_id,
                         self.session_id,
                         turn_id,
-                        msg["role"],
+                        msg.get("role", "unknown"),
                         msg.get("content") or "",
                         json.dumps(
                             {
