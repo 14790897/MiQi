@@ -19,7 +19,7 @@ export default defineConfig({
     // ① Smoke tests: mock bridge → runs in Chromium browser
     {
       name: 'smoke',
-      testMatch: 'smoke.spec.ts',
+      testMatch: ['smoke.spec.ts', 'issue-*.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: 'http://localhost:3458',
@@ -31,7 +31,7 @@ export default defineConfig({
     //    issue by switching from CLI flag to appendSwitch().
     {
       name: 'electron',
-      testMatch: ['full-electron.spec.ts'],
+      testMatch: ['full-electron.spec.ts', 'issue-*.spec.ts'],
       timeout: 300000,  // 5 min — Electron boot + bridge + LLM are slow
     },
   ],

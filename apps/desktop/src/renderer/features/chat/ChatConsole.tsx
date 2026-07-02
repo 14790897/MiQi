@@ -586,22 +586,32 @@ export function ChatConsole({
     let animId: number | null = null;
     let finalDone = false;
 
+    // Reveal the assistant reply with a typewriter animation. The bubble is
+    // created lazily — only once the first chunk of content is available — so
+    // we never render an empty assistant bubble (which previously flashed as a
+    // blank message box before the first animation frame filled it in; see
+    // issue #109). If the reply has no text, no bubble is shown at all.
     const revealNext = () => {
-      if (displayed.length < fullContent.length) {
-        displayed += fullContent.slice(displayed.length, displayed.length + 4);
-        const snap = displayed;
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === 'assistant' && last.timestamp === userMsg.timestamp + 1)
-            return [...prev.slice(0, -1), { ...last, content: snap }];
-          return prev;
-        });
-        animId = requestAnimationFrame(revealNext);
-      } else if (finalDone) {
-        setStreaming(false);
-        sendCleanup();
-        if (onChatFinished) onChatFinished();
+      if (displayed.length >= fullContent.length) {
+        if (finalDone) {
+          setStreaming(false);
+          sendCleanup();
+          if (onChatFinished) onChatFinished();
+        }
+        return;
       }
+      displayed += fullContent.slice(displayed.length, displayed.length + 4);
+      const snap = displayed;
+      const ts = userMsg.timestamp + 1;
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.role === 'assistant' && last.timestamp === ts)
+          return [...prev.slice(0, -1), { ...last, content: snap }];
+        // First chunk: insert the assistant bubble prefilled with content,
+        // never as an empty placeholder.
+        return [...prev, { role: 'assistant', content: snap, timestamp: ts }];
+      });
+      animId = requestAnimationFrame(revealNext);
     };
 
     // Track last progress event time for watchdog
@@ -700,11 +710,17 @@ export function ChatConsole({
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
       fullContent = data.content;
       finalDone = true;
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: '', timestamp: userMsg.timestamp + 1 },
-      ]);
       setCurrentReqId(null);
+      // Do NOT push an empty assistant bubble here — revealNext creates the
+      // bubble lazily once the first chunk is available, so we never flash a
+      // blank message box. Handle the empty-reply case (no text at all)
+      // immediately instead of waiting on an animation that has nothing to show.
+      if (!fullContent) {
+        setStreaming(false);
+        sendCleanup();
+        if (onChatFinished) onChatFinished();
+        return;
+      }
       animId = requestAnimationFrame(revealNext);
     });
 
