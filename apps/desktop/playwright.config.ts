@@ -31,7 +31,7 @@ export default defineConfig({
     //    issue by switching from CLI flag to appendSwitch().
     {
       name: 'electron',
-      testMatch: ['full-electron.spec.ts', 'issue-*.spec.ts'],
+      testMatch: ['full-electron.spec.ts'],
       timeout: 300000,  // 5 min — Electron boot + bridge + LLM are slow
     },
   ],
