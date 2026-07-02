@@ -471,12 +471,12 @@ test.describe('Native Electron E2E', () => {
     { timeout: LLM_TIMEOUT },
     async () => {
       await createNewConversation(page);
+      const title = await getSessionTitle(page).textContent();
       const m = `R_${Date.now()}`;
       await sendMessage(page, m);
       await waitForResponseComplete(page);
 
       await electronApp.close();
-      // Give the old bridge process time to release the runtime.db lock
       await new Promise(r => setTimeout(r, 3000));
 
       const env = { ...process.env };
@@ -493,7 +493,25 @@ test.describe('Native Electron E2E', () => {
       await waitForInputReady(page2, 30000);
       await page2.waitForTimeout(8000);
 
-      // After restart, look for the marker in the main chat area
+      // Debug: verify sessions.get works after restart
+      const key = `desktop:${title}`;
+      const raw = await page2.evaluate(async (k) => {
+        try {
+          const r = await (window as any).miqi.sessions.get(k);
+          return `resolve:${r === null ? 'null' : r === undefined ? 'undefined' : JSON.stringify(r?.messages?.length)}`;
+        } catch (e: any) {
+          return `reject:${e?.message ?? String(e)}`;
+        }
+      }, key);
+      console.log(`[restart] sessions.get(${key}) → ${raw}`);
+
+      // Also try sessions.list
+      const list = await page2.evaluate(async () => {
+        try { const r = await (window as any).miqi.sessions.list(); return `ok:${r?.sessions?.length ?? 'null'}`; }
+        catch(e: any) { return `err:${e?.message}`; }
+      });
+      console.log(`[restart] sessions.list → ${list}`);
+
       await expect(page2.locator('main').getByText(m).first()).toBeVisible({ timeout: 30000 });
 
       await app2.close();

@@ -144,7 +144,6 @@ async def sessions_get_handler(
 
     # Always load messages from SessionManager so history is visible even
     # when the session is still active in the AppServer registry.
-    sm = _get_session_manager()
     messages: list[dict[str, Any]] = []
     created_at: str | None = None
     updated_at: str | None = None
@@ -152,6 +151,7 @@ async def sessions_get_handler(
     ownership: str = "owned"
 
     try:
+        sm = _get_session_manager()
         disk_session = sm.get_or_create(session_key, client_id=client_id)
         sm.save(disk_session)
         messages = disk_session.messages
@@ -172,6 +172,7 @@ async def sessions_get_handler(
         else:
             raise AppServerError(exc.args[0], code=exc.code) from exc
     except Exception as exc:
+        logger.warning("Failed to load session %s: %s", session_key, exc)
         raise AppServerError(f"Failed to get session: {exc}", code="INTERNAL") from exc
 
     if runtime is not None:
