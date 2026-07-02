@@ -199,6 +199,18 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       }, 50);
     },
 
+    /**
+     * Fire the final reply preserving the EXACT content, including an empty
+     * string. Unlike final(), this does NOT fall back to a default response —
+     * so it can exercise the empty-reply regression path.
+     */
+    _fireFinal: function(content) {
+      _fire('progress', { text: 'Generating response…' });
+      setTimeout(function() {
+        _fire('final', { content: content });
+      }, 50);
+    },
+
     /** Simulate a backend error */
     error: function(message) {
       _fire('error', { message: message || 'Mock backend error' });
