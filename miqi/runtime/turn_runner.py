@@ -19,6 +19,7 @@ from miqi.execution.hook_runtime import (
     HookRuntime,
     LifecycleHookContext,
 )
+from miqi.execution.orchestrator import OrchestrationResult
 
 
 @dataclass
@@ -279,8 +280,31 @@ class TurnRunner:
                         },
                     )
 
+            from miqi.protocol.events import ToolCallBeginEvent, ToolCallEndEvent
+
+            for tc in response.tool_calls:
+                await self._events.emit(ToolCallBeginEvent(
+                    turn_id=turn.turn_id,
+                    tool_call_id=tc.id,
+                    tool_name=tc.name,
+                    tool_display=self._format_tool_hint(tc.name, tc.arguments),
+                    arguments=tc.arguments,
+                ))
+
             # Execute tool calls concurrently through ToolRuntime
             contexts = await self._tools.execute_many(turn, response.tool_calls)
+
+            for tc, ctx in zip(response.tool_calls, contexts):
+                result_text = ctx.result or ""
+                await self._events.emit(ToolCallEndEvent(
+                    turn_id=turn.turn_id,
+                    tool_call_id=tc.id,
+                    tool_name=tc.name,
+                    success=ctx.status == OrchestrationResult.SUCCESS,
+                    output_preview=result_text[:200],
+                    output_size=len(result_text),
+                    duration_ms=getattr(ctx, "duration_ms", 0),
+                ))
 
             # Phase 24: record tool call completions in ledger
             if self._ledger is not None:
@@ -405,3 +429,13 @@ class TurnRunner:
             system_prompt=metadata.system_prompt,
             tools=tools,
         )
+
+    @staticmethod
+    def _format_tool_hint(name: str, args: dict) -> str:
+        """Format a tool call as a concise display hint."""
+        val = next(iter(args.values()), "") if args else ""
+        if not isinstance(val, str):
+            return name
+        if len(val) > 50:
+            return f'{name}("{val[:50]}...")'
+        return f'{name}("{val}")'
