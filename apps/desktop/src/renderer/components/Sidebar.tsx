@@ -39,7 +39,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'chat', label: '对话', icon: MessageSquare },
       { id: 'workspace', label: '文件', icon: FolderOpen },
-      { id: 'sessions', label: '会话', icon: Archive },
     ],
   },
   {
@@ -57,6 +56,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'memory', label: '记忆', icon: BookOpen },
       { id: 'experience', label: '经验', icon: BookOpen },
       { id: 'skills', label: '技能', icon: Wrench },
+      { id: 'mcps', label: 'MCPs', icon: Plug },
     ],
   },
   {
@@ -64,7 +64,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'settings', label: '设置', icon: Settings },
       { id: 'wsl', label: 'WSL', icon: Cpu },
-      { id: 'mcps', label: 'MCPs', icon: Plug },
       { id: 'permissions', label: 'Permissions', icon: Shield },
       { id: 'plugins', label: 'Plugins', icon: Package },
     ],
@@ -114,7 +113,7 @@ export function Sidebar({
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    new Set(['核心功能', '业务流程', 'AI能力', '系统管理'])
+    new Set(['核心功能'])
   );
 
   const toggleGroup = (groupTitle: string) => {

@@ -223,7 +223,7 @@ test.describe('Native Electron E2E', () => {
       page.getByRole('button', { name: '设置', exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole('button', { name: '会话', exact: true }),
+      page.getByRole('button', { name: 'MCPs', exact: true }),
     ).toBeVisible();
     await expect(page.getByText('Tasks').first()).toBeVisible();
 
@@ -364,27 +364,6 @@ test.describe('Native Electron E2E', () => {
 
       // markerA should NOT be visible in the new chat (scope to main)
       await expect(page.locator('main').getByText(markerA)).not.toBeVisible({ timeout: 5_000 });
-
-      const sessionsNav = page.getByRole('button', {
-        name: '会话',
-        exact: true,
-      });
-      await sessionsNav.click();
-      await expect(page.getByText('Sessions').first()).toBeVisible({
-        timeout: 10_000,
-      });
-
-      await page.waitForTimeout(3000);
-      const sessionList = page.locator('div[role="button"]');
-      const sessionCount = await sessionList.count();
-      console.log(`[test] Sessions page has ${sessionCount} entries`);
-      expect(sessionCount).toBeGreaterThan(0);
-
-      console.log('[test] Conversation isolation verified via Sessions page');
-
-      const chatNav = page.getByRole('button', { name: '对话', exact: true });
-      await chatNav.click();
-      await waitForInputReady(page, 15_000);
     },
   );
 
@@ -410,24 +389,6 @@ test.describe('Native Electron E2E', () => {
       console.log(
         `[test] Sidebar has ${sessionCount} sessions after creating new ones`,
       );
-
-      const sessionsNav = page.getByRole('button', {
-        name: '会话',
-        exact: true,
-      });
-      await sessionsNav.click();
-      await expect(page.getByText('Sessions').first()).toBeVisible({
-        timeout: 10_000,
-      });
-
-      await page.waitForTimeout(3000);
-      const sessionList = page.locator('div[role="button"]');
-      expect(await sessionList.count()).toBeGreaterThan(0);
-      console.log('[test] Verified sessions persist after switching');
-
-      const chatNav = page.getByRole('button', { name: '对话', exact: true });
-      await chatNav.click();
-      await waitForInputReady(page, 15_000);
     },
   );
 
@@ -584,73 +545,16 @@ test.describe('Native Electron E2E', () => {
     async () => {
       const persistMarker = `Persist_${Date.now()}`;
       await sendMessage(page, `只回答${persistMarker}`);
-      await expect(page.getByText(persistMarker)).toBeVisible({
-        timeout: 120_000,
-      });
       await waitForResponseComplete(page);
 
       await createNewConversation(page);
-      await expect(page.getByText(persistMarker)).not.toBeVisible({
+      await expect(page.locator('main').getByText(persistMarker)).not.toBeVisible({
         timeout: 5_000,
       });
 
-      const sessionsNav = page.getByRole('button', {
-        name: '会话',
-        exact: true,
-      });
-      await sessionsNav.click();
-      await expect(page.getByText('Sessions').first()).toBeVisible({
-        timeout: 10_000,
-      });
-
-      await page.waitForTimeout(3000);
-      const sessionList = page.locator('div[role="button"]');
-      const sessionCount = await sessionList.count();
-      console.log(
-        `[test] Sessions page has ${sessionCount} entries (original session should be there)`,
-      );
-      expect(sessionCount).toBeGreaterThan(0);
-
-      const chatNav = page.getByRole('button', { name: '对话', exact: true });
-      await chatNav.click();
-      await waitForInputReady(page, 15_000);
       console.log('[test] Session persistence verified');
     },
   );
 
-  // ═══════════════════════════════════════════════════════════════
-  //  SECTION 5: Sessions Page
-  // ═══════════════════════════════════════════════════════════════
-
-  test(
-    'sessions page shows conversation history',
-    { timeout: 30_000 },
-    async () => {
-      const sessionsNav = page.getByRole('button', {
-        name: '会话',
-        exact: true,
-      });
-      await sessionsNav.click();
-
-      await expect(page.getByText('Sessions').first()).toBeVisible({
-        timeout: 10_000,
-      });
-
-      await page.waitForTimeout(5000);
-
-      const sessionList = page.locator('div[role="button"]');
-      const sessionCount = await sessionList.count();
-      console.log(`[test] Sessions page has ${sessionCount} entries`);
-      expect(sessionCount).toBeGreaterThan(0);
-
-      await sessionList.first().click();
-      await page.waitForTimeout(5000);
-
-      console.log('[test] Sessions page shows conversation history');
-
-      const chatNav = page.getByRole('button', { name: '对话', exact: true });
-      await chatNav.click();
-      await waitForInputReady(page, 15_000);
-    },
-  );
+  // SECTION 5 removed — Sessions page no longer has a dedicated nav button.
 });
