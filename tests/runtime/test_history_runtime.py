@@ -177,3 +177,88 @@ async def test_history_delete_turn_messages(tmp_path):
         assert [m["content"] for m in messages] == ["one"]
     finally:
         await runtime.close()
+
+
+# ── Issue #84: get_turn must degrade on corrupted JSON columns ────────────
+
+
+@pytest.mark.asyncio
+async def test_get_turn_degrades_on_corrupted_tools_used_json(tmp_path):
+    """A corrupted tools_used_json must degrade to [], not crash get_turn.
+
+    Parity with load_items, which already skips corrupted payload_json with a
+    warning. Without the fix, get_turn raises json.JSONDecodeError and the whole
+    turn record fails to load.
+    """
+    import aiosqlite
+
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+    await runtime.initialize()
+    try:
+        await runtime.start_turn("turn-1", thread_id="thread-1")
+        await runtime.complete_turn(
+            "turn-1", status="completed",
+            tools_used=["read_file"],
+            token_usage={"prompt_tokens": 10},
+        )
+
+        # Corrupt the tools_used_json column directly in the DB.
+        async with aiosqlite.connect(tmp_path / "runtime.db") as conn:
+            await conn.execute(
+                "UPDATE runtime_turns SET tools_used_json = ? WHERE turn_id = ?",
+                ("{not valid json", "turn-1"),
+            )
+            await conn.commit()
+
+        # The DB connection caches state; reopen on a fresh runtime so the
+        # corruption is read back.
+        await runtime.close()
+        runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+        await runtime.initialize()
+
+        turn = await runtime.get_turn("turn-1")
+
+        # Degrades instead of crashing: turn still loads, tools_used falls back.
+        assert turn is not None
+        assert turn.status == "completed"
+        assert turn.tools_used == []
+        # Untouched column still loads.
+        assert turn.token_usage == {"prompt_tokens": 10}
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_get_turn_degrades_on_corrupted_token_usage_json(tmp_path):
+    """A corrupted token_usage_json must degrade to {}, not crash get_turn."""
+    import aiosqlite
+
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+    await runtime.initialize()
+    try:
+        await runtime.start_turn("turn-1", thread_id="thread-1")
+        await runtime.complete_turn(
+            "turn-1", status="completed",
+            tools_used=["read_file"],
+            token_usage={"prompt_tokens": 10},
+        )
+
+        async with aiosqlite.connect(tmp_path / "runtime.db") as conn:
+            await conn.execute(
+                "UPDATE runtime_turns SET token_usage_json = ? WHERE turn_id = ?",
+                ("<<broken>>", "turn-1"),
+            )
+            await conn.commit()
+
+        await runtime.close()
+        runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+        await runtime.initialize()
+
+        turn = await runtime.get_turn("turn-1")
+
+        assert turn is not None
+        assert turn.token_usage == {}
+        # Untouched column still loads.
+        assert turn.tools_used == ["read_file"]
+    finally:
+        await runtime.close()
