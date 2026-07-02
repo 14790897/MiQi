@@ -19,6 +19,7 @@ from miqi.execution.hook_runtime import (
     HookRuntime,
     LifecycleHookContext,
 )
+from miqi.execution.orchestrator import OrchestrationResult
 
 
 @dataclass
@@ -299,7 +300,7 @@ class TurnRunner:
                     turn_id=turn.turn_id,
                     tool_call_id=tc.id,
                     tool_name=tc.name,
-                    success=not result_text.startswith("Error"),
+                    success=ctx.status == OrchestrationResult.SUCCESS,
                     output_preview=result_text[:200],
                     output_size=len(result_text),
                     duration_ms=getattr(ctx, "duration_ms", 0),

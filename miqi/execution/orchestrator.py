@@ -160,6 +160,11 @@ class ToolExecutionContext:
     permission_decision: PermissionDecision | None = None
     sandbox_selection: SandboxSelection | None = None
     result: str | None = None
+    # Phase 104: structured execution outcome so callers don't have to infer
+    # success/failure from the result string. ``None`` means the orchestrator
+    # has not yet classified the outcome (e.g. legacy/short-circuit paths or
+    # test fakes); callers should fall back to result-string heuristics.
+    status: OrchestrationResult | None = None
     duration_ms: int = 0
     retry_count: int = 0
 
@@ -224,6 +229,7 @@ class ToolOrchestrator:
                     reason=f"Blocked by hook: {outcome.reason}",
                 )
                 ctx.result = f"Permission denied: {outcome.reason}"
+                ctx.status = OrchestrationResult.DENIED_BY_POLICY
                 ctx.duration_ms = int((time.monotonic() - start) * 1000)
                 return ctx
             if outcome.action == "modify" and outcome.patch:
@@ -247,6 +253,7 @@ class ToolOrchestrator:
                 tool = self.tools.get(ctx.tool_name)
                 if tool is None:
                     ctx.result = f"Error: Unknown tool '{ctx.tool_name}'"
+                    ctx.status = OrchestrationResult.TOOL_ERROR
                     ctx.permission_decision = PermissionDecision(
                         verdict=PermissionVerdict.DENY,
                         reason=f"Unknown tool: {ctx.tool_name}",
@@ -261,6 +268,7 @@ class ToolOrchestrator:
                         + "; ".join(schema_errors)
                         + "\n\n[Analyze the error above and try a different approach.]"
                     )
+                    ctx.status = OrchestrationResult.TOOL_ERROR
                     ctx.permission_decision = PermissionDecision(
                         verdict=PermissionVerdict.DENY,
                         reason=f"Invalid parameters: {'; '.join(schema_errors)}",
@@ -274,6 +282,7 @@ class ToolOrchestrator:
 
             if decision.verdict == PermissionVerdict.DENY:
                 ctx.result = f"Permission denied: {decision.reason}"
+                ctx.status = OrchestrationResult.DENIED_BY_POLICY
                 return ctx
 
             if decision.verdict == PermissionVerdict.APPROVAL_REQUIRED:
@@ -286,10 +295,12 @@ class ToolOrchestrator:
                         reason=f"Blocked by hook: {pr_outcome.reason}",
                     )
                     ctx.result = f"Permission denied: {pr_outcome.reason}"
+                    ctx.status = OrchestrationResult.DENIED_BY_POLICY
                     return ctx
                 decision = await self._request_approval(ctx, decision)
                 if decision.verdict != PermissionVerdict.ALLOW:
                     ctx.result = f"User denied: {decision.reason or 'no reason given'}"
+                    ctx.status = OrchestrationResult.DENIED_BY_USER
                     return ctx
 
             # 3. Try execution with retry-escalation
@@ -303,6 +314,9 @@ class ToolOrchestrator:
 
                     # 3b. Execute inside sandbox
                     ctx.result = await self._execute_in_sandbox(ctx, sandbox_sel)
+                    # _execute_in_sandbox flags its own errors; otherwise success.
+                    if ctx.status is None:
+                        ctx.status = OrchestrationResult.SUCCESS
                     break  # success
 
                 except SandboxDeniedError:
@@ -314,10 +328,12 @@ class ToolOrchestrator:
                     )
                     if ctx.retry_count > self.MAX_RETRIES:
                         ctx.result = "Error: sandbox denied after max retries"
+                        ctx.status = OrchestrationResult.SANDBOX_FAILED
                         return ctx
 
                 except asyncio.TimeoutError:
                     ctx.result = f"Error: tool '{ctx.tool_name}' timed out"
+                    ctx.status = OrchestrationResult.TIMEOUT
                     return ctx
 
             # 4. Post-tool-use hooks
@@ -325,9 +341,11 @@ class ToolOrchestrator:
 
         except asyncio.CancelledError:
             ctx.result = "Tool execution cancelled"
+            ctx.status = OrchestrationResult.CANCELLED
         except Exception as e:
             logger.exception("Tool orchestrator error for {}", ctx.tool_name)
             ctx.result = f"Error executing {ctx.tool_name}: tool execution failed"
+            ctx.status = OrchestrationResult.TOOL_ERROR
 
         finally:
             ctx.duration_ms = int((time.monotonic() - start) * 1000)
@@ -747,6 +765,7 @@ class ToolOrchestrator:
         """Execute the tool inside the selected sandbox."""
         tool = self.tools.get(ctx.tool_name)
         if tool is None:
+            ctx.status = OrchestrationResult.TOOL_ERROR
             return f"Error: Unknown tool '{ctx.tool_name}'"
 
         # Inject sandbox context into tool.
@@ -811,6 +830,7 @@ class ToolOrchestrator:
             result = f"Error executing {ctx.tool_name}: {safe_msg}"
             if ctx.turn_id:
                 result += f"\n[Hint: Use 'exec' to inspect the environment or try a different approach.]"
+            ctx.status = OrchestrationResult.TOOL_ERROR
         else:
             dt_ms = int((time.monotonic() - t0) * 1000)
             logger.debug(

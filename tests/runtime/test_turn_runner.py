@@ -52,6 +52,9 @@ def fake_tool_runtime():
         def __init__(self, tc):
             self.tool_call_id = tc.id
             self.result = f"result-for-{tc.name}"
+            # Mirror real orchestrator output: a successful tool call.
+            from miqi.execution.orchestrator import OrchestrationResult
+            self.status = OrchestrationResult.SUCCESS
 
     async def _fake_execute_many(turn, calls):
         return [_Ctx(c) for c in calls]
@@ -173,6 +176,9 @@ async def test_turn_runner_emits_tool_call_lifecycle_events(
             tool_call_id = "tc-write"
             result = "created"
             duration_ms = 12
+            # Mirror real orchestrator output: write_file succeeded.
+            from miqi.execution.orchestrator import OrchestrationResult
+            status = OrchestrationResult.SUCCESS
 
         return [_Ctx()]
 
