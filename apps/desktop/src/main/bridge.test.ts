@@ -507,4 +507,36 @@ describe('BridgeManager lifecycle', () => {
     // Wait for timeout
     await expect(sendPromise).rejects.toThrow(/timed out/);
   }, 10_000);
+
+  it('keeps chat.send client timeout later than the backend drain timeout', async () => {
+    const BridgeManager = await importBridgeManager();
+    const proc = createMockProcess();
+    const bridge = new BridgeManager('/fake/root');
+
+    await startBridge(proc, bridge, { clientId: 'default-timeout-test', serverInfo: { version: '1' } });
+
+    vi.useFakeTimers();
+    try {
+      let settled = false;
+      const sendPromise = bridge.send('chat.send', { message: 'test' }, (() => {}) as any);
+      sendPromise.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        }
+      );
+
+      await vi.advanceTimersByTimeAsync(300_001);
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      await expect(sendPromise).rejects.toThrow(/Request chat\.send timed out/);
+    } finally {
+      vi.useRealTimers();
+      proc.stdout.destroy();
+      proc.stderr.destroy();
+    }
+  }, 10_000);
 });
