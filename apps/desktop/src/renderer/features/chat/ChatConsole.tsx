@@ -302,6 +302,10 @@ export function ChatConsole({
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      // cleanup if unmounted during drag
+      panelResizing.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
     };
   }, []);
   /** Current in-flight request ID (for abort) */
@@ -1107,15 +1111,16 @@ export function ChatConsole({
               className="text-[18px] font-semibold truncate leading-tight"
               style={{ color: 'var(--text)' }}
             >
-              Brand Guideline Update
+              {sessionTitle}
             </h2>
             <span className="tag-inprogress shrink-0">IN PROGRESS</span>
             <span className="text-[11px] shrink-0" style={{ color: 'var(--text-faint)' }}>
               Updated 2 mins ago · 2 linked files · 2 Active Plugins
             </span>
             <button
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ml-auto"
-              style={{ background: 'var(--accent)', color: '#121212' }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ml-auto opacity-50"
+              style={{ background: 'var(--accent)', color: '#121212', cursor: 'not-allowed' }}
+              title="Coming soon"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
