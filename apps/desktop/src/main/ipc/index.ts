@@ -750,7 +750,7 @@ for m in ("pydantic", "httpx", "loguru"):
 
     if (uptimeSec === 0) {
       const upRaw = runInWsl('cat /proc/uptime');
-      if (upRaw.stdout) uptimeSec = parseFloat(upRaw.stdout.split()[0]) || 0;
+      if (upRaw.stdout) uptimeSec = parseFloat(upRaw.stdout.trim().split(/\s+/)[0]) || 0;
     }
 
     // --- CPU usage: two /proc/stat samples with 0.5s delay ---
