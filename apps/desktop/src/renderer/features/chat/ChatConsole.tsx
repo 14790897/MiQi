@@ -28,6 +28,7 @@ import {
   GitCompare,
   Undo2,
   ListChecks,
+  Settings,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -998,38 +999,66 @@ export function ChatConsole({
         </div>
       )}
 
-      {/* ── Task header bar ── */}
+      {/* ── Top header bar: Logo | Search | Badges | User ── */}
       <div
-        className="flex items-center justify-between px-5 h-12 border-b shrink-0"
+        className="flex items-center gap-4 px-5 h-12 border-b shrink-0"
         style={{
           background: 'var(--surface-elevated)',
           borderColor: 'var(--border-subtle)',
         }}
       >
-        <div className="flex items-center gap-2 min-w-0">
-          <h2 className="text-sm font-semibold truncate" style={{ color: 'var(--text)' }}>
-            {sessionTitle}
-          </h2>
-          <span className="tag-review shrink-0">REVIEW</span>
+        {/* Left: Logo */}
+        <span className="text-sm font-bold whitespace-nowrap shrink-0" style={{ color: 'var(--text)' }}>
+          MiQi Workbench
+        </span>
+
+        {/* Center: Search */}
+        <div
+          className="flex-1 max-w-[400px] mx-auto flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
+          style={{
+            background: 'var(--surface-muted)',
+            border: '1px solid var(--border-subtle)',
+            color: 'var(--text-faint)',
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          </svg>
+          <span className="select-none">Search or use commands...</span>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          {/* toggle panel */}
-          <button
-            onClick={() => setPanelOpen((v) => !v)}
-            className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
-            title="Toggle assets panel"
+        {/* Right: Badges + user + actions */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* DEMO MODE + ADMIN ACCESS badges */}
+          <span
+            className="px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider whitespace-nowrap"
+            style={{ background: 'rgba(99,102,241,0.12)', color: '#6366f1' }}
           >
-            <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
-          </button>
+            DEMO MODE
+          </span>
+          <span
+            className="px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider whitespace-nowrap"
+            style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e' }}
+          >
+            ADMIN ACCESS
+          </span>
+
+          {/* User avatar + name */}
+          <div className="flex items-center gap-1.5 pl-2 ml-1 border-l" style={{ borderColor: 'var(--border-subtle)' }}>
+            <div
+              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+              style={{ background: 'var(--avatar-dark)' }}
+            >
+              A
+            </div>
+            <span className="text-xs whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
+              Admin
+            </span>
+          </div>
+
+          {/* More menu */}
           <ContextMenu
-            items={[
-              {
-                label: 'Delete conversation',
-                danger: true,
-                onSelect: handleDeleteSession,
-              },
-            ]}
+            items={[{ label: 'Delete conversation', danger: true, onSelect: handleDeleteSession }]}
           >
             {({ onContextMenu }) => (
               <button
@@ -1040,31 +1069,52 @@ export function ChatConsole({
               </button>
             )}
           </ContextMenu>
+
+          {/* Share Task button */}
           <button
-            onClick={() => setPlanOpen(!planOpen)}
-            className={cn(
-              'p-1.5 rounded transition-colors',
-              planOpen
-                ? 'text-[var(--accent)] bg-[var(--accent)]/10'
-                : 'text-[var(--text-muted)] hover:text-[var(--text)]'
-            )}
-            title="Toggle plan"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap"
+            style={{ background: 'var(--accent)', color: '#121212' }}
           >
-            <ListChecks size={16} />
-          </button>
-          <button
-            onClick={handleNewSession}
-            disabled={streaming}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-            style={{
-              background: 'var(--accent)',
-              color: '#fff',
-            }}
-          >
-            <Plus size={12} />
-            New Chat
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+              <polyline points="16 6 12 2 8 6"/>
+              <line x1="12" y1="2" x2="12" y2="15"/>
+            </svg>
+            Share Task
           </button>
         </div>
+      </div>
+
+      {/* ── Sub header: task title + status ── */}
+      <div
+        className="flex items-center gap-3 px-5 h-9 border-b shrink-0"
+        style={{
+          background: 'var(--background)',
+          borderColor: 'var(--border-subtle)',
+        }}
+      >
+        <h2
+          className="text-[17px] font-semibold truncate"
+          style={{ color: 'var(--text)' }}
+          title={sessionTitle}
+        >
+          {sessionTitle}
+        </h2>
+        <span className="tag-inprogress shrink-0">IN PROGRESS</span>
+        <span className="text-[11px] shrink-0" style={{ color: 'var(--text-faint)' }}>
+          Updated just now
+        </span>
+        <span className="text-[11px] shrink-0 ml-auto" style={{ color: 'var(--text-faint)' }}>
+          0 linked files · 0 Active Plugins
+        </span>
+        {/* Toggle panel */}
+        <button
+          onClick={() => setPanelOpen((v) => !v)}
+          className="p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
+          title="Toggle assets panel"
+        >
+          <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
+        </button>
       </div>
 
       {/* ── Main area: chat + right panel ── */}
@@ -1077,7 +1127,7 @@ export function ChatConsole({
             className="flex-1 overflow-y-auto"
             style={{ background: 'var(--background)' }}
           >
-            <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-5">
+            <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
               {!historyLoaded ? (
                 <div className="flex items-center justify-center min-h-[300px]">
                   <Loader2
@@ -1218,9 +1268,6 @@ export function ChatConsole({
                   </button>
                 )}
               </div>
-              <p className="text-center text-[11px] mt-2" style={{ color: 'var(--text-faint)' }}>
-                SHIFT + ENTER FOR NEW LINE • CTRL + ENTER TO SEND
-              </p>
             </div>
           </div>
         </div>
