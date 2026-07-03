@@ -272,6 +272,38 @@ export function ChatConsole({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
+  const [panelWidth, setPanelWidth] = useState(280);
+  const panelResizing = useRef(false);
+
+  // Task Assets panel resize
+  const handlePanelResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    panelResizing.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!panelResizing.current) return;
+      // panel is on the right, so new width = window width - mouse x
+      const newWidth = window.innerWidth - e.clientX;
+      setPanelWidth(Math.max(200, Math.min(500, newWidth)));
+    };
+    const handleMouseUp = () => {
+      if (panelResizing.current) {
+        panelResizing.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
   /** Current in-flight request ID (for abort) */
   const [currentReqId, setCurrentReqId] = useState<string | null>(null);
   /** files touched by the agent during this session */
@@ -1001,7 +1033,7 @@ export function ChatConsole({
 
       {/* ── Top header bar: Logo | Search | Badges | User ── */}
       <div
-        className="flex items-center gap-4 px-5 h-12 border-b shrink-0"
+        className="flex items-center gap-3 px-5 h-10 border-b shrink-0"
         style={{
           background: 'var(--surface-elevated)',
           borderColor: 'var(--border-subtle)',
@@ -1029,13 +1061,6 @@ export function ChatConsole({
 
         {/* Right: Badges + user + actions */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* DEMO MODE + ADMIN ACCESS badges */}
-          <span
-            className="px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider whitespace-nowrap"
-            style={{ background: 'rgba(99,102,241,0.12)', color: '#6366f1' }}
-          >
-            DEMO MODE
-          </span>
           <span
             className="px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider whitespace-nowrap"
             style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e' }}
@@ -1070,57 +1095,50 @@ export function ChatConsole({
             )}
           </ContextMenu>
 
-          {/* Share Task button */}
-          <button
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap"
-            style={{ background: 'var(--accent)', color: '#121212' }}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
-              <polyline points="16 6 12 2 8 6"/>
-              <line x1="12" y1="2" x2="12" y2="15"/>
-            </svg>
-            Share Task
-          </button>
         </div>
-      </div>
-
-      {/* ── Sub header: task title + status ── */}
-      <div
-        className="flex items-center gap-3 px-5 h-9 border-b shrink-0"
-        style={{
-          background: 'var(--background)',
-          borderColor: 'var(--border-subtle)',
-        }}
-      >
-        <h2
-          className="text-[17px] font-semibold truncate"
-          style={{ color: 'var(--text)' }}
-          title={sessionTitle}
-        >
-          {sessionTitle}
-        </h2>
-        <span className="tag-inprogress shrink-0">IN PROGRESS</span>
-        <span className="text-[11px] shrink-0" style={{ color: 'var(--text-faint)' }}>
-          Updated just now
-        </span>
-        <span className="text-[11px] shrink-0 ml-auto" style={{ color: 'var(--text-faint)' }}>
-          0 linked files · 0 Active Plugins
-        </span>
-        {/* Toggle panel */}
-        <button
-          onClick={() => setPanelOpen((v) => !v)}
-          className="p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
-          title="Toggle assets panel"
-        >
-          <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
-        </button>
       </div>
 
       {/* ── Main area: chat + right panel ── */}
       <div className="flex flex-1 overflow-hidden">
         {/* Chat area */}
         <div className="flex flex-col flex-1 overflow-hidden">
+          {/* ── Sub header: task title + status (inside chat area) ── */}
+          <div
+            className="flex items-center gap-3 px-5 h-8 border-b shrink-0"
+            style={{
+              background: 'var(--background)',
+              borderColor: 'var(--border-subtle)',
+            }}
+          >
+            <h2
+              className="text-[18px] font-semibold truncate leading-tight"
+              style={{ color: 'var(--text)' }}
+            >
+              Brand Guideline Update
+            </h2>
+            <span className="tag-inprogress shrink-0">IN PROGRESS</span>
+            <span className="text-[11px] shrink-0" style={{ color: 'var(--text-faint)' }}>
+              Updated 2 mins ago · 2 linked files · 2 Active Plugins
+            </span>
+            <button
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ml-auto"
+              style={{ background: 'var(--accent)', color: '#121212' }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+                <polyline points="16 6 12 2 8 6"/>
+                <line x1="12" y1="2" x2="12" y2="15"/>
+              </svg>
+              Share Task
+            </button>
+            <button
+              onClick={() => setPanelOpen((v) => !v)}
+              className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors shrink-0 ml-1"
+              title="Toggle assets panel"
+            >
+              <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
+            </button>
+          </div>
           {/* Messages */}
           <div
             ref={scrollRef}
@@ -1315,13 +1333,19 @@ export function ChatConsole({
         {/* ── Right panel: Task Assets ── */}
         {panelOpen && (
           <div
-            className="flex flex-col shrink-0 border-l overflow-y-auto"
+            className="flex flex-col shrink-0 border-l overflow-y-auto relative"
             style={{
-              width: 280,
+              width: panelWidth,
               background: 'var(--panel-bg)',
               borderColor: 'var(--panel-border)',
             }}
           >
+            {/* Resize handle — left edge */}
+            <div
+              onMouseDown={handlePanelResizeStart}
+              className="absolute top-0 left-0 w-1.5 h-full cursor-col-resize hover:bg-[var(--accent)]/30 transition-colors z-10"
+              style={{ marginLeft: -2 }}
+            />
             <div
               className="flex items-center justify-between px-4 py-3 border-b shrink-0"
               style={{ borderColor: 'var(--panel-border)' }}
@@ -1480,13 +1504,12 @@ export function ChatConsole({
                 disabled={merging || trackedFiles.length === 0}
                 className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
                 style={{
-                  border: '1px solid var(--accent)',
                   background:
-                    merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'transparent',
+                    merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'var(--accent)',
                   color:
                     merging || trackedFiles.length === 0
                       ? 'var(--text-faint)'
-                      : 'var(--text)',
+                      : '#121212',
                 }}
               >
                 {merging ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
