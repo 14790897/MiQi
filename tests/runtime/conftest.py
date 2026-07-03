@@ -53,6 +53,9 @@ def fake_services(fake_config, fake_provider):
     services.turn_runner.run = AsyncMock()
     run_result = MagicMock()
     run_result.final_content = "hi there"
+    run_result.messages_delta = [{"role": "assistant", "content": "hi there"}]
+    run_result.tools_used = []
+    run_result.token_usage = {}
     services.turn_runner.run.return_value = run_result
     # Phase 17: explicitly None to avoid MagicMock auto-creation
     services.history_runtime = None

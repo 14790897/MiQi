@@ -67,6 +67,7 @@ class EventEmitter:
                     "turn_id": event.turn_id,
                     "content": event.content,
                     "finish_reason": event.finish_reason,
+                    "tool_calls": event.tool_calls,
                 })
 
             case "agent_reasoning":

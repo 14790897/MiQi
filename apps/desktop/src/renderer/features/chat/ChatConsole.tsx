@@ -711,6 +711,17 @@ export function ChatConsole({
       fullContent = data.content;
       finalDone = true;
       setCurrentReqId(null);
+      if (data.tool_calls?.length) {
+        const toolMessages = sessionMsgsToUi([
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: data.tool_calls,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+        setMessages((prev) => [...prev, ...toolMessages]);
+      }
       // Do NOT push an empty assistant bubble here — revealNext creates the
       // bubble lazily once the first chunk is available, so we never flash a
       // blank message box. Handle the empty-reply case (no text at all)
