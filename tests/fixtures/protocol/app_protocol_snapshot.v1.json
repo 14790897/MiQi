@@ -5276,7 +5276,7 @@
   "catalogVersion": 1,
   "generatedTypes": {
     "outputPath": "apps/desktop/src/shared/app-protocol.ts",
-    "sha256": "4341393db35de918f0bae9cde39deeda9b1e77647a52165224500d4a2e3551f6",
+    "sha256": "300bc22b984087dbd5c7a37051230b8c211e170c7db26390498cead2f33b6f52",
     "source": "miqi.runtime.export_app_protocol_ts.render_typescript_contract"
   },
   "methodCounts": {
