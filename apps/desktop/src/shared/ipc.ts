@@ -680,6 +680,7 @@ export interface ChatProgress {
 export interface ChatFinal {
   content: string;
   aborted?: boolean;
+  tool_calls?: unknown[];
 }
 
 export interface ChatError {

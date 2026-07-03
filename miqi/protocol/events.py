@@ -97,6 +97,7 @@ class AgentMessageEvent:
     turn_id: str
     content: str
     finish_reason: str = "stop"
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
 # ── Tool Call Events ────────────────────────────────────────
