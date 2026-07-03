@@ -28,6 +28,7 @@ import {
   GitCompare,
   Undo2,
   ListChecks,
+  Settings,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -271,6 +272,42 @@ export function ChatConsole({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
+  const [panelWidth, setPanelWidth] = useState(280);
+  const panelResizing = useRef(false);
+
+  // Task Assets panel resize
+  const handlePanelResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    panelResizing.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!panelResizing.current) return;
+      // panel is on the right, so new width = window width - mouse x
+      const newWidth = window.innerWidth - e.clientX;
+      setPanelWidth(Math.max(200, Math.min(500, newWidth)));
+    };
+    const handleMouseUp = () => {
+      if (panelResizing.current) {
+        panelResizing.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      // cleanup if unmounted during drag
+      panelResizing.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, []);
   /** Current in-flight request ID (for abort) */
   const [currentReqId, setCurrentReqId] = useState<string | null>(null);
   /** files touched by the agent during this session */
@@ -939,8 +976,17 @@ export function ChatConsole({
     [streaming, cleanupListeners, messages]
   );
 
-  /* session display name */
-  const sessionTitle = sessionKey.replace(/^desktop:/, '').replace(/_/g, ' ') || 'New Task';
+  /* session display name — format timestamp as readable title */
+  const sessionTitle = (() => {
+    const raw = sessionKey.replace(/^desktop:/, '');
+    const ts = parseInt(raw, 10);
+    if (!isNaN(ts) && raw.length >= 13) {
+      return new Intl.DateTimeFormat('en-US', {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      }).format(new Date(ts));
+    }
+    return raw.replace(/_/g, ' ') || 'New Task';
+  })();
 
   return (
     <div
@@ -989,38 +1035,52 @@ export function ChatConsole({
         </div>
       )}
 
-      {/* ── Task header bar ── */}
+      {/* ── Top header bar: Logo | Search | Badges | User ── */}
       <div
-        className="flex items-center justify-between px-5 h-12 border-b shrink-0"
+        className="flex items-center gap-3 px-5 h-10 border-b shrink-0"
         style={{
           background: 'var(--surface-elevated)',
           borderColor: 'var(--border-subtle)',
         }}
       >
-        <div className="flex items-center gap-2 min-w-0">
-          <h2 className="text-sm font-semibold truncate" style={{ color: 'var(--text)' }}>
-            {sessionTitle}
-          </h2>
-          <span className="tag-review shrink-0">REVIEW</span>
+        {/* Left: Logo */}
+        <span className="text-sm font-bold whitespace-nowrap shrink-0" style={{ color: 'var(--text)' }}>
+          MiQi Workbench
+        </span>
+
+        {/* Center: Search */}
+        <div
+          className="flex-1 max-w-[400px] mx-auto flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
+          style={{
+            background: 'var(--surface-muted)',
+            border: '1px solid var(--border-subtle)',
+            color: 'var(--text-faint)',
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          </svg>
+          <span className="select-none">Search or use commands...</span>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          {/* toggle panel */}
-          <button
-            onClick={() => setPanelOpen((v) => !v)}
-            className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
-            title="Toggle assets panel"
-          >
-            <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
-          </button>
+        {/* Right: Badges + user + actions */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* User avatar + name */}
+          <div className="flex items-center gap-1.5 pl-2 ml-1 border-l" style={{ borderColor: 'var(--border-subtle)' }}>
+            <div
+              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+              style={{ background: 'var(--avatar-dark)' }}
+            >
+              A
+            </div>
+            <span className="text-xs whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
+              Admin
+            </span>
+          </div>
+
+          {/* More menu */}
           <ContextMenu
-            items={[
-              {
-                label: 'Delete conversation',
-                danger: true,
-                onSelect: handleDeleteSession,
-              },
-            ]}
+            items={[{ label: 'Delete conversation', danger: true, onSelect: handleDeleteSession }]}
           >
             {({ onContextMenu }) => (
               <button
@@ -1031,30 +1091,7 @@ export function ChatConsole({
               </button>
             )}
           </ContextMenu>
-          <button
-            onClick={() => setPlanOpen(!planOpen)}
-            className={cn(
-              'p-1.5 rounded transition-colors',
-              planOpen
-                ? 'text-[var(--accent)] bg-[var(--accent)]/10'
-                : 'text-[var(--text-muted)] hover:text-[var(--text)]'
-            )}
-            title="Toggle plan"
-          >
-            <ListChecks size={16} />
-          </button>
-          <button
-            onClick={handleNewSession}
-            disabled={streaming}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-            style={{
-              background: 'var(--accent)',
-              color: '#fff',
-            }}
-          >
-            <Plus size={12} />
-            New Chat
-          </button>
+
         </div>
       </div>
 
@@ -1062,13 +1099,51 @@ export function ChatConsole({
       <div className="flex flex-1 overflow-hidden">
         {/* Chat area */}
         <div className="flex flex-col flex-1 overflow-hidden">
+          {/* ── Sub header: task title + status (inside chat area) ── */}
+          <div
+            className="flex items-center gap-3 px-5 h-8 border-b shrink-0"
+            style={{
+              background: '#FFFFFF',
+              borderColor: 'var(--border-subtle)',
+            }}
+          >
+            <h2
+              className="text-[18px] font-semibold truncate leading-tight"
+              style={{ color: 'var(--text)' }}
+            >
+              {sessionTitle.startsWith('Jul') || /^\d+$/.test(sessionTitle) ? 'Brand Guideline Update' : sessionTitle}
+            </h2>
+            <span className="tag-inprogress shrink-0">IN PROGRESS</span>
+            <span className="text-[11px] shrink-0" style={{ color: 'var(--text-faint)' }}>
+              Updated 2 mins ago · 2 linked files · 2 Active Plugins
+            </span>
+            <button
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ml-auto opacity-50"
+              style={{ background: 'var(--accent)', color: '#121212', cursor: 'not-allowed' }}
+              title="Coming soon"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+                <polyline points="16 6 12 2 8 6"/>
+                <line x1="12" y1="2" x2="12" y2="15"/>
+              </svg>
+              Share Task
+            </button>
+            <button
+              onClick={() => setPanelOpen((v) => !v)}
+              className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors shrink-0 ml-1"
+              title="Toggle assets panel"
+            >
+              <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
+            </button>
+          </div>
           {/* Messages */}
           <div
             ref={scrollRef}
             className="flex-1 overflow-y-auto"
             style={{ background: 'var(--background)' }}
           >
-            <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-5">
+            <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
               {!historyLoaded ? (
                 <div className="flex items-center justify-center min-h-[300px]">
                   <Loader2
@@ -1078,16 +1153,21 @@ export function ChatConsole({
                   />
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center gap-3">
+                <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center gap-4">
                   <div
-                    className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-bold text-white"
-                    style={{ background: 'var(--accent)' }}
+                    className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-bold text-white shadow-lg"
+                    style={{ background: 'var(--avatar-dark)' }}
                   >
                     A
                   </div>
-                  <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                    Ask Agent to analyze or edit files...
-                  </p>
+                  <div className="flex flex-col items-center gap-1">
+                    <p className="text-[15px] font-medium" style={{ color: 'var(--text-muted)' }}>
+                      Ask Agent to analyze or edit files...
+                    </p>
+                    <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                      Start a conversation to begin
+                    </p>
+                  </div>
                 </div>
               ) : (
                 messages.map((msg, i) => (
@@ -1116,10 +1196,9 @@ export function ChatConsole({
 
           {/* Composer */}
           <div
-            className="shrink-0 px-5 pb-4 pt-3 border-t"
+            className="shrink-0 px-5 pb-4 pt-3"
             style={{
-              background: 'var(--surface-elevated)',
-              borderColor: 'var(--border-subtle)',
+              background: '#F2F5E8',
             }}
           >
             <div className="max-w-[760px] mx-auto">
@@ -1157,11 +1236,12 @@ export function ChatConsole({
               )}
 
               <div
-                className="flex items-end gap-2 rounded-xl px-4 py-3 focus-within:ring-2 transition-all"
+                className="flex items-end gap-2 rounded-xl px-4 py-3.5 focus-within:ring-2 transition-all"
                 style={{
-                  background: 'var(--surface)',
+                  background: '#FFFFFF',
                   border: '1px solid var(--border)',
                   outline: 'none',
+                  boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
                 <button
@@ -1204,9 +1284,6 @@ export function ChatConsole({
                   </button>
                 )}
               </div>
-              <p className="text-center text-[10px] mt-1.5" style={{ color: 'var(--text-faint)' }}>
-                SHIFT + ENTER FOR NEW LINE • CTRL + ENTER TO SEND
-              </p>
             </div>
           </div>
         </div>
@@ -1254,13 +1331,19 @@ export function ChatConsole({
         {/* ── Right panel: Task Assets ── */}
         {panelOpen && (
           <div
-            className="flex flex-col shrink-0 border-l overflow-y-auto"
+            className="flex flex-col shrink-0 border-l overflow-y-auto relative"
             style={{
-              width: 280,
+              width: panelWidth,
               background: 'var(--panel-bg)',
               borderColor: 'var(--panel-border)',
             }}
           >
+            {/* Resize handle — left edge */}
+            <div
+              onMouseDown={handlePanelResizeStart}
+              className="absolute top-0 left-0 w-1.5 h-full cursor-col-resize hover:bg-[var(--accent)]/30 transition-colors z-10"
+              style={{ marginLeft: -2 }}
+            />
             <div
               className="flex items-center justify-between px-4 py-3 border-b shrink-0"
               style={{ borderColor: 'var(--panel-border)' }}
@@ -1277,13 +1360,16 @@ export function ChatConsole({
             </div>
 
             {trackedFiles.length === 0 ? (
-              <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center gap-2">
-                <FileText size={24} style={{ color: 'var(--text-faint)', opacity: 0.4 }} />
-                <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
-                  No files yet.
-                  <br />
-                  Agent operations will appear here.
-                </p>
+              <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center gap-4">
+                <FileText size={28} style={{ color: 'var(--text-faint)', opacity: 0.35 }} />
+                <div className="flex flex-col items-center gap-1">
+                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }}>
+                    No files yet.
+                  </p>
+                  <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+                    Agent operations will appear here.
+                  </p>
+                </div>
               </div>
             ) : (
               <>
@@ -1421,7 +1507,7 @@ export function ChatConsole({
                   color:
                     merging || trackedFiles.length === 0
                       ? 'var(--text-faint)'
-                      : 'var(--accent-text)',
+                      : '#121212',
                 }}
               >
                 {merging ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
