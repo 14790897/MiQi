@@ -1103,7 +1103,7 @@ export function ChatConsole({
           <div
             className="flex items-center gap-3 px-5 h-8 border-b shrink-0"
             style={{
-              background: 'var(--background)',
+              background: '#FFFFFF',
               borderColor: 'var(--border-subtle)',
             }}
           >
