@@ -219,8 +219,6 @@ function AppShell() {
             {/* Body row */}
             <div className="flex flex-1 overflow-hidden">
               <Sidebar
-                activeNav={activeNav}
-                onNavChange={(id) => setActiveNav(id as NavId)}
                 currentSession={sessionKey}
                 onSessionSelect={(key) => {
                   setSessionKey(key);
