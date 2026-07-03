@@ -939,8 +939,17 @@ export function ChatConsole({
     [streaming, cleanupListeners, messages]
   );
 
-  /* session display name */
-  const sessionTitle = sessionKey.replace(/^desktop:/, '').replace(/_/g, ' ') || 'New Task';
+  /* session display name — format timestamp as readable title */
+  const sessionTitle = (() => {
+    const raw = sessionKey.replace(/^desktop:/, '');
+    const ts = parseInt(raw, 10);
+    if (!isNaN(ts) && raw.length >= 13) {
+      return new Intl.DateTimeFormat('en-US', {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      }).format(new Date(ts));
+    }
+    return raw.replace(/_/g, ' ') || 'New Task';
+  })();
 
   return (
     <div
@@ -1078,16 +1087,21 @@ export function ChatConsole({
                   />
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center gap-3">
+                <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center gap-4">
                   <div
-                    className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-bold text-white"
-                    style={{ background: 'var(--accent)' }}
+                    className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-bold text-white shadow-lg"
+                    style={{ background: 'var(--avatar-dark)' }}
                   >
                     A
                   </div>
-                  <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                    Ask Agent to analyze or edit files...
-                  </p>
+                  <div className="flex flex-col items-center gap-1">
+                    <p className="text-[15px] font-medium" style={{ color: 'var(--text-muted)' }}>
+                      Ask Agent to analyze or edit files...
+                    </p>
+                    <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                      Start a conversation to begin
+                    </p>
+                  </div>
                 </div>
               ) : (
                 messages.map((msg, i) => (
@@ -1157,7 +1171,7 @@ export function ChatConsole({
               )}
 
               <div
-                className="flex items-end gap-2 rounded-xl px-4 py-3 focus-within:ring-2 transition-all"
+                className="flex items-end gap-2 rounded-xl px-4 py-3.5 focus-within:ring-2 transition-all"
                 style={{
                   background: 'var(--surface)',
                   border: '1px solid var(--border)',
@@ -1204,7 +1218,7 @@ export function ChatConsole({
                   </button>
                 )}
               </div>
-              <p className="text-center text-[10px] mt-1.5" style={{ color: 'var(--text-faint)' }}>
+              <p className="text-center text-[11px] mt-2" style={{ color: 'var(--text-faint)' }}>
                 SHIFT + ENTER FOR NEW LINE • CTRL + ENTER TO SEND
               </p>
             </div>
@@ -1277,13 +1291,16 @@ export function ChatConsole({
             </div>
 
             {trackedFiles.length === 0 ? (
-              <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center gap-2">
-                <FileText size={24} style={{ color: 'var(--text-faint)', opacity: 0.4 }} />
-                <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
-                  No files yet.
-                  <br />
-                  Agent operations will appear here.
-                </p>
+              <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center gap-4">
+                <FileText size={28} style={{ color: 'var(--text-faint)', opacity: 0.35 }} />
+                <div className="flex flex-col items-center gap-1">
+                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }}>
+                    No files yet.
+                  </p>
+                  <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+                    Agent operations will appear here.
+                  </p>
+                </div>
               </div>
             ) : (
               <>
@@ -1416,12 +1433,13 @@ export function ChatConsole({
                 disabled={merging || trackedFiles.length === 0}
                 className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
                 style={{
+                  border: '1px solid var(--accent)',
                   background:
-                    merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'var(--accent)',
+                    merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'transparent',
                   color:
                     merging || trackedFiles.length === 0
                       ? 'var(--text-faint)'
-                      : 'var(--accent-text)',
+                      : 'var(--text)',
                 }}
               >
                 {merging ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
