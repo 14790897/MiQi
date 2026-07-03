@@ -41,9 +41,6 @@ jobs:
 
   bwrap:
     runs-on: ubuntu-latest
-    # bwrap requires unprivileged user namespaces which may not be
-    # available in GitHub Actions runners. Don't block PRs on this.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -56,5 +53,24 @@ jobs:
           sudo apt-get install -y bubblewrap
       - name: Install dependencies
         run: uv sync --all-extras
+      - name: Check bwrap availability
+        id: bwrap-check
+        run: |
+          if bwrap --version && bwrap --ro-bind / / /bin/true; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "bwrap is not usable on this runner; skipping bwrap-only tests."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Run sandbox tests
-        run: uv run pytest -q -m "sandbox and bwrap" --suppress-no-test-exit-code
+        if: steps.bwrap-check.outputs.available == 'true'
+        run: |
+          set +e
+          uv run pytest -q -m "sandbox and bwrap"
+          status=$?
+          set -e
+          if [ "$status" -eq 5 ]; then
+            echo "No sandbox+bwrap tests matched; treating as skipped."
+            exit 0
+          fi
+          exit "$status"
