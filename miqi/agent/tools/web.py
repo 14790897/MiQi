@@ -123,7 +123,7 @@ class WebSearchTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "Search query"},
+            "query": {"type": "string", "description": "Search query", "minLength": 1},
             "count": {
                 "type": "integer",
                 "description": "Results (1-10)",
@@ -229,7 +229,7 @@ class WebFetchTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "url": {"type": "string", "description": "URL to fetch"},
+            "url": {"type": "string", "description": "URL to fetch", "minLength": 1},
             "extractMode": {"type": "string", "enum": ["markdown", "text"], "default": "markdown"},
             "maxChars": {"type": "integer", "minimum": 100},
         },
