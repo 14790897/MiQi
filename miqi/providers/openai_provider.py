@@ -189,6 +189,29 @@ class OpenAIProvider(LLMProvider):
         """Return True for retryable transient errors."""
         return resilience.classify_error(error) == ErrorKind.TRANSIENT
 
+    def _parse_tool_call_arguments(self, tool_name: str, args: Any) -> dict[str, Any]:
+        """Parse tool-call arguments with json_repair fallback."""
+        if not isinstance(args, str):
+            return args if isinstance(args, dict) else {}
+
+        if not args:
+            return {}
+
+        repaired = json_repair.loads(args)
+        try:
+            parsed = json.loads(args)
+        except (json.JSONDecodeError, ValueError):
+            logger.warning(
+                "json_repair fixed malformed tool args for '{}': {}",
+                tool_name,
+                args[:200],
+            )
+            parsed = repaired
+
+        if isinstance(parsed, dict):
+            return parsed
+        return repaired if isinstance(repaired, dict) else {}
+
     # ------------------------------------------------------------------
     # Main interface
     # ------------------------------------------------------------------
@@ -248,27 +271,13 @@ class OpenAIProvider(LLMProvider):
         tool_calls: list[ToolCallRequest] = []
         if hasattr(message, "tool_calls") and message.tool_calls:
             for tc in message.tool_calls:
-                args = tc.function.arguments
-                if isinstance(args, str):
-                    repaired = json_repair.loads(args)
-                    try:
-                        original = json.loads(args)
-                    except (json.JSONDecodeError, ValueError):
-                        logger.warning(
-                            "json_repair fixed malformed tool args for '{}': {}",
-                            tc.function.name,
-                            args[:200],
-                        )
-                        original = None
-                    args = repaired if original is None else original
-
-                if not isinstance(args, dict):
-                    args = {}
-
                 tool_calls.append(ToolCallRequest(
                     id=tc.id,
                     name=tc.function.name,
-                    arguments=args,
+                    arguments=self._parse_tool_call_arguments(
+                        tc.function.name,
+                        tc.function.arguments,
+                    ),
                 ))
 
         if not tool_calls and isinstance(message.content, str):
@@ -490,26 +499,13 @@ class OpenAIProvider(LLMProvider):
         parsed_tool_calls: list[ToolCallRequest] = []
         for idx in sorted(tool_call_accum.keys()):
             acc = tool_call_accum[idx]
-            raw_args = acc["function"]["arguments"]
-            # Issue #24: parity with the non-stream path — repair malformed
-            # JSON with json_repair and warn, instead of silently falling
-            # back to {}.
-            repaired = json_repair.loads(raw_args) if raw_args else {}
-            try:
-                args = json.loads(raw_args)
-            except (json.JSONDecodeError, ValueError):
-                logger.warning(
-                    "json_repair fixed malformed tool args for '{}': {}",
-                    acc["function"]["name"],
-                    str(raw_args)[:200],
-                )
-                args = repaired
-            if not isinstance(args, dict):
-                args = repaired if isinstance(repaired, dict) else {}
             parsed_tool_calls.append(ToolCallRequest(
                 id=acc["id"],
                 name=acc["function"]["name"],
-                arguments=args,
+                arguments=self._parse_tool_call_arguments(
+                    acc["function"]["name"],
+                    acc["function"]["arguments"],
+                ),
             ))
 
         yield LLMStreamEvent(

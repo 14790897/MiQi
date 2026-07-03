@@ -164,9 +164,9 @@ class _FakeFunction:
 class _FakeToolCall:
     """Simulates an OpenAI streaming tool-call delta with an index."""
 
-    def __init__(self, index=0, id="call_1", name="", arguments=""):
+    def __init__(self, index=0, call_id="call_1", name="", arguments=""):
         self.index = index
-        self.id = id
+        self.id = call_id
         self.type = "function"
         self.function = _FakeFunction(name=name, arguments=arguments)
 
@@ -175,7 +175,7 @@ async def _stream_with_tool_args(provider, arguments_str: str) -> list[LLMStream
     """Stream a single tool call whose accumulated arguments = arguments_str."""
     chunks = [
         [_FakeChoice(_FakeDelta(tool_calls=[_FakeToolCall(
-            index=0, id="call_1", name="web_search", arguments=arguments_str,
+            index=0, call_id="call_1", name="web_search", arguments=arguments_str,
         )]))],
         [_FakeChoice(_FakeDelta(), finish_reason="tool_calls")],
     ]
@@ -220,6 +220,18 @@ async def test_stream_valid_tool_args_unchanged():
 
     completed = events[-1]
     assert completed.response.tool_calls[0].arguments == {"query": "今日要闻"}
+
+
+@pytest.mark.asyncio
+async def test_stream_empty_tool_args_resolves_to_empty_dict():
+    """Empty streamed tool-call args remain an empty dict."""
+    from miqi.providers.openai_provider import OpenAIProvider
+
+    provider = OpenAIProvider(api_key="sk-test")
+    events = await _stream_with_tool_args(provider, "")
+
+    completed = events[-1]
+    assert completed.response.tool_calls[0].arguments == {}
 
 
 @pytest.mark.asyncio
