@@ -224,6 +224,7 @@ function AppShell() {
                   setSessionKey(key);
                   setSessionRefreshKey((k) => k + 1);
                 }}
+                onNavChange={(id) => setActiveNav(id as NavId)}
                 refreshKey={sessionRefreshKey + runtimeReadyKey * 100000}
                 onNewSession={handleNewSession}
               />
@@ -249,17 +250,17 @@ function AppShell() {
                   />
                 </div>
                 {activeNav === 'workspace' && <WorkspacePage />}
-                {activeNav === 'mcps' && <MCPsPage />}
+                {activeNav === 'mcps' && <SettingsPage tab="mcps" />}
                 {activeNav === 'cron' && <CronPage />}
-                {activeNav === 'memory' && <MemoryPage />}
-                {activeNav === 'experience' && <ExperiencePage />}
-                {activeNav === 'skills' && <SkillsPage />}
-                {activeNav === 'wsl' && <WslStatusPage />}
-                {activeNav === 'agents' && <AgentPanel />}
+                {activeNav === 'memory' && <SettingsPage tab="memory" />}
+                {activeNav === 'experience' && <SettingsPage tab="experience" />}
+                {activeNav === 'skills' && <SettingsPage tab="skills" />}
+                {activeNav === 'wsl' && <SettingsPage tab="wsl" />}
+                {activeNav === 'agents' && <SettingsPage tab="agents" />}
                 {activeNav === 'plan' && <PlanTracker />}
                 {activeNav === 'approvals' && <ApprovalsPage />}
-                {activeNav === 'permissions' && <PermissionsPage />}
-                {activeNav === 'plugins' && <PluginMarket />}
+                {activeNav === 'permissions' && <SettingsPage tab="permissions" />}
+                {activeNav === 'plugins' && <SettingsPage tab="plugins" />}
                 {activeNav === 'sessions' && (
                   <SessionExplorer
                     onOpenSession={(key: string) => {
