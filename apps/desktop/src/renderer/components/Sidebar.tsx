@@ -70,7 +70,7 @@ export function Sidebar({
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing.current) return;
-      const newWidth = e.clientX;
+      const newWidth = e.clientX - (sidebarRef.current?.getBoundingClientRect().left ?? 0);
       setSidebarWidth(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth)));
     };
     const handleMouseUp = () => {
@@ -85,6 +85,10 @@ export function Sidebar({
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      // cleanup if unmounted during drag
+      isResizing.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
     };
   }, []);
 
@@ -106,6 +110,15 @@ export function Sidebar({
   }, [loadSessions]);
 
   const FILTER_TABS: FilterTab[] = ['ALL', 'IN-PROGRESS', 'REVIEW', 'CC'];
+
+  const filteredSessions = sessions.filter((_s, idx) => {
+    if (filter === 'ALL') return true;
+    const status = statusForIndex(idx).label;
+    if (filter === 'IN-PROGRESS') return status === 'IN-PROGRESS';
+    if (filter === 'REVIEW') return status === 'PENDING'; // REVIEW maps to PENDING in demo
+    if (filter === 'CC') return status === 'COMPLETED';
+    return true;
+  });
 
   return (
     <div
@@ -177,7 +190,7 @@ export function Sidebar({
           </div>
         ) : (
           <div className="space-y-2">
-            {sessions.slice(0, 20).map((s, idx) => {
+            {filteredSessions.slice(0, 20).map((s, idx) => {
               const isActive = currentSession === s.key;
               const displayName = s.title || formatTimestampKey(s.key);
               const status = statusForIndex(idx);
