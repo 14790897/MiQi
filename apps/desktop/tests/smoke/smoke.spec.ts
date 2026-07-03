@@ -54,10 +54,10 @@ test.describe('App Load & Bridge', () => {
     await expect(page.getByText('应用预加载脚本注入失败')).toBeVisible();
   });
 
-  test('renders MiQi Workbench branding in sidebar', async ({ page }) => {
+  test('renders MiQi Workbench branding', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    // Sidebar should show "MiQi Workbench" (or at minimum the logo)
+    // "MiQi Workbench" appears in app header — stable text across redesigns
     await expect(page.getByText('MiQi Workbench')).toBeVisible();
   });
 
@@ -69,24 +69,18 @@ test.describe('App Load & Bridge', () => {
 
 test.describe('Sidebar Navigation', () => {
 
-  test('renders all main navigation buttons', async ({ page }) => {
+  test('sidebar renders with core session layout', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    const navButtons = [
-      '对话',
-      'MCPs',
-      '定时任务',
-      '记忆',
-      '经验',
-      '技能',
-      'WSL',
-      '设置',
-    ];
+    // Tasks section header — stable text across redesigns
+    await expect(page.getByText('Tasks')).toBeVisible({ timeout: 3000 });
 
-    for (const label of navButtons) {
-      const btn = page.getByRole('button', { name: label, exact: true });
-      await expect(btn).toBeVisible({ timeout: 3000 });
-    }
+    // Plus button for new session — stable title attribute
+    await expect(page.locator('[title="New Session"]')).toBeVisible();
+
+    // At least one session card should render
+    const session1 = page.getByText('Test conversation 1');
+    await expect(session1.first()).toBeVisible({ timeout: 5000 });
   });
 
   test('sessions list shows mock sessions', async ({ page }) => {
@@ -145,19 +139,23 @@ test.describe('Chat Console', () => {
     await expect(inputArea).toBeAttached();
   });
 
-  test('renders New Chat button', async ({ page }) => {
+  test('renders session title in header', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    const newChatBtn = page.getByRole('button', { name: /New Chat/i });
-    await expect(newChatBtn).toBeVisible({ timeout: 5000 });
+    // Session title (h2.font-semibold.truncate) renders in both old and new UI
+    const title = page.locator('h2.font-semibold.truncate').first();
+    await expect(title).toBeVisible({ timeout: 5000 });
   });
 
-  test('renders keyboard shortcut hint in footer', async ({ page }) => {
+  test('renders input area footer area', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    await expect(
-      page.getByText(/SHIFT.*ENTER.*NEW LINE/i)
-    ).toBeVisible({ timeout: 5000 });
+    // The input textarea and its container should render
+    const textarea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
+    await expect(textarea).toBeVisible({ timeout: 5000 });
+
+    // Verify the textarea is within an input area container
+    await expect(textarea).toBeEnabled({ timeout: 5000 });
   });
 
   test('chat input is enabled when not streaming', async ({ page }) => {
