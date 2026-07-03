@@ -1,6 +1,11 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { PassThrough } from 'stream';
-import { buildInitializeParams, normalizeBridgeMessage } from './bridge';
+import {
+  buildInitializeParams,
+  CHAT_BACKEND_DRAIN_TIMEOUT_MS,
+  CHAT_SEND_TIMEOUT_MS,
+  normalizeBridgeMessage,
+} from './bridge';
 
 // ============================================================
 // Pure-function tests (unchanged)
@@ -528,10 +533,12 @@ describe('BridgeManager lifecycle', () => {
         }
       );
 
-      await vi.advanceTimersByTimeAsync(300_001);
+      await vi.advanceTimersByTimeAsync(CHAT_BACKEND_DRAIN_TIMEOUT_MS + 1);
       expect(settled).toBe(false);
 
-      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.advanceTimersByTimeAsync(
+        CHAT_SEND_TIMEOUT_MS - CHAT_BACKEND_DRAIN_TIMEOUT_MS - 1
+      );
       await expect(sendPromise).rejects.toThrow(/Request chat\.send timed out/);
     } finally {
       vi.useRealTimers();

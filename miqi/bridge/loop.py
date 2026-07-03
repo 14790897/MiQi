@@ -628,6 +628,8 @@ class BridgeRuntimeLoop:
             )
 
             while True:
+                # Keep in sync with CHAT_BACKEND_DRAIN_TIMEOUT_MS in
+                # apps/desktop/src/main/bridge.ts.
                 event = await runtime.next_event(timeout=300)
                 if event is None:
                     # Timeout — no response from agent

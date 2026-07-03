@@ -58,8 +58,9 @@ export interface InitializeParams {
 
 /** Terminal event types that resolve/reject a streaming pending entry. */
 const TERMINAL_EVENT_TYPES = new Set(['final', 'error', 'aborted']);
-const CHAT_BACKEND_DRAIN_TIMEOUT_MS = 300_000;
-const CHAT_SEND_TIMEOUT_MS = CHAT_BACKEND_DRAIN_TIMEOUT_MS + 60_000;
+// Keep in sync with `runtime.next_event(timeout=300)` in `miqi/bridge/loop.py`.
+export const CHAT_BACKEND_DRAIN_TIMEOUT_MS = 300_000;
+export const CHAT_SEND_TIMEOUT_MS = CHAT_BACKEND_DRAIN_TIMEOUT_MS + 60_000;
 
 export function normalizeBridgeMessage(resp: BridgeResponse): NormalizedBridgeMessage {
   const requestId =
