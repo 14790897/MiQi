@@ -22,8 +22,9 @@
   --avatar-dark: #2A2A48;        /* 用户头像 / Logo 深靛蓝 */
 
   /* Sidebar */
-  --sidebar-bg: #FFFFFF;
+  --sidebar-bg: #fafaf9;
   --sidebar-border: #E4E4E0;
+  --sidebar-active-border: var(--accent); /* left highlight bar for active nav */
 
   /* Right panel */
   --panel-bg: #FFFFFF;
@@ -62,8 +63,8 @@
   --bubble-ai-border: #E4E4E0;
 
   /* Task status tags */
-  --tag-review-bg: #F8E8E8;      /* ACTIVE FOR EDIT 卡片 */
-  --tag-review-text: #c04040;
+  --tag-review-bg: #fef3d0;      /* REVIEW 标签（黄色/琥珀色） */
+  --tag-review-text: #a06000;
   --tag-completed-bg: #222222;   /* DONE 按钮 */
   --tag-completed-text: #FFFFFF;
   --tag-inprogress-bg: #E0EDFF;  /* IN-PROGRESS 标签 */
