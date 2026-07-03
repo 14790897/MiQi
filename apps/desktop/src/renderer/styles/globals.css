@@ -7,7 +7,7 @@
 
 :root {
   /* Backgrounds */
-  --background: #FBF9F4;          /* chat area — 近白中性暖色 */
+  --background: #F2F5E8;          /* chat area — 抹茶色 */
   --surface: #FFFFFF;             /* sidebar / nav — 纯白 */
   --surface-muted: #F2F2F0;       /* input area / muted — 浅灰 */
   --surface-elevated: #FFFFFF;
@@ -40,7 +40,7 @@
   --text-faint: #888888;         /* 辅助小字 / 时间 */
 
   /* Accent — 亮黄色 */
-  --accent: #F9D048;             /* 高亮操作按钮 (SHARE TASK / EDIT) */
+  --accent: #FFC107;             /* 高亮操作按钮 (SHARE TASK / EDIT / MERGE / SEND) */
   --accent-hover: #e0b830;
   --accent-soft: #F9E8B0;        /* MERGE ALL CHANGES 底部按钮 */
   --accent-text: #121212;        /* 深色文字配亮黄底 */
@@ -65,10 +65,10 @@
   /* Task status tags */
   --tag-review-bg: #fef3d0;      /* REVIEW 标签（黄色/琥珀色） */
   --tag-review-text: #a06000;
-  --tag-completed-bg: #222222;   /* DONE 按钮 */
-  --tag-completed-text: #FFFFFF;
-  --tag-inprogress-bg: #E0EDFF;  /* IN-PROGRESS 标签 */
-  --tag-inprogress-text: #1A5BB8;
+  --tag-completed-bg: rgba(32,102,208,0.12);   /* COMPLETED 标签（蓝色） */
+  --tag-completed-text: #2066D0;
+  --tag-inprogress-bg: rgba(255,193,7,0.15);  /* IN-PROGRESS 标签（暖黄） */
+  --tag-inprogress-text: #b8860b;
 
   --radius: 8px;
 }

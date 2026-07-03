@@ -1,7 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { cn } from '../lib/utils';
-import { Plus, Archive, ListChecks, Circle } from 'lucide-react';
+import { Plus, ListChecks } from 'lucide-react';
+import { MiQiLogo } from './MiQiLogo';
 import type { SessionInfo } from '../../shared/ipc';
+
+type FilterTab = 'ALL' | 'IN-PROGRESS' | 'REVIEW' | 'CC';
+
+const MIN_WIDTH = 180;
+const MAX_WIDTH = 480;
+const DEFAULT_WIDTH = 260;
 
 function formatTimestampKey(key: string): string {
   const ts = parseInt(key, 10);
@@ -23,11 +30,11 @@ function relativeTime(iso?: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-/** Derive a status tag color from the session index (simple demo heuristic). */
-function statusForIndex(idx: number): { label: string; bg: string; color: string } {
-  if (idx === 0) return { label: 'IN PROGRESS', bg: '#dceeff', color: '#1848a0' };
-  if (idx === 1) return { label: 'COMPLETED', bg: '#d4f0e0', color: '#1a6030' };
-  return { label: 'PENDING', bg: '#f0f0ec', color: '#888' };
+/** Derive status tag from session index (demo heuristic). */
+function statusForIndex(idx: number): { label: string; bg: string; color: string; cardBg: string; cardBorder: string } {
+  if (idx === 0) return { label: 'IN-PROGRESS', bg: '#e0ecff', color: '#2066D0', cardBg: '#fffbe6', cardBorder: '#f0e8c0' };
+  if (idx === 1) return { label: 'COMPLETED', bg: '#d4f0e0', color: '#1a6030', cardBg: '#f8fcf9', cardBorder: '#d0e8d8' };
+  return { label: 'PENDING', bg: '#f0f0ec', color: '#888', cardBg: '#fafaf9', cardBorder: '#e8e8e0' };
 }
 
 interface SidebarProps {
@@ -45,6 +52,39 @@ export function Sidebar({
 }: SidebarProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [filter, setFilter] = useState<FilterTab>('ALL');
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
+  const isResizing = useRef(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  // Resize handler
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizing.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing.current) return;
+      const newWidth = e.clientX;
+      setSidebarWidth(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth)));
+    };
+    const handleMouseUp = () => {
+      if (isResizing.current) {
+        isResizing.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -63,33 +103,64 @@ export function Sidebar({
     return () => { unsub(); };
   }, [loadSessions]);
 
+  const FILTER_TABS: FilterTab[] = ['ALL', 'IN-PROGRESS', 'REVIEW', 'CC'];
+
   return (
     <div
-      className="flex flex-col shrink-0 border-r"
+      ref={sidebarRef}
+      className="flex flex-col shrink-0 border-r relative"
       style={{
-        width: 260,
+        width: sidebarWidth,
         background: 'var(--sidebar-bg)',
         borderColor: 'var(--sidebar-border)',
       }}
     >
-      {/* Tasks header */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-2 shrink-0">
-        <span
-          className="text-xs font-semibold uppercase tracking-wider"
-          style={{ color: 'var(--text-muted)' }}
-        >
+      {/* Resize handle */}
+      <div
+        onMouseDown={handleMouseDown}
+        className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-[var(--accent)]/30 transition-colors z-10"
+        style={{ marginRight: -2 }}
+      />
+      {/* Header: glitch M logo + Tasks title */}
+      <div className="flex items-center gap-2.5 px-4 py-3 shrink-0">
+        <MiQiLogo size={28} />
+        <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
           Tasks
         </span>
         <button
           onClick={onNewSession}
-          className="w-5 h-5 rounded flex items-center justify-center transition-colors hover:bg-[var(--surface-muted)]"
+          className="ml-auto w-6 h-6 rounded flex items-center justify-center transition-colors hover:bg-[var(--surface-muted)]"
           title="New Session"
         >
-          <Plus size={13} style={{ color: 'var(--text-faint)' }} />
+          <Plus size={14} style={{ color: 'var(--text-faint)' }} />
         </button>
       </div>
 
-      {/* Session list — wide cards with description */}
+      {/* Filter tabs: ALL / IN PROGRESS / REVIEW / CC */}
+      <div className="flex gap-1 px-4 pb-3 shrink-0">
+        {FILTER_TABS.map((tab) => {
+          const isActive = filter === tab;
+          return (
+            <button
+              key={tab}
+              onClick={() => setFilter(tab)}
+              className={cn(
+                'px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors',
+                isActive
+                  ? 'text-[var(--text)]'
+                  : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]',
+              )}
+              style={{
+                background: isActive ? 'var(--surface-muted)' : 'transparent',
+              }}
+            >
+              {tab}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Session list — card style with left border + description */}
       <div className="flex-1 overflow-y-auto px-3 pb-2">
         {initialLoading && sessions.length === 0 ? (
           <div className="flex items-center justify-center py-6">
@@ -112,43 +183,35 @@ export function Sidebar({
                 <button
                   key={s.key}
                   onClick={() => onSessionSelect?.(s.key)}
-                  className={cn(
-                    'w-full text-left rounded-xl px-3 py-3 transition-colors',
-                    isActive
-                      ? 'bg-[var(--surface-muted)]'
-                      : 'hover:bg-[var(--surface-elevated)]',
-                  )}
+                  className="w-full text-left rounded-xl px-3 py-3 transition-colors"
+                  style={{
+                    background: status.cardBg,
+                    border: `1px solid ${isActive ? status.color : status.cardBorder}`,
+                  }}
                 >
-                  {/* Status row */}
-                  <div className="flex items-center gap-1.5 mb-1.5">
-                    <Circle
-                      size={8}
-                      style={{ fill: status.color, color: status.color }}
-                    />
+                  {/* Top row: pill status label left · time right */}
+                  <div className="flex items-center justify-between mb-2">
                     <span
-                      className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                      className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full"
                       style={{ background: status.bg, color: status.color }}
                     >
                       {status.label}
                     </span>
-                    <span
-                      className="text-[10px] ml-auto"
-                      style={{ color: 'var(--text-faint)' }}
-                    >
+                    <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
                       {relativeTime(s.updated_at)}
                     </span>
                   </div>
-                  {/* Title */}
+                  {/* Title — large bold, one line */}
                   <p
-                    className="text-sm font-medium truncate mb-0.5"
+                    className="text-[15px] font-bold truncate mb-1"
                     style={{ color: 'var(--text)' }}
                     title={displayName}
                   >
                     {displayName}
                   </p>
-                  {/* Description / subtitle */}
+                  {/* Description — small gray, multi-line */}
                   <p
-                    className="text-xs truncate"
+                    className="text-[11px] leading-relaxed"
                     style={{ color: 'var(--text-muted)' }}
                   >
                     {s.message_count != null
@@ -162,7 +225,7 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Bottom — settings + version */}
+      {/* Bottom bar */}
       <div
         className="shrink-0 px-4 py-2.5 border-t flex items-center justify-between"
         style={{ borderColor: 'var(--sidebar-border)' }}
