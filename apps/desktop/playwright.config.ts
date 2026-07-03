@@ -7,7 +7,10 @@ export default defineConfig({
   fullyParallel: false,
   retries: 0,
   workers: 1,
-  reporter: 'html',
+  reporter: [
+    ['html', { outputFolder: 'test-reports/html', open: 'never' }],
+    ['json', { outputFile: 'test-reports/results.json' }],
+  ],
   timeout: 30000,
   use: {
     trace: 'on-first-retry',
