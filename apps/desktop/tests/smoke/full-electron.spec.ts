@@ -43,14 +43,20 @@ async function waitForResponseComplete(page: Page, timeout = 120_000) {
   await expect(page.getByText('Thinking…')).toBeHidden({ timeout });
 }
 
-/** Get the current session title from the header */
+/** Get the current session title from the header.
+ *  Uses stable class-based selector: both old (text-sm) and new (text-[18px])
+ *  UI share font-semibold.truncate on the title h2. */
 function getSessionTitle(page: Page) {
-  return page.locator('h2.text-sm.font-semibold.truncate').first();
+  return page.locator('h2.font-semibold.truncate').first();
 }
 
-/** Get sidebar session items (the clickable buttons that switch sessions) */
+/** Get sidebar session items (clickable buttons that switch sessions).
+ *  Scoped to the sidebar panel to avoid picking up buttons in main content.
+ *  Old UI: div.space-y-1.5 > div > button (wrapped)
+ *  New UI: div.space-y-1.5 > button (direct) — descendant selector covers both. */
 function getSidebarSessionItems(page: Page) {
-  return page.locator('div.space-y-1 > div > button.flex-1');
+  const sidebar = page.locator('div.flex.flex-col.shrink-0.border-r').first();
+  return sidebar.locator('button');
 }
 
 /** Get the count of sidebar session items */
@@ -94,15 +100,13 @@ async function waitForSidebarRefresh(page: Page, _timeout = 10_000) {
 }
 
 /** Switch to a sidebar session by clicking through sessions until the
- *  given marker text becomes visible in the main chat area. */
+ *  given marker text becomes visible in the main chat area.
+ *  No longer depends on a "对话" nav button — the sidebar is always visible. */
 async function switchToSessionWithMarker(
   page: Page,
   marker: string,
 ): Promise<boolean> {
-  const chatNav = page.getByRole('button', { name: '对话', exact: true });
-  await chatNav.click();
-  await page.waitForTimeout(500);
-
+  // Ensure the Tasks section is scrolled into view
   const tasksHeader = page.getByText('Tasks').first();
   await tasksHeader.scrollIntoViewIfNeeded().catch(() => {});
 
@@ -116,7 +120,7 @@ async function switchToSessionWithMarker(
     await items.nth(i).click();
     await page.waitForTimeout(4000);
 
-    // Only check the <main> chat area, not the sidebar，否则就会误识别，因为sidebar也会显示marker
+    // Only check the <main> chat area, not the sidebar
     const markerVisible = await page
       .locator('main')
       .getByText(marker, { exact: false })
@@ -216,18 +220,8 @@ test.describe('Native Electron E2E', () => {
       page.getByPlaceholder('Ask Agent to analyze or edit files...'),
     ).toBeVisible({ timeout: 10_000 });
 
-    await expect(
-      page.getByRole('button', { name: '对话', exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole('button', { name: '设置', exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole('button', { name: 'MCPs', exact: true }),
-    ).toBeVisible();
+    // Core UI landmarks — use stable text selectors that exist in BOTH old and new UI
     await expect(page.getByText('Tasks').first()).toBeVisible();
-
-    await expect(page.getByRole('button', { name: 'New Chat' })).toBeVisible();
     await expect(page.locator('button[title="New Session"]')).toBeVisible();
   });
 
@@ -329,8 +323,6 @@ test.describe('Native Electron E2E', () => {
     'New Chat button clears message history',
     { timeout: LLM_TIMEOUT },
     async () => {
-      const chatNav = page.getByRole('button', { name: '对话', exact: true });
-      await chatNav.click();
       await waitForInputReady(page, 15_000);
 
       await sendMessage(page, '只回答Y');
@@ -424,11 +416,10 @@ test.describe('Native Electron E2E', () => {
     await sendMessage(page, 'hi');
     await waitForResponseComplete(page);
 
-    // Switch back to the first session by clicking its sidebar button
-    const btn = page.getByRole('button', { name: m }).first();
-    await expect(btn).toBeVisible({ timeout: 5000 });
-    await btn.click();
-    await page.waitForTimeout(5000);
+    // Switch back via sidebar — use dedicated helper that iterates
+    // all session cards and checks <main> area for the marker
+    const found = await switchToSessionWithMarker(page, m);
+    expect(found).toBe(true);
 
     // Marker should be visible in the main chat area
     await expect(page.locator('main').getByText(m).first()).toBeVisible({ timeout: 15000 });
@@ -507,11 +498,9 @@ test.describe('Native Electron E2E', () => {
       await sendMessage(page, 'hi');
       await waitForResponseComplete(page);
 
-      // Switch back via sidebar — click the button whose title contains "红"
-      const btn = page.getByRole('button', { name: '红' }).first();
-      await expect(btn).toBeVisible({ timeout: 5000 });
-      await btn.click();
-      await page.waitForTimeout(5000);
+      // Switch back via sidebar — iterate session cards, check <main> area
+      const found = await switchToSessionWithMarker(page, '红');
+      expect(found).toBe(true);
 
       await expect(page.locator('main').getByText('蓝').first()).toBeVisible({ timeout: 15_000 });
     },
