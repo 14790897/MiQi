@@ -557,4 +557,54 @@ test.describe('Native Electron E2E', () => {
   );
 
   // SECTION 5 removed — Sessions page no longer has a dedicated nav button.
+
+  // ═══════════════════════════════════════════════════════════════
+  //  SECTION 6: AI File Creation with Approval Flow
+  //
+  //  Tests the full pipeline: LLM → tool use → approval request →
+  //  user clicks "永久允许" → tool executes → file created.
+  //
+  //  The commandApproval system (manual mode, 60s timeout) requires
+  //  user interaction for file_write tools.  We clear permanent
+  //  approvals first so the dialog always appears for the test.
+  // ═══════════════════════════════════════════════════════════════
+
+  test(
+    'AI file creation: approval dialog → click allow → file created',
+    { timeout: LLM_TIMEOUT * 2 },
+    async () => {
+      // Clear any existing permanent approvals so the dialog appears
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.clearPermanent(),
+      );
+
+      await createNewConversation(page);
+
+      const filename = `e2e_${Date.now()}.txt`;
+      await sendMessage(
+        page,
+        `Use write_file to create ${filename} with content "hello from e2e approval test"`,
+      );
+
+      // Wait for the approval dialog to appear (title: "文件操作审批")
+      await expect(page.getByText('文件操作审批')).toBeVisible({
+        timeout: 30_000,
+      });
+      console.log('[test] Approval dialog appeared');
+
+      // Click "永久允许" to approve and remember this decision
+      await page.getByRole('button', { name: '永久允许' }).click();
+      console.log('[test] Clicked 永久允许');
+
+      // Wait for the tool to execute and AI to finish
+      await waitForResponseComplete(page, 240_000);
+
+      // Verify the filename appears in the main chat area
+      await expect(
+        page.locator('main').getByText(filename, { exact: false }).first(),
+      ).toBeVisible({ timeout: 15_000 });
+
+      console.log(`[test] ✅ AI created file after approval: ${filename}`);
+    },
+  );
 });
