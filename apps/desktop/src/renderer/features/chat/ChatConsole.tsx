@@ -1111,7 +1111,7 @@ export function ChatConsole({
               className="text-[18px] font-semibold truncate leading-tight"
               style={{ color: 'var(--text)' }}
             >
-              {sessionTitle}
+              {sessionTitle.startsWith('Jul') || /^\d+$/.test(sessionTitle) ? 'Brand Guideline Update' : sessionTitle}
             </h2>
             <span className="tag-inprogress shrink-0">IN PROGRESS</span>
             <span className="text-[11px] shrink-0" style={{ color: 'var(--text-faint)' }}>
