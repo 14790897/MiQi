@@ -1061,13 +1061,6 @@ export function ChatConsole({
 
         {/* Right: Badges + user + actions */}
         <div className="flex items-center gap-2 shrink-0">
-          <span
-            className="px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider whitespace-nowrap"
-            style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e' }}
-          >
-            ADMIN ACCESS
-          </span>
-
           {/* User avatar + name */}
           <div className="flex items-center gap-1.5 pl-2 ml-1 border-l" style={{ borderColor: 'var(--border-subtle)' }}>
             <div
@@ -1198,10 +1191,9 @@ export function ChatConsole({
 
           {/* Composer */}
           <div
-            className="shrink-0 px-5 pb-4 pt-3 border-t"
+            className="shrink-0 px-5 pb-4 pt-3"
             style={{
-              background: 'var(--surface-elevated)',
-              borderColor: 'var(--border-subtle)',
+              background: '#F2F5E8',
             }}
           >
             <div className="max-w-[760px] mx-auto">
@@ -1241,9 +1233,10 @@ export function ChatConsole({
               <div
                 className="flex items-end gap-2 rounded-xl px-4 py-3.5 focus-within:ring-2 transition-all"
                 style={{
-                  background: 'var(--surface)',
+                  background: '#FFFFFF',
                   border: '1px solid var(--border)',
                   outline: 'none',
+                  boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
                 <button

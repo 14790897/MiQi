@@ -32,14 +32,15 @@ function relativeTime(iso?: string): string {
 
 /** Derive status tag from session index (demo heuristic). */
 function statusForIndex(idx: number): { label: string; bg: string; color: string; cardBg: string; cardBorder: string } {
-  if (idx === 0) return { label: 'IN-PROGRESS', bg: '#e0ecff', color: '#2066D0', cardBg: '#fffbe6', cardBorder: '#f0e8c0' };
-  if (idx === 1) return { label: 'COMPLETED', bg: '#d4f0e0', color: '#1a6030', cardBg: '#f8fcf9', cardBorder: '#d0e8d8' };
+  if (idx === 0) return { label: 'IN-PROGRESS', bg: 'var(--tag-inprogress-bg)', color: 'var(--tag-inprogress-text)', cardBg: '#fffbe6', cardBorder: '#f0e8c0' };
+  if (idx === 1) return { label: 'COMPLETED', bg: 'var(--tag-completed-bg)', color: 'var(--tag-completed-text)', cardBg: '#f8fcf9', cardBorder: '#d0e8d8' };
   return { label: 'PENDING', bg: '#f0f0ec', color: '#888', cardBg: '#fafaf9', cardBorder: '#e8e8e0' };
 }
 
 interface SidebarProps {
   currentSession?: string;
   onSessionSelect?: (key: string) => void;
+  onNavChange?: (id: string) => void;
   refreshKey?: number;
   onNewSession?: () => void;
 }
@@ -47,6 +48,7 @@ interface SidebarProps {
 export function Sidebar({
   currentSession,
   onSessionSelect,
+  onNavChange,
   refreshKey,
   onNewSession,
 }: SidebarProps) {
@@ -203,7 +205,7 @@ export function Sidebar({
                   </div>
                   {/* Title — large bold, one line */}
                   <p
-                    className="text-[15px] font-bold truncate mb-1"
+                    className="text-[13px] font-bold truncate mb-1"
                     style={{ color: 'var(--text)' }}
                     title={displayName}
                   >
@@ -233,6 +235,7 @@ export function Sidebar({
         <span
           className="text-[11px] cursor-pointer hover:text-[var(--text)] transition-colors"
           style={{ color: 'var(--text-faint)' }}
+          onClick={() => onNavChange?.('settings')}
         >
           System Settings
         </span>

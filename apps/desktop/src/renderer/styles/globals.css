@@ -7,7 +7,7 @@
 
 :root {
   /* Backgrounds */
-  --background: #F2F5E8;          /* chat area — 抹茶色 */
+  --background: #f5f6e5;          /* chat area — 抹茶色 */
   --surface: #FFFFFF;             /* sidebar / nav — 纯白 */
   --surface-muted: #F2F2F0;       /* input area / muted — 浅灰 */
   --surface-elevated: #FFFFFF;
@@ -67,8 +67,8 @@
   --tag-review-text: #a06000;
   --tag-completed-bg: rgba(32,102,208,0.12);   /* COMPLETED 标签（蓝色） */
   --tag-completed-text: #2066D0;
-  --tag-inprogress-bg: rgba(255,193,7,0.15);  /* IN-PROGRESS 标签（暖黄） */
-  --tag-inprogress-text: #b8860b;
+  --tag-inprogress-bg: #e0ecff;  /* IN-PROGRESS 标签（浅蓝） */
+  --tag-inprogress-text: #2066D0;
 
   --radius: 8px;
 }
