@@ -132,7 +132,7 @@ class PptxWriteTool(Tool):
     async def execute(self, **kwargs: Any) -> str:
         from pptx import Presentation
 
-        raw_path = kwargs["file_path"]
+        raw_path = kwargs.get("file_path") or kwargs.get("path", "")
         slides = kwargs["slides"]
 
         try:

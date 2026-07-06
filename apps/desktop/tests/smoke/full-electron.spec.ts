@@ -560,7 +560,16 @@ test.describe('Native Electron E2E', () => {
     'AI file creation: approval dialog → click allow → file created',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
-      // Clear any existing permanent approvals so the dialog appears
+      // Wait for bridge fully initialized before calling approvals API
+      await page.evaluate(async () => {
+        for (let i = 0; i < 30; i++) {
+          try {
+            const s = await (window as any).miqi.runtime.status();
+            if (s?.state === 'running' && s?.initialized) return;
+          } catch { /* */ }
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      });
       await page.evaluate(() =>
         (window as any).miqi.approvals.clearPermanent(),
       );
@@ -592,6 +601,46 @@ test.describe('Native Electron E2E', () => {
       ).toBeVisible({ timeout: 15_000 });
 
       console.log(`[test] ✅ AI created file after approval: ${filename}`);
+    },
+  );
+
+  test(
+    'AI PPT creation: approval → pptx_write → file created',
+    { timeout: LLM_TIMEOUT * 2 },
+    async () => {
+      // Try clearing permanent approvals (may fail if not yet initialized — fine)
+      try {
+        await page.evaluate(() =>
+          (window as any).miqi.approvals.clearPermanent(),
+        );
+      } catch { /* NOT_INITIALIZED — dialog will still appear */ }
+
+      await createNewConversation(page);
+
+      await sendMessage(
+        page,
+        '使用 pptx_write 工具创建一页PPT，file_path=e2e_test.pptx，slides=[{title:"E2E测试",content:"自动化测试验证通过"}]。创建成功后只回复一个字：成',
+      );
+
+      // Wait for the approval dialog
+      await expect(page.getByText('文件操作审批')).toBeVisible({
+        timeout: 60_000,
+      });
+      console.log('[test] PPT approval dialog appeared');
+
+      // Click to allow
+      await page.getByRole('button', { name: '永久允许' }).click();
+      console.log('[test] Clicked 永久允许 for PPT');
+
+      // Wait for the tool + AI to finish
+      await waitForResponseComplete(page, 240_000);
+
+      // Verify AI responded with "成" (confirms PPT created successfully)
+      await expect(
+        page.locator('main').getByText('成').first(),
+      ).toBeVisible({ timeout: 15_000 });
+
+      console.log('[test] ✅ PPT created via pptx_write after approval');
     },
   );
 });
