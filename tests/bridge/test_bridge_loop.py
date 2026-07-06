@@ -369,6 +369,39 @@ async def test_drain_chat_events_converts_tool_begin_to_tool_hint_progress():
 
 
 @pytest.mark.asyncio
+async def test_drain_chat_events_sends_backend_timeout_error_directly():
+    from miqi.bridge.loop import BridgeRuntimeLoop
+
+    class DroppingAppServer:
+        async def emit_event(self, session_id, event_type, data, request_id=None):
+            return None
+
+    class TimeoutRuntime:
+        async def next_event(self, timeout=None):
+            return None
+
+    capturer = _CaptureSend()
+    loop = BridgeRuntimeLoop(send_func=capturer.send)
+    loop._app_server = DroppingAppServer()
+
+    await loop._drain_chat_events(
+        request_id="req-timeout",
+        runtime=TimeoutRuntime(),
+        thread_id="thread-timeout",
+        session_id="session-timeout",
+        client_id="client-timeout",
+    )
+
+    assert capturer.messages[0] == {
+        "id": "req-timeout",
+        "type": "error",
+        "data": {
+            "message": "Turn timed out after 300s",
+        },
+    }
+
+
+@pytest.mark.asyncio
 async def test_phase41_turn_handlers_registered_on_bridge_app_server():
     from miqi.bridge.loop import BridgeRuntimeLoop
 
