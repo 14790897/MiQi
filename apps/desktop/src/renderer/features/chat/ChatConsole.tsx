@@ -976,17 +976,25 @@ export function ChatConsole({
     [streaming, cleanupListeners, messages]
   );
 
-  /* session display name — format timestamp as readable title */
-  const sessionTitle = (() => {
+  /* session display name — use the first user message as title */
+  const sessionTitle = useMemo(() => {
+    const firstUserMsg = messages.find((m) => m.role === 'user');
+    if (firstUserMsg) {
+      return firstUserMsg.content.trim().slice(0, 60);
+    }
+    // Fallback: format timestamp from session key
     const raw = sessionKey.replace(/^desktop:/, '');
     const ts = parseInt(raw, 10);
     if (!isNaN(ts) && raw.length >= 13) {
       return new Intl.DateTimeFormat('en-US', {
-        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
       }).format(new Date(ts));
     }
     return raw.replace(/_/g, ' ') || 'New Task';
-  })();
+  }, [messages, sessionKey]);
 
   return (
     <div
@@ -1111,7 +1119,7 @@ export function ChatConsole({
               className="text-[18px] font-semibold truncate leading-tight"
               style={{ color: 'var(--text)' }}
             >
-              {sessionTitle.startsWith('Jul') || /^\d+$/.test(sessionTitle) ? 'Brand Guideline Update' : sessionTitle}
+              {sessionTitle}
             </h2>
             <span className="tag-inprogress shrink-0">IN PROGRESS</span>
             <span className="text-[11px] shrink-0" style={{ color: 'var(--text-faint)' }}>
