@@ -213,12 +213,13 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const defaults: Record<string, unknown> = {};
-      if (agentName) defaults['name'] = agentName;
-      if (workspace) defaults['workspace'] = workspace;
-      if (model) defaults['model'] = model;
-      if (temperature) defaults['temperature'] = parseFloat(temperature);
-      if (maxTokens) defaults['maxTokens'] = parseInt(maxTokens);
+      const defaults: Record<string, unknown> = {
+        name: agentName,
+        workspace,
+        model,
+        temperature: temperature === '' ? '' : parseFloat(temperature),
+        maxTokens: maxTokens === '' ? '' : parseInt(maxTokens),
+      };
       await window.miqi.config.update({ agents: { defaults } });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -378,17 +379,17 @@ function WebToolsTab() {
           web: {
             search: {
               provider: searchProvider,
-              apiKey: braveKey || undefined,
+              apiKey: braveKey
             },
             fetch: {
               provider: fetchProvider,
-              ollamaApiBase: fetchOllamaBase || undefined,
-              ollamaApiKey: fetchOllamaKey || undefined,
+              ollamaApiBase: fetchOllamaBase,
+              ollamaApiKey: fetchOllamaKey
             },
           },
           papers: {
             provider: papersProvider,
-            semanticScholarApiKey: s2ApiKey || undefined,
+            semanticScholarApiKey: s2ApiKey
           },
         },
       });
