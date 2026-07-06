@@ -29,17 +29,12 @@ function saveMap(map: Record<string, SessionStatus>): void {
   }
 }
 
-/** Default status for sessions without a manual override. */
-function fallbackStatus(_idx: number): SessionStatus {
-  return 'PENDING';
-}
-
 export function useSessionStatus() {
   const [map, setMap] = useState<Record<string, SessionStatus>>(loadMap);
 
   const getStatus = useCallback(
-    (sessionKey: string, index: number): SessionStatus => {
-      return map[sessionKey] ?? fallbackStatus(index);
+    (sessionKey: string): SessionStatus => {
+      return map[sessionKey] ?? 'PENDING';
     },
     [map],
   );
@@ -75,8 +70,8 @@ export function useSessionStatus() {
           label: 'CC',
           bg: 'var(--tag-cc-bg)',
           color: 'var(--tag-cc-text)',
-          cardBg: '#f8fcf9',
-          cardBorder: '#d0e8d8',
+          cardBg: '#f9f5ff',
+          cardBorder: '#d4c5f0',
         };
       case 'PENDING':
       default:

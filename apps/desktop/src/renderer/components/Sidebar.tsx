@@ -108,11 +108,11 @@ export function Sidebar({
 
   const FILTER_TABS: FilterTab[] = ['ALL', 'IN-PROGRESS', 'REVIEW', 'CC'];
 
-  const filteredSessions = sessions.filter((s, idx) => {
+  const filteredSessions = sessions.filter((s) => {
     if (filter === 'ALL') return true;
-    const status = getStatus(s.key, idx);
+    const status = getStatus(s.key);
     if (filter === 'IN-PROGRESS') return status === 'IN-PROGRESS';
-    if (filter === 'REVIEW') return status === 'REVIEW' || status === 'PENDING'; // REVIEW maps to PENDING in demo
+    if (filter === 'REVIEW') return status === 'REVIEW';
     if (filter === 'CC') return status === 'CC';
     return true;
   });
@@ -187,10 +187,10 @@ export function Sidebar({
           </div>
         ) : (
           <div className="space-y-2">
-            {filteredSessions.slice(0, 20).map((s, idx) => {
+            {filteredSessions.slice(0, 20).map((s) => {
               const isActive = currentSession === s.key;
               const displayName = s.title || formatTimestampKey(s.key);
-              const status = getStatusDisplay(getStatus(s.key, idx));
+              const status = getStatusDisplay(getStatus(s.key));
               return (
                 <ContextMenu
                   key={s.key}
