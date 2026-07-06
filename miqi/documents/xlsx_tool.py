@@ -70,7 +70,7 @@ class XlsxReadTool(Tool):
         }
 
     async def execute(self, **kwargs: Any) -> str:
-        file_path = Path(kwargs["file_path"])
+        file_path = Path(kwargs.get("file_path") or kwargs.get("path", ""))
         if not file_path.exists():
             return f"Error: file not found: {file_path}"
         try:
@@ -133,7 +133,7 @@ class XlsxWriteTool(Tool):
     async def execute(self, **kwargs: Any) -> str:
         from openpyxl import Workbook
 
-        raw_path = kwargs["file_path"]
+        raw_path = kwargs.get("file_path") or kwargs.get("path", "")
         sheets = kwargs["sheets"]
 
         try:
