@@ -4,6 +4,8 @@ import asyncio
 import random
 import re
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from enum import Enum
 from typing import TypeVar
 
@@ -330,7 +332,14 @@ def retry_after_seconds(exc: BaseException) -> float | None:
 
 
 def _parse_retry_after_seconds(value: str) -> float | None:
-    """Parse a Retry-After value expressed in seconds."""
+    """Parse a Retry-After value expressed in seconds or as an HTTP-date.
+
+    RFC 7231 §7.1.1.1 allows Retry-After to be either an integer number of
+    seconds ("120") or an HTTP-date ("Wed, 21 Oct 2015 07:28:00 GMT"). The
+    date form is an absolute timestamp; the returned delay is the remaining
+    seconds until that moment, clamped to 0 (a date already in the past must
+    never produce a negative backoff).
+    """
     value = value.strip()
     if not value:
         return None
@@ -341,7 +350,20 @@ def _parse_retry_after_seconds(value: str) -> float | None:
     try:
         return float(value)
     except ValueError:
+        pass
+
+    # HTTP-date form (RFC 7231 §7.1.1.1). parsedate_to_datetime returns a
+    # naive datetime for dates without tz info; assume GMT per the spec.
+    try:
+        parsed_date = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
         return None
+    if parsed_date is None:
+        return None
+    if parsed_date.tzinfo is None:
+        parsed_date = parsed_date.replace(tzinfo=timezone.utc)
+    delay = (parsed_date - datetime.now(timezone.utc)).total_seconds()
+    return max(0.0, delay)
 
 
 def compute_backoff(
