@@ -221,6 +221,16 @@ export function Sidebar({
                       danger: true,
                       onSelect: () => clearStatus(s.key),
                     },
+                    {
+                      label: 'Archive',
+                      divider: true,
+                      onSelect: async () => {
+                        try {
+                          await window.miqi.sessions.archive(s.key);
+                          loadSessions();
+                        } catch { /* ignore */ }
+                      },
+                    },
                   ]}
                 >
                   {({ onContextMenu }) => (
