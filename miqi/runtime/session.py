@@ -7,6 +7,7 @@ Frontends should use RuntimeSession.create() + start/stop/submit/next_event.
 from __future__ import annotations
 
 import asyncio
+import inspect
 from pathlib import Path
 from typing import Any
 
@@ -488,7 +489,7 @@ class RuntimeSession:
                             thread_id = getattr(submission, "thread_id", None) or "default"
                             orchestrator = getattr(self._runner.services, "orchestrator", None)
                             cancel_fn = getattr(orchestrator, "cancel_approvals_for_thread", None)
-                            if callable(cancel_fn) and asyncio.iscoroutinefunction(cancel_fn):
+                            if callable(cancel_fn) and inspect.iscoroutinefunction(cancel_fn):
                                 await cancel_fn(thread_id, reason="Turn aborted by user.")
                             # Await the cancelled task to guarantee cleanup
                             # (history completion, ledger append, event emission)

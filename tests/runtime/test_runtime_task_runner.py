@@ -1,6 +1,7 @@
 """Tests for TaskRunner (Phase 11.3)."""
 
 import asyncio
+import warnings
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -77,6 +78,24 @@ async def test_task_runner_handles_abort_turn(fake_services):
     event = await asyncio.wait_for(events.get(), timeout=1)
     assert event.__class__.__name__ == "ErrorEvent"
     assert "aborted" in event.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_task_runner_abort_turn_uses_non_deprecated_coroutine_check(fake_services):
+    events = asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+    called = []
+
+    async def cancel_approvals_for_thread(thread_id: str, reason: str) -> None:
+        called.append((thread_id, reason))
+
+    fake_services.orchestrator.cancel_approvals_for_thread = cancel_approvals_for_thread
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        await runner.handle(AbortTurn(thread_id="cli:default"))
+
+    assert called == [("cli:default", "Turn aborted by user.")]
 
 
 @pytest.mark.asyncio
