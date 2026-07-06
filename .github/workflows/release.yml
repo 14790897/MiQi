@@ -65,7 +65,7 @@ jobs:
   # ── Job 2: Build Desktop App (only when a new release exists) ──────
   build:
     needs: release
-    if: needs.release.outputs.new_release == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.release.outputs.new_release == 'true'
     runs-on: windows-latest
     steps:
       - name: Checkout code
@@ -112,7 +112,7 @@ jobs:
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.release.outputs.tag_name || 'v0.4.0' }}
+          tag_name: ${{ needs.release.outputs.tag_name }}
           files: |
             dist-new/*.exe
             dist-new/*.msi
