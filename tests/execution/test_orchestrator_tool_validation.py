@@ -108,6 +108,24 @@ async def test_web_search_missing_query_returns_validation_error():
 
 
 @pytest.mark.asyncio
+async def test_web_search_empty_query_returns_validation_error():
+    """web_search with empty query should stop before tool execution."""
+    from miqi.agent.tools.web import WebSearchTool
+    tool = WebSearchTool(api_key=None, max_results=3)
+    orch, permission_engine, _hook_runtime = make_orch(tool)
+
+    tool.execute = AsyncMock(return_value="should-not-run")
+
+    ctx = make_ctx(tool_name="web_search", arguments={"query": ""})
+    result_ctx = await orch.execute(ctx)
+
+    assert "Error: Invalid parameters" in result_ctx.result
+    assert "query must be at least 1 chars" in result_ctx.result
+    tool.execute.assert_not_called()
+    permission_engine.check.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_web_search_with_valid_query_proceeds_normally():
     """web_search with query → validation passes, tool executes normally."""
     from miqi.agent.tools.web import WebSearchTool
@@ -142,6 +160,24 @@ async def test_web_fetch_missing_url_returns_validation_error():
 
     assert "Error: Invalid parameters" in result_ctx.result
     assert "missing required url" in result_ctx.result
+    tool.execute.assert_not_called()
+    permission_engine.check.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_web_fetch_empty_url_returns_validation_error():
+    """web_fetch with empty url should stop before tool execution."""
+    from miqi.agent.tools.web import WebFetchTool
+    tool = WebFetchTool(max_chars=1000)
+    tool.execute = AsyncMock(return_value="should-not-run")
+
+    orch, permission_engine, _hook_runtime = make_orch(tool)
+
+    ctx = make_ctx(tool_name="web_fetch", arguments={"url": ""})
+    result_ctx = await orch.execute(ctx)
+
+    assert "Error: Invalid parameters" in result_ctx.result
+    assert "url must be at least 1 chars" in result_ctx.result
     tool.execute.assert_not_called()
     permission_engine.check.assert_not_called()
 
