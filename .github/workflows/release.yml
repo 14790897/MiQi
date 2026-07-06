@@ -112,7 +112,7 @@ jobs:
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.release.outputs.tag_name }}
+          tag_name: ${{ needs.release.outputs.tag_name || 'v0.4.0' }}
           files: |
             dist-new/*.exe
             dist-new/*.msi
