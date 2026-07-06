@@ -83,6 +83,9 @@ const api = {
       ipcRenderer.on(IPC_EVENTS.RUNTIME_LOG, handler);
       return () => ipcRenderer.removeListener(IPC_EVENTS.RUNTIME_LOG, handler);
     },
+    reportRendererLog: (entry: { level: string; message: string; source?: string; sessionKey?: string }) => {
+      ipcRenderer.send('runtime:renderer-log', entry);
+    },
   },
 
   // -- Chat -------------------------------------------------------------------

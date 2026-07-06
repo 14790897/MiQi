@@ -2,11 +2,20 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 import type { RuntimeStatus } from '../../shared/ipc';
 import { sanitizeUiMessage } from '../lib/sanitizeUiMessage';
 
+interface RuntimeLogEntry {
+  timestamp: string;
+  level: string;
+  source: string;
+  message: string;
+  sessionKey?: string;
+}
+
 const hasApi = typeof window !== 'undefined' && !!(window as any).miqi?.runtime;
 
 interface RuntimeContextValue {
   status: RuntimeStatus;
   logs: string[];
+  entries: RuntimeLogEntry[];
   lastError: string | null;
   start: () => Promise<RuntimeStatus | undefined>;
   stop: () => Promise<RuntimeStatus | undefined>;
@@ -23,6 +32,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       : { state: 'error', configured: false, error: 'Preload API 不可用' }
   );
   const [logs, setLogs] = useState<string[]>([]);
+  const [entries, setEntries] = useState<RuntimeLogEntry[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
 
   const refreshStatus = useCallback(async () => {
@@ -74,16 +84,82 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     const unsubLog = window.miqi.runtime.onLog((msg) => {
       console.log(`[renderer] Received log: ${msg}`);
       setLogs((prev) => [...prev.slice(-499), msg]);
+      setEntries((prev) => [
+        ...prev.slice(-499),
+        {
+          timestamp: new Date().toISOString(),
+          level: msg.includes('ERROR') ? 'ERROR' : msg.includes('WARN') ? 'WARN' : 'INFO',
+          source: 'renderer',
+          message: msg,
+        },
+      ]);
     });
+
+    // Capture uncaught synchronous errors in the renderer
+    const onError = (event: ErrorEvent) => {
+      const msg = `Uncaught error: ${event.message} at ${event.filename}:${event.lineno}`;
+      window.miqi.runtime.reportRendererLog?.({
+        level: 'ERROR',
+        message: msg,
+        source: 'renderer',
+      });
+    };
+    window.addEventListener('error', onError);
+
+    // Capture unhandled Promise rejections in the renderer
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      const msg = reason instanceof Error
+        ? `Unhandled rejection: ${reason.message}\n${reason.stack ?? ''}`
+        : `Unhandled rejection: ${String(reason)}`;
+      window.miqi.runtime.reportRendererLog?.({
+        level: 'ERROR',
+        message: msg,
+        source: 'renderer',
+      });
+    };
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+
+    window.miqi.runtime.reportRendererLog?.({
+      level: 'INFO',
+      message: 'Runtime context initialized',
+      source: 'renderer',
+    });
+
+    // Record navigation timing metrics after initial render
+    const recordPerf = () => {
+      try {
+        const navEntries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+        if (navEntries.length > 0) {
+          const nav = navEntries[0];
+          const metrics = [
+            `domInteractive=${Math.round(nav.domInteractive)}ms`,
+            `domComplete=${Math.round(nav.domComplete)}ms`,
+            `loadComplete=${Math.round(nav.loadEventEnd)}ms`,
+            `firstPaint=${Math.round(nav.responseEnd - nav.fetchStart)}ms`,
+          ].join(', ');
+          window.miqi.runtime.reportRendererLog?.({
+            level: 'INFO',
+            message: `首屏渲染指标: ${metrics}`,
+            source: 'renderer',
+          });
+        }
+      } catch { /* Performance API not available */ }
+    };
+    // Delay slightly to let loadEventEnd populate
+    const perfTimer = setTimeout(recordPerf, 1000);
     return () => {
       unsubState();
       unsubLog();
+      clearTimeout(perfTimer);
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onUnhandledRejection);
     };
   }, [refreshStatus]);
 
   return (
     <RuntimeContext.Provider
-      value={{ status, logs, start, stop, refreshStatus, refreshLogs, lastError }}
+      value={{ status, logs, entries, start, stop, refreshStatus, refreshLogs, lastError }}
     >
       {children}
     </RuntimeContext.Provider>

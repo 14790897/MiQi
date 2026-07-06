@@ -63,6 +63,15 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     return bridge.getLogs();
   });
 
+  ipcMain.on('runtime:renderer-log', (_event, payload: unknown) => {
+    if (payload && typeof payload === 'object') {
+      const entry = payload as { level?: string; message?: string; source?: string; sessionKey?: string };
+      const level = entry.level ?? 'INFO';
+      const message = entry.message ?? 'Renderer log';
+      bridge.recordMainLog(level, `[renderer] ${message}`);
+    }
+  });
+
   // -----------------------------------------------------------------------
   // Chat
   // -----------------------------------------------------------------------

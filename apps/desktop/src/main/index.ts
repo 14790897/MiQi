@@ -1,12 +1,26 @@
 import { join } from 'path';
+import { appendFileSync, mkdirSync } from 'fs';
 import { electron } from '../shared/electron';
 import { registerIpcHandlers } from './ipc';
 import { BridgeManager } from './bridge';
+
+const originalConsoleLog = console.log.bind(console);
+const originalConsoleWarn = console.warn.bind(console);
+const originalConsoleError = console.error.bind(console);
 
 const { app, BrowserWindow, shell, Menu } = electron;
 
 let mainWindow: typeof BrowserWindow.prototype | null = null;
 let bridgeManager: BridgeManager | null = null;
+
+function writeElectronLog(level: string, message: string): void {
+  const logDir = join(process.cwd(), 'workspace', 'logs');
+  mkdirSync(logDir, { recursive: true });
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const logPath = join(logDir, `electron-main-${dateStr}.log`);
+  const timestamp = new Date().toISOString();
+  appendFileSync(logPath, `[${timestamp}] [${level}] ${message}\n`, 'utf8');
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -40,16 +54,16 @@ function createWindow(): void {
   mainWindow.webContents.on(
     'did-fail-load',
     (_event, errorCode, errorDescription, validatedURL) => {
-      console.error(
-        `[main] did-fail-load: code=${errorCode} desc=${errorDescription} url=${validatedURL}`
-      );
+      const msg = `[main] did-fail-load: code=${errorCode} desc=${errorDescription} url=${validatedURL}`;
+      console.error(msg);
+      writeElectronLog('ERROR', msg);
     }
   );
 
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
-    console.error(
-      `[main] render-process-gone: reason=${details.reason} exitCode=${details.exitCode}`
-    );
+    const msg = `[main] render-process-gone: reason=${details.reason} exitCode=${details.exitCode}`;
+    console.error(msg);
+    writeElectronLog('ERROR', msg);
   });
 
   mainWindow.webContents.on('console-message', (_event: unknown, ...args: unknown[]) => {
@@ -65,8 +79,13 @@ function createWindow(): void {
       level = (first as number) ?? 0;
       message = (args[1] as string) ?? '';
     }
+    // Map Electron console-message level to log level string
+    // 0=verbose, 1=info(log), 2=warning, 3=error
+    const levelStr = level >= 3 ? 'ERROR' : level >= 2 ? 'WARN' : 'INFO';
+    const msg = `[renderer] ${message}`;
+    writeElectronLog(levelStr, msg);
     if (level >= 3) {
-      console.error(`[renderer] ${message}`);
+      console.error(msg);
     }
   });
 
@@ -93,6 +112,23 @@ function createWindow(): void {
 }
 
 export function main(): void {
+  const log = (level: string, message: string) => writeElectronLog(level, message);
+  console.log = (...args: unknown[]) => {
+    const msg = args.map((a) => String(a)).join(' ');
+    log('INFO', msg);
+    return originalConsoleLog(...args);
+  };
+  console.warn = (...args: unknown[]) => {
+    const msg = args.map((a) => String(a)).join(' ');
+    log('WARN', msg);
+    return originalConsoleWarn(...args);
+  };
+  console.error = (...args: unknown[]) => {
+    const msg = args.map((a) => String(a)).join(' ');
+    log('ERROR', msg);
+    return originalConsoleError(...args);
+  };
+
   app.whenReady().then(() => {
     bridgeManager = new BridgeManager();
     registerIpcHandlers(bridgeManager);
