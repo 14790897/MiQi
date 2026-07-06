@@ -19,7 +19,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:smoke": "npx playwright test --config=playwright.config.ts --project=smoke",
-    "test:electron": "npm run build && npx playwright test --config=playwright.config.ts --project=electron 2>&1 | tee test-reports/test-output.log",
+    "test:electron": "npm run build && npx playwright test --config=playwright.config.ts --project=electron",
+    "test:electron:log": "npm run build && npx playwright test --config=playwright.config.ts --project=electron 2>&1 | node scripts/tee.js test-reports/test-output.log",
     "test:report": "npx playwright show-report test-reports/html",
     "test:real-e2e": "npx vitest run tests/smoke/real-e2e.test.ts",
     "test:real-ui": "npx playwright test --config=playwright.config.ts --project=electron --grep \"Real Agent E2E\""
