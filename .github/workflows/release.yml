@@ -65,7 +65,7 @@ jobs:
   # ── Job 2: Build Desktop App (only when a new release exists) ──────
   build:
     needs: release
-    if: needs.release.outputs.new_release == 'true'
+    if: needs.release.outputs.new_release == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - name: Checkout code
