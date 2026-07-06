@@ -98,33 +98,36 @@ def recalc(filename, timeout=30):
         return {"error": error_msg}
 
     try:
-        wb = load_workbook(filename, data_only=True)
+        wb = None
+        try:
+            wb = load_workbook(filename, data_only=True)
 
-        excel_errors = [
-            "#VALUE!",
-            "#DIV/0!",
-            "#REF!",
-            "#NAME?",
-            "#NULL!",
-            "#NUM!",
-            "#N/A",
-        ]
-        error_details = {err: [] for err in excel_errors}
-        total_errors = 0
+            excel_errors = [
+                "#VALUE!",
+                "#DIV/0!",
+                "#REF!",
+                "#NAME?",
+                "#NULL!",
+                "#NUM!",
+                "#N/A",
+            ]
+            error_details = {err: [] for err in excel_errors}
+            total_errors = 0
 
-        for sheet_name in wb.sheetnames:
-            ws = wb[sheet_name]
-            for row in ws.iter_rows():
-                for cell in row:
-                    if cell.value is not None and isinstance(cell.value, str):
-                        for err in excel_errors:
-                            if err in cell.value:
-                                location = f"{sheet_name}!{cell.coordinate}"
-                                error_details[err].append(location)
-                                total_errors += 1
-                                break
-
-        wb.close()
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                for row in ws.iter_rows():
+                    for cell in row:
+                        if cell.value is not None and isinstance(cell.value, str):
+                            for err in excel_errors:
+                                if err in cell.value:
+                                    location = f"{sheet_name}!{cell.coordinate}"
+                                    error_details[err].append(location)
+                                    total_errors += 1
+                                    break
+        finally:
+            if wb is not None:
+                wb.close()
 
         result = {
             "status": "success" if total_errors == 0 else "errors_found",
@@ -136,22 +139,26 @@ def recalc(filename, timeout=30):
             if locations:
                 result["error_summary"][err_type] = {
                     "count": len(locations),
-                    "locations": locations[:20],  
+                    "locations": locations[:20],
                 }
 
-        wb_formulas = load_workbook(filename, data_only=False)
-        formula_count = 0
-        for sheet_name in wb_formulas.sheetnames:
-            ws = wb_formulas[sheet_name]
-            for row in ws.iter_rows():
-                for cell in row:
-                    if (
-                        cell.value
-                        and isinstance(cell.value, str)
-                        and cell.value.startswith("=")
-                    ):
-                        formula_count += 1
-        wb_formulas.close()
+        wb_formulas = None
+        try:
+            wb_formulas = load_workbook(filename, data_only=False)
+            formula_count = 0
+            for sheet_name in wb_formulas.sheetnames:
+                ws = wb_formulas[sheet_name]
+                for row in ws.iter_rows():
+                    for cell in row:
+                        if (
+                            cell.value
+                            and isinstance(cell.value, str)
+                            and cell.value.startswith("=")
+                        ):
+                            formula_count += 1
+        finally:
+            if wb_formulas is not None:
+                wb_formulas.close()
 
         result["total_formulas"] = formula_count
 
