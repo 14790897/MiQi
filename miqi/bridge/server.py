@@ -315,6 +315,23 @@ from miqi.agent.tools.filesystem import (
 # Handlers
 # ---------------------------------------------------------------------------
 
+_SECRET_FIELDS = {"apiKey", "api_key", "token", "secret", "password", "appSecret"}
+
+
+def _redact_secrets(obj: Any, parent_key: str = "") -> None:
+    """Redact secret values in-place."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in _SECRET_FIELDS or any(s in k.lower() for s in ("secret", "token", "password", "api_key", "apikey")):
+                if isinstance(v, str) and v:
+                    obj[k] = v[:4] + "****" if len(v) > 4 else "****"
+            elif isinstance(v, (dict, list)):
+                _redact_secrets(v, k)
+    elif isinstance(obj, list):
+        for item in obj:
+            _redact_secrets(item, parent_key)
+
+
 def handle_status(req_id: str, params: dict) -> None:
     from miqi.paths import get_config_path
     config_exists = get_config_path()
