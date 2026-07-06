@@ -154,6 +154,55 @@ def test_retry_after_seconds_ms_attribute() -> None:
     assert retry_after_seconds(SimpleNamespace(retry_after_ms=2500)) == 2.5
 
 
+# ── Issue #25: Retry-After HTTP-date format (RFC 7231 §7.1.1.1) ────────────
+
+
+def test_retry_after_seconds_http_date_header() -> None:
+    """A future HTTP-date Retry-After must yield a positive delay in seconds."""
+    import datetime as _dt
+
+    future = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(seconds=30)
+    http_date = future.strftime("%a, %d %b %Y %H:%M:%S GMT")
+    response = SimpleNamespace(headers=_FakeHeaders({"Retry-After": http_date}))
+    exc = SimpleNamespace(response=response)
+    parsed = retry_after_seconds(exc)
+    assert parsed is not None
+    # Allow scheduling jitter; the server asked for ~30s, not 0.
+    assert 25.0 <= parsed <= 35.0
+
+
+def test_parse_retry_after_seconds_http_date_future() -> None:
+    from miqi.providers.resilience import _parse_retry_after_seconds
+
+    # Fixed RFC 7231 example. As an absolute timestamp it is in the past, so the
+    # remaining delay must clamp to 0 (never a negative backoff).
+    assert _parse_retry_after_seconds("Wed, 21 Oct 2015 07:28:00 GMT") == 0.0
+
+
+def test_parse_retry_after_seconds_http_date_relative() -> None:
+    """Parsing is monotonic: a later target date yields a strictly larger delay."""
+    import datetime as _dt
+
+    from miqi.providers.resilience import _parse_retry_after_seconds
+
+    soon = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(seconds=10)
+    later = soon + _dt.timedelta(seconds=20)
+    parse_soon = _parse_retry_after_seconds(soon.strftime("%a, %d %b %Y %H:%M:%S GMT"))
+    parse_later = _parse_retry_after_seconds(later.strftime("%a, %d %b %Y %H:%M:%S GMT"))
+    assert parse_soon is not None and parse_later is not None
+    assert parse_later > parse_soon
+
+
+def test_parse_retry_after_seconds_seconds_still_preferred() -> None:
+    """Plain seconds must keep working unchanged after the HTTP-date addition."""
+    from miqi.providers.resilience import _parse_retry_after_seconds
+
+    assert _parse_retry_after_seconds("120") == 120.0
+    assert _parse_retry_after_seconds("120.5") == 120.5
+    assert _parse_retry_after_seconds("") is None
+    assert _parse_retry_after_seconds("not a date") is None
+
+
 # ---------------------------------------------------------------------------
 # compute_backoff
 # ---------------------------------------------------------------------------
