@@ -222,6 +222,7 @@ function AppShell() {
                 currentSession={sessionKey}
                 onSessionSelect={(key) => {
                   setSessionKey(key);
+                  setActiveNav('chat');
                   setSessionRefreshKey((k) => k + 1);
                 }}
                 onNavChange={(id) => setActiveNav(id as NavId)}
