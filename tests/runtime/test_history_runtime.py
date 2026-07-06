@@ -1,5 +1,7 @@
 """Tests for HistoryRuntime — persistent turn and message history."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from miqi.runtime import history_runtime
@@ -222,6 +224,42 @@ async def test_compaction_record_stores_audit_metadata(tmp_path):
     assert row["tokens_saved"] == 50
     assert json.loads(row["replacement_json"]) == [{"role": "system", "content": "[summary]"}]
     await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_compaction_replacement_order_does_not_fall_back_to_item_id(
+    tmp_path,
+    monkeypatch,
+):
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+    await runtime.initialize()
+    try:
+        await runtime.append_message(
+            thread_id="t1", turn_id="a", role="user", content="old"
+        )
+
+        uuids = iter(["compaction-id", "b-system", "a-user"])
+        monkeypatch.setattr(
+            history_runtime,
+            "time",
+            SimpleNamespace(time=lambda: 1000.0),
+        )
+        monkeypatch.setattr(history_runtime.uuid, "uuid4", lambda: next(uuids))
+
+        await runtime.replace_messages_with_compaction(
+            "t1",
+            "compact-1",
+            [
+                {"role": "system", "content": "[summary]"},
+                {"role": "user", "content": "recent message"},
+            ],
+        )
+
+        messages = await runtime.load_messages("t1")
+        assert [message["role"] for message in messages] == ["system", "user"]
+        assert messages[0]["content"] == "[summary]"
+    finally:
+        await runtime.close()
 
 
 # ── Phase 36: history deletion for rollback ──────────────────────────────
