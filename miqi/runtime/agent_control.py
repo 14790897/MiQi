@@ -593,17 +593,23 @@ class AgentControl:
         finally:
             # Phase 51.3: fire sub-agent lifecycle end hook on every completion path.
             if self._hooks is not None:
-                await self._hooks.run(
-                    HookPoint.SUBAGENT_END,
-                    LifecycleHookContext(
-                        hook_point=HookPoint.SUBAGENT_END,
-                        data={
-                            "agent_id": agent.agent_id,
-                            "thread_id": agent.thread_id,
-                            "status": agent.state.current.value,
-                        },
-                    ),
-                )
+                try:
+                    await self._hooks.run(
+                        HookPoint.SUBAGENT_END,
+                        LifecycleHookContext(
+                            hook_point=HookPoint.SUBAGENT_END,
+                            data={
+                                "agent_id": agent.agent_id,
+                                "thread_id": agent.thread_id,
+                                "status": agent.state.current.value,
+                            },
+                        ),
+                    )
+                except Exception:
+                    logger.exception(
+                        "SUBAGENT_END hook failed for agent {}",
+                        agent.agent_id,
+                    )
 
     @staticmethod
     def _format_tool_hint(name: str, args: dict) -> str:
