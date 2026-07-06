@@ -594,14 +594,21 @@ class BridgeRuntimeLoop:
             )
 
         async def _emit_terminal(event_type: str, data: Any) -> bool:
-            """Emit a terminal event, preventing duplicates."""
+            """Send a terminal event for this chat request.
+
+            Terminal chat events settle the Electron pending request, so they
+            must not depend on session fanout. Fanout can legitimately skip
+            delivery when a client is unsubscribed or a sink is missing; the
+            current request still needs a deterministic terminal response.
+            """
             if request_id in self._terminal_sent:
                 return False
             self._terminal_sent.add(request_id)
-            await app_server.emit_event(
-                session_id, event_type, data,
-                request_id=request_id,
-            )
+            self._send({
+                "id": request_id,
+                "type": event_type,
+                "data": data,
+            })
             return True
 
         try:
@@ -621,6 +628,8 @@ class BridgeRuntimeLoop:
             )
 
             while True:
+                # Keep in sync with CHAT_BACKEND_DRAIN_TIMEOUT_MS in
+                # apps/desktop/src/main/bridge.ts.
                 event = await runtime.next_event(timeout=300)
                 if event is None:
                     # Timeout — no response from agent
