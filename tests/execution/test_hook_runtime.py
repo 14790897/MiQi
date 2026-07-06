@@ -1,5 +1,7 @@
 """Tests for miqi.execution.hook_runtime."""
 
+import asyncio
+
 import pytest
 from miqi.execution.hook_runtime import (
     HookRuntime,
@@ -106,6 +108,37 @@ async def test_hook_error_does_not_crash():
     # Should not raise
     await runtime.run(HookPoint.PRE_TOOL_USE, FakeContext("exec"))
     assert calls == ["good"]  # good hook still runs after bad hook fails
+
+
+@pytest.mark.asyncio
+async def test_hook_timeout_skips_hung_callback_and_continues():
+    runtime = HookRuntime(hook_timeout=0.01)
+    calls = []
+
+    async def hung_hook(ctx):
+        await asyncio.Event().wait()
+
+    async def good_hook(ctx):
+        calls.append("good")
+
+    runtime.register(HookRegistration(
+        hook_point=HookPoint.PRE_TOOL_USE,
+        tool_pattern="*",
+        callback=hung_hook,
+        priority=100,
+    ))
+    runtime.register(HookRegistration(
+        hook_point=HookPoint.PRE_TOOL_USE,
+        tool_pattern="*",
+        callback=good_hook,
+        priority=200,
+    ))
+
+    await asyncio.wait_for(
+        runtime.run(HookPoint.PRE_TOOL_USE, FakeContext("exec")),
+        timeout=0.2,
+    )
+    assert calls == ["good"]
 
 
 @pytest.mark.asyncio
