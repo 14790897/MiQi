@@ -113,6 +113,10 @@ def test_classify_error_invalid_request(status: int) -> None:
     assert classify_error(_StatusError("bad", status_code=status)) == ErrorKind.INVALID_REQUEST
 
 
+def test_classify_error_conflict_409_is_invalid_request() -> None:
+    assert classify_error(_StatusError("conflict", status_code=409)) == ErrorKind.INVALID_REQUEST
+
+
 def test_classify_error_model_not_found() -> None:
     assert classify_error(Exception("NotFoundError: model not found")) == ErrorKind.INVALID_REQUEST
 
@@ -315,6 +319,26 @@ async def test_with_retry_no_retry_on_auth() -> None:
         await with_retry(factory, max_attempts=3, sleep=fake_sleep)
 
     assert len(sleeps) == 0
+
+
+@pytest.mark.asyncio
+async def test_with_retry_no_retry_on_conflict_409() -> None:
+    sleeps: list[float] = []
+    attempts = 0
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    async def factory() -> str:
+        nonlocal attempts
+        attempts += 1
+        raise _StatusError("conflict", status_code=409)
+
+    with pytest.raises(_StatusError):
+        await with_retry(factory, max_attempts=3, sleep=fake_sleep)
+
+    assert attempts == 1
+    assert sleeps == []
 
 
 @pytest.mark.asyncio
