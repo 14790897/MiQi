@@ -69,6 +69,8 @@
   --tag-completed-text: #2066D0;
   --tag-inprogress-bg: #e0ecff;  /* IN-PROGRESS 标签（浅蓝） */
   --tag-inprogress-text: #2066D0;
+  --tag-cc-bg: rgba(32,102,208,0.12);         /* CC 标签（蓝，同 COMPLETED） */
+  --tag-cc-text: #2066D0;
 
   --radius: 8px;
 }
@@ -204,6 +206,17 @@ code {
 .tag-inprogress {
   background: var(--tag-inprogress-bg);
   color: var(--tag-inprogress-text);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tag-cc {
+  background: var(--tag-cc-bg);
+  color: var(--tag-cc-text);
   font-size: 10px;
   font-weight: 600;
   padding: 2px 6px;
