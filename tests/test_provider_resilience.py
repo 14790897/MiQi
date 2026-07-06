@@ -121,6 +121,30 @@ def test_classify_error_unknown_fatal() -> None:
     assert classify_error(Exception("something weird")) == ErrorKind.FATAL
 
 
+# ── Issue #26: transient network errors must not be caught by "not found" ─
+
+
+@pytest.mark.parametrize("message", [
+    "Connection to server not found",
+    "host not found",
+    "_connection not found_ while dialing upstream",
+    "Temporary failure in name resolution: host not found",
+])
+def test_classify_error_network_not_found_is_transient(message: str) -> None:
+    """A DNS/connection 'not found' is transient and retryable, not invalid."""
+    assert classify_error(Exception(message)) == ErrorKind.TRANSIENT
+
+
+@pytest.mark.parametrize("message", [
+    "NotFoundError: model not found",
+    "model not found: gpt-x",
+    "The model was not found",
+])
+def test_classify_error_resource_not_found_still_invalid(message: str) -> None:
+    """A 404-style resource 'not found' stays invalid (non-retryable)."""
+    assert classify_error(Exception(message)) == ErrorKind.INVALID_REQUEST
+
+
 # ---------------------------------------------------------------------------
 # is_retryable
 # ---------------------------------------------------------------------------
