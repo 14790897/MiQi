@@ -32,7 +32,7 @@ import { PermissionsPage } from '../permissions/PermissionsPage';
 import { PluginMarket } from '../plugins/PluginMarket';
 import WslStatusPage from '../wsl/WslStatusPage';
 
-type SettingsTab =
+export type SettingsTab =
   | 'general'
   | 'providers'
   | 'channels'
