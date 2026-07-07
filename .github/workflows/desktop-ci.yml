@@ -87,6 +87,7 @@ jobs:
           npm ci
           pip install uv
           uv sync
+          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
 
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps

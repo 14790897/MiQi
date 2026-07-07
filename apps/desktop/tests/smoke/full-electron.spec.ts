@@ -643,4 +643,120 @@ test.describe('Native Electron E2E', () => {
       console.log('[test] ✅ PPT created via pptx_write after approval');
     },
   );
+
+  // ═══════════════════════════════════════════════════════════════
+  //  SECTION 6: Sandbox initialization
+  // ═══════════════════════════════════════════════════════════════
+
+  /** Skip sandbox exec tests on CI runners that lack bwrap.
+   *  The desktop-ci.yml installs bubblewrap, but because the workflow
+   *  uses pull_request_target it runs from the base branch (main),
+   *  so the install won't take effect until that change is merged. */
+  const SKIP_SANDBOX_ON_CI = !!process.env.CI;
+
+  test(
+    'sandbox manager initializes on bridge startup',
+    { timeout: 120_000 },
+    async () => {
+      const status = await page.evaluate(async () => {
+        try { return await window.miqi.runtime.status(); } catch { return null; }
+      });
+      expect(status?.state).toBe('running');
+      console.log('[test] ✅ Bridge running with sandbox manager initialized');
+    },
+  );
+
+  test(
+    'exec pwd in sandbox returns /home/miqi/workspace',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+      await createNewConversation(page);
+      await sendMessage(
+        page,
+        '用 exec 工具执行 pwd，只回复 exec 的实际输出，不要加任何解释',
+      );
+
+      await waitForResponseComplete(page, 240_000);
+
+      // Log the full conversation including tool calls and AI response
+      const fullText = await page.locator('main').textContent();
+      console.log('[test] === Full AI conversation ===');
+      console.log(fullText);
+      console.log('[test] ===========================');
+
+      // pwd inside bwrap sandbox should output /home/miqi/workspace
+      await expect(
+        page.locator('main').getByText('/home/miqi/workspace', { exact: false }).first(),
+      ).toBeVisible({ timeout: 30_000 });
+      console.log('[test] ✅ exec pwd ran inside sandbox');
+    },
+  );
+
+  test(
+    'exec whoami returns miqi user',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+      await sendMessage(
+        page,
+        '用 exec 工具执行 whoami，只回复 exec 的实际输出，不要加任何解释',
+      );
+      await waitForResponseComplete(page, 120_000);
+      await expect(
+        page.locator('main').getByText('miqi', { exact: false }).first(),
+      ).toBeVisible({ timeout: 15_000 });
+      console.log('[test] ✅ exec whoami → miqi');
+    },
+  );
+
+  test(
+    'exec echo returns command output',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+      await sendMessage(
+        page,
+        '用 exec 工具执行 echo "sandbox_e2e_OK"，只回复 exec 的实际输出，不要加任何解释',
+      );
+      await waitForResponseComplete(page, 120_000);
+      await expect(
+        page.locator('main').getByText('sandbox_e2e_OK', { exact: false }).first(),
+      ).toBeVisible({ timeout: 15_000 });
+      console.log('[test] ✅ exec echo → sandbox_e2e_OK');
+    },
+  );
+
+  test(
+    'exec uname returns Linux sandbox',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+      await sendMessage(
+        page,
+        '用 exec 工具执行 uname -s，只回复 exec 的实际输出，不要加任何解释',
+      );
+      await waitForResponseComplete(page, 120_000);
+      await expect(
+        page.locator('main').getByText('Linux', { exact: false }).first(),
+      ).toBeVisible({ timeout: 15_000 });
+      console.log('[test] ✅ exec uname -s → Linux');
+    },
+  );
+
+  test(
+    'exec ls shows sandbox workspace contents',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+      await sendMessage(
+        page,
+        '用 exec 工具执行 ls /home/miqi/workspace，只回复 exec 的实际输出，不要加任何解释',
+      );
+      await waitForResponseComplete(page, 120_000);
+      const response = page.locator('main').getByText(/.+/);
+      await expect(response.first()).toBeVisible({ timeout: 30_000 });
+      console.log('[test] ✅ exec ls /home/miqi/workspace');
+    },
+  );
 });

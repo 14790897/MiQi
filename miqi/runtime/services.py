@@ -92,6 +92,7 @@ class RuntimeServices:
         session_id: str,
         workspace: Path,
         event_sink: Any | None = None,
+        sandbox_manager: Any = None,
     ) -> "RuntimeServices":
         """Build the full service graph from a Config + provider.
 
@@ -116,7 +117,7 @@ class RuntimeServices:
             provider=provider,
             bus=bus,
             approval_callback=None,
-            sandbox_manager=None,
+            sandbox_manager=sandbox_manager,
             plan_tracker=plan_tracker,
         )
 
@@ -154,9 +155,17 @@ class RuntimeServices:
         emitter = RuntimeEventEmitter(event_sink)
         hook_runtime = HookRuntime()
 
+        bwrap_available = (
+            sandbox_manager is not None
+            and sandbox_manager != "disabled"
+            and getattr(sandbox_manager, "enabled", False)
+            and getattr(sandbox_manager, "_initialized", False)
+        )
+
         orchestrator = create_default_orchestrator(
             tool_registry=tool_registry,
             event_emitter=emitter,
+            bwrap_available=bwrap_available,
         )
 
         # Phase 52: shared agent graph persistence (created before AgentControl)

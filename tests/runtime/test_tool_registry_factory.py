@@ -233,3 +233,52 @@ def test_write_file_semantics_unchanged(fake_config, tmp_path):
         "write_file._allowed_dir must be None by default — "
         "restrict_to_workspace controls it, not Phase 32"
     )
+
+
+# ── Sandbox manager wiring ────────────────────────────────────────────────
+
+
+def test_sandbox_manager_wired_to_file_tools(fake_config, tmp_path):
+    """When sandbox_manager is provided, file tools receive it."""
+    from unittest.mock import MagicMock
+
+    from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
+
+    sandbox_manager = MagicMock()
+    registry = create_runtime_tool_registry(
+        config=fake_config, workspace=tmp_path, sandbox_manager=sandbox_manager,
+    )
+    for tool_name in ("read_file", "write_file", "edit_file", "list_dir"):
+        tool = registry.get(tool_name)
+        assert tool is not None
+        assert tool._sandbox_manager is sandbox_manager
+
+
+def test_sandbox_manager_none_does_not_break_tools(fake_config, tmp_path):
+    """None sandbox_manager should not break tool registration."""
+    from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
+
+    registry = create_runtime_tool_registry(
+        config=fake_config, workspace=tmp_path, sandbox_manager=None,
+    )
+    for tool_name in ("exec", "read_file", "write_file", "edit_file", "list_dir"):
+        assert registry.get(tool_name) is not None
+
+
+def test_sandbox_manager_wired_through_services_from_config(fake_config):
+    """RuntimeServices.from_config passes sandbox_manager to tool registry."""
+    from unittest.mock import MagicMock
+    from miqi.runtime.services import RuntimeServices
+
+    sandbox_manager = MagicMock()
+    services = RuntimeServices.from_config(
+        config=fake_config,
+        provider=MagicMock(),
+        session_id="test:sandbox",
+        workspace=fake_config.workspace_path,
+        sandbox_manager=sandbox_manager,
+    )
+    for tool_name in ("read_file", "write_file", "edit_file"):
+        tool = services.tool_registry.get(tool_name)
+        assert tool is not None
+        assert tool._sandbox_manager is sandbox_manager
