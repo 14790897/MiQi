@@ -391,12 +391,20 @@ async def _get_or_create_session(registry: Any, client_id: str, params: dict) ->
     provider = make_provider(config)
     workspace = config.workspace_path
 
+    _ensure_sm = getattr(state, '_ensure_sandbox_manager', None)
+    if _ensure_sm is not None:
+        _ensure_sm()
+
     return await registry.create_session(
         client_id=client_id,
         session_key=session_key,
         config=config,
         provider=provider,
         workspace=workspace,
+        sandbox_manager=(
+            None if getattr(state, "_sandbox_manager", None) in (None, "disabled")
+            else state._sandbox_manager
+        ),
     )
 
 

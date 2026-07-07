@@ -79,6 +79,7 @@ class RuntimeSession:
         provider: Any,
         session_id: str,
         workspace: Path,
+        sandbox_manager: Any = None,
     ) -> "RuntimeSession":
         """Create a RuntimeSession from config and provider.
 
@@ -96,6 +97,7 @@ class RuntimeSession:
             session_id=session_id,
             workspace=workspace,
             event_sink=events.put,  # asyncio.Queue.put is a coroutine sink
+            sandbox_manager=sandbox_manager,
         )
         runtime = cls(
             services=services,
