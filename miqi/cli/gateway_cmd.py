@@ -72,6 +72,7 @@ def register_gateway_command(
         # No more AgentLoop — channels route through GatewayRuntimeDispatcher.
         from miqi.runtime.client import RuntimeClient
         from miqi.runtime.gateway_dispatcher import GatewayRuntimeDispatcher
+        from miqi.runtime.sandbox_factory import create_sandbox_manager_from_config
         from miqi.runtime.session import RuntimeSession
 
         gateway_runtime = RuntimeSession.create(
@@ -79,6 +80,10 @@ def register_gateway_command(
             provider=provider,
             session_id="gateway:default",
             workspace=config.workspace_path,
+            sandbox_manager=create_sandbox_manager_from_config(
+                config=config,
+                workspace=config.workspace_path,
+            ),
         )
         gateway_client = RuntimeClient(gateway_runtime)
 

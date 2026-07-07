@@ -175,11 +175,16 @@ class BridgeState:
 
         config = self.load_config()
         provider = make_provider(config)
+        self._ensure_sandbox_manager()
+        sandbox_manager = self._sandbox_manager
+        if sandbox_manager == "disabled":
+            sandbox_manager = None
         runtime = RuntimeSession.create(
             config=config,
             provider=provider,
             session_id=ns_key,
             workspace=config.workspace_path,
+            sandbox_manager=sandbox_manager,
         )
         await runtime.start()
         self._runtime_sessions[ns_key] = runtime

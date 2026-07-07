@@ -61,6 +61,7 @@ class MiQiTui(App):
         """
         from miqi.config.loader import load_config
         from miqi.runtime.client import RuntimeClient
+        from miqi.runtime.sandbox_factory import create_sandbox_manager_from_config
         from miqi.runtime.session import RuntimeSession
 
         config = load_config(workspace)
@@ -69,6 +70,10 @@ class MiQiTui(App):
             provider=provider,
             session_id="tui:default",
             workspace=workspace,
+            sandbox_manager=create_sandbox_manager_from_config(
+                config=config,
+                workspace=workspace,
+            ),
         )
         await self._runtime.start()
         self._client = RuntimeClient(self._runtime)

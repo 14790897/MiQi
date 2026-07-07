@@ -82,6 +82,8 @@ class RuntimeServices:
     hooks: HookRuntime | None = None
     # Phase 52: shared agent graph persistence
     agent_graph_store: Any | None = None
+    # Shared per-session bwrap sandbox manager, when sandboxing is enabled.
+    sandbox_manager: Any | None = None
 
     @classmethod
     def from_config(
@@ -155,9 +157,17 @@ class RuntimeServices:
         emitter = RuntimeEventEmitter(event_sink)
         hook_runtime = HookRuntime()
 
+        bwrap_available = (
+            sandbox_manager is not None
+            and sandbox_manager != "disabled"
+            and getattr(sandbox_manager, "enabled", False) is not False
+            and getattr(sandbox_manager, "_initialized", True) is not False
+        )
+
         orchestrator = create_default_orchestrator(
             tool_registry=tool_registry,
             event_emitter=emitter,
+            bwrap_available=bwrap_available,
         )
 
         # Phase 52: shared agent graph persistence (created before AgentControl)
@@ -302,6 +312,9 @@ class RuntimeServices:
             ledger_runtime=ledger_runtime,
             replay_runtime=replay_runtime,
             hooks=hook_runtime,
+            sandbox_manager=(
+                None if sandbox_manager == "disabled" else sandbox_manager
+            ),
         )
 
         agent_jobs = AgentJobRuntime(services=services, store=agent_graph_store)

@@ -48,6 +48,29 @@ def test_runtime_services_wires_spawn_tool(fake_config, fake_provider):
         assert spawn_tool._agent_control is services.agent_control
 
 
+def test_runtime_services_wires_sandbox_manager_to_policy(fake_config, fake_provider):
+    """RuntimeServices must expose bwrap availability to sandbox policy."""
+    from unittest.mock import MagicMock
+
+    sandbox_manager = MagicMock()
+    sandbox_manager.enabled = True
+    sandbox_manager._initialized = True
+
+    services = RuntimeServices.from_config(
+        config=fake_config,
+        provider=fake_provider,
+        session_id="test:session",
+        workspace=fake_config.workspace_path,
+        sandbox_manager=sandbox_manager,
+    )
+
+    assert services.sandbox_manager is sandbox_manager
+    assert services.orchestrator.sandbox.bwrap_available is True
+    exec_tool = services.tool_registry.get("exec")
+    assert exec_tool is not None
+    assert exec_tool._sandbox_manager is sandbox_manager
+
+
 # ── Task 11.2: RuntimeSession ──────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -79,6 +102,40 @@ async def test_runtime_session_accepts_user_message(fake_config, fake_provider):
     assert event is not None, "Expected an AgentMessageEvent from runtime"
     assert hasattr(event, "content"), f"Got {type(event).__name__}"
     assert event.content == "done"
+
+
+@pytest.mark.asyncio
+async def test_runtime_session_start_initializes_and_activates_sandbox(
+    fake_config,
+    fake_provider,
+):
+    """RuntimeSession.start activates the per-session bwrap sandbox."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    sandbox_manager = MagicMock()
+    sandbox_manager.enabled = True
+    sandbox_manager._initialized = False
+    sandbox_manager.initialize = AsyncMock(return_value=True)
+    sandbox_manager.activate = AsyncMock(return_value=MagicMock(is_running=True))
+
+    runtime = RuntimeSession.create(
+        config=fake_config,
+        provider=fake_provider,
+        session_id="client-1:default",
+        workspace=fake_config.workspace_path,
+        sandbox_manager=sandbox_manager,
+    )
+
+    await runtime.start()
+    try:
+        sandbox_manager.initialize.assert_awaited_once()
+        sandbox_manager.activate.assert_awaited_once_with(
+            "default",
+            client_id="client-1",
+        )
+        assert runtime.services.orchestrator.sandbox.bwrap_available is True
+    finally:
+        await runtime.stop()
 
 
 @pytest.mark.asyncio

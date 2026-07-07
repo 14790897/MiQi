@@ -548,6 +548,7 @@ def register_management_commands(
 
         async def on_job(job: CronJob) -> str | None:
             from miqi.runtime.client import RuntimeClient
+            from miqi.runtime.sandbox_factory import create_sandbox_manager_from_config
             from miqi.runtime.session import RuntimeSession
 
             session_id = f"cron:{job.id}"
@@ -556,6 +557,10 @@ def register_management_commands(
                 provider=provider,
                 session_id=session_id,
                 workspace=config.workspace_path,
+                sandbox_manager=create_sandbox_manager_from_config(
+                    config=config,
+                    workspace=config.workspace_path,
+                ),
             )
             await runtime.start()
             try:

@@ -79,6 +79,7 @@ def register_agent_command(
             asyncio.run(run_once())
         else:
             from miqi.runtime.client import RuntimeClient
+            from miqi.runtime.sandbox_factory import create_sandbox_manager_from_config
             from miqi.runtime.session import RuntimeSession
 
             init_prompt_session()
@@ -105,6 +106,10 @@ def register_agent_command(
                     provider=provider,
                     session_id=session_id,
                     workspace=config.workspace_path,
+                    sandbox_manager=create_sandbox_manager_from_config(
+                        config=config,
+                        workspace=config.workspace_path,
+                    ),
                 )
                 await runtime.start()
                 await cron.start()
@@ -175,6 +180,7 @@ async def _run_agent_once_via_runtime(
     Phase 14: uses RuntimeClient.ask() instead of manual event drain.
     """
     from miqi.runtime.client import RuntimeClient
+    from miqi.runtime.sandbox_factory import create_sandbox_manager_from_config
     from miqi.runtime.session import RuntimeSession
 
     runtime = RuntimeSession.create(
@@ -182,6 +188,10 @@ async def _run_agent_once_via_runtime(
         provider=provider,
         session_id=session_id,
         workspace=config.workspace_path,
+        sandbox_manager=create_sandbox_manager_from_config(
+            config=config,
+            workspace=config.workspace_path,
+        ),
     )
     await runtime.start()
     try:

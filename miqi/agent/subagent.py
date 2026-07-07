@@ -55,6 +55,7 @@ class SubagentManager:
         context_limit_chars: int = 200000,
         executor: Any | None = None,
         result_callback: Callable[..., None] | None = None,
+        sandbox_manager: Any | None = None,
     ):
         self.provider = provider
         self.workspace = workspace
@@ -72,6 +73,7 @@ class SubagentManager:
         self.context_limit_chars = context_limit_chars
         self._executor = executor  # BackgroundExecutor for Desktop mode
         self._result_callback = result_callback  # Desktop mode: send stdout event
+        self._sandbox_manager = sandbox_manager
         self._running_tasks: dict[str, asyncio.Task[None] | Future] = {}
         self._abort_events: dict[str, threading.Event] = {}
 
@@ -155,6 +157,7 @@ class SubagentManager:
                 timeout=self.exec_config.timeout,
                 restrict_to_workspace=self.restrict_to_workspace,
                 env_passthrough=list(self.exec_config.env_passthrough),
+                sandbox_manager=self._sandbox_manager,
             ))
             tools.register(WebSearchTool(
                 provider=self.web_config.search.provider,

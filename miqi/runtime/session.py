@@ -108,6 +108,32 @@ class RuntimeSession:
 
     async def start(self) -> None:
         """Start the background dispatch loop and initialize runtime stores."""
+        sandbox_manager = getattr(self.services, "sandbox_manager", None)
+        if sandbox_manager is not None:
+            session_key = self.session_id
+            client_id = None
+            if ":" in self.session_id:
+                client_id, session_key = self.session_id.split(":", 1)
+            try:
+                if getattr(sandbox_manager, "_initialized", True) is False:
+                    await sandbox_manager.initialize()
+                sandbox = await sandbox_manager.activate(session_key, client_id=client_id)
+                sandbox_engine = getattr(
+                    getattr(self.services, "orchestrator", None),
+                    "sandbox",
+                    None,
+                )
+                if sandbox_engine is not None:
+                    sandbox_engine.bwrap_available = bool(
+                        sandbox is not None and getattr(sandbox, "is_running", False)
+                    )
+            except Exception as exc:
+                _session_logger.warning(
+                    "Failed to activate sandbox for session {}: {}",
+                    self.session_id,
+                    exc,
+                )
+
         # Phase 17: initialize persistent history and thread stores
         history = getattr(self.services, "history_runtime", None)
         if history is not None:
