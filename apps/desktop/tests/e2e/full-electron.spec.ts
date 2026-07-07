@@ -808,12 +808,8 @@ test.describe('Native Electron E2E', () => {
       await page.getByRole('tab', { name: '日志' }).click();
       await expect(page.getByText('自动滚动')).toBeVisible({ timeout: 5_000 });
 
-      // Click refresh button in the filter toolbar.
-      // Scope to the left filter container (has 'flex-wrap') to avoid matching
-      // the right export container whose buttons also contain SVGs.
-      const filterSection = page.locator('.flex.flex-wrap.items-center.gap-2');
-      const refreshButton = filterSection.locator('button');
-      await refreshButton.click();
+      // Click refresh button in the filter toolbar (identified by data-testid).
+      await page.getByTestId('refresh-logs').click();
 
       // After refresh, log entries should populate the table.
       // The bridge has been running since beforeAll, so logs should exist.

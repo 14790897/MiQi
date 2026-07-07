@@ -18,9 +18,20 @@ let _nextLogId = 0;
 
 /** Parse a formatted log line into a RuntimeLogEntry, falling back to sensible defaults. */
 function parseLogLine(msg: string): Omit<RuntimeLogEntry, 'id'> {
+  // Three-bracket format: [timestamp] [level] [source] message
   const m = msg.match(/^\[([^\]]+)\]\s*\[([^\]]+)\]\s*\[([^\]]+)\]\s*(.*)/s);
   if (m) {
     return { timestamp: m[1], level: m[2], source: m[3], message: m[4] };
+  }
+  // Single-bracket bridge format: [timestamp] message (no level/source)
+  const m1 = msg.match(/^\[([^\]]+)\]\s*(.*)/s);
+  if (m1) {
+    return {
+      timestamp: m1[1],
+      level: msg.includes('ERROR') ? 'ERROR' : msg.includes('WARN') ? 'WARN' : 'INFO',
+      source: 'bridge',
+      message: m1[2],
+    };
   }
   return {
     timestamp: new Date().toISOString(),

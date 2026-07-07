@@ -618,7 +618,7 @@ function LogsTab() {
           </select>
           <input value={sessionKey} onChange={(e) => setSessionKey(e.target.value)} placeholder="session" className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs" />
           <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="关键字" className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs" />
-          <Button variant="ghost" size="icon" onClick={() => refreshLogs()}>
+          <Button variant="ghost" size="icon" onClick={() => refreshLogs()} data-testid="refresh-logs">
             <RefreshCw size={14} />
           </Button>
         </div>

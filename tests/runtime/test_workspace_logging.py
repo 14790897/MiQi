@@ -113,3 +113,32 @@ def test_deep_json_redaction(tmp_path: Path) -> None:
     # Non-secret values survive
     assert record["action"] == "api_call"
     assert "safe_tag" in record["tags"]
+
+
+def test_key_context_redaction_without_value_keywords(tmp_path: Path) -> None:
+    """Values under sensitive keys must be redacted even when the value itself
+    contains no secret keyword — e.g. a raw JWT under an 'Authorization' key."""
+    workspace = tmp_path / "workspace"
+
+    payload = {
+        "source": "bridge",
+        "request": {
+            "Authorization": "my-jwt-payload-value",
+            "Content-Type": "application/json",
+            "x-custom-token": "abc123-no-keyword-here",
+        },
+    }
+
+    append_workspace_log_json(workspace, payload)
+
+    log_path = workspace / "logs" / f"bridge-{_today_str()}.jsonl"
+    assert log_path.exists()
+
+    record = json.loads(log_path.read_text(encoding="utf-8").strip())
+    dumped = json.dumps(record)
+    # The value under 'Authorization' must be redacted by key context
+    assert "my-jwt-payload-value" not in dumped
+    # The value under 'x-custom-token' must also be redacted (key matches 'token')
+    assert "abc123-no-keyword-here" not in dumped
+    # Non-sensitive header value survives
+    assert record["request"]["Content-Type"] == "application/json"

@@ -66,15 +66,33 @@ def _get_file_lock(log_path: Path) -> threading.Lock:
         return _write_locks[key]
 
 
-def _redact_value(value: Any) -> Any:
-    """Recursively redact sensitive strings inside dicts, lists, and scalars."""
+def _redact_value(value: Any, *, key_hint: str = "") -> Any:
+    """Recursively redact sensitive strings inside dicts, lists, and scalars.
+
+    *key_hint* carries the parent dict key name so that values which do not
+    themselves contain a secret keyword can still be redacted when the key is a
+    known sensitive field (e.g. ``{"Authorization": "Bearer eyJ..."}``).
+    """
     if isinstance(value, str):
+        # If the key name itself is a sensitive keyword, redact the whole value.
+        if key_hint and _is_sensitive_key(key_hint):
+            return "[REDACTED]"
         return _redact_message(value)
     if isinstance(value, dict):
-        return {k: _redact_value(v) for k, v in value.items()}
+        return {k: _redact_value(v, key_hint=str(k)) for k, v in value.items()}
     if isinstance(value, list):
-        return [_redact_value(item) for item in value]
+        return [_redact_value(item, key_hint=key_hint) for item in value]
     return value
+
+
+_SENSITIVE_KEY_RE = re.compile(
+    r"(?i)(?:api[_-]?key|token|secret|authorization|password)"
+)
+
+
+def _is_sensitive_key(key: str) -> bool:
+    """Return True if *key* matches a sensitive field name pattern."""
+    return bool(_SENSITIVE_KEY_RE.search(key))
 
 
 def _redact_message(message: str) -> str:

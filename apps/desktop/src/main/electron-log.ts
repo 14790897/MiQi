@@ -29,8 +29,8 @@ const CUTOFF_MS = RETAIN_DAYS * 86_400_000;
 
 // Basic redaction patterns for secrets that may leak via console output
 const REDACT_RE = [
-  // Colon-separated: Authorization: Bearer sk-xxx (multi-word value)
-  /("?\w*(?:api[_-]?key|token|secret|authorization|password)\w*"?)\s*:\s*"?([^"}\s,;]+(?:\s+[^"}\s,;]+)*)"?/gi,
+  // Colon-separated: Authorization: Bearer sk-xxx (multi-word value, bounded to 3 words max)
+  /("?\w*(?:api[_-]?key|token|secret|authorization|password)\w*"?)\s*:\s*"?([^"}\s,;\n]+(?:\s+[^"}\s,;\n]+){0,2})"?/gi,
   // Equals-separated: api_key=sk-xxx (single-word value only)
   /("?\w*(?:api[_-]?key|token|secret|authorization|password)\w*"?)\s*=\s*"?([^"}\s,;]+)"?/gi,
 ];

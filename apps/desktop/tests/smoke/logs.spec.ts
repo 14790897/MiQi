@@ -40,9 +40,7 @@ async function navigateToLogsTab(page: import('@playwright/test').Page) {
 
 /** Click the refresh button in the Logs tab filter toolbar */
 async function clickRefreshButton(page: import('@playwright/test').Page) {
-  // Scope to the left filter container (has 'flex-wrap') to avoid matching
-  // the right export container whose buttons also contain SVGs.
-  await page.locator('.flex.flex-wrap.items-center.gap-2').locator('button').click();
+  await page.getByTestId('refresh-logs').click();
 }
 
 // ---------------------------------------------------------------------------
