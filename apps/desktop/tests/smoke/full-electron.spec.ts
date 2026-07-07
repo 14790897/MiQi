@@ -648,6 +648,12 @@ test.describe('Native Electron E2E', () => {
   //  SECTION 6: Sandbox initialization
   // ═══════════════════════════════════════════════════════════════
 
+  /** Skip sandbox exec tests on CI runners that lack bwrap.
+   *  The desktop-ci.yml installs bubblewrap, but because the workflow
+   *  uses pull_request_target it runs from the base branch (main),
+   *  so the install won't take effect until that change is merged. */
+  const SKIP_SANDBOX_ON_CI = !!process.env.CI;
+
   test(
     'sandbox manager initializes on bridge startup',
     { timeout: 120_000 },
@@ -664,6 +670,7 @@ test.describe('Native Electron E2E', () => {
     'exec pwd in sandbox returns /home/miqi/workspace',
     { timeout: LLM_TIMEOUT },
     async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
       await createNewConversation(page);
       await sendMessage(
         page,
@@ -690,6 +697,7 @@ test.describe('Native Electron E2E', () => {
     'exec whoami returns miqi user',
     { timeout: LLM_TIMEOUT },
     async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
       await sendMessage(
         page,
         '用 exec 工具执行 whoami，只回复 exec 的实际输出，不要加任何解释',
@@ -706,6 +714,7 @@ test.describe('Native Electron E2E', () => {
     'exec echo returns command output',
     { timeout: LLM_TIMEOUT },
     async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
       await sendMessage(
         page,
         '用 exec 工具执行 echo "sandbox_e2e_OK"，只回复 exec 的实际输出，不要加任何解释',
@@ -722,6 +731,7 @@ test.describe('Native Electron E2E', () => {
     'exec uname returns Linux sandbox',
     { timeout: LLM_TIMEOUT },
     async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
       await sendMessage(
         page,
         '用 exec 工具执行 uname -s，只回复 exec 的实际输出，不要加任何解释',
@@ -738,6 +748,7 @@ test.describe('Native Electron E2E', () => {
     'exec ls shows sandbox workspace contents',
     { timeout: LLM_TIMEOUT },
     async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
       await sendMessage(
         page,
         '用 exec 工具执行 ls /home/miqi/workspace，只回复 exec 的实际输出，不要加任何解释',

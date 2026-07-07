@@ -487,11 +487,20 @@ class BridgeRuntimeLoop:
         """Bridge status check — session-less handler."""
         from miqi.paths import get_config_path
         config_exists = get_config_path()
+
+        # Check whether bwrap sandbox is actually usable
+        sandbox_available = False
+        if self._bridge_state is not None:
+            sm = getattr(self._bridge_state, "_sandbox_manager", None)
+            if sm is not None and sm != "disabled":
+                sandbox_available = getattr(sm, "enabled", False) and getattr(sm, "_initialized", False)
+
         return {
             "result": {
                 "status": "ok",
                 "configured": config_exists.exists(),
                 "python_version": sys.version,
+                "sandbox_available": sandbox_available,
             },
         }
 
