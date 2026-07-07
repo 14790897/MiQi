@@ -1,8 +1,8 @@
 import { join } from 'path';
-import { appendFileSync, mkdirSync } from 'fs';
 import { electron } from '../shared/electron';
 import { registerIpcHandlers } from './ipc';
 import { BridgeManager } from './bridge';
+import { writeMainProcessLog } from './electron-log';
 
 const originalConsoleLog = console.log.bind(console);
 const originalConsoleWarn = console.warn.bind(console);
@@ -12,34 +12,6 @@ const { app, BrowserWindow, shell, Menu } = electron;
 
 let mainWindow: typeof BrowserWindow.prototype | null = null;
 let bridgeManager: BridgeManager | null = null;
-
-let _electronLogCounter = 0;
-
-function cleanupOldElectronLogs(logDir: string): void {
-  try {
-    const { readdirSync, statSync, unlinkSync } = require('fs') as typeof import('fs');
-    const cutoff = Date.now() - 7 * 86400_000;
-    for (const name of readdirSync(logDir)) {
-      if (!name.endsWith('.log')) continue;
-      const filePath = join(logDir, name);
-      try {
-        if (statSync(filePath).mtimeMs < cutoff) unlinkSync(filePath);
-      } catch { /* ignore per-file errors */ }
-    }
-  } catch { /* ignore if log dir doesn't exist */ }
-}
-
-function writeElectronLog(level: string, message: string): void {
-  const logDir = join(process.cwd(), 'workspace', 'logs');
-  mkdirSync(logDir, { recursive: true });
-  const dateStr = new Date().toISOString().slice(0, 10);
-  const logPath = join(logDir, `electron-main-${dateStr}.log`);
-  const timestamp = new Date().toISOString();
-  appendFileSync(logPath, `[${timestamp}] [${level}] ${message}\n`, 'utf8');
-  // Throttled cleanup — run every 100 writes
-  _electronLogCounter += 1;
-  if (_electronLogCounter % 100 === 0) cleanupOldElectronLogs(logDir);
-}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -73,16 +45,18 @@ function createWindow(): void {
   mainWindow.webContents.on(
     'did-fail-load',
     (_event, errorCode, errorDescription, validatedURL) => {
-      const msg = `[main] did-fail-load: code=${errorCode} desc=${errorDescription} url=${validatedURL}`;
-      console.error(msg);
-      writeElectronLog('ERROR', msg);
+      // console.error is globally overridden to call writeMainProcessLog,
+      // so we only call it once here to avoid double-logging.
+      console.error(
+        `[main] did-fail-load: code=${errorCode} desc=${errorDescription} url=${validatedURL}`
+      );
     }
   );
 
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
-    const msg = `[main] render-process-gone: reason=${details.reason} exitCode=${details.exitCode}`;
-    console.error(msg);
-    writeElectronLog('ERROR', msg);
+    console.error(
+      `[main] render-process-gone: reason=${details.reason} exitCode=${details.exitCode}`
+    );
   });
 
   mainWindow.webContents.on('console-message', (_event: unknown, ...args: unknown[]) => {
@@ -100,8 +74,9 @@ function createWindow(): void {
     }
     // Map Electron console-message level to log level string
     // 0=verbose, 1=info(log), 2=warning, 3=error
+    // Write directly to file log (this path does not go through console.*)
     const levelStr = level >= 3 ? 'ERROR' : level >= 2 ? 'WARN' : 'INFO';
-    writeElectronLog(levelStr, `[renderer] ${message}`);
+    writeMainProcessLog(levelStr, `[renderer] ${message}`);
   });
 
   // 添加右键菜单，支持打开开发者工具
@@ -127,20 +102,19 @@ function createWindow(): void {
 }
 
 export function main(): void {
-  const log = (level: string, message: string) => writeElectronLog(level, message);
   console.log = (...args: unknown[]) => {
     const msg = args.map((a) => String(a)).join(' ');
-    log('INFO', msg);
+    writeMainProcessLog('INFO', msg);
     return originalConsoleLog(...args);
   };
   console.warn = (...args: unknown[]) => {
     const msg = args.map((a) => String(a)).join(' ');
-    log('WARN', msg);
+    writeMainProcessLog('WARN', msg);
     return originalConsoleWarn(...args);
   };
   console.error = (...args: unknown[]) => {
     const msg = args.map((a) => String(a)).join(' ');
-    log('ERROR', msg);
+    writeMainProcessLog('ERROR', msg);
     return originalConsoleError(...args);
   };
 

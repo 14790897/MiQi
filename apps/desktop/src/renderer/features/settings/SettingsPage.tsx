@@ -513,10 +513,10 @@ function LogsTab() {
     return true;
   });
 
-  const toggleRow = (i: number) => {
+  const toggleRow = (id: number) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);
-      if (next.has(i)) next.delete(i); else next.add(i);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   };
@@ -638,9 +638,9 @@ function LogsTab() {
 
       {/* Table view */}
       <ScrollArea className="flex-1">
-        <div ref={scrollRef} className="overflow-y-auto h-full">
+        <div ref={scrollRef}>
           {filtered.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-[var(--text-muted)] py-16 text-xs">
+            <div className="flex items-center justify-center text-[var(--text-muted)] py-16 text-xs">
               暂无匹配日志。请调整过滤条件或先启动运行时。
             </div>
           ) : (
@@ -654,8 +654,8 @@ function LogsTab() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((entry, i) => {
-                  const isExpanded = expandedRows.has(i);
+                {filtered.map((entry) => {
+                  const isExpanded = expandedRows.has(entry.id);
                   const rowBg = entry.level === 'ERROR'
                     ? 'bg-red-500/5 hover:bg-red-500/10'
                     : entry.level === 'WARN'
@@ -663,8 +663,8 @@ function LogsTab() {
                       : 'hover:bg-[var(--surface-muted)]';
                   return (
                     <tr
-                      key={`${entry.timestamp}-${i}`}
-                      onClick={() => toggleRow(i)}
+                      key={entry.id}
+                      onClick={() => toggleRow(entry.id)}
                       className={cn('border-b border-[var(--border-subtle)] cursor-pointer transition-colors', rowBg)}
                     >
                       <td className="px-4 py-1.5 text-[var(--text-faint)] whitespace-nowrap" title={entry.timestamp}>

@@ -457,8 +457,20 @@ def _ensure_workspace_init() -> None:
         append_workspace_log(workspace, "Bridge workspace initialized", source="bridge")
         _log("Workspace ready")
     except Exception as exc:
-        append_workspace_log(workspace if "workspace" in locals() else Path("."), f"Workspace init warning: {exc}", level="WARNING", source="bridge")
         _log(f"Workspace init warning (non-fatal): {exc}")
+        # Only attempt workspace logging if workspace was successfully resolved.
+        # Wrap in its own try/except so a logging I/O failure cannot escape
+        # this non-fatal handler.
+        if "workspace" in locals():
+            try:
+                append_workspace_log(
+                    workspace,
+                    f"Workspace init warning: {exc}",
+                    level="WARNING",
+                    source="bridge",
+                )
+            except Exception:
+                pass  # logging failure — already reported via _log above
 
 
 # Global bridge state — accessible from atexit/signal handlers

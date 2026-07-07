@@ -64,12 +64,18 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   });
 
   ipcMain.on('runtime:renderer-log', (_event, payload: unknown) => {
-    if (payload && typeof payload === 'object') {
-      const entry = payload as { level?: string; message?: string; source?: string; sessionKey?: string };
-      const level = entry.level ?? 'INFO';
-      const message = entry.message ?? 'Renderer log';
-      bridge.recordMainLog(level, `[renderer] ${message}`);
-    }
+    if (!payload || typeof payload !== 'object') return;
+    const entry = payload as Record<string, unknown>;
+    const level =
+      typeof entry.level === 'string' && ['INFO', 'WARN', 'ERROR'].includes(entry.level)
+        ? entry.level
+        : 'INFO';
+    const rawMessage = typeof entry.message === 'string' ? entry.message : 'Renderer log';
+    // Cap message length to prevent log file bloat from runaway renderers
+    const message = rawMessage.length > 4096 ? rawMessage.slice(0, 4096) + '…[truncated]' : rawMessage;
+    const sessionKey = typeof entry.sessionKey === 'string' ? entry.sessionKey : undefined;
+    const sessionPart = sessionKey ? ` session=${sessionKey}` : '';
+    bridge.recordMainLog(level, `[renderer${sessionPart}] ${message}`);
   });
 
   // -----------------------------------------------------------------------

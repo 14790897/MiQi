@@ -2,15 +2,46 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from miqi.utils.helpers import ensure_dir
 
+# ── Redaction patterns (ordered from most-specific to least-specific) ────────
+# 1a. Colon-separated with multi-word value support (Authorization: Bearer token)
+# 1b. Equals-separated single-word value (api_key=value, OPENAI_API_KEY=sk-xxx)
+# 2.  Standalone keyword fallback (exact match only)
 _REDACT_PATTERNS = [
-    (re.compile(r"(?i)\b(api[_-]?key|token|secret|authorization)\s*[:=]\s*([^\s,;]+)"), r"\1=[REDACTED]"),
-    (re.compile(r"(?i)\b(api[_-]?key|token|secret|authorization)\b"), "[REDACTED]"),
+    # Pattern 1a: colon-separated key-value, allows multi-word values
+    # e.g. Authorization: Bearer sk-abc123, "api_key": "sk-secret"
+    (
+        re.compile(
+            r'(?i)("?\w*(?:api[_-]?key|token|secret|authorization|password)\w*"?)'
+            r'\s*:\s*"?([^"}\s,;]+(?:\s+[^"}\s,;]+)*)"?',
+        ),
+        r'\1=[REDACTED]',
+    ),
+    # Pattern 1b: equals-separated key-value, single-word value only
+    # e.g. api_key=sk-xxx, OPENAI_API_KEY=sk-proj-abc123
+    (
+        re.compile(
+            r'(?i)("?\w*(?:api[_-]?key|token|secret|authorization|password)\w*"?)'
+            r'\s*=\s*"?([^"}\s,;]+)"?',
+        ),
+        r'\1=[REDACTED]',
+    ),
+    # Pattern 2: standalone keyword fallback (exact match only — no \w* prefix/suffix
+    # to avoid false positives on words like "user" that happen to contain a keyword
+    # substring). Prefix/suffix variants (OPENAI_API_KEY, mytoken, etc.) are already
+    # handled by Patterns 1a and 1b.
+    (
+        re.compile(
+            r"(?i)\b(?:api[_-]?key|token|secret|authorization|password)\b"
+        ),
+        "[REDACTED]",
+    ),
 ]
 
 # —— constants ——
@@ -22,6 +53,28 @@ _CLEANUP_INTERVAL = 100  # run directory cleanup every N writes (not every write
 
 # —— internal state ——
 _write_counter: int = 0
+_write_locks: dict[str, threading.Lock] = {}
+_locks_lock = threading.Lock()  # protects _write_locks dict
+
+
+def _get_file_lock(log_path: Path) -> threading.Lock:
+    """Return a per-file lock so concurrent appends/prunes don't interleave."""
+    key = str(log_path)
+    with _locks_lock:
+        if key not in _write_locks:
+            _write_locks[key] = threading.Lock()
+        return _write_locks[key]
+
+
+def _redact_value(value: Any) -> Any:
+    """Recursively redact sensitive strings inside dicts, lists, and scalars."""
+    if isinstance(value, str):
+        return _redact_message(value)
+    if isinstance(value, dict):
+        return {k: _redact_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact_value(item) for item in value]
+    return value
 
 
 def _redact_message(message: str) -> str:
@@ -66,11 +119,14 @@ def append_workspace_log(
     log_path = get_log_path(workspace_path, source)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    entry = f"[{timestamp}] [{level}] [{source}] {_redact_message(message)}\n"
-    with log_path.open("a", encoding="utf-8") as handle:
-        handle.write(entry)
+    session_part = f" [session={session_key}]" if session_key else ""
+    entry = f"[{timestamp}] [{level}] [{source}]{session_part} {_redact_message(message)}\n"
+    file_lock = _get_file_lock(log_path)
+    with file_lock:
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(entry)
 
-    _prune_log_file(log_path)
+        _prune_log_file(log_path)
 
     # Throttle directory-level cleanup to every N writes
     global _write_counter
@@ -93,11 +149,13 @@ def append_workspace_log_json(workspace: Path | str, payload: dict[str, Any]) ->
 
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     record = {"timestamp": timestamp, **payload}
-    record = {k: _redact_message(str(v)) if isinstance(v, str) else v for k, v in record.items()}
-    with log_path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    record = _redact_value(record)
+    file_lock = _get_file_lock(log_path)
+    with file_lock:
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-    _prune_log_file(log_path)
+        _prune_log_file(log_path)
 
     global _write_counter
     _write_counter += 1

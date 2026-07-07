@@ -9,6 +9,7 @@ import { createTypedAppClient } from '../shared/app-client';
 import type { TypedAppClient } from '../shared/app-client';
 import type { RuntimeState, RuntimeStatus } from '../shared/ipc';
 import { IPC_EVENTS } from '../shared/ipc';
+import { writeMainProcessLog } from './electron-log';
 
 export interface BridgeRequest {
   id: string;
@@ -674,6 +675,7 @@ export class BridgeManager extends EventEmitter {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
+        logSlow();
         reject(new Error(`Request ${method} timed out`));
       }, timeoutMs);
 
@@ -745,32 +747,8 @@ export class BridgeManager extends EventEmitter {
     this.emit('log', message);
   }
 
-  private _mainLogCounter = 0;
-
   recordMainLog(level: string, message: string): void {
-    try {
-      const { appendFileSync, mkdirSync, readdirSync, statSync, unlinkSync } = require('fs');
-      const { join } = require('path');
-      const logDir = join(process.cwd(), 'workspace', 'logs');
-      mkdirSync(logDir, { recursive: true });
-      const dateStr = new Date().toISOString().slice(0, 10);
-      const logPath = join(logDir, `electron-main-${dateStr}.log`);
-      appendFileSync(logPath, `[${new Date().toISOString()}] [${level}] ${message}\n`, 'utf8');
-      // Throttled cleanup — delete logs older than 7 days every 100 writes
-      this._mainLogCounter += 1;
-      if (this._mainLogCounter % 100 === 0) {
-        const cutoff = Date.now() - 7 * 86400_000;
-        try {
-          for (const name of readdirSync(logDir)) {
-            if (!name.endsWith('.log')) continue;
-            const fp = join(logDir, name);
-            try { if (statSync(fp).mtimeMs < cutoff) unlinkSync(fp); } catch { /* skip */ }
-          }
-        } catch { /* ignore */ }
-      }
-    } catch {
-      // ignore file logging failures
-    }
+    writeMainProcessLog(level, message, this.projectRoot);
   }
 
   private emitState(): void {
