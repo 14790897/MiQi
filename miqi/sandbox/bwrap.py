@@ -33,6 +33,10 @@ Usage:
 
 from __future__ import annotations
 
+# pylint: disable=no-member,import-error
+# Linux-specific APIs (os.killpg, signal.SIGKILL, os.getpgid) and
+# loguru are only available on the target platform / in the WSL venv.
+
 import asyncio
 import os
 import platform
@@ -42,6 +46,8 @@ import uuid
 from pathlib import Path
 
 from loguru import logger
+
+from miqi.runtime.workspace_logging import append_workspace_log
 
 
 class BwrapSandboxError(Exception):
@@ -233,6 +239,7 @@ class BwrapSandbox:
         self._use_wsl: bool = False
         self._detected_distro: str = ""
         self._linux_workspace: str | None = None
+        self._log_workspace = Path(workspace).expanduser().resolve()
 
     # ── WSL detection & command execution ────────────────────────────────
 
@@ -448,6 +455,12 @@ class BwrapSandbox:
                 "Sandbox will run via WSL distro '{}' for session {}",
                 distro, self.session_key,
             )
+            append_workspace_log(
+                self._log_workspace,
+                f"Sandbox start via WSL distro={distro} session={self.session_key}",
+                level="INFO",
+                source="sandbox",
+            )
         else:
             self._use_wsl = False
             self._bwrap_path = await self._find_bwrap_native()
@@ -492,6 +505,12 @@ class BwrapSandbox:
             self.session_key,
             self.sandbox_workspace,
         )
+        append_workspace_log(
+            self._log_workspace,
+            f"Sandbox prepared for session={self.session_key} workspace={self.sandbox_workspace}",
+            level="INFO",
+            source="sandbox",
+        )
 
     async def stop(self) -> None:
         """Stop any running bwrap process and clean up sandbox directories."""
@@ -520,8 +539,20 @@ class BwrapSandbox:
         )
         if rc == 0:
             logger.info("Sandbox cleaned up: {}", self._linux_base_dir)
+            append_workspace_log(
+                self._log_workspace,
+                f"Sandbox cleaned up session={self.session_key} path={self._linux_base_dir}",
+                level="INFO",
+                source="sandbox",
+            )
         else:
             logger.warning("Failed to clean sandbox {}: {}", self._linux_base_dir, err)
+            append_workspace_log(
+                self._log_workspace,
+                f"Sandbox cleanup failed session={self.session_key} error={err}",
+                level="WARNING",
+                source="sandbox",
+            )
 
     async def run_command(
         self,
@@ -540,6 +571,10 @@ class BwrapSandbox:
 
         bwrap_args = self._build_bwrap_args(command, env=env, cwd=cwd)
 
+        exit_code = -1
+        stdout = ""
+        stderr = ""
+
         try:
             if self._use_wsl:
                 # Windows CreateProcess has a ~32767 char command-line limit.
@@ -547,7 +582,7 @@ class BwrapSandbox:
                 # exceed that.  Write the full command into a temp shell script
                 # inside WSL and execute the script instead — the wsl.exe
                 # command line stays short (just "bash /tmp/…").
-                return await self._run_bwrap_via_script(bwrap_args, timeout)
+                exit_code, stdout, stderr = await self._run_bwrap_via_script(bwrap_args, timeout)
             else:
                 # Run bwrap natively — no command-line length issue on Linux
                 full_args = bwrap_args
@@ -568,14 +603,63 @@ class BwrapSandbox:
                         await asyncio.wait_for(process.wait(), timeout=5.0)
                     except asyncio.TimeoutError:
                         pass
-                    return (-1, "", f"Command timed out after {timeout}s")
-
-                stdout = stdout_bytes.decode("utf-8", errors="replace")
-                stderr = stderr_bytes.decode("utf-8", errors="replace")
-                return (process.returncode if process.returncode is not None else -1, stdout, stderr)
+                    exit_code, stdout, stderr = (-1, "", f"Command timed out after {timeout}s")
+                else:
+                    stdout = stdout_bytes.decode("utf-8", errors="replace")
+                    stderr = stderr_bytes.decode("utf-8", errors="replace")
+                    exit_code = process.returncode if process.returncode is not None else -1
 
         except Exception as exc:
-            return (-1, "", f"Failed to run bwrap: {exc}")
+            exit_code, stdout, stderr = (-1, "", f"Failed to run bwrap: {exc}")
+
+        # Capture command output to workspace logs for debugging
+        self._log_command_result(command, exit_code, stdout, stderr)
+        return exit_code, stdout, stderr
+
+    def _log_command_result(
+        self, command: str, exit_code: int, stdout: str, stderr: str
+    ) -> None:
+        """Log the result of a sandbox command to the workspace log file.
+
+        Output is truncated to keep log entries manageable while still
+        capturing enough context for debugging.
+        """
+        cmd_summary = command[:200] + "…" if len(command) > 200 else command
+        level = "ERROR" if exit_code != 0 else "INFO"
+
+        append_workspace_log(
+            self._log_workspace,
+            f"cmd [{self.session_key}] exit={exit_code}: {cmd_summary}",
+            level=level,
+            source="sandbox",
+            session_key=self.session_key,
+        )
+
+        stdout_trimmed = stdout.rstrip()
+        stderr_trimmed = stderr.rstrip()
+
+        if stdout_trimmed:
+            if len(stdout_trimmed) > 5000:
+                stdout_trimmed = stdout_trimmed[:5000] + f"\n…[truncated {len(stdout)}B total]"
+            append_workspace_log(
+                self._log_workspace,
+                f"[{self.session_key}] stdout:\n{stdout_trimmed}",
+                level="DEBUG",
+                source="sandbox",
+                session_key=self.session_key,
+            )
+
+        if stderr_trimmed:
+            if len(stderr_trimmed) > 5000:
+                stderr_trimmed = stderr_trimmed[:5000] + f"\n…[truncated {len(stderr)}B total]"
+            stderr_level = "WARNING" if exit_code != 0 else "DEBUG"
+            append_workspace_log(
+                self._log_workspace,
+                f"[{self.session_key}] stderr:\n{stderr_trimmed}",
+                level=stderr_level,
+                source="sandbox",
+                session_key=self.session_key,
+            )
 
     async def run_command_streaming(
         self,

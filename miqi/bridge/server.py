@@ -31,6 +31,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from miqi.runtime.workspace_logging import append_workspace_log
+
 # Force UTF-8 on Windows (default is GBK/cp936 which cannot encode emoji)
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -61,7 +63,7 @@ def _init_logging() -> None:
     prefix and writes to stderr, so all module-level logger.info/error calls
     are visible in the same terminal stream.
     """
-    from loguru import logger
+    from loguru import logger  # pylint: disable=import-error,import-outside-toplevel
 
     # Remove the default handler (sink #0) which uses loguru's verbose format
     logger.remove()
@@ -133,6 +135,7 @@ class BridgeState:
         self._orchestrator: Any = None  # Phase 3 shared ToolOrchestrator
         self._plan_tracker: Any = None  # Phase 9 shared PlanTracker
         self._plugin_manager: Any = None  # Phase 4 shared PluginManager
+        self._mcp_servers: dict = {}  # MCP servers registered by plugins
         self._runtime_sessions: dict[str, Any] = {}  # Phase 11 RuntimeSession cache
 
     def load_config(self):
@@ -1812,6 +1815,28 @@ def _ensure_app_server() -> Any:
 # BridgeRuntimeLoop._drain_loop() which uses the persistent event loop.
 
 
+def _add_file_logging(workspace: Path) -> None:
+    """Add a loguru file sink with daily rotation and 7-day retention.
+
+    Uses loguru's built-in ``rotation`` and ``retention`` so no manual
+    cleanup is needed.  The stderr sink is left untouched (added earlier
+    by ``_init_logging()``).
+    """
+    from loguru import logger
+
+    from miqi.runtime.workspace_logging import get_log_dir
+
+    log_dir = get_log_dir(workspace)
+    logger.add(
+        str(log_dir / "bridge-{time:YYYY-MM-DD}.log"),
+        format="[{time:YYYY-MM-DDTHH:mm:ssZ}] [{level}] [{name}:{function}:{line}] {message}",
+        level="DEBUG",
+        rotation="00:00",
+        retention="7 days",
+        encoding="utf-8",
+    )
+
+
 def _ensure_workspace_init() -> None:
     """Create workspace directories and template files if they don't exist."""
     try:
@@ -1823,6 +1848,9 @@ def _ensure_workspace_init() -> None:
         workspace.mkdir(parents=True, exist_ok=True)
         (workspace / "memory").mkdir(exist_ok=True)
         (workspace / "skills").mkdir(exist_ok=True)
+
+        # Add persistent file logging (daily rotation, 7-day retention)
+        _add_file_logging(workspace)
 
         templates_dir = pkg_files("miqi") / "templates"
         for item in templates_dir.iterdir():
@@ -1837,8 +1865,10 @@ def _ensure_workspace_init() -> None:
         if not memory_file.exists():
             memory_file.write_text(memory_template.read_text(encoding="utf-8"), encoding="utf-8")
 
+        append_workspace_log(workspace, "Bridge workspace initialized", source="bridge")
         _log("Workspace ready")
     except Exception as exc:
+        append_workspace_log(workspace if "workspace" in locals() else Path("."), f"Workspace init warning: {exc}", level="WARNING", source="bridge")
         _log(f"Workspace init warning (non-fatal): {exc}")
 
 

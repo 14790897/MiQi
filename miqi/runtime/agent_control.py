@@ -6,6 +6,8 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from miqi.runtime.workspace_logging import append_workspace_log
 from typing import Any
 
 from loguru import logger
@@ -465,6 +467,26 @@ class AgentControl:
                         result = ctx.result or ""
                         success = ctx.status == OrchestrationResult.SUCCESS
                         duration = ctx.duration_ms
+
+                        # Log tool call to workspace for debugging / audit
+                        session_key = ":".join(
+                            filter(None, (ctx.client_id, ctx.session_id))
+                        ) or None
+                        log_level = "INFO" if success else "ERROR"
+                        args_preview = json.dumps(tc.arguments, ensure_ascii=False)[:500]
+                        result_preview = (result or "")[:200]
+                        append_workspace_log(
+                            self.workspace,
+                            (
+                                f"tool_call [{tc.name}] success={success} "
+                                f"duration={duration}ms session={session_key}\n"
+                                f"  args: {args_preview}\n"
+                                f"  result: {result_preview}"
+                            ),
+                            level=log_level,
+                            source="tool",
+                            session_key=session_key,
+                        )
 
                         # Emit tool end event
                         preview = (result or "")[:200]

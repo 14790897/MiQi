@@ -481,25 +481,61 @@ function AppearanceTab() {
 
 // ---- Logs Tab (existing) ----
 function LogsTab() {
-  const { logs, refreshLogs } = useRuntime();
+  const { logs, entries, refreshLogs } = useRuntime();
   const [autoScroll, setAutoScroll] = useState(true);
   const [copiedLogs, setCopiedLogs] = useState(false);
+  const [logTab, setLogTab] = useState<'all' | 'frontend' | 'backend'>('all');
+  const [level, setLevel] = useState<'all' | 'INFO' | 'WARN' | 'ERROR'>('all');
+  const [source, setSource] = useState<'all' | 'bridge' | 'renderer' | 'sandbox' | 'main' | 'tool'>('all');
+  const [sessionKey, setSessionKey] = useState('');
+  const [keyword, setKeyword] = useState('');
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Reset expanded rows whenever filters change (indices point to different entries)
+  useEffect(() => {
+    setExpandedRows(new Set());
+  }, [logTab, level, source, sessionKey, keyword]);
 
   useEffect(() => {
     if (autoScroll && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [logs, autoScroll]);
+  }, [entries, autoScroll]);
+
+  const filtered = entries.filter((entry) => {
+    if (logTab === 'frontend' && !(entry.source === 'renderer' || entry.source === 'main')) return false;
+    if (logTab === 'backend' && !(entry.source === 'bridge' || entry.source === 'sandbox' || entry.source === 'tool')) return false;
+    if (level !== 'all' && entry.level !== level) return false;
+    if (source !== 'all' && entry.source !== source) return false;
+    if (sessionKey && !(entry.sessionKey ?? '').includes(sessionKey)) return false;
+    if (keyword && !entry.message.toLowerCase().includes(keyword.toLowerCase())) return false;
+    return true;
+  });
+
+  const toggleRow = (i: number) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i); else next.add(i);
+      return next;
+    });
+  };
+
+  const formatTime = (iso: string) => {
+    try {
+      const d = new Date(iso);
+      return d.toLocaleTimeString('zh-CN', { hour12: false });
+    } catch { return iso; }
+  };
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(logs.join('\n'));
+    await navigator.clipboard.writeText(filtered.map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`).join('\n'));
     setCopiedLogs(true);
     setTimeout(() => setCopiedLogs(false), 1500);
   };
 
-  const handleExport = () => {
-    const text = logs.join('\n');
+  const handleExportTxt = () => {
+    const text = filtered.map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`).join('\n');
     const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -509,56 +545,147 @@ function LogsTab() {
     URL.revokeObjectURL(url);
   };
 
+  const handleExportJson = () => {
+    const json = JSON.stringify(filtered, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `miqi-logs-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const levelBadge = (lvl: string) => {
+    const colors: Record<string, string> = {
+      INFO: 'bg-emerald-500',
+      WARN: 'bg-amber-500',
+      ERROR: 'bg-red-500',
+    };
+    return (
+      <span className="inline-flex items-center gap-1">
+        <span className={cn('w-1.5 h-1.5 rounded-full', colors[lvl] || 'bg-slate-400')} />
+        {lvl}
+      </span>
+    );
+  };
+
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-6 py-3 border-b border-[var(--border-subtle)]">
-        <div className="flex items-center gap-3">
+      {/* Sub-tab bar */}
+      <div className="flex items-center gap-2 px-6 py-2 border-b border-[var(--border-subtle)]">
+        <span className="text-xs text-[var(--text-muted)] mr-1">视图：</span>
+        {([
+          { value: 'all' as const, label: '全部' },
+          { value: 'frontend' as const, label: '前端日志' },
+          { value: 'backend' as const, label: '后端日志' },
+        ]).map((tab) => (
+          <button
+            key={tab.value}
+            onClick={() => setLogTab(tab.value)}
+            className={cn(
+              'px-3 py-1 rounded-lg text-xs border transition-colors',
+              logTab === tab.value
+                ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)] hover:border-[var(--accent)]'
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Filter toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3 border-b border-[var(--border-subtle)]">
+        <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer">
-            <input
-              type="checkbox"
-              checked={autoScroll}
-              onChange={(e) => setAutoScroll(e.target.checked)}
-              className="rounded"
-            />
+            <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} className="rounded" />
             自动滚动
           </label>
-          <Button variant="ghost" size="icon" onClick={refreshLogs}>
+          <select value={level} onChange={(e) => setLevel(e.target.value as 'all' | 'INFO' | 'WARN' | 'ERROR')} className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs">
+            <option value="all">全部级别</option>
+            <option value="INFO">INFO</option>
+            <option value="WARN">WARN</option>
+            <option value="ERROR">ERROR</option>
+          </select>
+          <select value={source} onChange={(e) => setSource(e.target.value as 'all' | 'bridge' | 'renderer' | 'sandbox' | 'main' | 'tool')} className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs">
+            <option value="all">全部来源</option>
+            <option value="bridge">Bridge</option>
+            <option value="renderer">Renderer</option>
+            <option value="main">Main</option>
+            <option value="sandbox">Sandbox</option>
+            <option value="tool">Tool</option>
+          </select>
+          <input value={sessionKey} onChange={(e) => setSessionKey(e.target.value)} placeholder="session" className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs" />
+          <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="关键字" className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs" />
+          <Button variant="ghost" size="icon" onClick={() => refreshLogs()}>
             <RefreshCw size={14} />
           </Button>
         </div>
-        <Button variant="outline" size="sm" onClick={handleCopy}>
-          {copiedLogs ? <Check size={14} /> : <Copy size={14} />}
-          {copiedLogs ? '已复制' : '复制日志'}
-        </Button>
-        <Button variant="outline" size="sm" onClick={handleExport}>
-          <Download size={14} /> 导出日志
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleCopy}>
+            {copiedLogs ? <Check size={14} /> : <Copy size={14} />}
+            {copiedLogs ? '已复制' : '复制日志'}
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportTxt}>
+            <Download size={14} /> 导出 TXT
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportJson}>
+            <Download size={14} /> 导出 JSON
+          </Button>
+        </div>
       </div>
+
+      {/* Table view */}
       <ScrollArea className="flex-1">
-        <div
-          ref={scrollRef}
-          className="p-4 font-mono text-xs leading-relaxed text-[var(--text)] overflow-y-auto h-full"
-        >
-          {logs.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-[var(--text-muted)] py-16">
-              暂无日志。启动运行时后将在此显示输出。
+        <div ref={scrollRef} className="overflow-y-auto h-full">
+          {filtered.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-[var(--text-muted)] py-16 text-xs">
+              暂无匹配日志。请调整过滤条件或先启动运行时。
             </div>
           ) : (
-            logs.map((line, i) => (
-              <div
-                key={i}
-                className={cn(
-                  'py-0.5',
-                  line.includes('[ERROR]') || line.includes('ERROR')
-                    ? 'text-[var(--danger)]'
-                    : line.includes('[WARNING]') || line.includes('WARNING')
-                      ? 'text-[var(--warning)]'
-                      : 'text-[var(--text-muted)]'
-                )}
-              >
-                {line}
-              </div>
-            ))
+            <table className="w-full text-xs font-mono">
+              <thead className="sticky top-0 z-10 bg-[var(--surface)] border-b border-[var(--border-subtle)]">
+                <tr className="text-[var(--text-muted)]">
+                  <th className="text-left px-4 py-2 font-medium w-[100px]">时间</th>
+                  <th className="text-left px-2 py-2 font-medium w-[70px]">级别</th>
+                  <th className="text-left px-2 py-2 font-medium w-[85px]">来源</th>
+                  <th className="text-left px-4 py-2 font-medium">消息</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((entry, i) => {
+                  const isExpanded = expandedRows.has(i);
+                  const rowBg = entry.level === 'ERROR'
+                    ? 'bg-red-500/5 hover:bg-red-500/10'
+                    : entry.level === 'WARN'
+                      ? 'bg-amber-500/5 hover:bg-amber-500/10'
+                      : 'hover:bg-[var(--surface-muted)]';
+                  return (
+                    <tr
+                      key={`${entry.timestamp}-${i}`}
+                      onClick={() => toggleRow(i)}
+                      className={cn('border-b border-[var(--border-subtle)] cursor-pointer transition-colors', rowBg)}
+                    >
+                      <td className="px-4 py-1.5 text-[var(--text-faint)] whitespace-nowrap" title={entry.timestamp}>
+                        {formatTime(entry.timestamp)}
+                      </td>
+                      <td className="px-2 py-1.5 whitespace-nowrap">
+                        {levelBadge(entry.level)}
+                      </td>
+                      <td className={cn('px-2 py-1.5 whitespace-nowrap', entry.level === 'ERROR' ? 'text-[var(--danger)]' : entry.level === 'WARN' ? 'text-[var(--warning)]' : 'text-[var(--text-muted)]')}>
+                        {entry.source}
+                      </td>
+                      <td className="px-4 py-1.5 text-[var(--text)]">
+                        <span className={isExpanded ? '' : 'line-clamp-1 break-all'}>
+                          {entry.message}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           )}
         </div>
       </ScrollArea>
