@@ -2,6 +2,7 @@
 
 import html
 import ipaddress
+import asyncio
 import json
 import logging
 import os
@@ -116,7 +117,7 @@ def _validate_url(url: str) -> tuple[bool, str]:
 
 
 class WebSearchTool(Tool):
-    """Search the web using Brave Search API."""
+    """Search the web using ddgs by default, with optional Brave fallback."""
 
     name = "web_search"
     description = "Search the web. Returns titles, URLs, and snippets."
@@ -138,29 +139,49 @@ class WebSearchTool(Tool):
         self,
         api_key: str | None = None,
         max_results: int = 5,
-        provider: str = "brave",
-        ollama_api_key: str | None = None,
-        ollama_api_base: str | None = None,
+        provider: str = "ddgs",
     ):
-        self.provider = provider
+        provider_name = (provider or "ddgs").lower()
+        self.provider = provider_name if provider_name in {"ddgs", "brave", "hybrid"} else "ddgs"
         self.api_key = api_key or os.environ.get("BRAVE_API_KEY", "")
         self.max_results = max_results
-        self.ollama_api_key = ollama_api_key or os.environ.get(
-            "OLLAMA_API_KEY", "")
-        self.ollama_api_base = (
-            ollama_api_base or "https://ollama.com").rstrip("/")
 
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
         n = min(max(count or self.max_results, 1), 10)
 
-        if self.provider == "ollama":
-            return await self._ollama_search(query, n)
+        if self.provider == "brave":
+            return await self._brave_search(query, n)
         if self.provider == "hybrid":
-            result = await self._brave_search(query, n)
-            if not result.startswith("Error:") and not result.startswith("No results"):
+            result = await self._ddgs_search(query, n)
+            if not result.startswith("Error:"):
                 return result
-            return await self._ollama_search(query, n)
-        return await self._brave_search(query, n)
+            return await self._brave_search(query, n)
+        return await self._ddgs_search(query, n)
+
+    async def _ddgs_search(self, query: str, n: int) -> str:
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            return "Error: ddgs package not installed"
+
+        try:
+            results = await asyncio.to_thread(
+                lambda: list(DDGS().text(query, max_results=n))
+            )
+            if not results:
+                return f"No results for: {query}"
+
+            lines = [f"Results for: {query}\n"]
+            for i, item in enumerate(results[:n], 1):
+                title = item.get("title", "")
+                href = item.get("href") or item.get("url", "")
+                body = item.get("body") or item.get("description", "")
+                lines.append(f"{i}. {title}\n   {href}")
+                if body:
+                    lines.append(f"   {body}")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"Error: {e}"
 
     async def _brave_search(self, query: str, n: int) -> str:
         if not self.api_key:
@@ -186,35 +207,6 @@ class WebSearchTool(Tool):
                 lines.append(
                     f"{i}. {item.get('title', '')}\n   {item.get('url', '')}")
                 if desc := item.get("description"):
-                    lines.append(f"   {desc}")
-            return "\n".join(lines)
-        except Exception as e:
-            return f"Error: {e}"
-
-    async def _ollama_search(self, query: str, n: int) -> str:
-        if not self.ollama_api_key:
-            return "Error: OLLAMA_API_KEY not configured for Ollama web_search"
-
-        endpoint = f"{self.ollama_api_base}/api/web_search"
-        try:
-            async with httpx.AsyncClient() as client:
-                r = await client.post(
-                    endpoint,
-                    json={"query": query, "max_results": n},
-                    headers={"Authorization": f"Bearer {self.ollama_api_key}"},
-                    timeout=15.0,
-                )
-                r.raise_for_status()
-
-            results = r.json().get("results", [])
-            if not results:
-                return f"No results for: {query}"
-
-            lines = [f"Results for: {query}\n"]
-            for i, item in enumerate(results[:n], 1):
-                lines.append(
-                    f"{i}. {item.get('title', '')}\n   {item.get('url', '')}")
-                if desc := item.get("content"):
                     lines.append(f"   {desc}")
             return "\n".join(lines)
         except Exception as e:

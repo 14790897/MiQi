@@ -29,7 +29,7 @@ import type {
 // ---------------------------------------------------------------------------
 type Step =
   'welcome' | 'environment' | 'wsl2' | 'provider' | 'webtools' | 'papers' | 'agent' | 'finish';
-type SearchMode = 'brave' | 'ollama' | 'hybrid';
+type SearchMode = 'ddgs' | 'brave' | 'hybrid';
 type FetchMode = 'builtin' | 'ollama' | 'hybrid';
 type PapersMode = 'hybrid' | 'semantic_scholar' | 'arxiv';
 
@@ -217,10 +217,8 @@ export function SetupWizard({
   const [testError, setTestError] = useState('');
 
   // ---- Web tools ----
-  const [searchMode, setSearchMode] = useState<SearchMode>('brave');
+  const [searchMode, setSearchMode] = useState<SearchMode>('ddgs');
   const [braveApiKey, setBraveApiKey] = useState('');
-  const [searchOllamaBase, setSearchOllamaBase] = useState('https://ollama.com');
-  const [searchOllamaKey, setSearchOllamaKey] = useState('');
   const [fetchMode, setFetchMode] = useState<FetchMode>('builtin');
   const [fetchOllamaBase, setFetchOllamaBase] = useState('https://ollama.com');
   const [fetchOllamaKey, setFetchOllamaKey] = useState('');
@@ -271,10 +269,9 @@ export function SetupWizard({
         if (web) {
           const search = web['search'] as Record<string, unknown> | undefined;
           if (search) {
-            if (search['provider']) setSearchMode(String(search['provider']) as SearchMode);
+            const provider = String(search['provider'] || 'ddgs');
+            setSearchMode(provider === 'ollama' ? 'ddgs' : (provider as SearchMode));
             if (search['apiKey']) setBraveApiKey(String(search['apiKey']));
-            if (search['ollamaApiBase']) setSearchOllamaBase(String(search['ollamaApiBase']));
-            if (search['ollamaApiKey']) setSearchOllamaKey(String(search['ollamaApiKey']));
           }
           const fetch = web['fetch'] as Record<string, unknown> | undefined;
           if (fetch) {
@@ -461,8 +458,6 @@ export function SetupWizard({
       soul_preset: soulPreset || null,
       search_provider: searchMode,
       brave_api_key: braveApiKey || null,
-      search_ollama_api_base: searchOllamaBase || null,
-      search_ollama_api_key: searchOllamaKey || null,
       fetch_provider: fetchMode,
       fetch_ollama_api_base: fetchOllamaBase || null,
       fetch_ollama_api_key: fetchOllamaKey || null,
@@ -889,7 +884,7 @@ export function SetupWizard({
         </div>
 
         <div className="flex gap-2">
-          {(['brave', 'ollama', 'hybrid'] as SearchMode[]).map((v) => (
+          {(['ddgs', 'brave', 'hybrid'] as SearchMode[]).map((v) => (
             <button
               key={v}
               onClick={() => setSearchMode(v)}
@@ -900,7 +895,7 @@ export function SetupWizard({
                   : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)] hover:border-[var(--accent)]'
               )}
             >
-              {v === 'brave' ? 'Brave' : v === 'ollama' ? 'Ollama' : 'Hybrid'}
+              {v === 'ddgs' ? 'DuckDuckGo' : v === 'brave' ? 'Brave' : 'Hybrid'}
             </button>
           ))}
         </div>
@@ -909,7 +904,7 @@ export function SetupWizard({
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-[var(--text-muted)]">
               Brave Search API Key
-              {searchMode === 'hybrid' ? '（优先使用 Brave）' : ''}
+              {searchMode === 'hybrid' ? '（ddgs 优先，失败后回退 Brave）' : ''}
             </label>
             <Input
               type="password"
@@ -929,31 +924,6 @@ export function SetupWizard({
           </div>
         )}
 
-        {(searchMode === 'ollama' || searchMode === 'hybrid') && (
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)]">
-                Ollama web_search Base URL
-              </label>
-              <Input
-                value={searchOllamaBase}
-                onChange={(e) => setSearchOllamaBase(e.target.value)}
-                placeholder="https://ollama.com"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)]">
-                Ollama web_search API Key
-              </label>
-              <Input
-                type="password"
-                value={searchOllamaKey}
-                onChange={(e) => setSearchOllamaKey(e.target.value)}
-                placeholder="ollama-key..."
-              />
-            </div>
-          </div>
-        )}
       </section>
 
       {/* ---- Web Fetch ---- */}
@@ -989,7 +959,7 @@ export function SetupWizard({
               <Input
                 value={fetchOllamaBase}
                 onChange={(e) => setFetchOllamaBase(e.target.value)}
-                placeholder={searchOllamaBase || 'https://ollama.com'}
+                placeholder="https://ollama.com"
               />
             </div>
             <div className="flex flex-col gap-1.5">
@@ -1000,7 +970,7 @@ export function SetupWizard({
                 type="password"
                 value={fetchOllamaKey}
                 onChange={(e) => setFetchOllamaKey(e.target.value)}
-                placeholder="留空则复用 web_search Key"
+                placeholder="ollama-key..."
               />
             </div>
           </div>
@@ -1165,9 +1135,9 @@ export function SetupWizard({
 
   const renderFinish = () => {
     const searchLabels: Record<SearchMode, string> = {
+      ddgs: 'DuckDuckGo',
       brave: 'Brave',
-      ollama: 'Ollama',
-      hybrid: 'Hybrid (Brave + Ollama)',
+      hybrid: 'Hybrid (ddgs + Brave)',
     };
     const fetchLabels: Record<FetchMode, string> = {
       builtin: '内置',
