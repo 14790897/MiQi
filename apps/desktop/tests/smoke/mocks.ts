@@ -29,7 +29,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   var noop = function() { return function() {}; };
 
   // ── Interactive helpers ──────────────────────────────────────────
-  var _callbacks = { progress: [], final: [], error: [], aborted: [] };
+  var _callbacks = { progress: [], final: [], error: [], aborted: [], log: [] };
 
   function _on(type, cb) {
     _callbacks[type].push(cb);
@@ -42,6 +42,15 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
     _callbacks[type].forEach(function(f) { try { f(data); } catch(e) {} });
   }
 
+  // ── Mock log data ────────────────────────────────────────────────
+  var _mockLogs = [
+    '[2026-07-07T10:00:00.000Z] [INFO] [bridge] Bridge process started',
+    '[2026-07-07T10:00:01.000Z] [INFO] [bridge] Agent ready',
+    '[2026-07-07T10:00:02.000Z] [INFO] [renderer] Runtime context initialized',
+    '[2026-07-07T10:00:05.000Z] [WARN] [bridge] Slow IPC response: sessions.list (850ms)',
+    '[2026-07-07T10:00:10.000Z] [ERROR] [sandbox] Sandbox timeout after 30s',
+  ];
+
   // ── window.miqi ──────────────────────────────────────────────────
 
   window.miqi = {
@@ -49,9 +58,16 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       start: function() { return Promise.resolve({ state: 'running', pid: 12345 }); },
       stop: function() { return Promise.resolve({ state: 'stopped', pid: 0 }); },
       status: function() { return Promise.resolve({ state: '${runtimeStatus}', pid: ${runtimeStatus === 'running' ? 12345 : 0} }); },
-      logs: function() { return Promise.resolve(['[miqi-bridge] Bridge started', '[miqi-bridge] Agent ready']); },
+      logs: function() { return Promise.resolve(_mockLogs.slice()); },
       onStateChange: noop,
-      onLog: noop,
+      onLog: function(cb) { return _on('log', cb); },
+      reportRendererLog: function(entry) {
+        // Simulate renderer log by also firing the log callback
+        if (entry && entry.message) {
+          var msg = '[' + new Date().toISOString() + '] [' + (entry.level || 'INFO') + '] [' + (entry.source || 'renderer') + '] ' + entry.message;
+          setTimeout(function() { _fire('log', msg); }, 0);
+        }
+      },
     },
 
     chat: {
@@ -244,9 +260,21 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       });
     },
 
+    /**
+     * Simulate a real-time log event from the backend.
+     * The RuntimeContext's onLog callback will receive this string and
+     * parse it into a structured RuntimeLogEntry.
+     */
+    triggerLog: function(message, level, source) {
+      var ts = new Date().toISOString();
+      var lvl = level || 'INFO';
+      var src = source || 'bridge';
+      _fire('log', '[' + ts + '] [' + lvl + '] [' + src + '] ' + message);
+    },
+
     /** Clear all registered callbacks */
     reset: function() {
-      _callbacks = { progress: [], final: [], error: [], aborted: [] };
+      _callbacks = { progress: [], final: [], error: [], aborted: [], log: [] };
     },
   };
 

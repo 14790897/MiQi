@@ -3,6 +3,7 @@ import type { RuntimeStatus } from '../../shared/ipc';
 import { sanitizeUiMessage } from '../lib/sanitizeUiMessage';
 
 interface RuntimeLogEntry {
+  id: number;
   timestamp: string;
   level: string;
   source: string;
@@ -11,6 +12,23 @@ interface RuntimeLogEntry {
 }
 
 const hasApi = typeof window !== 'undefined' && !!(window as any).miqi?.runtime;
+
+// Monotonically increasing counter for stable log entry ids.
+let _nextLogId = 0;
+
+/** Parse a formatted log line into a RuntimeLogEntry, falling back to sensible defaults. */
+function parseLogLine(msg: string): Omit<RuntimeLogEntry, 'id'> {
+  const m = msg.match(/^\[([^\]]+)\]\s*\[([^\]]+)\]\s*\[([^\]]+)\]\s*(.*)/s);
+  if (m) {
+    return { timestamp: m[1], level: m[2], source: m[3], message: m[4] };
+  }
+  return {
+    timestamp: new Date().toISOString(),
+    level: msg.includes('ERROR') ? 'ERROR' : msg.includes('WARN') ? 'WARN' : 'INFO',
+    source: 'bridge',
+    message: msg,
+  };
+}
 
 interface RuntimeContextValue {
   status: RuntimeStatus;
@@ -57,6 +75,11 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     try {
       const l = await window.miqi.runtime.logs();
       setLogs(l);
+      // Also parse raw strings into structured entries for the Logs tab table
+      setEntries(l.map((msg: string) => ({
+        id: _nextLogId++,
+        ...parseLogLine(msg),
+      })));
     } catch (e: any) {
       // Log fetch failure is less critical; don't overwrite status
       setLastError(sanitizeUiMessage(e?.message ?? 'Failed to fetch runtime logs'));
@@ -87,10 +110,8 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       setEntries((prev) => [
         ...prev.slice(-499),
         {
-          timestamp: new Date().toISOString(),
-          level: msg.includes('ERROR') ? 'ERROR' : msg.includes('WARN') ? 'WARN' : 'INFO',
-          source: 'bridge',
-          message: msg,
+          id: _nextLogId++,
+          ...parseLogLine(msg),
         },
       ]);
     });

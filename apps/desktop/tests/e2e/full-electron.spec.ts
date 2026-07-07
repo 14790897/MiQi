@@ -759,4 +759,105 @@ test.describe('Native Electron E2E', () => {
       console.log('[test] ✅ exec ls /home/miqi/workspace');
     },
   );
+
+  // ═══════════════════════════════════════════════════════════════
+  //  SECTION 7: Logs Tab (Settings → Logs)
+  //
+  //  Verifies the full-chain logging feature in the real Electron app:
+  //  Settings → Logs tab renders with bridge log entries, filter controls
+  //  work, and export buttons are present.
+  // ═══════════════════════════════════════════════════════════════
+
+  test(
+    'Logs tab renders with entries from running bridge',
+    { timeout: 30_000 },
+    async () => {
+      // Navigate to Settings page
+      await page.getByText('System Settings').click();
+      await expect(page.getByText('设置')).toBeVisible({ timeout: 5_000 });
+
+      // Click the Logs tab
+      await page.getByRole('tab', { name: '日志' }).click();
+      await expect(page.getByText('自动滚动')).toBeVisible({ timeout: 5_000 });
+
+      // The filter toolbar should render
+      await expect(page.locator('select').filter({ hasText: '全部级别' })).toBeVisible();
+      await expect(page.locator('select').filter({ hasText: '全部来源' })).toBeVisible();
+      await expect(page.getByPlaceholder('关键字')).toBeVisible();
+
+      // Export buttons should be present
+      await expect(page.getByRole('button', { name: /导出 TXT/ })).toBeVisible();
+      await expect(page.getByRole('button', { name: /导出 JSON/ })).toBeVisible();
+
+      console.log('[test] Logs tab UI rendered');
+    },
+  );
+
+  test(
+    'Logs tab populates entries after refresh',
+    { timeout: 30_000 },
+    async () => {
+      // Ensure we're on Settings page (may already be there from previous test)
+      const settingsVisible = await page.getByText('设置').isVisible().catch(() => false);
+      if (!settingsVisible) {
+        await page.getByText('System Settings').click();
+        await expect(page.getByText('设置')).toBeVisible({ timeout: 5_000 });
+      }
+
+      // Navigate to Logs tab
+      await page.getByRole('tab', { name: '日志' }).click();
+      await expect(page.getByText('自动滚动')).toBeVisible({ timeout: 5_000 });
+
+      // Click refresh button in the filter toolbar
+      const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
+      const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
+      await refreshButton.click();
+
+      // After refresh, log entries should populate the table.
+      // The bridge has been running since beforeAll, so logs should exist.
+      await page.waitForTimeout(1000);
+      const rowCount = await page.locator('table tbody tr').count();
+      console.log(`[test] Logs table has ${rowCount} entries after refresh`);
+      expect(rowCount).toBeGreaterThan(0);
+
+      // Table headers should be visible
+      await expect(page.getByRole('columnheader', { name: '时间' })).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: '级别' })).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: '来源' })).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: '消息' })).toBeVisible();
+    },
+  );
+
+  test(
+    'Logs tab level filter works with real entries',
+    { timeout: 20_000 },
+    async () => {
+      // Ensure we're on the Logs tab
+      const logsTab = page.getByRole('tab', { name: '日志' });
+      const isActive = await logsTab.getAttribute('data-state');
+      if (isActive !== 'active') {
+        await logsTab.click();
+        await expect(page.getByText('自动滚动')).toBeVisible({ timeout: 5_000 });
+      }
+
+      // Count total rows before filtering
+      const totalRows = await page.locator('table tbody tr').count();
+      if (totalRows === 0) {
+        console.log('[test] No log entries to filter — skipping');
+        return;
+      }
+
+      // Apply ERROR filter
+      await page.locator('select').filter({ hasText: '全部级别' }).selectOption('ERROR');
+
+      // Count filtered rows (should be <= total)
+      const errorRows = await page.locator('table tbody tr').count();
+      console.log(`[test] Level filter ERROR: ${totalRows} total → ${errorRows} ERROR rows`);
+      expect(errorRows).toBeLessThanOrEqual(totalRows);
+
+      // Reset filter
+      await page.locator('select').filter({ hasText: 'ERROR' }).selectOption('all');
+      await expect(page.locator('table tbody tr')).toHaveCount(totalRows);
+    },
+  );
 });
