@@ -200,6 +200,13 @@ class BridgeRuntimeLoop:
         from miqi.runtime.thread_app_handlers import register_codex_thread_handlers
         register_codex_thread_handlers(self._app_server)
 
+        # Initialize sandbox manager (shared across all agents)
+        self._bridge_state._ensure_sandbox_manager()
+        sandbox_mgr = getattr(self._bridge_state, "_sandbox_manager", None)
+        if sandbox_mgr is not None and sandbox_mgr != "disabled":
+            await sandbox_mgr.initialize()
+            logger.info("Sandbox manager initialized")
+
         # Register Phase 37: Codex-style plugin and marketplace handlers
         from miqi.runtime.plugin_app_handlers import register_plugin_app_handlers
         register_plugin_app_handlers(self._app_server)
@@ -522,12 +529,17 @@ class BridgeRuntimeLoop:
             from miqi.providers.factory import make_provider
 
             provider = make_provider(config)
+            self._bridge_state._ensure_sandbox_manager()
+            sandbox_manager = getattr(self._bridge_state, "_sandbox_manager", None)
+            if sandbox_manager == "disabled":
+                sandbox_manager = None
             runtime = await registry.create_session(
                 client_id=client_id,
                 session_key=session_key,
                 config=config,
                 provider=provider,
                 workspace=config.workspace_path,
+                sandbox_manager=sandbox_manager,
             )
 
         # Submit the user message

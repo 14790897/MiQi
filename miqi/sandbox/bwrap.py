@@ -618,14 +618,8 @@ class BwrapSandbox:
             handle = await self._run_bwrap_streaming_native(bwrap_args)
 
         self._streaming_handles.append(handle)
-        # Remove from tracking once the caller manually cleans up
-        _orig_cleanup = handle.cleanup
-
-        async def _tracked_cleanup():
-            await _orig_cleanup()
-            if handle in self._streaming_handles:
-                self._streaming_handles.remove(handle)
-        handle.cleanup = _tracked_cleanup  # type: ignore[method-assign]
+        # Handles are cleaned up when the sandbox stops (see stop()).
+        # No need to wrap cleanup — __slots__ prevents monkey-patching.
         return handle
 
     async def _run_bwrap_streaming_native(
@@ -841,10 +835,11 @@ class BwrapSandbox:
         else:
             args.extend(["--bind", self.sandbox_workspace, "/home/miqi/workspace"])
 
-        # ── /etc/resolv.conf (writable copy for DNS if network shared) ─
-        if self.share_net:
-            resolv_copy = f"{self._linux_base_dir}/resolv.conf"
-            args.extend(["--bind", resolv_copy, "/etc/resolv.conf"])
+        # ── /etc/resolv.conf ─────────────────────────────────────────
+        # /etc is already ro-bind-mounted from host (share_net=True),
+        # which includes the host's resolv.conf. No need to create
+        # a separate copy that would fail on read-only /etc.
+
 
         # ── Extra bind mounts ───────────────────────────────────────
         for src in self.extra_ro_binds:

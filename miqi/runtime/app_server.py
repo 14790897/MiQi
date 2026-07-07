@@ -105,6 +105,7 @@ class ClientSessionRegistry:
         config: Any,
         provider: Any,
         workspace: Path,
+        sandbox_manager: Any = None,
     ) -> Any:
         """Create a new RuntimeSession and authorize the creating client."""
         from miqi.runtime.session import RuntimeSession
@@ -127,6 +128,7 @@ class ClientSessionRegistry:
                 provider=provider,
                 session_id=session_id,
                 workspace=workspace,
+                sandbox_manager=sandbox_manager,
             )
             await runtime.start()
 
