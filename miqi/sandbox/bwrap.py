@@ -571,9 +571,9 @@ class BwrapSandbox:
 
         bwrap_args = self._build_bwrap_args(command, env=env, cwd=cwd)
 
-        exit_code: int
-        stdout: str
-        stderr: str
+        exit_code = -1
+        stdout = ""
+        stderr = ""
 
         try:
             if self._use_wsl:

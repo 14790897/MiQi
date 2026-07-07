@@ -18,6 +18,10 @@ _LOG_DIR_NAME = "logs"
 _DEFAULT_RETAIN_DAYS = 7
 _DEFAULT_MAX_TOTAL_BYTES = 50 * 1024 * 1024  # 50 MB total per log directory
 _SINGLE_FILE_PRUNE_LINES = 10_000  # keep last 10k lines when a single file is too large
+_CLEANUP_INTERVAL = 100  # run directory cleanup every N writes (not every write)
+
+# —— internal state ——
+_write_counter: int = 0
 
 
 def _redact_message(message: str) -> str:
@@ -67,7 +71,13 @@ def append_workspace_log(
         handle.write(entry)
 
     _prune_log_file(log_path)
-    cleanup_old_logs(workspace_path, retain_days=_DEFAULT_RETAIN_DAYS)
+
+    # Throttle directory-level cleanup to every N writes
+    global _write_counter
+    _write_counter += 1
+    if _write_counter % _CLEANUP_INTERVAL == 0:
+        cleanup_old_logs(workspace_path, retain_days=_DEFAULT_RETAIN_DAYS)
+
     return log_path
 
 
@@ -88,7 +98,12 @@ def append_workspace_log_json(workspace: Path | str, payload: dict[str, Any]) ->
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     _prune_log_file(log_path)
-    cleanup_old_logs(workspace_path, retain_days=_DEFAULT_RETAIN_DAYS)
+
+    global _write_counter
+    _write_counter += 1
+    if _write_counter % _CLEANUP_INTERVAL == 0:
+        cleanup_old_logs(workspace_path, retain_days=_DEFAULT_RETAIN_DAYS)
+
     return log_path
 
 

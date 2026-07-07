@@ -89,15 +89,19 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         {
           timestamp: new Date().toISOString(),
           level: msg.includes('ERROR') ? 'ERROR' : msg.includes('WARN') ? 'WARN' : 'INFO',
-          source: 'renderer',
+          source: 'bridge',
           message: msg,
         },
       ]);
     });
 
-    // Capture uncaught synchronous errors in the renderer
+    // Capture uncaught synchronous errors in the renderer (JS errors only, not resource load failures)
     const onError = (event: ErrorEvent) => {
-      const msg = `Uncaught error: ${event.message} at ${event.filename}:${event.lineno}`;
+      // Filter out resource load errors (no .error property, or target is not window)
+      if (!event.error && event.target !== window) return;
+      const msg = event.error instanceof Error
+        ? `Uncaught error: ${event.error.message}\n${event.error.stack ?? ''}`
+        : `Uncaught error: ${event.message} at ${event.filename}:${event.lineno}`;
       window.miqi.runtime.reportRendererLog?.({
         level: 'ERROR',
         message: msg,

@@ -13,6 +13,22 @@ const { app, BrowserWindow, shell, Menu } = electron;
 let mainWindow: typeof BrowserWindow.prototype | null = null;
 let bridgeManager: BridgeManager | null = null;
 
+let _electronLogCounter = 0;
+
+function cleanupOldElectronLogs(logDir: string): void {
+  try {
+    const { readdirSync, statSync, unlinkSync } = require('fs') as typeof import('fs');
+    const cutoff = Date.now() - 7 * 86400_000;
+    for (const name of readdirSync(logDir)) {
+      if (!name.endsWith('.log')) continue;
+      const filePath = join(logDir, name);
+      try {
+        if (statSync(filePath).mtimeMs < cutoff) unlinkSync(filePath);
+      } catch { /* ignore per-file errors */ }
+    }
+  } catch { /* ignore if log dir doesn't exist */ }
+}
+
 function writeElectronLog(level: string, message: string): void {
   const logDir = join(process.cwd(), 'workspace', 'logs');
   mkdirSync(logDir, { recursive: true });
@@ -20,6 +36,9 @@ function writeElectronLog(level: string, message: string): void {
   const logPath = join(logDir, `electron-main-${dateStr}.log`);
   const timestamp = new Date().toISOString();
   appendFileSync(logPath, `[${timestamp}] [${level}] ${message}\n`, 'utf8');
+  // Throttled cleanup — run every 100 writes
+  _electronLogCounter += 1;
+  if (_electronLogCounter % 100 === 0) cleanupOldElectronLogs(logDir);
 }
 
 function createWindow(): void {
@@ -82,11 +101,7 @@ function createWindow(): void {
     // Map Electron console-message level to log level string
     // 0=verbose, 1=info(log), 2=warning, 3=error
     const levelStr = level >= 3 ? 'ERROR' : level >= 2 ? 'WARN' : 'INFO';
-    const msg = `[renderer] ${message}`;
-    writeElectronLog(levelStr, msg);
-    if (level >= 3) {
-      console.error(msg);
-    }
+    writeElectronLog(levelStr, `[renderer] ${message}`);
   });
 
   // 添加右键菜单，支持打开开发者工具

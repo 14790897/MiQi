@@ -492,6 +492,11 @@ function LogsTab() {
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Reset expanded rows whenever filters change (indices point to different entries)
+  useEffect(() => {
+    setExpandedRows(new Set());
+  }, [logTab, level, source, sessionKey, keyword]);
+
   useEffect(() => {
     if (autoScroll && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
