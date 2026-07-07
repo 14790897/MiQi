@@ -167,6 +167,7 @@ async def test_export_includes_provider_messages(tmp_path):
     await _seed_thread(db, thread_id="export-me")
     # Write some history items directly
     import time
+    now = time.time()
     reader = StoredRuntimeReader(db, client_id="client-a")
     await reader._ensure_schema()
     await reader._write_history_items(
@@ -174,11 +175,11 @@ async def test_export_includes_provider_messages(tmp_path):
         [
             HistoryItem(item_id="h1", thread_id="export-me", turn_id="turn-1",
                         role="user", content="hello export",
-                        payload={}, created_at=time.time()),
+                        payload={}, created_at=now),
             HistoryItem(item_id="h2", thread_id="export-me", turn_id="turn-1",
                         role="assistant", content="hi there",
                         payload={"message_fields": {"name": "claude"}},
-                        created_at=time.time()),
+                        created_at=now + 1),
         ],
     )
     server = _server(tmp_path)
