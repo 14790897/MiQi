@@ -38,6 +38,13 @@ async function navigateToLogsTab(page: import('@playwright/test').Page) {
   await expect(page.getByText('自动滚动')).toBeVisible({ timeout: 5000 });
 }
 
+/** Click the refresh button in the Logs tab filter toolbar */
+async function clickRefreshButton(page: import('@playwright/test').Page) {
+  // Scope to the left filter container (has 'flex-wrap') to avoid matching
+  // the right export container whose buttons also contain SVGs.
+  await page.locator('.flex.flex-wrap.items-center.gap-2').locator('button').click();
+}
+
 // ---------------------------------------------------------------------------
 // Suite 1: Logs Tab Navigation
 // ---------------------------------------------------------------------------
@@ -117,16 +124,7 @@ test.describe('Logs Tab — Entry Display', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Click the refresh button (RefreshCw icon inside a ghost button)
-    const refreshBtn = page.locator('button').filter({ has: page.locator('svg') }).filter({
-      hasText: /^$/, // icon-only button — no text content
-    }).last();
-
-    // The refresh button is the last icon-only button in the filter toolbar
-    // Find it more precisely: the button with RefreshCw icon near the filter selects
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
 
     // After refresh, mock logs (5 entries) should replace current entries
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
@@ -136,10 +134,7 @@ test.describe('Logs Tab — Entry Display', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Trigger refresh to load mock entries
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // Check specific content from mock data
@@ -158,10 +153,7 @@ test.describe('Logs Tab — Entry Display', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Click refresh
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // All three levels should be represented in mock data
@@ -174,10 +166,7 @@ test.describe('Logs Tab — Entry Display', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Click refresh
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // The ERROR row (sandbox timeout) should have bg-red-500/5 class
@@ -189,10 +178,7 @@ test.describe('Logs Tab — Entry Display', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Click refresh
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // The WARN row (Slow IPC) should have bg-amber-500/5 class
@@ -211,10 +197,7 @@ test.describe('Logs Tab — Filtering', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Load mock entries
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // Select ERROR level
@@ -233,10 +216,7 @@ test.describe('Logs Tab — Filtering', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Load mock entries
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // Select WARN level
@@ -251,10 +231,7 @@ test.describe('Logs Tab — Filtering', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Load mock entries
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // Select bridge source
@@ -273,10 +250,7 @@ test.describe('Logs Tab — Filtering', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Load mock entries
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // Type keyword (case-insensitive — "sandbox" matches "Sandbox timeout")
@@ -291,10 +265,7 @@ test.describe('Logs Tab — Filtering', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Load mock entries
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // Type a keyword that matches nothing
@@ -309,10 +280,7 @@ test.describe('Logs Tab — Filtering', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Load mock entries
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // Set level to INFO and keyword to "agent"
@@ -335,10 +303,7 @@ test.describe('Logs Tab — Sub-tabs', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Load mock entries
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // Click "前端日志" sub-tab button
@@ -353,10 +318,7 @@ test.describe('Logs Tab — Sub-tabs', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Load mock entries
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // Click "后端日志" sub-tab button
@@ -373,10 +335,7 @@ test.describe('Logs Tab — Sub-tabs', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Load mock entries
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // Switch to frontend, then back to all
@@ -398,10 +357,7 @@ test.describe('Logs Tab — Real-time Streaming', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Load initial mock entries via refresh
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // Fire a real-time log event via the mock trigger API
@@ -422,10 +378,7 @@ test.describe('Logs Tab — Real-time Streaming', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Load initial entries
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // Fire 3 real-time log events
@@ -450,10 +403,7 @@ test.describe('Logs Tab — Row Interaction', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Load mock entries
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // Click the first row
@@ -480,10 +430,7 @@ test.describe('Logs Tab — Row Interaction', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Load mock entries
-    const toolbar = page.locator('.flex.flex-wrap.items-center.justify-between');
-    const refreshButton = toolbar.locator('button').filter({ has: page.locator('svg') });
-    await refreshButton.click();
+    await clickRefreshButton(page);
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // Expand first row
