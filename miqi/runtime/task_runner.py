@@ -6,6 +6,7 @@ typed protocol events onto the shared event queue.
 
 from __future__ import annotations
 
+import time
 import uuid
 import asyncio
 from typing import Any
@@ -609,7 +610,8 @@ class TaskRunner:
 
             # Phase 17: persist assistant messages and complete turn
             if history_runtime is not None:
-                for message in result.messages_delta:
+                base_ts = time.time()
+                for i, message in enumerate(result.messages_delta):
                     await history_runtime.append_message(
                         thread_id=thread_id,
                         turn_id=turn_id,
@@ -621,6 +623,7 @@ class TaskRunner:
                                 if k not in {"role", "content"}
                             },
                         },
+                        created_at=base_ts + i * 1e-6,
                     )
                 await history_runtime.complete_turn(
                     turn_id,

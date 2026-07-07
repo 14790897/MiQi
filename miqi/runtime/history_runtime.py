@@ -223,6 +223,7 @@ class HistoryRuntime:
         role: str,
         content: str,
         payload: dict[str, Any] | None = None,
+        created_at: float | None = None,
     ) -> HistoryItem:
         item = HistoryItem(
             item_id=str(uuid.uuid4()),
@@ -231,6 +232,7 @@ class HistoryRuntime:
             role=role,
             content=content,
             payload=payload or {},
+            created_at=created_at if created_at is not None else time.time(),
         )
         await self.append_item(item)
         return item
