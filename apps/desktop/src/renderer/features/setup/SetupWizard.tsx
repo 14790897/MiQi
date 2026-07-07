@@ -4,7 +4,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { cn } from '../../lib/utils';
 
-type Step = 'welcome' | 'provider' | 'finish';
+type Step = 'welcome' | 'provider';
 
 interface StaticProvider {
   name: string;
@@ -144,7 +144,6 @@ export function SetupWizard({
   onExit?: () => void;
 }) {
   const [step, setStep] = useState<Step>('welcome');
-  const [advancedMode, setAdvancedMode] = useState(false);
   const [workspace, setWorkspace] = useState(DEFAULT_WORKSPACE);
   const [selectedProvider, setSelectedProvider] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -266,10 +265,7 @@ export function SetupWizard({
         </Button>
         <Button
           variant="ghost"
-          onClick={() => {
-            setAdvancedMode(true);
-            setStep('provider');
-          }}
+          onClick={() => setStep('provider')}
           disabled={saving}
         >
           高级配置 <ArrowRight size={16} />
@@ -401,61 +397,26 @@ export function SetupWizard({
         <div className="flex gap-2 mt-2">
           <Button
             variant="ghost"
-            onClick={() => {
-              setAdvancedMode(false);
-              setStep('welcome');
-            }}
+            onClick={() => setStep('welcome')}
           >
             <ArrowLeft size={16} /> 返回
           </Button>
-          <Button onClick={() => setStep('finish')} disabled={!canContinueProvider()}>
-            继续 <ArrowRight size={16} />
-          </Button>
-        </div>
-      </div>
-    );
-  };
-
-  const renderFinish = () => {
-    const providerLabel = providerMeta?.displayName ?? selectedProvider;
-    const modelLabel = modelName || providerMeta?.defaultModel || '-';
-
-    return (
-      <div className="flex flex-col items-center text-center gap-4">
-        <div className="w-12 h-12 rounded-full bg-[var(--success)]/20 flex items-center justify-center">
-          <Check size={24} className="text-[var(--success)]" />
-        </div>
-        <h2 className="text-xl font-semibold text-[var(--text)]">配置完成</h2>
-        <p className="text-sm text-[var(--text-muted)] max-w-sm">
-          点击下方按钮保存配置并启动 MiQi。
-        </p>
-
-        <div className="w-full max-w-xs bg-[var(--surface-muted)] rounded-lg px-4 py-3 text-left text-xs space-y-1.5 text-[var(--text-muted)]">
-          <SummaryRow label="工作目录" value={workspace || DEFAULT_WORKSPACE} />
-          <SummaryRow label="Provider" value={providerLabel} />
-          <SummaryRow label="模型" value={modelLabel} />
-        </div>
-
-        <div className="flex gap-2">
-          <Button variant="ghost" onClick={() => setStep('provider')}>
-            <ArrowLeft size={16} /> 返回
-          </Button>
-          <Button onClick={handleFinish} disabled={saving}>
+          <Button onClick={handleFinish} disabled={!canContinueProvider() || saving}>
             {saving ? <Loader2 size={16} className="animate-spin" /> : <Key size={16} />}
-            保存并启动
+            保存并进入应用
           </Button>
         </div>
       </div>
     );
   };
 
-  const allSteps: Step[] = advancedMode ? ['provider', 'finish'] : ['welcome'];
+  const allSteps: Step[] = ['welcome', 'provider'];
   const stepIdx = allSteps.indexOf(step);
 
   return (
     <div className="flex items-center justify-center min-h-full bg-[var(--background)] py-8">
       <div className="w-full max-w-lg bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-sm p-8 relative">
-        {onExit && step !== 'finish' && (
+        {onExit && (
           <button
             onClick={onExit}
             className="absolute top-4 right-4 p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-muted)] transition-colors"
@@ -487,12 +448,10 @@ export function SetupWizard({
 
         {step === 'welcome' && renderWelcome()}
         {step === 'provider' && renderProvider()}
-        {step === 'finish' && renderFinish()}
       </div>
     </div>
   );
 }
-
 function WorkspacePicker({
   workspace,
   setWorkspace,
@@ -522,15 +481,6 @@ function WorkspacePicker({
           <Folder size={14} />
         </Button>
       </div>
-    </div>
-  );
-}
-
-function SummaryRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-3">
-      <span>{label}</span>
-      <span className="text-[var(--text)] font-medium truncate">{value}</span>
     </div>
   );
 }
