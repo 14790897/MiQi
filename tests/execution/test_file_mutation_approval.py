@@ -74,7 +74,11 @@ async def test_file_write_tools_require_approval(tool_name):
     assert decision.allow_permanent is True
 
 
-_OFFICE_WRITE_NAMES = ["docx_write", "pptx_write", "xlsx_write"]
+_OFFICE_WRITE_NAMES = [
+    "docx_write", "pptx_write", "xlsx_write",
+    "create_docx", "create_pptx", "create_xlsx",
+    "edit_docx", "append_xlsx",
+]
 
 
 @pytest.mark.parametrize("tool_name", _OFFICE_WRITE_NAMES)
@@ -101,6 +105,23 @@ async def test_office_doc_write_tools_require_approval(tool_name):
     assert decision.allow_permanent is True, (
         f"{tool_name} should support allow_permanent"
     )
+
+
+@pytest.mark.asyncio
+async def test_create_docx_permission_key_uses_final_suffix():
+    """Approval allowlist keys should match the final file path create_docx writes."""
+    engine = PermissionEngine()
+
+    class FakeCtx:
+        pass
+
+    ctx = FakeCtx()
+    ctx.tool_name = "create_docx"
+    ctx.arguments = {"filename": "/tmp/report"}
+
+    decision = await engine.check(ctx)
+    assert decision.details["path"] == "/tmp/report.docx"
+    assert engine._make_key(ctx) == "create_docx:/tmp/report.docx"
 
 
 # ── PermissionEngine: read-only file tools auto-allow ──────────────────────
@@ -151,6 +172,11 @@ def test_agent_tool_registry_contains_file_mutation_tools(tmp_path):
     assert "list_dir" in names
 
     # Office tools
+    assert "create_docx" in names
+    assert "create_pptx" in names
+    assert "create_xlsx" in names
+    assert "edit_docx" in names
+    assert "append_xlsx" in names
     assert "docx_write" in names
     assert "pptx_write" in names
     assert "xlsx_write" in names

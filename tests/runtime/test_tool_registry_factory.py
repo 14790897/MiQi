@@ -42,6 +42,11 @@ def test_runtime_tool_registry_factory_registers_core_tools(fake_config, tmp_pat
     assert "skill_manage" in names
 
     # Office document tools
+    assert "create_docx" in names
+    assert "create_pptx" in names
+    assert "create_xlsx" in names
+    assert "edit_docx" in names
+    assert "append_xlsx" in names
     assert "docx_read" in names
     assert "docx_write" in names
     assert "pptx_read" in names
