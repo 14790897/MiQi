@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { cn } from '../lib/utils';
 import { Plus, ListChecks } from 'lucide-react';
 import { MiQiLogo } from './MiQiLogo';
+import { ContextMenu } from './ContextMenu';
+import { useSessionStatus, type SessionStatus } from '../hooks/useSessionStatus';
 import type { SessionInfo } from '../../shared/ipc';
 
 type FilterTab = 'ALL' | 'IN-PROGRESS' | 'REVIEW' | 'CC';
@@ -30,13 +32,6 @@ function relativeTime(iso?: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-/** Derive status tag from session index (demo heuristic). */
-function statusForIndex(idx: number): { label: string; bg: string; color: string; cardBg: string; cardBorder: string } {
-  if (idx === 0) return { label: 'IN-PROGRESS', bg: 'var(--tag-inprogress-bg)', color: 'var(--tag-inprogress-text)', cardBg: '#fffbe6', cardBorder: '#f0e8c0' };
-  if (idx === 1) return { label: 'COMPLETED', bg: 'var(--tag-completed-bg)', color: 'var(--tag-completed-text)', cardBg: '#f8fcf9', cardBorder: '#d0e8d8' };
-  return { label: 'PENDING', bg: '#f0f0ec', color: '#888', cardBg: '#fafaf9', cardBorder: '#e8e8e0' };
-}
-
 interface SidebarProps {
   currentSession?: string;
   onSessionSelect?: (key: string) => void;
@@ -58,6 +53,8 @@ export function Sidebar({
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
   const isResizing = useRef(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
+
+  const { getStatus, getStatusDisplay, setStatus, clearStatus } = useSessionStatus();
 
   // Resize handler
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -111,12 +108,12 @@ export function Sidebar({
 
   const FILTER_TABS: FilterTab[] = ['ALL', 'IN-PROGRESS', 'REVIEW', 'CC'];
 
-  const filteredSessions = sessions.filter((_s, idx) => {
+  const filteredSessions = sessions.filter((s) => {
     if (filter === 'ALL') return true;
-    const status = statusForIndex(idx).label;
+    const status = getStatus(s.key);
     if (filter === 'IN-PROGRESS') return status === 'IN-PROGRESS';
-    if (filter === 'REVIEW') return status === 'PENDING'; // REVIEW maps to PENDING in demo
-    if (filter === 'CC') return status === 'COMPLETED';
+    if (filter === 'REVIEW') return status === 'REVIEW';
+    if (filter === 'CC') return status === 'CC';
     return true;
   });
 
@@ -190,50 +187,94 @@ export function Sidebar({
           </div>
         ) : (
           <div className="space-y-2">
-            {filteredSessions.slice(0, 20).map((s, idx) => {
+            {filteredSessions.slice(0, 20).map((s) => {
               const isActive = currentSession === s.key;
               const displayName = s.title || formatTimestampKey(s.key);
-              const status = statusForIndex(idx);
+              const status = getStatusDisplay(getStatus(s.key));
               return (
-                <button
+                <ContextMenu
                   key={s.key}
-                  onClick={() => onSessionSelect?.(s.key)}
-                  className="w-full text-left rounded-xl px-3 py-3 transition-colors"
-                  style={{
-                    background: status.cardBg,
-                    border: `1px solid ${isActive ? status.color : status.cardBorder}`,
-                  }}
+                  items={[
+                    {
+                      label: 'Mark as In Progress',
+                      onSelect: () => setStatus(s.key, 'IN-PROGRESS'),
+                    },
+                    {
+                      label: 'Mark as Pending',
+                      onSelect: () => setStatus(s.key, 'PENDING'),
+                    },
+                    {
+                      label: 'Mark as Review',
+                      onSelect: () => setStatus(s.key, 'REVIEW'),
+                    },
+                    {
+                      label: 'Mark as Completed',
+                      divider: true,
+                      onSelect: () => setStatus(s.key, 'COMPLETED'),
+                    },
+                    {
+                      label: 'Mark as CC',
+                      onSelect: () => setStatus(s.key, 'CC'),
+                    },
+                    {
+                      label: 'Reset to Default',
+                      danger: true,
+                      onSelect: () => clearStatus(s.key),
+                    },
+                    {
+                      label: 'Archive',
+                      divider: true,
+                      onSelect: async () => {
+                        try {
+                          await window.miqi.sessions.archive(s.key);
+                          loadSessions();
+                        } catch { /* ignore */ }
+                      },
+                    },
+                  ]}
                 >
-                  {/* Top row: pill status label left · time right */}
-                  <div className="flex items-center justify-between mb-2">
-                    <span
-                      className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full"
-                      style={{ background: status.bg, color: status.color }}
+                  {({ onContextMenu }) => (
+                    <button
+                      onClick={() => onSessionSelect?.(s.key)}
+                      onContextMenu={onContextMenu}
+                      className="w-full text-left rounded-xl px-3 py-3 transition-colors"
+                      style={{
+                        background: status.cardBg,
+                        border: `1px solid ${isActive ? status.color : status.cardBorder}`,
+                      }}
                     >
-                      {status.label}
-                    </span>
-                    <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
-                      {relativeTime(s.updated_at)}
-                    </span>
-                  </div>
-                  {/* Title — large bold, one line */}
-                  <p
-                    className="text-[13px] font-bold truncate mb-1"
-                    style={{ color: 'var(--text)' }}
-                    title={displayName}
-                  >
-                    {displayName}
-                  </p>
-                  {/* Description — small gray, multi-line */}
-                  <p
-                    className="text-[11px] leading-relaxed"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
-                    {s.message_count != null
-                      ? `${s.message_count} messages`
-                      : 'No description'}
-                  </p>
-                </button>
+                      {/* Top row: pill status label left · time right */}
+                      <div className="flex items-center justify-between mb-2">
+                        <span
+                          className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full"
+                          style={{ background: status.bg, color: status.color }}
+                        >
+                          {status.label}
+                        </span>
+                        <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
+                          {relativeTime(s.updated_at)}
+                        </span>
+                      </div>
+                      {/* Title — large bold, one line */}
+                      <p
+                        className="text-[13px] font-bold truncate mb-1"
+                        style={{ color: 'var(--text)' }}
+                        title={displayName}
+                      >
+                        {displayName}
+                      </p>
+                      {/* Description — small gray, multi-line */}
+                      <p
+                        className="text-[11px] leading-relaxed"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        {s.message_count != null
+                          ? `${s.message_count} messages`
+                          : 'No description'}
+                      </p>
+                    </button>
+                  )}
+                </ContextMenu>
               );
             })}
           </div>

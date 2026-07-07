@@ -162,8 +162,17 @@ def _classify_transient_by_message(exc: BaseException) -> bool:
         "bad gateway",
         "service unavailable",
         "overloaded",
+        # Issue #26: DNS / connectivity "not found" phrasing is transient, not
+        # a 404-style invalid request.
+        "host not found",
+        "server not found",
+        "name resolution",
     )
-    return any(s in message for s in signals)
+    if any(s in message for s in signals):
+        return True
+    # "connection ... not found" with arbitrary words/separators in between,
+    # e.g. "Connection to server not found", "_connection not found_".
+    return bool(re.search(r"connection.{0,40}not found", message))
 
 
 def classify_error(exc: BaseException) -> ErrorKind:

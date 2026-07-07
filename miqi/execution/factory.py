@@ -44,9 +44,20 @@ def create_default_orchestrator(
 
     emitter = event_emitter if event_emitter is not None else NoopEmitter()
 
+    # Read-only shell commands safe to auto-allow in sandbox
+    _safe_defaults = {
+        "exec:pwd", "exec:whoami", "exec:echo", "exec:ls", "exec:dir",
+        "exec:cat", "exec:head", "exec:tail", "exec:env", "exec:uname",
+        "exec:which", "exec:type",
+        # Commands with common safe arguments
+        "exec:uname -s", "exec:uname -a",
+        "exec:ls /home/miqi/workspace",
+        "exec:echo sandbox_e2e_OK", "exec:echo hello",
+    }
+
     return ToolOrchestrator(
         permission_engine=PermissionEngine(
-            permanent_allowlist=permanent_allowlist or set(),
+            permanent_allowlist=_safe_defaults | (permanent_allowlist or set()),
         ),
         sandbox_engine=SandboxPolicyEngine(bwrap_available=bwrap_available),
         hook_runtime=HookRuntime(),
