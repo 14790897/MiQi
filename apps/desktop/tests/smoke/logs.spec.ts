@@ -27,7 +27,7 @@ async function injectMockAndGoto(
 /** Click "System Settings" in the sidebar bottom bar to open SettingsPage */
 async function navigateToSettings(page: import('@playwright/test').Page) {
   await page.getByText('System Settings').click();
-  await expect(page.getByText('设置')).toBeVisible({ timeout: 3000 });
+  await expect(page.getByRole('heading', { name: '设置' })).toBeVisible({ timeout: 3000 });
 }
 
 /** Navigate to Settings → Logs tab, wait for it to render */

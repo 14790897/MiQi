@@ -774,7 +774,7 @@ test.describe('Native Electron E2E', () => {
     async () => {
       // Navigate to Settings page
       await page.getByText('System Settings').click();
-      await expect(page.getByText('设置')).toBeVisible({ timeout: 5_000 });
+      await expect(page.getByRole('heading', { name: '设置' })).toBeVisible({ timeout: 5_000 });
 
       // Click the Logs tab
       await page.getByRole('tab', { name: '日志' }).click();
@@ -798,10 +798,10 @@ test.describe('Native Electron E2E', () => {
     { timeout: 30_000 },
     async () => {
       // Ensure we're on Settings page (may already be there from previous test)
-      const settingsVisible = await page.getByText('设置').isVisible().catch(() => false);
+      const settingsVisible = await page.getByRole('heading', { name: '设置' }).isVisible().catch(() => false);
       if (!settingsVisible) {
         await page.getByText('System Settings').click();
-        await expect(page.getByText('设置')).toBeVisible({ timeout: 5_000 });
+        await expect(page.getByRole('heading', { name: '设置' })).toBeVisible({ timeout: 5_000 });
       }
 
       // Navigate to Logs tab
@@ -832,6 +832,13 @@ test.describe('Native Electron E2E', () => {
     'Logs tab level filter works with real entries',
     { timeout: 20_000 },
     async () => {
+      // Ensure we're on Settings page first
+      const settingsVisible = await page.getByRole('heading', { name: '设置' }).isVisible().catch(() => false);
+      if (!settingsVisible) {
+        await page.getByText('System Settings').click();
+        await expect(page.getByRole('heading', { name: '设置' })).toBeVisible({ timeout: 5_000 });
+      }
+
       // Ensure we're on the Logs tab
       const logsTab = page.getByRole('tab', { name: '日志' });
       const isActive = await logsTab.getAttribute('data-state');
