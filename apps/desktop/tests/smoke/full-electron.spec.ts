@@ -645,47 +645,37 @@ test.describe('Native Electron E2E', () => {
   );
 
   // ═══════════════════════════════════════════════════════════════
-  //  SECTION 6: Sandbox file tools
+  //  SECTION 6: Sandbox isolation
   // ═══════════════════════════════════════════════════════════════
 
   test(
-    'write and read file through sandbox',
+    'exec tool runs inside sandbox with WSL isolation',
     { timeout: LLM_TIMEOUT },
     async () => {
-      // Step 1: Write a test file through the sandbox
+      // Step 1: Run pwd via exec tool → must show sandbox path /home/miqi/workspace
       await sendMessage(
         page,
-        '创建一个文件 sandbox_e2e_test.txt，内容为 sandbox_e2e_ok，创建后只回一个词：已创建',
+        '使用 exec 工具运行命令 pwd，只回复命令的输出，不要加任何解释',
       );
 
-      // Handle potential file write approval
-      const approvalDialog = page.getByText('文件操作审批');
-      if (await approvalDialog.isVisible({ timeout: 30_000 }).catch(() => false)) {
-        console.log('[test] Sandbox: file write approval appeared');
-        const allowBtn = page.getByRole('button', { name: '永久允许' });
-        if (await allowBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
-          await allowBtn.click();
-          console.log('[test] Sandbox: clicked 永久允许');
-        }
-      }
+      // Handle exec approval dialog
+      await expect(page.getByText('文件操作审批')).toBeVisible({
+        timeout: 60_000,
+      });
+      console.log('[test] Sandbox: exec approval dialog appeared');
+      await page.getByRole('button', { name: '永久允许' }).click();
+      console.log('[test] Sandbox: clicked 永久允许');
 
       await waitForResponseComplete(page, 240_000);
-      await expect(
-        page.locator('main').getByText('已创建').first(),
-      ).toBeVisible({ timeout: 15_000 });
-      console.log('[test] ✅ File written through sandbox');
 
-      // Step 2: Read back and verify content
-      await sendMessage(
-        page,
-        '读取 sandbox_e2e_test.txt 的内容，只回复文件里的内容，不要加任何解释',
-      );
-
-      await waitForResponseComplete(page, 120_000);
+      // Verify output is the sandbox home path, not a Windows path
+      const output = page.locator('main').getByText('/home/miqi', { exact: false });
+      await expect(output.first()).toBeVisible({ timeout: 15_000 });
+      // Also verify it is NOT a Windows path
       await expect(
-        page.locator('main').getByText('sandbox_e2e_ok', { exact: false }),
-      ).toBeVisible({ timeout: 15_000 });
-      console.log('[test] ✅ File read through sandbox, content verified');
+        page.locator('main').getByText(/C:\\/, { exact: false }).first(),
+      ).not.toBeVisible({ timeout: 5_000 });
+      console.log('[test] ✅ exec ran inside sandbox — pwd shows /home/miqi/workspace');
     },
   );
 });
