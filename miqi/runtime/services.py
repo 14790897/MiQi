@@ -92,6 +92,7 @@ class RuntimeServices:
         session_id: str,
         workspace: Path,
         event_sink: Any | None = None,
+        sandbox_manager: Any = None,
     ) -> "RuntimeServices":
         """Build the full service graph from a Config + provider.
 
@@ -116,7 +117,7 @@ class RuntimeServices:
             provider=provider,
             bus=bus,
             approval_callback=None,
-            sandbox_manager=None,
+            sandbox_manager=sandbox_manager,
             plan_tracker=plan_tracker,
         )
 

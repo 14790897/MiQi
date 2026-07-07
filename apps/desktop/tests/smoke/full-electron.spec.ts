@@ -643,4 +643,49 @@ test.describe('Native Electron E2E', () => {
       console.log('[test] ✅ PPT created via pptx_write after approval');
     },
   );
+
+  // ═══════════════════════════════════════════════════════════════
+  //  SECTION 6: Sandbox file tools
+  // ═══════════════════════════════════════════════════════════════
+
+  test(
+    'write and read file through sandbox',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      // Step 1: Write a test file through the sandbox
+      await sendMessage(
+        page,
+        '创建一个文件 sandbox_e2e_test.txt，内容为 sandbox_e2e_ok，创建后只回一个词：已创建',
+      );
+
+      // Handle potential file write approval
+      const approvalDialog = page.getByText('文件操作审批');
+      if (await approvalDialog.isVisible({ timeout: 30_000 }).catch(() => false)) {
+        console.log('[test] Sandbox: file write approval appeared');
+        const allowBtn = page.getByRole('button', { name: '永久允许' });
+        if (await allowBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+          await allowBtn.click();
+          console.log('[test] Sandbox: clicked 永久允许');
+        }
+      }
+
+      await waitForResponseComplete(page, 240_000);
+      await expect(
+        page.locator('main').getByText('已创建').first(),
+      ).toBeVisible({ timeout: 15_000 });
+      console.log('[test] ✅ File written through sandbox');
+
+      // Step 2: Read back and verify content
+      await sendMessage(
+        page,
+        '读取 sandbox_e2e_test.txt 的内容，只回复文件里的内容，不要加任何解释',
+      );
+
+      await waitForResponseComplete(page, 120_000);
+      await expect(
+        page.locator('main').getByText('sandbox_e2e_ok', { exact: false }),
+      ).toBeVisible({ timeout: 15_000 });
+      console.log('[test] ✅ File read through sandbox, content verified');
+    },
+  );
 });
