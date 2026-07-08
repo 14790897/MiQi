@@ -215,19 +215,24 @@ def create_runtime_tool_registry(
     registry.register(SkillManageTool(workspace=workspace))
 
     # 6. Office document tools
-    from miqi.documents.docx_tool import DocxReadTool, DocxWriteTool
-    from miqi.documents.pptx_tool import PptxReadTool, PptxWriteTool
-    from miqi.documents.xlsx_tool import XlsxReadTool, XlsxWriteTool
+    from miqi.documents.docx_tool import CreateDocxTool, DocxReadTool, DocxWriteTool, EditDocxTool
+    from miqi.documents.pptx_tool import CreatePptxTool, PptxReadTool, PptxWriteTool
+    from miqi.documents.xlsx_tool import AppendXlsxTool, CreateXlsxTool, XlsxReadTool, XlsxWriteTool
 
-    registry.register(DocxReadTool())
+    registry.register(DocxReadTool(workspace=_write_workspace, allowed_dir=_write_workspace))
     # Office write tools always write inside the workspace, independently
     # of the `restrict_to_workspace` config (which only controls
     # WriteFileTool / EditFileTool).
+    registry.register(CreateDocxTool(workspace=_write_workspace, allowed_dir=_write_workspace))
     registry.register(DocxWriteTool(workspace=_write_workspace, allowed_dir=_write_workspace))
-    registry.register(PptxReadTool())
+    registry.register(EditDocxTool(workspace=_write_workspace, allowed_dir=_write_workspace))
+    registry.register(PptxReadTool(workspace=_write_workspace, allowed_dir=_write_workspace))
+    registry.register(CreatePptxTool(workspace=_write_workspace, allowed_dir=_write_workspace))
     registry.register(PptxWriteTool(workspace=_write_workspace, allowed_dir=_write_workspace))
-    registry.register(XlsxReadTool())
+    registry.register(XlsxReadTool(workspace=_write_workspace, allowed_dir=_write_workspace))
+    registry.register(CreateXlsxTool(workspace=_write_workspace, allowed_dir=_write_workspace))
     registry.register(XlsxWriteTool(workspace=_write_workspace, allowed_dir=_write_workspace))
+    registry.register(AppendXlsxTool(workspace=_write_workspace, allowed_dir=_write_workspace))
 
     # ── Optional tools (require external dependencies) ─────────────────
 

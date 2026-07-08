@@ -620,8 +620,13 @@ class ToolOrchestrator:
         if tool in (
             "write_file", "edit_file", "delete_file",
             "docx_write", "pptx_write", "xlsx_write",
+            "create_docx", "create_pptx", "create_xlsx",
+            "edit_docx", "append_xlsx",
         ):
-            path = (meta.get("details", {}) or {}).get("path", "")
+            path = (
+                (meta.get("details", {}) or {}).get("path", "")
+                or (meta.get("details", {}) or {}).get("filename", "")
+            )
             if not path:
                 return None
             return f"{tool}:{path}"
@@ -781,6 +786,8 @@ class ToolOrchestrator:
         _FILE_MUTATION_TOOLS = frozenset({
             "write_file", "edit_file", "delete_file", "apply_patch",
             "docx_write", "pptx_write", "xlsx_write",
+            "create_docx", "create_pptx", "create_xlsx",
+            "edit_docx", "append_xlsx",
         })
         kwargs = {**ctx.arguments}
         if ctx.tool_name == "exec" or ctx.tool_name in _FILE_MUTATION_TOOLS:

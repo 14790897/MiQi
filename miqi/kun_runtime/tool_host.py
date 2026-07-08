@@ -307,7 +307,13 @@ def _classify_tool_kind(name: str) -> str:
     """Classify a tool name as tool_call, command_execution, or file_change."""
     if name in ("bash", "exec", "shell"):
         return "command_execution"
-    if name in ("write", "edit", "edit_diff", "apply_patch", "delete", "move", "write_file", "edit_file"):
+    if name in (
+        "write", "edit", "edit_diff", "apply_patch", "delete", "move",
+        "write_file", "edit_file",
+        "create_docx", "create_pptx", "create_xlsx",
+        "edit_docx", "append_xlsx",
+        "docx_write", "pptx_write", "xlsx_write",
+    ):
         return "file_change"
     return "tool_call"
 
