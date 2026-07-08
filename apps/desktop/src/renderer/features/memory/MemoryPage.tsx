@@ -80,6 +80,7 @@ function SaveConfirmDialog({
           </button>
           <button
             onClick={onConfirm}
+            aria-label="memory-confirm-save"
             className="px-4 py-1.5 rounded-lg bg-[var(--warning)] hover:brightness-110 text-white text-sm font-medium transition-all"
           >
             确认覆盖
@@ -321,6 +322,7 @@ export function MemoryPage() {
           <button
             onClick={requestSave}
             disabled={!hasUnsaved || saving}
+            aria-label="memory-save-file"
             className={cn(
               'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
               hasUnsaved
@@ -737,6 +739,7 @@ function LessonRow({
                 e.stopPropagation();
                 onUnlearn(lesson.id);
               }}
+              aria-label={`memory-unlearn-${lesson.id}`}
               className="mt-1 px-2 py-0.5 text-xs rounded border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-muted)] self-start"
             >
               Unlearn

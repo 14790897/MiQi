@@ -179,14 +179,33 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
     cron: {
       list: function() { return Promise.resolve({ jobs: _cronJobs.slice() }); },
       create: function(payload) {
+        window.__miqiMock.calls.push({ type: 'cron.create', payload: payload });
         var job = _makeCronJob(payload || {});
         _cronJobs.unshift(job);
         return Promise.resolve({ job: job });
       },
       update: function(payload) {
+        window.__miqiMock.calls.push({ type: 'cron.update', payload: payload });
         var idx = _cronJobs.findIndex(function(j) { return j.id === payload.jobId; });
         if (idx >= 0) {
-          _cronJobs[idx] = Object.assign({}, _cronJobs[idx], _makeCronJob(Object.assign({}, _cronJobs[idx], payload || {})), { id: _cronJobs[idx].id, createdAtMs: _cronJobs[idx].createdAtMs });
+          var existing = _cronJobs[idx];
+          var merged = _makeCronJob({
+            jobId: existing.id,
+            name: payload.name || existing.name,
+            scheduleKind: payload.scheduleKind || existing.schedule.kind,
+            everyMs: payload.everyMs != null ? payload.everyMs : existing.schedule.everyMs,
+            atMs: payload.atMs != null ? payload.atMs : existing.schedule.atMs,
+            expr: payload.expr || existing.schedule.expr,
+            tz: payload.tz || existing.schedule.tz,
+            message: payload.message != null ? payload.message : existing.payload.message,
+            deliver: payload.deliver != null ? payload.deliver : existing.payload.deliver,
+            channel: payload.channel != null ? payload.channel : existing.payload.channel,
+            to: payload.to != null ? payload.to : existing.payload.to,
+            enabled: payload.enabled != null ? payload.enabled : existing.enabled,
+          });
+          merged.createdAtMs = existing.createdAtMs;
+          merged.state = existing.state;
+          _cronJobs[idx] = merged;
           return Promise.resolve({ job: _cronJobs[idx] });
         }
         return Promise.resolve({ job: null });
@@ -200,6 +219,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
         return Promise.resolve({ job: job });
       },
       run: function(jobId) {
+        window.__miqiMock.calls.push({ type: 'cron.run', jobId: jobId });
         var job = _cronJobs.find(function(j) { return j.id === jobId; });
         if (job) {
           job.state.lastRunAtMs = Date.now();
@@ -227,6 +247,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
         return Promise.resolve(file ? { path: file.path, content: file.content, size: file.content.length } : { path: path, content: '', size: 0 });
       },
       update: function(path, content) {
+        window.__miqiMock.calls.push({ type: 'memory.update', path: path, content: content });
         var file = _memoryFiles.find(function(f) { return f.path === path; });
         if (!file) {
           file = { path: path, scope: 'workspace', size: 0, updatedAtMs: Date.now(), content: '' };
@@ -244,6 +265,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       },
       lessons: function() { return Promise.resolve({ lessons: _lessons.slice() }); },
       lessonUnlearn: function(id) {
+        window.__miqiMock.calls.push({ type: 'memory.lessonUnlearn', id: id });
         _lessons = _lessons.filter(function(l) { return l.id !== id; });
         return Promise.resolve({ unlearned: [id] });
       },
@@ -277,6 +299,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
         return Promise.resolve({ ok: true });
       },
       upload: function(name, content) {
+        window.__miqiMock.calls.push({ type: 'skills.upload', name: name, content: content });
         _skills = _skills.filter(function(s) { return s.name !== name; });
         _skills.unshift({ name: name, description: 'Installed from SkillHub', source: 'workspace', path: '/mock/skills/' + name + '/SKILL.md', available: true, missingRequirements: null, content: content || '', metadata: null });
         return Promise.resolve({ ok: true });
@@ -294,6 +317,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
     mcps: {
       list: function() { return Promise.resolve({ servers: _mcps.slice() }); },
       upsert: function(name, config) {
+        window.__miqiMock.calls.push({ type: 'mcps.upsert', name: name, config: config });
         _mcps = _mcps.filter(function(s) { return s.name !== name; });
         _mcps.unshift(Object.assign({ name: name }, config || {}));
         return Promise.resolve({ ok: true });

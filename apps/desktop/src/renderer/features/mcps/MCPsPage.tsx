@@ -99,6 +99,7 @@ function MCPServerModal({
           </h2>
           <button
             onClick={onClose}
+            aria-label="mcp-close-server-modal"
             className="p-1 rounded hover:bg-[var(--surface-muted)]"
             style={{ color: 'var(--text-muted)' }}
           >
@@ -347,6 +348,7 @@ function MCPServerModal({
           <button
             onClick={handleSave}
             disabled={saving}
+            aria-label="mcp-save-server"
             className="px-4 py-2 rounded-lg text-xs font-medium text-white transition-colors"
             style={{ background: 'var(--accent)' }}
           >
@@ -411,6 +413,7 @@ export function MCPsPage() {
         </h1>
         <button
           onClick={handleAdd}
+          aria-label="mcp-add-server"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-colors"
           style={{ background: 'var(--accent)' }}
         >

@@ -798,6 +798,7 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
             <Tabs.Trigger
               key={tab.value}
               value={tab.value}
+              aria-label={`settings-tab-${tab.value}`}
               className={cn(
                 'px-4 py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap',
                 'text-[var(--text-muted)] border-transparent',

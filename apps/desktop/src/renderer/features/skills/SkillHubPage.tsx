@@ -250,6 +250,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
                         <button
                           onClick={() => handleInstall(skill)}
                           disabled={isInstalling}
+                          aria-label={`install-skill-${skill.name}`}
                           className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors text-white disabled:opacity-50"
                           style={{ background: 'var(--accent)' }}
                         >
