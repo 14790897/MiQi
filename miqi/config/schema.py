@@ -280,6 +280,10 @@ class AgentsConfig(Base):
     self_improvement: AgentSelfImprovementConfig = Field(default_factory=AgentSelfImprovementConfig)
     smart_routing: SmartRoutingConfig = Field(default_factory=SmartRoutingConfig)
     command_approval: CommandApprovalConfig = Field(default_factory=CommandApprovalConfig)
+    permanent_approvals: list[str] = Field(
+        default_factory=list,
+        description="Permanent approval patterns persisted across sessions and restarts",
+    )
 
 
 class ProviderConfig(Base):

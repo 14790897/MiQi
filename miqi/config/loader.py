@@ -41,7 +41,12 @@ def load_config(config_path: Path | None = None) -> Config:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             data = _migrate_config(data)
-            return Config.model_validate(data)
+            config = Config.model_validate(data)
+
+            # Phase 31.X: load permanent approvals into global allowlist
+            _init_permanent_approvals(config)
+
+            return config
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning(f"Failed to load config from {path}: {e}")
             logger.warning("Using default configuration.")
@@ -76,6 +81,35 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     path.chmod(0o600)  # Restrict to owner only — config contains API keys
+
+
+def save_config_allowlist(patterns: set[str]) -> None:
+    """Persist permanent approval patterns into the user config.
+
+    Adds/updates ``permanent_approvals`` in config.json so that
+    approved tool+argument keys survive bridge restarts.
+    """
+    path = get_config_path()
+    try:
+        config = load_config(path)
+    except Exception:
+        config = Config()
+    existing: list[str] = list(getattr(config.agents, "permanent_approvals", None) or [])
+    merged = sorted(set(existing) | patterns)
+    config.agents.permanent_approvals = merged
+    save_config(config, path)
+
+
+def _init_permanent_approvals(config: Config) -> None:
+    """Load permanent approval patterns from config into global allowlist."""
+    patterns = getattr(config.agents, "permanent_approvals", None) or []
+    if patterns:
+        try:
+            from miqi.agent.command_approval import load_permanent_allowlist
+            load_permanent_allowlist(set(patterns))
+            logger.debug("Loaded {} permanent approval patterns", len(patterns))
+        except Exception as exc:
+            logger.warning("Failed to load permanent approvals: {}", exc)
 
 
 def _migrate_config(data: dict) -> dict:

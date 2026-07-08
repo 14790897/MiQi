@@ -143,6 +143,16 @@ class PermissionEngine:
         if cmd_key in self.permanent_allowlist:
             return PermissionDecision(verdict=PermissionVerdict.ALLOW)
 
+        # 4b. Global permanent allowlist (cross-session, persisted to disk)
+        #     The orchestrator syncs patterns here via command_approval;
+        #     checking it here ensures new sessions pick up persisted approvals.
+        try:
+            from miqi.agent.command_approval import get_permanent_allowlist as _get_gpa
+            if cmd_key and cmd_key in _get_gpa():
+                return PermissionDecision(verdict=PermissionVerdict.ALLOW)
+        except Exception:
+            pass
+
         # 5. Exec tool branch
         if tool_name == "exec":
             cmd = str(ctx.arguments.get("command", ""))

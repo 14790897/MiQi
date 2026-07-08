@@ -35,7 +35,7 @@ export default defineConfig({
     {
       name: 'electron',
       testDir: './tests/e2e',
-      testMatch: ['full-electron.spec.ts'],
+      testMatch: ['full-electron.spec.ts', 'approval-persistence.spec.ts'],
       timeout: 300000,  // 5 min — Electron boot + bridge + LLM are slow
     },
   ],
