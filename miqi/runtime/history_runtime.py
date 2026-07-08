@@ -240,7 +240,7 @@ class HistoryRuntime:
         cursor = await db.execute(
             """SELECT * FROM runtime_history_items
                WHERE thread_id = ? AND session_id = ?
-               ORDER BY created_at ASC, item_id ASC""",
+               ORDER BY created_at ASC, rowid ASC""",
             (thread_id, self.session_id),
         )
         rows = await cursor.fetchall()
