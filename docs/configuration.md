@@ -46,8 +46,14 @@ MiQi Desktop 的全局配置存储在 `~/.miqi/config.json` 中。
   "tools": {
     "restrict_to_workspace": true,
     "web": {
-      "search_provider": "brave",
-      "brave_api_key": ""
+      "search": {
+        "provider": "ddgs",
+        "apiKey": "",
+        "maxResults": 5
+      },
+      "fetch": {
+        "provider": "builtin"
+      }
     },
     "exec": {
       "allowed_commands": [],
@@ -100,7 +106,9 @@ MiQi Desktop 的全局配置存储在 `~/.miqi/config.json` 中。
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `restrict_to_workspace` | bool | true | 文件操作限制在工作区 |
-| `web.search_provider` | string | "brave" | 搜索引擎 (brave/ollama/hybrid) |
+| `web.search.provider` | string | "ddgs" | 搜索引擎 (ddgs/brave/hybrid) |
+| `web.search.apiKey` | string | "" | Brave Search API Key，仅 brave/hybrid 使用 |
+| `web.search.maxResults` | int | 5 | 最大搜索结果数量 |
 | `exec.allowed_commands` | array | [] | Shell 命令白名单 |
 | `exec.blocked_commands` | array | [] | Shell 命令黑名单 |
 

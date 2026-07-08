@@ -160,11 +160,9 @@ def create_runtime_tool_registry(
 
     registry.register(
         WebSearchTool(
-            provider=getattr(search_cfg, "provider", "brave") if search_cfg is not None else "brave",
+            provider=getattr(search_cfg, "provider", "ddgs") if search_cfg is not None else "ddgs",
             api_key=getattr(search_cfg, "api_key", None) if search_cfg is not None else None,
             max_results=getattr(search_cfg, "max_results", 5) if search_cfg is not None else 5,
-            ollama_api_key=getattr(search_cfg, "ollama_api_key", None) if search_cfg is not None else None,
-            ollama_api_base=getattr(search_cfg, "ollama_api_base", None) if search_cfg is not None else None,
         )
     )
     registry.register(

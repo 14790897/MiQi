@@ -77,12 +77,22 @@ def register_onboard_command(
         if provider_name:
             console.print(f"  Provider: [cyan]{provider_name}[/cyan]")
         console.print(f"  Model: [cyan]{config.agents.defaults.model}[/cyan]")
-        if config.tools.web.search.api_key:
-            console.print("  Web search: [green]Brave enabled[/green]")
-        else:
-            console.print(
-                "  Web search: [yellow]Brave disabled[/yellow] (model-native search may still work)"
+        search_provider = config.tools.web.search.provider
+        if search_provider == "brave":
+            status = (
+                "[green]Brave enabled[/green]"
+                if config.tools.web.search.api_key
+                else "[yellow]Brave selected, API key missing[/yellow]"
             )
+        elif search_provider == "hybrid":
+            status = (
+                "[green]ddgs + Brave fallback[/green]"
+                if config.tools.web.search.api_key
+                else "[green]ddgs enabled[/green] ([yellow]Brave fallback missing key[/yellow])"
+            )
+        else:
+            status = "[green]ddgs enabled (no API key required)[/green]"
+        console.print(f"  Web search: {status}")
 
         console.print("\nNext steps:")
         console.print('  1. Chat: [cyan]miqi agent -m "Hello!"[/cyan]')

@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings
 
@@ -339,11 +339,15 @@ class CronConfig(Base):
 class WebSearchConfig(Base):
     """Web search tool configuration."""
 
-    provider: str = "brave"  # brave | ollama | hybrid
+    provider: str = "ddgs"  # ddgs | brave | hybrid
     api_key: str = ""  # Brave Search API key
-    ollama_api_key: str = ""  # Ollama web search API key
-    ollama_api_base: str = "https://ollama.com"
     max_results: int = 5
+
+    @field_validator("provider", mode="before")
+    @classmethod
+    def normalize_provider(cls, value: object) -> str:
+        provider = str(value or "ddgs").lower()
+        return provider if provider in {"ddgs", "brave", "hybrid"} else "ddgs"
 
 
 class WebFetchConfig(Base):
