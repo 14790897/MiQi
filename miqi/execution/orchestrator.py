@@ -672,6 +672,19 @@ class ToolOrchestrator:
             pattern, self._session_id,
         )
 
+        # Phase 31.X: sync to global (cross-session, persisted) allowlist
+        # so that new sessions / restarts pick up this approval.
+        try:
+            from miqi.agent.command_approval import (
+                approve_permanent, _save_permanent_allowlist,
+            )
+            approve_permanent(pattern)
+            _save_permanent_allowlist()
+        except Exception as exc:
+            logger.warning(
+                "Failed to sync permanent approval to global allowlist: %s", exc,
+            )
+
     def _record_session_approval(self, meta: dict[str, Any]) -> None:
         """Add the approved tool+argument key to the session-scoped allowlist.
 
