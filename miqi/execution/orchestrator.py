@@ -618,7 +618,7 @@ class ToolOrchestrator:
                 return None
             return f"exec:{cmd}"
         if tool in (
-            "write_file", "edit_file", "delete_file",
+            "write_file", "edit_file", "delete_file", "apply_patch",
             "docx_write", "pptx_write", "xlsx_write",
             "create_docx", "create_pptx", "create_xlsx",
             "edit_docx", "append_xlsx",
