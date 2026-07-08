@@ -229,6 +229,38 @@ class AgentControl:
             self._agents[agent_id] = agent
             self._thread_agents[fork_thread_id] = agent_id
 
+        if self._store is not None:
+            self._store.add_edge(
+                parent_agent_id=source_agent_id,
+                child_agent_id=agent_id,
+                child_thread_id=fork_thread_id,
+            )
+
+        # Emit spawned event for forked agent
+        await self._events.emit(SubAgentSpawnedEvent(
+            parent_turn_id=source_thread_id,
+            sub_agent_id=agent_id,
+            sub_thread_id=fork_thread_id,
+            agent_type=fork_type,
+            task_label=f"fork from {source_thread_id}",
+        ))
+
+        # Fire sub-agent lifecycle start hook
+        if self._hooks is not None:
+            await self._hooks.run(
+                HookPoint.SUBAGENT_START,
+                LifecycleHookContext(
+                    hook_point=HookPoint.SUBAGENT_START,
+                    data={
+                        "agent_id": agent_id,
+                        "thread_id": fork_thread_id,
+                        "agent_type": fork_type,
+                        "task": f"fork from {source_thread_id}",
+                        "parent_agent_id": source_agent_id,
+                    },
+                ),
+            )
+
         logger.info(
             "Forked thread {} → {} (type: {})",
             source_thread_id, fork_thread_id, fork_type,
