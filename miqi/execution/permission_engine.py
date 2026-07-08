@@ -25,6 +25,38 @@ from miqi.execution.exec_policy import PolicyVerdict
 _SHELL_METACHAR_PATTERN = re.compile(r"[;&|`$(){}\[\]<>!\n\r]")
 
 
+def _office_target_path(tool_name: str, arguments: dict[str, Any]) -> str:
+    path = (
+        arguments.get("path", "")
+        or arguments.get("file_path", "")
+        or arguments.get("filename", "")
+    )
+    if not path:
+        return ""
+    suffix_by_tool = {
+        "create_docx": ".docx",
+        "docx_write": ".docx",
+        "edit_docx": ".docx",
+        "create_xlsx": ".xlsx",
+        "xlsx_write": ".xlsx",
+        "append_xlsx": ".xlsx",
+        "create_pptx": ".pptx",
+        "pptx_write": ".pptx",
+    }
+    suffix = suffix_by_tool.get(tool_name)
+    if suffix is None:
+        return str(path)
+    path_str = str(path)
+    path_lower = path_str.lower()
+    slash_idx = max(path_str.rfind("/"), path_str.rfind("\\"))
+    dot_idx = path_str.rfind(".")
+    if dot_idx > slash_idx and path_lower[dot_idx:] == suffix:
+        return str(path)
+    if dot_idx > slash_idx:
+        return path_str[:dot_idx] + suffix
+    return path_str + suffix
+
+
 class PermissionVerdict(str, Enum):
     ALLOW = "allow"
     DENY = "deny"
@@ -110,6 +142,16 @@ class PermissionEngine:
         # 4. Permanent allowlist (keyed by tool + arguments)
         if cmd_key in self.permanent_allowlist:
             return PermissionDecision(verdict=PermissionVerdict.ALLOW)
+
+        # 4b. Global permanent allowlist (cross-session, persisted to disk)
+        #     The orchestrator syncs patterns here via command_approval;
+        #     checking it here ensures new sessions pick up persisted approvals.
+        try:
+            from miqi.agent.command_approval import get_permanent_allowlist as _get_gpa
+            if cmd_key and cmd_key in _get_gpa():
+                return PermissionDecision(verdict=PermissionVerdict.ALLOW)
+        except Exception:
+            pass
 
         # 5. Exec tool branch
         if tool_name == "exec":
@@ -202,9 +244,11 @@ class PermissionEngine:
         _FILE_WRITE_TOOLS = frozenset({
             "write_file", "edit_file", "delete_file", "apply_patch",
             "docx_write", "pptx_write", "xlsx_write",
+            "create_docx", "create_pptx", "create_xlsx",
+            "edit_docx", "append_xlsx",
         })
         if tool_name in _FILE_WRITE_TOOLS:
-            path = ctx.arguments.get("path", "") or ctx.arguments.get("file_path", "")
+            path = _office_target_path(tool_name, ctx.arguments)
             return self._apply_approval_policy(
                 PermissionDecision(
                     verdict=PermissionVerdict.APPROVAL_REQUIRED,
@@ -270,6 +314,8 @@ class PermissionEngine:
         if tool == "exec":
             return f"exec:{ctx.arguments.get('command', '')}"
         if tool in ("write_file", "edit_file", "delete_file", "apply_patch",
-                      "docx_write", "pptx_write", "xlsx_write"):
-            return f"{tool}:{ctx.arguments.get('path', '') or ctx.arguments.get('file_path', '')}"
+                      "docx_write", "pptx_write", "xlsx_write",
+                      "create_docx", "create_pptx", "create_xlsx",
+                      "edit_docx", "append_xlsx"):
+            return f"{tool}:{_office_target_path(tool, ctx.arguments)}"
         return f"{tool}:{hash(str(ctx.arguments))}"

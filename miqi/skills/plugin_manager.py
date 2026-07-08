@@ -28,7 +28,7 @@ from miqi.execution.hook_runtime import (
 
 # ── shared plugin-name validator ──────────────────────────────────────────
 
-_PLUGIN_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$")
+_PLUGIN_NAME_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9_.-]{0,62}[a-zA-Z0-9])?$")
 
 
 def validate_plugin_name(name: str) -> None:

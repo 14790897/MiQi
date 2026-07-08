@@ -4,6 +4,8 @@ import asyncio
 import random
 import re
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from enum import Enum
 from typing import TypeVar
 
@@ -131,8 +133,10 @@ def _classify_by_status_code(exc: BaseException) -> ErrorKind | None:
         return ErrorKind.RATE_LIMIT
     if code in (401, 403):
         return ErrorKind.AUTH
-    if code in (408, 409) or 500 <= code < 600:
+    if code == 408 or 500 <= code < 600:
         return ErrorKind.TRANSIENT
+    if code == 409:
+        return ErrorKind.INVALID_REQUEST
     if code in (400, 404):
         if _is_context_length_error(exc):
             return ErrorKind.CONTEXT_LENGTH
@@ -160,8 +164,17 @@ def _classify_transient_by_message(exc: BaseException) -> bool:
         "bad gateway",
         "service unavailable",
         "overloaded",
+        # Issue #26: DNS / connectivity "not found" phrasing is transient, not
+        # a 404-style invalid request.
+        "host not found",
+        "server not found",
+        "name resolution",
     )
-    return any(s in message for s in signals)
+    if any(s in message for s in signals):
+        return True
+    # "connection ... not found" with arbitrary words/separators in between,
+    # e.g. "Connection to server not found", "_connection not found_".
+    return bool(re.search(r"connection.{0,40}not found", message))
 
 
 def classify_error(exc: BaseException) -> ErrorKind:
@@ -204,7 +217,7 @@ def classify_error(exc: BaseException) -> ErrorKind:
                 return by_code
             return ErrorKind.INVALID_REQUEST
         if isinstance(exc, conflict_error):
-            return ErrorKind.TRANSIENT
+            return ErrorKind.INVALID_REQUEST
         if isinstance(exc, internal_server_error):
             return ErrorKind.TRANSIENT
         if isinstance(exc, api_status_error):
@@ -330,7 +343,14 @@ def retry_after_seconds(exc: BaseException) -> float | None:
 
 
 def _parse_retry_after_seconds(value: str) -> float | None:
-    """Parse a Retry-After value expressed in seconds."""
+    """Parse a Retry-After value expressed in seconds or as an HTTP-date.
+
+    RFC 7231 §7.1.1.1 allows Retry-After to be either an integer number of
+    seconds ("120") or an HTTP-date ("Wed, 21 Oct 2015 07:28:00 GMT"). The
+    date form is an absolute timestamp; the returned delay is the remaining
+    seconds until that moment, clamped to 0 (a date already in the past must
+    never produce a negative backoff).
+    """
     value = value.strip()
     if not value:
         return None
@@ -341,7 +361,20 @@ def _parse_retry_after_seconds(value: str) -> float | None:
     try:
         return float(value)
     except ValueError:
+        pass
+
+    # HTTP-date form (RFC 7231 §7.1.1.1). parsedate_to_datetime returns a
+    # naive datetime for dates without tz info; assume GMT per the spec.
+    try:
+        parsed_date = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
         return None
+    if parsed_date is None:
+        return None
+    if parsed_date.tzinfo is None:
+        parsed_date = parsed_date.replace(tzinfo=timezone.utc)
+    delay = (parsed_date - datetime.now(timezone.utc)).total_seconds()
+    return max(0.0, delay)
 
 
 def compute_backoff(

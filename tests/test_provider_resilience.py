@@ -113,12 +113,40 @@ def test_classify_error_invalid_request(status: int) -> None:
     assert classify_error(_StatusError("bad", status_code=status)) == ErrorKind.INVALID_REQUEST
 
 
+def test_classify_error_conflict_409_is_invalid_request() -> None:
+    assert classify_error(_StatusError("conflict", status_code=409)) == ErrorKind.INVALID_REQUEST
+
+
 def test_classify_error_model_not_found() -> None:
     assert classify_error(Exception("NotFoundError: model not found")) == ErrorKind.INVALID_REQUEST
 
 
 def test_classify_error_unknown_fatal() -> None:
     assert classify_error(Exception("something weird")) == ErrorKind.FATAL
+
+
+# ── Issue #26: transient network errors must not be caught by "not found" ─
+
+
+@pytest.mark.parametrize("message", [
+    "Connection to server not found",
+    "host not found",
+    "_connection not found_ while dialing upstream",
+    "Temporary failure in name resolution: host not found",
+])
+def test_classify_error_network_not_found_is_transient(message: str) -> None:
+    """A DNS/connection 'not found' is transient and retryable, not invalid."""
+    assert classify_error(Exception(message)) == ErrorKind.TRANSIENT
+
+
+@pytest.mark.parametrize("message", [
+    "NotFoundError: model not found",
+    "model not found: gpt-x",
+    "The model was not found",
+])
+def test_classify_error_resource_not_found_still_invalid(message: str) -> None:
+    """A 404-style resource 'not found' stays invalid (non-retryable)."""
+    assert classify_error(Exception(message)) == ErrorKind.INVALID_REQUEST
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +180,55 @@ def test_retry_after_seconds_attribute() -> None:
 
 def test_retry_after_seconds_ms_attribute() -> None:
     assert retry_after_seconds(SimpleNamespace(retry_after_ms=2500)) == 2.5
+
+
+# ── Issue #25: Retry-After HTTP-date format (RFC 7231 §7.1.1.1) ────────────
+
+
+def test_retry_after_seconds_http_date_header() -> None:
+    """A future HTTP-date Retry-After must yield a positive delay in seconds."""
+    import datetime as _dt
+
+    future = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(seconds=30)
+    http_date = future.strftime("%a, %d %b %Y %H:%M:%S GMT")
+    response = SimpleNamespace(headers=_FakeHeaders({"Retry-After": http_date}))
+    exc = SimpleNamespace(response=response)
+    parsed = retry_after_seconds(exc)
+    assert parsed is not None
+    # Allow scheduling jitter; the server asked for ~30s, not 0.
+    assert 25.0 <= parsed <= 35.0
+
+
+def test_parse_retry_after_seconds_http_date_future() -> None:
+    from miqi.providers.resilience import _parse_retry_after_seconds
+
+    # Fixed RFC 7231 example. As an absolute timestamp it is in the past, so the
+    # remaining delay must clamp to 0 (never a negative backoff).
+    assert _parse_retry_after_seconds("Wed, 21 Oct 2015 07:28:00 GMT") == 0.0
+
+
+def test_parse_retry_after_seconds_http_date_relative() -> None:
+    """Parsing is monotonic: a later target date yields a strictly larger delay."""
+    import datetime as _dt
+
+    from miqi.providers.resilience import _parse_retry_after_seconds
+
+    soon = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(seconds=10)
+    later = soon + _dt.timedelta(seconds=20)
+    parse_soon = _parse_retry_after_seconds(soon.strftime("%a, %d %b %Y %H:%M:%S GMT"))
+    parse_later = _parse_retry_after_seconds(later.strftime("%a, %d %b %Y %H:%M:%S GMT"))
+    assert parse_soon is not None and parse_later is not None
+    assert parse_later > parse_soon
+
+
+def test_parse_retry_after_seconds_seconds_still_preferred() -> None:
+    """Plain seconds must keep working unchanged after the HTTP-date addition."""
+    from miqi.providers.resilience import _parse_retry_after_seconds
+
+    assert _parse_retry_after_seconds("120") == 120.0
+    assert _parse_retry_after_seconds("120.5") == 120.5
+    assert _parse_retry_after_seconds("") is None
+    assert _parse_retry_after_seconds("not a date") is None
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +319,26 @@ async def test_with_retry_no_retry_on_auth() -> None:
         await with_retry(factory, max_attempts=3, sleep=fake_sleep)
 
     assert len(sleeps) == 0
+
+
+@pytest.mark.asyncio
+async def test_with_retry_no_retry_on_conflict_409() -> None:
+    sleeps: list[float] = []
+    attempts = 0
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    async def factory() -> str:
+        nonlocal attempts
+        attempts += 1
+        raise _StatusError("conflict", status_code=409)
+
+    with pytest.raises(_StatusError):
+        await with_retry(factory, max_attempts=3, sleep=fake_sleep)
+
+    assert attempts == 1
+    assert sleeps == []
 
 
 @pytest.mark.asyncio

@@ -128,7 +128,8 @@ runs:
           {
             const val = extract('Bug 描述');
             if (!val || val.length < minDesc) {
-              failures.push(`Bug 描述：未填写或内容过短（需至少 ${minDesc} 个字符）`);
+              const actual = val ? val.length : 0;
+              failures.push(`Bug 描述：未填写或内容过短（当前 ${actual} 字符，需至少 ${minDesc} 字符）`);
             }
           }
 
@@ -138,7 +139,8 @@ runs:
             const stillDefault = val?.includes('运行上方命令后将输出粘贴到这里');
             const matched = sysKw.filter(kw => val?.includes(kw)).length;
             if (!val || val.length < 30 || stillDefault || matched < minSysKw) {
-              failures.push('环境信息：必须运行 diagnose 脚本并将完整输出粘贴到此处');
+              const actual = val ? val.length : 0;
+              failures.push(`环境信息：未填写或内容过短（当前 ${actual} 字符，需至少 30 字符，系统关键词命中 ${matched}/${minSysKw}）`);
             }
           }
 
@@ -147,15 +149,17 @@ runs:
             const val = extract('复现步骤');
             const actual = val?.split('\n').filter(l => l.replace(/^\d+\.\s*/, '').trim().length > 0).join('\n').trim();
             if (!actual || actual.length < minSteps) {
-              failures.push('复现步骤：必须填写具体操作步骤');
+              const len = actual ? actual.length : 0;
+              failures.push(`复现步骤：未填写或内容过短（当前 ${len} 字符，需至少 ${minSteps} 字符）`);
             }
           }
 
           // 4. Frequency
           {
             const val = extract('复现频率');
-            if (!val || !['必现','偶现','特定'].some(kw => val.includes(kw))) {
-              failures.push('复现频率：必须填写（必现/偶现/特定条件下必现）');
+            if (!val || val.length < minDesc) {
+              const actual = val ? val.length : 0;
+              failures.push(`复现频率：未填写或内容过短（当前 ${actual} 字符，需至少 ${minDesc} 字符）`);
             }
           }
 
@@ -163,7 +167,8 @@ runs:
           {
             const val = extract('期望行为');
             if (!val || val.length < minDesc) {
-              failures.push('期望行为：未填写');
+              const actual = val ? val.length : 0;
+              failures.push(`期望行为：未填写或内容过短（当前 ${actual} 字符，需至少 ${minDesc} 字符）`);
             }
           }
 
@@ -171,7 +176,8 @@ runs:
           {
             const val = extract('实际行为');
             if (!val || val.length < minDesc) {
-              failures.push('实际行为：未填写');
+              const actual = val ? val.length : 0;
+              failures.push(`实际行为：未填写或内容过短（当前 ${actual} 字符，需至少 ${minDesc} 字符）`);
             }
           }
 
@@ -179,7 +185,8 @@ runs:
           {
             const val = extract('日志');
             if (!val || val.length < minLogs) {
-              failures.push('日志：必须粘贴完整的报错日志或堆栈信息');
+              const actual = val ? val.length : 0;
+              failures.push(`日志：未填写或内容过短（当前 ${actual} 字符，需至少 ${minLogs} 字符）`);
             }
           }
 

@@ -11,6 +11,7 @@ single-turn execution path for sub-agent jobs.
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -343,7 +344,10 @@ class TurnRunner:
                         "arguments": (
                             tool_call.arguments_json
                             if hasattr(tool_call, "arguments_json")
-                            else "{}"
+                            else json.dumps(
+                                getattr(tool_call, "arguments", {}) or {},
+                                ensure_ascii=False,
+                            )
                         ),
                     },
                 })
@@ -433,7 +437,11 @@ class TurnRunner:
     @staticmethod
     def _format_tool_hint(name: str, args: dict) -> str:
         """Format a tool call as a concise display hint."""
-        val = next(iter(args.values()), "") if args else ""
+        val = ""
+        if args:
+            val = args.get("path") or args.get("file_path") or args.get("filename")
+            if val is None:
+                val = next(iter(args.values()), "")
         if not isinstance(val, str):
             return name
         if len(val) > 50:

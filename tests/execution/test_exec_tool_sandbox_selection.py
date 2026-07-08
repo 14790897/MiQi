@@ -103,9 +103,21 @@ async def _make_mock_sandbox(*, is_running: bool = True, run_result=None):
 
 
 def _make_mock_sandbox_manager(*, active_sandbox=None):
-    """Create a mock SandboxManager."""
+    """Create a mock SandboxManager.
+
+    After Phase 31.2b auto-activate cascade, ExecTool tries:
+      1. active_sandbox
+      2. list_sandboxes() → get_sandbox() for any running sandbox
+      3. get_or_create("_auto_exec")
+
+    Mocks are wired to return empty/none so tests that expect "fail closed"
+    still work without hitting a non-async MagicMock.
+    """
     mgr = MagicMock()
     mgr.active_sandbox = active_sandbox
+    mgr.list_sandboxes = MagicMock(return_value=[])
+    mgr.get_sandbox = MagicMock(return_value=None)
+    mgr.get_or_create = AsyncMock(return_value=None)
     return mgr
 
 

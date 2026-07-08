@@ -1110,8 +1110,6 @@ for m in ("pydantic", "httpx", "loguru"):
       soul_preset,
       brave_api_key,
       search_provider,
-      search_ollama_api_base,
-      search_ollama_api_key,
       fetch_provider,
       fetch_ollama_api_base,
       fetch_ollama_api_key,
@@ -1127,8 +1125,6 @@ for m in ("pydantic", "httpx", "loguru"):
       soul_preset?: string | null;
       brave_api_key?: string | null;
       search_provider?: string | null;
-      search_ollama_api_base?: string | null;
-      search_ollama_api_key?: string | null;
       fetch_provider?: string | null;
       fetch_ollama_api_base?: string | null;
       fetch_ollama_api_key?: string | null;
@@ -1176,8 +1172,6 @@ for m in ("pydantic", "httpx", "loguru"):
     const search = (web['search'] as Record<string, unknown> | undefined) ?? {};
     if (search_provider) search['provider'] = search_provider;
     if (brave_api_key) search['apiKey'] = brave_api_key;
-    if (search_ollama_api_base) search['ollamaApiBase'] = search_ollama_api_base;
-    if (search_ollama_api_key) search['ollamaApiKey'] = search_ollama_api_key;
     web['search'] = search;
 
     // Web Fetch

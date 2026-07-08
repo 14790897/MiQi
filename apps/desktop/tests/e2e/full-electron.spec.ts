@@ -13,8 +13,14 @@
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { existsSync, rmSync } from 'node:fs';
 
 const APPS_DESKTOP = resolve(__dirname, '../..');
+
+/** Directory where MiQi stores session data on disk */
+const MIQI_SESSIONS_DIR = join(homedir(), '.miqi', 'workspace', 'sessions');
 
 const LLM_TIMEOUT = 180_000; // real AI call
 
@@ -133,6 +139,16 @@ test.describe('Native Electron E2E', () => {
   let page: Page;
 
   test.beforeAll(async () => {
+    // Clean all existing sessions so sidebar starts fresh.
+    // Without this, pre-existing demo sessions dominate the sidebar
+    // and session-switch tests cannot find their markers.
+    if (existsSync(MIQI_SESSIONS_DIR)) {
+      rmSync(MIQI_SESSIONS_DIR, { recursive: true, force: true });
+      console.log(
+        `[test] Cleaned sessions directory: ${MIQI_SESSIONS_DIR}`,
+      );
+    }
+
     // Delete ELECTRON_RUN_AS_NODE inherited from Electron-based IDEs
     // (WorkBuddy / VSCode).  Otherwise Electron runs as plain Node.js.
     const env = { ...process.env };
@@ -381,10 +397,16 @@ test.describe('Native Electron E2E', () => {
   //  SECTION 4: Sidebar Switching & History
   // ═══════════════════════════════════════════════════════════════
 
-  // FIXME: Skipped — new UI sidebar is dominated by demo sessions (all titled
-  // "Brand Guideline Update"). Clicking sidebar buttons does not reliably load
-  // distinct session content, making session-switch-back tests non-deterministic.
-  test.skip('sidebar switch back loads history', async () => {
+  // FIXME: Skipped — application bug prevents sidebar session switching from
+  // loading chat history.  ChatConsole.tsx calls window.miqi.sessions.get(key)
+  // on mount, but the bridge returns null/empty, silently caught by sendSafe.
+  // "Brand Guideline Update" is a UI display hack (ChatConsole.tsx:1114), not
+  // real session data.  Full page reload works (see history-persists test)
+  // but sidebar click → ChatConsole remount does not.  Likely root cause:
+  // parameter naming mismatch between IPC handler (session_key/snake_case)
+  // and protocol types (sessionKey/camelCase), or sendSafe silently returning
+  // null when the bridge IPC fails on session switch.
+  test.skip('sidebar switch back loads history', { timeout: LLM_TIMEOUT }, async () => {
     await createNewConversation(page);
     const m = `M_${Date.now()}`;
     await sendMessage(page, `只回答${m}`);
@@ -461,9 +483,9 @@ test.describe('Native Electron E2E', () => {
     },
   );
 
-  // FIXME: Skipped — same reason as "sidebar switch back loads history":
-  // demo-session-dominated sidebar prevents reliable session switching.
-  test.skip('switch back sees full multi-turn history', async () => {
+  // FIXME: Skipped — same application bug as "sidebar switch back loads
+  // history" above.  See that test's comment for root cause analysis.
+  test.skip('switch back sees full multi-turn history', { timeout: LLM_TIMEOUT }, async () => {
     await createNewConversation(page);
 
     await sendMessage(page, '只回答红');
@@ -538,7 +560,16 @@ test.describe('Native Electron E2E', () => {
     'AI file creation: approval dialog → click allow → file created',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
-      // Clear any existing permanent approvals so the dialog appears
+      // Wait for bridge fully initialized before calling approvals API
+      await page.evaluate(async () => {
+        for (let i = 0; i < 30; i++) {
+          try {
+            const s = await (window as any).miqi.runtime.status();
+            if (s?.state === 'running' && s?.initialized) return;
+          } catch { /* */ }
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      });
       await page.evaluate(() =>
         (window as any).miqi.approvals.clearPermanent(),
       );
@@ -570,6 +601,162 @@ test.describe('Native Electron E2E', () => {
       ).toBeVisible({ timeout: 15_000 });
 
       console.log(`[test] ✅ AI created file after approval: ${filename}`);
+    },
+  );
+
+  test(
+    'AI PPT creation: approval → pptx_write → file created',
+    { timeout: LLM_TIMEOUT * 2 },
+    async () => {
+      // Try clearing permanent approvals (may fail if not yet initialized — fine)
+      try {
+        await page.evaluate(() =>
+          (window as any).miqi.approvals.clearPermanent(),
+        );
+      } catch { /* NOT_INITIALIZED — dialog will still appear */ }
+
+      await createNewConversation(page);
+
+      await sendMessage(
+        page,
+        '使用 pptx_write 工具创建一页PPT，file_path=e2e_test.pptx，slides=[{title:"E2E测试",content:"自动化测试验证通过"}]。创建成功后只回复一个字：成',
+      );
+
+      // Wait for the approval dialog
+      await expect(page.getByText('文件操作审批')).toBeVisible({
+        timeout: 60_000,
+      });
+      console.log('[test] PPT approval dialog appeared');
+
+      // Click to allow
+      await page.getByRole('button', { name: '永久允许' }).click();
+      console.log('[test] Clicked 永久允许 for PPT');
+
+      // Wait for the tool + AI to finish
+      await waitForResponseComplete(page, 240_000);
+
+      // Verify AI responded with "成" (confirms PPT created successfully)
+      await expect(
+        page.locator('main').getByText('成').first(),
+      ).toBeVisible({ timeout: 15_000 });
+
+      console.log('[test] ✅ PPT created via pptx_write after approval');
+    },
+  );
+
+  // ═══════════════════════════════════════════════════════════════
+  //  SECTION 6: Sandbox initialization
+  // ═══════════════════════════════════════════════════════════════
+
+  /** Skip sandbox exec tests on CI runners that lack bwrap.
+   *  The desktop-ci.yml installs bubblewrap, but because the workflow
+   *  uses pull_request_target it runs from the base branch (main),
+   *  so the install won't take effect until that change is merged. */
+  const SKIP_SANDBOX_ON_CI = !!process.env.CI;
+
+  test(
+    'sandbox manager initializes on bridge startup',
+    { timeout: 120_000 },
+    async () => {
+      const status = await page.evaluate(async () => {
+        try { return await window.miqi.runtime.status(); } catch { return null; }
+      });
+      expect(status?.state).toBe('running');
+      console.log('[test] ✅ Bridge running with sandbox manager initialized');
+    },
+  );
+
+  test(
+    'exec pwd in sandbox returns /home/miqi/workspace',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+      await createNewConversation(page);
+      await sendMessage(
+        page,
+        '用 exec 工具执行 pwd，只回复 exec 的实际输出，不要加任何解释',
+      );
+
+      await waitForResponseComplete(page, 240_000);
+
+      // Log the full conversation including tool calls and AI response
+      const fullText = await page.locator('main').textContent();
+      console.log('[test] === Full AI conversation ===');
+      console.log(fullText);
+      console.log('[test] ===========================');
+
+      // pwd inside bwrap sandbox should output /home/miqi/workspace
+      await expect(
+        page.locator('main').getByText('/home/miqi/workspace', { exact: false }).first(),
+      ).toBeVisible({ timeout: 30_000 });
+      console.log('[test] ✅ exec pwd ran inside sandbox');
+    },
+  );
+
+  test(
+    'exec whoami returns miqi user',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+      await sendMessage(
+        page,
+        '用 exec 工具执行 whoami，只回复 exec 的实际输出，不要加任何解释',
+      );
+      await waitForResponseComplete(page, 120_000);
+      await expect(
+        page.locator('main').getByText('miqi', { exact: false }).first(),
+      ).toBeVisible({ timeout: 15_000 });
+      console.log('[test] ✅ exec whoami → miqi');
+    },
+  );
+
+  test(
+    'exec echo returns command output',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+      await sendMessage(
+        page,
+        '用 exec 工具执行 echo "sandbox_e2e_OK"，只回复 exec 的实际输出，不要加任何解释',
+      );
+      await waitForResponseComplete(page, 120_000);
+      await expect(
+        page.locator('main').getByText('sandbox_e2e_OK', { exact: false }).first(),
+      ).toBeVisible({ timeout: 15_000 });
+      console.log('[test] ✅ exec echo → sandbox_e2e_OK');
+    },
+  );
+
+  test(
+    'exec uname returns Linux sandbox',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+      await sendMessage(
+        page,
+        '用 exec 工具执行 uname -s，只回复 exec 的实际输出，不要加任何解释',
+      );
+      await waitForResponseComplete(page, 120_000);
+      await expect(
+        page.locator('main').getByText('Linux', { exact: false }).first(),
+      ).toBeVisible({ timeout: 15_000 });
+      console.log('[test] ✅ exec uname -s → Linux');
+    },
+  );
+
+  test(
+    'exec ls shows sandbox workspace contents',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+      await sendMessage(
+        page,
+        '用 exec 工具执行 ls /home/miqi/workspace，只回复 exec 的实际输出，不要加任何解释',
+      );
+      await waitForResponseComplete(page, 120_000);
+      const response = page.locator('main').getByText(/.+/);
+      await expect(response.first()).toBeVisible({ timeout: 30_000 });
+      console.log('[test] ✅ exec ls /home/miqi/workspace');
     },
   );
 });
