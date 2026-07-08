@@ -146,6 +146,37 @@ async def test_edit_docx_can_apply_formatting_without_text_change(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_edit_docx_replaces_text_without_dropping_run_formatting(tmp_path):
+    from docx import Document
+
+    from miqi.documents.docx_tool import EditDocxTool
+
+    files_dir = tmp_path / "files"
+    files_dir.mkdir()
+    path = files_dir / "styled.docx"
+    doc = Document()
+    paragraph = doc.add_paragraph()
+    run = paragraph.add_run("Draft")
+    run.bold = True
+    paragraph.add_run(" status")
+    doc.save(str(path))
+
+    tool = EditDocxTool(workspace=files_dir, allowed_dir=files_dir)
+    result = await tool.execute(
+        filename="styled.docx",
+        old_text="Draft",
+        new_text="Final",
+    )
+
+    assert "Edited:" in result
+    edited = Document(str(path))
+    paragraph = edited.paragraphs[0]
+    assert paragraph.text == "Final status"
+    assert paragraph.runs[0].text == "Final"
+    assert paragraph.runs[0].bold is True
+
+
+@pytest.mark.asyncio
 async def test_edit_docx_format_instructions_override_bad_structured_style(tmp_path):
     from docx import Document
     from docx.shared import Pt
@@ -319,6 +350,52 @@ async def test_create_pptx_supports_multiple_slides_and_bullets(tmp_path):
     )
     assert "Overview" in text
     assert "Build" in text
+
+
+@pytest.mark.asyncio
+async def test_create_pptx_bullets_only_uses_first_paragraph_and_splits_html_breaks(tmp_path):
+    from pptx import Presentation
+
+    from miqi.documents.pptx_tool import CreatePptxTool
+
+    files_dir = tmp_path / "files"
+    tool = CreatePptxTool(workspace=files_dir, allowed_dir=files_dir)
+
+    result = await tool.execute(
+        filename="bullets",
+        slides=[
+            {"title": "Plan", "bullets": ["Build<br>Verify", "Ship"]},
+        ],
+    )
+
+    path = files_dir / "bullets.pptx"
+    assert "Created:" in result
+    prs = Presentation(str(path))
+    paragraphs = prs.slides[0].placeholders[1].text_frame.paragraphs
+    texts = [paragraph.text for paragraph in paragraphs]
+    assert texts == ["Build", "Verify", "Ship"]
+    assert "<br>" not in "\n".join(texts)
+
+
+@pytest.mark.asyncio
+async def test_create_docx_splits_html_breaks_in_text_content(tmp_path):
+    from docx import Document
+
+    from miqi.documents.docx_tool import CreateDocxTool
+
+    files_dir = tmp_path / "files"
+    tool = CreateDocxTool(workspace=files_dir, allowed_dir=files_dir)
+
+    result = await tool.execute(
+        filename="breaks",
+        content="Alpha<br>Beta<br/>Gamma",
+    )
+
+    path = files_dir / "breaks.docx"
+    assert "Created:" in result
+    doc = Document(str(path))
+    texts = [p.text for p in doc.paragraphs if p.text.strip()]
+    assert texts == ["Alpha", "Beta", "Gamma"]
 
 
 @pytest.mark.asyncio

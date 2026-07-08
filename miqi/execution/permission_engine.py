@@ -23,6 +23,7 @@ from miqi.execution.exec_policy import PolicyVerdict
 
 # Shell metacharacters that indicate command chaining or injection
 _SHELL_METACHAR_PATTERN = re.compile(r"[;&|`$(){}\[\]<>!\n\r]")
+_OFFICE_SUFFIXES = {".docx", ".xlsx", ".pptx"}
 
 
 def _office_target_path(tool_name: str, arguments: dict[str, Any]) -> str:
@@ -239,6 +240,16 @@ class PermissionEngine:
         })
         if tool_name in _FILE_WRITE_TOOLS:
             path = _office_target_path(tool_name, ctx.arguments)
+            if tool_name == "write_file" and any(
+                str(path).lower().endswith(suffix) for suffix in _OFFICE_SUFFIXES
+            ):
+                return PermissionDecision(
+                    verdict=PermissionVerdict.DENY,
+                    reason=(
+                        "write_file cannot create Office binaries; use "
+                        "create_docx, create_xlsx, or create_pptx instead"
+                    ),
+                )
             return self._apply_approval_policy(
                 PermissionDecision(
                     verdict=PermissionVerdict.APPROVAL_REQUIRED,

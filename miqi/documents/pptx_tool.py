@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any
 
 from miqi.agent.tools.base import Tool
+
+
+_HTML_BREAK_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
 
 
 def _raw_output_path(kwargs: dict[str, Any]) -> str:
@@ -23,6 +27,19 @@ def _ensure_suffix(path: Path, suffix: str) -> Path:
     if path.suffix.lower() == suffix:
         return path
     return path.with_suffix(suffix)
+
+
+def _split_text_items(value: Any) -> list[str]:
+    if value is None:
+        return []
+    values = value if isinstance(value, list) else [value]
+    items: list[str] = []
+    for raw in values:
+        for line in _HTML_BREAK_RE.sub("\n", str(raw)).splitlines():
+            text = line.strip()
+            if text:
+                items.append(text)
+    return items
 
 
 def _enforce_boundary(path: Path, allowed_dir: Path | None, workspace: Path | None) -> None:
@@ -240,26 +257,19 @@ class CreatePptxTool(Tool):
                 if body and hasattr(body, "text_frame"):
                     text_frame = body.text_frame
                     text_frame.clear()
-                    content_items: list[Any] = []
-                    if slide_data.get("subtitle"):
-                        content_items.append(slide_data["subtitle"])
+                    content_items: list[str] = []
+                    content_items.extend(_split_text_items(slide_data.get("subtitle")))
                     content = slide_data.get("content")
-                    if isinstance(content, list):
-                        content_items.extend(content)
-                    elif content:
-                        content_items.append(content)
-                    bullets = slide_data.get("bullets") or []
-                    for item_index, item in enumerate(content_items):
+                    content_items.extend(_split_text_items(content))
+                    all_items = content_items + _split_text_items(slide_data.get("bullets"))
+                    for item_index, item in enumerate(all_items):
                         if item_index == 0:
-                            text_frame.text = str(item)
+                            text_frame.text = item
+                            text_frame.paragraphs[0].level = 0
                         else:
                             paragraph = text_frame.add_paragraph()
-                            paragraph.text = str(item)
+                            paragraph.text = item
                             paragraph.level = 0
-                    for bullet in bullets:
-                        paragraph = text_frame.add_paragraph()
-                        paragraph.text = str(bullet)
-                        paragraph.level = 0
                 image_path = slide_data.get("image_path")
                 if image_path:
                     slide.shapes.add_picture(

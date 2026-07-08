@@ -120,7 +120,6 @@ function parseToolHint(
         else if (re.source.includes('edit')) inferredOp = 'edit';
         else if (re.source.includes('delete')) inferredOp = 'delete';
         else if (re.source.includes('read')) inferredOp = 'read';
-        else if (re.source.includes('create_') || re.source.includes('_write')) inferredOp = 'write';
         return { path: raw, op: inferredOp, truncated };
       }
     }

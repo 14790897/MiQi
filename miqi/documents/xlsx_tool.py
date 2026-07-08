@@ -486,23 +486,24 @@ class AppendXlsxTool(Tool):
 
         try:
             wb = load_workbook(str(file_path))
-            sheet_name = kwargs.get("sheet_name")
-            if sheet_name:
-                if sheet_name in wb.sheetnames:
-                    ws = wb[sheet_name]
-                elif kwargs.get("create_sheet", False):
-                    ws = wb.create_sheet(str(sheet_name)[:31])
+            try:
+                sheet_name = kwargs.get("sheet_name")
+                if sheet_name:
+                    if sheet_name in wb.sheetnames:
+                        ws = wb[sheet_name]
+                    elif kwargs.get("create_sheet", False):
+                        ws = wb.create_sheet(str(sheet_name)[:31])
+                    else:
+                        return f"Error: sheet not found: {sheet_name}"
                 else:
-                    wb.close()
-                    return f"Error: sheet not found: {sheet_name}"
-            else:
-                ws = wb.active
+                    ws = wb.active
 
-            for row in rows:
-                ws.append(row)
+                for row in rows:
+                    ws.append(row)
 
-            wb.save(str(file_path))
-            wb.close()
-            return f"Appended: {file_path} ({len(rows)} row(s) to {ws.title})"
+                wb.save(str(file_path))
+                return f"Appended: {file_path} ({len(rows)} row(s) to {ws.title})"
+            finally:
+                wb.close()
         except Exception as e:
             return f"Error editing {raw_path}: {e}"

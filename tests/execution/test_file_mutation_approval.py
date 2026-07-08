@@ -124,6 +124,24 @@ async def test_create_docx_permission_key_uses_final_suffix():
     assert engine._make_key(ctx) == "create_docx:/tmp/report.docx"
 
 
+@pytest.mark.parametrize("path", ["report.docx", "model.xlsx", "slides.pptx"])
+@pytest.mark.asyncio
+async def test_write_file_office_binaries_denied_before_approval(path):
+    """write_file must not ask for approval on Office binaries it will reject."""
+    engine = PermissionEngine()
+
+    class FakeCtx:
+        pass
+
+    ctx = FakeCtx()
+    ctx.tool_name = "write_file"
+    ctx.arguments = {"path": path}
+
+    decision = await engine.check(ctx)
+    assert decision.verdict == PermissionVerdict.DENY
+    assert "create_docx" in decision.reason
+
+
 # ── PermissionEngine: read-only file tools auto-allow ──────────────────────
 
 

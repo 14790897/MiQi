@@ -10,6 +10,7 @@ from miqi.agent.tools.base import Tool
 
 
 _MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$")
+_HTML_BREAK_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
 
 _CHINESE_STYLE_PRESETS: dict[str, dict[str, dict[str, Any]]] = {
     "chinese_document": {
@@ -118,14 +119,24 @@ def _add_docx_content(doc: Any, content: Any) -> int:
                 doc.add_picture(str(image_path))
                 count += 1
         else:
-            doc.add_paragraph(str(block.get("text", "")))
-            count += 1
+            for text in _split_text_lines(block.get("text", "")):
+                doc.add_paragraph(text)
+                count += 1
+            continue
     return count
+
+
+def _normalize_text_breaks(text: Any) -> str:
+    return _HTML_BREAK_RE.sub("\n", str(text))
+
+
+def _split_text_lines(text: Any) -> list[str]:
+    return [line.strip() for line in _normalize_text_breaks(text).splitlines() if line.strip()]
 
 
 def _add_markdown_like_text(doc: Any, text: Any) -> int:
     count = 0
-    for line in str(text).split("\n"):
+    for line in _normalize_text_breaks(text).split("\n"):
         line = line.strip()
         if not line:
             continue
@@ -136,6 +147,27 @@ def _add_markdown_like_text(doc: Any, text: Any) -> int:
             doc.add_paragraph(line)
         count += 1
     return count
+
+
+def _replace_text_in_paragraph(paragraph: Any, old_text: str, new_text: str) -> bool:
+    if old_text not in paragraph.text:
+        return False
+    replaced = False
+    for run in paragraph.runs:
+        if old_text in run.text:
+            run.text = run.text.replace(old_text, new_text)
+            replaced = True
+    if replaced:
+        return True
+
+    # If the match spans multiple runs, rebuild run text while preserving the
+    # first run's character formatting instead of assigning paragraph.text.
+    remaining = paragraph.text.replace(old_text, new_text)
+    if paragraph.runs:
+        paragraph.runs[0].text = remaining
+        for run in paragraph.runs[1:]:
+            run.text = ""
+    return True
 
 
 def _set_east_asia_font(run: Any, font_name: str) -> None:
@@ -729,9 +761,7 @@ class EditDocxTool(Tool):
         append_paragraphs = list(kwargs.get("append_paragraphs") or [])
         if kwargs.get("content"):
             append_paragraphs.extend(
-                line.strip()
-                for line in str(kwargs["content"]).splitlines()
-                if line.strip()
+                _split_text_lines(kwargs["content"])
             )
         title_style, body_style = _style_from_kwargs(kwargs)
         has_formatting = bool(title_style or body_style)
@@ -747,15 +777,13 @@ class EditDocxTool(Tool):
             replacements = 0
             if old_text and new_text is not None:
                 for paragraph in doc.paragraphs:
-                    if old_text in paragraph.text:
-                        paragraph.text = paragraph.text.replace(old_text, str(new_text))
+                    if _replace_text_in_paragraph(paragraph, str(old_text), str(new_text)):
                         replacements += 1
                 for table in doc.tables:
                     for row in table.rows:
                         for cell in row.cells:
                             for paragraph in cell.paragraphs:
-                                if old_text in paragraph.text:
-                                    paragraph.text = paragraph.text.replace(old_text, str(new_text))
+                                if _replace_text_in_paragraph(paragraph, str(old_text), str(new_text)):
                                     replacements += 1
                 if replacements == 0:
                     return f"Error: old_text not found in {file_path}"
