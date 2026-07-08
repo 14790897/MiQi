@@ -1,10 +1,44 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, Folder, Key, Loader2, X, Zap } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Folder,
+  Key,
+  Loader2,
+  Monitor,
+  RefreshCw,
+  Terminal,
+  X,
+  Zap,
+} from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { cn } from '../../lib/utils';
 
 type Step = 'welcome' | 'provider';
+type CheckState<T> = {
+  status: 'idle' | 'checking' | 'ok' | 'warning' | 'error';
+  result?: T;
+  error?: string;
+};
+
+interface PythonStatus {
+  ok: boolean;
+  python_version: string;
+  issues: string[];
+  config_exists: boolean;
+}
+
+interface WslStatus {
+  isWindows: boolean;
+  installed: boolean;
+  version: string | null;
+  distros: string[];
+  defaultDistro: string | null;
+  running: boolean;
+}
 
 interface StaticProvider {
   name: string;
@@ -152,6 +186,8 @@ export function SetupWizard({
   const [testResult, setTestResult] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
   const [testError, setTestError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [pythonCheck, setPythonCheck] = useState<CheckState<PythonStatus>>({ status: 'idle' });
+  const [wslCheck, setWslCheck] = useState<CheckState<WslStatus>>({ status: 'idle' });
 
   useEffect(() => {
     window.miqi.config
@@ -180,6 +216,45 @@ export function SetupWizard({
       .catch(() => {
         /* no existing config yet */
       });
+  }, []);
+
+  const runEnvironmentChecks = async () => {
+    setPythonCheck({ status: 'checking' });
+    setWslCheck({ status: 'checking' });
+
+    const [pythonResult, wslResult] = await Promise.allSettled([
+      window.miqi.python.check(),
+      window.miqi.wsl.check(),
+    ]);
+
+    if (pythonResult.status === 'fulfilled') {
+      const result = pythonResult.value as PythonStatus;
+      setPythonCheck({ status: result.ok ? 'ok' : 'error', result });
+    } else {
+      setPythonCheck({
+        status: 'error',
+        error: pythonResult.reason?.message ?? String(pythonResult.reason),
+      });
+    }
+
+    if (wslResult.status === 'fulfilled') {
+      const result = wslResult.value as WslStatus;
+      const hasWarning =
+        result.isWindows &&
+        (!result.installed ||
+          (result.version !== null && result.version !== '2') ||
+          result.distros.length === 0);
+      setWslCheck({ status: hasWarning ? 'warning' : 'ok', result });
+    } else {
+      setWslCheck({
+        status: 'warning',
+        error: wslResult.reason?.message ?? String(wslResult.reason),
+      });
+    }
+  };
+
+  useEffect(() => {
+    void runEnvironmentChecks();
   }, []);
 
   const providerMeta = STATIC_PROVIDERS.find((p) => p.name === selectedProvider);
@@ -242,6 +317,202 @@ export function SetupWizard({
     }
   };
 
+  const pythonBlocksStart = pythonCheck.status === 'checking' || pythonCheck.status === 'error';
+
+  const renderStatusIcon = (status: CheckState<unknown>['status']) => {
+    if (status === 'checking') return <Loader2 size={13} className="animate-spin" />;
+    if (status === 'ok') return <Check size={13} />;
+    if (status === 'warning' || status === 'error') return <AlertTriangle size={13} />;
+    return <RefreshCw size={13} />;
+  };
+
+  const renderEnvironmentStatus = () => {
+    const statusStyles: Record<CheckState<unknown>['status'], string> = {
+      idle: 'border-[var(--border)] bg-[var(--surface)]',
+      checking: 'border-[var(--border)] bg-[var(--surface)]',
+      ok: 'border-[var(--success)]/40 bg-[var(--success)]/5',
+      warning: 'border-[var(--warning)]/40 bg-[var(--warning)]/5',
+      error: 'border-[var(--danger)]/40 bg-[var(--danger)]/5',
+    };
+
+    const pythonSummary = (() => {
+      if (pythonCheck.status === 'checking') return '正在检查 Python 和 MiQi 依赖...';
+      if (pythonCheck.status === 'ok') {
+        const version = pythonCheck.result?.python_version;
+        return version ? `已就绪 · Python ${version}` : '已就绪';
+      }
+      if (pythonCheck.status === 'error') {
+        return pythonCheck.result?.issues?.[0] ?? pythonCheck.error ?? 'Python 或 MiQi 依赖不可用';
+      }
+      return '等待检查';
+    })();
+
+    const wslSummary = (() => {
+      if (wslCheck.status === 'checking') return '正在检查 WSL2 状态...';
+      const result = wslCheck.result;
+      if (result && !result.isWindows) return '非 Windows 环境，无需 WSL2';
+      if (wslCheck.status === 'ok') {
+        const distro = result?.defaultDistro ?? result?.distros?.[0];
+        return distro ? `已就绪 · ${distro}` : '已就绪';
+      }
+      if (wslCheck.status === 'warning') {
+        if (wslCheck.error) return wslCheck.error;
+        if (!result?.installed) return '未检测到 WSL2，可稍后在设置中处理';
+        if (result.distros.length === 0) return 'WSL 已安装，但还没有 Linux 分发版';
+        if (result.version && result.version !== '2') return `检测到 WSL ${result.version}，建议升级到 WSL2`;
+        return 'WSL2 状态需要确认';
+      }
+      return '等待检查';
+    })();
+
+    const renderCommand = (command: string) => (
+      <code className="block rounded-md bg-[var(--surface)] px-2.5 py-1.5 text-xs text-[var(--accent)] break-all">
+        {command}
+      </code>
+    );
+
+    const renderPythonGuidance = () => {
+      if (pythonCheck.status !== 'error') return null;
+
+      return (
+        <div className="mt-2 rounded-md border border-[var(--danger)]/25 bg-[var(--danger)]/5 p-3">
+          <p className="text-xs font-medium text-[var(--danger)]">需要先修复 Python / MiQi 环境</p>
+          <ul className="mt-1.5 list-disc pl-4 text-xs text-[var(--danger)] space-y-1">
+            {(pythonCheck.result?.issues?.length
+              ? pythonCheck.result.issues
+              : [pythonCheck.error ?? 'Python 或 MiQi 依赖不可用']
+            ).map((issue) => (
+              <li key={issue}>{issue}</li>
+            ))}
+          </ul>
+          <div className="mt-2 space-y-1.5 text-xs text-[var(--text-muted)]">
+            <p>处理方式：</p>
+            <p>1. 安装 Python 3.11 或更高版本，或设置 MIQI_PYTHON_PATH 指向可用 Python。</p>
+            <p>2. 在 MiQi 仓库根目录安装依赖后重新检查：</p>
+            {renderCommand('uv sync')}
+          </div>
+        </div>
+      );
+    };
+
+    const renderWslGuidance = () => {
+      if (wslCheck.status !== 'warning') return null;
+
+      const result = wslCheck.result;
+      if (result && !result.isWindows) return null;
+
+      if (!result?.installed) {
+        return (
+          <div className="mt-2 rounded-md border border-[var(--warning)]/25 bg-[var(--warning)]/5 p-3">
+            <p className="text-xs font-medium text-[var(--text)]">可选：安装 WSL2</p>
+            <p className="mt-1 text-xs text-[var(--text-muted)] leading-relaxed">
+              这不会阻止你进入 MiQi，但沙箱、Linux 工具链等能力在 WSL2 上体验更稳定。
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => void runEnvironmentChecks()}>
+                重新检查
+              </Button>
+            </div>
+            <div className="mt-2 space-y-1.5 text-xs text-[var(--text-muted)]">
+              <p>也可以手动操作：以管理员身份打开 PowerShell，运行命令并重启电脑。</p>
+              {renderCommand('wsl --install')}
+            </div>
+          </div>
+        );
+      }
+
+      if (result.distros.length === 0) {
+        return (
+          <div className="mt-2 rounded-md border border-[var(--warning)]/25 bg-[var(--warning)]/5 p-3">
+            <p className="text-xs font-medium text-[var(--text)]">安装 Linux 分发版</p>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">
+              WSL 已安装，但还没有可用的 Linux 分发版。安装完成后重新检查即可。
+            </p>
+            <div className="mt-2">{renderCommand('wsl --install -d Ubuntu')}</div>
+          </div>
+        );
+      }
+
+      if (result.version && result.version !== '2') {
+        return (
+          <div className="mt-2 rounded-md border border-[var(--warning)]/25 bg-[var(--warning)]/5 p-3">
+            <p className="text-xs font-medium text-[var(--text)]">建议升级到 WSL2</p>
+            <div className="mt-2 space-y-1.5">
+              {renderCommand('wsl --set-default-version 2')}
+              {result.defaultDistro
+                ? renderCommand(`wsl --set-version ${result.defaultDistro} 2`)
+                : null}
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <p className="mt-2 text-xs text-[var(--text-muted)]">
+          WSL2 状态暂时无法确认。你可以先进入应用，稍后在设置中继续处理。
+        </p>
+      );
+    };
+
+    return (
+      <section className="flex flex-col gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-muted)]/40 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-[var(--text)]">启动前状态</h2>
+            <p className="text-xs text-[var(--text-faint)] mt-0.5">
+              保留基础环境检查；Provider 和工具能力可稍后配置。
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void runEnvironmentChecks()}
+            disabled={pythonCheck.status === 'checking' || wslCheck.status === 'checking'}
+            title="重新检查"
+          >
+            <RefreshCw size={14} />
+          </Button>
+        </div>
+
+        <div className="grid gap-2">
+          <div className={cn('rounded-lg border px-3 py-2.5', statusStyles[pythonCheck.status])}>
+            <div className="flex items-start gap-2">
+              <Terminal size={15} className="mt-0.5 text-[var(--text-muted)]" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--text)]">
+                  {renderStatusIcon(pythonCheck.status)}
+                  Python / MiQi
+                </div>
+                <p className="text-xs text-[var(--text-muted)] mt-1 break-words">{pythonSummary}</p>
+                {renderPythonGuidance()}
+              </div>
+            </div>
+          </div>
+
+          <div className={cn('rounded-lg border px-3 py-2.5', statusStyles[wslCheck.status])}>
+            <div className="flex items-start gap-2">
+              <Monitor size={15} className="mt-0.5 text-[var(--text-muted)]" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--text)]">
+                  {renderStatusIcon(wslCheck.status)}
+                  WSL2
+                </div>
+                <p className="text-xs text-[var(--text-muted)] mt-1 break-words">{wslSummary}</p>
+                {renderWslGuidance()}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {pythonCheck.status === 'error' && (
+          <p className="text-xs text-[var(--danger)]">
+            Python / MiQi 运行环境未就绪，修复后重新检查即可继续进入应用。
+          </p>
+        )}
+      </section>
+    );
+  };
+
   const renderWelcome = () => (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col items-center text-center gap-3">
@@ -258,15 +529,17 @@ export function SetupWizard({
 
       <WorkspacePicker workspace={workspace} setWorkspace={setWorkspace} />
 
+      {renderEnvironmentStatus()}
+
       <div className="flex flex-col gap-2">
-        <Button onClick={handleUseDefaults} disabled={saving}>
+        <Button onClick={handleUseDefaults} disabled={saving || pythonBlocksStart}>
           {saving ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
           使用默认配置，进入应用
         </Button>
         <Button
           variant="ghost"
           onClick={() => setStep('provider')}
-          disabled={saving}
+          disabled={saving || pythonBlocksStart}
         >
           高级配置 <ArrowRight size={16} />
         </Button>
