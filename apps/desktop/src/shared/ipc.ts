@@ -245,6 +245,7 @@ export interface SessionInfo {
   created_at?: string;
   updated_at?: string;
   path?: string;
+  message_count?: number;
 }
 
 export interface SessionDetail {
