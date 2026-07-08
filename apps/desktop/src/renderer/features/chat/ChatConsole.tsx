@@ -134,9 +134,66 @@ function basename(path: string): string {
 
 const DEFAULT_SESSION = 'desktop:default';
 
-function sessionMsgsToUi(rawMsgs: any[]): Message[] {
+function messageContentToString(content: unknown): string {
+  return typeof content === 'string' ? content : JSON.stringify(content);
+}
+
+function isAssistantTextMessage(msg: any): boolean {
+  return msg?.role === 'assistant' && !!msg.content && String(msg.content).trim().length > 0;
+}
+
+function isToolActivityMessage(msg: any): boolean {
+  return (
+    msg?.role === 'tool' ||
+    (msg?.role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0)
+  );
+}
+
+function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
+  const result: any[] = [];
+  let turnBuffer: any[] = [];
+
+  const flushTurn = () => {
+    if (turnBuffer.length === 0) return;
+
+    const lastAssistantTextIndex = (() => {
+      for (let i = turnBuffer.length - 1; i >= 0; i -= 1) {
+        if (isAssistantTextMessage(turnBuffer[i])) return i;
+      }
+      return -1;
+    })();
+
+    turnBuffer.forEach((msg, index) => {
+      if (
+        isAssistantTextMessage(msg) &&
+        isToolActivityMessage(msg) &&
+        index !== lastAssistantTextIndex
+      ) {
+        result.push({ ...msg, content: '' });
+        return;
+      }
+      if (isAssistantTextMessage(msg) && index !== lastAssistantTextIndex) return;
+      result.push(msg);
+    });
+    turnBuffer = [];
+  };
+
+  for (const msg of rawMsgs) {
+    if (msg?.role === 'user') {
+      flushTurn();
+      result.push(msg);
+      continue;
+    }
+    turnBuffer.push(msg);
+  }
+  flushTurn();
+
+  return result;
+}
+
+export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   const result: Message[] = [];
-  for (const m of rawMsgs) {
+  for (const m of collapseAssistantMessagesWithinTurns(rawMsgs)) {
     const ts = m.timestamp ? new Date(m.timestamp).getTime() : Date.now();
 
     if (m.role === 'user' || m.role === 'assistant') {
@@ -173,7 +230,7 @@ function sessionMsgsToUi(rawMsgs: any[]): Message[] {
       if (m.role === 'user' || hasContent) {
         result.push({
           role: m.role as 'user' | 'assistant',
-          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+          content: messageContentToString(m.content),
           timestamp: ts,
         });
       }
@@ -181,7 +238,7 @@ function sessionMsgsToUi(rawMsgs: any[]): Message[] {
       // Subagent result messages — render with the subagent style
       result.push({
         role: 'subagent',
-        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+        content: messageContentToString(m.content),
         timestamp: ts,
       });
     } else if (m.role === 'tool') {
@@ -229,6 +286,21 @@ function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   }
 
   return merged;
+}
+
+function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[] {
+  const lastUserIndex = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === 'user') return i;
+    }
+    return -1;
+  })();
+
+  return messages.filter((message, index) => {
+    if (index <= lastUserIndex) return true;
+    if (message.role === 'assistant') return false;
+    return message.role !== 'progress' || !!message.toolHint;
+  });
 }
 
 /** Parse tracked files from raw session messages (includes progress entries with _tool_hint). */
@@ -754,9 +826,15 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
+      if (animId !== null) {
+        cancelAnimationFrame(animId);
+        animId = null;
+      }
       fullContent = data.content;
+      displayed = '';
       finalDone = true;
       setCurrentReqId(null);
+      setMessages((prev) => removeTransientTurnMessagesSinceLastUser(prev));
       if (data.tool_calls?.length) {
         const toolMessages = sessionMsgsToUi([
           {
