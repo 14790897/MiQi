@@ -232,8 +232,7 @@ def test_interactive_onboard_configures_papers_and_skips_feishu(monkeypatch):
             1,  # provider number: OpenRouter
             "sk-or-v1-test",  # OpenRouter key
             "",  # model name => default
-            1,  # search mode: Brave
-            "",  # Brave key (optional)
+            1,  # search mode: DuckDuckGo/ddgs
             1,  # fetch mode: built-in
             1,  # papers provider: hybrid
             "",  # semantic scholar key optional
@@ -257,6 +256,8 @@ def test_interactive_onboard_configures_papers_and_skips_feishu(monkeypatch):
 
     assert agent_name == "miqi"
     assert soul == "balanced"
+    assert config.tools.web.search.provider == "ddgs"
+    assert config.tools.web.search.api_key == ""
     assert config.tools.papers.provider == "hybrid"
     assert config.tools.papers.timeout_seconds == 20
     assert config.tools.papers.default_limit == 8
