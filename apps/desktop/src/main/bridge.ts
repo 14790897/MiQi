@@ -318,7 +318,7 @@ export class BridgeManager extends EventEmitter {
           const msg = `[MIQI BRIDGE STDERR] ${text}`;
           console.log(msg);
           this.addLog(text);
-          this.recordMainLog('INFO', msg);
+          this.recordMainLog('WARN', msg);
         }
       });
 

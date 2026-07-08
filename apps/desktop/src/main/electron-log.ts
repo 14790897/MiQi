@@ -43,7 +43,7 @@ function redactMessage(message: string): string {
   return result;
 }
 
-let _logDir: string | null = null;
+const _logDirCache = new Map<string, string>();
 let _writeCounter = 0;
 
 /**
@@ -52,15 +52,16 @@ let _writeCounter = 0;
  * Ensures the directory exists on first call.
  */
 function resolveLogDir(projectRoot?: string): string {
-  if (_logDir) return _logDir;
   const root = projectRoot ?? process.cwd();
+  const cached = _logDirCache.get(root);
+  if (cached) return cached;
   const dir = join(root, 'workspace', 'logs');
   try {
     mkdirSync(dir, { recursive: true });
   } catch {
     // If mkdir fails, still return the path — writes will be caught by try/catch
   }
-  _logDir = dir;
+  _logDirCache.set(root, dir);
   return dir;
 }
 
@@ -103,11 +104,12 @@ export function writeMainProcessLog(
     const logDir = resolveLogDir(projectRoot);
     const dateStr = new Date().toISOString().slice(0, 10);
     const filePrefix = source === 'renderer' ? 'renderer' : 'electron-main';
+    const sourceLabel = source === 'renderer' ? 'renderer' : source === 'bridge' ? 'bridge' : 'main';
     const logPath = join(logDir, `${filePrefix}-${dateStr}.log`);
     const timestamp = new Date().toISOString();
     appendFileSync(
       logPath,
-      `[${timestamp}] [${level}] ${redactMessage(message)}\n`,
+      `[${timestamp}] [${level}] [${sourceLabel}] ${redactMessage(message)}\n`,
       'utf8',
     );
     // Throttled cleanup — run every N writes

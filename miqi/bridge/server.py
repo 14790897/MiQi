@@ -31,7 +31,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from miqi.runtime.workspace_logging import append_workspace_log
+from miqi.runtime.workspace_logging import append_workspace_log, _redact_message
 
 # Force UTF-8 on Windows (default is GBK/cp936 which cannot encode emoji)
 if hasattr(sys.stdout, 'reconfigure'):
@@ -45,6 +45,7 @@ if hasattr(sys.stdin, 'reconfigure'):
 _stdout_buffer = sys.stdout.buffer if hasattr(sys.stdout, 'buffer') else None
 
 _stdout_lock = threading.Lock()
+_file_logging_sinks: dict[Path, int] = {}
 
 
 def _log(msg: str, level: str = "INFO") -> None:
@@ -242,6 +243,16 @@ class BridgeState:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             return pool.submit(asyncio.run, _destroy()).result(timeout=60)
 
+    async def destroy_sandbox_async(self, session_key: str, *, client_id: str | None = None) -> bool:
+        """Destroy the sandbox for async AppServer handlers without blocking."""
+        if self._sandbox_manager is None or self._sandbox_manager == "disabled":
+            return False
+        try:
+            return await self._sandbox_manager.destroy(session_key, client_id=client_id)
+        except Exception as exc:
+            _log(f"destroy_sandbox error: {exc}")
+            return False
+
     def abort_active(self) -> dict:
         """Resolve all pending approvals so blocked daemon threads can exit.
 
@@ -417,25 +428,32 @@ def _ensure_app_server() -> Any:
 
 
 def _add_file_logging(workspace: Path) -> None:
-    """Add a loguru file sink with daily rotation and 7-day retention.
-
-    Uses loguru's built-in ``rotation`` and ``retention`` so no manual
-    cleanup is needed.  The stderr sink is left untouched (added earlier
-    by ``_init_logging()``).
-    """
+    """Add an idempotent redacting loguru file sink."""
     from loguru import logger
 
-    from miqi.runtime.workspace_logging import get_log_dir
+    from miqi.runtime.workspace_logging import cleanup_old_logs, get_log_dir
+
+    workspace = workspace.resolve()
+    if workspace in _file_logging_sinks:
+        return
 
     log_dir = get_log_dir(workspace)
-    logger.add(
-        str(log_dir / "bridge-{time:YYYY-MM-DD}.log"),
-        format="[{time:YYYY-MM-DDTHH:mm:ssZ}] [{level}] [{name}:{function}:{line}] {message}",
-        level="DEBUG",
-        rotation="00:00",
-        retention="7 days",
-        encoding="utf-8",
-    )
+
+    def _redacting_sink(message: Any) -> None:
+        record = message.record
+        timestamp = record["time"].strftime("%Y-%m-%dT%H:%M:%SZ")
+        date_str = record["time"].strftime("%Y-%m-%d")
+        log_path = log_dir / f"bridge-{date_str}.log"
+        line = (
+            f"[{timestamp}] [{record['level'].name}] [bridge] "
+            f"{record['name']}:{record['function']}:{record['line']} | "
+            f"{_redact_message(record['message'])}\n"
+        )
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+        cleanup_old_logs(workspace)
+
+    _file_logging_sinks[workspace] = logger.add(_redacting_sink, level="DEBUG")
 
 
 def _ensure_workspace_init() -> None:

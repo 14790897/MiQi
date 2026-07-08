@@ -1,4 +1,5 @@
 import { join } from 'path';
+import { inspect } from 'util';
 import { electron } from '../shared/electron';
 import { registerIpcHandlers } from './ipc';
 import { BridgeManager } from './bridge';
@@ -75,7 +76,7 @@ function createWindow(): void {
     // Map Electron console-message level to log level string
     // 0=verbose, 1=info(log), 2=warning, 3=error
     const levelStr = level >= 3 ? 'ERROR' : level >= 2 ? 'WARN' : 'INFO';
-    writeMainProcessLog(levelStr, message, undefined, 'renderer');
+    writeMainProcessLog(levelStr, message, bridgeManager?.getProjectRoot(), 'renderer');
   });
 
   // 添加右键菜单，支持打开开发者工具
@@ -101,19 +102,19 @@ function createWindow(): void {
 }
 
 export function main(): void {
+  const formatLogArgs = (args: unknown[]) =>
+    args.map((arg) => (typeof arg === 'string' ? arg : inspect(arg, { depth: 4 }))).join(' ');
+
   console.log = (...args: unknown[]) => {
-    const msg = args.map((a) => String(a)).join(' ');
-    writeMainProcessLog('INFO', msg);
+    writeMainProcessLog('INFO', formatLogArgs(args), bridgeManager?.getProjectRoot());
     return originalConsoleLog(...args);
   };
   console.warn = (...args: unknown[]) => {
-    const msg = args.map((a) => String(a)).join(' ');
-    writeMainProcessLog('WARN', msg);
+    writeMainProcessLog('WARN', formatLogArgs(args), bridgeManager?.getProjectRoot());
     return originalConsoleWarn(...args);
   };
   console.error = (...args: unknown[]) => {
-    const msg = args.map((a) => String(a)).join(' ');
-    writeMainProcessLog('ERROR', msg);
+    writeMainProcessLog('ERROR', formatLogArgs(args), bridgeManager?.getProjectRoot());
     return originalConsoleError(...args);
   };
 

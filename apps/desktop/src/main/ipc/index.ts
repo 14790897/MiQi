@@ -1,6 +1,6 @@
 import { electron } from '../../shared/electron';
 import { spawnSync } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import type { BridgeManager } from '../bridge';
@@ -41,6 +41,30 @@ import type { WslCheckResult, WslStatsResult } from '../../shared/ipc';
 
 const { ipcMain, dialog } = electron;
 
+function readWorkspaceLogLines(
+  projectRoot: string,
+  includeFile: (name: string) => boolean,
+): string[] {
+  const logDir = join(projectRoot, 'workspace', 'logs');
+  const lines: string[] = [];
+  try {
+    const files = readdirSync(logDir)
+      .filter((name) => name.endsWith('.log') && includeFile(name))
+      .sort();
+    for (const file of files) {
+      try {
+        const content = readFileSync(join(logDir, file), 'utf8');
+        lines.push(...content.split('\n').filter(Boolean));
+      } catch {
+        /* skip unreadable files */
+      }
+    }
+  } catch {
+    /* log dir may not exist yet */
+  }
+  return lines;
+}
+
 export function registerIpcHandlers(bridge: BridgeManager): void {
   // -----------------------------------------------------------------------
   // Runtime
@@ -63,22 +87,16 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     return bridge.getLogs();
   });
 
+  ipcMain.handle(IPC.RUNTIME_FILE_LOGS, () => {
+    return readWorkspaceLogLines(bridge.getProjectRoot(), () => true);
+  });
+
   ipcMain.handle(IPC.RUNTIME_BACKEND_LOGS, () => {
-    const { readFileSync, readdirSync } = require('fs');
-    const { join } = require('path');
-    const logDir = join(process.cwd(), 'workspace', 'logs');
-    const lines: string[] = [];
-    try {
-      const files = readdirSync(logDir).filter((n: string) => n.endsWith('.log'));
-      for (const f of files.sort().slice(-3)) {
-        // Only read today's + last 2 days of backend logs
-        try {
-          const content = readFileSync(join(logDir, f), 'utf8');
-          lines.push(...content.split('\n').filter(Boolean));
-        } catch { /* skip unreadable files */ }
-      }
-    } catch { /* log dir may not exist yet */ }
-    return lines;
+    const backendPrefixes = ['bridge-', 'sandbox-', 'tool-', 'electron-main-'];
+    return readWorkspaceLogLines(
+      bridge.getProjectRoot(),
+      (name) => backendPrefixes.some((prefix) => name.startsWith(prefix)),
+    );
   });
 
   ipcMain.on('runtime:renderer-log', (_event, payload: unknown) => {
@@ -91,7 +109,10 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     const rawMessage = typeof entry.message === 'string' ? entry.message : 'Renderer log';
     // Cap message length to prevent log file bloat from runaway renderers
     const message = rawMessage.length > 4096 ? rawMessage.slice(0, 4096) + '…[truncated]' : rawMessage;
-    const sessionKey = typeof entry.sessionKey === 'string' ? entry.sessionKey : undefined;
+    const sessionKey =
+      typeof entry.sessionKey === 'string' && /^[\w:.-]{1,128}$/.test(entry.sessionKey)
+        ? entry.sessionKey
+        : undefined;
     const sessionPart = sessionKey ? ` session=${sessionKey}` : '';
     bridge.recordMainLog(level, `[renderer${sessionPart}] ${message}`, 'renderer');
   });

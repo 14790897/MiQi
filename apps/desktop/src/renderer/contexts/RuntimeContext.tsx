@@ -87,13 +87,13 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       const bridgeLogs = await window.miqi.runtime.logs();
       setLogs(bridgeLogs);
 
-      // Fetch backend file logs (bridge/sandbox/tool) and merge with bridge logs
-      let backendLines: string[] = [];
+      // Fetch persisted file logs (renderer/main/backend) and merge with bridge logs.
+      let fileLines: string[] = [];
       try {
-        backendLines = await window.miqi.runtime.backendLogs?.() ?? [];
-      } catch { /* backend logs may not be available */ }
+        fileLines = await window.miqi.runtime.fileLogs?.() ?? [];
+      } catch { /* file logs may not be available */ }
 
-      const allLines = [...bridgeLogs, ...backendLines];
+      const allLines = [...bridgeLogs, ...fileLines];
       setEntries(allLines.map((msg: string) => ({
         id: _nextLogId++,
         ...parseLogLine(msg),

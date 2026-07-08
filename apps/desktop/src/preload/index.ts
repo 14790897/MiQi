@@ -72,6 +72,7 @@ const api = {
     stop: (): Promise<RuntimeStatus> => ipcRenderer.invoke(IPC.RUNTIME_STOP),
     status: (): Promise<RuntimeStatus> => ipcRenderer.invoke(IPC.RUNTIME_STATUS),
     logs: (): Promise<string[]> => ipcRenderer.invoke(IPC.RUNTIME_LOGS),
+    fileLogs: (): Promise<string[]> => ipcRenderer.invoke(IPC.RUNTIME_FILE_LOGS),
     backendLogs: (): Promise<string[]> => ipcRenderer.invoke(IPC.RUNTIME_BACKEND_LOGS),
     onStateChange: (callback: (status: RuntimeStatus) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, status: RuntimeStatus) =>

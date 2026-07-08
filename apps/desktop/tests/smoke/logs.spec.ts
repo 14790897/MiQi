@@ -143,8 +143,9 @@ test.describe('Logs Tab — Entry Display', () => {
     await expect(page.getByText('Sandbox timeout after 30s')).toBeVisible();
 
     // Source labels should appear in cells
-    await expect(page.getByText('bridge').first()).toBeVisible();
-    await expect(page.getByText('sandbox')).toBeVisible();
+    const rows = page.locator('table tbody');
+    await expect(rows.getByRole('cell', { name: 'bridge', exact: true }).first()).toBeVisible();
+    await expect(rows.getByRole('cell', { name: 'sandbox', exact: true })).toBeVisible();
   });
 
   test('level badges render with correct level text', async ({ page }) => {
@@ -155,9 +156,10 @@ test.describe('Logs Tab — Entry Display', () => {
     await expect(page.locator('table tbody tr')).toHaveCount(5, { timeout: 5000 });
 
     // All three levels should be represented in mock data
-    await expect(page.getByText('INFO').first()).toBeVisible();
-    await expect(page.getByText('WARN')).toBeVisible();
-    await expect(page.getByText('ERROR')).toBeVisible();
+    const rows = page.locator('table tbody');
+    await expect(rows.getByText('INFO').first()).toBeVisible();
+    await expect(rows.getByText('WARN')).toBeVisible();
+    await expect(rows.getByText('ERROR')).toBeVisible();
   });
 
   test('ERROR rows have red background tint', async ({ page }) => {
