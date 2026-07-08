@@ -84,15 +84,21 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   const refreshLogs = useCallback(async () => {
     if (!hasApi) return;
     try {
-      const l = await window.miqi.runtime.logs();
-      setLogs(l);
-      // Also parse raw strings into structured entries for the Logs tab table
-      setEntries(l.map((msg: string) => ({
+      const bridgeLogs = await window.miqi.runtime.logs();
+      setLogs(bridgeLogs);
+
+      // Fetch backend file logs (bridge/sandbox/tool) and merge with bridge logs
+      let backendLines: string[] = [];
+      try {
+        backendLines = await window.miqi.runtime.backendLogs?.() ?? [];
+      } catch { /* backend logs may not be available */ }
+
+      const allLines = [...bridgeLogs, ...backendLines];
+      setEntries(allLines.map((msg: string) => ({
         id: _nextLogId++,
         ...parseLogLine(msg),
       })));
     } catch (e: any) {
-      // Log fetch failure is less critical; don't overwrite status
       setLastError(sanitizeUiMessage(e?.message ?? 'Failed to fetch runtime logs'));
     }
   }, []);
@@ -114,6 +120,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!hasApi) return;
     refreshStatus();
+    refreshLogs();  // fetch initial log entries (bridge + backend files)
     const unsubState = window.miqi.runtime.onStateChange((s) => setStatus(s));
     const unsubLog = window.miqi.runtime.onLog((msg) => {
       console.log(`[renderer] Received log: ${msg}`);
@@ -191,7 +198,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('error', onError);
       window.removeEventListener('unhandledrejection', onUnhandledRejection);
     };
-  }, [refreshStatus]);
+  }, [refreshStatus, refreshLogs]);
 
   return (
     <RuntimeContext.Provider

@@ -74,9 +74,8 @@ function createWindow(): void {
     }
     // Map Electron console-message level to log level string
     // 0=verbose, 1=info(log), 2=warning, 3=error
-    // Write directly to file log (this path does not go through console.*)
     const levelStr = level >= 3 ? 'ERROR' : level >= 2 ? 'WARN' : 'INFO';
-    writeMainProcessLog(levelStr, `[renderer] ${message}`);
+    writeMainProcessLog(levelStr, message, undefined, 'renderer');
   });
 
   // 添加右键菜单，支持打开开发者工具

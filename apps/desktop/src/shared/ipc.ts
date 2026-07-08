@@ -10,6 +10,7 @@ export const IPC = {
   RUNTIME_STOP: 'runtime:stop',
   RUNTIME_STATUS: 'runtime:status',
   RUNTIME_LOGS: 'runtime:logs',
+  RUNTIME_BACKEND_LOGS: 'runtime:backend-logs',
 
   // Chat
   CHAT_SEND: 'chat:send',

@@ -483,6 +483,7 @@ function AppearanceTab() {
 function LogsTab() {
   const { logs, entries, refreshLogs } = useRuntime();
   const [autoScroll, setAutoScroll] = useState(true);
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const [copiedLogs, setCopiedLogs] = useState(false);
   const [logTab, setLogTab] = useState<'all' | 'frontend' | 'backend'>('all');
   const [level, setLevel] = useState<'all' | 'INFO' | 'WARN' | 'ERROR'>('all');
@@ -492,10 +493,17 @@ function LogsTab() {
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Reset expanded rows whenever filters change (indices point to different entries)
+  // Reset expanded rows whenever filters change
   useEffect(() => {
     setExpandedRows(new Set());
   }, [logTab, level, source, sessionKey, keyword]);
+
+  // Auto-refresh: periodically poll for new log entries (tail -f effect)
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const interval = setInterval(() => { refreshLogs(); }, 3000);
+    return () => clearInterval(interval);
+  }, [autoRefresh, refreshLogs]);
 
   useEffect(() => {
     if (autoScroll && scrollRef.current) {
@@ -556,6 +564,17 @@ function LogsTab() {
     URL.revokeObjectURL(url);
   };
 
+  const handleExportLog = () => {
+    const text = filtered.map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`).join('\n');
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `miqi-logs-${new Date().toISOString().slice(0, 10)}.log`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const levelBadge = (lvl: string) => {
     const colors: Record<string, string> = {
       INFO: 'bg-emerald-500',
@@ -602,6 +621,10 @@ function LogsTab() {
             <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} className="rounded" />
             自动滚动
           </label>
+          <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer">
+            <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="rounded" />
+            自动刷新
+          </label>
           <select value={level} onChange={(e) => setLevel(e.target.value as 'all' | 'INFO' | 'WARN' | 'ERROR')} className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs">
             <option value="all">全部级别</option>
             <option value="INFO">INFO</option>
@@ -629,6 +652,9 @@ function LogsTab() {
           </Button>
           <Button variant="outline" size="sm" onClick={handleExportTxt}>
             <Download size={14} /> 导出 TXT
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportLog}>
+            <Download size={14} /> 导出 LOG
           </Button>
           <Button variant="outline" size="sm" onClick={handleExportJson}>
             <Download size={14} /> 导出 JSON

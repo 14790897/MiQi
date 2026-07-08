@@ -433,6 +433,7 @@ class AgentControl:
                         )
 
                     tool_call_dicts = []
+                    tool_results: list[str] = []
                     for tc in response.tool_calls:
                         tools_used.append(tc.name)
 
@@ -499,6 +500,9 @@ class AgentControl:
                             output_size=len(result or ""),
                             duration_ms=duration,
                         ))
+
+                        # Accumulate result for message history
+                        tool_results.append(result or "")
 
                         # Build tool call dict for message history
                         tool_call_dicts.append({

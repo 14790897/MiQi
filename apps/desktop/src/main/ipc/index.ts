@@ -63,6 +63,24 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     return bridge.getLogs();
   });
 
+  ipcMain.handle(IPC.RUNTIME_BACKEND_LOGS, () => {
+    const { readFileSync, readdirSync } = require('fs');
+    const { join } = require('path');
+    const logDir = join(process.cwd(), 'workspace', 'logs');
+    const lines: string[] = [];
+    try {
+      const files = readdirSync(logDir).filter((n: string) => n.endsWith('.log'));
+      for (const f of files.sort().slice(-3)) {
+        // Only read today's + last 2 days of backend logs
+        try {
+          const content = readFileSync(join(logDir, f), 'utf8');
+          lines.push(...content.split('\n').filter(Boolean));
+        } catch { /* skip unreadable files */ }
+      }
+    } catch { /* log dir may not exist yet */ }
+    return lines;
+  });
+
   ipcMain.on('runtime:renderer-log', (_event, payload: unknown) => {
     if (!payload || typeof payload !== 'object') return;
     const entry = payload as Record<string, unknown>;
@@ -75,7 +93,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     const message = rawMessage.length > 4096 ? rawMessage.slice(0, 4096) + '…[truncated]' : rawMessage;
     const sessionKey = typeof entry.sessionKey === 'string' ? entry.sessionKey : undefined;
     const sessionPart = sessionKey ? ` session=${sessionKey}` : '';
-    bridge.recordMainLog(level, `[renderer${sessionPart}] ${message}`);
+    bridge.recordMainLog(level, `[renderer${sessionPart}] ${message}`, 'renderer');
   });
 
   // -----------------------------------------------------------------------

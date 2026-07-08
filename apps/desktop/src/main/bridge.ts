@@ -747,8 +747,8 @@ export class BridgeManager extends EventEmitter {
     this.emit('log', message);
   }
 
-  recordMainLog(level: string, message: string): void {
-    writeMainProcessLog(level, message, this.projectRoot);
+  recordMainLog(level: string, message: string, source?: string): void {
+    writeMainProcessLog(level, message, this.projectRoot, source);
   }
 
   private emitState(): void {

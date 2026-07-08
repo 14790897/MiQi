@@ -213,22 +213,34 @@ class BridgeState:
 
         Phase 30: client_id is used to compute the client-scoped sandbox key.
         When client_id is None, falls back to raw session_key (legacy path).
+
+        Safe to call from both legacy (no running loop) and persistent-loop
+        contexts.  On a persistent loop the async work is delegated to a
+        short-lived thread so we never call ``run_until_complete`` on an
+        already-running loop.
         """
         if self._sandbox_manager is None or self._sandbox_manager == "disabled":
             return False
-        try:
-            import asyncio
-            loop = asyncio.new_event_loop()
+
+        async def _destroy() -> bool:
             try:
-                result = loop.run_until_complete(
-                    self._sandbox_manager.destroy(session_key, client_id=client_id),
+                return await self._sandbox_manager.destroy(
+                    session_key, client_id=client_id,
                 )
-            finally:
-                loop.close()
-            return result
-        except Exception as exc:
-            _log(f"destroy_sandbox error: {exc}")
-            return False
+            except Exception as exc:
+                _log(f"destroy_sandbox error: {exc}")
+                return False
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # No loop running — legacy path, safe to call asyncio.run()
+            return asyncio.run(_destroy())
+
+        # Persistent loop running — delegate to a separate thread
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, _destroy()).result(timeout=60)
 
     def abort_active(self) -> dict:
         """Resolve all pending approvals so blocked daemon threads can exit.

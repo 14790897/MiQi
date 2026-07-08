@@ -82,22 +82,28 @@ function cleanupOldLogs(logDir: string): void {
 }
 
 /**
- * Append a single log line to `electron-main-{date}.log`.
+ * Append a single log line to a date-based log file.
+ *
+ * File naming by source:
+ * - `renderer` → `renderer-{date}.log`
+ * - `main` / default → `electron-main-{date}.log`
  *
  * @param level   Log level string (INFO, WARN, ERROR)
  * @param message Log message (will be redacted for secrets)
  * @param projectRoot  Optional project root for resolving the log directory.
- *                     Only used on the very first call; cached afterwards.
+ * @param source  Log source prefix for the file name. Defaults to "electron-main".
  */
 export function writeMainProcessLog(
   level: string,
   message: string,
   projectRoot?: string,
+  source?: string,
 ): void {
   try {
     const logDir = resolveLogDir(projectRoot);
     const dateStr = new Date().toISOString().slice(0, 10);
-    const logPath = join(logDir, `electron-main-${dateStr}.log`);
+    const filePrefix = source === 'renderer' ? 'renderer' : 'electron-main';
+    const logPath = join(logDir, `${filePrefix}-${dateStr}.log`);
     const timestamp = new Date().toISOString();
     appendFileSync(
       logPath,
