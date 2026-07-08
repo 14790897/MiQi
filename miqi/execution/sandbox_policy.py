@@ -18,6 +18,38 @@ from miqi.protocol.permissions import (
 )
 
 
+def _office_target_path(tool_name: str, arguments: Any) -> str:
+    path = (
+        arguments.get("path")
+        or arguments.get("file_path")
+        or arguments.get("filename", "")
+    )
+    if not path:
+        return ""
+    suffix_by_tool = {
+        "create_docx": ".docx",
+        "docx_write": ".docx",
+        "edit_docx": ".docx",
+        "create_xlsx": ".xlsx",
+        "xlsx_write": ".xlsx",
+        "append_xlsx": ".xlsx",
+        "create_pptx": ".pptx",
+        "pptx_write": ".pptx",
+    }
+    suffix = suffix_by_tool.get(tool_name)
+    if suffix is None:
+        return str(path)
+    path_str = str(path)
+    path_lower = path_str.lower()
+    slash_idx = max(path_str.rfind("/"), path_str.rfind("\\"))
+    dot_idx = path_str.rfind(".")
+    if dot_idx > slash_idx and path_lower[dot_idx:] == suffix:
+        return str(path)
+    if dot_idx > slash_idx:
+        return path_str[:dot_idx] + suffix
+    return path_str + suffix
+
+
 class SandboxType(str, Enum):
     """Available sandbox isolation levels."""
     NONE = "none"          # No sandbox — direct execution
@@ -84,6 +116,11 @@ class SandboxPolicyEngine:
         "docx_write",
         "pptx_write",
         "xlsx_write",
+        "create_docx",
+        "create_pptx",
+        "create_xlsx",
+        "edit_docx",
+        "append_xlsx",
     })
 
     def __init__(
@@ -295,7 +332,7 @@ class SandboxPolicyEngine:
         # target path.  write_file / edit_file / delete_file use "path";
         # office document write tools use "file_path".
         if tool_name in SandboxPolicyEngine.FILE_MUTATION_TOOLS:
-            path = ctx.arguments.get("path") or ctx.arguments.get("file_path", "")
+            path = _office_target_path(tool_name, ctx.arguments)
             rules = []
             if path:
                 rules.append(FileSystemPathRule(

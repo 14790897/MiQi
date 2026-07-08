@@ -454,6 +454,13 @@ class WriteFileTool(Tool):
         }
 
     async def execute(self, path: str, content: str, **kwargs: Any) -> str:
+        office_suffixes = {".docx", ".xlsx", ".pptx"}
+        if Path(path).suffix.lower() in office_suffixes:
+            return (
+                "Error: write_file cannot create Office binary files. "
+                "Use create_docx, create_xlsx, or create_pptx instead."
+            )
+
         sandbox = _get_active_sandbox(self._sandbox_manager)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox

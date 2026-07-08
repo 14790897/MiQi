@@ -2,7 +2,7 @@ name: Desktop CI
 
 on:
   push:
-  pull_request:
+    branches: [develop]
   pull_request_target:
   workflow_dispatch:
 
@@ -56,12 +56,12 @@ jobs:
   # Job 2: Electron E2E — 完整桌面应用 + 真实 bridge + LLM
   # ────────────────────────────────────────────────────────────
   electron-e2e:
-    # Only expose secrets to same-repo PRs or trusted collaborators.
-    # Fork PRs from untrusted authors skip E2E (GitHub withholds secrets).
-    if: |
-      github.event_name != 'pull_request_target' ||
-      github.event.pull_request.head.repo.full_name == github.repository ||
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+    # Fork PRs only get secrets if the author is a collaborator.
+    # if: |
+    #   github.event_name == 'push' ||
+    #   github.event_name == 'workflow_dispatch' ||
+    #   github.event.pull_request.head.repo.full_name == github.repository ||
+    #   contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -69,6 +69,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -85,6 +87,7 @@ jobs:
           npm ci
           pip install uv
           uv sync
+          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
 
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps

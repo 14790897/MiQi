@@ -47,3 +47,4 @@ plan/*
 .debug/
 .playwright-mcp/
 *.png
+mof-synthesis-price-agent/

@@ -1,6 +1,6 @@
 {
   "name": "miqi-desktop-release",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Release tooling for MiQi Desktop",
   "repository": {
@@ -28,6 +28,7 @@
     "cz-conventional-changelog": "^3.3.0",
     "husky": "^9.1.0",
     "lint-staged": "^17.0.8",
+    "prettier": "^3.9.4",
     "semantic-release": "^25.0.5"
   },
   "release": {

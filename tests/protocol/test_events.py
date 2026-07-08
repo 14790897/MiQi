@@ -110,13 +110,20 @@ def test_agent_reasoning_event():
 def test_agent_message_event():
     from miqi.protocol.events import AgentMessageEvent
 
+    tool_calls = [{
+        "id": "call_001",
+        "type": "function",
+        "function": {"name": "web_search", "arguments": '{"query":"MiQi"}'},
+    }]
     event = AgentMessageEvent(
         turn_id="turn_001",
         content="Here is the result.",
         finish_reason="stop",
+        tool_calls=tool_calls,
     )
     assert event.type == "agent_message"
     assert event.finish_reason == "stop"
+    assert event.tool_calls == tool_calls
 
 
 # ── Task 1.4: Tool call events ─────────────────────────────

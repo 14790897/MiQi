@@ -9,6 +9,7 @@
 export interface MockBridgeOptions {
   runtimeStatus?: 'stopped' | 'running' | 'starting';
   sessions?: Array<{ key: string; title: string; updated_at: number; message_count: number }>;
+  sessionMessages?: Record<string, unknown[]>;
   preloadOk?: boolean;
 }
 
@@ -17,9 +18,15 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   const preloadOk = opts.preloadOk !== false;
   const initialSessions = opts.sessions || [
     { key: 'sess-001', title: 'Test conversation 1', updated_at: Date.now(), message_count: 5 },
-    { key: 'sess-002', title: 'Test conversation 2', updated_at: Date.now() - 3600000, message_count: 3 },
+    {
+      key: 'sess-002',
+      title: 'Test conversation 2',
+      updated_at: Date.now() - 3600000,
+      message_count: 3,
+    },
   ];
   const sessionsJson = JSON.stringify(initialSessions);
+  const sessionMessagesJson = JSON.stringify(opts.sessionMessages || {});
 
   return `
 (function() {
@@ -76,6 +83,21 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
 
     sessions: {
       list: function() { return Promise.resolve({ sessions: ${sessionsJson} }); },
+      get: function(key) {
+        var sessions = ${sessionsJson};
+        var sessionMessages = ${sessionMessagesJson};
+        var found = null;
+        for (var i = 0; i < sessions.length; i++) {
+          if (sessions[i].key === key) { found = sessions[i]; break; }
+        }
+        return Promise.resolve({ key: key, title: found ? found.title : key, messages: sessionMessages[key] || [], tracked_files: [] });
+      },
+      delete: function() { return Promise.resolve({ deleted: true }); },
+      archive: function() { return Promise.resolve({ archived: true }); },
+      unarchive: function() { return Promise.resolve({ unarchived: true }); },
+      listArchived: function() { return Promise.resolve({ sessions: [] }); },
+      getTrackedFiles: function() { return Promise.resolve({ tracked_files: [] }); },
+      clearTrackedFiles: function() { return Promise.resolve({ cleared: true }); },
     },
 
     approvals: {
@@ -209,6 +231,11 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       setTimeout(function() {
         _fire('final', { content: content });
       }, 50);
+    },
+
+    /** Fire a final event immediately, without adding mock progress. */
+    rawFinal: function(content) {
+      _fire('final', { content: content });
     },
 
     /** Simulate a backend error */

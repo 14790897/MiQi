@@ -53,6 +53,7 @@ _LEGACY_DECISION_MAP = {"allow": "once", "allow_permanent": "always"}
 # Phase 31.4: max lengths for sanitized approval metadata fields
 _MAX_DESCRIPTION_LENGTH = 500
 _MAX_DETAILS_STRING_LENGTH = 2000
+_MAX_DETAILS_DEPTH = 10
 _MAX_COMMAND_LENGTH = 500
 
 # ── Phase 56: arg normalization for provider-agnostic tool calls ───────────
@@ -353,37 +354,61 @@ class ToolOrchestrator:
         return ctx
 
     @staticmethod
-    def _sanitize_details(details: dict[str, Any]) -> dict[str, Any]:
+    def _sanitize_details(
+        details: dict[str, Any],
+        *,
+        _depth: int = 0,
+        _seen: set[int] | None = None,
+    ) -> dict[str, Any]:
         """Return a safe copy of *details* suitable for client emission.
 
         Removes/drops values that are not JSON-serializable or could leak
         internals (Exception objects, futures, process handles, raw secrets).
-        Strings are length-capped.
+        Strings are length-capped. Nested dicts are depth- and cycle-guarded.
         """
         if not isinstance(details, dict):
             return {}
+        if _depth > _MAX_DETAILS_DEPTH:
+            return {"_truncated": "<max_depth_exceeded>"}
+        if _seen is None:
+            _seen = set()
+        details_id = id(details)
+        if details_id in _seen:
+            return {"_truncated": "<cycle>"}
+        _seen.add(details_id)
         safe: dict[str, Any] = {}
-        for key, value in details.items():
-            if not isinstance(key, str):
-                continue
-            # Drop known-unsafe keys
-            if key.lower() in ("exception", "traceback", "secret", "password",
-                               "token", "api_key", "_future", "_process",
-                               "credential", "authorization"):
-                continue
-            if isinstance(value, (bool, int, float, type(None))):
-                safe[key] = value
-            elif isinstance(value, str):
-                safe[key] = value[:_MAX_DETAILS_STRING_LENGTH]
-            elif isinstance(value, (list, tuple)):
-                safe[key] = str(value)[:_MAX_DETAILS_STRING_LENGTH]
-            elif isinstance(value, dict):
-                # Recursively sanitize nested dicts, depth-guarded
-                safe[key] = ToolOrchestrator._sanitize_details(value)
-            else:
-                # Drop non-serializable types (Exception, future, etc.)
-                safe[key] = f"<{type(value).__name__}>"
-        return safe
+        try:
+            for key, value in details.items():
+                if not isinstance(key, str):
+                    continue
+                # Drop known-unsafe keys
+                if key.lower() in ("exception", "traceback", "secret", "password",
+                                   "token", "api_key", "_future", "_process",
+                                   "credential", "authorization"):
+                    continue
+                if isinstance(value, (bool, int, float, type(None))):
+                    safe[key] = value
+                elif isinstance(value, str):
+                    safe[key] = value[:_MAX_DETAILS_STRING_LENGTH]
+                elif isinstance(value, (list, tuple)):
+                    safe[key] = str(value)[:_MAX_DETAILS_STRING_LENGTH]
+                elif isinstance(value, dict):
+                    if id(value) in _seen:
+                        safe[key] = "<cycle>"
+                    elif _depth >= _MAX_DETAILS_DEPTH:
+                        safe[key] = "<max_depth_exceeded>"
+                    else:
+                        safe[key] = ToolOrchestrator._sanitize_details(
+                            value,
+                            _depth=_depth + 1,
+                            _seen=_seen,
+                        )
+                else:
+                    # Drop non-serializable types (Exception, future, etc.)
+                    safe[key] = f"<{type(value).__name__}>"
+            return safe
+        finally:
+            _seen.discard(details_id)
 
     async def _request_approval(
         self,
@@ -618,10 +643,15 @@ class ToolOrchestrator:
                 return None
             return f"exec:{cmd}"
         if tool in (
-            "write_file", "edit_file", "delete_file",
+            "write_file", "edit_file", "delete_file", "apply_patch",
             "docx_write", "pptx_write", "xlsx_write",
+            "create_docx", "create_pptx", "create_xlsx",
+            "edit_docx", "append_xlsx",
         ):
-            path = (meta.get("details", {}) or {}).get("path", "")
+            path = (
+                (meta.get("details", {}) or {}).get("path", "")
+                or (meta.get("details", {}) or {}).get("filename", "")
+            )
             if not path:
                 return None
             return f"{tool}:{path}"
@@ -641,6 +671,19 @@ class ToolOrchestrator:
             "Permanent approval recorded: pattern={!r} session={}",
             pattern, self._session_id,
         )
+
+        # Phase 31.X: sync to global (cross-session, persisted) allowlist
+        # so that new sessions / restarts pick up this approval.
+        try:
+            from miqi.agent.command_approval import (
+                approve_permanent, _save_permanent_allowlist,
+            )
+            approve_permanent(pattern)
+            _save_permanent_allowlist()
+        except Exception as exc:
+            logger.warning(
+                "Failed to sync permanent approval to global allowlist: %s", exc,
+            )
 
     def _record_session_approval(self, meta: dict[str, Any]) -> None:
         """Add the approved tool+argument key to the session-scoped allowlist.
@@ -781,6 +824,8 @@ class ToolOrchestrator:
         _FILE_MUTATION_TOOLS = frozenset({
             "write_file", "edit_file", "delete_file", "apply_patch",
             "docx_write", "pptx_write", "xlsx_write",
+            "create_docx", "create_pptx", "create_xlsx",
+            "edit_docx", "append_xlsx",
         })
         kwargs = {**ctx.arguments}
         if ctx.tool_name == "exec" or ctx.tool_name in _FILE_MUTATION_TOOLS:

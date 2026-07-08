@@ -433,3 +433,42 @@ def test_install_plugin_registers_under_requested_name_only(tmp_path, monkeypatc
     assert pm.get_plugin("my-plugin") is plugin
     # Registration key equals manifest name.
     assert "my-plugin" in pm._plugins
+
+
+# ---------------------------------------------------------------------------
+# Issue #88: plugin name must not end with a separator (- _ .)
+# ---------------------------------------------------------------------------
+
+import pytest
+
+
+@pytest.mark.parametrize("name", [
+    "my-plugin-",      # trailing dash
+    "my.plugin.",      # trailing dot
+    "my_plugin_",      # trailing underscore
+    "a---",            # all separators after first char
+    "ab-",             # length 3, trailing dash
+])
+def test_validate_plugin_name_rejects_trailing_separator(name):
+    """A plugin name ending in a separator is invalid (filesystem/URL safety)."""
+    from miqi.skills.plugin_manager import validate_plugin_name
+
+    with pytest.raises(ValueError):
+        validate_plugin_name(name)
+
+
+@pytest.mark.parametrize("name", [
+    "my-plugin",       # normal
+    "hello_world",     # underscore in middle
+    "test.tool",       # dot in middle
+    "a",               # single char (length 1, no trailing sep)
+    "ab",              # length 2, both alphanumeric
+    "MyPlugin",
+    "x" * 64,          # max length, alphanumeric
+])
+def test_validate_plugin_name_accepts_valid_names(name):
+    """Valid names — including single char and alnum-only max-length — pass."""
+    from miqi.skills.plugin_manager import validate_plugin_name
+
+    # Should not raise.
+    validate_plugin_name(name)

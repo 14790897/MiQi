@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 import asyncio
+import inspect
 from typing import Any
 
 from miqi.protocol.commands import (
@@ -141,7 +142,7 @@ class TaskRunner:
             # remain in the pending set.
             orchestrator = getattr(self.services, "orchestrator", None)
             cancel_fn = getattr(orchestrator, "cancel_approvals_for_thread", None)
-            if callable(cancel_fn) and asyncio.iscoroutinefunction(cancel_fn):
+            if callable(cancel_fn) and inspect.iscoroutinefunction(cancel_fn):
                 await cancel_fn(thread_id, reason="Turn aborted by user.")
 
             await self._events.put(ErrorEvent(
@@ -660,10 +661,16 @@ class TaskRunner:
                     },
                 )
 
+            tool_calls: list[dict[str, Any]] = []
+            for message in result.messages_delta:
+                if message.get("role") == "assistant":
+                    tool_calls.extend(message.get("tool_calls") or [])
+
             await self._events.put(AgentMessageEvent(
                 turn_id=turn_id,
                 content=result.final_content or "",
                 finish_reason="stop",
+                tool_calls=tool_calls,
             ))
             await self._events.put(TurnCompleteEvent(
                 turn_id=turn_id,

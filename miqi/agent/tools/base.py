@@ -75,6 +75,23 @@ class Tool(ABC):
             return [f"{label} should be {t}"]
 
         errors = []
+        if "anyOf" in schema:
+            option_errors = []
+            for option in schema["anyOf"]:
+                option_schema = {
+                    **option,
+                    "type": option.get("type", schema.get("type", "object")),
+                }
+                branch_errors = self._validate(val, option_schema, path)
+                if not branch_errors:
+                    break
+                option_errors.append("; ".join(branch_errors))
+            else:
+                errors.append(
+                    f"{label} must match one of anyOf schemas: "
+                    + " | ".join(option_errors)
+                )
+
         if "enum" in schema and val not in schema["enum"]:
             errors.append(f"{label} must be one of {schema['enum']}")
         if t in ("integer", "number"):

@@ -1,6 +1,11 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { PassThrough } from 'stream';
-import { buildInitializeParams, normalizeBridgeMessage } from './bridge';
+import {
+  buildInitializeParams,
+  CHAT_BACKEND_DRAIN_TIMEOUT_MS,
+  CHAT_SEND_TIMEOUT_MS,
+  normalizeBridgeMessage,
+} from './bridge';
 
 // ============================================================
 // Pure-function tests (unchanged)
@@ -506,5 +511,39 @@ describe('BridgeManager lifecycle', () => {
 
     // Wait for timeout
     await expect(sendPromise).rejects.toThrow(/timed out/);
+  }, 10_000);
+
+  it('keeps chat.send client timeout later than the backend drain timeout', async () => {
+    const BridgeManager = await importBridgeManager();
+    const proc = createMockProcess();
+    const bridge = new BridgeManager('/fake/root');
+
+    await startBridge(proc, bridge, { clientId: 'default-timeout-test', serverInfo: { version: '1' } });
+
+    vi.useFakeTimers();
+    try {
+      let settled = false;
+      const sendPromise = bridge.send('chat.send', { message: 'test' }, (() => {}) as any);
+      sendPromise.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        }
+      );
+
+      await vi.advanceTimersByTimeAsync(CHAT_BACKEND_DRAIN_TIMEOUT_MS + 1);
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(
+        CHAT_SEND_TIMEOUT_MS - CHAT_BACKEND_DRAIN_TIMEOUT_MS - 1
+      );
+      await expect(sendPromise).rejects.toThrow(/Request chat\.send timed out/);
+    } finally {
+      vi.useRealTimers();
+      proc.stdout.destroy();
+      proc.stderr.destroy();
+    }
   }, 10_000);
 });

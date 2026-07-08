@@ -25,6 +25,12 @@ import { WorkspacePage } from '../workspace/WorkspacePage';
 import { CronPage } from '../cron/CronPage';
 import { MCPsPage } from '../mcps/MCPsPage';
 import { ExperiencePage } from '../experience/ExperiencePage';
+import { SkillsPage } from '../skills/SkillsPage';
+import { MemoryPage } from '../memory/MemoryPage';
+import AgentPanel from '../agents/AgentPanel';
+import { PermissionsPage } from '../permissions/PermissionsPage';
+import { PluginMarket } from '../plugins/PluginMarket';
+import WslStatusPage from '../wsl/WslStatusPage';
 
 type SettingsTab =
   | 'general'
@@ -34,6 +40,14 @@ type SettingsTab =
   | 'workspace'
   | 'webtools'
   | 'appearance'
+  | 'agents'
+  | 'skills'
+  | 'mcps'
+  | 'memory'
+  | 'experience'
+  | 'permissions'
+  | 'plugins'
+  | 'wsl'
   | 'logs'
   | 'archived'
   | 'docs';
@@ -773,8 +787,10 @@ function DocsTab() {
 }
 
 // ---- Main ----
-export function SettingsPage({ onReopenSetup }: { onReopenSetup?: () => void }) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
+export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup?: () => void; tab?: SettingsTab }) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>(tab);
+
+  useEffect(() => { setActiveTab(tab); }, [tab]);
 
   return (
     <div className="flex flex-col h-full">
@@ -793,11 +809,19 @@ export function SettingsPage({ onReopenSetup }: { onReopenSetup?: () => void }) 
             { value: 'general', label: '通用' },
             { value: 'providers', label: '模型' },
             { value: 'channels', label: '渠道' },
-            { value: 'approvals', label: '命令审批' },
+            { value: 'agents', label: 'Agents' },
+            { value: 'skills', label: '技能' },
+            { value: 'mcps', label: 'MCPs' },
+            { value: 'memory', label: '记忆' },
+            { value: 'experience', label: '经验' },
+            { value: 'approvals', label: '审批' },
             { value: 'workspace', label: '工作区' },
             { value: 'webtools', label: 'Web 工具' },
+            { value: 'permissions', label: '权限' },
+            { value: 'plugins', label: '插件' },
+            { value: 'wsl', label: 'WSL' },
             { value: 'appearance', label: '外观' },
-            { value: 'logs', label: '运行日志' },
+            { value: 'logs', label: '日志' },
             { value: 'archived', label: '已归档' },
             { value: 'docs', label: '文档' },
           ].map((tab) => (
@@ -830,6 +854,30 @@ export function SettingsPage({ onReopenSetup }: { onReopenSetup?: () => void }) 
         </Tabs.Content>
         <Tabs.Content value="workspace" className="flex-1 overflow-y-auto">
           <WorkspacePage />
+        </Tabs.Content>
+        <Tabs.Content value="agents" className="flex-1 overflow-y-auto">
+          <AgentPanel />
+        </Tabs.Content>
+        <Tabs.Content value="skills" className="flex-1 overflow-y-auto">
+          <SkillsPage />
+        </Tabs.Content>
+        <Tabs.Content value="mcps" className="flex-1 overflow-y-auto">
+          <MCPsPage />
+        </Tabs.Content>
+        <Tabs.Content value="memory" className="flex-1 overflow-y-auto">
+          <MemoryPage />
+        </Tabs.Content>
+        <Tabs.Content value="experience" className="flex-1 overflow-y-auto">
+          <ExperiencePage />
+        </Tabs.Content>
+        <Tabs.Content value="permissions" className="flex-1 overflow-y-auto">
+          <PermissionsPage />
+        </Tabs.Content>
+        <Tabs.Content value="plugins" className="flex-1 overflow-y-auto">
+          <PluginMarket />
+        </Tabs.Content>
+        <Tabs.Content value="wsl" className="flex-1 overflow-y-auto">
+          <WslStatusPage />
         </Tabs.Content>
         <Tabs.Content value="webtools" className="flex-1 overflow-y-auto">
           <WebToolsTab />

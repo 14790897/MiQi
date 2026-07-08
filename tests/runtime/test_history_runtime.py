@@ -262,3 +262,40 @@ async def test_get_turn_degrades_on_corrupted_token_usage_json(tmp_path):
         assert turn.tools_used == ["read_file"]
     finally:
         await runtime.close()
+
+
+# ── Issue #85: compaction must not crash on a message missing 'role' ──────
+
+
+@pytest.mark.asyncio
+async def test_replace_messages_with_compaction_skips_missing_role(tmp_path):
+    """A replacement message missing the 'role' key must not crash compaction.
+
+    Without the fix, msg["role"] raises KeyError, the compaction transaction
+    rolls back, and the user sees no compaction effect at all. The same loop
+    already used msg.get("content") — role should be accessed the same way.
+    """
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+    await runtime.initialize()
+    await runtime.append_message(thread_id="t1", turn_id="a", role="user", content="old")
+
+    # A replacement batch where one message is missing 'role' (e.g. legacy /
+    # abnormally-written data). The other message is well-formed.
+    await runtime.replace_messages_with_compaction(
+        "t1",
+        "compact-1",
+        [
+            {"content": "no role here"},          # missing role
+            {"role": "system", "content": "[summary]"},
+        ],
+    )
+    try:
+        messages = await runtime.load_messages("t1")
+        # Compaction completes: the well-formed message survives; the missing-role
+        # one gets a default role rather than crashing the whole transaction.
+        assert {"role": "system", "content": "[summary]"} in messages
+        assert len(messages) == 2
+        roles = [m["role"] for m in messages]
+        assert "unknown" in roles, f"missing-role msg should default to 'unknown', got {roles}"
+    finally:
+        await runtime.close()

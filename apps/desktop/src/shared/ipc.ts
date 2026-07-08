@@ -245,6 +245,7 @@ export interface SessionInfo {
   created_at?: string;
   updated_at?: string;
   path?: string;
+  message_count?: number;
 }
 
 export interface SessionDetail {
@@ -680,6 +681,7 @@ export interface ChatProgress {
 export interface ChatFinal {
   content: string;
   aborted?: boolean;
+  tool_calls?: unknown[];
 }
 
 export interface ChatError {

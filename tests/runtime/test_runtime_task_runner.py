@@ -1,6 +1,7 @@
 """Tests for TaskRunner (Phase 11.3)."""
 
 import asyncio
+import warnings
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -32,6 +33,37 @@ async def test_task_runner_routes_user_message_to_turn_runner(fake_services):
 
 
 @pytest.mark.asyncio
+async def test_task_runner_forwards_tool_calls_on_final_agent_message(fake_services):
+    """Realtime final events must carry assistant tool_calls for #106."""
+    from miqi.protocol.events import AgentMessageEvent
+
+    tool_calls = [{
+        "id": "tc-search",
+        "type": "function",
+        "function": {"name": "web_search", "arguments": '{"query":"MiQi"}'},
+    }]
+    fake_services.turn_runner.run.return_value.final_content = "found it"
+    fake_services.turn_runner.run.return_value.messages_delta = [
+        {"role": "assistant", "content": None, "tool_calls": tool_calls},
+        {"role": "tool", "tool_call_id": "tc-search", "content": "result"},
+        {"role": "assistant", "content": "found it"},
+    ]
+    fake_services.turn_runner.run.return_value.tools_used = ["web_search"]
+
+    events = asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(UserMessage(content="search", thread_id="cli:default"))
+
+    while True:
+        event = await asyncio.wait_for(events.get(), timeout=1)
+        if isinstance(event, AgentMessageEvent):
+            assert event.content == "found it"
+            assert event.tool_calls == tool_calls
+            break
+
+
+@pytest.mark.asyncio
 async def test_task_runner_handles_abort_turn(fake_services):
     """AbortTurn signals cancellation event and emits ErrorEvent (Phase 14 follow-up).
 
@@ -46,6 +78,24 @@ async def test_task_runner_handles_abort_turn(fake_services):
     event = await asyncio.wait_for(events.get(), timeout=1)
     assert event.__class__.__name__ == "ErrorEvent"
     assert "aborted" in event.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_task_runner_abort_turn_uses_non_deprecated_coroutine_check(fake_services):
+    events = asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+    called = []
+
+    async def cancel_approvals_for_thread(thread_id: str, reason: str) -> None:
+        called.append((thread_id, reason))
+
+    fake_services.orchestrator.cancel_approvals_for_thread = cancel_approvals_for_thread
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        await runner.handle(AbortTurn(thread_id="cli:default"))
+
+    assert called == [("cli:default", "Turn aborted by user.")]
 
 
 @pytest.mark.asyncio

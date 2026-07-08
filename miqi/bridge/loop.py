@@ -200,6 +200,17 @@ class BridgeRuntimeLoop:
         from miqi.runtime.thread_app_handlers import register_codex_thread_handlers
         register_codex_thread_handlers(self._app_server)
 
+        # Initialize sandbox manager (shared across all agents)
+        if self._bridge_state is not None:
+            self._bridge_state._ensure_sandbox_manager()
+            sandbox_mgr = getattr(self._bridge_state, "_sandbox_manager", None)
+            if sandbox_mgr is not None and sandbox_mgr != "disabled":
+                try:
+                    await sandbox_mgr.initialize()
+                except TypeError:
+                    pass  # mock in tests — initialize() is not async
+                logger.info("Sandbox manager initialized")
+
         # Register Phase 37: Codex-style plugin and marketplace handlers
         from miqi.runtime.plugin_app_handlers import register_plugin_app_handlers
         register_plugin_app_handlers(self._app_server)
@@ -476,11 +487,20 @@ class BridgeRuntimeLoop:
         """Bridge status check — session-less handler."""
         from miqi.paths import get_config_path
         config_exists = get_config_path()
+
+        # Check whether bwrap sandbox is actually usable
+        sandbox_available = False
+        if self._bridge_state is not None:
+            sm = getattr(self._bridge_state, "_sandbox_manager", None)
+            if sm is not None and sm != "disabled":
+                sandbox_available = getattr(sm, "enabled", False) and getattr(sm, "_initialized", False)
+
         return {
             "result": {
                 "status": "ok",
                 "configured": config_exists.exists(),
                 "python_version": sys.version,
+                "sandbox_available": sandbox_available,
             },
         }
 
@@ -522,12 +542,17 @@ class BridgeRuntimeLoop:
             from miqi.providers.factory import make_provider
 
             provider = make_provider(config)
+            self._bridge_state._ensure_sandbox_manager()
+            sandbox_manager = getattr(self._bridge_state, "_sandbox_manager", None)
+            if sandbox_manager == "disabled":
+                sandbox_manager = None
             runtime = await registry.create_session(
                 client_id=client_id,
                 session_key=session_key,
                 config=config,
                 provider=provider,
                 workspace=config.workspace_path,
+                sandbox_manager=sandbox_manager,
             )
 
         # Submit the user message
@@ -594,14 +619,21 @@ class BridgeRuntimeLoop:
             )
 
         async def _emit_terminal(event_type: str, data: Any) -> bool:
-            """Emit a terminal event, preventing duplicates."""
+            """Send a terminal event for this chat request.
+
+            Terminal chat events settle the Electron pending request, so they
+            must not depend on session fanout. Fanout can legitimately skip
+            delivery when a client is unsubscribed or a sink is missing; the
+            current request still needs a deterministic terminal response.
+            """
             if request_id in self._terminal_sent:
                 return False
             self._terminal_sent.add(request_id)
-            await app_server.emit_event(
-                session_id, event_type, data,
-                request_id=request_id,
-            )
+            self._send({
+                "id": request_id,
+                "type": event_type,
+                "data": data,
+            })
             return True
 
         try:
@@ -621,6 +653,8 @@ class BridgeRuntimeLoop:
             )
 
             while True:
+                # Keep in sync with CHAT_BACKEND_DRAIN_TIMEOUT_MS in
+                # apps/desktop/src/main/bridge.ts.
                 event = await runtime.next_event(timeout=300)
                 if event is None:
                     # Timeout — no response from agent
@@ -633,6 +667,7 @@ class BridgeRuntimeLoop:
                     await _emit_terminal("final", {
                         "content": event.content,
                         "aborted": False,
+                        "tool_calls": event.tool_calls,
                     })
                     # Do NOT break — consume the TurnCompleteEvent that
                     # follows so the next drain task starts with a clean queue.

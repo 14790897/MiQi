@@ -1,84 +1,22 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { cn } from '../lib/utils';
-import {
-  MessageSquare,
-  Clock,
-  FolderOpen,
-  BookOpen,
-  Wrench,
-  Settings,
-  Plus,
-  Plug,
-  Archive,
-  Cpu,
-  Bot,
-  ListChecks,
-  Shield,
-  Package,
-  CheckSquare,
-  ChevronDown,
-  ChevronRight,
-  type LucideIcon,
-} from 'lucide-react';
+import { Plus, ListChecks } from 'lucide-react';
+import { MiQiLogo } from './MiQiLogo';
+import { ContextMenu } from './ContextMenu';
+import { useSessionStatus, type SessionStatus } from '../hooks/useSessionStatus';
 import type { SessionInfo } from '../../shared/ipc';
 
-interface NavItem {
-  id: string;
-  label: string;
-  icon: LucideIcon;
-}
+type FilterTab = 'ALL' | 'IN-PROGRESS' | 'REVIEW' | 'CC';
 
-interface NavGroup {
-  title: string;
-  items: NavItem[];
-}
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    title: '核心功能',
-    items: [
-      { id: 'chat', label: '对话', icon: MessageSquare },
-      { id: 'workspace', label: '文件', icon: FolderOpen },
-      { id: 'sessions', label: '会话', icon: Archive },
-    ],
-  },
-  {
-    title: '业务流程',
-    items: [
-      { id: 'approvals', label: '审批', icon: CheckSquare },
-      { id: 'cron', label: '定时任务', icon: Clock },
-    ],
-  },
-  {
-    title: 'AI能力',
-    items: [
-      { id: 'agents', label: 'Agents', icon: Bot },
-      { id: 'plan', label: 'Plan', icon: ListChecks },
-      { id: 'memory', label: '记忆', icon: BookOpen },
-      { id: 'experience', label: '经验', icon: BookOpen },
-      { id: 'skills', label: '技能', icon: Wrench },
-    ],
-  },
-  {
-    title: '系统管理',
-    items: [
-      { id: 'settings', label: '设置', icon: Settings },
-      { id: 'wsl', label: 'WSL', icon: Cpu },
-      { id: 'mcps', label: 'MCPs', icon: Plug },
-      { id: 'permissions', label: 'Permissions', icon: Shield },
-      { id: 'plugins', label: 'Plugins', icon: Package },
-    ],
-  },
-];
+const MIN_WIDTH = 180;
+const MAX_WIDTH = 480;
+const DEFAULT_WIDTH = 260;
 
 function formatTimestampKey(key: string): string {
   const ts = parseInt(key, 10);
   if (isNaN(ts)) return key;
   return new Intl.DateTimeFormat('zh-CN', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   }).format(new Date(ts));
 }
 
@@ -95,225 +33,272 @@ function relativeTime(iso?: string): string {
 }
 
 interface SidebarProps {
-  activeNav: string;
-  onNavChange: (id: string) => void;
   currentSession?: string;
   onSessionSelect?: (key: string) => void;
+  onNavChange?: (id: string) => void;
   refreshKey?: number;
   onNewSession?: () => void;
 }
 
 export function Sidebar({
-  activeNav,
-  onNavChange,
   currentSession,
   onSessionSelect,
+  onNavChange,
   refreshKey,
   onNewSession,
 }: SidebarProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    new Set(['核心功能', '业务流程', 'AI能力', '系统管理'])
-  );
+  const [filter, setFilter] = useState<FilterTab>('ALL');
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
+  const isResizing = useRef(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
 
-  const toggleGroup = (groupTitle: string) => {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(groupTitle)) {
-        next.delete(groupTitle);
-      } else {
-        next.add(groupTitle);
+  const { getStatus, getStatusDisplay, setStatus, clearStatus } = useSessionStatus();
+
+  // Resize handler
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizing.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing.current) return;
+      const newWidth = e.clientX - (sidebarRef.current?.getBoundingClientRect().left ?? 0);
+      setSidebarWidth(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth)));
+    };
+    const handleMouseUp = () => {
+      if (isResizing.current) {
+        isResizing.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
       }
-      return next;
-    });
-  };
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      // cleanup if unmounted during drag
+      isResizing.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, []);
 
   const loadSessions = useCallback(async () => {
     try {
       const r = await window.miqi.sessions.list();
       setSessions(r?.sessions ?? []);
-    } catch {
-      /* Bridge not available */
-    }
+    } catch { /* Bridge not available */ }
     setInitialLoading(false);
   }, []);
 
-  useEffect(() => {
-    loadSessions();
-  }, [loadSessions, refreshKey]);
+  useEffect(() => { loadSessions(); }, [loadSessions, refreshKey]);
 
-  // Re-load when bridge becomes running (app startup race condition)
   useEffect(() => {
     const unsub = window.miqi.runtime.onStateChange((status) => {
       if (status.state === 'running') loadSessions();
     });
-    return () => {
-      unsub();
-    };
+    return () => { unsub(); };
   }, [loadSessions]);
+
+  const FILTER_TABS: FilterTab[] = ['ALL', 'IN-PROGRESS', 'REVIEW', 'CC'];
+
+  const filteredSessions = sessions.filter((s) => {
+    if (filter === 'ALL') return true;
+    const status = getStatus(s.key);
+    if (filter === 'IN-PROGRESS') return status === 'IN-PROGRESS';
+    if (filter === 'REVIEW') return status === 'REVIEW';
+    if (filter === 'CC') return status === 'CC';
+    return true;
+  });
 
   return (
     <div
-      className="flex flex-col shrink-0 border-r"
+      ref={sidebarRef}
+      className="flex flex-col shrink-0 border-r relative"
       style={{
-        width: 240,
+        width: sidebarWidth,
         background: 'var(--sidebar-bg)',
         borderColor: 'var(--sidebar-border)',
       }}
     >
-      {/* Logo + title */}
+      {/* Resize handle */}
       <div
-        className="flex items-center gap-2.5 px-4 h-12 border-b shrink-0"
-        style={{ borderColor: 'var(--sidebar-border)' }}
-      >
-        <div
-          className="w-7 h-7 rounded-md flex items-center justify-center text-white text-sm font-bold shrink-0"
-          style={{ background: 'var(--avatar-dark)' }}
-        >
-          M
-        </div>
+        onMouseDown={handleMouseDown}
+        className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-[var(--accent)]/30 transition-colors z-10"
+        style={{ marginRight: -2 }}
+      />
+      {/* Header: glitch M logo + Tasks title */}
+      <div className="flex items-center gap-2.5 px-4 py-3 shrink-0">
+        <MiQiLogo size={28} />
         <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
-          MiQi Workbench
-        </span>
-      </div>
-
-      {/* Nav items */}
-      <nav
-        className="px-2 py-2 flex flex-col shrink-0"
-        style={{ borderColor: 'var(--sidebar-border)' }}
-      >
-        {NAV_GROUPS.map((group) => {
-          const isExpanded = expandedGroups.has(group.title);
-          return (
-            <div key={group.title} className="mb-1">
-              <button
-                onClick={() => toggleGroup(group.title)}
-                className="flex items-center gap-1 px-3 py-1 w-full text-left"
-              >
-                {isExpanded ? (
-                  <ChevronDown size={12} style={{ color: 'var(--text-faint)' }} />
-                ) : (
-                  <ChevronRight size={12} style={{ color: 'var(--text-faint)' }} />
-                )}
-                <span
-                  className="text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: 'var(--text-faint)' }}
-                >
-                  {group.title}
-                </span>
-              </button>
-              {isExpanded && (
-                <div className="flex flex-col gap-0.5">
-                  {group.items.map((item) => {
-                    const isActive = activeNav === item.id;
-                    const Icon = item.icon;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => onNavChange(item.id)}
-                        className={cn(
-                          'flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors text-left w-full',
-                          isActive ? 'font-medium' : 'hover:bg-[var(--surface-muted)]'
-                        )}
-                        style={{
-                          background: isActive ? 'var(--surface-muted)' : undefined,
-                          color: isActive ? 'var(--text)' : 'var(--text-muted)',
-                        }}
-                      >
-                        <Icon size={15} />
-                        {item.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </nav>
-
-      {/* Sessions header */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-2 shrink-0">
-        <span
-          className="text-xs font-semibold uppercase tracking-wider"
-          style={{ color: 'var(--text-muted)' }}
-        >
           Tasks
         </span>
         <button
           onClick={onNewSession}
-          className="w-5 h-5 rounded flex items-center justify-center transition-colors hover:bg-[var(--surface-muted)]"
+          className="ml-auto w-6 h-6 rounded flex items-center justify-center transition-colors hover:bg-[var(--surface-muted)]"
           title="New Session"
         >
-          <Plus size={13} style={{ color: 'var(--text-faint)' }} />
+          <Plus size={14} style={{ color: 'var(--text-faint)' }} />
         </button>
       </div>
 
-      {/* Session list */}
-      <div className="flex-1 overflow-y-auto px-2 pb-2">
+      {/* Filter tabs: ALL / IN PROGRESS / REVIEW / CC */}
+      <div className="flex gap-1 px-4 pb-3 shrink-0">
+        {FILTER_TABS.map((tab) => {
+          const isActive = filter === tab;
+          return (
+            <button
+              key={tab}
+              onClick={() => setFilter(tab)}
+              className={cn(
+                'px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors',
+                isActive
+                  ? 'text-[var(--text)]'
+                  : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]',
+              )}
+              style={{
+                background: isActive ? 'var(--surface-muted)' : 'transparent',
+              }}
+            >
+              {tab}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Session list — card style with left border + description */}
+      <div className="flex-1 overflow-y-auto px-3 pb-2">
         {initialLoading && sessions.length === 0 ? (
           <div className="flex items-center justify-center py-6">
             <div className="w-4 h-4 border-2 border-[var(--border)] border-t-[var(--accent)] rounded-full animate-spin" />
           </div>
         ) : sessions.length === 0 ? (
-          <div className="text-xs text-center py-6" style={{ color: 'var(--text-faint)' }}>
-            No sessions
+          <div className="flex flex-col items-center gap-2 py-8 text-center">
+            <ListChecks size={20} style={{ color: 'var(--text-faint)', opacity: 0.4 }} />
+            <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
+              No active tasks
+            </p>
           </div>
         ) : (
-          <div className="space-y-1">
-            {sessions.map((s) => {
+          <div className="space-y-2">
+            {filteredSessions.slice(0, 20).map((s) => {
               const isActive = currentSession === s.key;
               const displayName = s.title || formatTimestampKey(s.key);
+              const status = getStatusDisplay(getStatus(s.key));
               return (
-                <div
+                <ContextMenu
                   key={s.key}
-                  className={cn(
-                    'w-full flex items-start gap-2 px-2 py-1.5 rounded text-left transition-colors group',
-                    isActive ? 'bg-[var(--surface-muted)]' : 'hover:bg-[var(--surface-elevated)]'
-                  )}
+                  items={[
+                    {
+                      label: 'Mark as In Progress',
+                      onSelect: () => setStatus(s.key, 'IN-PROGRESS'),
+                    },
+                    {
+                      label: 'Mark as Pending',
+                      onSelect: () => setStatus(s.key, 'PENDING'),
+                    },
+                    {
+                      label: 'Mark as Review',
+                      onSelect: () => setStatus(s.key, 'REVIEW'),
+                    },
+                    {
+                      label: 'Mark as Completed',
+                      divider: true,
+                      onSelect: () => setStatus(s.key, 'COMPLETED'),
+                    },
+                    {
+                      label: 'Mark as CC',
+                      onSelect: () => setStatus(s.key, 'CC'),
+                    },
+                    {
+                      label: 'Reset to Default',
+                      danger: true,
+                      onSelect: () => clearStatus(s.key),
+                    },
+                    {
+                      label: 'Archive',
+                      divider: true,
+                      onSelect: async () => {
+                        try {
+                          await window.miqi.sessions.archive(s.key);
+                          loadSessions();
+                        } catch { /* ignore */ }
+                      },
+                    },
+                  ]}
                 >
-                  <button
-                    className="flex-1 flex items-start gap-2 min-w-0"
-                    onClick={() => {
-                      onNavChange('chat');
-                      onSessionSelect?.(s.key);
-                    }}
-                  >
-                    <span
-                      className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1.5"
-                      style={{ background: 'var(--text-faint)' }}
-                    />
-                    <div className="flex-1 min-w-0 text-left">
-                      <p className="text-sm truncate text-left" style={{ color: 'var(--text)' }}>
+                  {({ onContextMenu }) => (
+                    <button
+                      onClick={() => onSessionSelect?.(s.key)}
+                      onContextMenu={onContextMenu}
+                      className="w-full text-left rounded-xl px-3 py-3 transition-colors"
+                      style={{
+                        background: status.cardBg,
+                        border: `1px solid ${isActive ? status.color : status.cardBorder}`,
+                      }}
+                    >
+                      {/* Top row: pill status label left · time right */}
+                      <div className="flex items-center justify-between mb-2">
+                        <span
+                          className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full"
+                          style={{ background: status.bg, color: status.color }}
+                        >
+                          {status.label}
+                        </span>
+                        <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
+                          {relativeTime(s.updated_at)}
+                        </span>
+                      </div>
+                      {/* Title — large bold, one line */}
+                      <p
+                        className="text-[13px] font-bold truncate mb-1"
+                        style={{ color: 'var(--text)' }}
+                        title={displayName}
+                      >
                         {displayName}
                       </p>
-                      <p className="text-xs text-left" style={{ color: 'var(--text-muted)' }}>
-                        {relativeTime(s.updated_at)}
+                      {/* Description — small gray, multi-line */}
+                      <p
+                        className="text-[11px] leading-relaxed"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        {s.message_count != null
+                          ? `${s.message_count} messages`
+                          : 'No description'}
                       </p>
-                    </div>
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!window.confirm(`归档对话「${displayName}」？归档后可在设置中找回。`))
-                        return;
-                      window.miqi.sessions.archive(s.key).then(() => {
-                        loadSessions();
-                        if (currentSession === s.key) onNewSession?.();
-                      });
-                    }}
-                    className="shrink-0 w-5 h-5 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[var(--surface-muted)]"
-                    style={{ color: 'var(--text-faint)' }}
-                    title="归档对话"
-                  >
-                    <Archive size={12} />
-                  </button>
-                </div>
+                    </button>
+                  )}
+                </ContextMenu>
               );
             })}
           </div>
         )}
+      </div>
+
+      {/* Bottom bar */}
+      <div
+        className="shrink-0 px-4 py-2.5 border-t flex items-center justify-between"
+        style={{ borderColor: 'var(--sidebar-border)' }}
+      >
+        <span
+          className="text-[11px] cursor-pointer hover:text-[var(--text)] transition-colors"
+          style={{ color: 'var(--text-faint)' }}
+          onClick={() => onNavChange?.('settings')}
+        >
+          System Settings
+        </span>
+        <span
+          className="text-[10px] font-mono"
+          style={{ color: 'var(--text-faint)' }}
+        >
+          PRO v0.4.29
+        </span>
       </div>
     </div>
   );

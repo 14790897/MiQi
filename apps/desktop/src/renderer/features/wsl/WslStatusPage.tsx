@@ -326,7 +326,7 @@ export default function WslStatusPage() {
                     ['磁盘可用', `${dsk?.free_gb ?? 0} GB`],
                   ].map(([k, v], i) => (
                     <tr
-                      key={k}
+                      key={String(k)}
                       className={i % 2 === 0 ? 'bg-[var(--surface)]' : 'bg-[var(--surface-muted)]'}
                     >
                       <td className="px-5 py-2.5 text-xs text-[var(--text-muted)] w-40">{k}</td>
