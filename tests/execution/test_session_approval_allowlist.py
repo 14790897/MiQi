@@ -335,3 +335,37 @@ async def test_session_approval_after_permanent_approval():
     assert "exec:echo permanent" in permission_engine.permanent_allowlist
     # Permanent allowlist should NOT have "echo new" (only session-scoped)
     assert "exec:echo new" not in permission_engine.permanent_allowlist
+
+
+def test_sanitize_details_truncates_deeply_nested_dicts():
+    """Deep approval metadata should be truncated instead of overflowing stack."""
+    from miqi.execution.orchestrator import ToolOrchestrator
+
+    details = current = {}
+    for _ in range(1200):
+        child = {}
+        current["child"] = child
+        current = child
+
+    sanitized = ToolOrchestrator._sanitize_details(details)
+
+    current = sanitized
+    for _ in range(20):
+        if current.get("child") == "<max_depth_exceeded>":
+            break
+        current = current["child"]
+    else:
+        pytest.fail("expected deeply nested metadata to be truncated")
+
+
+def test_sanitize_details_handles_self_referential_dicts():
+    """Cyclic approval metadata should not recurse forever."""
+    from miqi.execution.orchestrator import ToolOrchestrator
+
+    details = {"name": "cyclic"}
+    details["self"] = details
+
+    sanitized = ToolOrchestrator._sanitize_details(details)
+
+    assert sanitized["name"] == "cyclic"
+    assert sanitized["self"] == "<cycle>"
