@@ -204,10 +204,8 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 // ---- Web Tools Tab ----
 function WebToolsTab() {
   // ---- Web Search ----
-  const [searchProvider, setSearchProvider] = useState('brave');
+  const [searchProvider, setSearchProvider] = useState('ddgs');
   const [braveKey, setBraveKey] = useState('');
-  const [searchOllamaBase, setSearchOllamaBase] = useState('');
-  const [searchOllamaKey, setSearchOllamaKey] = useState('');
 
   // ---- Web Fetch ----
   const [fetchProvider, setFetchProvider] = useState('builtin');
@@ -226,10 +224,10 @@ function WebToolsTab() {
     window.miqi.config
       .get()
       .then((cfg) => {
-        setSearchProvider(getNestedStr(cfg, 'tools', 'web', 'search', 'provider') || 'brave');
+        const storedSearchProvider =
+          getNestedStr(cfg, 'tools', 'web', 'search', 'provider') || 'ddgs';
+        setSearchProvider(storedSearchProvider === 'ollama' ? 'ddgs' : storedSearchProvider);
         setBraveKey(getNestedStr(cfg, 'tools', 'web', 'search', 'apiKey'));
-        setSearchOllamaBase(getNestedStr(cfg, 'tools', 'web', 'search', 'ollamaApiBase'));
-        setSearchOllamaKey(getNestedStr(cfg, 'tools', 'web', 'search', 'ollamaApiKey'));
         setFetchProvider(getNestedStr(cfg, 'tools', 'web', 'fetch', 'provider') || 'builtin');
         setFetchOllamaBase(getNestedStr(cfg, 'tools', 'web', 'fetch', 'ollamaApiBase'));
         setFetchOllamaKey(getNestedStr(cfg, 'tools', 'web', 'fetch', 'ollamaApiKey'));
@@ -248,8 +246,6 @@ function WebToolsTab() {
             search: {
               provider: searchProvider,
               apiKey: braveKey || undefined,
-              ollamaApiBase: searchOllamaBase || undefined,
-              ollamaApiKey: searchOllamaKey || undefined,
             },
             fetch: {
               provider: fetchProvider,
@@ -301,8 +297,8 @@ function WebToolsTab() {
       <section className="flex flex-col gap-3">
         <h3 className="text-sm font-semibold text-[var(--text)]">Web 搜索</h3>
         <div className="flex gap-2">
+          <ModeBtn value="ddgs" current={searchProvider} set={setSearchProvider} label="DuckDuckGo" />
           <ModeBtn value="brave" current={searchProvider} set={setSearchProvider} label="Brave" />
-          <ModeBtn value="ollama" current={searchProvider} set={setSearchProvider} label="Ollama" />
           <ModeBtn value="hybrid" current={searchProvider} set={setSearchProvider} label="Hybrid" />
         </div>
         {(searchProvider === 'brave' || searchProvider === 'hybrid') && (
@@ -321,32 +317,6 @@ function WebToolsTab() {
               <Button variant="ghost" size="icon" onClick={() => setShowKeys((v) => !v)}>
                 {showKeys ? <EyeOff size={14} /> : <Eye size={14} />}
               </Button>
-            </div>
-          </div>
-        )}
-        {(searchProvider === 'ollama' || searchProvider === 'hybrid') && (
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)]">
-                Ollama web_search Base URL
-              </label>
-              <Input
-                value={searchOllamaBase}
-                onChange={(e) => setSearchOllamaBase(e.target.value)}
-                placeholder="https://ollama.com"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)]">
-                Ollama web_search API Key
-              </label>
-              <Input
-                type={showKeys ? 'text' : 'password'}
-                value={searchOllamaKey}
-                onChange={(e) => setSearchOllamaKey(e.target.value)}
-                placeholder="ollama-key..."
-                className="font-mono text-xs"
-              />
             </div>
           </div>
         )}
@@ -380,7 +350,7 @@ function WebToolsTab() {
                 type={showKeys ? 'text' : 'password'}
                 value={fetchOllamaKey}
                 onChange={(e) => setFetchOllamaKey(e.target.value)}
-                placeholder="留空则复用 web_search Key"
+                placeholder="ollama-key..."
                 className="font-mono text-xs"
               />
             </div>

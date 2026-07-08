@@ -12,6 +12,7 @@ import {
   Loader2,
   Copy,
   Check,
+  CheckCircle,
   Paperclip,
   X,
   FileText,
@@ -72,6 +73,8 @@ interface TrackedFile {
   truncated?: boolean;
 }
 
+const OFFICE_FILE_RE = /\.(docx|xlsx|pptx)$/i;
+
 /** Extract file path + operation from a tool-hint progress text.
  *  Nanobot tool hints look like:
  *    "Read: /abs/path/to/file.ts"
@@ -92,6 +95,9 @@ function parseToolHint(
     [/^(?:Delete|Deleting(?:\s+file)?)[:\s]+(.+?)(?:\s*….*)?$/i, 'delete'],
     // nanobot / miqi style: write_file("path"), read_file("path"), edit_file("path")
     [/(?:write|edit|delete|read)_file\s*\(\s*["'](.+?)["']\s*\)/i, 'write'],
+    // Office creation tools create files in the workspace.
+    [/(?:create_docx|create_xlsx|create_pptx|docx_write|xlsx_write|pptx_write)\s*\(\s*["'](.+?)["']\s*\)/i, 'write'],
+    [/(?:edit_docx|append_xlsx)\s*\(\s*["'](.+?)["']\s*\)/i, 'edit'],
     // Generic fallback: any mention of a path-like string after a colon
     [/(?:file|path)[:\s]+([^\s,]+\.[a-zA-Z]{1,6})/i, 'read'],
   ];
@@ -114,6 +120,7 @@ function parseToolHint(
         else if (re.source.includes('edit')) inferredOp = 'edit';
         else if (re.source.includes('delete')) inferredOp = 'delete';
         else if (re.source.includes('read')) inferredOp = 'read';
+        else if (re.source.includes('create_') || re.source.includes('_write')) inferredOp = 'write';
         return { path: raw, op: inferredOp, truncated };
       }
     }
@@ -127,9 +134,66 @@ function basename(path: string): string {
 
 const DEFAULT_SESSION = 'desktop:default';
 
-function sessionMsgsToUi(rawMsgs: any[]): Message[] {
+function messageContentToString(content: unknown): string {
+  return typeof content === 'string' ? content : JSON.stringify(content);
+}
+
+function isAssistantTextMessage(msg: any): boolean {
+  return msg?.role === 'assistant' && !!msg.content && String(msg.content).trim().length > 0;
+}
+
+function isToolActivityMessage(msg: any): boolean {
+  return (
+    msg?.role === 'tool' ||
+    (msg?.role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0)
+  );
+}
+
+function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
+  const result: any[] = [];
+  let turnBuffer: any[] = [];
+
+  const flushTurn = () => {
+    if (turnBuffer.length === 0) return;
+
+    const lastAssistantTextIndex = (() => {
+      for (let i = turnBuffer.length - 1; i >= 0; i -= 1) {
+        if (isAssistantTextMessage(turnBuffer[i])) return i;
+      }
+      return -1;
+    })();
+
+    turnBuffer.forEach((msg, index) => {
+      if (
+        isAssistantTextMessage(msg) &&
+        isToolActivityMessage(msg) &&
+        index !== lastAssistantTextIndex
+      ) {
+        result.push({ ...msg, content: '' });
+        return;
+      }
+      if (isAssistantTextMessage(msg) && index !== lastAssistantTextIndex) return;
+      result.push(msg);
+    });
+    turnBuffer = [];
+  };
+
+  for (const msg of rawMsgs) {
+    if (msg?.role === 'user') {
+      flushTurn();
+      result.push(msg);
+      continue;
+    }
+    turnBuffer.push(msg);
+  }
+  flushTurn();
+
+  return result;
+}
+
+export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   const result: Message[] = [];
-  for (const m of rawMsgs) {
+  for (const m of collapseAssistantMessagesWithinTurns(rawMsgs)) {
     const ts = m.timestamp ? new Date(m.timestamp).getTime() : Date.now();
 
     if (m.role === 'user' || m.role === 'assistant') {
@@ -166,7 +230,7 @@ function sessionMsgsToUi(rawMsgs: any[]): Message[] {
       if (m.role === 'user' || hasContent) {
         result.push({
           role: m.role as 'user' | 'assistant',
-          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+          content: messageContentToString(m.content),
           timestamp: ts,
         });
       }
@@ -174,7 +238,7 @@ function sessionMsgsToUi(rawMsgs: any[]): Message[] {
       // Subagent result messages — render with the subagent style
       result.push({
         role: 'subagent',
-        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+        content: messageContentToString(m.content),
         timestamp: ts,
       });
     } else if (m.role === 'tool') {
@@ -222,6 +286,21 @@ function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   }
 
   return merged;
+}
+
+function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[] {
+  const lastUserIndex = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === 'user') return i;
+    }
+    return -1;
+  })();
+
+  return messages.filter((message, index) => {
+    if (index <= lastUserIndex) return true;
+    if (message.role === 'assistant') return false;
+    return message.role !== 'progress' || !!message.toolHint;
+  });
 }
 
 /** Parse tracked files from raw session messages (includes progress entries with _tool_hint). */
@@ -501,7 +580,9 @@ export function ChatConsole({
       const content = `${statusIcon} Subagent "${label}" ${data.status === 'ok' ? 'completed' : 'failed'}:\n\n${data.result}`;
       setMessages((prev) => [...prev, { role: 'subagent', content, timestamp: Date.now() }]);
     });
-    return unsub;
+    return () => {
+      unsub();
+    };
   }, []);
 
   const cleanupListeners = useCallback(() => {
@@ -745,9 +826,15 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
+      if (animId !== null) {
+        cancelAnimationFrame(animId);
+        animId = null;
+      }
       fullContent = data.content;
+      displayed = '';
       finalDone = true;
       setCurrentReqId(null);
+      setMessages((prev) => removeTransientTurnMessagesSinceLastUser(prev));
       if (data.tool_calls?.length) {
         const toolMessages = sessionMsgsToUi([
           {
@@ -866,6 +953,14 @@ export function ChatConsole({
   };
 
   const handlePreview = useCallback(async (path: string) => {
+    if (OFFICE_FILE_RE.test(path)) {
+      setPreviewFile({
+        path,
+        content:
+          'Office document created. Text preview is not available for .docx/.xlsx/.pptx files; open it from the workspace or Task Assets file entry.',
+      });
+      return;
+    }
     try {
       const result = await window.miqi.files.read(path);
       setPreviewFile({ path, content: result.content });
@@ -1822,6 +1917,7 @@ function TrackedFileCard({
   };
   const OpIcon = file.op === 'read' ? BookOpen : file.op === 'delete' ? X : Pencil;
   const displayPath = file.path.replace(/\\/g, '/');
+  const isOfficeFile = OFFICE_FILE_RE.test(file.path);
 
   return (
     <div
@@ -1851,6 +1947,17 @@ function TrackedFileCard({
             >
               {file.op.toUpperCase()}
             </span>
+            {isOfficeFile && (
+              <span
+                className="text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0"
+                style={{
+                  background: 'var(--surface-muted)',
+                  color: 'var(--text-faint)',
+                }}
+              >
+                OFFICE
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -1871,12 +1978,14 @@ function TrackedFileCard({
           {onDiff && (file.op === 'write' || file.op === 'edit') && (
             <button
               onClick={onDiff}
+              disabled={isOfficeFile}
               className="flex-1 flex items-center justify-center gap-1 py-1 rounded-md text-[11px] transition-colors"
               style={{
                 border: '1px solid var(--border)',
-                color: 'var(--warning)',
+                color: isOfficeFile ? 'var(--text-faint)' : 'var(--warning)',
+                opacity: isOfficeFile ? 0.55 : 1,
               }}
-              title="Compare diff"
+              title={isOfficeFile ? 'Diff is not available for Office binary files' : 'Compare diff'}
             >
               <GitCompare size={10} />
               Diff
@@ -1889,6 +1998,7 @@ function TrackedFileCard({
               border: '1px solid var(--border)',
               color: 'var(--text-muted)',
             }}
+            title={isOfficeFile ? 'Office binary preview is not available' : 'Preview file'}
           >
             <Eye size={10} />
             Preview
@@ -1927,7 +2037,13 @@ function MessageBubble({
         style={{ color: msg.toolHint ? 'var(--info)' : 'var(--text-muted)' }}
         onClick={msg.collapsed ? () => setExpanded((v) => !v) : undefined}
       >
-        {msg.toolHint ? <Wrench size={12} /> : <Loader2 size={12} className="animate-spin" />}
+        {msg.toolHint ? (
+          <Wrench size={12} />
+        ) : isLast ? (
+          <Loader2 size={12} className="animate-spin" />
+        ) : (
+          <CheckCircle size={12} />
+        )}
         {msg.collapsed &&
           (isCollapsed ? (
             <ChevronRight size={10} className="shrink-0" style={{ color: 'var(--text-faint)' }} />

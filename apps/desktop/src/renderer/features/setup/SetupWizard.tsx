@@ -186,6 +186,7 @@ export function SetupWizard({
   const [testResult, setTestResult] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
   const [testError, setTestError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [pythonCheck, setPythonCheck] = useState<CheckState<PythonStatus>>({ status: 'idle' });
   const [wslCheck, setWslCheck] = useState<CheckState<WslStatus>>({ status: 'idle' });
 
@@ -266,9 +267,15 @@ export function SetupWizard({
     return !!apiKey;
   };
 
+  const resetConnectionTest = () => {
+    setTestResult('idle');
+    setTestError('');
+  };
+
   const saveInitialConfig = async (config: Record<string, unknown>) => {
     if (saving) return;
     setSaving(true);
+    setSaveError('');
     try {
       await window.miqi.setup.writeInitialConfig(config);
       try {
@@ -277,6 +284,8 @@ export function SetupWizard({
         /* non-fatal */
       }
       onComplete();
+    } catch (e: any) {
+      setSaveError(e?.message ?? String(e));
     } finally {
       setSaving(false);
     }
@@ -309,7 +318,8 @@ export function SetupWizard({
     } catch (e: any) {
       const msg: string = e?.message ?? String(e);
       if (msg.includes('Bridge not running') || msg.includes('not running')) {
-        setTestResult('ok');
+        setTestResult('idle');
+        setTestError('Bridge is not running; start MiQi runtime before testing this provider.');
       } else {
         setTestResult('error');
         setTestError(msg);
@@ -531,6 +541,12 @@ export function SetupWizard({
 
       {renderEnvironmentStatus()}
 
+      {saveError && (
+        <div className="rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-3 py-2 text-xs text-[var(--danger)]">
+          {saveError}
+        </div>
+      )}
+
       <div className="flex flex-col gap-2">
         <Button onClick={handleUseDefaults} disabled={saving || pythonBlocksStart}>
           {saving ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
@@ -568,10 +584,10 @@ export function SetupWizard({
               const providerName = e.target.value;
               const nextProvider = STATIC_PROVIDERS.find((p) => p.name === providerName);
               setSelectedProvider(providerName);
+              setApiKey('');
               setApiBase(nextProvider?.defaultApiBase ?? '');
               setModelName(nextProvider?.defaultModel ?? '');
-              setTestResult('idle');
-              setTestError('');
+              resetConnectionTest();
             }}
             className="h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
           >
@@ -600,7 +616,10 @@ export function SetupWizard({
                 <label className="text-xs font-medium text-[var(--text-muted)]">API Base URL</label>
                 <Input
                   value={apiBase}
-                  onChange={(e) => setApiBase(e.target.value)}
+                  onChange={(e) => {
+                    setApiBase(e.target.value);
+                    resetConnectionTest();
+                  }}
                   placeholder={providerMeta.defaultApiBase ?? 'https://api.example.com/v1'}
                 />
               </div>
@@ -614,7 +633,7 @@ export function SetupWizard({
                   value={apiKey}
                   onChange={(e) => {
                     setApiKey(e.target.value);
-                    setTestResult('idle');
+                    resetConnectionTest();
                   }}
                   placeholder="sk-..."
                 />
@@ -628,7 +647,10 @@ export function SetupWizard({
                 </label>
                 <Input
                   value={apiBase}
-                  onChange={(e) => setApiBase(e.target.value)}
+                  onChange={(e) => {
+                    setApiBase(e.target.value);
+                    resetConnectionTest();
+                  }}
                   placeholder="https://api.openai.com/v1"
                 />
               </div>
@@ -662,9 +684,18 @@ export function SetupWizard({
                 {testResult === 'error' && (
                   <span className="text-xs text-[var(--danger)]">{testError}</span>
                 )}
+                {testResult === 'idle' && testError && (
+                  <span className="text-xs text-[var(--text-muted)]">{testError}</span>
+                )}
               </div>
             )}
           </>
+        )}
+
+        {saveError && (
+          <div className="rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-3 py-2 text-xs text-[var(--danger)]">
+            {saveError}
+          </div>
         )}
 
         <div className="flex gap-2 mt-2">

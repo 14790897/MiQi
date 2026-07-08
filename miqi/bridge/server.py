@@ -128,7 +128,6 @@ class BridgeState:
         self._approval_decisions: dict[str, str] = {}
         self._approval_meta: dict[str, dict] = {}
         self._sandbox_manager: Any = None  # shared SandboxManager across agents
-        self._event_emitter: Any = None  # Phase 1 shared EventEmitter
         self._agent_control: Any = None  # Phase 2 shared AgentControl
         self._orchestrator: Any = None  # Phase 3 shared ToolOrchestrator
         self._plan_tracker: Any = None  # Phase 9 shared PlanTracker

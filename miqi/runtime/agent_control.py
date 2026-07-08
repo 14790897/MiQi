@@ -229,6 +229,38 @@ class AgentControl:
             self._agents[agent_id] = agent
             self._thread_agents[fork_thread_id] = agent_id
 
+        if self._store is not None:
+            self._store.add_edge(
+                parent_agent_id=source_agent_id,
+                child_agent_id=agent_id,
+                child_thread_id=fork_thread_id,
+            )
+
+        # Emit spawned event for forked agent
+        await self._events.emit(SubAgentSpawnedEvent(
+            parent_turn_id=source_thread_id,
+            sub_agent_id=agent_id,
+            sub_thread_id=fork_thread_id,
+            agent_type=fork_type,
+            task_label=f"fork from {source_thread_id}",
+        ))
+
+        # Fire sub-agent lifecycle start hook
+        if self._hooks is not None:
+            await self._hooks.run(
+                HookPoint.SUBAGENT_START,
+                LifecycleHookContext(
+                    hook_point=HookPoint.SUBAGENT_START,
+                    data={
+                        "agent_id": agent_id,
+                        "thread_id": fork_thread_id,
+                        "agent_type": fork_type,
+                        "task": f"fork from {source_thread_id}",
+                        "parent_agent_id": source_agent_id,
+                    },
+                ),
+            )
+
         logger.info(
             "Forked thread {} → {} (type: {})",
             source_thread_id, fork_thread_id, fork_type,
@@ -593,22 +625,32 @@ class AgentControl:
         finally:
             # Phase 51.3: fire sub-agent lifecycle end hook on every completion path.
             if self._hooks is not None:
-                await self._hooks.run(
-                    HookPoint.SUBAGENT_END,
-                    LifecycleHookContext(
-                        hook_point=HookPoint.SUBAGENT_END,
-                        data={
-                            "agent_id": agent.agent_id,
-                            "thread_id": agent.thread_id,
-                            "status": agent.state.current.value,
-                        },
-                    ),
-                )
+                try:
+                    await self._hooks.run(
+                        HookPoint.SUBAGENT_END,
+                        LifecycleHookContext(
+                            hook_point=HookPoint.SUBAGENT_END,
+                            data={
+                                "agent_id": agent.agent_id,
+                                "thread_id": agent.thread_id,
+                                "status": agent.state.current.value,
+                            },
+                        ),
+                    )
+                except Exception:
+                    logger.exception(
+                        "SUBAGENT_END hook failed for agent {}",
+                        agent.agent_id,
+                    )
 
     @staticmethod
     def _format_tool_hint(name: str, args: dict) -> str:
         """Format a tool call as a concise display hint."""
-        val = next(iter(args.values()), "") if args else ""
+        val = ""
+        if args:
+            val = args.get("path") or args.get("file_path") or args.get("filename")
+            if val is None:
+                val = next(iter(args.values()), "")
         if not isinstance(val, str):
             return name
         if len(val) > 50:

@@ -333,6 +333,89 @@ async def test_sub_agent_result_persisted(
 
 
 @pytest.mark.asyncio
+async def test_subagent_end_hook_error_does_not_fail_successful_agent(
+    tmp_path,
+    event_emitter,
+    fake_provider,
+    fake_tool_registry,
+):
+    from miqi.runtime.agent_registry import AgentRegistry
+    from miqi.execution.hook_runtime import HookPoint
+
+    hooks = MagicMock()
+
+    async def run_hook(point, ctx):
+        if point == HookPoint.SUBAGENT_END:
+            raise RuntimeError("hook exploded")
+
+    hooks.run = AsyncMock(side_effect=run_hook)
+    control = AgentControl(
+        session_id="test-session",
+        registry=AgentRegistry(),
+        event_emitter=event_emitter,
+        workspace=tmp_path,
+        provider=None,
+        tool_registry=fake_tool_registry,
+        orchestrator="placeholder",
+        hooks=hooks,
+    )
+    agent = await control.spawn("code-agent", "task", label="hook-success")
+    control._provider = fake_provider
+    fake_provider.response_sequence = [
+        _FakeResponse(content="Task complete.", tool_calls=[]),
+    ]
+
+    await control._run_agent(agent, "task")
+
+    assert agent.state.current == AgentStatus.COMPLETED
+    assert agent.result == "Task complete."
+    assert agent.error is None
+
+
+@pytest.mark.asyncio
+async def test_subagent_end_hook_error_does_not_mask_agent_error(
+    tmp_path,
+    event_emitter,
+    fake_provider,
+    fake_tool_registry,
+):
+    from miqi.runtime.agent_registry import AgentRegistry
+    from miqi.execution.hook_runtime import HookPoint
+
+    hooks = MagicMock()
+
+    async def run_hook(point, ctx):
+        if point == HookPoint.SUBAGENT_END:
+            raise RuntimeError("hook exploded")
+
+    hooks.run = AsyncMock(side_effect=run_hook)
+    control = AgentControl(
+        session_id="test-session",
+        registry=AgentRegistry(),
+        event_emitter=event_emitter,
+        workspace=tmp_path,
+        provider=None,
+        tool_registry=fake_tool_registry,
+        orchestrator=None,
+        hooks=hooks,
+    )
+    agent = await control.spawn("code-agent", "task", label="hook-failure")
+    control._provider = fake_provider
+    fake_provider.response_sequence = [
+        _FakeResponse(
+            tool_calls=[_FakeToolCall("read_file", {"path": "/tmp/x"}, "tc-1")],
+        ),
+    ]
+
+    await control._run_agent(agent, "task")
+
+    assert agent.state.current == AgentStatus.ERROR
+    assert agent.error is not None
+    assert "ToolOrchestrator must be configured" in agent.error
+    assert "hook exploded" not in agent.error
+
+
+@pytest.mark.asyncio
 async def test_get_agent_detail_unknown_raises(tmp_path, event_emitter):
     """get_agent_detail should raise KeyError for unknown agent IDs."""
     from miqi.runtime.agent_control import AgentControl
