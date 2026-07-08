@@ -703,6 +703,7 @@ export function ChatConsole({
     let displayed = '';
     let animId: number | null = null;
     let finalDone = false;
+    let finalCleanupTimer: ReturnType<typeof setTimeout> | null = null;
 
     // Reveal the assistant reply with a typewriter animation. The bubble is
     // created lazily — only once the first chunk of content is available — so
@@ -713,8 +714,7 @@ export function ChatConsole({
       if (displayed.length >= fullContent.length) {
         if (finalDone) {
           setStreaming(false);
-          sendCleanup();
-          if (onChatFinished) onChatFinished();
+          scheduleFinalCleanup();
         }
         return;
       }
@@ -766,11 +766,24 @@ export function ChatConsole({
     }, 5_000); // check every 5s
 
     const sendCleanup = () => {
+      if (finalCleanupTimer) {
+        clearTimeout(finalCleanupTimer);
+        finalCleanupTimer = null;
+      }
       if (watchdogTimer) {
         clearInterval(watchdogTimer);
         watchdogTimer = null;
       }
       cleanupListeners();
+    };
+
+    const scheduleFinalCleanup = () => {
+      if (finalCleanupTimer) return;
+      finalCleanupTimer = setTimeout(() => {
+        finalCleanupTimer = null;
+        sendCleanup();
+        if (onChatFinished) onChatFinished();
+      }, 100);
     };
 
     const unsubProgress = window.miqi.chat.onProgress((data: any) => {
@@ -826,6 +839,10 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
+      if (finalCleanupTimer) {
+        clearTimeout(finalCleanupTimer);
+        finalCleanupTimer = null;
+      }
       if (animId !== null) {
         cancelAnimationFrame(animId);
         animId = null;
@@ -852,10 +869,10 @@ export function ChatConsole({
       // immediately instead of waiting on an animation that has nothing to show.
       if (!fullContent) {
         setStreaming(false);
-        sendCleanup();
-        if (onChatFinished) onChatFinished();
+        scheduleFinalCleanup();
         return;
       }
+      setStreaming(true);
       animId = requestAnimationFrame(revealNext);
     });
 
