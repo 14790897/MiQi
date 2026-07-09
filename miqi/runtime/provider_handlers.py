@@ -22,6 +22,23 @@ from miqi.runtime.app_server import AppServerError, get_bridge_state
 
 VERIFICATION_KEY = "providerVerification"
 VERIFICATION_STATUSES = {"success", "failed", "unverified"}
+PROVIDER_TEST_MODELS = {
+    "anthropic": "claude-opus-4-5",
+    "openai": "gpt-4.1",
+    "deepseek": "deepseek-v4-flash",
+    "gemini": "gemini-2.5-pro",
+    "moonshot": "kimi-k2.5",
+    "dashscope": "qwen-max",
+    "zhipu": "glm-4",
+    "minimax": "MiniMax-M2.7",
+    "aihubmix": "claude-opus-4.1",
+    "siliconflow": "deepseek-ai/DeepSeek-V3",
+    "vllm": "meta-llama/Llama-3.1-8B-Instruct",
+    "ollama_local": "llama3.2",
+    "ollama_cloud": "gpt-oss:20b-cloud",
+    "openrouter": "anthropic/claude-opus-4-5",
+    "custom": "default",
+}
 
 
 def _provider_fingerprint(provider_config: Any) -> str | None:
@@ -155,6 +172,7 @@ async def providers_test_handler(
     provider_name = params.get("provider_name", "")
     api_key = params.get("api_key") or ""
     api_base = params.get("api_base") or None
+    requested_model = str(params.get("model") or "").strip()
 
     if not provider_name:
         raise AppServerError("provider_name is required", code="INVALID_PARAMS")
@@ -171,6 +189,14 @@ async def providers_test_handler(
     state = get_bridge_state(registry)
     config = state.load_config()
     pc = getattr(config.providers, provider_name, None)
+    active_model = getattr(config.agents.defaults, "model", "") or ""
+    active_provider = config.get_provider_name(active_model) if active_model else None
+    test_model = (
+        requested_model
+        or (active_model if active_provider == provider_name else "")
+        or PROVIDER_TEST_MODELS.get(provider_name)
+        or "gpt-4o"
+    )
     explicit_api_key = bool(api_key)
     explicit_api_base = (
         bool(api_base)
@@ -195,23 +221,32 @@ async def providers_test_handler(
     if spec.provider_type == "anthropic":
         from miqi.providers.anthropic_provider import AnthropicProvider
         provider = AnthropicProvider(
-            api_key=api_key, api_base=api_base, provider_name=provider_name,
+            api_key=api_key,
+            api_base=api_base,
+            provider_name=provider_name,
+            default_model=test_model,
         )
     elif spec.provider_type == "gemini":
         from miqi.providers.gemini_provider import GeminiProvider
         provider = GeminiProvider(
-            api_key=api_key, api_base=api_base, provider_name=provider_name,
+            api_key=api_key,
+            api_base=api_base,
+            provider_name=provider_name,
+            default_model=test_model,
         )
     else:
         from miqi.providers.openai_provider import OpenAIProvider
         provider = OpenAIProvider(
-            api_key=api_key, api_base=api_base, provider_name=provider_name,
+            api_key=api_key,
+            api_base=api_base,
+            provider_name=provider_name,
+            default_model=test_model,
         )
 
     try:
         response = await provider.chat(
             messages=[{"role": "user", "content": "Hello, respond with just 'ok'."}],
-            model=provider.get_default_model(),
+            model=test_model,
             max_tokens=16,
             temperature=0.0,
         )
@@ -237,7 +272,7 @@ async def providers_test_handler(
             )
             save_config(config)
             state.config = config
-        return {"result": {"ok": ok, "model": provider.get_default_model()}}
+        return {"result": {"ok": ok, "model": test_model}}
     except Exception as exc:
         fingerprint = _provider_fingerprint(pc)
         if should_persist_result and fingerprint:

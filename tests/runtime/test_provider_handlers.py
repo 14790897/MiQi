@@ -187,6 +187,36 @@ async def test_providers_test_persists_success_for_saved_config(registry_with_st
 
 
 @pytest.mark.asyncio
+async def test_providers_test_uses_requested_model(registry_with_state, monkeypatch):
+    """providers.test must test the requested provider model, not OpenAI's default."""
+    from miqi.providers.openai_provider import OpenAIProvider
+    from miqi.runtime.provider_handlers import providers_test_handler
+
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    config.providers.deepseek.api_key = "sk-test-deepseek"
+    mock_state.load_config.return_value = config
+    seen_models = []
+
+    async def fake_chat(self, *args, **kwargs):
+        seen_models.append(kwargs.get("model"))
+        return SimpleNamespace(content="ok")
+
+    monkeypatch.setattr(OpenAIProvider, "chat", fake_chat)
+    monkeypatch.setattr("miqi.config.loader.save_config", lambda cfg: None)
+
+    result = await providers_test_handler(
+        "req-1",
+        {"provider_name": "deepseek", "model": "deepseek-v4-flash"},
+        "client-1", None, registry,
+    )
+
+    assert result["result"]["ok"] is True
+    assert result["result"]["model"] == "deepseek-v4-flash"
+    assert seen_models == ["deepseek-v4-flash"]
+
+
+@pytest.mark.asyncio
 async def test_providers_test_does_not_persist_unsaved_api_base(registry_with_state, monkeypatch):
     """Testing temporary edit-sheet values must not mark the saved config verified."""
     from miqi.providers.openai_provider import OpenAIProvider

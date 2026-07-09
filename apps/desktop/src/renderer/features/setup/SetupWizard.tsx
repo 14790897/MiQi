@@ -80,7 +80,7 @@ const STATIC_PROVIDERS: StaticProvider[] = [
   {
     name: 'deepseek',
     displayName: 'DeepSeek',
-    defaultModel: 'deepseek-chat',
+    defaultModel: 'deepseek-v4-flash',
     isLocal: false,
     isOllamaCloud: false,
     keyRequired: true,
@@ -313,7 +313,12 @@ export function SetupWizard({
     setTestResult('testing');
     setTestError('');
     try {
-      const result = await window.miqi.providers.test(selectedProvider, apiKey, apiBase || undefined);
+      const result = await window.miqi.providers.test(
+        selectedProvider,
+        apiKey,
+        apiBase || undefined,
+        modelName || providerMeta?.defaultModel
+      );
       if (result.ok) {
         setTestResult('ok');
       } else {

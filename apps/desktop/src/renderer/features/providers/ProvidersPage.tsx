@@ -162,7 +162,8 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
       const result = await window.miqi.providers.test(
         provider.name,
         apiKey || undefined,
-        apiBase || undefined
+        apiBase || undefined,
+        model || provider.configured_model || undefined
       );
       setTestResult({
         ok: result.ok,
@@ -402,7 +403,7 @@ const PROVIDER_SUGGESTED_MODELS: Record<string, string[]> = {
   volcengine: ['doubao-pro-32k', 'doubao-lite-32k', 'doubao-1-5-pro-32k'],
   anthropic: ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'],
   openai: ['gpt-4o', 'gpt-4o-mini', 'o3', 'o4-mini'],
-  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+  deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'],
   gemini: ['gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.5-flash'],
   groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'moonshard-whisper-large-v3'],
   zhipu: ['glm-4-plus', 'glm-z1-flash', 'glm-4-long'],
@@ -583,7 +584,12 @@ export function ProvidersPage() {
     }
     setTestingName(p.name);
     try {
-      await window.miqi.providers.test(p.name, undefined, p.api_base ?? undefined);
+      await window.miqi.providers.test(
+        p.name,
+        undefined,
+        p.api_base ?? undefined,
+        p.configured_model || undefined
+      );
     } catch {
       // providers.test persists failed verification for saved configs.
     } finally {

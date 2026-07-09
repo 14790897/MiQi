@@ -190,6 +190,7 @@ export const ProviderTestInput = z.object({
   provider_name: z.string().min(1),
   api_key: z.string().optional(),
   api_base: z.string().nullable().optional(),
+  model: z.string().optional(),
 });
 
 export const ProviderUpdateInput = z.object({

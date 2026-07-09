@@ -155,11 +155,17 @@ const api = {
   // -- Providers --------------------------------------------------------------
   providers: {
     list: (): Promise<ProvidersListResult> => ipcRenderer.invoke(IPC.PROVIDERS_LIST),
-    test: (providerName: string, apiKey?: string, apiBase?: string): Promise<{ ok: boolean }> =>
+    test: (
+      providerName: string,
+      apiKey?: string,
+      apiBase?: string,
+      model?: string
+    ): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke(IPC.PROVIDERS_TEST, {
         provider_name: providerName,
         api_key: apiKey,
         api_base: apiBase ?? null,
+        model,
       }),
     update: (
       providerName: string,
