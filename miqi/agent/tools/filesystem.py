@@ -163,6 +163,30 @@ def _get_active_sandbox(sandbox_manager):
     return None
 
 
+def _get_session_workspace(base_workspace: Path | None, sandbox) -> Path | None:
+    """Compute the per-session workspace directory based on the sandbox session_key.
+
+    When session_workspace_enabled is True, each session gets its own
+    isolated directory under <base_workspace>/sessions/<safe_key>/files/.
+    This is used by WriteFileTool/ReadFileTool/EditFileTool to ensure
+    files created in one session are not visible to another.
+    """
+    if base_workspace is None or sandbox is None:
+        return base_workspace
+    session_key = getattr(sandbox, "session_key", None) or ""
+    # session_key may be namespaced like "client_id:desktop_session_key"
+    # ─ extract only the part after the first ":" if present
+    key = session_key.split(":", 1)[-1] if ":" in session_key else session_key
+    if not key:
+        return base_workspace
+    from miqi.utils.helpers import safe_filename
+    safe_key = safe_filename(key.replace(":", "_"))
+    session_ws = base_workspace / "sessions" / safe_key / "files"
+    session_ws.mkdir(parents=True, exist_ok=True)
+    _log.debug("Session workspace: %s → %s", session_key, session_ws)
+    return session_ws
+
+
 def _resolve_sandbox_path(path: str, workspace: Path | None, sandbox) -> str:
     """Resolve a path for use inside the sandbox.
 
@@ -377,9 +401,10 @@ class ReadFileTool(Tool):
 
     async def execute(self, path: str, **kwargs: Any) -> str:
         sandbox = _get_active_sandbox(self._sandbox_manager)
+        session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
-            sandbox_path = _resolve_sandbox_path(path, self._workspace, sandbox)
+            sandbox_path = _resolve_sandbox_path(path, session_ws, sandbox)
             _log.info("read_file [sandbox]: %s → %s", path, sandbox_path)
             try:
                 exists = await _sandbox_file_exists(sandbox, sandbox_path)
@@ -462,9 +487,10 @@ class WriteFileTool(Tool):
             )
 
         sandbox = _get_active_sandbox(self._sandbox_manager)
+        session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
-            sandbox_path = _resolve_sandbox_path(path, self._workspace, sandbox)
+            sandbox_path = _resolve_sandbox_path(path, session_ws, sandbox)
             _log.info("write_file [sandbox]: %s → %s", path, sandbox_path)
             try:
                 await _sandbox_write_file(sandbox, sandbox_path, content)
@@ -539,9 +565,10 @@ class EditFileTool(Tool):
 
     async def execute(self, path: str, old_text: str, new_text: str, **kwargs: Any) -> str:
         sandbox = _get_active_sandbox(self._sandbox_manager)
+        session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
-            sandbox_path = _resolve_sandbox_path(path, self._workspace, sandbox)
+            sandbox_path = _resolve_sandbox_path(path, session_ws, sandbox)
             _log.info("edit_file [sandbox]: %s → %s", path, sandbox_path)
             try:
                 exists = await _sandbox_file_exists(sandbox, sandbox_path)
@@ -662,9 +689,10 @@ class ListDirTool(Tool):
 
     async def execute(self, path: str, **kwargs: Any) -> str:
         sandbox = _get_active_sandbox(self._sandbox_manager)
+        session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
-            sandbox_path = _resolve_sandbox_path(path, self._workspace, sandbox)
+            sandbox_path = _resolve_sandbox_path(path, session_ws, sandbox)
             _log.info("list_dir [sandbox]: %s → %s", path, sandbox_path)
             try:
                 exists = await _sandbox_dir_exists(sandbox, sandbox_path)
