@@ -415,6 +415,7 @@ export function ChatConsole({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const unsubsRef = useRef<Array<() => void>>([]);
+  const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef(sessionKey);
   // Track the active thread ID for new-protocol thread-aware conversations
   const currentThreadIdRef = useRef<string | null>(null);
@@ -585,10 +586,18 @@ export function ChatConsole({
     };
   }, []);
 
+  const clearFinalCleanupTimer = useCallback(() => {
+    if (finalCleanupTimerRef.current) {
+      clearTimeout(finalCleanupTimerRef.current);
+      finalCleanupTimerRef.current = null;
+    }
+  }, []);
+
   const cleanupListeners = useCallback(() => {
+    clearFinalCleanupTimer();
     for (const unsub of unsubsRef.current) unsub();
     unsubsRef.current = [];
-  }, []);
+  }, [clearFinalCleanupTimer]);
 
   const handleAttachClick = () => fileInputRef.current?.click();
 
@@ -713,8 +722,7 @@ export function ChatConsole({
       if (displayed.length >= fullContent.length) {
         if (finalDone) {
           setStreaming(false);
-          sendCleanup();
-          if (onChatFinished) onChatFinished();
+          scheduleFinalCleanup();
         }
         return;
       }
@@ -773,6 +781,15 @@ export function ChatConsole({
       cleanupListeners();
     };
 
+    const scheduleFinalCleanup = () => {
+      if (finalCleanupTimerRef.current) return;
+      finalCleanupTimerRef.current = setTimeout(() => {
+        finalCleanupTimerRef.current = null;
+        sendCleanup();
+        if (onChatFinished) onChatFinished();
+      }, 100);
+    };
+
     const unsubProgress = window.miqi.chat.onProgress((data: any) => {
       lastEventAt = Date.now();
       // Handle stream deltas from exec (Phase 7 inline tool progress)
@@ -826,6 +843,7 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
+      clearFinalCleanupTimer();
       if (animId !== null) {
         cancelAnimationFrame(animId);
         animId = null;
@@ -882,10 +900,10 @@ export function ChatConsole({
       // immediately instead of waiting on an animation that has nothing to show.
       if (!fullContent) {
         setStreaming(false);
-        sendCleanup();
-        if (onChatFinished) onChatFinished();
+        scheduleFinalCleanup();
         return;
       }
+      setStreaming(true);
       animId = requestAnimationFrame(revealNext);
     });
 
