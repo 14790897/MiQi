@@ -655,23 +655,26 @@ test.describe('Native Electron E2E', () => {
   );
 
   test(
-    'create AI PowerPoint via create_pptx tool',
+    'create AI PowerPoint via pptx-generator skill',
     { timeout: 600_000 },
     async () => {
+      // Pre-grant permanent approval for create_pptx so no dialog appears
+      await waitForBridgeInitialized(page);
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.addPermanent('create_pptx:ai_intro.pptx', 'always'),
+      );
+
       await createNewConversation(page);
 
       await sendMessage(
         page,
-        '使用 pptx 技能创建一个 3 页 PPT，主题"人工智能简介"。封面包含标题+副标题，第2页介绍3大核心技术，第3页介绍3大应用场景。使用深蓝色主题(#065A82)。文件名 ai_intro.pptx',
+        '使用 pptx-generator 技能创建一个 AI 主题 PPT：tech_dark 风格，3 页——封面（标题"人工智能简介"、副标题"从技术到应用"）、内容页（标题"核心技术"、items: 深度学习、自然语言处理、计算机视觉）、总结页（标题"展望未来"、points: AGI、人机协作、AI安全，结论"AI 将重塑每个行业"）。文件名 ai_intro.pptx',
       );
-      await page.getByText('文件操作审批').waitFor({ timeout: 30_000 }).catch(() => {});
-      const allowBtn = page.getByRole('button', { name: '永久允许' });
-      if (await allowBtn.isVisible().catch(() => false)) await allowBtn.click();
       await waitForResponseComplete(page, 360_000);
 
       const pptxFile = page.getByText('ai_intro.pptx');
       await expect(pptxFile.first()).toBeVisible({ timeout: 60_000 });
-      console.log('[test] ✅ AI PowerPoint created');
+      console.log('[test] ✅ AI PowerPoint created via pptx-generator');
     },
   );
 });
