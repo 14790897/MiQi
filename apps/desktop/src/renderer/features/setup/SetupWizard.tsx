@@ -53,6 +53,23 @@ interface StaticProvider {
 
 const DEFAULT_WORKSPACE = '~/.miqi/workspace';
 
+const PROVIDER_MODEL_SUGGESTIONS: Record<string, string[]> = {
+  openrouter: ['anthropic/claude-opus-4-5', 'google/gemini-2.5-pro', 'deepseek/deepseek-r1'],
+  anthropic: ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'],
+  openai: ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini'],
+  deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'],
+  gemini: ['gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.5-flash'],
+  moonshot: ['kimi-k2.5', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+  dashscope: ['qwen-max', 'qwen-plus', 'qwen-turbo'],
+  zhipu: ['glm-4-plus', 'glm-z1-flash', 'glm-4-long'],
+  minimax: ['MiniMax-Text-01', 'abab6.5s-chat'],
+  aihubmix: ['claude-opus-4-5', 'gpt-4o', 'gemini-2.5-pro'],
+  siliconflow: ['Qwen/Qwen3-235B-A22B', 'deepseek-ai/DeepSeek-V3', 'deepseek-ai/DeepSeek-R1'],
+  vllm: ['meta-llama/Llama-3.1-8B-Instruct'],
+  ollama_local: ['llama3.2', 'qwen2.5:7b', 'deepseek-r1:7b'],
+  ollama_cloud: ['gpt-oss:20b-cloud'],
+};
+
 const STATIC_PROVIDERS: StaticProvider[] = [
   {
     name: 'openrouter',
@@ -192,28 +209,51 @@ export function SetupWizard({
   const [wslCheck, setWslCheck] = useState<CheckState<WslStatus>>({ status: 'idle' });
 
   useEffect(() => {
-    window.miqi.config
-      .get()
-      .then((cfg) => {
+    Promise.all([
+      window.miqi.config.get().catch(() => null),
+      window.miqi.providers.list().catch(() => null),
+    ])
+      .then(([cfg, providersResult]) => {
+        if (!cfg) return;
         const agents = (cfg as Record<string, unknown>)['agents'] as
           Record<string, unknown> | undefined;
         const defaults = agents?.['defaults'] as Record<string, unknown> | undefined;
+        const activeModel =
+          typeof providersResult?.active_model === 'string' && providersResult.active_model
+            ? providersResult.active_model
+            : defaults?.['model']
+              ? String(defaults['model'])
+              : '';
         if (defaults?.['workspace']) setWorkspace(String(defaults['workspace']));
-        if (defaults?.['model']) setModelName(String(defaults['model']));
+        if (activeModel) setModelName(activeModel);
 
         const providers = (cfg as Record<string, unknown>)['providers'] as
           Record<string, unknown> | undefined;
         if (!providers) return;
 
-        for (const provider of STATIC_PROVIDERS) {
-          const entry = providers[provider.name] as Record<string, unknown> | undefined;
-          if (!entry) continue;
-          if (!entry['apiKey'] && !entry['apiBase']) continue;
-          setSelectedProvider(provider.name);
-          if (entry['apiKey']) setApiKey(String(entry['apiKey']));
-          if (entry['apiBase']) setApiBase(String(entry['apiBase']));
-          break;
+        const activeProvider =
+          typeof providersResult?.active_provider === 'string'
+            ? providersResult.active_provider
+            : providersResult?.providers?.find((p) => p.configured_model)?.name;
+        const selected =
+          activeProvider && STATIC_PROVIDERS.some((p) => p.name === activeProvider)
+            ? activeProvider
+            : STATIC_PROVIDERS.find((provider) => {
+                const entry = providers[provider.name] as Record<string, unknown> | undefined;
+                return !!entry?.['apiKey'] || !!entry?.['apiBase'];
+              })?.name;
+        if (!selected) return;
+
+        const selectedMeta = STATIC_PROVIDERS.find((p) => p.name === selected);
+        const entry = providers[selected] as Record<string, unknown> | undefined;
+        setSelectedProvider(selected);
+        if (entry?.['apiKey']) setApiKey(String(entry['apiKey']));
+        if (entry?.['apiBase']) {
+          setApiBase(String(entry['apiBase']));
+        } else {
+          setApiBase(selectedMeta?.defaultApiBase ?? '');
         }
+        if (!activeModel && selectedMeta) setModelName(selectedMeta.defaultModel);
       })
       .catch(() => {
         /* no existing config yet */
@@ -577,6 +617,9 @@ export function SetupWizard({
   const renderProvider = () => {
     const needsApiBase = providerMeta?.isLocal || providerMeta?.isOllamaCloud;
     const keyOptional = providerMeta?.isLocal && !providerMeta?.isOllamaCloud;
+    const modelSuggestions = providerMeta
+      ? (PROVIDER_MODEL_SUGGESTIONS[providerMeta.name] ?? [providerMeta.defaultModel])
+      : [];
 
     return (
       <div className="flex flex-col gap-4">
@@ -671,9 +714,32 @@ export function SetupWizard({
               <label className="text-xs font-medium text-[var(--text-muted)]">默认模型</label>
               <Input
                 value={modelName}
-                onChange={(e) => setModelName(e.target.value)}
+                onChange={(e) => {
+                  setModelName(e.target.value);
+                  resetConnectionTest();
+                }}
                 placeholder={providerMeta.defaultModel}
               />
+              {modelSuggestions.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-0.5">
+                  {modelSuggestions.map((model) => (
+                    <button
+                      key={model}
+                      type="button"
+                      onClick={() => {
+                        setModelName(model);
+                        resetConnectionTest();
+                      }}
+                      className="px-2 py-0.5 rounded text-xs bg-[var(--surface-muted)] text-[var(--text-faint)] hover:text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors font-mono"
+                    >
+                      {model}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-[var(--text-faint)]">
+                当前连接测试会使用 {providerMeta.displayName} / {modelName || providerMeta.defaultModel}
+              </p>
             </div>
 
             {(keyOptional || apiKey) && (
