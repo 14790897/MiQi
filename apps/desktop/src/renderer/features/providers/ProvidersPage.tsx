@@ -251,6 +251,12 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
             )}
           </div>
 
+          {provider.api_key_hint && (
+            <p className="text-xs text-[var(--text-faint)]">
+              当前已保存：<span className="font-mono">{provider.api_key_hint}</span>；API Key 留空将保持当前值。
+            </p>
+          )}
+
           <ExtraHeadersField value={extraHeadersText} onChange={setExtraHeadersText} />
 
           <div className="flex flex-col gap-1.5">

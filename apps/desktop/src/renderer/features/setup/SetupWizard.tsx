@@ -313,8 +313,13 @@ export function SetupWizard({
     setTestResult('testing');
     setTestError('');
     try {
-      await window.miqi.providers.test(selectedProvider, apiKey, apiBase || undefined);
-      setTestResult('ok');
+      const result = await window.miqi.providers.test(selectedProvider, apiKey, apiBase || undefined);
+      if (result.ok) {
+        setTestResult('ok');
+      } else {
+        setTestResult('error');
+        setTestError('Provider 测试失败，请检查 API Key、API Base 或网络连接。');
+      }
     } catch (e: any) {
       const msg: string = e?.message ?? String(e);
       if (msg.includes('Bridge not running') || msg.includes('not running')) {

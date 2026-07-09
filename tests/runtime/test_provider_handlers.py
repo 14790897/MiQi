@@ -246,6 +246,41 @@ async def test_providers_test_persists_failure_for_saved_config(registry_with_st
     assert config.desktop["providerVerification"]["deepseek"]["status"] == "failed"
 
 
+@pytest.mark.asyncio
+async def test_providers_test_treats_error_response_as_failure(registry_with_state, monkeypatch):
+    """Provider adapters may return LLMResponse(finish_reason='error') instead of raising."""
+    from miqi.providers.base import LLMResponse
+    from miqi.providers.openai_provider import OpenAIProvider
+    from miqi.runtime.app_server import AppServerError
+    from miqi.runtime.provider_handlers import providers_test_handler
+
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    config.providers.deepseek.api_key = "bad-key"
+    mock_state.load_config.return_value = config
+    saved = []
+
+    async def fake_chat(self, *args, **kwargs):
+        return LLMResponse(
+            content="Error calling LLM: invalid api key",
+            finish_reason="error",
+            error_kind="auth",
+        )
+
+    monkeypatch.setattr(OpenAIProvider, "chat", fake_chat)
+    monkeypatch.setattr("miqi.config.loader.save_config", lambda cfg: saved.append(cfg))
+
+    with pytest.raises(AppServerError, match="Provider test failed"):
+        await providers_test_handler(
+            "req-1",
+            {"provider_name": "deepseek"},
+            "client-1", None, registry,
+        )
+
+    assert saved
+    assert config.desktop["providerVerification"]["deepseek"]["status"] == "failed"
+
+
 # ── providers.update ──────────────────────────────────────────────────────────
 
 

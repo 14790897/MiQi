@@ -215,7 +215,16 @@ async def providers_test_handler(
             max_tokens=16,
             temperature=0.0,
         )
-        ok = response.content is not None and len(response.content) > 0
+        finish_reason = getattr(response, "finish_reason", "stop")
+        error_kind = getattr(response, "error_kind", None)
+        ok = (
+            response.content is not None
+            and len(response.content.strip()) > 0
+            and finish_reason != "error"
+            and not error_kind
+        )
+        if not ok:
+            raise RuntimeError(response.content or "Provider returned an empty response")
         fingerprint = _provider_fingerprint(pc)
         if ok and should_persist_result and fingerprint:
             from miqi.config.loader import save_config
