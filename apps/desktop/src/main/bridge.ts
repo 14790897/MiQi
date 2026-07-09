@@ -169,6 +169,7 @@ export class BridgeManager extends EventEmitter {
   private reloadCooldown: number = 1000; // 1 second cooldown between reloads
   private initialized: boolean = false;
   private clientId: string = 'miqi-desktop';
+  private stoppingPromise: Promise<void> | null = null;
 
   constructor(projectRoot?: string) {
     super();
@@ -202,6 +203,9 @@ export class BridgeManager extends EventEmitter {
   }
 
   async start(): Promise<void> {
+    if (this.stoppingPromise) {
+      await this.stoppingPromise;
+    }
     if (this.state === 'running' || this.state === 'starting') return;
 
     this.state = 'starting';
@@ -489,6 +493,10 @@ export class BridgeManager extends EventEmitter {
   }
 
   async stop(): Promise<void> {
+    if (this.stoppingPromise) {
+      await this.stoppingPromise;
+      return;
+    }
     if (!this.process) return;
 
     this.state = 'stopping';
@@ -500,18 +508,44 @@ export class BridgeManager extends EventEmitter {
     this.initialized = false;
     this.clientId = 'miqi-desktop';
 
-    this.process.stdin?.end();
-    this.process.kill('SIGTERM');
+    const proc = this.process;
+    this.stoppingPromise = new Promise<void>((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(forceKillTimer);
+        clearTimeout(resolveTimer);
+        proc.removeListener('close', done);
+        proc.removeListener('exit', done);
+        this.stoppingPromise = null;
+        if (this.process === proc) {
+          this.process = null;
+          this.rl = null;
+          this.state = 'stopped';
+          this.emitState();
+        }
+        resolve();
+      };
 
-    // Force kill after 5s
-    setTimeout(() => {
-      if (this.process) {
-        this.process.kill('SIGKILL');
-      }
-    }, 5000);
+      const forceKillTimer = setTimeout(() => {
+        if (this.process === proc) {
+          proc.kill('SIGKILL');
+        }
+      }, 5000);
+
+      const resolveTimer = setTimeout(done, 5500);
+
+      proc.once('close', done);
+      proc.once('exit', done);
+
+      proc.stdin?.end();
+      proc.kill('SIGTERM');
+    });
 
     this.addLog('Bridge stopping');
     this.recordMainLog('INFO', 'Bridge stopping');
+    await this.stoppingPromise;
   }
 
   private startFileWatcher(): void {
@@ -558,13 +592,13 @@ export class BridgeManager extends EventEmitter {
 
     // Schedule restart after a short delay to allow multiple files to change
     setTimeout(() => {
-      this.restart().catch((err) => {
+      this.hotReloadRestart().catch((err) => {
         this.addLog(`[Hot Reload] Restart error: ${err}`);
       });
     }, 500);
   }
 
-  private async restart(): Promise<void> {
+  private async hotReloadRestart(): Promise<void> {
     if (this.state !== 'running') return;
 
     this.addLog('[Hot Reload] Restarting bridge due to code changes...');
@@ -575,18 +609,7 @@ export class BridgeManager extends EventEmitter {
     }
     this.pending.clear();
 
-    // Stop current process
-    if (this.process) {
-      this.process.stdin?.end();
-      this.process.kill('SIGTERM');
-    }
-
-    // Reset state so start() can proceed
-    this.state = 'stopped';
-    this.process = null;
-
-    // Wait briefly for process to exit
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await this.stop();
 
     // Restart
     try {
