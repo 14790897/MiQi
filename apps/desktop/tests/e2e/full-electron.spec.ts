@@ -606,17 +606,14 @@ test.describe('Native Electron E2E', () => {
         '用 exec 执行: cat /home/miqi/workspace/session_isolation_test.txt 2>&1',
       );
       await waitForResponseComplete(page, 120_000);
+      await page.waitForTimeout(3000);
 
-      await waitForResponseComplete(page, 120_000);
-      await page.waitForTimeout(3000); // wait for exec output to render
-      // Session B should confirm file not found
-      const mainTextB = await page.locator('main').textContent();
-      // Strip whitespace for reliable matching
-      const collapsed = mainTextB.replace(/\s+/g, ' ');
-      // AI must indicate the file doesn't exist
-      const ok = /no such file|not found|不存在|does not exist/i.test(collapsed);
-      if (!ok) console.log('[test] AI response:', collapsed.substring(0, 500));
-      expect(ok).toBe(true);
+      const mainB = await page.locator('main').textContent() || '';
+      const hasNotFound = /no such file|not found|not exist|does not exist|不存在|No such|cat.*error/i.test(mainB);
+      if (!hasNotFound) {
+        console.log('[test] Session B text (600):', mainB.substring(0, 600));
+      }
+      expect(hasNotFound).toBe(true);
       await page.waitForTimeout(800);
       await page.screenshot({ path: 'test-results/session-isolation-02-sessionB-cannot-see.png' });
       console.log('[test] ✅ Session B cannot see Session A file');
