@@ -2,11 +2,49 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 import type { RuntimeStatus } from '../../shared/ipc';
 import { sanitizeUiMessage } from '../lib/sanitizeUiMessage';
 
+interface RuntimeLogEntry {
+  id: number;
+  timestamp: string;
+  level: string;
+  source: string;
+  message: string;
+  sessionKey?: string;
+}
+
 const hasApi = typeof window !== 'undefined' && !!(window as any).miqi?.runtime;
+
+// Monotonically increasing counter for stable log entry ids.
+let _nextLogId = 0;
+
+/** Parse a formatted log line into a RuntimeLogEntry, falling back to sensible defaults. */
+function parseLogLine(msg: string): Omit<RuntimeLogEntry, 'id'> {
+  // Three-bracket format: [timestamp] [level] [source] message
+  const m = msg.match(/^\[([^\]]+)\]\s*\[([^\]]+)\]\s*\[([^\]]+)\]\s*(.*)/s);
+  if (m) {
+    return { timestamp: m[1], level: m[2], source: m[3], message: m[4] };
+  }
+  // Single-bracket bridge format: [timestamp] message (no level/source)
+  const m1 = msg.match(/^\[([^\]]+)\]\s*(.*)/s);
+  if (m1) {
+    return {
+      timestamp: m1[1],
+      level: msg.includes('ERROR') ? 'ERROR' : msg.includes('WARN') ? 'WARN' : 'INFO',
+      source: 'bridge',
+      message: m1[2],
+    };
+  }
+  return {
+    timestamp: new Date().toISOString(),
+    level: msg.includes('ERROR') ? 'ERROR' : msg.includes('WARN') ? 'WARN' : 'INFO',
+    source: 'bridge',
+    message: msg,
+  };
+}
 
 interface RuntimeContextValue {
   status: RuntimeStatus;
   logs: string[];
+  entries: RuntimeLogEntry[];
   lastError: string | null;
   start: () => Promise<RuntimeStatus | undefined>;
   stop: () => Promise<RuntimeStatus | undefined>;
@@ -23,6 +61,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       : { state: 'error', configured: false, error: 'Preload API 不可用' }
   );
   const [logs, setLogs] = useState<string[]>([]);
+  const [entries, setEntries] = useState<RuntimeLogEntry[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
 
   const refreshStatus = useCallback(async () => {
@@ -45,10 +84,21 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   const refreshLogs = useCallback(async () => {
     if (!hasApi) return;
     try {
-      const l = await window.miqi.runtime.logs();
-      setLogs(l);
+      const bridgeLogs = await window.miqi.runtime.logs();
+      setLogs(bridgeLogs);
+
+      // Fetch persisted file logs (renderer/main/backend) and merge with bridge logs.
+      let fileLines: string[] = [];
+      try {
+        fileLines = await window.miqi.runtime.fileLogs?.() ?? [];
+      } catch { /* file logs may not be available */ }
+
+      const allLines = [...bridgeLogs, ...fileLines];
+      setEntries(allLines.map((msg: string) => ({
+        id: _nextLogId++,
+        ...parseLogLine(msg),
+      })));
     } catch (e: any) {
-      // Log fetch failure is less critical; don't overwrite status
       setLastError(sanitizeUiMessage(e?.message ?? 'Failed to fetch runtime logs'));
     }
   }, []);
@@ -70,20 +120,89 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!hasApi) return;
     refreshStatus();
+    refreshLogs();  // fetch initial log entries (bridge + backend files)
     const unsubState = window.miqi.runtime.onStateChange((s) => setStatus(s));
     const unsubLog = window.miqi.runtime.onLog((msg) => {
       console.log(`[renderer] Received log: ${msg}`);
       setLogs((prev) => [...prev.slice(-499), msg]);
+      setEntries((prev) => [
+        ...prev.slice(-499),
+        {
+          id: _nextLogId++,
+          ...parseLogLine(msg),
+        },
+      ]);
     });
+
+    // Capture uncaught synchronous errors in the renderer (JS errors only, not resource load failures)
+    const onError = (event: ErrorEvent) => {
+      // Filter out resource load errors (no .error property, or target is not window)
+      if (!event.error && event.target !== window) return;
+      const msg = event.error instanceof Error
+        ? `Uncaught error: ${event.error.message}\n${event.error.stack ?? ''}`
+        : `Uncaught error: ${event.message} at ${event.filename}:${event.lineno}`;
+      window.miqi.runtime.reportRendererLog?.({
+        level: 'ERROR',
+        message: msg,
+        source: 'renderer',
+      });
+    };
+    window.addEventListener('error', onError);
+
+    // Capture unhandled Promise rejections in the renderer
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      const msg = reason instanceof Error
+        ? `Unhandled rejection: ${reason.message}\n${reason.stack ?? ''}`
+        : `Unhandled rejection: ${String(reason)}`;
+      window.miqi.runtime.reportRendererLog?.({
+        level: 'ERROR',
+        message: msg,
+        source: 'renderer',
+      });
+    };
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+
+    window.miqi.runtime.reportRendererLog?.({
+      level: 'INFO',
+      message: 'Runtime context initialized',
+      source: 'renderer',
+    });
+
+    // Record navigation timing metrics after initial render
+    const recordPerf = () => {
+      try {
+        const navEntries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+        if (navEntries.length > 0) {
+          const nav = navEntries[0];
+          const metrics = [
+            `domInteractive=${Math.round(nav.domInteractive)}ms`,
+            `domComplete=${Math.round(nav.domComplete)}ms`,
+            `loadComplete=${Math.round(nav.loadEventEnd)}ms`,
+            `firstPaint=${Math.round(nav.responseEnd - nav.fetchStart)}ms`,
+          ].join(', ');
+          window.miqi.runtime.reportRendererLog?.({
+            level: 'INFO',
+            message: `首屏渲染指标: ${metrics}`,
+            source: 'renderer',
+          });
+        }
+      } catch { /* Performance API not available */ }
+    };
+    // Delay slightly to let loadEventEnd populate
+    const perfTimer = setTimeout(recordPerf, 1000);
     return () => {
       unsubState();
       unsubLog();
+      clearTimeout(perfTimer);
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onUnhandledRejection);
     };
-  }, [refreshStatus]);
+  }, [refreshStatus, refreshLogs]);
 
   return (
     <RuntimeContext.Provider
-      value={{ status, logs, start, stop, refreshStatus, refreshLogs, lastError }}
+      value={{ status, logs, entries, start, stop, refreshStatus, refreshLogs, lastError }}
     >
       {children}
     </RuntimeContext.Provider>

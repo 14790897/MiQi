@@ -1,7 +1,13 @@
 import { join } from 'path';
+import { inspect } from 'util';
 import { electron } from '../shared/electron';
 import { registerIpcHandlers } from './ipc';
 import { BridgeManager } from './bridge';
+import { writeMainProcessLog } from './electron-log';
+
+const originalConsoleLog = console.log.bind(console);
+const originalConsoleWarn = console.warn.bind(console);
+const originalConsoleError = console.error.bind(console);
 
 const { app, BrowserWindow, shell, Menu } = electron;
 
@@ -40,6 +46,8 @@ function createWindow(): void {
   mainWindow.webContents.on(
     'did-fail-load',
     (_event, errorCode, errorDescription, validatedURL) => {
+      // console.error is globally overridden to call writeMainProcessLog,
+      // so we only call it once here to avoid double-logging.
       console.error(
         `[main] did-fail-load: code=${errorCode} desc=${errorDescription} url=${validatedURL}`
       );
@@ -65,9 +73,10 @@ function createWindow(): void {
       level = (first as number) ?? 0;
       message = (args[1] as string) ?? '';
     }
-    if (level >= 3) {
-      console.error(`[renderer] ${message}`);
-    }
+    // Map Electron console-message level to log level string
+    // 0=verbose, 1=info(log), 2=warning, 3=error
+    const levelStr = level >= 3 ? 'ERROR' : level >= 2 ? 'WARN' : 'INFO';
+    writeMainProcessLog(levelStr, message, bridgeManager?.getProjectRoot(), 'renderer');
   });
 
   // 添加右键菜单，支持打开开发者工具
@@ -93,6 +102,22 @@ function createWindow(): void {
 }
 
 export function main(): void {
+  const formatLogArgs = (args: unknown[]) =>
+    args.map((arg) => (typeof arg === 'string' ? arg : inspect(arg, { depth: 4 }))).join(' ');
+
+  console.log = (...args: unknown[]) => {
+    writeMainProcessLog('INFO', formatLogArgs(args), bridgeManager?.getProjectRoot());
+    return originalConsoleLog(...args);
+  };
+  console.warn = (...args: unknown[]) => {
+    writeMainProcessLog('WARN', formatLogArgs(args), bridgeManager?.getProjectRoot());
+    return originalConsoleWarn(...args);
+  };
+  console.error = (...args: unknown[]) => {
+    writeMainProcessLog('ERROR', formatLogArgs(args), bridgeManager?.getProjectRoot());
+    return originalConsoleError(...args);
+  };
+
   app.whenReady().then(() => {
     bridgeManager = new BridgeManager();
     registerIpcHandlers(bridgeManager);

@@ -313,11 +313,19 @@ function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[
     return -1;
   })();
 
-  return messages.filter((message, index) => {
-    if (index <= lastUserIndex) return true;
-    if (message.role === 'assistant') return false;
-    return message.role !== 'progress' || !!message.toolHint;
-  });
+  return messages.reduce((acc, message, index) => {
+    if (index <= lastUserIndex) { acc.push(message); return acc; }
+    if (message.role === 'assistant') return acc;
+    if (message.role !== 'progress' || message.toolHint) {
+      // Retained toolHint progress should render collapsed after final
+      if (message.role === 'progress' && message.toolHint && !message.collapsed) {
+        acc.push({ ...message, collapsed: true });
+      } else {
+        acc.push(message);
+      }
+    }
+    return acc;
+  }, [] as Message[]);
 }
 
 /** Parse tracked files from raw session messages (includes progress entries with _tool_hint). */
@@ -434,6 +442,7 @@ export function ChatConsole({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const unsubsRef = useRef<Array<() => void>>([]);
+  const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef(sessionKey);
   // Track the active thread ID for new-protocol thread-aware conversations
   const currentThreadIdRef = useRef<string | null>(null);
@@ -604,10 +613,18 @@ export function ChatConsole({
     };
   }, []);
 
+  const clearFinalCleanupTimer = useCallback(() => {
+    if (finalCleanupTimerRef.current) {
+      clearTimeout(finalCleanupTimerRef.current);
+      finalCleanupTimerRef.current = null;
+    }
+  }, []);
+
   const cleanupListeners = useCallback(() => {
+    clearFinalCleanupTimer();
     for (const unsub of unsubsRef.current) unsub();
     unsubsRef.current = [];
-  }, []);
+  }, [clearFinalCleanupTimer]);
 
   const handleAttachClick = () => fileInputRef.current?.click();
 
@@ -744,8 +761,7 @@ export function ChatConsole({
       if (displayed.length >= fullContent.length) {
         if (finalDone) {
           setStreaming(false);
-          sendCleanup();
-          if (onChatFinished) onChatFinished();
+          scheduleFinalCleanup();
         }
         return;
       }
@@ -801,7 +817,19 @@ export function ChatConsole({
         clearInterval(watchdogTimer);
         watchdogTimer = null;
       }
-      cleanupListeners();
+      // NOTE: cleanupListeners() is deliberately NOT called here.
+      // The typewriter completing does not mean the turn is over —
+      // another final may still arrive (e.g. tool-call then final-text).
+      // Listeners are torn down only on abort / error / new-session.
+    };
+
+    const scheduleFinalCleanup = () => {
+      if (finalCleanupTimerRef.current) return;
+      finalCleanupTimerRef.current = setTimeout(() => {
+        finalCleanupTimerRef.current = null;
+        sendCleanup();
+        if (onChatFinished) onChatFinished();
+      }, 100);
     };
 
     const unsubProgress = window.miqi.chat.onProgress((data: any) => {
@@ -857,6 +885,7 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
+      clearFinalCleanupTimer();
       if (animId !== null) {
         cancelAnimationFrame(animId);
         animId = null;
@@ -865,17 +894,57 @@ export function ChatConsole({
       displayed = '';
       finalDone = true;
       setCurrentReqId(null);
-      setMessages((prev) => removeTransientTurnMessagesSinceLastUser(prev));
       if (data.tool_calls?.length) {
-        const toolMessages = sessionMsgsToUi([
-          {
-            role: 'assistant',
-            content: '',
-            tool_calls: data.tool_calls,
-            timestamp: new Date().toISOString(),
-          },
-        ]);
-        setMessages((prev) => [...prev, ...toolMessages]);
+        // Track file operations from tool_calls for Task Assets panel.
+        // Office tools (create_docx, etc.) don't always produce progress
+        // hints that match parseToolHint patterns, so we extract file
+        // paths directly from the final tool call list.
+        const _FILE_WRITE_TOOLS = [
+          'write_file', 'edit_file', 'delete_file', 'apply_patch',
+          'create_docx', 'create_xlsx', 'create_pptx',
+          'docx_write', 'xlsx_write', 'pptx_write',
+          'edit_docx', 'append_xlsx',
+        ];
+        const _FILE_READ_TOOLS = ['read_file'];
+        for (const tc of (data.tool_calls ?? []) as any[]) {
+          const fn = tc?.function || tc?.tool?.function || {};
+          const toolName: string = fn?.name || '';
+          if (!toolName) continue;
+          let args: Record<string, unknown> = {};
+          try { args = JSON.parse(fn?.arguments || '{}'); } catch { continue; }
+          const filePath: string =
+            (args.path as string) ||
+            (args.file_path as string) ||
+            (args.filename as string) ||
+            '';
+          if (!filePath) continue;
+          if (_FILE_WRITE_TOOLS.includes(toolName)) {
+            trackFile(filePath, 'write', false);
+          } else if (_FILE_READ_TOOLS.includes(toolName)) {
+            trackFile(filePath, 'read', false);
+          }
+        }
+
+        setMessages((prev) => {
+          const cleaned = removeTransientTurnMessagesSinceLastUser(prev);
+          // Only append collapsed tool-call group if streaming didn't
+          // already render toolHint progress for this turn (avoids dupes).
+          const hasToolHints = cleaned.some(
+            (m) => m.role === 'progress' && m.toolHint,
+          );
+          if (hasToolHints) return cleaned;
+          const toolMessages = sessionMsgsToUi([
+            {
+              role: 'assistant',
+              content: '',
+              tool_calls: data.tool_calls,
+              timestamp: new Date().toISOString(),
+            },
+          ]);
+          return [...cleaned, ...toolMessages];
+        });
+      } else {
+        setMessages((prev) => removeTransientTurnMessagesSinceLastUser(prev));
       }
       // Do NOT push an empty assistant bubble here — revealNext creates the
       // bubble lazily once the first chunk is available, so we never flash a
@@ -883,10 +952,10 @@ export function ChatConsole({
       // immediately instead of waiting on an animation that has nothing to show.
       if (!fullContent) {
         setStreaming(false);
-        sendCleanup();
-        if (onChatFinished) onChatFinished();
+        scheduleFinalCleanup();
         return;
       }
+      setStreaming(true);
       animId = requestAnimationFrame(revealNext);
     });
 
@@ -900,6 +969,7 @@ export function ChatConsole({
       ]);
       setStreaming(false);
       sendCleanup();
+      cleanupListeners();
     });
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
@@ -969,6 +1039,7 @@ export function ChatConsole({
       }
       setStreaming(false);
       sendCleanup();
+      cleanupListeners();
     }
   }, [input, attachments, streaming, cleanupListeners, onChatFinished]);
 
@@ -1470,6 +1541,7 @@ export function ChatConsole({
         {/* ── Right panel: Task Assets ── */}
         {panelOpen && (
           <div
+            data-testid="task-assets-panel"
             className="flex flex-col shrink-0 border-l overflow-y-auto relative"
             style={{
               width: panelWidth,

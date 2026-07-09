@@ -12,47 +12,17 @@
  * Run: cd apps/desktop && npx playwright test --config=playwright.config.ts --project=electron approval-persistence.spec.ts
  */
 
-import { _electron as electron, test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { resolve } from 'node:path';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { existsSync, rmSync } from 'node:fs';
-
-const APPS_DESKTOP = resolve(__dirname, '../..');
-const MIQI_SESSIONS_DIR = join(homedir(), '.miqi', 'workspace', 'sessions');
-const LLM_TIMEOUT = 180_000;
-
-// ─── Helpers ──────────────────────────────────────────────────────
-
-async function waitForInputReady(page: Page, timeout = 60_000) {
-  const textarea = page.getByPlaceholder(
-    'Ask Agent to analyze or edit files...',
-  );
-  await expect(textarea).toBeEnabled({ timeout });
-  return textarea;
-}
-
-async function sendMessage(page: Page, text: string) {
-  const textarea = await waitForInputReady(page);
-  await textarea.fill(text);
-  await textarea.press('Enter');
-  await expect(page.getByText(text).first()).toBeVisible({ timeout: 10_000 });
-}
-
-async function waitForResponseComplete(page: Page, timeout = 120_000) {
-  await expect(page.getByText('Thinking…')).toBeHidden({ timeout });
-}
-
-async function createNewConversation(page: Page): Promise<string> {
-  const sidebarPlusBtn = page.locator('button[title="New Session"]');
-  await expect(sidebarPlusBtn).toBeVisible();
-  await sidebarPlusBtn.click();
-  await waitForInputReady(page, 15_000);
-  await page.waitForTimeout(1500);
-  const titleEl = page.locator('h2.font-semibold.truncate').first();
-  return (await titleEl.textContent()) || '';
-}
+import {
+  LLM_TIMEOUT,
+  sendMessage,
+  waitForResponseComplete,
+  createNewConversation,
+  waitForBridgeInitialized,
+  launchElectronApp,
+  closeElectronApp,
+} from './helpers/electron-setup';
 
 // ─── Test Suite ───────────────────────────────────────────────────
 
@@ -61,60 +31,13 @@ test.describe('Approval Persistence E2E', () => {
   let page: Page;
 
   test.beforeAll(async () => {
-    if (existsSync(MIQI_SESSIONS_DIR)) {
-      rmSync(MIQI_SESSIONS_DIR, { recursive: true, force: true });
-    }
-
-    const env = { ...process.env };
-    delete env.ELECTRON_RUN_AS_NODE;
-
-    electronApp = await electron.launch({
-      args: [APPS_DESKTOP],
-      executablePath: require('electron') as string,
-      env,
-      chromiumSandbox: false,
-    });
-
-    page = await electronApp.firstWindow();
-    await page.waitForLoadState('domcontentloaded');
-
-    page.on('console', (msg) => {
-      const t = msg.text();
-      if (
-        msg.type() === 'error' ||
-        t.includes('[MIQI BRIDGE STDERR]') ||
-        t.includes('[miqi-bridge]') ||
-        t.includes('[e2e]')
-      ) {
-        console.log(`[e2e] ${t}`);
-      }
-    });
-
-    try {
-      await page.getByText('MiQi Workbench').waitFor({ timeout: 30_000 });
-    } catch {
-      console.log('[test] App UI may still be loading — continuing');
-    }
-
-    await waitForInputReady(page);
-
-    const bridgeReady = await page.evaluate(async () => {
-      for (let i = 0; i < 60; i++) {
-        try {
-          const s = await (window as any).miqi.runtime.status();
-          if (s?.state === 'running') return true;
-        } catch { /* */ }
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-      return false;
-    });
-    if (!bridgeReady) console.log('[test] Warning: bridge did not reach running state');
-
-    console.log('[test] Ready');
+    const fixture = await launchElectronApp();
+    electronApp = fixture.electronApp;
+    page = fixture.page;
   }, 120_000);
 
   test.afterAll(async () => {
-    await electronApp?.close().catch(() => {});
+    await closeElectronApp(electronApp);
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -126,15 +49,7 @@ test.describe('Approval Persistence E2E', () => {
     { timeout: LLM_TIMEOUT * 3 },
     async () => {
       // Ensure bridge ready, clear existing approvals
-      await page.evaluate(async () => {
-        for (let i = 0; i < 30; i++) {
-          try {
-            const s = await (window as any).miqi.runtime.status();
-            if (s?.state === 'running' && s?.initialized) return;
-          } catch { /* */ }
-          await new Promise((r) => setTimeout(r, 1000));
-        }
-      });
+      await waitForBridgeInitialized(page);
       try {
         await page.evaluate(() =>
           (window as any).miqi.approvals.clearPermanent(),
