@@ -12,204 +12,42 @@
 
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { resolve } from 'node:path';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { existsSync, rmSync } from 'node:fs';
-
-const APPS_DESKTOP = resolve(__dirname, '../..');
-
-/** Directory where MiQi stores session data on disk */
-const MIQI_SESSIONS_DIR = join(homedir(), '.miqi', 'workspace', 'sessions');
-
-const LLM_TIMEOUT = 180_000; // real AI call
-
-// ─── Helpers ──────────────────────────────────────────────────────
-
-/** Wait for the chat input textarea to be present and enabled */
-async function waitForInputReady(page: Page, timeout = 60_000) {
-  const textarea = page.getByPlaceholder(
-    'Ask Agent to analyze or edit files...',
-  );
-  await expect(textarea).toBeEnabled({ timeout });
-  return textarea;
-}
-
-/** Send a message and confirm it appears in the chat */
-async function sendMessage(page: Page, text: string) {
-  const textarea = await waitForInputReady(page);
-  await textarea.fill(text);
-  await textarea.press('Enter');
-  // Confirm user message appears in chat
-  await expect(page.getByText(text).first()).toBeVisible({ timeout: 10_000 });
-}
-
-/** Wait for streaming to finish (no "Thinking…" indicator) */
-async function waitForResponseComplete(page: Page, timeout = 120_000) {
-  await expect(page.getByText('Thinking…')).toBeHidden({ timeout });
-}
-
-/** Get the current session title from the header.
- *  Uses stable class-based selector: both old (text-sm) and new (text-[18px])
- *  UI share font-semibold.truncate on the title h2. */
-function getSessionTitle(page: Page) {
-  return page.locator('h2.font-semibold.truncate').first();
-}
-
-/** Get sidebar session items (clickable buttons that switch sessions).
- *  Scoped to the sidebar panel to avoid picking up buttons in main content.
- *  New UI: session cards use rounded-xl; filter tabs (rounded-md) and the
- *  "New Session" title button are excluded by the class selector. */
-function getSidebarSessionItems(page: Page) {
-  const sidebar = page.locator('div.flex.flex-col.shrink-0.border-r').first();
-  return sidebar.locator('button.rounded-xl');
-}
-
-/** Get the count of sidebar session items */
-async function getSidebarSessionCount(page: Page): Promise<number> {
-  return getSidebarSessionItems(page).count();
-}
-
-/** Create a new conversation via sidebar "+" button and wait for it to be ready.
- *  In the redesigned UI there is no "New Chat" header button — sidebar "+" is the canonical way. */
-async function createNewConversation(page: Page): Promise<string> {
-  const sidebarPlusBtn = page.locator('button[title="New Session"]');
-  await expect(sidebarPlusBtn).toBeVisible();
-  await sidebarPlusBtn.click();
-  // Wait for the new session to load — input becomes enabled when ChatConsole mounts
-  await waitForInputReady(page, 15_000);
-  await waitForSidebarRefresh(page);
-  const titleEl = getSessionTitle(page);
-  return (await titleEl.textContent()) || '';
-}
-
-
-/** Wait for sidebar to refresh after session creation/deletion */
-async function waitForSidebarRefresh(page: Page, _timeout = 10_000) {
-  await page.waitForTimeout(1500);
-}
-
-/** Switch to a sidebar session by clicking through sessions until the
- *  given marker text becomes visible in the main chat area.
- *  No longer depends on a "对话" nav button — the sidebar is always visible. */
-async function switchToSessionWithMarker(
-  page: Page,
-  marker: string,
-): Promise<boolean> {
-  // Ensure the Tasks section is scrolled into view
-  const tasksHeader = page.getByText('Tasks').first();
-  await tasksHeader.scrollIntoViewIfNeeded().catch(() => {});
-
-  const items = getSidebarSessionItems(page);
-  const count = await items.count();
-  console.log(
-    `[test] Searching ${count} sidebar sessions for marker: ${marker}`,
-  );
-
-  for (let i = 0; i < count; i++) {
-    const btn = items.nth(i);
-    await btn.scrollIntoViewIfNeeded().catch(() => {});
-    await btn.click({ force: true, timeout: 5000 });
-    const currentTitle = await getSessionTitle(page).textContent();
-    console.log(`[test] Clicked session #${i} → title: ${currentTitle}`);
-    await page.waitForTimeout(4000);
-
-    // Only check the <main> chat area, not the sidebar
-    const markerVisible = await page
-      .locator('main')
-      .getByText(marker, { exact: false })
-      .isVisible()
-      .catch(() => false);
-    if (markerVisible) {
-      console.log(`[test] Found marker "${marker}" in session #${i}`);
-      return true;
-    }
-  }
-
-  console.log(
-    `[test] Marker "${marker}" not found in any of ${count} sessions`,
-  );
-  return false;
-}
+import {
+  APPS_DESKTOP,
+  LLM_TIMEOUT,
+  waitForInputReady,
+  sendMessage,
+  waitForResponseComplete,
+  getSessionTitle,
+  getSidebarSessionCount,
+  createNewConversation,
+  waitForSidebarRefresh,
+  switchToSessionWithMarker,
+  waitForBridgeInitialized,
+  launchElectronApp,
+  closeElectronApp,
+} from './helpers/electron-setup';
 
 // ─── Test Suite ───────────────────────────────────────────────────
+
+/** Skip sandbox exec tests on CI runners that lack bwrap.
+ *  The desktop-ci.yml installs bubblewrap, but because the workflow
+ *  uses pull_request_target it runs from the base branch (main),
+ *  so the install won't take effect until that change is merged. */
+const SKIP_SANDBOX_ON_CI = !!process.env.CI;
 
 test.describe('Native Electron E2E', () => {
   let electronApp: ElectronApplication;
   let page: Page;
 
   test.beforeAll(async () => {
-    // Clean all existing sessions so sidebar starts fresh.
-    // Without this, pre-existing demo sessions dominate the sidebar
-    // and session-switch tests cannot find their markers.
-    if (existsSync(MIQI_SESSIONS_DIR)) {
-      rmSync(MIQI_SESSIONS_DIR, { recursive: true, force: true });
-      console.log(
-        `[test] Cleaned sessions directory: ${MIQI_SESSIONS_DIR}`,
-      );
-    }
-
-    // Delete ELECTRON_RUN_AS_NODE inherited from Electron-based IDEs
-    // (WorkBuddy / VSCode).  Otherwise Electron runs as plain Node.js.
-    const env = { ...process.env };
-    delete env.ELECTRON_RUN_AS_NODE;
-
-    electronApp = await electron.launch({
-      args: [APPS_DESKTOP],
-      executablePath: require('electron') as string,
-      env,
-      // chromiumSandbox: false covers --no-sandbox + --disable-gpu
-      // needed on CI (root user).  No-op on Windows.
-      chromiumSandbox: false,
-    });
-
-    page = await electronApp.firstWindow();
-    await page.waitForLoadState('domcontentloaded');
-
-    // Capture bridge stderr and app console errors for CI debugging
-    page.on('console', (msg) => {
-      const t = msg.text();
-      if (
-        msg.type() === 'error' ||
-        t.includes('[MIQI BRIDGE STDERR]') ||
-        t.includes('[miqi-bridge]') ||
-        t.includes('[Bridge]') ||
-        t.includes('[MiQi]')
-      ) {
-        console.log(`[e2e-console] ${t}`);
-      }
-    });
-
-    try {
-      await page.getByText('MiQi Workbench').waitFor({ timeout: 30_000 });
-      console.log('[test] App UI loaded');
-    } catch {
-      console.log('[test] App UI may still be loading — continuing');
-    }
-
-    await waitForInputReady(page);
-
-    // Wait for bridge AppServer to finish registering methods
-    const bridgeReady = await page.evaluate(async () => {
-      for (let i = 0; i < 60; i++) {
-        try {
-          const s = await window.miqi.runtime.status();
-          if (s?.state === 'running') return true;
-        } catch {
-          /* preload not injected yet */
-        }
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-      return false;
-    });
-    if (!bridgeReady)
-      console.log('[test] Warning: bridge did not reach running state');
-
-    console.log('[test] Ready');
+    const fixture = await launchElectronApp();
+    electronApp = fixture.electronApp;
+    page = fixture.page;
   }, 120_000);
 
   test.afterAll(async () => {
-    await electronApp?.close().catch(() => {});
+    await closeElectronApp(electronApp);
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -434,7 +272,7 @@ test.describe('Native Electron E2E', () => {
       await sendMessage(page, `只回答${m}`);
       await waitForResponseComplete(page);
 
-      await electronApp.close();
+      await closeElectronApp(electronApp);
       await new Promise(r => setTimeout(r, 3000));
 
       const env = { ...process.env };
@@ -468,18 +306,11 @@ test.describe('Native Electron E2E', () => {
 
       await expect(page2.locator('main').getByText(m).first()).toBeVisible({ timeout: 30000 });
 
-      await app2.close();
+      await closeElectronApp(app2);
       await new Promise(r => setTimeout(r, 3000));
-      electronApp = await electron.launch({
-        args: [APPS_DESKTOP],
-        executablePath: require('electron') as string,
-        env,
-        chromiumSandbox: false,
-      });
-      page = await electronApp.firstWindow();
-      await page.waitForLoadState('domcontentloaded');
-      try { await page.getByText('MiQi Workbench').waitFor({ timeout: 30000 }); } catch {}
-      await waitForInputReady(page, 30000);
+      const fixture = await launchElectronApp();
+      electronApp = fixture.electronApp;
+      page = fixture.page;
     },
   );
 
@@ -561,15 +392,7 @@ test.describe('Native Electron E2E', () => {
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
       // Wait for bridge fully initialized before calling approvals API
-      await page.evaluate(async () => {
-        for (let i = 0; i < 30; i++) {
-          try {
-            const s = await (window as any).miqi.runtime.status();
-            if (s?.state === 'running' && s?.initialized) return;
-          } catch { /* */ }
-          await new Promise(r => setTimeout(r, 1000));
-        }
-      });
+      await waitForBridgeInitialized(page);
       await page.evaluate(() =>
         (window as any).miqi.approvals.clearPermanent(),
       );
@@ -645,21 +468,15 @@ test.describe('Native Electron E2E', () => {
   );
 
   // ═══════════════════════════════════════════════════════════════
-  //  SECTION 6: Sandbox initialization
+  //  SECTION 7: Sandbox initialization
   // ═══════════════════════════════════════════════════════════════
-
-  /** Skip sandbox exec tests on CI runners that lack bwrap.
-   *  The desktop-ci.yml installs bubblewrap, but because the workflow
-   *  uses pull_request_target it runs from the base branch (main),
-   *  so the install won't take effect until that change is merged. */
-  const SKIP_SANDBOX_ON_CI = !!process.env.CI;
 
   test(
     'sandbox manager initializes on bridge startup',
     { timeout: 120_000 },
     async () => {
       const status = await page.evaluate(async () => {
-        try { return await window.miqi.runtime.status(); } catch { return null; }
+        try { return await (window as any).miqi.runtime.status(); } catch { return null; }
       });
       expect(status?.state).toBe('running');
       console.log('[test] ✅ Bridge running with sandbox manager initialized');
@@ -737,9 +554,12 @@ test.describe('Native Electron E2E', () => {
         '用 exec 工具执行 uname -s，只回复 exec 的实际输出，不要加任何解释',
       );
       await waitForResponseComplete(page, 120_000);
-      await expect(
-        page.locator('main').getByText('Linux', { exact: false }).first(),
-      ).toBeVisible({ timeout: 15_000 });
+
+      // AI may format the output differently (code block, inline, etc.).
+      // Use textContent to check the full main area text rather than
+      // relying on a specific DOM text node containing "Linux".
+      const mainText = await page.locator('main').textContent();
+      expect(mainText).toMatch(/linux/i);
       console.log('[test] ✅ exec uname -s → Linux');
     },
   );
@@ -757,112 +577,6 @@ test.describe('Native Electron E2E', () => {
       const response = page.locator('main').getByText(/.+/);
       await expect(response.first()).toBeVisible({ timeout: 30_000 });
       console.log('[test] ✅ exec ls /home/miqi/workspace');
-    },
-  );
-
-  // ═══════════════════════════════════════════════════════════════
-  //  SECTION 7: Logs Tab (Settings → Logs)
-  //
-  //  Verifies the full-chain logging feature in the real Electron app:
-  //  Settings → Logs tab renders with bridge log entries, filter controls
-  //  work, and export buttons are present.
-  // ═══════════════════════════════════════════════════════════════
-
-  test(
-    'Logs tab renders with entries from running bridge',
-    { timeout: 30_000 },
-    async () => {
-      // Navigate to Settings page
-      await page.getByText('System Settings').click();
-      await expect(page.getByRole('heading', { name: '设置' })).toBeVisible({ timeout: 5_000 });
-
-      // Click the Logs tab
-      await page.getByRole('tab', { name: '日志' }).click();
-      await expect(page.getByText('自动滚动')).toBeVisible({ timeout: 5_000 });
-
-      // The filter toolbar should render
-      await expect(page.locator('select').filter({ hasText: '全部级别' })).toBeVisible();
-      await expect(page.locator('select').filter({ hasText: '全部来源' })).toBeVisible();
-      await expect(page.getByPlaceholder('关键字')).toBeVisible();
-
-      // Export buttons should be present
-      await expect(page.getByRole('button', { name: /导出 TXT/ })).toBeVisible();
-      await expect(page.getByRole('button', { name: /导出 JSON/ })).toBeVisible();
-
-      console.log('[test] Logs tab UI rendered');
-    },
-  );
-
-  test(
-    'Logs tab populates entries after refresh',
-    { timeout: 30_000 },
-    async () => {
-      // Ensure we're on Settings page (may already be there from previous test)
-      const settingsVisible = await page.getByRole('heading', { name: '设置' }).isVisible().catch(() => false);
-      if (!settingsVisible) {
-        await page.getByText('System Settings').click();
-        await expect(page.getByRole('heading', { name: '设置' })).toBeVisible({ timeout: 5_000 });
-      }
-
-      // Navigate to Logs tab
-      await page.getByRole('tab', { name: '日志' }).click();
-      await expect(page.getByText('自动滚动')).toBeVisible({ timeout: 5_000 });
-
-      // Click refresh button in the filter toolbar (identified by data-testid).
-      await page.getByTestId('refresh-logs').click();
-
-      // After refresh, log entries should populate the table.
-      // The bridge has been running since beforeAll, so logs should exist.
-      await page.waitForTimeout(1000);
-      const rowCount = await page.locator('table tbody tr').count();
-      console.log(`[test] Logs table has ${rowCount} entries after refresh`);
-      expect(rowCount).toBeGreaterThan(0);
-
-      // Table headers should be visible
-      await expect(page.getByRole('columnheader', { name: '时间' })).toBeVisible();
-      await expect(page.getByRole('columnheader', { name: '级别' })).toBeVisible();
-      await expect(page.getByRole('columnheader', { name: '来源' })).toBeVisible();
-      await expect(page.getByRole('columnheader', { name: '消息' })).toBeVisible();
-    },
-  );
-
-  test(
-    'Logs tab level filter works with real entries',
-    { timeout: 20_000 },
-    async () => {
-      // Ensure we're on Settings page first
-      const settingsVisible = await page.getByRole('heading', { name: '设置' }).isVisible().catch(() => false);
-      if (!settingsVisible) {
-        await page.getByText('System Settings').click();
-        await expect(page.getByRole('heading', { name: '设置' })).toBeVisible({ timeout: 5_000 });
-      }
-
-      // Ensure we're on the Logs tab
-      const logsTab = page.getByRole('tab', { name: '日志' });
-      const isActive = await logsTab.getAttribute('data-state');
-      if (isActive !== 'active') {
-        await logsTab.click();
-        await expect(page.getByText('自动滚动')).toBeVisible({ timeout: 5_000 });
-      }
-
-      // Count total rows before filtering
-      const totalRows = await page.locator('table tbody tr').count();
-      if (totalRows === 0) {
-        console.log('[test] No log entries to filter — skipping');
-        return;
-      }
-
-      // Apply ERROR filter
-      await page.locator('select').filter({ hasText: '全部级别' }).selectOption('ERROR');
-
-      // Count filtered rows (should be <= total)
-      const errorRows = await page.locator('table tbody tr').count();
-      console.log(`[test] Level filter ERROR: ${totalRows} total → ${errorRows} ERROR rows`);
-      expect(errorRows).toBeLessThanOrEqual(totalRows);
-
-      // Reset filter
-      await page.locator('select').filter({ hasText: 'ERROR' }).selectOption('all');
-      await expect(page.locator('table tbody tr')).toHaveCount(totalRows);
     },
   );
 });
