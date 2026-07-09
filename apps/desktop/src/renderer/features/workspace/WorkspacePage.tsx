@@ -295,11 +295,16 @@ export function WorkspacePage() {
 
     try {
       // Read old content, write to new path, delete old
-      const oldContent = await window.miqi.files
-        .read(nodePath)
-        .then((r) => r.content)
-        .catch(() => '');
-      await window.miqi.files.write(newPath, oldContent);
+      const r = await window.miqi.files.read(nodePath).catch(() => null);
+      if (!r) {
+        setActionTarget(null);
+        return;
+      }
+      if (r.is_binary && r.data_base64) {
+        await window.miqi.files.write(newPath, '', undefined, r.data_base64);
+      } else {
+        await window.miqi.files.write(newPath, r.content || '');
+      }
       await window.miqi.files.delete(nodePath);
       if (currentPath === nodePath) {
         setCurrentPath(newPath);
