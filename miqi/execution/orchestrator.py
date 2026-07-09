@@ -830,6 +830,8 @@ class ToolOrchestrator:
         kwargs = {**ctx.arguments}
         if ctx.tool_name == "exec" or ctx.tool_name in _FILE_MUTATION_TOOLS:
             kwargs["_sandbox"] = sandbox
+            kwargs["_session_key"] = ctx.session_id
+            kwargs["_client_id"] = ctx.client_id
         elif sandbox.sandbox_type != SandboxType.NONE:
             kwargs["_sandbox"] = sandbox
 

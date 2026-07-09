@@ -115,10 +115,9 @@ class ExecTool(Tool):
         thread_id = kwargs.pop("_thread_id", "")
 
         # Phase 31: consume SandboxSelection injected by ToolOrchestrator.
-        # This is the single source of truth for how this command must execute.
-        # ExecTool MUST NOT make an independent sandbox decision that
-        # contradicts this selection.
         _sandbox = kwargs.pop("_sandbox", None)
+        _session_key = kwargs.pop("_session_key", None)
+        _client_id = kwargs.pop("_client_id", None)
 
         # Resolve sandbox_type for the begin event from the actual selection
         if _sandbox is not None:
@@ -200,6 +199,9 @@ class ExecTool(Tool):
                 # Phase 31.8: ledger runtime and thread_id for replay
                 ledger_runtime=ledger_runtime,
                 thread_id=thread_id,
+                # Session key for per-session sandbox isolation
+                session_key=_session_key,
+                client_id=_client_id,
             )
 
             # Phase 31: if ToolOrchestrator injected a SandboxSelection,
@@ -220,7 +222,8 @@ class ExecTool(Tool):
                             if sandbox is not None:
                                 break
                     if sandbox is None:
-                        sandbox = await self._sandbox_manager.get_or_create("_auto_exec")
+                        fallback = _session_key or "_auto_exec"
+                        sandbox = await self._sandbox_manager.get_or_create(fallback, client_id=_client_id)
                 if sandbox and sandbox.is_running:
                     return await self._execute_in_sandbox(
                         sandbox, command, cwd, **exec_kwargs,
@@ -521,9 +524,10 @@ class ExecTool(Tool):
         turn_id: str = "",
         tool_call_id: str = "",
         cancel_event: asyncio.Event | None = None,
-        # Phase 31.8: ledger runtime for replay-persistent event recording
         ledger_runtime=None,
         thread_id: str = "",
+        session_key: str | None = None,
+        client_id: str | None = None,
     ) -> _ExecResult:
         """Execute a command according to the ToolOrchestrator's SandboxSelection.
 
@@ -571,7 +575,8 @@ class ExecTool(Tool):
                                 break
                 # 3. Create a new sandbox with a default key
                 if sandbox is None:
-                    sandbox = await self._sandbox_manager.get_or_create("_auto_exec")
+                    fallback = session_key or "_auto_exec"
+                    sandbox = await self._sandbox_manager.get_or_create(fallback, client_id=client_id)
             if sandbox is not None and sandbox.is_running:
                 return await self._execute_in_sandbox(
                     sandbox, command, cwd, **common,

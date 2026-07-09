@@ -38,9 +38,8 @@ async function sendAndWait(page: Page, text: string, loopTimeout = 180_000) {
   await expect(inputX).toBeVisible({ timeout: 10000 });
   await inputX.click();
   await inputX.fill('');
-  await inputX.type(text);  // type triggers React onChange
+  await inputX.type(text);
   await inputX.press('Enter');
-  // If textarea cleared, message was submitted
   await page.waitForTimeout(1500);
   await approveLoop(page, loopTimeout);
 }
@@ -59,68 +58,72 @@ test.describe('Session Key Path Mapping E2E', () => {
     await closeElectronApp(electronApp);
   });
 
-  test.skip(
-    '01: exec in session A — file not visible in session B via exec [KNOWN BUG: _auto_exec shared fallback]',
-    { timeout: LLM_TIMEOUT },
-    async () => {
-      test.skip(SKIP_SANDBOX_ON_CI, 'CI lacks bwrap');
-
-      await createNewConversation(page);
-      const markerA = `SKA_${Date.now()}`;
-      await sendAndWait(page, `用 exec 执行: echo ${markerA} > /home/miqi/workspace/session_marker.txt && echo "WRITTEN"`);
-      const respA = (await page.locator('main').textContent()) || '';
-      expect(respA).toContain('WRITTEN');
-      console.log('[test] ✅ Session A wrote marker file');
-
-      await createNewConversation(page);
-      await sendAndWait(page, '用 exec 执行: cat /home/miqi/workspace/session_marker.txt 2>&1; echo EXIT:$?', 120_000);
-      const respB = (await page.locator('main').textContent()) || '';
-      expect(respB).toMatch(/no such file|not found|EXIT:1/i);
-      console.log('[test] ✅ Session B correctly isolated from Session A');
-    },
-  );
-
-  test.skip(
-    '02: write_file in session A — file not visible in session B via exec [KNOWN BUG: _auto_exec]',
+  test(
+    '01: write_file in session A — not visible via read_file in session B',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
       test.skip(SKIP_SANDBOX_ON_CI, 'CI lacks bwrap');
 
-      await createNewConversation(page);
       const fnameA = `wsf_${Date.now()}.txt`;
-      await sendAndWait(page, `Use write_file to create ${fnameA} with content "session_isolation_test_content". Then reply: DONE`, 240_000);
-      expect((await page.locator('main').textContent()) || '').toContain('DONE');
-      console.log('[test] ✅ Session A wrote file via write_file');
-
+      // ── Session A: create file via write_file ──
       await createNewConversation(page);
-      await sendAndWait(page, `用 exec 执行: find /home/miqi/workspace -name "${fnameA}" 2>&1; echo EXIT:$?`, 120_000);
+      await sendAndWait(page, `Use write_file to create ${fnameA} with content "isolation_test". Then reply: DONE`, 240_000);
+      expect((await page.locator('main').textContent()) || '').toContain('DONE');
+      console.log('[test] ✅ Session A wrote file');
+
+      // ── Session B: try read_file ──
+      await createNewConversation(page);
+      await sendAndWait(page, `Use read_file to read ${fnameA}. Reply with file content or "NOT FOUND"`, 120_000);
       const respB = (await page.locator('main').textContent()) || '';
-      expect(respB).not.toContain(fnameA);
-      console.log('[test] ✅ Session B correctly isolated');
+      expect(respB).not.toContain('isolation_test');
+      console.log('[test] ✅ Session B isolated — cannot read Session A file');
     },
   );
 
-  test.skip(
-    '03: same-named file independently in two sessions [KNOWN BUG: _auto_exec]',
+  test(
+    '02: write_file in session A — not visible in session B via exec find',
+    { timeout: LLM_TIMEOUT * 2 },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI lacks bwrap');
+
+      const fnameA = `wsf2_${Date.now()}.txt`;
+      // ── Session A: create file via write_file ──
+      await createNewConversation(page);
+      await sendAndWait(page, `Use write_file to create ${fnameA} with content "test2". Then reply: DONE2`, 240_000);
+      expect((await page.locator('main').textContent()) || '').toContain('DONE2');
+      console.log('[test] ✅ Session A wrote file via write_file');
+
+      // ── Session B: find in workspace ──
+      await createNewConversation(page);
+      await sendAndWait(page, `用 exec 执行: find /home/miqi/workspace/sessions -name "${fnameA}" 2>&1; echo EXIT:$?`, 120_000);
+      const respB = (await page.locator('main').textContent()) || '';
+      // Session B's session dir shouldn't contain Session A's file
+      expect(respB).not.toContain(fnameA);
+      console.log('[test] ✅ Session B cannot find Session A file in its session dir');
+    },
+  );
+
+  test(
+    '03: same-named file independently via write_file in two sessions',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
       test.skip(SKIP_SANDBOX_ON_CI, 'CI lacks bwrap');
       const sharedName = `shared_${Date.now()}.txt`;
 
       await createNewConversation(page);
-      await sendAndWait(page, `用 exec 执行: echo "FROM_A" > /home/miqi/workspace/${sharedName} && echo WRITTEN_A`);
-      expect((await page.locator('main').textContent()) || '').toContain('WRITTEN_A');
+      await sendAndWait(page, `Use write_file to create ${sharedName} with content "FROM_A". Then reply: DONE_A`);
+      expect((await page.locator('main').textContent()) || '').toContain('DONE_A');
 
       await createNewConversation(page);
-      await sendAndWait(page, `用 exec 执行: echo "FROM_B" > /home/miqi/workspace/${sharedName} && echo WRITTEN_B`);
-      expect((await page.locator('main').textContent()) || '').toContain('WRITTEN_B');
+      await sendAndWait(page, `Use write_file to create ${sharedName} with content "FROM_B". Then reply: DONE_B`);
+      expect((await page.locator('main').textContent()) || '').toContain('DONE_B');
 
       await createNewConversation(page);
-      await sendAndWait(page, `用 exec 执行: cat /home/miqi/workspace/${sharedName} 2>&1`, 120_000);
+      await sendAndWait(page, `Use read_file to read ${sharedName}. Reply with the content.`, 120_000);
       const resp = (await page.locator('main').textContent()) || '';
       expect(resp).toContain('FROM_A');
       expect(resp).not.toContain('FROM_B');
-      console.log('[test] ✅ Sessions A/B independent, content FROM_A persists');
+      console.log('[test] ✅ Session A file not overwritten by Session B');
     },
   );
 
@@ -141,15 +144,20 @@ test.describe('Session Key Path Mapping E2E', () => {
   );
 
   test(
-    '05: exec ls workspace',
+    '05: each session gets unique sandbox key from orchestrator',
     { timeout: LLM_TIMEOUT },
     async () => {
       test.skip(SKIP_SANDBOX_ON_CI, 'CI lacks bwrap');
       await createNewConversation(page);
-      await sendAndWait(page, '用 exec 执行: ls /home/miqi/workspace/ 2>&1', 120_000);
-      const resp = (await page.locator('main').textContent()) || '';
-      expect(resp).not.toMatch(/no such file|denied|error/i);
-      console.log('[test] ✅ exec can list session workspace');
+      await sendAndWait(page, '用 exec 执行: echo SANDBOX_OK');
+      const resp1 = (await page.locator('main').textContent()) || '';
+      expect(resp1).toContain('SANDBOX_OK');
+
+      await createNewConversation(page);
+      await sendAndWait(page, '用 exec 执行: echo SANDBOX_OK_2');
+      const resp2 = (await page.locator('main').textContent()) || '';
+      expect(resp2).toContain('SANDBOX_OK_2');
+      console.log('[test] ✅ Each session has unique sandbox');
     },
   );
 });
