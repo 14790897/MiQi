@@ -679,6 +679,16 @@ test.describe('Native Electron E2E', () => {
       await page.evaluate(() =>
         (window as any).miqi.approvals.addPermanent('*:*', 'always'),
       );
+      await shot();
+
+      // Wait for AI to finish, capturing frames along the way
+      const deadline = Date.now() + 300_000;
+      while (Date.now() < deadline) {
+        const thinking = await page.getByText('Thinking…').isVisible().catch(() => false);
+        if (!thinking) break;
+        await page.waitForTimeout(8000);
+        await shot();
+      }
       await expect(page.getByText('Thinking…')).toBeHidden({ timeout: 300_000 });
       await shot();
 
@@ -699,6 +709,7 @@ test.describe('Native Electron E2E', () => {
         result = JSON.parse(e.stdout || '{"pass":false,"checks":[]}');
       }
       console.log('[test] PPTX checks:', JSON.stringify(result.checks));
+      await shot();
       if (!result.pass) {
         const failed = result.checks.filter((c: any) => !c.pass).map((c: any) => c.label);
         throw new Error(`PPTX checks failed: ${failed.join(', ')}`);
