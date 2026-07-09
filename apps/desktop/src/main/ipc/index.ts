@@ -1,6 +1,6 @@
 import { electron } from '../../shared/electron';
 import { spawnSync } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import type { BridgeManager } from '../bridge';
@@ -41,6 +41,30 @@ import type { WslCheckResult, WslStatsResult } from '../../shared/ipc';
 
 const { ipcMain, dialog } = electron;
 
+function readWorkspaceLogLines(
+  projectRoot: string,
+  includeFile: (name: string) => boolean,
+): string[] {
+  const logDir = join(projectRoot, 'workspace', 'logs');
+  const lines: string[] = [];
+  try {
+    const files = readdirSync(logDir)
+      .filter((name) => name.endsWith('.log') && includeFile(name))
+      .sort();
+    for (const file of files) {
+      try {
+        const content = readFileSync(join(logDir, file), 'utf8');
+        lines.push(...content.split('\n').filter(Boolean));
+      } catch {
+        /* skip unreadable files */
+      }
+    }
+  } catch {
+    /* log dir may not exist yet */
+  }
+  return lines;
+}
+
 export function registerIpcHandlers(bridge: BridgeManager): void {
   // -----------------------------------------------------------------------
   // Runtime
@@ -61,6 +85,36 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
 
   ipcMain.handle(IPC.RUNTIME_LOGS, () => {
     return bridge.getLogs();
+  });
+
+  ipcMain.handle(IPC.RUNTIME_FILE_LOGS, () => {
+    return readWorkspaceLogLines(bridge.getProjectRoot(), () => true);
+  });
+
+  ipcMain.handle(IPC.RUNTIME_BACKEND_LOGS, () => {
+    const backendPrefixes = ['bridge-', 'sandbox-', 'tool-', 'electron-main-'];
+    return readWorkspaceLogLines(
+      bridge.getProjectRoot(),
+      (name) => backendPrefixes.some((prefix) => name.startsWith(prefix)),
+    );
+  });
+
+  ipcMain.on('runtime:renderer-log', (_event, payload: unknown) => {
+    if (!payload || typeof payload !== 'object') return;
+    const entry = payload as Record<string, unknown>;
+    const level =
+      typeof entry.level === 'string' && ['INFO', 'WARN', 'ERROR'].includes(entry.level)
+        ? entry.level
+        : 'INFO';
+    const rawMessage = typeof entry.message === 'string' ? entry.message : 'Renderer log';
+    // Cap message length to prevent log file bloat from runaway renderers
+    const message = rawMessage.length > 4096 ? rawMessage.slice(0, 4096) + '…[truncated]' : rawMessage;
+    const sessionKey =
+      typeof entry.sessionKey === 'string' && /^[\w:.-]{1,128}$/.test(entry.sessionKey)
+        ? entry.sessionKey
+        : undefined;
+    const sessionPart = sessionKey ? ` session=${sessionKey}` : '';
+    bridge.recordMainLog(level, `[renderer${sessionPart}] ${message}`, 'renderer');
   });
 
   // -----------------------------------------------------------------------

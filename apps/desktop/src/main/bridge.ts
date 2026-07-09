@@ -9,6 +9,7 @@ import { createTypedAppClient } from '../shared/app-client';
 import type { TypedAppClient } from '../shared/app-client';
 import type { RuntimeState, RuntimeStatus } from '../shared/ipc';
 import { IPC_EVENTS } from '../shared/ipc';
+import { writeMainProcessLog } from './electron-log';
 
 export interface BridgeRequest {
   id: string;
@@ -210,6 +211,7 @@ export class BridgeManager extends EventEmitter {
 
     this.addLog(`Starting MiQi bridge: ${command} ${args.join(' ')}`);
     this.addLog(`Working directory: ${this.projectRoot}`);
+    this.recordMainLog('INFO', `Starting MiQi bridge: ${command} ${args.join(' ')}`);
 
     // Start file watcher for hot reload
     this.startFileWatcher();
@@ -313,8 +315,10 @@ export class BridgeManager extends EventEmitter {
       this.process.stderr!.on('data', (data: Buffer) => {
         const text = data.toString().trim();
         if (text) {
-          console.log(`[MIQI BRIDGE STDERR] ${text}`);
+          const msg = `[MIQI BRIDGE STDERR] ${text}`;
+          console.log(msg);
           this.addLog(text);
+          this.recordMainLog('WARN', msg);
         }
       });
 
@@ -504,6 +508,7 @@ export class BridgeManager extends EventEmitter {
     }, 5000);
 
     this.addLog('Bridge stopping');
+    this.recordMainLog('INFO', 'Bridge stopping');
   }
 
   private startFileWatcher(): void {
@@ -602,7 +607,9 @@ export class BridgeManager extends EventEmitter {
     try {
       return await this.send(method, params, onEvent);
     } catch (e: any) {
-      this.addLog(`[Bridge] sendSafe ${method} swallowed: ${e?.message ?? String(e)}`);
+      const errMsg = e?.message ?? String(e);
+      this.addLog(`[Bridge] sendSafe ${method} swallowed: ${errMsg}`);
+      this.recordMainLog('WARN', `sendSafe ${method} failed: ${errMsg}`);
       return null;
     }
   }
@@ -620,6 +627,7 @@ export class BridgeManager extends EventEmitter {
     } catch (e: any) {
       const msg = e?.message ?? String(e ?? 'Unknown bridge error');
       this.addLog(`[Bridge] sendSafeWithError ${method} failed: ${msg}`);
+      this.recordMainLog('WARN', `sendSafeWithError ${method} failed: ${msg}`);
       return { ok: false, error: msg, code: e?.code };
     }
   }
@@ -653,10 +661,21 @@ export class BridgeManager extends EventEmitter {
     const id = randomUUID();
     const request: BridgeRequest = { id, method, params };
     const timeoutMs = options.timeoutMs ?? (method === 'chat.send' ? CHAT_SEND_TIMEOUT_MS : 30_000);
+    const startMs = Date.now();
+
+    const logSlow = () => {
+      // chat.send / turn/start are streaming long-lived requests — slow duration is expected
+      if (method === 'chat.send' || method === 'turn/start') return;
+      const duration = Date.now() - startMs;
+      if (duration > 1000) {
+        this.recordMainLog('INFO', `IPC ${method} took ${duration}ms`);
+      }
+    };
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
+        logSlow();
         reject(new Error(`Request ${method} timed out`));
       }, timeoutMs);
 
@@ -664,11 +683,13 @@ export class BridgeManager extends EventEmitter {
         resolve: (value: unknown) => {
           clearTimeout(timeout);
           this.pending.delete(id);
+          logSlow();
           resolve(value);
         },
         reject: (err: Error) => {
           clearTimeout(timeout);
           this.pending.delete(id);
+          logSlow();
           reject(err);
         },
         onEvent,
@@ -724,6 +745,10 @@ export class BridgeManager extends EventEmitter {
       this.logs = this.logs.slice(-this.maxLogs);
     }
     this.emit('log', message);
+  }
+
+  recordMainLog(level: string, message: string, source?: string): void {
+    writeMainProcessLog(level, message, this.projectRoot, source);
   }
 
   private emitState(): void {

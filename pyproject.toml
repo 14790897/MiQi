@@ -88,6 +88,12 @@ include = [
     "LICENSE",
 ]
 
+[tool.pylint.messages_control]
+# PEP 562 __getattr__ lazy imports; disable false positives
+disable = [
+    "undefined-all-variable",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
