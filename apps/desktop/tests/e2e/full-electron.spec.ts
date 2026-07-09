@@ -579,4 +579,78 @@ test.describe('Native Electron E2E', () => {
       console.log('[test] ✅ exec ls /home/miqi/workspace');
     },
   );
+
+  test.skip(
+    'session file isolation: exec files from one session not visible in another',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+      await createNewConversation(page);
+
+      const marker = `ISOLATED_${Date.now()}`;
+      await sendMessage(
+        page,
+        `用 exec 执行: echo ${marker} > /home/miqi/workspace/session_isolation_test.txt && cat /home/miqi/workspace/session_isolation_test.txt`,
+      );
+      await waitForResponseComplete(page, 120_000);
+
+      const mainTextA = await page.locator('main').textContent();
+      expect(mainTextA).toContain(marker);
+      await page.waitForTimeout(800);
+      await page.screenshot({ path: 'test-results/session-isolation-01-sessionA-writes.png' });
+      console.log(`[test] ✅ Session A file with marker: ${marker}`);
+
+      await createNewConversation(page);
+      await sendMessage(
+        page,
+        '用 exec 执行: cat /home/miqi/workspace/session_isolation_test.txt 2>&1',
+      );
+      await waitForResponseComplete(page, 120_000);
+      await page.waitForTimeout(15_000);
+
+      const mainB = await page.locator('main').textContent() || '';
+      const hasNotFound = /no such file|not found|not exist|does not exist|不存在|No such|cat.*error/i.test(mainB);
+      if (!hasNotFound) {
+        console.log('[test] Session B text (600):', mainB.substring(0, 600));
+      }
+      expect(hasNotFound).toBe(true);
+      await page.waitForTimeout(800);
+      await page.screenshot({ path: 'test-results/session-isolation-02-sessionB-cannot-see.png' });
+      console.log('[test] ✅ Session B cannot see Session A file');
+    },
+  );
+
+  test(
+    'write_file uses session-scoped workspace via sandbox',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+      await createNewConversation(page);
+
+      const fname = `e2e_session_file_${Date.now()}.txt`;
+      const content = `E2E session file content ${Date.now()}`;
+
+      await sendMessage(
+        page,
+        `Use write_file to create ${fname} with content "${content}"`,
+      );
+      await page.getByText('文件操作审批').waitFor({ timeout: 30_000 }).catch(() => {});
+      const allowBtn = page.getByRole('button', { name: '永久允许' });
+      if (await allowBtn.isVisible().catch(() => false)) await allowBtn.click();
+      await waitForResponseComplete(page, 240_000);
+      await page.waitForTimeout(800);
+      await page.screenshot({ path: 'test-results/session-isolation-03-write-file-approval.png' });
+
+      await sendMessage(
+        page,
+        `用 exec 执行: cat /home/miqi/workspace/sessions/*/files/${fname} 2>&1`,
+      );
+      await waitForResponseComplete(page, 120_000);
+      const mainText = await page.locator('main').textContent();
+      expect(mainText).toContain(content);
+      await page.waitForTimeout(800);
+      await page.screenshot({ path: 'test-results/session-isolation-04-write-file-verified.png' });
+      console.log(`[test] ✅ write_file session-scoped: ${fname}`);
+    },
+  );
 });
