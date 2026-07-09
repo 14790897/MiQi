@@ -596,6 +596,7 @@ test.describe('Native Electron E2E', () => {
 
       const mainTextA = await page.locator('main').textContent();
       expect(mainTextA).toContain(marker);
+      await page.waitForTimeout(800);
       await page.screenshot({ path: 'test-results/session-isolation-01-sessionA-writes.png' });
       console.log(`[test] ✅ Session A file with marker: ${marker}`);
 
@@ -608,6 +609,7 @@ test.describe('Native Electron E2E', () => {
 
       const mainTextB = await page.locator('main').textContent();
       expect(mainTextB).not.toContain(marker);
+      await page.waitForTimeout(800); // let typewriter finish
       await page.screenshot({ path: 'test-results/session-isolation-02-sessionB-cannot-see.png' });
       console.log('[test] ✅ Session B cannot see Session A file');
     },
@@ -630,8 +632,9 @@ test.describe('Native Electron E2E', () => {
       await page.getByText('文件操作审批').waitFor({ timeout: 30_000 }).catch(() => {});
       const allowBtn = page.getByRole('button', { name: '永久允许' });
       if (await allowBtn.isVisible().catch(() => false)) await allowBtn.click();
-      await page.screenshot({ path: 'test-results/session-isolation-03-write-file-approval.png' });
       await waitForResponseComplete(page, 240_000);
+      await page.waitForTimeout(800);
+      await page.screenshot({ path: 'test-results/session-isolation-03-write-file-approval.png' });
 
       await sendMessage(
         page,
@@ -640,6 +643,7 @@ test.describe('Native Electron E2E', () => {
       await waitForResponseComplete(page, 120_000);
       const mainText = await page.locator('main').textContent();
       expect(mainText).toContain(content);
+      await page.waitForTimeout(800);
       await page.screenshot({ path: 'test-results/session-isolation-04-write-file-verified.png' });
       console.log(`[test] ✅ write_file session-scoped: ${fname}`);
     },
