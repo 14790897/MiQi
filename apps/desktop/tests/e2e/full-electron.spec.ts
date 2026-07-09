@@ -669,10 +669,14 @@ test.describe('Native Electron E2E', () => {
         page,
         '使用 pptx-generator 创建 PPT。LAYOUT_16x9，theme={primary:"065A82",secondary:"1C7293",accent:"00B4D8",light:"CAF0F8",bg:"F0F8FF"}。封面标题"人工智能简介"副标题"技术、应用与未来"，目录 topics:什么是AI、核心技术、应用场景、未来展望，内容页"什么是AI" items:机器学习、深度学习、NLP，内容页"核心技术" 2 栏 items:Transformer、强化学习、CV、生成式AI、RAG、多模态，总结页 points:AI重塑行业、人机协作、安全对齐 conclusion:拥抱AI。文件名 ai_intro.pptx',
       );
-      await waitForResponseComplete(page, 360_000);
 
-      const pptxFile = page.getByText('ai_intro.pptx');
-      await expect(pptxFile.first()).toBeVisible({ timeout: 60_000 });
+      // Wait for the AI to actually invoke create_pptx and show the result
+      await expect(page.locator('main').getByText(/create_pptx|pptx.*created|ppt.*created/i).first())
+        .toBeVisible({ timeout: 360_000 });
+
+      // Verify pptx appears in Task Assets (not just in prompt text)
+      const taskAssets = page.locator('[data-testid="task-assets"], .task-assets, aside').first();
+      await expect(taskAssets.getByText('ai_intro.pptx')).toBeVisible({ timeout: 30_000 });
       console.log('[test] ✅ AI PowerPoint created via pptx-generator');
     },
   );
