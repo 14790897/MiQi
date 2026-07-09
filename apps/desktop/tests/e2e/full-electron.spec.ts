@@ -641,14 +641,14 @@ test.describe('Native Electron E2E', () => {
       await page.waitForTimeout(800);
       await page.screenshot({ path: 'test-results/session-isolation-03-write-file-approval.png' });
 
-      // Verify file is under sessions/<key>/files/ (session-scoped)
+      // Verify file is in sessions subdirectory
       await sendMessage(
         page,
-        `用 exec 执行: find /home/miqi/workspace/sessions -maxdepth 4 -name "${fname}" -type f 2>&1`,
+        `用 exec 执行: cat /home/miqi/workspace/sessions/*/files/${fname} 2>&1`,
       );
       await waitForResponseComplete(page, 120_000);
-      const mainText = await page.locator('main').textContent() || '';
-      expect(mainText).toMatch(/\/sessions\/.*\/files\//);
+      const mainText = await page.locator('main').textContent();
+      expect(mainText).toContain(content);
       await page.waitForTimeout(800);
       await page.screenshot({ path: 'test-results/session-isolation-04-write-file-verified.png' });
       console.log(`[test] ✅ write_file session-scoped: ${fname}`);
