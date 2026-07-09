@@ -655,10 +655,9 @@ test.describe('Native Electron E2E', () => {
   );
 
   test(
-    'create AI PowerPoint via pptx-generator skill',
+    'pptx-generator skill creates AI PowerPoint',
     { timeout: 600_000 },
     async () => {
-      // Pre-grant permanent approval for create_pptx so no dialog appears
       await waitForBridgeInitialized(page);
       await page.evaluate(() =>
         (window as any).miqi.approvals.addPermanent('create_pptx:ai_intro.pptx', 'always'),
@@ -666,9 +665,11 @@ test.describe('Native Electron E2E', () => {
 
       await createNewConversation(page);
 
+      // Prompt follows pptx-generator SKILL.md: LAYOUT_16x9, colors without #,
+      // theme keys (primary/secondary/accent/light/bg), 5 slide types.
       await sendMessage(
         page,
-        '使用 pptx-generator 技能创建一个 AI 主题 PPT：tech_dark 风格，3 页——封面（标题"人工智能简介"、副标题"从技术到应用"）、内容页（标题"核心技术"、items: 深度学习、自然语言处理、计算机视觉）、总结页（标题"展望未来"、points: AGI、人机协作、AI安全，结论"AI 将重塑每个行业"）。文件名 ai_intro.pptx',
+        '使用 pptx-generator 创建 PPT。LAYOUT_16x9，theme={primary:"065A82",secondary:"1C7293",accent:"00B4D8",light:"CAF0F8",bg:"F0F8FF"}。封面标题"人工智能简介"副标题"技术、应用与未来"，目录 topics:什么是AI、核心技术、应用场景、未来展望，内容页"什么是AI" items:机器学习、深度学习、NLP，内容页"核心技术" 2 栏 items:Transformer、强化学习、CV、生成式AI、RAG、多模态，总结页 points:AI重塑行业、人机协作、安全对齐 conclusion:拥抱AI。文件名 ai_intro.pptx',
       );
       await waitForResponseComplete(page, 360_000);
 
