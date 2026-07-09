@@ -55,11 +55,28 @@ interface Message {
   attachments?: Attachment[];
   toolHint?: boolean;
   toolCallId?: string;
+  action?: 'open-provider-settings';
+  actionLabel?: string;
   /** When true the message is collapsed by default (user can click to expand) */
   collapsed?: boolean;
   /** Short label shown when collapsed (e.g. "exec" or "write_file → /path/to/file") */
   summary?: string;
   timestamp: number;
+}
+
+function isMissingProviderConfigMessage(message: string) {
+  const normalized = message.toLowerCase();
+  return normalized.includes('no api key configured');
+}
+
+function createProviderConfigMessage(): Message {
+  return {
+    role: 'error',
+    content: '尚未配置模型服务。请先配置 Provider/API Key 后再发送消息。',
+    action: 'open-provider-settings',
+    actionLabel: '配置 Provider',
+    timestamp: Date.now(),
+  };
 }
 
 /* ─── Tracked file from tool hints ───────────────────────────────── */
@@ -345,12 +362,14 @@ export function ChatConsole({
   loadTrigger,
   onNewSession,
   onChatFinished,
+  onOpenProviderSettings,
 }: {
   sessionKey?: string;
   /** Increment to force a session history reload (e.g. after bridge becomes ready) */
   loadTrigger?: number;
   onNewSession?: (newKey: string) => void;
   onChatFinished?: () => void;
+  onOpenProviderSettings?: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -674,6 +693,18 @@ export function ChatConsole({
     const text = input.trim();
     if (!text && attachments.length === 0) return;
 
+    try {
+      const result = await window.miqi.providers.list();
+      const hasConfiguredProvider = result.providers.some((provider) => provider.configured);
+      if (!hasConfiguredProvider) {
+        setMessages((prev) => [...prev, createProviderConfigMessage()]);
+        return;
+      }
+    } catch {
+      // If provider status cannot be read, keep the original send path so the
+      // bridge can surface the underlying runtime error.
+    }
+
     // If a reveal animation is still running from the previous response,
     // cancel it and abort the in-flight request so we can start fresh.
     if (streaming) {
@@ -932,7 +963,9 @@ export function ChatConsole({
       if (animId !== null) cancelAnimationFrame(animId);
       setMessages((prev) => [
         ...prev,
-        { role: 'error', content: data.message, timestamp: Date.now() },
+        isMissingProviderConfigMessage(data.message)
+          ? createProviderConfigMessage()
+          : { role: 'error', content: data.message, timestamp: Date.now() },
       ]);
       setStreaming(false);
       sendCleanup();
@@ -991,7 +1024,9 @@ export function ChatConsole({
       if (animId !== null) cancelAnimationFrame(animId);
       const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? 'Unknown error'));
       const detail = `chat.send failed: ${errMsg}`;
-      if (e?.code) {
+      if (isMissingProviderConfigMessage(errMsg)) {
+        setMessages((prev) => [...prev, createProviderConfigMessage()]);
+      } else if (e?.code) {
         setMessages((prev) => [
           ...prev,
           { role: 'error' as const, content: `${detail} (code: ${e.code})`, timestamp: Date.now() },
@@ -1353,6 +1388,7 @@ export function ChatConsole({
                     onCopy={(text) => handleCopy(text, i)}
                     isCopied={copiedIdx === i}
                     onRetry={() => handleRetry(msg)}
+                    onOpenProviderSettings={onOpenProviderSettings}
                   />
                 ))
               )}
@@ -2088,6 +2124,7 @@ function MessageBubble({
   onCopy,
   isCopied,
   onRetry,
+  onOpenProviderSettings,
 }: {
   msg: Message;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
@@ -2095,6 +2132,7 @@ function MessageBubble({
   onCopy: (text: string) => void;
   isCopied: boolean;
   onRetry?: () => void;
+  onOpenProviderSettings?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -2156,7 +2194,21 @@ function MessageBubble({
             border: '1px solid var(--danger)',
           }}
         >
-          {msg.content}
+          <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+          {msg.action === 'open-provider-settings' && onOpenProviderSettings && (
+            <button
+              type="button"
+              onClick={onOpenProviderSettings}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors"
+              style={{
+                background: 'var(--danger)',
+                color: 'var(--danger-bg)',
+              }}
+            >
+              <Settings size={13} />
+              {msg.actionLabel ?? '配置 Provider'}
+            </button>
+          )}
         </div>
       </div>
     );
