@@ -31,6 +31,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from miqi.runtime.workspace_logging import append_workspace_log, _redact_message
+
 # Force UTF-8 on Windows (default is GBK/cp936 which cannot encode emoji)
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -43,6 +45,7 @@ if hasattr(sys.stdin, 'reconfigure'):
 _stdout_buffer = sys.stdout.buffer if hasattr(sys.stdout, 'buffer') else None
 
 _stdout_lock = threading.Lock()
+_file_logging_sinks: dict[Path, int] = {}
 
 
 def _log(msg: str, level: str = "INFO") -> None:
@@ -61,7 +64,7 @@ def _init_logging() -> None:
     prefix and writes to stderr, so all module-level logger.info/error calls
     are visible in the same terminal stream.
     """
-    from loguru import logger
+    from loguru import logger  # pylint: disable=import-error,import-outside-toplevel
 
     # Remove the default handler (sink #0) which uses loguru's verbose format
     logger.remove()
@@ -132,6 +135,7 @@ class BridgeState:
         self._orchestrator: Any = None  # Phase 3 shared ToolOrchestrator
         self._plan_tracker: Any = None  # Phase 9 shared PlanTracker
         self._plugin_manager: Any = None  # Phase 4 shared PluginManager
+        self._mcp_servers: dict = {}  # MCP servers registered by plugins
         self._runtime_sessions: dict[str, Any] = {}  # Phase 11 RuntimeSession cache
 
     def load_config(self):
@@ -209,19 +213,41 @@ class BridgeState:
 
         Phase 30: client_id is used to compute the client-scoped sandbox key.
         When client_id is None, falls back to raw session_key (legacy path).
+
+        Safe to call from both legacy (no running loop) and persistent-loop
+        contexts.  On a persistent loop the async work is delegated to a
+        short-lived thread so we never call ``run_until_complete`` on an
+        already-running loop.
         """
         if self._sandbox_manager is None or self._sandbox_manager == "disabled":
             return False
-        try:
-            import asyncio
-            loop = asyncio.new_event_loop()
+
+        async def _destroy() -> bool:
             try:
-                result = loop.run_until_complete(
-                    self._sandbox_manager.destroy(session_key, client_id=client_id),
+                return await self._sandbox_manager.destroy(
+                    session_key, client_id=client_id,
                 )
-            finally:
-                loop.close()
-            return result
+            except Exception as exc:
+                _log(f"destroy_sandbox error: {exc}")
+                return False
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # No loop running — legacy path, safe to call asyncio.run()
+            return asyncio.run(_destroy())
+
+        # Persistent loop running — delegate to a separate thread
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, _destroy()).result(timeout=60)
+
+    async def destroy_sandbox_async(self, session_key: str, *, client_id: str | None = None) -> bool:
+        """Destroy the sandbox for async AppServer handlers without blocking."""
+        if self._sandbox_manager is None or self._sandbox_manager == "disabled":
+            return False
+        try:
+            return await self._sandbox_manager.destroy(session_key, client_id=client_id)
         except Exception as exc:
             _log(f"destroy_sandbox error: {exc}")
             return False
@@ -400,6 +426,35 @@ def _ensure_app_server() -> Any:
 # BridgeRuntimeLoop._drain_loop() which uses the persistent event loop.
 
 
+def _add_file_logging(workspace: Path) -> None:
+    """Add an idempotent redacting loguru file sink."""
+    from loguru import logger
+
+    from miqi.runtime.workspace_logging import cleanup_old_logs, get_log_dir
+
+    workspace = workspace.resolve()
+    if workspace in _file_logging_sinks:
+        return
+
+    log_dir = get_log_dir(workspace)
+
+    def _redacting_sink(message: Any) -> None:
+        record = message.record
+        timestamp = record["time"].strftime("%Y-%m-%dT%H:%M:%SZ")
+        date_str = record["time"].strftime("%Y-%m-%d")
+        log_path = log_dir / f"bridge-{date_str}.log"
+        line = (
+            f"[{timestamp}] [{record['level'].name}] [bridge] "
+            f"{record['name']}:{record['function']}:{record['line']} | "
+            f"{_redact_message(record['message'])}\n"
+        )
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+        cleanup_old_logs(workspace)
+
+    _file_logging_sinks[workspace] = logger.add(_redacting_sink, level="DEBUG")
+
+
 def _ensure_workspace_init() -> None:
     """Create workspace directories and template files if they don't exist."""
     try:
@@ -411,6 +466,9 @@ def _ensure_workspace_init() -> None:
         workspace.mkdir(parents=True, exist_ok=True)
         (workspace / "memory").mkdir(exist_ok=True)
         (workspace / "skills").mkdir(exist_ok=True)
+
+        # Add persistent file logging (daily rotation, 7-day retention)
+        _add_file_logging(workspace)
 
         templates_dir = pkg_files("miqi") / "templates"
         for item in templates_dir.iterdir():
@@ -425,9 +483,23 @@ def _ensure_workspace_init() -> None:
         if not memory_file.exists():
             memory_file.write_text(memory_template.read_text(encoding="utf-8"), encoding="utf-8")
 
+        append_workspace_log(workspace, "Bridge workspace initialized", source="bridge")
         _log("Workspace ready")
     except Exception as exc:
         _log(f"Workspace init warning (non-fatal): {exc}")
+        # Only attempt workspace logging if workspace was successfully resolved.
+        # Wrap in its own try/except so a logging I/O failure cannot escape
+        # this non-fatal handler.
+        if "workspace" in locals():
+            try:
+                append_workspace_log(
+                    workspace,
+                    f"Workspace init warning: {exc}",
+                    level="WARNING",
+                    source="bridge",
+                )
+            except Exception:
+                pass  # logging failure — already reported via _log above
 
 
 # Global bridge state — accessible from atexit/signal handlers
