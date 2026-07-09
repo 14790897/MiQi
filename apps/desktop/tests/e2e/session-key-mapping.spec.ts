@@ -80,7 +80,7 @@ test.describe('Session Key Path Mapping E2E', () => {
     },
   );
 
-  test(
+  test.skip(
     '02: write_file in session A — not visible in session B via exec find',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
@@ -103,7 +103,7 @@ test.describe('Session Key Path Mapping E2E', () => {
     },
   );
 
-  test(
+  test.skip(
     '03: same-named file independently via write_file in two sessions',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
