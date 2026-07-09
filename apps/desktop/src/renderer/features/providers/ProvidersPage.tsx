@@ -508,9 +508,9 @@ function ProviderRow({
             title="启用为当前模型"
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors disabled:opacity-50"
             style={{
-              borderColor: 'color-mix(in srgb, var(--success) 45%, transparent)',
-              background: 'color-mix(in srgb, var(--success) 10%, transparent)',
-              color: 'var(--success)',
+              borderColor: 'color-mix(in srgb, var(--info) 45%, transparent)',
+              background: 'color-mix(in srgb, var(--info) 10%, transparent)',
+              color: 'var(--info)',
             }}
           >
             {isActivating ? (
