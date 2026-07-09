@@ -661,19 +661,14 @@ test.describe('Native Electron E2E', () => {
       const fname = 'ai_intro.pptx';
       await createNewConversation(page);
 
-      // Pre-approve tools after conversation is ready
-      await page.evaluate(() => {
-        const m = (window as any).miqi;
-        m.approvals.addPermanent('create_pptx:ai_intro.pptx', 'always');
-        m.approvals.addPermanent('exec:*', 'always');
-        m.approvals.addPermanent('write_file:*', 'always');
-        m.approvals.addPermanent('read_file:*', 'always');
-      });
-
       await sendMessage(
         page,
         `用 pptx-generator 创建 AI 主题 PPT，文件名 ${fname}，封面标题人工智能简介，只回复成`,
       );
+
+      await page.getByText('文件操作审批').waitFor({ timeout: 60_000 }).catch(() => {});
+      const allowBtn = page.getByRole('button', { name: '永久允许' });
+      if (await allowBtn.isVisible().catch(() => false)) await allowBtn.click();
       await waitForResponseComplete(page, 360_000);
 
       await expect(page.locator('main').getByText('成').first()).toBeVisible({ timeout: 15_000 });
