@@ -136,3 +136,11 @@ jobs:
           xvfb-run --auto-servernum \
             npx playwright test --config=playwright.config.ts --project=electron
         timeout-minutes: 30
+
+      - name: Upload Playwright report (E2E)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-e2e
+          path: apps/desktop/test-results/
+          retention-days: 7
