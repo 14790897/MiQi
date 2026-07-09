@@ -415,3 +415,28 @@ async def test_providers_update_marks_changed_config_unverified(registry_with_st
     assert saved
     assert config.providers.deepseek.api_key == "sk-new"
     assert config.desktop["providerVerification"]["deepseek"]["status"] == "unverified"
+
+
+@pytest.mark.asyncio
+async def test_providers_update_fills_default_api_base_for_key_only_config(
+    registry_with_state, monkeypatch
+):
+    """Saving only an API key should still produce a runnable provider config."""
+    from miqi.runtime.provider_handlers import providers_update_handler
+
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    config.providers.deepseek.api_key = ""
+    config.providers.deepseek.api_base = None
+    mock_state.load_config.return_value = config
+    monkeypatch.setattr("miqi.config.loader.save_config", lambda cfg: None)
+
+    result = await providers_update_handler(
+        "req-1",
+        {"provider_name": "deepseek", "api_key": "sk-new"},
+        "client-1", None, registry,
+    )
+
+    assert result["result"]["saved"] is True
+    assert config.providers.deepseek.api_key == "sk-new"
+    assert config.providers.deepseek.api_base == "https://api.deepseek.com/v1"

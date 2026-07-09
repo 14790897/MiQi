@@ -18,6 +18,7 @@ import {
   Loader2,
   ChevronDown,
   ChevronRight,
+  Play,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
@@ -422,13 +423,24 @@ interface ProviderRowProps {
   provider: ProviderInfo;
   onEdit: (p: ProviderInfo) => void;
   onTest: (p: ProviderInfo) => void;
+  onActivate: (p: ProviderInfo) => void;
   testingName: string | null;
+  activatingName: string | null;
   activeProvider?: string | null;
 }
 
-function ProviderRow({ provider, onEdit, onTest, testingName, activeProvider }: ProviderRowProps) {
+function ProviderRow({
+  provider,
+  onEdit,
+  onTest,
+  onActivate,
+  testingName,
+  activatingName,
+  activeProvider,
+}: ProviderRowProps) {
   const label = PROVIDER_DISPLAY_NAMES[provider.name] ?? provider.display_name;
   const isTesting = testingName === provider.name;
+  const isActivating = activatingName === provider.name;
   const statusMeta = getStatusMeta(provider);
   const StatusIcon = statusMeta.icon;
   const isActive = provider.name === activeProvider;
@@ -489,6 +501,21 @@ function ProviderRow({ provider, onEdit, onTest, testingName, activeProvider }: 
         {statusMeta.label}
       </span>
       <div className="flex items-center gap-1 shrink-0">
+        {provider.configured && !isActive && (
+          <button
+            onClick={() => onActivate(provider)}
+            disabled={isActivating}
+            title="启用为当前模型"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-[var(--accent)] text-[var(--accent-text)] hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50"
+          >
+            {isActivating ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <Play size={13} />
+            )}
+            启用
+          </button>
+        )}
         <button
           onClick={() => onTest(provider)}
           disabled={isTesting}
@@ -515,7 +542,9 @@ interface CategorySectionProps {
   providers: ProviderInfo[];
   onEdit: (p: ProviderInfo) => void;
   onTest: (p: ProviderInfo) => void;
+  onActivate: (p: ProviderInfo) => void;
   testingName: string | null;
+  activatingName: string | null;
   activeProvider?: string | null;
 }
 
@@ -525,7 +554,9 @@ function CategorySection({
   providers,
   onEdit,
   onTest,
+  onActivate,
   testingName,
+  activatingName,
   activeProvider,
 }: CategorySectionProps) {
   if (providers.length === 0) return null;
@@ -546,7 +577,9 @@ function CategorySection({
             provider={p}
             onEdit={onEdit}
             onTest={onTest}
+            onActivate={onActivate}
             testingName={testingName}
+            activatingName={activatingName}
             activeProvider={activeProvider}
           />
         ))}
@@ -556,10 +589,12 @@ function CategorySection({
 }
 
 export function ProvidersPage() {
+  const { markRestartRequired } = useRestartRequired();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [editProvider, setEditProvider] = useState<ProviderInfo | null>(null);
   const [testingName, setTestingName] = useState<string | null>(null);
+  const [activatingName, setActivatingName] = useState<string | null>(null);
   const [activeModel, setActiveModel] = useState('');
   const [activeProvider, setActiveProvider] = useState<string | null>(null);
 
@@ -597,6 +632,30 @@ export function ProvidersPage() {
     } finally {
       setTestingName(null);
       void load();
+    }
+  };
+
+  const handleActivate = async (p: ProviderInfo) => {
+    if (!p.configured) return;
+    const fallbackModel = (PROVIDER_SUGGESTED_MODELS[p.name] ?? [])[0];
+    const model = p.configured_model || fallbackModel;
+    if (!model) {
+      setEditProvider(p);
+      return;
+    }
+    setActivatingName(p.name);
+    try {
+      await window.miqi.providers.update(
+        p.name,
+        undefined,
+        p.api_base || p.default_api_base || null,
+        undefined,
+        model
+      );
+      markRestartRequired();
+      await load();
+    } finally {
+      setActivatingName(null);
     }
   };
 
@@ -665,7 +724,9 @@ export function ProvidersPage() {
               providers={gateways}
               onEdit={setEditProvider}
               onTest={handleTest}
+              onActivate={handleActivate}
               testingName={testingName}
+              activatingName={activatingName}
               activeProvider={activeProvider}
             />
             <CategorySection
@@ -674,7 +735,9 @@ export function ProvidersPage() {
               providers={international}
               onEdit={setEditProvider}
               onTest={handleTest}
+              onActivate={handleActivate}
               testingName={testingName}
+              activatingName={activatingName}
               activeProvider={activeProvider}
             />
             <CategorySection
@@ -683,7 +746,9 @@ export function ProvidersPage() {
               providers={domestic}
               onEdit={setEditProvider}
               onTest={handleTest}
+              onActivate={handleActivate}
               testingName={testingName}
+              activatingName={activatingName}
               activeProvider={activeProvider}
             />
             <CategorySection
@@ -692,7 +757,9 @@ export function ProvidersPage() {
               providers={local}
               onEdit={setEditProvider}
               onTest={handleTest}
+              onActivate={handleActivate}
               testingName={testingName}
+              activatingName={activatingName}
               activeProvider={activeProvider}
             />
           </div>

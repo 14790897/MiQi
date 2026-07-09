@@ -301,6 +301,7 @@ async def providers_update_handler(
     """Update a single provider's api_key / api_base / extra_headers / model."""
     from miqi.config.loader import save_config
     from miqi.config.schema import ProviderConfig, ProvidersConfig
+    from miqi.providers.registry import find_by_name
 
     provider_name = params.get("provider_name", "").strip()
     if not provider_name:
@@ -311,6 +312,7 @@ async def providers_update_handler(
         raise AppServerError(
             f"Unknown provider: {provider_name}", code="INVALID_PARAMS",
         )
+    spec = find_by_name(provider_name)
 
     state = get_bridge_state(registry)
     config = state.load_config()
@@ -325,7 +327,7 @@ async def providers_update_handler(
         update["api_key"] = str(params["api_key"])
     if "api_base" in params:
         v = params["api_base"]
-        update["api_base"] = str(v) if v else None
+        update["api_base"] = str(v) if v else (spec.default_api_base if spec else None)
     if "extra_headers" in params:
         v = params["extra_headers"]
         update["extra_headers"] = dict(v) if v else None
@@ -333,6 +335,11 @@ async def providers_update_handler(
     model_override: str | None = None
     if "model" in params and params["model"]:
         model_override = str(params["model"]).strip()
+
+    if update.get("api_key") and "api_base" not in update and not getattr(pc, "api_base", None):
+        default_api_base = spec.default_api_base if spec else ""
+        if default_api_base:
+            update["api_base"] = default_api_base
 
     if not update and not model_override:
         raise AppServerError("No fields to update", code="INVALID_PARAMS")

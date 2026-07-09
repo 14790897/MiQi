@@ -764,6 +764,7 @@ export function ChatConsole({
     let displayed = '';
     let animId: number | null = null;
     let finalDone = false;
+    let streamErrorHandled = false;
 
     // Reveal the assistant reply with a typewriter animation. The bubble is
     // created lazily — only once the first chunk of content is available — so
@@ -973,6 +974,7 @@ export function ChatConsole({
     });
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
+      streamErrorHandled = true;
       if (animId !== null) cancelAnimationFrame(animId);
       const message = sanitizeUiMessage(data.message);
       setMessages((prev) => [
@@ -1036,6 +1038,12 @@ export function ChatConsole({
       await window.miqi.chat.send(content, key, threadId ?? undefined);
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
+      if (streamErrorHandled) {
+        setStreaming(false);
+        sendCleanup();
+        cleanupListeners();
+        return;
+      }
       const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? 'Unknown error'));
       if (isProviderConfigurationProblem(errMsg)) {
         setMessages((prev) => [...prev, createProviderConfigMessage(errMsg)]);
