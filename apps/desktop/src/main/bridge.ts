@@ -380,10 +380,11 @@ export class BridgeManager extends EventEmitter {
         this.process!.once('close', onClose);
       });
 
-      // Bridge is now fully initialized — switch to running state
+      // Bridge process is alive and accepting stdin.
+      // Do NOT set state='running' yet — the renderer would start
+      // making IPC calls before the initialize/initialized handshake
+      // completes, and the bridge rejects them with NOT_INITIALIZED.
       this.addLog('Bridge ready');
-      this.state = 'running';
-      this.emitState();
 
       // Install the permanent request-response line handler
       // NOTE: The primary line handler (registered before the ready
@@ -456,6 +457,8 @@ export class BridgeManager extends EventEmitter {
       });
 
       await this.initializeConnection();
+      // Only now is the bridge fully ready for IPC — the renderer
+      // will see state='running' and may safely start making calls.
       this.state = 'running';
       this.emitState();
     } catch (err) {

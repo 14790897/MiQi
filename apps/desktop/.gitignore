@@ -4,3 +4,10 @@ dist/
 *.tsbuildinfo
 test-reports/
 test-results/
+
+# Tesseract OCR data files
+*.traineddata
+
+# Ad-hoc scripts
+ocr.js
+ocr2.js
