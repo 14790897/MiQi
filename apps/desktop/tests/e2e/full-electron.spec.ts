@@ -659,33 +659,40 @@ test.describe('Native Electron E2E', () => {
     { timeout: 600_000 },
     async () => {
       const fname = 'ai_intro.pptx';
+      let _fn = 0;
+      const shot = () => page.screenshot({ path: `test-results/videos/f${String(++_fn).padStart(4,'0')}.png`, timeout: 5000 }).catch(() => {});
       await createNewConversation(page);
+      await shot();
 
       await sendMessage(
         page,
         `用 pptx-generator 创建 AI 主题 PPT，文件名 ${fname}，封面标题人工智能简介`,
       );
+      await shot();
 
       // Wait for "Thinking…" to appear (AI started processing)
       await expect(page.getByText('Thinking…')).toBeVisible({ timeout: 30_000 }).catch(() => {});
       console.log('[test] AI started processing');
+      await shot();
 
-      // Auto-click all approval dialogs
+      // Auto-click all approval dialogs + capture frames
       const deadline = Date.now() + 360_000;
       while (Date.now() < deadline) {
         const allowBtn = page.getByRole('button', { name: '永久允许' });
         if (await allowBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
           await allowBtn.click();
+          await shot();
           console.log('[test] Auto-approved tool');
         }
-        // Check if AI finished (Thinking… disappeared)
         const thinking = await page.getByText('Thinking…').isVisible().catch(() => false);
         if (!thinking) break;
-        await page.waitForTimeout(1500);
+        await page.waitForTimeout(3000);
+        await shot();
       }
 
       // Wait for Thinking… to fully disappear
       await expect(page.getByText('Thinking…')).toBeHidden({ timeout: 300_000 });
+      await shot();
 
       // Verify a pptx file was created in workspace
       await page.waitForTimeout(3000);
