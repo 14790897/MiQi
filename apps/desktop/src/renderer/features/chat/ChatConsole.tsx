@@ -415,6 +415,7 @@ export function ChatConsole({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const unsubsRef = useRef<Array<() => void>>([]);
+  const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef(sessionKey);
   // Track the active thread ID for new-protocol thread-aware conversations
   const currentThreadIdRef = useRef<string | null>(null);
@@ -585,10 +586,18 @@ export function ChatConsole({
     };
   }, []);
 
+  const clearFinalCleanupTimer = useCallback(() => {
+    if (finalCleanupTimerRef.current) {
+      clearTimeout(finalCleanupTimerRef.current);
+      finalCleanupTimerRef.current = null;
+    }
+  }, []);
+
   const cleanupListeners = useCallback(() => {
+    clearFinalCleanupTimer();
     for (const unsub of unsubsRef.current) unsub();
     unsubsRef.current = [];
-  }, []);
+  }, [clearFinalCleanupTimer]);
 
   const handleAttachClick = () => fileInputRef.current?.click();
 
@@ -703,7 +712,6 @@ export function ChatConsole({
     let displayed = '';
     let animId: number | null = null;
     let finalDone = false;
-    let finalCleanupTimer: ReturnType<typeof setTimeout> | null = null;
 
     // Reveal the assistant reply with a typewriter animation. The bubble is
     // created lazily — only once the first chunk of content is available — so
@@ -766,10 +774,6 @@ export function ChatConsole({
     }, 5_000); // check every 5s
 
     const sendCleanup = () => {
-      if (finalCleanupTimer) {
-        clearTimeout(finalCleanupTimer);
-        finalCleanupTimer = null;
-      }
       if (watchdogTimer) {
         clearInterval(watchdogTimer);
         watchdogTimer = null;
@@ -778,9 +782,9 @@ export function ChatConsole({
     };
 
     const scheduleFinalCleanup = () => {
-      if (finalCleanupTimer) return;
-      finalCleanupTimer = setTimeout(() => {
-        finalCleanupTimer = null;
+      if (finalCleanupTimerRef.current) return;
+      finalCleanupTimerRef.current = setTimeout(() => {
+        finalCleanupTimerRef.current = null;
         sendCleanup();
         if (onChatFinished) onChatFinished();
       }, 100);
@@ -839,10 +843,7 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
-      if (finalCleanupTimer) {
-        clearTimeout(finalCleanupTimer);
-        finalCleanupTimer = null;
-      }
+      clearFinalCleanupTimer();
       if (animId !== null) {
         cancelAnimationFrame(animId);
         animId = null;
