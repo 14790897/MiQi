@@ -22,6 +22,7 @@ def create_default_orchestrator(
     *,
     bwrap_available: bool = False,
     permanent_allowlist: set[str] | None = None,
+    approval_bypass: Any | None = None,
     ledger_runtime: Any | None = None,
 ) -> Any:
     """Create a ToolOrchestrator with sensible defaults.
@@ -58,6 +59,7 @@ def create_default_orchestrator(
     return ToolOrchestrator(
         permission_engine=PermissionEngine(
             permanent_allowlist=_safe_defaults | (permanent_allowlist or set()),
+            approval_bypass=approval_bypass,
         ),
         sandbox_engine=SandboxPolicyEngine(bwrap_available=bwrap_available),
         hook_runtime=HookRuntime(),

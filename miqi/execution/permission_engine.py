@@ -104,11 +104,13 @@ class PermissionEngine:
         permanent_allowlist: set[str] | None = None,
         deny_patterns: set[str] | None = None,
         session_allowlist: set[str] | None = None,
+        approval_bypass: Any | None = None,
     ):
         self.permanent_allowlist = permanent_allowlist or set()
         self.deny_patterns = deny_patterns or set()
         # Phase 31.6: session-scoped allowlist (cleared when session ends)
         self.session_allowlist = session_allowlist or set()
+        self.approval_bypass = approval_bypass
 
     async def check(self, ctx: Any) -> PermissionDecision:
         """Check whether a tool call is permitted.
@@ -295,7 +297,11 @@ class PermissionEngine:
             return decision
         policy = getattr(profile, "approval_policy", None)
         if policy is None:
+            if self._bypasses_approval(decision.category):
+                return self._bypassed_decision(decision)
             return decision
+        if self._bypasses_approval(decision.category):
+            return self._bypassed_decision(decision)
         if not policy.requires_prompt(category=decision.category, failed=failed):
             return PermissionDecision(
                 verdict=PermissionVerdict.ALLOW,
@@ -306,6 +312,34 @@ class PermissionEngine:
                 allow_permanent=decision.allow_permanent,
             )
         return decision
+
+    def _bypasses_approval(self, category: str) -> bool:
+        bypass = self.approval_bypass
+        if bypass is None:
+            return False
+        bypasses_category = getattr(bypass, "bypasses_category", None)
+        if callable(bypasses_category):
+            return bool(bypasses_category(category))
+        if getattr(bypass, "bypass_all", False):
+            return True
+        if category == "exec":
+            return bool(getattr(bypass, "bypass_command_approval", False))
+        if category == "file_write":
+            return bool(getattr(bypass, "bypass_file_write_approval", False))
+        if category == "network":
+            return bool(getattr(bypass, "bypass_network_approval", False))
+        return bool(getattr(bypass, "bypass_tool_confirmation", False))
+
+    @staticmethod
+    def _bypassed_decision(decision: PermissionDecision) -> PermissionDecision:
+        return PermissionDecision(
+            verdict=PermissionVerdict.ALLOW,
+            category=decision.category,
+            reason="Auto-approved by approval bypass",
+            description=decision.description,
+            details=decision.details,
+            allow_permanent=decision.allow_permanent,
+        )
 
     @staticmethod
     def _make_key(ctx: Any) -> str:

@@ -50,6 +50,12 @@
   --success-bg: #d4f5e0;
   --warning: #F9D048;
   --warning-bg: #F9E8B0;
+  --approval-warning: #7c2d12;
+  --approval-warning-strong: #c2410c;
+  --approval-warning-bg: #fff7ed;
+  --approval-warning-border: #fb923c;
+  --approval-warning-pill-bg: #9a3412;
+  --approval-warning-pill-text: #ffffff;
   --danger: #c04040;
   --danger-bg: #F8E8E8;          /* ACTIVE FOR EDIT 文件卡片 */
   --info: #2066D0;               /* 链接 / 高亮提示蓝 */
@@ -98,6 +104,12 @@
   --accent-hover: #e0b830;
   --accent-soft: #4a3a10;
   --accent-text: #121212;
+  --approval-warning: #fed7aa;
+  --approval-warning-strong: #f97316;
+  --approval-warning-bg: #3b2418;
+  --approval-warning-border: #c2410c;
+  --approval-warning-pill-bg: #f97316;
+  --approval-warning-pill-text: #1f130b;
   --bubble-user-bg: #3a3a5a;
   --bubble-user-text: #FFFFFF;
   --bubble-ai-bg: #2e2e2e;
@@ -223,4 +235,22 @@ code {
   border-radius: 4px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+@keyframes approval-bypass-island-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.approval-bypass-island {
+  animation: approval-bypass-island-in 220ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  box-shadow:
+    0 14px 35px rgba(124, 45, 18, 0.14),
+    0 2px 10px rgba(124, 45, 18, 0.08);
 }

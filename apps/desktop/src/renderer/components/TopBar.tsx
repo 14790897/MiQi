@@ -1,12 +1,69 @@
+import { useEffect, useState } from 'react';
 import { useRuntime } from '../contexts/RuntimeContext';
-import { Cloud, ShieldCheck, RefreshCw, Loader2 } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
-export function TopBar() {
+interface ApprovalBypassStatus {
+  bypassAll?: boolean;
+  bypassCommandApproval?: boolean;
+  bypassFileWriteApproval?: boolean;
+  bypassToolConfirmation?: boolean;
+  bypassNetworkApproval?: boolean;
+}
+
+function isBypassEnabled(status: ApprovalBypassStatus | null, legacyCommandBypass: boolean): boolean {
+  if (legacyCommandBypass) return true;
+  if (!status) return false;
+  return Boolean(
+    status.bypassAll ||
+      status.bypassCommandApproval ||
+      status.bypassFileWriteApproval ||
+      status.bypassToolConfirmation ||
+      status.bypassNetworkApproval
+  );
+}
+
+export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
   const { status } = useRuntime();
+  const [approvalBypass, setApprovalBypass] = useState<ApprovalBypassStatus | null>(null);
+  const [legacyCommandBypass, setLegacyCommandBypass] = useState(false);
 
   const isRunning = status.state === 'running';
   const isStarting = status.state === 'starting' || status.state === 'stopping';
+  const bypassEnabled = isBypassEnabled(approvalBypass, legacyCommandBypass);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadApprovalBypass = async () => {
+      if (!(window as any).miqi?.config?.get) {
+        if (!cancelled) setApprovalBypass(null);
+        if (!cancelled) setLegacyCommandBypass(false);
+        return;
+      }
+      try {
+        const cfg = await window.miqi.config.get();
+        const approvals = (cfg.approvals ?? {}) as ApprovalBypassStatus;
+        const commandApproval = ((cfg.agents as any)?.commandApproval ?? {}) as {
+          enabled?: boolean;
+        };
+        if (!cancelled) {
+          setApprovalBypass(approvals);
+          setLegacyCommandBypass(commandApproval.enabled === false);
+        }
+      } catch {
+        if (!cancelled) setApprovalBypass(null);
+        if (!cancelled) setLegacyCommandBypass(false);
+      }
+    };
+    loadApprovalBypass();
+    window.addEventListener('miqi:approval-bypass-updated', loadApprovalBypass);
+    const timer = window.setInterval(loadApprovalBypass, 5000);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('miqi:approval-bypass-updated', loadApprovalBypass);
+      window.clearInterval(timer);
+    };
+  }, []);
 
   return (
     <div
@@ -31,6 +88,31 @@ export function TopBar() {
 
       {/* Center: status pills */}
       <div className="flex items-center gap-2">
+        {bypassEnabled && (
+          <button
+            type="button"
+            onClick={onOpenApprovals}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold',
+              'transition-transform hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-[var(--approval-warning-border)]'
+            )}
+            style={{
+              background: 'var(--approval-warning-pill-bg)',
+              color: 'var(--approval-warning-pill-text)',
+              border: '1px solid var(--approval-warning-border)',
+            }}
+            title="打开审批设置"
+          >
+            <AlertTriangle size={11} className="shrink-0" />
+            <span>
+              {approvalBypass?.bypassAll
+                ? 'APPROVAL BYPASS'
+                : legacyCommandBypass
+                  ? 'COMMAND BYPASS'
+                  : 'BYPASS PARTIAL'}
+            </span>
+          </button>
+        )}
         {/* Sync state */}
         <div
           className={cn('flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium')}
