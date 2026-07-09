@@ -658,11 +658,12 @@ test.describe('Native Electron E2E', () => {
     'pptx-generator skill creates AI PowerPoint',
     { timeout: 600_000 },
     async () => {
+      const fname = 'ai_intro.pptx';
       await createNewConversation(page);
 
       await sendMessage(
         page,
-        '使用 pptx-generator 创建 PPT。LAYOUT_16x9，theme={primary:"065A82",secondary:"1C7293",accent:"00B4D8",light:"CAF0F8",bg:"F0F8FF"}。封面标题"人工智能简介"副标题"技术、应用与未来"，目录 topics:什么是AI、核心技术、应用场景、未来展望，内容页 items:机器学习、深度学习、NLP，总结页 points:AI重塑行业、人机协作、安全对齐 conclusion:拥抱AI。文件名 ai_intro.pptx。创建成功后只回复一个字：成',
+        `使用 pptx-generator 创建 PPT。LAYOUT_16x9，theme={primary:"065A82",secondary:"1C7293",accent:"00B4D8",light:"CAF0F8",bg:"F0F8FF"}。封面标题"人工智能简介"副标题"技术、应用与未来"，目录 topics:什么是AI、核心技术、应用场景、未来展望，内容页 items:机器学习、深度学习、NLP，总结页 points:AI重塑行业、人机协作、安全对齐 conclusion:拥抱AI。文件名 ${fname}。创建成功后只回复一个字：成`,
       );
 
       await page.getByText('文件操作审批').waitFor({ timeout: 60_000 }).catch(() => {});
@@ -670,9 +671,23 @@ test.describe('Native Electron E2E', () => {
       if (await allowBtn.isVisible().catch(() => false)) await allowBtn.click();
       await waitForResponseComplete(page, 360_000);
 
-      // Verify AI actually finished (response contains "成")
       await expect(page.locator('main').getByText('成').first()).toBeVisible({ timeout: 15_000 });
-      console.log('[test] ✅ AI PowerPoint created via pptx-generator');
+
+      // ── Verify PPTX internal content matches prompt ──
+      const { execSync } = require('node:child_process');
+      const { homedir } = require('node:os');
+      const { join } = require('node:path');
+      const pptxPath = join(homedir(), '.miqi', 'workspace', fname);
+      const verifier = join(__dirname, 'helpers', 'verify-pptx.py');
+      const stdout = execSync(`python "${verifier}" "${pptxPath}"`, { encoding: 'utf8', timeout: 15000 });
+      const result = JSON.parse(stdout);
+      console.log('[test] PPTX verification:', JSON.stringify(result.checks));
+      if (!result.pass) {
+        const failed = result.checks.filter((c: any) => !c.pass).map((c: any) => c.label);
+        throw new Error(`PPTX checks failed: ${failed.join(', ')}`);
+      }
+
+      console.log('[test] ✅ AI PowerPoint created + validated via pptx-generator');
     },
   );
 });
