@@ -163,6 +163,19 @@ def _get_active_sandbox(sandbox_manager):
     return None
 
 
+def _sandbox_to_host_path(sandbox_path: str, workspace: Path | None, sandbox) -> str:
+    """Map sandbox-internal path to host path for user-facing output."""
+    if not sandbox_path or not workspace:
+        return sandbox_path
+    sb_ws = getattr(sandbox, "workspace_path", None) or "/home/miqi/workspace"
+    sb_ws = sb_ws.rstrip("/")
+    if sandbox_path.startswith(sb_ws):
+        host_ws = str(workspace.resolve()).replace("\\", "/")
+        rel = sandbox_path[len(sb_ws):].lstrip("/")
+        return f"{host_ws}/{rel}"
+    return sandbox_path
+
+
 async def _ensure_sandbox(sandbox_manager, tool_name="file_tool"):
     """Get or create a sandbox so file tools have an isolated environment."""
     if sandbox_manager is None:
@@ -513,7 +526,8 @@ class WriteFileTool(Tool):
             _log.info("write_file [sandbox]: %s → %s", path, sandbox_path)
             try:
                 await _sandbox_write_file(sandbox, sandbox_path, content)
-                return f"Successfully wrote {len(content)} bytes to {path} (sandbox: {sandbox_path})"
+                host_path = _sandbox_to_host_path(sandbox_path, self._workspace, sandbox)
+                return f"Successfully wrote {len(content)} bytes to {host_path}"
             except IOError as e:
                 return f"Error: Failed to write file in sandbox (path={sandbox_path}): {e}"
             except Exception as e:
@@ -615,7 +629,7 @@ class EditFileTool(Tool):
             except Exception as e:
                 return f"Error: Failed to write edited file in sandbox (path={sandbox_path}): {type(e).__name__}: {e}"
 
-            return f"Successfully edited {path} (sandbox: {sandbox_path})"
+            return f"Successfully edited {_sandbox_to_host_path(sandbox_path, self._workspace, sandbox)}"
         else:
             # Native sandbox or no sandbox — use local filesystem
             try:
