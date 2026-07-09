@@ -506,7 +506,12 @@ function ProviderRow({
             onClick={() => onActivate(provider)}
             disabled={isActivating}
             title="启用为当前模型"
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-[var(--accent)] text-[var(--accent-text)] hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors disabled:opacity-50"
+            style={{
+              borderColor: 'color-mix(in srgb, var(--success) 45%, transparent)',
+              background: 'color-mix(in srgb, var(--success) 10%, transparent)',
+              color: 'var(--success)',
+            }}
           >
             {isActivating ? (
               <Loader2 size={13} className="animate-spin" />
@@ -515,6 +520,19 @@ function ProviderRow({
             )}
             启用
           </button>
+        )}
+        {isActive && (
+          <span
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium shrink-0"
+            style={{
+              background: 'color-mix(in srgb, var(--success) 18%, transparent)',
+              color: 'var(--success)',
+              border: '1px solid color-mix(in srgb, var(--success) 35%, transparent)',
+            }}
+          >
+            <CheckCircle size={13} />
+            使用中
+          </span>
         )}
         <button
           onClick={() => onTest(provider)}
