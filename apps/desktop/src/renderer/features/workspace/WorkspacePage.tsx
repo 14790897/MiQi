@@ -148,6 +148,7 @@ export function WorkspacePage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [binaryUrl, setBinaryUrl] = useState<string | null>(null);
 
   // File operations state
   const [actionTarget, setActionTarget] = useState<{
@@ -173,6 +174,13 @@ export function WorkspacePage() {
     loadTree().then(() => setLoading(false));
   }, [loadTree]);
 
+  // Revoke blob URL on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (binaryUrl) URL.revokeObjectURL(binaryUrl);
+    };
+  }, [binaryUrl]);
+
   const openFile = useCallback(
     (path: string) => {
       if (isUnsaved && path !== currentPath) {
@@ -186,14 +194,33 @@ export function WorkspacePage() {
   );
 
   const loadFile = useCallback((path: string) => {
+    // Revoke previous blob URL to prevent memory leaks
+    if (binaryUrl) {
+      URL.revokeObjectURL(binaryUrl);
+      setBinaryUrl(null);
+    }
+
     setFileLoading(true);
     setError(null);
     setCurrentPath(path);
     window.miqi.files
       .read(path)
       .then((res) => {
-        setContent(res.content);
-        setSavedContent(res.content);
+        if (res.is_binary && res.data_base64) {
+          // Binary file: decode base64 → blob URL for iframe rendering
+          const binary = atob(res.data_base64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          const blob = new Blob([bytes], { type: res.mime_type || 'application/pdf' });
+          setBinaryUrl(URL.createObjectURL(blob));
+          setContent('');
+          setSavedContent('');
+        } else {
+          setContent(res.content || '');
+          setSavedContent(res.content || '');
+        }
         setFileLoading(false);
       })
       .catch((err) => {
@@ -202,7 +229,7 @@ export function WorkspacePage() {
         setSavedContent('');
         setFileLoading(false);
       });
-  }, []);
+  }, [binaryUrl]);
 
   const confirmSwitch = useCallback(
     (ok: boolean) => {
@@ -314,6 +341,7 @@ export function WorkspacePage() {
   }, [isUnsaved, currentPath, handleSave]);
 
   const isMdFile = currentPath?.endsWith('.md');
+  const isPdfFile = currentPath?.toLowerCase().endsWith('.pdf');
 
   if (loading) {
     return (
@@ -372,7 +400,13 @@ export function WorkspacePage() {
                     未保存
                   </span>
                 )}
+                {isPdfFile && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 shrink-0">
+                    PDF
+                  </span>
+                )}
               </div>
+              {!isPdfFile && (
               <div className="flex items-center gap-1">
                 {/* Copy all button */}
                 <button
@@ -411,6 +445,7 @@ export function WorkspacePage() {
                   </div>
                 )}
               </div>
+              )}
             </div>
             {error && (
               <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-900/30 text-xs text-[var(--danger)]">
@@ -425,6 +460,12 @@ export function WorkspacePage() {
                 <div className="flex items-center justify-center h-full">
                   <div className="text-sm text-[var(--text-muted)]">正在加载文件…</div>
                 </div>
+              ) : isPdfFile && binaryUrl ? (
+                <iframe
+                  src={binaryUrl}
+                  className="w-full h-full border-0"
+                  title={currentPath ?? 'PDF Viewer'}
+                />
               ) : isMdFile && previewMode ? (
                 <div className="w-full h-full overflow-y-auto px-5 py-4 text-[15px] leading-[1.7] text-[var(--text)] prose prose-sm max-w-none bg-transparent">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
