@@ -607,11 +607,16 @@ test.describe('Native Electron E2E', () => {
       );
       await waitForResponseComplete(page, 120_000);
 
-      // Wait for the AI to actually respond (not just finish "thinking")
-      await expect(page.locator('main').getByText(/不存在|No such file|Error|cat/i).first()).toBeVisible({ timeout: 120_000 }).catch(() => {});
+      await waitForResponseComplete(page, 120_000);
+      await page.waitForTimeout(3000); // wait for exec output to render
+      // Session B should confirm file not found
       const mainTextB = await page.locator('main').textContent();
-      const catErr = mainTextB.replace(/\s/g, '').toLowerCase();
-      expect(catErr).toMatch(/nosuchfile|不存在|notfound|not.exist/i);
+      // Strip whitespace for reliable matching
+      const collapsed = mainTextB.replace(/\s+/g, ' ');
+      // AI must indicate the file doesn't exist
+      const ok = /no such file|not found|不存在|does not exist/i.test(collapsed);
+      if (!ok) console.log('[test] AI response:', collapsed.substring(0, 500));
+      expect(ok).toBe(true);
       await page.waitForTimeout(800);
       await page.screenshot({ path: 'test-results/session-isolation-02-sessionB-cannot-see.png' });
       console.log('[test] ✅ Session B cannot see Session A file');
