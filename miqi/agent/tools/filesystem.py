@@ -176,14 +176,16 @@ def _sandbox_to_host_path(sandbox_path: str, workspace: Path | None, sandbox) ->
     return sandbox_path
 
 
-async def _ensure_sandbox(sandbox_manager, tool_name="file_tool", session_key=None, client_id=None):
+async def _ensure_sandbox(sandbox_manager, tool_name="file_tool", session_key=None):
     """Get or create a sandbox so file tools have an isolated environment.
-
-    session_key and client_id come from the tool orchestrator to ensure
-    per-session isolation instead of the shared _auto_exec fallback.
+    session_key comes from the tool orchestrator (already namespaced).
     """
     if sandbox_manager is None:
         return None
+    # With session_key, use get_or_create for per-session isolation
+    if session_key:
+        sandbox = await sandbox_manager.get_or_create(session_key)
+        return sandbox if sandbox is not None and sandbox.is_running else None
     sandbox = sandbox_manager.active_sandbox
     if sandbox is not None and sandbox.is_running:
         return sandbox
@@ -193,8 +195,7 @@ async def _ensure_sandbox(sandbox_manager, tool_name="file_tool", session_key=No
             if sandbox is not None:
                 return sandbox
     _log.info("%s: creating sandbox (no active sandbox found)", tool_name)
-    fallback = session_key or "_auto_exec"
-    sandbox = await sandbox_manager.get_or_create(fallback, client_id=client_id)
+    sandbox = await sandbox_manager.get_or_create("_auto_exec")
     return sandbox if sandbox is not None and sandbox.is_running else None
 
 
@@ -438,8 +439,7 @@ class ReadFileTool(Tool):
 
     async def execute(self, path: str, **kwargs: Any) -> str:
         _sess_key = kwargs.pop("_session_key", None)
-        _cli_id = kwargs.pop("_client_id", None)
-        sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key, client_id=_cli_id)
+        sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
@@ -526,8 +526,7 @@ class WriteFileTool(Tool):
             )
 
         _sess_key = kwargs.pop("_session_key", None)
-        _cli_id = kwargs.pop("_client_id", None)
-        sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key, client_id=_cli_id)
+        sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
@@ -607,8 +606,7 @@ class EditFileTool(Tool):
 
     async def execute(self, path: str, old_text: str, new_text: str, **kwargs: Any) -> str:
         _sess_key = kwargs.pop("_session_key", None)
-        _cli_id = kwargs.pop("_client_id", None)
-        sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key, client_id=_cli_id)
+        sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
@@ -733,8 +731,7 @@ class ListDirTool(Tool):
 
     async def execute(self, path: str, **kwargs: Any) -> str:
         _sess_key = kwargs.pop("_session_key", None)
-        _cli_id = kwargs.pop("_client_id", None)
-        sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key, client_id=_cli_id)
+        sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
