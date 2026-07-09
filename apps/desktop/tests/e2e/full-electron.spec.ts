@@ -666,7 +666,7 @@ test.describe('Native Electron E2E', () => {
 
       await sendMessage(
         page,
-        `用 pptx-generator 创建 PPT。封面标题"人工智能简介"副标题"技术、应用与未来"，目录 topics:什么是AI、核心技术、应用场景、未来展望，内容 items:机器学习、深度学习、NLP，总结 points:AI重塑行业、人机协作、安全对齐 conclusion:拥抱AI。文件名 ${fname}`,
+        `使用 pptx-generator 技能创建 PPT。封面标题"人工智能简介"副标题"技术、应用与未来"，目录 topics:什么是AI、核心技术、应用场景、未来展望，内容 items:机器学习、深度学习、NLP，总结 points:AI重塑行业、人机协作、安全对齐 conclusion:拥抱AI。文件名 ${fname}`,
       );
       await shot();
 

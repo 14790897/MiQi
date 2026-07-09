@@ -7,7 +7,7 @@ from pathlib import Path
 from pptx import Presentation
 
 workspace = sys.argv[1]
-files = _glob.glob(os.path.join(workspace, "*.pptx"))
+files = _glob.glob(os.path.join(workspace, "**", "*.pptx"), recursive=True)
 if not files:
     json.dump({"pass": False, "checks": [{"label":"find pptx","pass":False,"detail":"no pptx found"}]}, sys.stdout)
     sys.exit(1)
