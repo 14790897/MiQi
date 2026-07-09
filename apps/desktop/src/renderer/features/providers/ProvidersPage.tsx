@@ -666,7 +666,7 @@ export function ProvidersPage() {
       await window.miqi.providers.update(
         p.name,
         undefined,
-        p.api_base || p.default_api_base || null,
+        undefined,
         undefined,
         model
       );

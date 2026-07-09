@@ -41,7 +41,7 @@ PROVIDER_TEST_MODELS = {
 }
 
 
-def _provider_fingerprint(provider_config: Any) -> str | None:
+def _provider_fingerprint(provider_config: Any, model: str | None = None) -> str | None:
     """Return a stable fingerprint for provider fields that affect verification."""
     if provider_config is None:
         return None
@@ -49,6 +49,7 @@ def _provider_fingerprint(provider_config: Any) -> str | None:
         "api_key": getattr(provider_config, "api_key", "") or "",
         "api_base": getattr(provider_config, "api_base", None) or "",
         "extra_headers": getattr(provider_config, "extra_headers", None) or {},
+        "model": model or "",
     }
     if not any(payload.values()):
         return None
@@ -116,7 +117,8 @@ async def providers_list_handler(
         elif api_key:
             hint = "***"
         configured = bool(pc and (pc.api_key or pc.api_base))
-        fingerprint = _provider_fingerprint(pc)
+        provider_model = model if model_provider == spec.name else PROVIDER_TEST_MODELS.get(spec.name)
+        fingerprint = _provider_fingerprint(pc, provider_model)
         record = verification_store.get(spec.name)
         record_matches = (
             configured
@@ -189,20 +191,14 @@ async def providers_test_handler(
     state = get_bridge_state(registry)
     config = state.load_config()
     pc = getattr(config.providers, provider_name, None)
-    active_model = getattr(config.agents.defaults, "model", "") or ""
-    active_provider = config.get_provider_name(active_model) if active_model else None
     test_model = (
         requested_model
-        or (active_model if active_provider == provider_name else "")
         or PROVIDER_TEST_MODELS.get(provider_name)
         or "gpt-4o"
     )
     explicit_api_key = bool(api_key)
-    explicit_api_base = (
-        bool(api_base)
-        and pc is not None
-        and api_base != (pc.api_base or None)
-    )
+    saved_api_base = (pc.api_base if pc is not None else None) or spec.default_api_base or None
+    explicit_api_base = bool(api_base) and api_base != saved_api_base
     should_persist_result = not explicit_api_key and not explicit_api_base
 
     # If no API key provided, read from current saved config
@@ -255,7 +251,7 @@ async def providers_test_handler(
         ok = finish_reason != "error" and not error_kind
         if not ok:
             raise RuntimeError(response.content or "Provider returned an error response")
-        fingerprint = _provider_fingerprint(pc)
+        fingerprint = _provider_fingerprint(pc, test_model)
         if ok and should_persist_result and fingerprint:
             from miqi.config.loader import save_config
             _set_provider_verification(
@@ -269,7 +265,7 @@ async def providers_test_handler(
             state.config = config
         return {"result": {"ok": ok, "model": test_model}}
     except Exception as exc:
-        fingerprint = _provider_fingerprint(pc)
+        fingerprint = _provider_fingerprint(pc, test_model)
         if should_persist_result and fingerprint:
             from miqi.config.loader import save_config
             _set_provider_verification(
@@ -353,7 +349,7 @@ async def providers_update_handler(
             config,
             provider_name,
             "unverified",
-            _provider_fingerprint(new_pc),
+            _provider_fingerprint(new_pc, config.agents.defaults.model),
             "Provider settings changed; test again to verify",
         )
 

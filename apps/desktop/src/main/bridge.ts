@@ -220,23 +220,27 @@ export class BridgeManager extends EventEmitter {
     // Start file watcher for hot reload
     this.startFileWatcher();
 
+    let startedProc: ChildProcess | null = null;
+    let startedRl: Interface | null = null;
     try {
-      this.process = spawn(command, args, {
+      const proc = spawn(command, args, {
         cwd: this.projectRoot,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' },
         windowsHide: true,
       });
+      startedProc = proc;
+      this.process = proc;
 
-      const proc = this.process;
-
-      this.rl = createInterface({
+      const rl = createInterface({
         input: proc.stdout!,
         crlfDelay: Infinity,
       });
-      const rl = this.rl;
+      startedRl = rl;
+      this.rl = rl;
 
       rl.on('line', (line: string) => {
+        if (this.process !== proc) return;
         try {
           const raw: BridgeResponse = JSON.parse(line);
           const resp = normalizeBridgeMessage(raw);
@@ -402,6 +406,7 @@ export class BridgeManager extends EventEmitter {
       // events are not dropped.  Do NOT process tracked responses/events
       // here — the primary handler already does that.
       rl.on('line', (line: string) => {
+        if (this.process !== proc) return;
         try {
           const resp: BridgeResponse = JSON.parse(line);
           const normalized = normalizeBridgeMessage(resp);
@@ -472,27 +477,36 @@ export class BridgeManager extends EventEmitter {
       this.state = 'running';
       this.emitState();
     } catch (err) {
-      this.state = 'error';
       this.addLog(`Failed to start bridge: ${err}`);
-      this.emitState();
+      const isActiveStart = this.process === startedProc;
+      if (isActiveStart) {
+        this.state = 'error';
+        this.emitState();
+      }
 
       // Cleanup on initialization failure
-      this.stopFileWatcher();
-      if (this.rl) {
-        this.rl.close();
+      if (isActiveStart) {
+        this.stopFileWatcher();
+      }
+      if (startedRl) {
+        startedRl.close();
+      }
+      if (this.rl === startedRl) {
         this.rl = null;
       }
-      if (this.process) {
-        this.process.stdin?.end();
-        this.process.kill('SIGTERM');
+      if (this.process === startedProc) {
+        startedProc?.stdin?.end();
+        startedProc?.kill('SIGTERM');
         this.process = null;
       }
-      this.initialized = false;
-      this.clientId = 'miqi-desktop';
-      // Reject all pending requests
-      for (const [id, pending] of this.pending) {
-        pending.reject(new Error('Bridge initialization failed'));
-        this.pending.delete(id);
+      if (isActiveStart) {
+        this.initialized = false;
+        this.clientId = 'miqi-desktop';
+        // Reject all pending requests
+        for (const [id, pending] of this.pending) {
+          pending.reject(new Error('Bridge initialization failed'));
+          this.pending.delete(id);
+        }
       }
       throw err;
     }
@@ -522,6 +536,10 @@ export class BridgeManager extends EventEmitter {
         settled = true;
         clearTimeout(forceKillTimer);
         clearTimeout(resolveTimer);
+        for (const [id, entry] of this.pending) {
+          entry.reject(new Error('Bridge stopped — request cancelled'));
+          this.pending.delete(id);
+        }
         proc.removeListener('close', done);
         proc.removeListener('exit', done);
         this.stoppingPromise = null;

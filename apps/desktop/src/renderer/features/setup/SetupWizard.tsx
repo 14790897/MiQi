@@ -319,6 +319,11 @@ export function SetupWizard({
     setSaveError('');
     try {
       await window.miqi.setup.writeInitialConfig(config);
+      const savedProvider = typeof config.provider_name === 'string' ? config.provider_name : '';
+      const savedModel = typeof config.model === 'string' ? config.model : undefined;
+      if (savedProvider && testResult === 'ok') {
+        await window.miqi.providers.test(savedProvider, undefined, undefined, savedModel);
+      }
       try {
         await window.miqi.runtime.start();
       } catch {

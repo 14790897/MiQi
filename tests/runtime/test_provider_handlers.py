@@ -86,7 +86,8 @@ async def test_providers_list_reports_verification_status(registry_with_state):
     config = _make_config_with_workspace()
     config.providers.deepseek.api_key = "sk-test-deepseek"
     config.providers.openai.api_key = "sk-test-openai"
-    fingerprint = _provider_fingerprint(config.providers.deepseek)
+    config.agents.defaults.model = "deepseek-v4-flash"
+    fingerprint = _provider_fingerprint(config.providers.deepseek, "deepseek-v4-flash")
     config.desktop["providerVerification"] = {
         "deepseek": {
             "status": "success",
@@ -184,6 +185,7 @@ async def test_providers_test_persists_success_for_saved_config(registry_with_st
     assert result["result"]["ok"] is True
     assert saved
     assert config.desktop["providerVerification"]["deepseek"]["status"] == "success"
+    assert result["result"]["model"] == "deepseek-v4-flash"
 
 
 @pytest.mark.asyncio
@@ -271,6 +273,42 @@ async def test_providers_test_does_not_persist_unsaved_api_base(registry_with_st
     assert result["result"]["ok"] is True
     assert saved == []
     assert "providerVerification" not in config.desktop
+
+
+@pytest.mark.asyncio
+async def test_providers_test_persists_with_default_api_base_for_saved_config(
+    registry_with_state, monkeypatch
+):
+    """Passing a provider's default API base from the UI still tests the saved config."""
+    from miqi.providers.openai_provider import OpenAIProvider
+    from miqi.runtime.provider_handlers import providers_test_handler
+
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    config.providers.deepseek.api_key = "sk-test-deepseek"
+    config.providers.deepseek.api_base = None
+    mock_state.load_config.return_value = config
+    saved = []
+
+    async def fake_chat(self, *args, **kwargs):
+        return SimpleNamespace(content="ok")
+
+    monkeypatch.setattr(OpenAIProvider, "chat", fake_chat)
+    monkeypatch.setattr("miqi.config.loader.save_config", lambda cfg: saved.append(cfg))
+
+    result = await providers_test_handler(
+        "req-1",
+        {
+            "provider_name": "deepseek",
+            "api_base": "https://api.deepseek.com/v1",
+            "model": "deepseek-v4-flash",
+        },
+        "client-1", None, registry,
+    )
+
+    assert result["result"]["ok"] is True
+    assert saved
+    assert config.desktop["providerVerification"]["deepseek"]["status"] == "success"
 
 
 @pytest.mark.asyncio
@@ -414,6 +452,44 @@ async def test_providers_update_marks_changed_config_unverified(registry_with_st
     assert result["result"]["saved"] is True
     assert saved
     assert config.providers.deepseek.api_key == "sk-new"
+    assert config.desktop["providerVerification"]["deepseek"]["status"] == "unverified"
+
+
+@pytest.mark.asyncio
+async def test_providers_update_marks_api_base_and_headers_unverified(
+    registry_with_state, monkeypatch
+):
+    """Changing API base or headers invalidates the previous verification status."""
+    from miqi.runtime.provider_handlers import providers_update_handler
+
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    config.providers.deepseek.api_key = "sk-old"
+    config.providers.deepseek.api_base = "https://old.example/v1"
+    config.desktop["providerVerification"] = {
+        "deepseek": {
+            "status": "success",
+            "fingerprint": "old",
+            "checkedAt": "2026-07-09T00:00:00+00:00",
+            "message": "ok",
+        },
+    }
+    mock_state.load_config.return_value = config
+    monkeypatch.setattr("miqi.config.loader.save_config", lambda cfg: None)
+
+    await providers_update_handler(
+        "req-1",
+        {"provider_name": "deepseek", "api_base": "https://new.example/v1"},
+        "client-1", None, registry,
+    )
+    assert config.desktop["providerVerification"]["deepseek"]["status"] == "unverified"
+
+    config.desktop["providerVerification"]["deepseek"]["status"] = "success"
+    await providers_update_handler(
+        "req-2",
+        {"provider_name": "deepseek", "extra_headers": {"X-Test": "1"}},
+        "client-1", None, registry,
+    )
     assert config.desktop["providerVerification"]["deepseek"]["status"] == "unverified"
 
 

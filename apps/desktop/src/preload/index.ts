@@ -160,7 +160,7 @@ const api = {
       apiKey?: string,
       apiBase?: string,
       model?: string
-    ): Promise<{ ok: boolean }> =>
+    ): Promise<{ ok: boolean; model?: string }> =>
       ipcRenderer.invoke(IPC.PROVIDERS_TEST, {
         provider_name: providerName,
         api_key: apiKey,

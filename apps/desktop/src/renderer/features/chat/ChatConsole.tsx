@@ -678,7 +678,7 @@ export function ChatConsole({
     setCurrentReqId(null);
     setMessages((prev) => [
       ...prev,
-      { role: 'progress', content: 'Aborted.', timestamp: Date.now() },
+      { role: 'progress', content: '已停止。', timestamp: Date.now() },
     ]);
   }, [cleanupListeners, currentReqId]);
 
