@@ -69,12 +69,25 @@ function isMissingProviderConfigMessage(message: string) {
   return normalized.includes('no api key configured');
 }
 
-function createProviderConfigMessage(): Message {
+function isProviderConfigurationProblem(message: string) {
+  const normalized = message.toLowerCase();
+  return (
+    isMissingProviderConfigMessage(message) ||
+    normalized.includes('模型服务认证失败') ||
+    normalized.includes('authentication') ||
+    normalized.includes('invalid api key') ||
+    normalized.includes('api key') ||
+    normalized.includes('api base') ||
+    normalized.includes('当前模型配置')
+  );
+}
+
+function createProviderConfigMessage(content?: string): Message {
   return {
     role: 'error',
-    content: '尚未配置模型服务。请先配置 Provider/API Key 后再发送消息。',
+    content: content || '尚未配置模型服务。请先配置 Provider/API Key 后再发送消息。',
     action: 'open-provider-settings',
-    actionLabel: '配置 Provider',
+    actionLabel: '去配置模型',
     timestamp: Date.now(),
   };
 }
@@ -964,8 +977,8 @@ export function ChatConsole({
       const message = sanitizeUiMessage(data.message);
       setMessages((prev) => [
         ...prev,
-        isMissingProviderConfigMessage(message)
-          ? createProviderConfigMessage()
+        isProviderConfigurationProblem(message)
+          ? createProviderConfigMessage(message)
           : { role: 'error', content: message, timestamp: Date.now() },
       ]);
       setStreaming(false);
@@ -1024,8 +1037,8 @@ export function ChatConsole({
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
       const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? 'Unknown error'));
-      if (isMissingProviderConfigMessage(errMsg)) {
-        setMessages((prev) => [...prev, createProviderConfigMessage()]);
+      if (isProviderConfigurationProblem(errMsg)) {
+        setMessages((prev) => [...prev, createProviderConfigMessage(errMsg)]);
       } else if (e?.code) {
         setMessages((prev) => [
           ...prev,

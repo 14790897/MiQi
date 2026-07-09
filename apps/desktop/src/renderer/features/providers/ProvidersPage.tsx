@@ -609,6 +609,9 @@ export function ProvidersPage() {
   const activeProviderLabel = activeProvider
     ? (PROVIDER_DISPLAY_NAMES[activeProvider] ?? activeProvider)
     : '未匹配';
+  const activeProviderInfo = activeProvider
+    ? providers.find((provider) => provider.name === activeProvider)
+    : null;
 
   return (
     <div className="flex flex-col h-full bg-[var(--background)]">
@@ -626,12 +629,22 @@ export function ProvidersPage() {
             </p>
           )}
         </div>
-        <button
-          onClick={load}
-          className="text-xs text-[var(--text-faint)] hover:text-[var(--text-muted)] transition-colors px-2 py-1 rounded"
-        >
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {activeProviderInfo && (
+            <button
+              onClick={() => setEditProvider(activeProviderInfo)}
+              className="text-xs text-[var(--accent)] hover:text-[var(--accent-hover)] transition-colors px-2 py-1 rounded bg-[var(--accent-soft)]"
+            >
+              编辑当前模型
+            </button>
+          )}
+          <button
+            onClick={load}
+            className="text-xs text-[var(--text-faint)] hover:text-[var(--text-muted)] transition-colors px-2 py-1 rounded"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
