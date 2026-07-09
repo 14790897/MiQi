@@ -1023,18 +1023,17 @@ export function ChatConsole({
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
       const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? 'Unknown error'));
-      const detail = `chat.send failed: ${errMsg}`;
       if (isMissingProviderConfigMessage(errMsg)) {
         setMessages((prev) => [...prev, createProviderConfigMessage()]);
       } else if (e?.code) {
         setMessages((prev) => [
           ...prev,
-          { role: 'error' as const, content: `${detail} (code: ${e.code})`, timestamp: Date.now() },
+          { role: 'error' as const, content: errMsg, timestamp: Date.now() },
         ]);
       } else {
         setMessages((prev) => [
           ...prev,
-          { role: 'error' as const, content: detail, timestamp: Date.now() },
+          { role: 'error' as const, content: errMsg, timestamp: Date.now() },
         ]);
       }
       setStreaming(false);

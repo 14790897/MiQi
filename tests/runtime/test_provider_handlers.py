@@ -217,6 +217,33 @@ async def test_providers_test_uses_requested_model(registry_with_state, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_providers_test_accepts_empty_success_response(registry_with_state, monkeypatch):
+    """A connection test validates credentials/model acceptance, not answer text quality."""
+    from miqi.providers.base import LLMResponse
+    from miqi.providers.openai_provider import OpenAIProvider
+    from miqi.runtime.provider_handlers import providers_test_handler
+
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    config.providers.deepseek.api_key = "sk-test-deepseek"
+    mock_state.load_config.return_value = config
+
+    async def fake_chat(self, *args, **kwargs):
+        return LLMResponse(content="", finish_reason="stop")
+
+    monkeypatch.setattr(OpenAIProvider, "chat", fake_chat)
+    monkeypatch.setattr("miqi.config.loader.save_config", lambda cfg: None)
+
+    result = await providers_test_handler(
+        "req-1",
+        {"provider_name": "deepseek", "model": "deepseek-v4-flash"},
+        "client-1", None, registry,
+    )
+
+    assert result["result"]["ok"] is True
+
+
+@pytest.mark.asyncio
 async def test_providers_test_does_not_persist_unsaved_api_base(registry_with_state, monkeypatch):
     """Testing temporary edit-sheet values must not mark the saved config verified."""
     from miqi.providers.openai_provider import OpenAIProvider
