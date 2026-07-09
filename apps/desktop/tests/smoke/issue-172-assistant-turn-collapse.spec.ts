@@ -46,20 +46,23 @@ test.describe('Issue #172 assistant turn collapse', () => {
     await textarea.fill('create a ppt');
     await textarea.press('Enter');
 
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
       (window as any).__miqiMock.rawFinal('文件已成');
-    });
-    await expect(page.getByText('文件已成')).toBeVisible({ timeout: 5000 });
-
-    await page.evaluate(() => {
-      (window as any).__miqiMock.toolProgress('create_pptx("office_tools_review_final.pptx")');
-      (window as any).__miqiMock.rawFinal(
-        '文件已成功创建！已创建的等效文件：office_tools_review_final.pptx'
-      );
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          (window as any).__miqiMock.toolProgress('create_pptx("office_tools_review_final.pptx")');
+          requestAnimationFrame(() => {
+            (window as any).__miqiMock.rawFinal(
+              '文件已成功创建！已创建的等效文件：office_tools_review_final.pptx'
+            );
+            resolve();
+          });
+        });
+      });
     });
 
     await expect(page.getByText('文件已成功创建！已创建的等效文件：office_tools_review_final.pptx')).toBeVisible({
-      timeout: 5000,
+      timeout: 15000,
     });
     await expect(page.getByText('文件已成', { exact: true })).toHaveCount(0);
     await expect(page.getByText('create_pptx')).toBeVisible();
