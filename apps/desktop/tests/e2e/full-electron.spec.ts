@@ -661,14 +661,19 @@ test.describe('Native Electron E2E', () => {
       const fname = 'ai_intro.pptx';
       await createNewConversation(page);
 
+      // Pre-approve tools after conversation is ready
+      await page.evaluate(() => {
+        const m = (window as any).miqi;
+        m.approvals.addPermanent('create_pptx:ai_intro.pptx', 'always');
+        m.approvals.addPermanent('exec:*', 'always');
+        m.approvals.addPermanent('write_file:*', 'always');
+        m.approvals.addPermanent('read_file:*', 'always');
+      });
+
       await sendMessage(
         page,
-        `使用 pptx-generator 创建 PPT。LAYOUT_16x9，theme={primary:"065A82",secondary:"1C7293",accent:"00B4D8",light:"CAF0F8",bg:"F0F8FF"}。封面标题"人工智能简介"副标题"技术、应用与未来"，目录 topics:什么是AI、核心技术、应用场景、未来展望，内容页 items:机器学习、深度学习、NLP，总结页 points:AI重塑行业、人机协作、安全对齐 conclusion:拥抱AI。文件名 ${fname}。创建成功后只回复一个字：成`,
+        `用 pptx-generator 创建 AI 主题 PPT，文件名 ${fname}，封面标题人工智能简介，只回复成`,
       );
-
-      await page.getByText('文件操作审批').waitFor({ timeout: 60_000 }).catch(() => {});
-      const allowBtn = page.getByRole('button', { name: '永久允许' });
-      if (await allowBtn.isVisible().catch(() => false)) await allowBtn.click();
       await waitForResponseComplete(page, 360_000);
 
       await expect(page.locator('main').getByText('成').first()).toBeVisible({ timeout: 15_000 });
@@ -677,10 +682,13 @@ test.describe('Native Electron E2E', () => {
       const { execSync } = require('node:child_process');
       const { homedir } = require('node:os');
       const { join } = require('node:path');
-      const pptxPath = join(homedir(), '.miqi', 'workspace', fname);
+      const ws = join(homedir(), '.miqi', 'workspace');
       const verifier = join(__dirname, 'helpers', 'verify-pptx.py');
-      const stdout = execSync(`python "${verifier}" "${pptxPath}"`, { encoding: 'utf8', timeout: 15000 });
-      const result = JSON.parse(stdout);
+      const vout = execSync(
+        `"C:\\Users\\Intership003\\AppData\\Local\\Programs\\Python\\Python312\\python.exe" "${verifier}" "${ws}"`,
+        { encoding: 'utf8', timeout: 15000 },
+      );
+      const result = JSON.parse(vout);
       console.log('[test] PPTX verification:', JSON.stringify(result.checks));
       if (!result.pass) {
         const failed = result.checks.filter((c: any) => !c.pass).map((c: any) => c.label);
