@@ -20,6 +20,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
 import type { ProviderInfo } from '../../../shared/ipc';
 
 const DOMESTIC_NAMES = new Set([
@@ -175,9 +176,10 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
       });
       if (result.ok && !apiKey) onSaved();
     } catch (err: unknown) {
+      const message = sanitizeUiMessage(err instanceof Error ? err.message : String(err));
       setTestResult({
         ok: false,
-        message: err instanceof Error ? err.message : '测试失败',
+        message,
       });
       if (!apiKey) onSaved();
     } finally {

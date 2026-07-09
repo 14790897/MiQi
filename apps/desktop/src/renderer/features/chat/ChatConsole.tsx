@@ -961,11 +961,12 @@ export function ChatConsole({
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
       if (animId !== null) cancelAnimationFrame(animId);
+      const message = sanitizeUiMessage(data.message);
       setMessages((prev) => [
         ...prev,
-        isMissingProviderConfigMessage(data.message)
+        isMissingProviderConfigMessage(message)
           ? createProviderConfigMessage()
-          : { role: 'error', content: data.message, timestamp: Date.now() },
+          : { role: 'error', content: message, timestamp: Date.now() },
       ]);
       setStreaming(false);
       sendCleanup();
@@ -978,7 +979,7 @@ export function ChatConsole({
       setCurrentReqId(null);
       setMessages((prev) => [
         ...prev,
-        { role: 'progress', content: 'Aborted.', timestamp: Date.now() },
+        { role: 'progress', content: '已停止。', timestamp: Date.now() },
       ]);
       sendCleanup();
     });

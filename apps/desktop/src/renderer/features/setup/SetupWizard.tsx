@@ -16,6 +16,7 @@ import {
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { cn } from '../../lib/utils';
+import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
 
 type Step = 'welcome' | 'provider';
 type CheckState<T> = {
@@ -329,10 +330,10 @@ export function SetupWizard({
       const msg: string = e?.message ?? String(e);
       if (msg.includes('Bridge not running') || msg.includes('not running')) {
         setTestResult('idle');
-        setTestError('Bridge is not running; start MiQi runtime before testing this provider.');
+        setTestError('运行时未启动或正在重启，请稍后再试。');
       } else {
         setTestResult('error');
-        setTestError(msg);
+        setTestError(sanitizeUiMessage(msg));
       }
     }
   };

@@ -228,12 +228,15 @@ export class BridgeManager extends EventEmitter {
         windowsHide: true,
       });
 
+      const proc = this.process;
+
       this.rl = createInterface({
-        input: this.process.stdout!,
+        input: proc.stdout!,
         crlfDelay: Infinity,
       });
+      const rl = this.rl;
 
-      this.rl.on('line', (line: string) => {
+      rl.on('line', (line: string) => {
         try {
           const raw: BridgeResponse = JSON.parse(line);
           const resp = normalizeBridgeMessage(raw);
@@ -316,7 +319,7 @@ export class BridgeManager extends EventEmitter {
         }
       });
 
-      this.process.stderr!.on('data', (data: Buffer) => {
+      proc.stderr!.on('data', (data: Buffer) => {
         const text = data.toString().trim();
         if (text) {
           const msg = `[MIQI BRIDGE STDERR] ${text}`;
@@ -326,7 +329,8 @@ export class BridgeManager extends EventEmitter {
         }
       });
 
-      this.process.on('error', (err) => {
+      proc.on('error', (err) => {
+        if (this.process !== proc) return;
         this.addLog(`Bridge process error: ${err.message}`);
         this.state = 'error';
         this.process = null;
@@ -351,8 +355,8 @@ export class BridgeManager extends EventEmitter {
           if (settled) return;
           settled = true;
           clearTimeout(timeout);
-          this.rl?.removeListener('line', onReadyLine);
-          this.process?.removeListener('close', onClose);
+          rl.removeListener('line', onReadyLine);
+          proc.removeListener('close', onClose);
           if (err) _reject(err);
           else _resolve();
         };
@@ -380,8 +384,8 @@ export class BridgeManager extends EventEmitter {
           );
         }, 60_000);
 
-        this.rl!.on('line', onReadyLine);
-        this.process!.once('close', onClose);
+        rl.on('line', onReadyLine);
+        proc.once('close', onClose);
       });
 
       // Bridge process is alive and accepting stdin.
@@ -397,7 +401,7 @@ export class BridgeManager extends EventEmitter {
       // orphan events (no pending request) to renderer windows so late
       // events are not dropped.  Do NOT process tracked responses/events
       // here — the primary handler already does that.
-      this.rl.on('line', (line: string) => {
+      rl.on('line', (line: string) => {
         try {
           const resp: BridgeResponse = JSON.parse(line);
           const normalized = normalizeBridgeMessage(resp);
@@ -423,7 +427,8 @@ export class BridgeManager extends EventEmitter {
       });
 
       // Handle unexpected exit after ready
-      this.process.on('close', (code) => {
+      proc.on('close', (code) => {
+        if (this.process !== proc) return;
         this.addLog(`Bridge process exited with code ${code}`);
         this.state = code === 0 ? 'stopped' : 'error';
         this.process = null;
@@ -438,7 +443,8 @@ export class BridgeManager extends EventEmitter {
         }
       });
 
-      this.process.on('error', (err) => {
+      proc.on('error', (err) => {
+        if (this.process !== proc) return;
         this.addLog(`Bridge process error: ${err.message}`);
         this.state = 'error';
         this.process = null;
@@ -450,10 +456,10 @@ export class BridgeManager extends EventEmitter {
       // Wait briefly and check if process is still alive
       await new Promise<void>((resolve, reject) => {
         setTimeout(() => {
-          if (this.process?.exitCode !== null && this.process?.exitCode !== undefined) {
-            reject(
-              new Error(`Bridge process exited immediately with code ${this.process.exitCode}`)
-            );
+          if (this.process !== proc) {
+            reject(new Error('Bridge process was replaced before initialization completed'));
+          } else if (proc.exitCode !== null && proc.exitCode !== undefined) {
+            reject(new Error(`Bridge process exited immediately with code ${proc.exitCode}`));
           } else {
             resolve();
           }
