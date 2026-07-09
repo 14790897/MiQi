@@ -21,7 +21,7 @@ poetry.lock
 .pytest_cache/
 .pytest-basetemp*/
 site/
-botpy.log
+*.log
 .ruff_cache/
 featherflow/agent/memory.py.bak
 .miqi/
