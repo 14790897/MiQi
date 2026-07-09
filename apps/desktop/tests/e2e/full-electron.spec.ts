@@ -666,7 +666,7 @@ test.describe('Native Electron E2E', () => {
 
       await sendMessage(
         page,
-        `用 pptx-generator 创建 AI 主题 PPT，文件名 ${fname}，封面标题人工智能简介`,
+        `用 pptx-generator 创建 PPT。封面标题"人工智能简介"副标题"技术、应用与未来"，目录 topics:什么是AI、核心技术、应用场景、未来展望，内容 items:机器学习、深度学习、NLP，总结 points:AI重塑行业、人机协作、安全对齐 conclusion:拥抱AI。文件名 ${fname}`,
       );
       await shot();
 
@@ -675,35 +675,35 @@ test.describe('Native Electron E2E', () => {
       console.log('[test] AI started processing');
       await shot();
 
-      // Auto-click all approval dialogs + capture frames
-      const deadline = Date.now() + 360_000;
-      while (Date.now() < deadline) {
-        const allowBtn = page.getByRole('button', { name: '永久允许' });
-        if (await allowBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await allowBtn.click();
-          await shot();
-          console.log('[test] Auto-approved tool');
-        }
-        const thinking = await page.getByText('Thinking…').isVisible().catch(() => false);
-        if (!thinking) break;
-        await page.waitForTimeout(3000);
-        await shot();
-      }
-
-      // Wait for Thinking… to fully disappear
+      // Pre-approve ALL tools via wildcard key
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
+      );
       await expect(page.getByText('Thinking…')).toBeHidden({ timeout: 300_000 });
       await shot();
 
-      // Verify a pptx file was created in workspace
+      // Verify pptx file was created + check 14 internal items
       await page.waitForTimeout(3000);
       const { execSync } = require('node:child_process');
       const { homedir } = require('node:os');
-      const out = execSync(
-        `dir /b /o-d "${homedir()}\\.miqi\\workspace\\*.pptx"`,
-        { encoding: 'utf8', timeout: 5000 },
-      ).trim();
-      expect(out.length).toBeGreaterThan(0);
-      console.log('[test] ✅ pptx found:', out.split('\n')[0]);
+      const { join } = require('node:path');
+      const ws = join(homedir(), '.miqi', 'workspace');
+      const verifier = join(__dirname, 'helpers', 'verify-pptx.py');
+      const PY = '"C:\\Users\\Intership003\\AppData\\Local\\Programs\\Python\\Python312\\python.exe"';
+      let result: any;
+      try {
+        const vout = execSync(`${PY} "${verifier}" "${ws}"`, { encoding: 'utf8', timeout: 15000 });
+        result = JSON.parse(vout);
+      } catch (e: any) {
+        // execSync throws on non-zero exit; stdout is in e.stdout
+        result = JSON.parse(e.stdout || '{"pass":false,"checks":[]}');
+      }
+      console.log('[test] PPTX checks:', JSON.stringify(result.checks));
+      if (!result.pass) {
+        const failed = result.checks.filter((c: any) => !c.pass).map((c: any) => c.label);
+        throw new Error(`PPTX checks failed: ${failed.join(', ')}`);
+      }
+      console.log('[test] ✅ All 14 checks passed');
     },
   );
 });

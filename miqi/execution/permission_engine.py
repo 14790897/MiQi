@@ -140,6 +140,9 @@ class PermissionEngine:
             return PermissionDecision(verdict=PermissionVerdict.ALLOW)
 
         # 4. Permanent allowlist (keyed by tool + arguments)
+        #    Supports wildcard: "*:*" bypasses all approvals
+        if "*:*" in self.permanent_allowlist:
+            return PermissionDecision(verdict=PermissionVerdict.ALLOW)
         if cmd_key in self.permanent_allowlist:
             return PermissionDecision(verdict=PermissionVerdict.ALLOW)
 
