@@ -7,6 +7,8 @@ import {
   HardDrive,
   CheckCircle,
   Circle,
+  AlertCircle,
+  XCircle,
   Edit2,
   TestTube2,
   Eye,
@@ -34,6 +36,67 @@ function getCategory(p: ProviderInfo): 'gateway' | 'domestic' | 'local' | 'inter
   if (p.is_gateway) return 'gateway';
   if (DOMESTIC_NAMES.has(p.name)) return 'domestic';
   return 'international';
+}
+
+type VerificationStatus = NonNullable<ProviderInfo['verification_status']>;
+
+function getVerificationStatus(provider: ProviderInfo): VerificationStatus {
+  if (!provider.configured) return 'missing';
+  return provider.verification_status ?? 'unverified';
+}
+
+function getStatusMeta(provider: ProviderInfo) {
+  const status = getVerificationStatus(provider);
+  if (status === 'success') {
+    return {
+      label: '验证成功',
+      icon: CheckCircle,
+      tone: 'success',
+      title: provider.verified_at ? `上次验证：${provider.verified_at}` : '已通过连接测试',
+    };
+  }
+  if (status === 'failed') {
+    return {
+      label: '验证失败',
+      icon: XCircle,
+      tone: 'danger',
+      title: provider.verification_message ?? '最近一次连接测试失败',
+    };
+  }
+  if (status === 'unverified') {
+    return {
+      label: '已填写，未验证',
+      icon: AlertCircle,
+      tone: 'warning',
+      title: '已保存配置，但还没有通过连接测试',
+    };
+  }
+  return {
+    label: '未填写',
+    icon: Circle,
+    tone: 'muted',
+    title: '还没有填写 API Key 或 API Base',
+  };
+}
+
+function statusClass(tone: string) {
+  if (tone === 'success') return 'text-[var(--success)]';
+  if (tone === 'danger') return 'text-[var(--danger)]';
+  if (tone === 'warning') return 'text-[var(--warning)]';
+  return 'text-[var(--border)]';
+}
+
+function statusBadgeClass(tone: string) {
+  if (tone === 'success') {
+    return 'bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]';
+  }
+  if (tone === 'danger') {
+    return 'bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] text-[var(--danger)]';
+  }
+  if (tone === 'warning') {
+    return 'bg-[color-mix(in_srgb,var(--warning)_15%,transparent)] text-[var(--warning)]';
+  }
+  return 'bg-[var(--surface-muted)] text-[var(--text-faint)]';
 }
 
 interface EditSheetProps {
@@ -103,13 +166,19 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
       );
       setTestResult({
         ok: result.ok,
-        message: result.ok ? '连接成功' : '连接失败',
+        message: result.ok
+          ? apiKey
+            ? '连接成功。保存后请重新测试以记录验证状态。'
+            : '连接成功，已记录验证状态。'
+          : '连接失败',
       });
+      if (result.ok && !apiKey) onSaved();
     } catch (err: unknown) {
       setTestResult({
         ok: false,
         message: err instanceof Error ? err.message : '测试失败',
       });
+      if (!apiKey) onSaved();
     } finally {
       setTesting(false);
     }
@@ -234,6 +303,9 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
               {testResult.message}
             </div>
           )}
+          <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-muted)] px-3 py-2 text-xs text-[var(--text-muted)] leading-relaxed">
+            保存 Provider 配置后，当前运行中的会话可能仍在使用旧实例；如需确认新配置生效，请重新测试并按提示重启运行时或新建会话。
+          </div>
         </div>
 
         <div className="flex items-center justify-between px-5 py-3 border-t border-[var(--border-subtle)]">
@@ -342,27 +414,35 @@ interface ProviderRowProps {
   onEdit: (p: ProviderInfo) => void;
   onTest: (p: ProviderInfo) => void;
   testingName: string | null;
-  testResults: Record<string, boolean>;
+  activeProvider?: string | null;
 }
 
-function ProviderRow({ provider, onEdit, onTest, testingName, testResults }: ProviderRowProps) {
+function ProviderRow({ provider, onEdit, onTest, testingName, activeProvider }: ProviderRowProps) {
   const label = PROVIDER_DISPLAY_NAMES[provider.name] ?? provider.display_name;
   const isTesting = testingName === provider.name;
-  const testOk = testResults[provider.name];
-  const hasTestResult = provider.name in testResults;
+  const statusMeta = getStatusMeta(provider);
+  const StatusIcon = statusMeta.icon;
+  const isActive = provider.name === activeProvider;
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--surface-muted)] transition-colors group">
-      <div
-        className={cn(
-          'shrink-0',
-          provider.configured ? 'text-[var(--success)]' : 'text-[var(--border)]'
-        )}
-      >
-        {provider.configured ? <CheckCircle size={14} /> : <Circle size={14} />}
+    <div
+      className={cn(
+        'flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--surface-muted)] transition-colors group',
+        isActive && 'bg-[var(--accent-soft)]/40'
+      )}
+    >
+      <div className={cn('shrink-0', statusClass(statusMeta.tone))} title={statusMeta.title}>
+        <StatusIcon size={14} />
       </div>
       <div className="flex-1 min-w-0">
-        <span className="text-sm text-[var(--text)]">{label}</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm text-[var(--text)] truncate">{label}</span>
+          {isActive && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--accent)] text-white shrink-0">
+              当前使用
+            </span>
+          )}
+        </div>
         {provider.configured && (
           <div className="flex items-center gap-2 mt-0.5">
             {provider.api_key_hint && (
@@ -372,7 +452,7 @@ function ProviderRow({ provider, onEdit, onTest, testingName, testResults }: Pro
             )}
             {provider.configured_model && (
               <span className="text-xs text-[var(--text-faint)] truncate max-w-[160px]">
-                {provider.configured_model}
+                模型：{provider.configured_model}
               </span>
             )}
           </div>
@@ -393,23 +473,12 @@ function ProviderRow({ provider, onEdit, onTest, testingName, testResults }: Pro
       <span
         className={cn(
           'text-xs px-2 py-0.5 rounded-full shrink-0',
-          provider.configured
-            ? 'bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]'
-            : 'bg-[var(--surface-muted)] text-[var(--text-faint)]'
+          statusBadgeClass(statusMeta.tone)
         )}
+        title={statusMeta.title}
       >
-        {provider.configured ? '已配置' : '未配置'}
+        {statusMeta.label}
       </span>
-      {hasTestResult && (
-        <span
-          className={cn(
-            'text-xs shrink-0',
-            testOk ? 'text-[var(--success)]' : 'text-[var(--danger)]'
-          )}
-        >
-          {testOk ? '✓ OK' : '✗ Failed'}
-        </span>
-      )}
       <div className="flex items-center gap-1 shrink-0">
         <button
           onClick={() => onTest(provider)}
@@ -438,7 +507,7 @@ interface CategorySectionProps {
   onEdit: (p: ProviderInfo) => void;
   onTest: (p: ProviderInfo) => void;
   testingName: string | null;
-  testResults: Record<string, boolean>;
+  activeProvider?: string | null;
 }
 
 function CategorySection({
@@ -448,16 +517,17 @@ function CategorySection({
   onEdit,
   onTest,
   testingName,
-  testResults,
+  activeProvider,
 }: CategorySectionProps) {
   if (providers.length === 0) return null;
+  const filledCount = providers.filter((p) => p.configured).length;
   return (
     <div>
       <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)] border-b border-[var(--border-subtle)]">
         {icon}
         {title}
         <span className="ml-auto font-normal normal-case tracking-normal">
-          {providers.filter((p) => p.configured).length}/{providers.length} 已配置
+          {filledCount}/{providers.length} 已填写
         </span>
       </div>
       <div className="divide-y divide-[var(--border-subtle)]">
@@ -468,7 +538,7 @@ function CategorySection({
             onEdit={onEdit}
             onTest={onTest}
             testingName={testingName}
-            testResults={testResults}
+            activeProvider={activeProvider}
           />
         ))}
       </div>
@@ -481,12 +551,15 @@ export function ProvidersPage() {
   const [loading, setLoading] = useState(true);
   const [editProvider, setEditProvider] = useState<ProviderInfo | null>(null);
   const [testingName, setTestingName] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, boolean>>({});
+  const [activeModel, setActiveModel] = useState('');
+  const [activeProvider, setActiveProvider] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const result = await window.miqi.providers.list();
       setProviders(result.providers);
+      setActiveModel(result.active_model ?? '');
+      setActiveProvider(result.active_provider ?? null);
     } catch {
       // silent — runtime may not be running
     } finally {
@@ -500,17 +573,16 @@ export function ProvidersPage() {
 
   const handleTest = async (p: ProviderInfo) => {
     if (!p.configured) {
-      setTestResults((prev) => ({ ...prev, [p.name]: false }));
       return;
     }
     setTestingName(p.name);
     try {
-      const result = await window.miqi.providers.test(p.name, undefined, p.api_base ?? undefined);
-      setTestResults((prev) => ({ ...prev, [p.name]: result.ok }));
+      await window.miqi.providers.test(p.name, undefined, p.api_base ?? undefined);
     } catch {
-      setTestResults((prev) => ({ ...prev, [p.name]: false }));
+      // providers.test persists failed verification for saved configs.
     } finally {
       setTestingName(null);
+      void load();
     }
   };
 
@@ -518,7 +590,11 @@ export function ProvidersPage() {
   const international = providers.filter((p) => getCategory(p) === 'international');
   const domestic = providers.filter((p) => getCategory(p) === 'domestic');
   const local = providers.filter((p) => getCategory(p) === 'local');
-  const configuredCount = providers.filter((p) => p.configured).length;
+  const filledCount = providers.filter((p) => p.configured).length;
+  const verifiedCount = providers.filter((p) => getVerificationStatus(p) === 'success').length;
+  const activeProviderLabel = activeProvider
+    ? (PROVIDER_DISPLAY_NAMES[activeProvider] ?? activeProvider)
+    : '未匹配';
 
   return (
     <div className="flex flex-col h-full bg-[var(--background)]">
@@ -526,8 +602,15 @@ export function ProvidersPage() {
         <div>
           <h1 className="text-base font-semibold text-[var(--text)]">模型提供商</h1>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
-            {loading ? '加载中…' : `${configuredCount} / ${providers.length} 已配置`}
+            {loading
+              ? '加载中…'
+              : `${filledCount} / ${providers.length} 已填写，${verifiedCount} 个验证成功`}
           </p>
+          {!loading && (
+            <p className="text-xs text-[var(--text-faint)] mt-1">
+              当前默认模型：{activeModel || '未设置'} · 匹配 Provider：{activeProviderLabel}
+            </p>
+          )}
         </div>
         <button
           onClick={load}
@@ -556,7 +639,7 @@ export function ProvidersPage() {
               onEdit={setEditProvider}
               onTest={handleTest}
               testingName={testingName}
-              testResults={testResults}
+              activeProvider={activeProvider}
             />
             <CategorySection
               title="国际"
@@ -565,7 +648,7 @@ export function ProvidersPage() {
               onEdit={setEditProvider}
               onTest={handleTest}
               testingName={testingName}
-              testResults={testResults}
+              activeProvider={activeProvider}
             />
             <CategorySection
               title="国内"
@@ -574,7 +657,7 @@ export function ProvidersPage() {
               onEdit={setEditProvider}
               onTest={handleTest}
               testingName={testingName}
-              testResults={testResults}
+              activeProvider={activeProvider}
             />
             <CategorySection
               title="本地"
@@ -583,7 +666,7 @@ export function ProvidersPage() {
               onEdit={setEditProvider}
               onTest={handleTest}
               testingName={testingName}
-              testResults={testResults}
+              activeProvider={activeProvider}
             />
           </div>
         )}

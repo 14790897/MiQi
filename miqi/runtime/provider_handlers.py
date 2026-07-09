@@ -10,11 +10,63 @@ importing miqi.bridge.server directly.
 
 from __future__ import annotations
 
+import hashlib
+import json
+from datetime import datetime, timezone
 from typing import Any
 
 from loguru import logger
 
 from miqi.runtime.app_server import AppServerError, get_bridge_state
+
+
+VERIFICATION_KEY = "providerVerification"
+VERIFICATION_STATUSES = {"success", "failed", "unverified"}
+
+
+def _provider_fingerprint(provider_config: Any) -> str | None:
+    """Return a stable fingerprint for provider fields that affect verification."""
+    if provider_config is None:
+        return None
+    payload = {
+        "api_key": getattr(provider_config, "api_key", "") or "",
+        "api_base": getattr(provider_config, "api_base", None) or "",
+        "extra_headers": getattr(provider_config, "extra_headers", None) or {},
+    }
+    if not any(payload.values()):
+        return None
+    serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _provider_verification_store(config: Any) -> dict[str, Any]:
+    desktop = getattr(config, "desktop", None)
+    if not isinstance(desktop, dict):
+        desktop = {}
+        config.desktop = desktop
+    store = desktop.get(VERIFICATION_KEY)
+    if not isinstance(store, dict):
+        store = {}
+        desktop[VERIFICATION_KEY] = store
+    return store
+
+
+def _set_provider_verification(
+    config: Any,
+    provider_name: str,
+    status: str,
+    fingerprint: str | None,
+    message: str = "",
+) -> None:
+    if status not in VERIFICATION_STATUSES:
+        status = "unverified"
+    store = _provider_verification_store(config)
+    store[provider_name] = {
+        "status": status,
+        "fingerprint": fingerprint or "",
+        "checkedAt": datetime.now(timezone.utc).isoformat(),
+        "message": message,
+    }
 
 
 async def providers_list_handler(
@@ -35,6 +87,7 @@ async def providers_list_handler(
     config = state.load_config()
     model = config.agents.defaults.model
     model_provider = config.get_provider_name(model)
+    verification_store = _provider_verification_store(config)
 
     providers_out = []
     for spec in PROVIDERS:
@@ -45,6 +98,22 @@ async def providers_list_handler(
             hint = api_key[:4] + "…" + api_key[-4:]
         elif api_key:
             hint = "***"
+        configured = bool(pc and (pc.api_key or pc.api_base))
+        fingerprint = _provider_fingerprint(pc)
+        record = verification_store.get(spec.name)
+        record_matches = (
+            configured
+            and fingerprint
+            and isinstance(record, dict)
+            and record.get("fingerprint") == fingerprint
+        )
+        if not configured:
+            verification_status = "missing"
+        elif record_matches and record.get("status") in {"success", "failed"}:
+            verification_status = str(record.get("status"))
+        else:
+            verification_status = "unverified"
+
         providers_out.append({
             "name": spec.name,
             "display_name": spec.display_name or spec.name.title(),
@@ -53,13 +122,22 @@ async def providers_list_handler(
             "is_gateway": spec.is_gateway,
             "is_local": spec.is_local,
             "default_api_base": spec.default_api_base,
-            "configured": bool(pc and (pc.api_key or pc.api_base)),
+            "configured": configured,
             "api_key_hint": hint,
             "api_base": pc.api_base if pc else None,
             "configured_model": model if model_provider == spec.name else None,
+            "verification_status": verification_status,
+            "verified_at": record.get("checkedAt") if record_matches else None,
+            "verification_message": record.get("message") if record_matches else None,
         })
 
-    return {"result": {"providers": providers_out}}
+    return {
+        "result": {
+            "providers": providers_out,
+            "active_model": model,
+            "active_provider": model_provider,
+        }
+    }
 
 
 async def providers_test_handler(
@@ -81,10 +159,28 @@ async def providers_test_handler(
     if not provider_name:
         raise AppServerError("provider_name is required", code="INVALID_PARAMS")
 
+    from miqi.providers.registry import find_by_name
+
+    spec = find_by_name(provider_name)
+    if spec is None:
+        raise AppServerError(
+            f"Unknown provider: {provider_name}",
+            code="NOT_FOUND",
+        )
+
+    state = get_bridge_state(registry)
+    config = state.load_config()
+    pc = getattr(config.providers, provider_name, None)
+    explicit_api_key = bool(api_key)
+    explicit_api_base = (
+        bool(api_base)
+        and pc is not None
+        and api_base != (pc.api_base or None)
+    )
+    should_persist_result = not explicit_api_key and not explicit_api_base
+
     # If no API key provided, read from current saved config
     if not api_key:
-        config = get_bridge_state(registry).load_config()
-        pc = getattr(config.providers, provider_name, None)
         if pc is not None:
             api_key = pc.api_key or ""
             if not api_base:
@@ -94,15 +190,6 @@ async def providers_test_handler(
         raise AppServerError(
             "No API key configured — enter one in Edit or save a provider first",
             code="INVALID_PARAMS",
-        )
-
-    from miqi.providers.registry import find_by_name
-
-    spec = find_by_name(provider_name)
-    if spec is None:
-        raise AppServerError(
-            f"Unknown provider: {provider_name}",
-            code="NOT_FOUND",
         )
 
     if spec.provider_type == "anthropic":
@@ -129,8 +216,32 @@ async def providers_test_handler(
             temperature=0.0,
         )
         ok = response.content is not None and len(response.content) > 0
+        fingerprint = _provider_fingerprint(pc)
+        if ok and should_persist_result and fingerprint:
+            from miqi.config.loader import save_config
+            _set_provider_verification(
+                config,
+                provider_name,
+                "success",
+                fingerprint,
+                "Connection test succeeded",
+            )
+            save_config(config)
+            state.config = config
         return {"result": {"ok": ok, "model": provider.get_default_model()}}
     except Exception as exc:
+        fingerprint = _provider_fingerprint(pc)
+        if should_persist_result and fingerprint:
+            from miqi.config.loader import save_config
+            _set_provider_verification(
+                config,
+                provider_name,
+                "failed",
+                fingerprint,
+                "Provider test failed",
+            )
+            save_config(config)
+            state.config = config
         # Sanitize: log full details server-side, return sanitized message
         logger.warning(
             "providers.test: provider={} error: {}", provider_name, exc,
@@ -192,6 +303,13 @@ async def providers_update_handler(
         current_dict.update(update)
         new_pc = ProviderConfig.model_validate(current_dict)
         setattr(config.providers, provider_name, new_pc)
+        _set_provider_verification(
+            config,
+            provider_name,
+            "unverified",
+            _provider_fingerprint(new_pc),
+            "Provider settings changed; test again to verify",
+        )
 
     if model_override:
         config.agents.defaults.model = model_override

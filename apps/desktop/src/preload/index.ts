@@ -5,7 +5,7 @@ import type {
   SessionInfo,
   SessionDetail,
   SessionClaimLegacyResult,
-  ProviderInfo,
+  ProvidersListResult,
   ProviderUpdateResult,
   ChannelsConfig,
   PendingApproval,
@@ -154,7 +154,7 @@ const api = {
 
   // -- Providers --------------------------------------------------------------
   providers: {
-    list: (): Promise<{ providers: ProviderInfo[] }> => ipcRenderer.invoke(IPC.PROVIDERS_LIST),
+    list: (): Promise<ProvidersListResult> => ipcRenderer.invoke(IPC.PROVIDERS_LIST),
     test: (providerName: string, apiKey?: string, apiBase?: string): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke(IPC.PROVIDERS_TEST, {
         provider_name: providerName,

@@ -274,6 +274,15 @@ export interface ProviderInfo {
   api_key_hint?: string | null;
   api_base: string | null;
   configured_model?: string;
+  verification_status?: 'missing' | 'unverified' | 'success' | 'failed';
+  verified_at?: string | null;
+  verification_message?: string | null;
+}
+
+export interface ProvidersListResult {
+  providers: ProviderInfo[];
+  active_model?: string;
+  active_provider?: string | null;
 }
 
 export interface ProviderUpdateResult {

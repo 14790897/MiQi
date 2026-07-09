@@ -11,6 +11,9 @@ export interface MockBridgeOptions {
   sessions?: Array<{ key: string; title: string; updated_at: number; message_count: number }>;
   sessionMessages?: Record<string, unknown[]>;
   preloadOk?: boolean;
+  providers?: Array<Record<string, unknown>>;
+  activeModel?: string;
+  activeProvider?: string | null;
 }
 
 export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
@@ -27,6 +30,9 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   ];
   const sessionsJson = JSON.stringify(initialSessions);
   const sessionMessagesJson = JSON.stringify(opts.sessionMessages || {});
+  const providersJson = JSON.stringify(opts.providers || []);
+  const activeModelJson = JSON.stringify(opts.activeModel || '');
+  const activeProviderJson = JSON.stringify(opts.activeProvider ?? null);
 
   return `
 (function() {
@@ -151,7 +157,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
     },
 
     providers: {
-      list: function() { return Promise.resolve([]); },
+      list: function() { return Promise.resolve({ providers: ${providersJson}, active_model: ${activeModelJson}, active_provider: ${activeProviderJson} }); },
       test: function() { return Promise.resolve({ ok: true }); },
       update: function() { return Promise.resolve({ ok: true }); },
     },
