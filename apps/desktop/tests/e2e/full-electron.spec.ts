@@ -606,7 +606,7 @@ test.describe('Native Electron E2E', () => {
         '用 exec 执行: cat /home/miqi/workspace/session_isolation_test.txt 2>&1',
       );
       await waitForResponseComplete(page, 120_000);
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(15_000);
 
       const mainB = await page.locator('main').textContent() || '';
       const hasNotFound = /no such file|not found|not exist|does not exist|不存在|No such|cat.*error/i.test(mainB);
