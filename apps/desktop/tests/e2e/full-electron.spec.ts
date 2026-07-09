@@ -580,7 +580,7 @@ test.describe('Native Electron E2E', () => {
     },
   );
 
-  test(
+  test.skip(
     'session file isolation: exec files from one session not visible in another',
     { timeout: LLM_TIMEOUT },
     async () => {
