@@ -163,26 +163,21 @@ def _get_active_sandbox(sandbox_manager):
     return None
 
 
-def _get_session_workspace(base_workspace: Path | None, sandbox, sandbox_manager=None) -> Path | None:
-    """Compute the per-session workspace directory.
+def _get_session_workspace(base_workspace: Path | None, sandbox) -> Path | None:
+    """Compute the per-session workspace directory based on the sandbox session_key.
 
-    Gets session_key from sandbox (preferred) or falls back to the
-    sandbox_manager's active sandbox. When no session_key is available,
-    returns the base workspace unchanged.
+    When session_workspace_enabled is True, each session gets its own
+    isolated directory under <base_workspace>/sessions/<safe_key>/files/.
+    This is used by WriteFileTool/ReadFileTool/EditFileTool to ensure
+    files created in one session are not visible to another.
+
+    When no sandbox is available (sandbox_manager.active_sandbox is None),
+    returns the base workspace unchanged.  In that case file tools operate
+    on the host filesystem which has no sandbox isolation.
     """
-    if base_workspace is None:
-        return None
-    session_key: str = ""
-    if sandbox is not None:
-        session_key = getattr(sandbox, "session_key", "") or ""
-    if not session_key and sandbox_manager is not None:
-        # Try sandbox_manager's active sandbox for session_key
-        active = getattr(sandbox_manager, "active_sandbox", None)
-        if active is not None:
-            session_key = getattr(active, "session_key", "") or ""
-    if not session_key:
+    if base_workspace is None or sandbox is None:
         return base_workspace
-    # session_key may be namespaced like "client_id:desktop_session_key"
+    session_key = getattr(sandbox, "session_key", None) or ""
     key = session_key.split(":", 1)[-1] if ":" in session_key else session_key
     if not key:
         return base_workspace
@@ -408,7 +403,7 @@ class ReadFileTool(Tool):
 
     async def execute(self, path: str, **kwargs: Any) -> str:
         sandbox = _get_active_sandbox(self._sandbox_manager)
-        session_ws = _get_session_workspace(self._workspace, sandbox, self._sandbox_manager)
+        session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
             sandbox_path = _resolve_sandbox_path(path, session_ws, sandbox)
@@ -494,7 +489,7 @@ class WriteFileTool(Tool):
             )
 
         sandbox = _get_active_sandbox(self._sandbox_manager)
-        session_ws = _get_session_workspace(self._workspace, sandbox, self._sandbox_manager)
+        session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
             sandbox_path = _resolve_sandbox_path(path, session_ws, sandbox)
@@ -572,7 +567,7 @@ class EditFileTool(Tool):
 
     async def execute(self, path: str, old_text: str, new_text: str, **kwargs: Any) -> str:
         sandbox = _get_active_sandbox(self._sandbox_manager)
-        session_ws = _get_session_workspace(self._workspace, sandbox, self._sandbox_manager)
+        session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
             sandbox_path = _resolve_sandbox_path(path, session_ws, sandbox)
@@ -696,7 +691,7 @@ class ListDirTool(Tool):
 
     async def execute(self, path: str, **kwargs: Any) -> str:
         sandbox = _get_active_sandbox(self._sandbox_manager)
-        session_ws = _get_session_workspace(self._workspace, sandbox, self._sandbox_manager)
+        session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
             sandbox_path = _resolve_sandbox_path(path, session_ws, sandbox)
