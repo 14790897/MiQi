@@ -845,6 +845,36 @@ export function ChatConsole({
           },
         ]);
         setMessages((prev) => [...prev, ...toolMessages]);
+
+        // Track file operations from tool_calls for Task Assets panel.
+        // Office tools (create_docx, etc.) don't always produce progress
+        // hints that match parseToolHint patterns, so we extract file
+        // paths directly from the final tool call list.
+        const _FILE_WRITE_TOOLS = [
+          'write_file', 'edit_file', 'delete_file', 'apply_patch',
+          'create_docx', 'create_xlsx', 'create_pptx',
+          'docx_write', 'xlsx_write', 'pptx_write',
+          'edit_docx', 'append_xlsx',
+        ];
+        const _FILE_READ_TOOLS = ['read_file'];
+        for (const tc of (data.tool_calls ?? []) as any[]) {
+          const fn = tc?.function || tc?.tool?.function || {};
+          const toolName: string = fn?.name || '';
+          if (!toolName) continue;
+          let args: Record<string, unknown> = {};
+          try { args = JSON.parse(fn?.arguments || '{}'); } catch { continue; }
+          const filePath: string =
+            (args.path as string) ||
+            (args.file_path as string) ||
+            (args.filename as string) ||
+            '';
+          if (!filePath) continue;
+          if (_FILE_WRITE_TOOLS.includes(toolName)) {
+            trackFile(filePath, 'write', false);
+          } else if (_FILE_READ_TOOLS.includes(toolName)) {
+            trackFile(filePath, 'read', false);
+          }
+        }
       }
       // Do NOT push an empty assistant bubble here — revealNext creates the
       // bubble lazily once the first chunk is available, so we never flash a
@@ -1434,6 +1464,7 @@ export function ChatConsole({
         {/* ── Right panel: Task Assets ── */}
         {panelOpen && (
           <div
+            data-testid="task-assets-panel"
             className="flex flex-col shrink-0 border-l overflow-y-auto relative"
             style={{
               width: panelWidth,
