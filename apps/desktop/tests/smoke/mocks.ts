@@ -33,6 +33,15 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   if (typeof window === 'undefined') return;
   if (!${preloadOk}) return;
 
+  // Polyfill requestAnimationFrame with setTimeout so the ChatConsole
+  // typewriter animation completes instantly in headless Playwright.
+  // In idle / background pages, native rAF can be throttled to 1 fps
+  // or stopped entirely, causing expect(...).toBeVisible() timeouts.
+  window._requestAnimationFrame = window.requestAnimationFrame;
+  window._cancelAnimationFrame = window.cancelAnimationFrame;
+  window.requestAnimationFrame = function(fn) { return setTimeout(fn, 0); };
+  window.cancelAnimationFrame = function(id) { clearTimeout(id); };
+
   var noop = function() { return function() {}; };
 
   // ── Interactive helpers ──────────────────────────────────────────
