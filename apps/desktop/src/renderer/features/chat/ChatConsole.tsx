@@ -296,11 +296,19 @@ function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[
     return -1;
   })();
 
-  return messages.filter((message, index) => {
-    if (index <= lastUserIndex) return true;
-    if (message.role === 'assistant') return false;
-    return message.role !== 'progress' || !!message.toolHint;
-  });
+  return messages.reduce((acc, message, index) => {
+    if (index <= lastUserIndex) { acc.push(message); return acc; }
+    if (message.role === 'assistant') return acc;
+    if (message.role !== 'progress' || message.toolHint) {
+      // Retained toolHint progress should render collapsed after final
+      if (message.role === 'progress' && message.toolHint && !message.collapsed) {
+        acc.push({ ...message, collapsed: true });
+      } else {
+        acc.push(message);
+      }
+    }
+    return acc;
+  }, [] as Message[]);
 }
 
 /** Parse tracked files from raw session messages (includes progress entries with _tool_hint). */
@@ -770,7 +778,10 @@ export function ChatConsole({
         clearInterval(watchdogTimer);
         watchdogTimer = null;
       }
-      cleanupListeners();
+      // NOTE: cleanupListeners() is deliberately NOT called here.
+      // The typewriter completing does not mean the turn is over —
+      // another final may still arrive (e.g. tool-call then final-text).
+      // Listeners are torn down only on abort / error / new-session.
     };
 
     const unsubProgress = window.miqi.chat.onProgress((data: any) => {
@@ -834,18 +845,7 @@ export function ChatConsole({
       displayed = '';
       finalDone = true;
       setCurrentReqId(null);
-      setMessages((prev) => removeTransientTurnMessagesSinceLastUser(prev));
       if (data.tool_calls?.length) {
-        const toolMessages = sessionMsgsToUi([
-          {
-            role: 'assistant',
-            content: '',
-            tool_calls: data.tool_calls,
-            timestamp: new Date().toISOString(),
-          },
-        ]);
-        setMessages((prev) => [...prev, ...toolMessages]);
-
         // Track file operations from tool_calls for Task Assets panel.
         // Office tools (create_docx, etc.) don't always produce progress
         // hints that match parseToolHint patterns, so we extract file
@@ -875,6 +875,27 @@ export function ChatConsole({
             trackFile(filePath, 'read', false);
           }
         }
+
+        setMessages((prev) => {
+          const cleaned = removeTransientTurnMessagesSinceLastUser(prev);
+          // Only append collapsed tool-call group if streaming didn't
+          // already render toolHint progress for this turn (avoids dupes).
+          const hasToolHints = cleaned.some(
+            (m) => m.role === 'progress' && m.toolHint,
+          );
+          if (hasToolHints) return cleaned;
+          const toolMessages = sessionMsgsToUi([
+            {
+              role: 'assistant',
+              content: '',
+              tool_calls: data.tool_calls,
+              timestamp: new Date().toISOString(),
+            },
+          ]);
+          return [...cleaned, ...toolMessages];
+        });
+      } else {
+        setMessages((prev) => removeTransientTurnMessagesSinceLastUser(prev));
       }
       // Do NOT push an empty assistant bubble here — revealNext creates the
       // bubble lazily once the first chunk is available, so we never flash a
@@ -897,6 +918,7 @@ export function ChatConsole({
       ]);
       setStreaming(false);
       sendCleanup();
+      cleanupListeners();
     });
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
@@ -964,6 +986,7 @@ export function ChatConsole({
       }
       setStreaming(false);
       sendCleanup();
+      cleanupListeners();
     }
   }, [input, attachments, streaming, cleanupListeners, onChatFinished]);
 
