@@ -625,12 +625,6 @@ test.describe('Native Electron E2E', () => {
       const fname = `e2e_session_file_${Date.now()}.txt`;
       const content = `E2E session file content ${Date.now()}`;
 
-      // Warm up the sandbox — exec forces sandbox creation. Without this,
-      // write_file runs on the host (no sandbox), writes to global workspace.
-      await sendMessage(page, '用 exec 执行: echo sandbox_ready');
-      await waitForResponseComplete(page, 60_000);
-      console.log('[test] Sandbox warmed up');
-
       await sendMessage(
         page,
         `Use write_file to create ${fname} with content "${content}"`,
