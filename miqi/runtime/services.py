@@ -116,7 +116,7 @@ class RuntimeServices:
             if callable(effective_bypass)
             else getattr(config, "approvals", None)
         )
-        if bool(getattr(approval_bypass, "enabled", False)):
+        if bool(getattr(getattr(config, "approvals", None), "enabled", False)):
             logger.warning(
                 "Approval bypass is enabled for session {}; approval prompts may be skipped.",
                 session_id,

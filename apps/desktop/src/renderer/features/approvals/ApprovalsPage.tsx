@@ -42,23 +42,15 @@ const DEFAULT_APPROVAL_BYPASS: ApprovalBypassConfig = {
   bypassNetworkApproval: false,
 };
 
-function normalizeApprovalBypass(config: Record<string, unknown>): {
-  approvals: ApprovalBypassConfig;
-  legacyCommandBypass: boolean;
-} {
+function normalizeApprovalBypass(config: Record<string, unknown>): ApprovalBypassConfig {
   const approvals = (config.approvals ?? {}) as Partial<ApprovalBypassConfig>;
-  const agents = (config.agents ?? {}) as Record<string, unknown>;
-  const commandApproval = (agents.commandApproval ?? {}) as { enabled?: boolean };
 
   return {
-    approvals: {
-      bypassAll: Boolean(approvals.bypassAll),
-      bypassCommandApproval: Boolean(approvals.bypassCommandApproval),
-      bypassFileWriteApproval: Boolean(approvals.bypassFileWriteApproval),
-      bypassToolConfirmation: Boolean(approvals.bypassToolConfirmation),
-      bypassNetworkApproval: Boolean(approvals.bypassNetworkApproval),
-    },
-    legacyCommandBypass: commandApproval.enabled === false,
+    bypassAll: Boolean(approvals.bypassAll),
+    bypassCommandApproval: Boolean(approvals.bypassCommandApproval),
+    bypassFileWriteApproval: Boolean(approvals.bypassFileWriteApproval),
+    bypassToolConfirmation: Boolean(approvals.bypassToolConfirmation),
+    bypassNetworkApproval: Boolean(approvals.bypassNetworkApproval),
   };
 }
 
@@ -155,7 +147,6 @@ export function ApprovalsPage() {
   // Global bypass settings
   const [bypassConfig, setBypassConfig] =
     useState<ApprovalBypassConfig>(DEFAULT_APPROVAL_BYPASS);
-  const [legacyCommandBypass, setLegacyCommandBypass] = useState(false);
   const [bypassLoading, setBypassLoading] = useState(true);
   const [bypassSaving, setBypassSaving] = useState<ApprovalBypassKey | null>(null);
   const [bypassSaved, setBypassSaved] = useState<ApprovalBypassKey | null>(null);
@@ -187,11 +178,9 @@ export function ApprovalsPage() {
     try {
       const config = await window.miqi.config.get();
       const normalized = normalizeApprovalBypass(config);
-      setBypassConfig(normalized.approvals);
-      setLegacyCommandBypass(normalized.legacyCommandBypass);
+      setBypassConfig(normalized);
     } catch {
       setBypassConfig(DEFAULT_APPROVAL_BYPASS);
-      setLegacyCommandBypass(false);
     } finally {
       setBypassLoading(false);
     }
@@ -291,7 +280,6 @@ export function ApprovalsPage() {
   const updateBypassConfig = async (key: ApprovalBypassKey, enabled: boolean) => {
     if (bypassSaving !== null) return;
     const previous = bypassConfig;
-    const previousLegacyCommandBypass = legacyCommandBypass;
     const next =
       key === 'bypassAll'
         ? { ...DEFAULT_APPROVAL_BYPASS, bypassAll: enabled }
@@ -299,9 +287,6 @@ export function ApprovalsPage() {
     setBypassSaving(key);
     setBypassError(null);
     setBypassConfig(next);
-    if ((key === 'bypassAll' && !enabled) || (key === 'bypassCommandApproval' && !enabled)) {
-      setLegacyCommandBypass(false);
-    }
     try {
       const update: Record<string, unknown> = { approvals: next };
       if ((key === 'bypassAll' && !enabled) || (key === 'bypassCommandApproval' && !enabled)) {
@@ -317,7 +302,6 @@ export function ApprovalsPage() {
     } catch (e) {
       console.error('Failed to save approval bypass config:', e);
       setBypassConfig(previous);
-      setLegacyCommandBypass(previousLegacyCommandBypass);
       setBypassError(e instanceof Error ? e.message : '保存失败');
     } finally {
       setBypassSaving(null);
@@ -354,7 +338,6 @@ export function ApprovalsPage() {
   const isBypassOn = (key: ApprovalBypassKey): boolean => {
     if (key === 'bypassAll') return bypassConfig.bypassAll;
     if (bypassConfig.bypassAll) return true;
-    if (key === 'bypassCommandApproval' && legacyCommandBypass) return true;
     return bypassConfig[key];
   };
 
@@ -470,10 +453,7 @@ export function ApprovalsPage() {
               const disabled = bypassLoading || bypassConfig.bypassAll;
               const checked = isBypassOn(row.key);
               const storedChecked = bypassConfig[row.key];
-              const nextStored =
-                row.key === 'bypassCommandApproval' && legacyCommandBypass && !storedChecked
-                  ? false
-                  : !storedChecked;
+              const nextStored = !storedChecked;
               return (
                 <button
                   type="button"
@@ -497,9 +477,6 @@ export function ApprovalsPage() {
                       {row.description}
                       {bypassConfig.bypassAll
                         ? '。当前由“全部绕过”统一控制'
-                        : ''}
-                      {row.key === 'bypassCommandApproval' && legacyCommandBypass
-                        ? '。旧版 commandApproval.enabled=false 正在生效'
                         : ''}
                     </span>
                   </span>

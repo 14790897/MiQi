@@ -11,12 +11,9 @@ interface ApprovalBypassStatus {
 
 function hasApprovalBypass(config: Record<string, unknown>): boolean {
   const approvals = (config.approvals ?? {}) as ApprovalBypassStatus;
-  const agents = (config.agents ?? {}) as Record<string, unknown>;
-  const commandApproval = (agents.commandApproval ?? {}) as { enabled?: boolean };
 
   return Boolean(
-    commandApproval.enabled === false ||
-      approvals.bypassAll ||
+    approvals.bypassAll ||
       approvals.bypassCommandApproval ||
       approvals.bypassFileWriteApproval ||
       approvals.bypassToolConfirmation ||
