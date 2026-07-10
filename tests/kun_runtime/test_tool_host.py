@@ -6,8 +6,10 @@ from pathlib import Path
 
 import pytest
 
+from miqi.config.schema import ApprovalBypassConfig
 from miqi.agent.tools.base import Tool
 from miqi.agent.tools.registry import ToolRegistry
+from miqi.kun_runtime.approval_gate import ApprovalGate
 from miqi.kun_runtime.tool_host import (
     _MAX_PARALLEL_TOOL_CALLS,
     FakeToolHost,
@@ -60,6 +62,19 @@ class _ErrorTool(Tool):
 
     async def execute(self) -> str:
         raise RuntimeError("simulated failure")
+
+
+class _CountingWriteTool(Tool):
+    name = "write_file"
+    description = "Write a file and count calls"
+    parameters = {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}}
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def execute(self, path: str = "", content: str = "") -> str:
+        self.calls += 1
+        return f"wrote {path}"
 
 
 @pytest.fixture
@@ -196,6 +211,83 @@ class TestMiQiToolHostExecute:
         assert item["threadId"] == context.thread_id
         assert item["role"] == "tool"
         assert item["callId"] == "call_5"
+
+    @pytest.mark.asyncio
+    async def test_approval_deny_blocks_tool_execution(self) -> None:
+        tool = _CountingWriteTool()
+        reg = ToolRegistry()
+        reg.register(tool)
+        host = MiQiToolHost(reg)
+
+        async def deny(_payload: dict[str, object]) -> str:
+            return "deny"
+
+        ctx = ToolHostContext(
+            thread_id="th1",
+            turn_id="t1",
+            workspace="/tmp",
+            await_approval=deny,
+        )
+        call = ToolCallLike(call_id="call_6", tool_name="write_file", arguments={"path": "a.txt"})
+        result = await host.execute(call, ctx)
+
+        assert result.item["isError"] is True
+        assert result.item["status"] == "failed"
+        assert "denied" in str(result.item["output"])
+        assert tool.calls == 0
+
+    @pytest.mark.asyncio
+    async def test_approval_allow_executes_tool(self) -> None:
+        tool = _CountingWriteTool()
+        reg = ToolRegistry()
+        reg.register(tool)
+        host = MiQiToolHost(reg)
+
+        async def allow(_payload: dict[str, object]) -> str:
+            return "allow"
+
+        ctx = ToolHostContext(
+            thread_id="th1",
+            turn_id="t1",
+            workspace="/tmp",
+            await_approval=allow,
+        )
+        call = ToolCallLike(call_id="call_7", tool_name="write_file", arguments={"path": "a.txt"})
+        result = await host.execute(call, ctx)
+
+        assert result.item["isError"] is False
+        assert "wrote a.txt" in str(result.item["output"])
+        assert tool.calls == 1
+
+    @pytest.mark.asyncio
+    async def test_bypass_all_gate_executes_without_pending(self) -> None:
+        tool = _CountingWriteTool()
+        reg = ToolRegistry()
+        reg.register(tool)
+        host = MiQiToolHost(reg)
+        gate = ApprovalGate(ApprovalBypassConfig(bypass_all=True))
+
+        async def approve(payload: dict[str, object]) -> str:
+            return await gate.request(
+                str(payload["threadId"]),
+                str(payload["turnId"]),
+                str(payload["toolName"]),
+                str(payload["summary"]),
+                payload,
+            )
+
+        ctx = ToolHostContext(
+            thread_id="th1",
+            turn_id="t1",
+            workspace="/tmp",
+            await_approval=approve,
+        )
+        call = ToolCallLike(call_id="call_8", tool_name="write_file", arguments={"path": "a.txt"})
+        result = await host.execute(call, ctx)
+
+        assert result.item["isError"] is False
+        assert gate.pending_count == 0
+        assert tool.calls == 1
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

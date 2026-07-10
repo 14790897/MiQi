@@ -3,6 +3,8 @@ import { RuntimeProvider, useRuntime } from './contexts/RuntimeContext';
 import { TooltipProvider } from './components/ui/Tooltip';
 import { Sidebar } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
+import { TopBar } from './components/TopBar';
+import { ApprovalBypassBanner } from './components/ApprovalBypassBanner';
 import { SetupWizard } from './features/setup/SetupWizard';
 import { ChatConsole } from './features/chat/ChatConsole';
 import { SettingsPage, type SettingsTab } from './features/settings/SettingsPage';
@@ -115,6 +117,11 @@ function AppShell() {
     setSessionRefreshKey((k) => k + 1);
   };
 
+  const openApprovalSettings = () => {
+    setSettingsTab('approvals');
+    setActiveNav('settings');
+  };
+
   // Loading state
   if (needsSetup === null) {
     return (
@@ -217,6 +224,8 @@ function AppShell() {
         <ApprovalProvider>
           {/* Full-height flex column */}
           <div className="flex flex-col h-screen" style={{ background: 'var(--background)' }}>
+            <TopBar onOpenApprovals={openApprovalSettings} />
+            <ApprovalBypassBanner onOpenApprovals={openApprovalSettings} />
             {/* Body row */}
             <div className="flex flex-1 overflow-hidden">
               <Sidebar
