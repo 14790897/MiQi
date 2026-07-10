@@ -434,6 +434,7 @@ export class BridgeManager extends EventEmitter {
       // Handle unexpected exit after ready
       proc.on('close', (code) => {
         if (this.process !== proc) return;
+        if (this.state === 'stopping') return;
         this.addLog(`Bridge process exited with code ${code}`);
         this.state = code === 0 ? 'stopped' : 'error';
         this.process = null;

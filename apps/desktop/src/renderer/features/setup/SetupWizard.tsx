@@ -322,7 +322,11 @@ export function SetupWizard({
       const savedProvider = typeof config.provider_name === 'string' ? config.provider_name : '';
       const savedModel = typeof config.model === 'string' ? config.model : undefined;
       if (savedProvider && testResult === 'ok') {
-        await window.miqi.providers.test(savedProvider, undefined, undefined, savedModel);
+        try {
+          await window.miqi.providers.test(savedProvider, undefined, undefined, savedModel);
+        } catch (e) {
+          console.warn('[SetupWizard] 保存配置后二次验证 Provider 失败，已继续完成初始化', e);
+        }
       }
       try {
         await window.miqi.runtime.start();
