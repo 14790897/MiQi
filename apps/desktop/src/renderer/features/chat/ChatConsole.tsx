@@ -1090,7 +1090,10 @@ export function ChatConsole({
     }
     try {
       const result = await window.miqi.files.read(path);
-      setPreviewFile({ path, content: result.content });
+      setPreviewFile({
+        path,
+        content: result.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
+      });
     } catch {
       setPreviewFile({ path, content: `(Could not read file: ${path})` });
     }
@@ -1138,7 +1141,10 @@ export function ChatConsole({
         // Refresh preview if open
         if (previewFile?.path === diffFile.path) {
           const content = await window.miqi.files.read(diffFile.path);
-          setPreviewFile({ path: diffFile.path, content: content.content });
+          setPreviewFile({
+            path: diffFile.path,
+            content: content.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
+          });
         }
       }
     } catch {
