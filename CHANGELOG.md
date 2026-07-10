@@ -1,3 +1,41 @@
+# [0.5.0](https://github.com/14790897/MiQi/compare/v0.4.0...v0.5.0) (2026-07-10)
+
+
+### Bug Fixes
+
+* **approval:** permanent allowlist works cross-session and persists to disk ([#181](https://github.com/14790897/MiQi/issues/181)) ([77fade8](https://github.com/14790897/MiQi/commit/77fade879a5b8f995c5d091d4504df6bc8e66665)), closes [#180](https://github.com/14790897/MiQi/issues/180)
+* **bridge:** defer running state until handshake completes ([3e31b21](https://github.com/14790897/MiQi/commit/3e31b21dfbc8acc7c6bace3ae9da6fb0ac51e380))
+* **bridge:** remove dead event emitter adapter ([#150](https://github.com/14790897/MiQi/issues/150)) ([113eddb](https://github.com/14790897/MiQi/commit/113eddb359f45ee334ee020be54273af5ca674c6))
+* **ci:** move concurrency to job level so quick and e2e run independently ([e6768b3](https://github.com/14790897/MiQi/commit/e6768b3414a8c706709d107d946440ace12bb4ce))
+* **ci:** quick job checkout PR head on pull_request_target ([4818881](https://github.com/14790897/MiQi/commit/4818881789021330a0c8808f9b7406000292d39e)), closes [#186](https://github.com/14790897/MiQi/issues/186)
+* **ci:** use head_ref in concurrency group to avoid PR collision ([77c16f3](https://github.com/14790897/MiQi/commit/77c16f31d6ad5f4ac15edae386a10b0a8fcf9bac))
+* **desktop:** collapse repeated assistant turn replies ([#178](https://github.com/14790897/MiQi/issues/178)) ([f92f758](https://github.com/14790897/MiQi/commit/f92f758341ad7d94d493915d15e6406f2bf1bf91))
+* **desktop:** collapse toolHint progress after final + e2e shared helpers ([#184](https://github.com/14790897/MiQi/issues/184)) ([25239a3](https://github.com/14790897/MiQi/commit/25239a3bc7de18c6a8499b326aa1cedd46d29ac4))
+* **desktop:** track Office tool files in Task Assets panel via onFinal tool_calls ([#188](https://github.com/14790897/MiQi/issues/188)) ([e015a7d](https://github.com/14790897/MiQi/commit/e015a7d69605c1acf10692c9cae2597e23a39798))
+* **execution:** guard approval detail sanitization depth ([#153](https://github.com/14790897/MiQi/issues/153)) ([8047052](https://github.com/14790897/MiQi/commit/8047052df330cf2fc96c5b41376ee760b6cd70c9))
+* **execution:** persist apply_patch approval keys ([#148](https://github.com/14790897/MiQi/issues/148)) ([cdebfc1](https://github.com/14790897/MiQi/commit/cdebfc1546afdbf87aab6651485bba70ab66b695))
+* **execution:** timeout hung hook callbacks ([#149](https://github.com/14790897/MiQi/issues/149)) ([f936f21](https://github.com/14790897/MiQi/commit/f936f217bd4bb4b44c370ee98d6043964cfa2940))
+* keep approval bypass UI off by default ([#207](https://github.com/14790897/MiQi/issues/207)) ([b8d99c6](https://github.com/14790897/MiQi/commit/b8d99c6e0c8d1c9b83f426b436ac219b3dbcd539))
+* otel tool span cleanup, fork events, compact param, reasoning complete ([#76](https://github.com/14790897/MiQi/issues/76)) ([4583b07](https://github.com/14790897/MiQi/commit/4583b0702e433117fca7ca4bb68d284ddbb92302)), closes [#65](https://github.com/14790897/MiQi/issues/65) [#67](https://github.com/14790897/MiQi/issues/67) [#68](https://github.com/14790897/MiQi/issues/68) [#69](https://github.com/14790897/MiQi/issues/69)
+* **providers:** do not retry http 409 conflicts ([#147](https://github.com/14790897/MiQi/issues/147)) ([0760b84](https://github.com/14790897/MiQi/commit/0760b84a93c7df57e6f171bb0377caaebc6ee849))
+* **runtime:** isolate subagent end hook failures ([#154](https://github.com/14790897/MiQi/issues/154)) ([dba8b67](https://github.com/14790897/MiQi/commit/dba8b67dcf6b164263dd8f27764f0c794793ec1c))
+* **runtime:** replace deprecated coroutine checks ([#152](https://github.com/14790897/MiQi/issues/152)) ([b08cb1d](https://github.com/14790897/MiQi/commit/b08cb1d7ba299ceb3473bc505a4b031c2997b2ba))
+* **runtime:** use rowid instead of item_id for deterministic history ordering ([465844c](https://github.com/14790897/MiQi/commit/465844c370475c65d435845581f763afa3987780))
+* **skills:** reject trailing separators in plugin names ([#117](https://github.com/14790897/MiQi/issues/117)) ([be1fb6c](https://github.com/14790897/MiQi/commit/be1fb6ca38085ac7cb8ce05d2756c05a91ce1dda))
+* **workspace:** support PDF viewing in workspace file viewer ([#189](https://github.com/14790897/MiQi/issues/189)) ([#196](https://github.com/14790897/MiQi/issues/196)) ([bb51bcd](https://github.com/14790897/MiQi/commit/bb51bcd2bfa3aeea12f5466f8ef07a5908615e01))
+
+
+### Features
+
+* add approval bypass controls ([#201](https://github.com/14790897/MiQi/issues/201)) ([37ac482](https://github.com/14790897/MiQi/commit/37ac4826d39908338e6b618e0422231cb4d9c719))
+* **desktop:** clarify Provider verification status ([#190](https://github.com/14790897/MiQi/issues/190)) ([e7ebb09](https://github.com/14790897/MiQi/commit/e7ebb09b5b3bd97f15255689a3bf946486fb27c9))
+* **documents:** add workspace Office tools ([#174](https://github.com/14790897/MiQi/issues/174)) ([d4588e0](https://github.com/14790897/MiQi/commit/d4588e021b3f87b723144e616399f5e941226903))
+* **feature:** 简化 Desktop Setup Wizard 默认初始化流程 ([#159](https://github.com/14790897/MiQi/issues/159)) ([a34a01d](https://github.com/14790897/MiQi/commit/a34a01dcf1d02d93609dbf963e7154f511da305a))
+* **log:** 全链路日志记录与查看功能 ([#134](https://github.com/14790897/MiQi/issues/134)) ([#161](https://github.com/14790897/MiQi/issues/161)) ([e4fcb63](https://github.com/14790897/MiQi/commit/e4fcb63fd9006f34b7ae430bb95010f5e6740b7f))
+* merge develop into main (v0.5.0) ([b9ac4bc](https://github.com/14790897/MiQi/commit/b9ac4bc3c3a539c5681eb42f2000ded82926037a))
+* **sandbox:** per-session file isolation for write/read/edit tools ([#192](https://github.com/14790897/MiQi/issues/192)) ([f3a4ad6](https://github.com/14790897/MiQi/commit/f3a4ad6923baed51a3e93d96ef72e2ef511b3a34)), closes [#182](https://github.com/14790897/MiQi/issues/182)
+* **sandbox:** use real session_key and Windows path mapping ([#200](https://github.com/14790897/MiQi/issues/200)) ([1def65b](https://github.com/14790897/MiQi/commit/1def65b56ab3530390c03e7614ec6b36247e3b99)), closes [#199](https://github.com/14790897/MiQi/issues/199)
+
 # [0.4.0](https://github.com/14790897/MiQi/compare/v0.3.0...v0.4.0) (2026-07-06)
 
 
