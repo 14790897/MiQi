@@ -204,6 +204,7 @@ class BridgeState:
             enabled=getattr(sb_cfg, "enabled", True),
             max_sandboxes=getattr(sb_cfg, "max_sandboxes", 10),
             auto_cleanup=getattr(sb_cfg, "auto_cleanup", True),
+            auto_install_deps=getattr(sb_cfg, "auto_install_deps", True),
             wsl_distro=getattr(sb_cfg, "wsl_distro", ""),
             wsl_base_dir=getattr(sb_cfg, "wsl_base_dir", "/tmp/miqi-sandboxes"),
         )
