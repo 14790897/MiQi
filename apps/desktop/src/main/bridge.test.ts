@@ -185,7 +185,7 @@ function feedLine(proc: ReturnType<typeof createMockProcess>, obj: Record<string
 /** Get the request ID from the last stdin write matching a method. */
 function findRequestId(proc: ReturnType<typeof createMockProcess>, method: string): string | null {
   const write = proc.stdin.write as ReturnType<typeof vi.fn>;
-  for (const call of write.mock.calls) {
+  for (const call of [...write.mock.calls].reverse()) {
     try {
       const r = JSON.parse(call[0] as string);
       if (r.method === method) return r.id;
@@ -572,6 +572,45 @@ describe('BridgeManager lifecycle', () => {
 
     // Wait for timeout
     await expect(sendPromise).rejects.toThrow(/timed out/);
+  }, 10_000);
+
+  it('initializes a running bridge without recursive initialization', async () => {
+    const BridgeManager = await importBridgeManager();
+    const proc = createMockProcess();
+    const bridge = new BridgeManager('/fake/root');
+
+    await startBridge(proc, bridge, { clientId: 'initial', serverInfo: { version: '1' } });
+
+    (bridge as any).initialized = false;
+
+    const initPromise = (bridge as any).initializeConnection();
+
+    await new Promise((r) => setTimeout(r, 10));
+    const initId = findRequestId(proc, 'initialize');
+    expect(initId).toBeTruthy();
+
+    feedLine(proc, { id: initId, result: { clientId: 'recursive-test' } });
+    await initPromise;
+
+    expect(bridge.isInitialized()).toBe(true);
+    expect(proc.stdin.write).toHaveBeenCalled();
+  });
+
+  it('cleans up pending request when stdin write fails immediately', async () => {
+    const BridgeManager = await importBridgeManager();
+    const proc = createMockProcess();
+    const bridge = new BridgeManager('/fake/root');
+
+    await startBridge(proc, bridge, { clientId: 'write-fail-test', serverInfo: { version: '1' } });
+
+    const err = new Error('write failed');
+    proc.stdin.write = vi.fn((_data: string, cb?: (err?: Error) => void) => {
+      cb?.(err);
+      return false;
+    }) as any;
+
+    await expect(bridge.send('fs/readFile', { path: '/tmp/a' })).rejects.toThrow('write failed');
+    expect((bridge as any).pending.size).toBe(0);
   }, 10_000);
 
   it('keeps chat.send client timeout later than the backend drain timeout', async () => {

@@ -746,12 +746,26 @@ export class BridgeManager extends EventEmitter {
     onEvent?: (type: string, data: unknown) => void,
     options: SendOptions = {}
   ): Promise<unknown> {
-    const canSend =
-      this.isRunning() ||
-      (options.allowStarting === true && this.process !== null && this.state === 'starting');
-
-    if (!canSend) {
-      throw new Error('Bridge not running');
+    if (options.allowStarting) {
+      if (!this.process || (this.state !== 'starting' && !this.isRunning())) {
+        throw new Error('Bridge not running');
+      }
+    } else if (!this.isInitialized()) {
+      if (this.state === 'stopped' || this.state === 'error') {
+        await this.start();
+      } else if (this.state === 'starting') {
+        for (let i = 0; i < 1400 && this.state === 'starting' && !this.isInitialized(); i++) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        if (!this.isInitialized() && this.state !== 'starting') {
+          throw new Error(this.getStatus().error ?? 'Bridge failed to start');
+        }
+      } else if (this.state === 'running') {
+        await this.initializeConnection();
+      }
+      if (!this.isInitialized()) {
+        throw new Error('Bridge not initialized');
+      }
     }
 
     const id = randomUUID();
@@ -769,44 +783,45 @@ export class BridgeManager extends EventEmitter {
     };
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      let timeout: ReturnType<typeof setTimeout>;
+      const cleanup = () => {
+        clearTimeout(timeout);
         this.pending.delete(id);
         logSlow();
-        reject(new Error(`Request ${method} timed out`));
+      };
+      const rejectWithCleanup = (err: Error) => {
+        cleanup();
+        reject(err);
+      };
+
+      timeout = setTimeout(() => {
+        rejectWithCleanup(new Error(`Request ${method} timed out`));
       }, timeoutMs);
 
       this.pending.set(id, {
         resolve: (value: unknown) => {
-          clearTimeout(timeout);
-          this.pending.delete(id);
-          logSlow();
+          cleanup();
           resolve(value);
         },
         reject: (err: Error) => {
-          clearTimeout(timeout);
-          this.pending.delete(id);
-          logSlow();
-          reject(err);
+          rejectWithCleanup(err);
         },
         onEvent,
       });
 
       const stdin = this.process!.stdin!;
       if (!stdin.writable || stdin.destroyed) {
-        this.pending.delete(id);
-        reject(new Error('Bridge not running'));
+        rejectWithCleanup(new Error('Bridge not running'));
         return;
       }
       try {
         stdin.write(JSON.stringify(request) + '\n', (err) => {
           if (err) {
-            this.pending.delete(id);
-            reject(err);
+            rejectWithCleanup(err);
           }
         });
       } catch (err) {
-        this.pending.delete(id);
-        reject(err instanceof Error ? err : new Error(String(err)));
+        rejectWithCleanup(err instanceof Error ? err : new Error(String(err)));
       }
     });
   }

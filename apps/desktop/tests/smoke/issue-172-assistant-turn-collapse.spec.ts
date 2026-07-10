@@ -5,7 +5,24 @@ async function injectMockAndGoto(
   page: import('@playwright/test').Page,
   opts?: Parameters<typeof buildMockBridgeScript>[0]
 ) {
-  await page.addInitScript({ content: buildMockBridgeScript(opts) });
+  await page.addInitScript({
+    content: buildMockBridgeScript({
+      activeModel: 'deepseek-chat',
+      activeProvider: 'deepseek',
+      providers: [
+        {
+          name: 'deepseek',
+          display_name: 'DeepSeek',
+          env_key: 'DEEPSEEK_API_KEY',
+          provider_type: 'openai',
+          configured: true,
+          configured_model: 'deepseek-chat',
+          verification_status: 'success',
+        },
+      ],
+      ...opts,
+    }),
+  });
   await page.goto('/');
   await page.waitForSelector('#root', { state: 'visible' });
 }
