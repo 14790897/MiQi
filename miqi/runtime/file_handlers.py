@@ -38,6 +38,7 @@ from miqi.agent.tools.filesystem import (
     _snapshots_lock,
 )
 from miqi.runtime.app_server import AppServerError
+from miqi.runtime.fs_protocol import decode_data_base64, encode_data_base64
 from miqi.session.manager import OwnershipError
 from miqi.utils.helpers import safe_filename
 
@@ -173,6 +174,14 @@ _ALLOWED_SUFFIXES: set[str] = {
 
 _ALLOWED_NAMES: set[str] = {
     ".gitignore", ".dockerignore", ".editorconfig", ".env",
+}
+
+_BINARY_VIEWABLE_SUFFIXES: set[str] = {
+    ".pdf",
+}
+
+_SUFFIX_TO_MIME: dict[str, str] = {
+    ".pdf": "application/pdf",
 }
 
 _TREE_SKIP_SUFFIXES: set[str] = {
@@ -312,28 +321,56 @@ async def files_read_handler(
     if resolved.is_dir():
         raise AppServerError(f"Path is a directory: {file_path}", code="INVALID_PARAMS")
 
-    _check_text_file_type(resolved)
+    suffix = resolved.suffix.lower()
+    if suffix in _TEXT_SAFE_SUFFIXES or resolved.name in _TEXT_SAFE_NAMES:
+        # ── text file ──────────────────────────────────────────────────
+        try:
+            content = resolved.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            raise AppServerError(
+                "File is not valid UTF-8 text", code="INVALID_PARAMS",
+            ) from None
+        except Exception as exc:
+            logger.warning("[files:read] read error {}: {}", file_path, exc)
+            raise AppServerError(
+                "Failed to read file", code="INTERNAL",
+            ) from exc
 
-    try:
-        content = resolved.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        raise AppServerError(
-            "File is not valid UTF-8 text", code="INVALID_PARAMS",
-        ) from None
-    except Exception as exc:
-        logger.warning("[files:read] read error {}: {}", file_path, exc)
-        raise AppServerError(
-            "Failed to read file", code="INTERNAL",
-        ) from exc
+        logger.info("[files:read] ok path={} size={}", file_path, len(content))
+        return {
+            "result": {
+                "path": file_path,
+                "content": content,
+                "size": len(content),
+            },
+        }
 
-    logger.info("[files:read] ok path={} size={}", file_path, len(content))
-    return {
-        "result": {
-            "path": file_path,
-            "content": content,
-            "size": len(content),
-        },
-    }
+    if suffix in _BINARY_VIEWABLE_SUFFIXES:
+        # ── binary file — return base64 ───────────────────────────────
+        try:
+            data = resolved.read_bytes()
+        except Exception as exc:
+            logger.warning("[files:read] binary read error {}: {}", file_path, exc)
+            raise AppServerError(
+                "Failed to read file", code="INTERNAL",
+            ) from exc
+
+        mime = _SUFFIX_TO_MIME.get(suffix, "application/octet-stream")
+        logger.info("[files:read] ok (binary) path={} size={} mime={}", file_path, len(data), mime)
+        return {
+            "result": {
+                "path": file_path,
+                "data_base64": encode_data_base64(data),
+                "size": len(data),
+                "mime_type": mime,
+                "is_binary": True,
+            },
+        }
+
+    raise AppServerError(
+        f"File type not supported: {suffix or resolved.name}",
+        code="INVALID_PARAMS",
+    )
 
 
 # ── files.write ────────────────────────────────────────────────────────────
@@ -374,22 +411,57 @@ async def files_write_handler(
             "Invalid file path", code="INVALID_PARAMS",
         ) from exc
 
-    _check_text_file_type(resolved)
+    suffix = resolved.suffix.lower()
+    data_base64_param = params.get("data_base64", "")
 
-    # Snapshot original content before first write (enables diff/revert)
-    snapshot_dir: Path | None = None
-    if session_key:
-        snapshot_dir = _resolve_session_snapshot_dir(client_id, session_key)
-    _maybe_snapshot(resolved, snapshot_dir=snapshot_dir)
+    if suffix in _TEXT_SAFE_SUFFIXES or resolved.name in _TEXT_SAFE_NAMES:
+        # ── text file write ───────────────────────────────────────────
+        # Snapshot original content before first write (enables diff/revert)
+        snapshot_dir: Path | None = None
+        if session_key:
+            snapshot_dir = _resolve_session_snapshot_dir(client_id, session_key)
+        _maybe_snapshot(resolved, snapshot_dir=snapshot_dir)
 
-    resolved.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        resolved.write_text(content, encoding="utf-8")
-    except Exception as exc:
-        logger.warning("[files:write] write error {}: {}", file_path, exc)
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            resolved.write_text(content, encoding="utf-8")
+        except Exception as exc:
+            logger.warning("[files:write] write error {}: {}", file_path, exc)
+            raise AppServerError(
+                "Failed to write file", code="INTERNAL",
+            ) from exc
+
+    elif suffix in _BINARY_VIEWABLE_SUFFIXES:
+        # ── binary file write ─────────────────────────────────────────
+        if not data_base64_param:
+            raise AppServerError(
+                "data_base64 is required for binary file writes",
+                code="INVALID_PARAMS",
+            )
+        try:
+            data = decode_data_base64(data_base64_param)
+        except AppServerError:
+            raise
+        except Exception as exc:
+            logger.warning("[files:write] base64 decode error {}: {}", file_path, exc)
+            raise AppServerError(
+                "Invalid base64 data", code="INVALID_PARAMS",
+            ) from exc
+
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            resolved.write_bytes(data)
+        except Exception as exc:
+            logger.warning("[files:write] binary write error {}: {}", file_path, exc)
+            raise AppServerError(
+                "Failed to write file", code="INTERNAL",
+            ) from exc
+
+    else:
         raise AppServerError(
-            "Failed to write file", code="INTERNAL",
-        ) from exc
+            f"File type not supported: {suffix or resolved.name}",
+            code="INVALID_PARAMS",
+        )
 
     # Update tracked_files with client_id ownership check (BUG FIX A.3)
     if session_key:

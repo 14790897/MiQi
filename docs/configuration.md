@@ -13,6 +13,13 @@ MiQi Desktop 的全局配置存储在 `~/.miqi/config.json` 中。
 
 ```json
 {
+  "approvals": {
+    "bypassAll": false,
+    "bypassCommandApproval": false,
+    "bypassFileWriteApproval": false,
+    "bypassToolConfirmation": false,
+    "bypassNetworkApproval": false
+  },
   "providers": {
     "openai": {
       "apiKey": "sk-...",
@@ -46,8 +53,14 @@ MiQi Desktop 的全局配置存储在 `~/.miqi/config.json` 中。
   "tools": {
     "restrict_to_workspace": true,
     "web": {
-      "search_provider": "brave",
-      "brave_api_key": ""
+      "search": {
+        "provider": "ddgs",
+        "apiKey": "",
+        "maxResults": 5
+      },
+      "fetch": {
+        "provider": "builtin"
+      }
     },
     "exec": {
       "allowed_commands": [],
@@ -95,12 +108,28 @@ MiQi Desktop 的全局配置存储在 `~/.miqi/config.json` 中。
 | `trace_nudge_interval` | int | 8 | Nudge 间隔 (轮) |
 | `lessons_legacy_inject_enabled` | bool | false | 启用旧版 Lessons 注入 |
 
+### approvals - approval bypass
+
+These switches skip approval prompts while keeping explicit deny rules and
+parameter validation active. When any bypass switch is enabled, MiQi Desktop
+shows a persistent warning in the top bar.
+
+| Field | Type | Default | Description |
+|------|------|--------|-------------|
+| `bypassAll` | bool | false | Skip every approval prompt. |
+| `bypassCommandApproval` | bool | false | Skip command execution approval prompts. |
+| `bypassFileWriteApproval` | bool | false | Skip file mutation approval prompts. |
+| `bypassToolConfirmation` | bool | false | Skip generic tool confirmation prompts. |
+| `bypassNetworkApproval` | bool | false | Reserved for network approval prompts. |
+
 ### tools — 工具配置
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `restrict_to_workspace` | bool | true | 文件操作限制在工作区 |
-| `web.search_provider` | string | "brave" | 搜索引擎 (brave/ollama/hybrid) |
+| `web.search.provider` | string | "ddgs" | 搜索引擎 (ddgs/brave/hybrid) |
+| `web.search.apiKey` | string | "" | Brave Search API Key，仅 brave/hybrid 使用 |
+| `web.search.maxResults` | int | 5 | 最大搜索结果数量 |
 | `exec.allowed_commands` | array | [] | Shell 命令白名单 |
 | `exec.blocked_commands` | array | [] | Shell 命令黑名单 |
 

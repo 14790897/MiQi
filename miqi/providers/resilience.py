@@ -133,8 +133,10 @@ def _classify_by_status_code(exc: BaseException) -> ErrorKind | None:
         return ErrorKind.RATE_LIMIT
     if code in (401, 403):
         return ErrorKind.AUTH
-    if code in (408, 409) or 500 <= code < 600:
+    if code == 408 or 500 <= code < 600:
         return ErrorKind.TRANSIENT
+    if code == 409:
+        return ErrorKind.INVALID_REQUEST
     if code in (400, 404):
         if _is_context_length_error(exc):
             return ErrorKind.CONTEXT_LENGTH
@@ -215,7 +217,7 @@ def classify_error(exc: BaseException) -> ErrorKind:
                 return by_code
             return ErrorKind.INVALID_REQUEST
         if isinstance(exc, conflict_error):
-            return ErrorKind.TRANSIENT
+            return ErrorKind.INVALID_REQUEST
         if isinstance(exc, internal_server_error):
             return ErrorKind.TRANSIENT
         if isinstance(exc, api_status_error):

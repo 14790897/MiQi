@@ -68,6 +68,11 @@ _PATH_SCOPED_TOOLS: frozenset[str] = frozenset({
     "write_file",
     "edit_file",
     "read_file",
+    "create_docx",
+    "create_pptx",
+    "create_xlsx",
+    "edit_docx",
+    "append_xlsx",
     "memory",  # writes to workspace/memory/MEMORY.md or USER.md
     "task_begin",  # writes to workspace/traces/
     "task_end",    # writes to workspace/traces/

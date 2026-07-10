@@ -6,6 +6,7 @@ They run synchronously in the tool execution context.
 
 from __future__ import annotations
 
+import asyncio
 import fnmatch
 from dataclasses import dataclass, field
 from enum import Enum
@@ -102,10 +103,11 @@ class HookRegistration:
 class HookRuntime:
     """Manages and executes hooks."""
 
-    def __init__(self):
+    def __init__(self, hook_timeout: float = 30.0):
         self._hooks: dict[HookPoint, list[HookRegistration]] = {
             p: [] for p in HookPoint
         }
+        self.hook_timeout = hook_timeout
 
     def register(self, reg: HookRegistration) -> None:
         self._hooks[reg.hook_point].append(reg)
@@ -138,7 +140,16 @@ class HookRuntime:
             if not fnmatch.fnmatch(ctx.tool_name, reg.tool_pattern):
                 continue
             try:
-                outcome = await reg.callback(ctx)
+                outcome = await asyncio.wait_for(
+                    reg.callback(ctx),
+                    timeout=self.hook_timeout,
+                )
+            except TimeoutError:
+                logger.warning(
+                    "Hook {} timed out after {}s for {}",
+                    reg.tool_pattern, self.hook_timeout, ctx.tool_name
+                )
+                continue
             except Exception:
                 logger.exception(
                     "Hook {} failed for {}", reg.tool_pattern, ctx.tool_name

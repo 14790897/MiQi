@@ -825,6 +825,13 @@ class PaperDownloadTool(Tool):
                             ensure_ascii=False,
                         )
 
+                    # Get expected size from Content-Length header (may be absent)
+                    expected_size: int | None = None
+                    cl = resp.headers.get("content-length")
+                    if cl and cl.isdigit():
+                        expected_size = int(cl)
+
+                    last_progress_pct = -1
                     with open(tmp_path, "wb") as f:
                         async for chunk in resp.aiter_bytes():
                             if not chunk:
@@ -908,6 +915,11 @@ class PaperDownloadTool(Tool):
             "saved_path": str(save_path),
             "size_bytes": total,
             "sha256": digest.hexdigest(),
+            "progress": {
+                "downloaded_bytes": total,
+                "expected_bytes": expected_size,
+                "pct": round(total / expected_size * 100, 1) if expected_size else None,
+            },
         }
         if paper_meta:
             payload["item"] = paper_meta
@@ -943,7 +955,7 @@ class PaperDownloadTool(Tool):
             candidate = _safe_file_component(name_from_url or paper_id or "paper")
             if not candidate.lower().endswith(".pdf"):
                 candidate = f"{candidate}.pdf"
-            target = self.workspace / "artifacts" / "papers" / candidate
+            target = self.workspace / "papers" / candidate
 
         resolved = target.resolve()
         try:

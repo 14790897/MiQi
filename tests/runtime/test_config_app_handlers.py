@@ -80,6 +80,38 @@ async def test_config_batch_write_sets_model_and_saves():
 
 
 @pytest.mark.asyncio
+async def test_config_batch_write_sets_approval_bypass():
+    registry = ClientSessionRegistry()
+    server = _setup_server(registry)
+
+    response = await server.dispatch(
+        "1", "config/batchWrite",
+        {"edits": [{"path": "approvals.bypassAll", "value": True}]},
+        "client-1", None,
+    )
+    assert response["result"]["saved"] is True
+
+    state = registry.bridge_context["state"]
+    assert state.config.approvals.bypass_all is True
+
+
+def test_legacy_command_approval_disabled_enables_effective_command_bypass():
+    from miqi.config.schema import Config
+
+    cfg = Config.model_validate({
+        "agents": {
+            "commandApproval": {
+                "enabled": False,
+            },
+        },
+    })
+
+    bypass = cfg.effective_approval_bypass()
+    assert bypass.bypass_command_approval is True
+    assert bypass.bypasses_category("exec") is True
+
+
+@pytest.mark.asyncio
 async def test_config_batch_write_is_atomic_on_invalid_path():
     registry = ClientSessionRegistry()
     server = _setup_server(registry)

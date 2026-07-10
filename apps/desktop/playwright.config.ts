@@ -4,9 +4,9 @@ export default defineConfig({
   testDir: './tests/smoke',
   testMatch: '**/*.spec.ts',
   testIgnore: '**/*.test.ts',  // Exclude vitest files from Playwright scan
-  fullyParallel: false,
+  fullyParallel: true,
   retries: 0,
-  workers: 1,
+  workers: 4,
   reporter: [
     ['html', { outputFolder: 'test-reports/html', open: 'never' }],
     ['json', { outputFile: 'test-reports/results.json' }],
@@ -22,7 +22,7 @@ export default defineConfig({
     // ① Smoke tests: mock bridge → runs in Chromium browser
     {
       name: 'smoke',
-      testMatch: ['smoke.spec.ts', 'issue-*.spec.ts'],
+      testMatch: ['smoke.spec.ts', 'issue-*.spec.ts', 'logs.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: 'http://localhost:3458',
@@ -34,8 +34,9 @@ export default defineConfig({
     //    issue by switching from CLI flag to appendSwitch().
     {
       name: 'electron',
-      testMatch: ['full-electron.spec.ts'],
-      timeout: 300000,  // 5 min — Electron boot + bridge + LLM are slow
+      testDir: './tests/e2e',
+      testMatch: ['*.spec.ts'],
+      timeout: 600_000,  // 10 min — pptx-generator + LLM can be slow
     },
   ],
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 import asyncio
+import inspect
 from typing import Any
 
 from miqi.protocol.commands import (
@@ -141,7 +142,7 @@ class TaskRunner:
             # remain in the pending set.
             orchestrator = getattr(self.services, "orchestrator", None)
             cancel_fn = getattr(orchestrator, "cancel_approvals_for_thread", None)
-            if callable(cancel_fn) and asyncio.iscoroutinefunction(cancel_fn):
+            if callable(cancel_fn) and inspect.iscoroutinefunction(cancel_fn):
                 await cancel_fn(thread_id, reason="Turn aborted by user.")
 
             await self._events.put(ErrorEvent(
@@ -738,7 +739,7 @@ class TaskRunner:
             if prov_err is not None and prov_err.kind is ErrorKind.AUTH:
                 # AUTH is sensitive — surface a fixed, non-leaking message
                 # instead of the raw provider exception text (Plan 58.2).
-                user_message = "Authentication failed. Please check your API key or credentials."
+                user_message = "模型服务认证失败，请检查 Provider 的 API Key、API Base 或当前模型配置。"
             elif prov_err is not None and prov_err.kind in (
                 ErrorKind.RATE_LIMIT,
                 ErrorKind.CONTEXT_LENGTH,

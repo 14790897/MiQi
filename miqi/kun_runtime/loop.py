@@ -158,6 +158,19 @@ class AgentLoop:
         model = turn.get("model") or thread.get("model") or getattr(self._opts.model, "model", "deepseek-chat")
         await self._record_pipeline(thread_id, turn_id, "input_routed", {"model": model})
 
+        approval_gate = self._opts.approval_gate
+
+        async def await_approval(payload: dict[str, Any]) -> Literal["allow", "deny"]:
+            if approval_gate is None:
+                return "allow"
+            return await approval_gate.request(
+                thread_id,
+                turn_id,
+                str(payload.get("toolName") or ""),
+                str(payload.get("summary") or "Approve tool call"),
+                payload,
+            )
+
         # List tools
         tool_context = ToolHostContext(
             thread_id=thread_id,
@@ -167,6 +180,7 @@ class AgentLoop:
             approval_policy=thread.get("approvalPolicy", "auto"),
             abort_signal=token,
             active_skill_ids=turn.get("activeSkillIds", []),
+            await_approval=await_approval if approval_gate is not None else None,
         )
         tools = await self._opts.tool_host.list_tools(tool_context)
         tool_specs = [ModelToolSpec(

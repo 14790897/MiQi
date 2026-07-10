@@ -6,6 +6,7 @@ import asyncio
 
 import pytest
 
+from miqi.config.schema import ApprovalBypassConfig
 from miqi.kun_runtime.approval_gate import ApprovalGate, ApprovalRequest
 from miqi.kun_runtime.user_input_gate import UserInputGate, UserInputRequest
 
@@ -127,6 +128,20 @@ class TestApprovalGate:
 
     def test_pending_count(self) -> None:
         gate = ApprovalGate()
+        assert gate.pending_count == 0
+
+    @pytest.mark.asyncio
+    async def test_bypass_all_returns_allow_without_pending(self) -> None:
+        gate = ApprovalGate(ApprovalBypassConfig(bypass_all=True))
+        result = await gate.request("th1", "t1", "bash", "rm -rf /")
+        assert result == "allow"
+        assert gate.pending_count == 0
+
+    @pytest.mark.asyncio
+    async def test_tool_confirmation_bypass_returns_allow_without_pending(self) -> None:
+        gate = ApprovalGate(ApprovalBypassConfig(bypass_tool_confirmation=True))
+        result = await gate.request("th1", "t1", "custom_tool", "Run custom tool")
+        assert result == "allow"
         assert gate.pending_count == 0
 
 

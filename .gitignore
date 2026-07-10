@@ -13,13 +13,15 @@ build/
 *.pywz
 *.pyzz
 .venv/
+.venv-linux/
+.venv-wsl/
 venv/
 __pycache__/
 poetry.lock
 .pytest_cache/
 .pytest-basetemp*/
 site/
-botpy.log
+*.log
 .ruff_cache/
 featherflow/agent/memory.py.bak
 .miqi/
@@ -47,3 +49,4 @@ plan/*
 .debug/
 .playwright-mcp/
 *.png
+mof-synthesis-price-agent/
