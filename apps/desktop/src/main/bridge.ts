@@ -171,6 +171,7 @@ export class BridgeManager extends EventEmitter {
   private restartInProgress: boolean = false;
   private initialized: boolean = false;
   private clientId: string = 'miqi-desktop';
+  private stoppingPromise: Promise<void> | null = null;
 
   constructor(projectRoot?: string) {
     super();
@@ -204,6 +205,9 @@ export class BridgeManager extends EventEmitter {
   }
 
   async start(): Promise<void> {
+    if (this.stoppingPromise) {
+      await this.stoppingPromise;
+    }
     if (this.state === 'running' || this.state === 'starting') return;
 
     this.state = 'starting';
@@ -236,6 +240,7 @@ export class BridgeManager extends EventEmitter {
       startedReader = lineReader;
 
       lineReader.on('line', (line: string) => {
+        if (this.process !== bridgeProcess) return;
         try {
           const raw: BridgeResponse = JSON.parse(line);
           const resp = normalizeBridgeMessage(raw);
@@ -333,6 +338,9 @@ export class BridgeManager extends EventEmitter {
         this.addLog(`Bridge process error: ${err.message}`);
         this.state = 'error';
         this.process = null;
+        this.rl = null;
+        this.initialized = false;
+        this.clientId = 'miqi-desktop';
         this.emitState();
         // Reject all pending requests so callers don't hang
         for (const [id, entry] of this.pending) {
@@ -401,6 +409,7 @@ export class BridgeManager extends EventEmitter {
       // events are not dropped.  Do NOT process tracked responses/events
       // here — the primary handler already does that.
       lineReader.on('line', (line: string) => {
+        if (this.process !== bridgeProcess) return;
         try {
           const resp: BridgeResponse = JSON.parse(line);
           const normalized = normalizeBridgeMessage(resp);
@@ -428,6 +437,7 @@ export class BridgeManager extends EventEmitter {
       // Handle unexpected exit after ready
       bridgeProcess.on('close', (code) => {
         if (this.process !== bridgeProcess) return;
+        if (this.state === 'stopping') return;
         this.addLog(`Bridge process exited with code ${code}`);
         this.state = code === 0 ? 'stopped' : 'error';
         this.process = null;
@@ -442,20 +452,12 @@ export class BridgeManager extends EventEmitter {
         }
       });
 
-      bridgeProcess.on('error', (err) => {
-        if (this.process !== bridgeProcess) return;
-        this.addLog(`Bridge process error: ${err.message}`);
-        this.state = 'error';
-        this.process = null;
-        this.initialized = false;
-        this.clientId = 'miqi-desktop';
-        this.emitState();
-      });
-
       // Wait briefly and check if process is still alive
       await new Promise<void>((resolve, reject) => {
         setTimeout(() => {
-          if (bridgeProcess.exitCode !== null && bridgeProcess.exitCode !== undefined) {
+          if (this.process !== bridgeProcess) {
+            reject(new Error('Bridge process was replaced before initialization completed'));
+          } else if (bridgeProcess.exitCode !== null && bridgeProcess.exitCode !== undefined) {
             reject(
               new Error(`Bridge process exited immediately with code ${bridgeProcess.exitCode}`)
             );
@@ -472,14 +474,21 @@ export class BridgeManager extends EventEmitter {
       this.emitState();
       this.startFileWatcher();
     } catch (err) {
-      this.state = 'error';
       this.addLog(`Failed to start bridge: ${err}`);
-      this.emitState();
+      const isActiveStart = this.process === startedProcess;
+      if (isActiveStart) {
+        this.state = 'error';
+        this.emitState();
+      }
 
       // Cleanup on initialization failure
-      this.stopFileWatcher();
-      if (startedReader && this.rl === startedReader) {
+      if (isActiveStart) {
+        this.stopFileWatcher();
+      }
+      if (startedReader) {
         startedReader.close();
+      }
+      if (this.rl === startedReader) {
         this.rl = null;
       }
       if (startedProcess && this.process === startedProcess) {
@@ -487,18 +496,24 @@ export class BridgeManager extends EventEmitter {
         startedProcess.kill('SIGTERM');
         this.process = null;
       }
-      this.initialized = false;
-      this.clientId = 'miqi-desktop';
-      // Reject all pending requests
-      for (const [id, pending] of this.pending) {
-        pending.reject(new Error('Bridge initialization failed'));
-        this.pending.delete(id);
+      if (isActiveStart) {
+        this.initialized = false;
+        this.clientId = 'miqi-desktop';
+        // Reject all pending requests
+        for (const [id, pending] of this.pending) {
+          pending.reject(new Error('Bridge initialization failed'));
+          this.pending.delete(id);
+        }
       }
       throw err;
     }
   }
 
   async stop(): Promise<void> {
+    if (this.stoppingPromise) {
+      await this.stoppingPromise;
+      return;
+    }
     if (!this.process) return;
 
     this.state = 'stopping';
@@ -510,18 +525,48 @@ export class BridgeManager extends EventEmitter {
     this.initialized = false;
     this.clientId = 'miqi-desktop';
 
-    this.process.stdin?.end();
-    this.process.kill('SIGTERM');
+    const proc = this.process;
+    this.stoppingPromise = new Promise<void>((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(forceKillTimer);
+        clearTimeout(resolveTimer);
+        for (const [id, entry] of this.pending) {
+          entry.reject(new Error('Bridge stopped — request cancelled'));
+          this.pending.delete(id);
+        }
+        proc.removeListener('close', done);
+        proc.removeListener('exit', done);
+        this.stoppingPromise = null;
+        if (this.process === proc) {
+          this.process = null;
+          this.rl = null;
+          this.state = 'stopped';
+          this.emitState();
+        }
+        resolve();
+      };
 
-    // Force kill after 5s
-    setTimeout(() => {
-      if (this.process) {
-        this.process.kill('SIGKILL');
-      }
-    }, 5000);
+      const forceKillTimer = setTimeout(() => {
+        if (this.process === proc) {
+          proc.kill('SIGKILL');
+        }
+      }, 5000);
+
+      const resolveTimer = setTimeout(done, 5500);
+
+      proc.once('close', done);
+      proc.once('exit', done);
+
+      proc.stdin?.end();
+      proc.kill('SIGTERM');
+    });
 
     this.addLog('Bridge stopping');
     this.recordMainLog('INFO', 'Bridge stopping');
+    await this.stoppingPromise;
   }
 
   private startFileWatcher(): void {

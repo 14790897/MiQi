@@ -739,7 +739,7 @@ class TaskRunner:
             if prov_err is not None and prov_err.kind is ErrorKind.AUTH:
                 # AUTH is sensitive — surface a fixed, non-leaking message
                 # instead of the raw provider exception text (Plan 58.2).
-                user_message = "Authentication failed. Please check your API key or credentials."
+                user_message = "模型服务认证失败，请检查 Provider 的 API Key、API Base 或当前模型配置。"
             elif prov_err is not None and prov_err.kind in (
                 ErrorKind.RATE_LIMIT,
                 ErrorKind.CONTEXT_LENGTH,

@@ -312,6 +312,65 @@ describe('BridgeManager lifecycle', () => {
     expect((bridge as any).pending.size).toBe(0);
   }, 10_000);
 
+  it('ignores late close events from a previous bridge process after restart', async () => {
+    const BridgeManager = await importBridgeManager();
+    const firstProc = createMockProcess();
+    const bridge = new BridgeManager('/fake/root');
+
+    await startBridge(firstProc, bridge, { clientId: 'first', serverInfo: { version: '1' } });
+    const oldCloseHandler = firstProc.on.mock.calls.find((call) => call[0] === 'close')?.[1] as
+      | ((code: number | null) => void)
+      | undefined;
+    expect(oldCloseHandler).toBeTypeOf('function');
+
+    const stopPromise = bridge.stop();
+    await new Promise((r) => setTimeout(r, 10));
+    const stopExitHandler = [...firstProc.once.mock.calls]
+      .reverse()
+      .find((call) => call[0] === 'exit')?.[1] as (() => void) | undefined;
+    expect(stopExitHandler).toBeTypeOf('function');
+    stopExitHandler?.();
+    await stopPromise;
+
+    const secondProc = createMockProcess();
+    await startBridge(secondProc, bridge, { clientId: 'second', serverInfo: { version: '1' } });
+    expect(bridge.isRunning()).toBe(true);
+
+    oldCloseHandler?.(0);
+
+    expect(bridge.isRunning()).toBe(true);
+    expect((bridge as any).process).toBe(secondProc);
+    expect((bridge as any).rl).not.toBeNull();
+  }, 10_000);
+
+  it('does not mark an intentional stop as an error when the persistent close handler runs first', async () => {
+    const BridgeManager = await importBridgeManager();
+    const proc = createMockProcess();
+    const bridge = new BridgeManager('/fake/root');
+
+    await startBridge(proc, bridge, { clientId: 'stop-close', serverInfo: { version: '1' } });
+    const persistentCloseHandler = proc.on.mock.calls.find((call) => call[0] === 'close')?.[1] as
+      | ((code: number | null) => void)
+      | undefined;
+    expect(persistentCloseHandler).toBeTypeOf('function');
+
+    const stopPromise = bridge.stop();
+    await new Promise((r) => setTimeout(r, 10));
+
+    persistentCloseHandler?.(null);
+    expect(bridge.getStatus().state).toBe('stopping');
+
+    const stopCloseHandler = [...proc.once.mock.calls]
+      .reverse()
+      .find((call) => call[0] === 'close')?.[1] as (() => void) | undefined;
+    expect(stopCloseHandler).toBeTypeOf('function');
+    stopCloseHandler?.();
+    await stopPromise;
+
+    expect(bridge.getStatus().state).toBe('stopped');
+    expect(bridge.isRunning()).toBe(false);
+  }, 10_000);
+
   it('routes streaming accepted→progress→final without early resolve', async () => {
     const BridgeManager = await importBridgeManager();
     const proc = createMockProcess();
