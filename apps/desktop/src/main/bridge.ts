@@ -167,6 +167,8 @@ export class BridgeManager extends EventEmitter {
   private hotReloadEnabled: boolean = false;
   private lastReloadTime: number = 0;
   private reloadCooldown: number = 1000; // 1 second cooldown between reloads
+  private reloadTimer: ReturnType<typeof setTimeout> | null = null;
+  private restartInProgress: boolean = false;
   private initialized: boolean = false;
   private clientId: string = 'miqi-desktop';
 
@@ -213,23 +215,27 @@ export class BridgeManager extends EventEmitter {
     this.addLog(`Working directory: ${this.projectRoot}`);
     this.recordMainLog('INFO', `Starting MiQi bridge: ${command} ${args.join(' ')}`);
 
-    // Start file watcher for hot reload
-    this.startFileWatcher();
+    let startedProcess: ChildProcess | null = null;
+    let startedReader: Interface | null = null;
 
     try {
-      this.process = spawn(command, args, {
+      const bridgeProcess = spawn(command, args, {
         cwd: this.projectRoot,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' },
         windowsHide: true,
       });
+      this.process = bridgeProcess;
+      startedProcess = bridgeProcess;
 
-      this.rl = createInterface({
-        input: this.process.stdout!,
+      const lineReader = createInterface({
+        input: bridgeProcess.stdout!,
         crlfDelay: Infinity,
       });
+      this.rl = lineReader;
+      startedReader = lineReader;
 
-      this.rl.on('line', (line: string) => {
+      lineReader.on('line', (line: string) => {
         try {
           const raw: BridgeResponse = JSON.parse(line);
           const resp = normalizeBridgeMessage(raw);
@@ -312,7 +318,7 @@ export class BridgeManager extends EventEmitter {
         }
       });
 
-      this.process.stderr!.on('data', (data: Buffer) => {
+      bridgeProcess.stderr!.on('data', (data: Buffer) => {
         const text = data.toString().trim();
         if (text) {
           const msg = `[MIQI BRIDGE STDERR] ${text}`;
@@ -322,7 +328,8 @@ export class BridgeManager extends EventEmitter {
         }
       });
 
-      this.process.on('error', (err) => {
+      bridgeProcess.on('error', (err) => {
+        if (this.process !== bridgeProcess) return;
         this.addLog(`Bridge process error: ${err.message}`);
         this.state = 'error';
         this.process = null;
@@ -347,8 +354,8 @@ export class BridgeManager extends EventEmitter {
           if (settled) return;
           settled = true;
           clearTimeout(timeout);
-          this.rl?.removeListener('line', onReadyLine);
-          this.process?.removeListener('close', onClose);
+          lineReader.removeListener('line', onReadyLine);
+          bridgeProcess.removeListener('close', onClose);
           if (err) _reject(err);
           else _resolve();
         };
@@ -376,8 +383,8 @@ export class BridgeManager extends EventEmitter {
           );
         }, 60_000);
 
-        this.rl!.on('line', onReadyLine);
-        this.process!.once('close', onClose);
+        lineReader.on('line', onReadyLine);
+        bridgeProcess.once('close', onClose);
       });
 
       // Bridge process is alive and accepting stdin.
@@ -393,7 +400,7 @@ export class BridgeManager extends EventEmitter {
       // orphan events (no pending request) to renderer windows so late
       // events are not dropped.  Do NOT process tracked responses/events
       // here — the primary handler already does that.
-      this.rl.on('line', (line: string) => {
+      lineReader.on('line', (line: string) => {
         try {
           const resp: BridgeResponse = JSON.parse(line);
           const normalized = normalizeBridgeMessage(resp);
@@ -419,7 +426,8 @@ export class BridgeManager extends EventEmitter {
       });
 
       // Handle unexpected exit after ready
-      this.process.on('close', (code) => {
+      bridgeProcess.on('close', (code) => {
+        if (this.process !== bridgeProcess) return;
         this.addLog(`Bridge process exited with code ${code}`);
         this.state = code === 0 ? 'stopped' : 'error';
         this.process = null;
@@ -434,7 +442,8 @@ export class BridgeManager extends EventEmitter {
         }
       });
 
-      this.process.on('error', (err) => {
+      bridgeProcess.on('error', (err) => {
+        if (this.process !== bridgeProcess) return;
         this.addLog(`Bridge process error: ${err.message}`);
         this.state = 'error';
         this.process = null;
@@ -446,9 +455,9 @@ export class BridgeManager extends EventEmitter {
       // Wait briefly and check if process is still alive
       await new Promise<void>((resolve, reject) => {
         setTimeout(() => {
-          if (this.process?.exitCode !== null && this.process?.exitCode !== undefined) {
+          if (bridgeProcess.exitCode !== null && bridgeProcess.exitCode !== undefined) {
             reject(
-              new Error(`Bridge process exited immediately with code ${this.process.exitCode}`)
+              new Error(`Bridge process exited immediately with code ${bridgeProcess.exitCode}`)
             );
           } else {
             resolve();
@@ -461,6 +470,7 @@ export class BridgeManager extends EventEmitter {
       // will see state='running' and may safely start making calls.
       this.state = 'running';
       this.emitState();
+      this.startFileWatcher();
     } catch (err) {
       this.state = 'error';
       this.addLog(`Failed to start bridge: ${err}`);
@@ -468,13 +478,13 @@ export class BridgeManager extends EventEmitter {
 
       // Cleanup on initialization failure
       this.stopFileWatcher();
-      if (this.rl) {
-        this.rl.close();
+      if (startedReader && this.rl === startedReader) {
+        startedReader.close();
         this.rl = null;
       }
-      if (this.process) {
-        this.process.stdin?.end();
-        this.process.kill('SIGTERM');
+      if (startedProcess && this.process === startedProcess) {
+        startedProcess.stdin?.end();
+        startedProcess.kill('SIGTERM');
         this.process = null;
       }
       this.initialized = false;
@@ -540,6 +550,10 @@ export class BridgeManager extends EventEmitter {
   }
 
   private stopFileWatcher(): void {
+    if (this.reloadTimer) {
+      clearTimeout(this.reloadTimer);
+      this.reloadTimer = null;
+    }
     if (this.fileWatcher) {
       this.fileWatcher.close();
       this.fileWatcher = null;
@@ -556,8 +570,20 @@ export class BridgeManager extends EventEmitter {
     this.lastReloadTime = now;
     this.addLog(`[Hot Reload] Detected change in: ${filename}`);
 
+    if (this.state !== 'running' || !this.initialized || this.restartInProgress) {
+      this.addLog(
+        `[Hot Reload] Ignoring change while bridge is ${this.state}`
+      );
+      return;
+    }
+
+    if (this.reloadTimer) {
+      clearTimeout(this.reloadTimer);
+    }
+
     // Schedule restart after a short delay to allow multiple files to change
-    setTimeout(() => {
+    this.reloadTimer = setTimeout(() => {
+      this.reloadTimer = null;
       this.restart().catch((err) => {
         this.addLog(`[Hot Reload] Restart error: ${err}`);
       });
@@ -565,9 +591,11 @@ export class BridgeManager extends EventEmitter {
   }
 
   private async restart(): Promise<void> {
-    if (this.state !== 'running') return;
+    if (this.restartInProgress || this.state !== 'running' || !this.process) return;
+    this.restartInProgress = true;
 
     this.addLog('[Hot Reload] Restarting bridge due to code changes...');
+    this.stopFileWatcher();
 
     // Reject all pending requests so callers don't hang forever
     for (const [id, entry] of this.pending) {
@@ -575,18 +603,36 @@ export class BridgeManager extends EventEmitter {
     }
     this.pending.clear();
 
+    const oldProcess = this.process;
+
     // Stop current process
-    if (this.process) {
-      this.process.stdin?.end();
-      this.process.kill('SIGTERM');
+    this.state = 'stopping';
+    this.emitState();
+    oldProcess.stdin?.end();
+    oldProcess.kill('SIGTERM');
+
+    // Wait for the old process to finish its own cleanup before starting a
+    // replacement. Starting too early can race sandbox state cleanup on Windows.
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        oldProcess.removeListener?.('close', finish);
+        resolve();
+      };
+      const timeout = setTimeout(finish, 5000);
+      oldProcess.once?.('close', finish);
+    });
+
+    if (this.process === oldProcess) {
+      this.process = null;
+      this.rl = null;
     }
-
-    // Reset state so start() can proceed
+    this.initialized = false;
+    this.clientId = 'miqi-desktop';
     this.state = 'stopped';
-    this.process = null;
-
-    // Wait briefly for process to exit
-    await new Promise((resolve) => setTimeout(resolve, 500));
 
     // Restart
     try {
@@ -594,6 +640,8 @@ export class BridgeManager extends EventEmitter {
       this.addLog('[Hot Reload] Bridge restarted successfully');
     } catch (err) {
       this.addLog(`[Hot Reload] Failed to restart bridge: ${err}`);
+    } finally {
+      this.restartInProgress = false;
     }
   }
 

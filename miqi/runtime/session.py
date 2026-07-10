@@ -476,7 +476,6 @@ class RuntimeSession:
                             if self._active_turn_task is not None:
                                 cancelled_task = self._active_turn_task
                                 self._active_turn_task.cancel()
-                                self._active_turn_task = None
                                 had_active = True
                         if not get_task.done():
                             get_task.cancel()
@@ -497,22 +496,13 @@ class RuntimeSession:
                             # (history completion, ledger append, event emission)
                             # completes before the next loop iteration.
                             if cancelled_task is not None:
-                                try:
-                                    await cancelled_task
-                                except asyncio.CancelledError:
-                                    pass
-                                except Exception:
-                                    _session_logger.exception(
-                                        "RuntimeSession: unhandled exception in cancelled turn task"
-                                    )
-                                    from miqi.protocol.events import ErrorEvent as _ErrEvt
-                                    await self._events.put(
-                                        _ErrEvt(
-                                            turn_id="session",
-                                            message="Cancelled turn task failed with an internal error.",
-                                            error_kind="internal",
-                                        )
-                                    )
+                                await self._await_cancelled_turn_task(
+                                    cancelled_task,
+                                    submission,
+                                )
+                                async with self._lock:
+                                    if self._active_turn_task is cancelled_task:
+                                        self._active_turn_task = None
                         else:
                             await self._runner.handle(submission)
                     elif isinstance(submission, SteerTurn):
@@ -562,3 +552,28 @@ class RuntimeSession:
             for p in pending:
                 if p is not self._active_turn_task and p not in self._pending_aux_tasks and not p.done():
                     p.cancel()
+
+    async def _await_cancelled_turn_task(
+        self,
+        cancelled_task: asyncio.Task,
+        submission: Any,
+    ) -> None:
+        """Drain a cancelled turn without surfacing cleanup failures as chat errors."""
+        try:
+            await cancelled_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            _session_logger.exception(
+                "RuntimeSession: cancelled turn cleanup failed"
+            )
+            from miqi.protocol.events import TurnAbortedEvent
+
+            thread_id = getattr(submission, "thread_id", None) or "default"
+            await self._events.put(
+                TurnAbortedEvent(
+                    turn_id="session",
+                    thread_id=thread_id,
+                    reason="Turn aborted; cleanup failed after cancellation. Check runtime logs.",
+                )
+            )

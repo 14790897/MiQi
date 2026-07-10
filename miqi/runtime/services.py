@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from miqi.execution.hook_runtime import HookRuntime
 
 
@@ -108,6 +110,17 @@ class RuntimeServices:
 
         bus = MessageBus()
         defaults = config.agents.defaults
+        effective_bypass = getattr(config, "effective_approval_bypass", None)
+        approval_bypass = (
+            effective_bypass()
+            if callable(effective_bypass)
+            else getattr(config, "approvals", None)
+        )
+        if bool(getattr(approval_bypass, "enabled", False)):
+            logger.warning(
+                "Approval bypass is enabled for session {}; approval prompts may be skipped.",
+                session_id,
+            )
 
         # Historical (Phase 22): runtime-owned tool registry (replaced AgentLoop._register_default_tools)
         plan_tracker = PlanTracker()
@@ -166,6 +179,7 @@ class RuntimeServices:
             tool_registry=tool_registry,
             event_emitter=emitter,
             bwrap_available=bwrap_available,
+            approval_bypass=approval_bypass,
         )
 
         # Phase 52: shared agent graph persistence (created before AgentControl)
