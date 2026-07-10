@@ -75,7 +75,7 @@ test.describe('PPTX Generator E2E', () => {
       const { join } = require('node:path');
       const ws = join(homedir(), '.miqi', 'workspace');
       const verifier = join(__dirname, 'helpers', 'verify-pptx.py');
-      const PY = '"C:\\Users\\Intership003\\AppData\\Local\\Programs\\Python\\Python312\\python.exe"';
+      const PY = process.platform === 'win32' ? 'python' : 'python3';
       let result: any;
       try {
         const vout = execSync(`${PY} "${verifier}" "${ws}"`, { encoding: 'utf8', timeout: 15000 });
