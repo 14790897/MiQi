@@ -17,6 +17,7 @@ from miqi.execution.orchestrator import (
     ToolOrchestrator,
     ToolExecutionContext,
 )
+from miqi.config.schema import ApprovalBypassConfig
 from miqi.execution.permission_engine import (
     PermissionEngine,
     PermissionDecision,
@@ -323,6 +324,88 @@ async def test_write_file_allow_performs_mutation(orch, mock_orch_components):
     result = await task
     assert "Successfully wrote" in result.result
     tool_mock.execute.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_file_write_bypass_executes_without_approval_request(mock_orch_components):
+    """File-write bypass must skip the approval prompt at orchestrator level."""
+    permission_engine = PermissionEngine(
+        approval_bypass=ApprovalBypassConfig(bypass_file_write_approval=True),
+    )
+    mock_orch_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    tool_mock = MagicMock()
+    tool_mock.execute = AsyncMock(return_value="Successfully wrote 5 bytes")
+    mock_orch_components["tool_registry"].get.return_value = tool_mock
+    orch = ToolOrchestrator(
+        permission_engine=permission_engine,
+        sandbox_engine=mock_orch_components["sandbox_engine"],
+        hook_runtime=mock_orch_components["hook_runtime"],
+        tool_registry=mock_orch_components["tool_registry"],
+        event_emitter=mock_orch_components["event_emitter"],
+    )
+
+    ctx = make_ctx(
+        tool_name="write_file",
+        arguments={"path": "/tmp/bypass.txt", "content": "hello"},
+    )
+    result = await orch.execute(ctx)
+
+    assert result.permission_decision is not None
+    assert result.permission_decision.verdict == PermissionVerdict.ALLOW
+    assert result.permission_decision.reason == "Auto-approved by approval bypass"
+    assert "Successfully wrote" in result.result
+    tool_mock.execute.assert_called_once()
+    emitted = [
+        call.args[0].__class__.__name__
+        for call in mock_orch_components["event_emitter"].emit.await_args_list
+    ]
+    assert "ApprovalRequestedEvent" not in emitted
+
+
+@pytest.mark.asyncio
+async def test_command_bypass_executes_metachar_command_without_approval_request(
+    mock_orch_components,
+):
+    """Command bypass must skip approval for shell metacharacter commands."""
+    permission_engine = PermissionEngine(
+        approval_bypass=ApprovalBypassConfig(bypass_command_approval=True),
+    )
+    mock_orch_components["sandbox_engine"].select.return_value = MagicMock(
+        sandbox_type="none",
+        filesystem_policy=MagicMock(),
+        network_policy="allow_all",
+    )
+    tool_mock = MagicMock()
+    tool_mock.execute = AsyncMock(return_value="uid=1000")
+    mock_orch_components["tool_registry"].get.return_value = tool_mock
+    orch = ToolOrchestrator(
+        permission_engine=permission_engine,
+        sandbox_engine=mock_orch_components["sandbox_engine"],
+        hook_runtime=mock_orch_components["hook_runtime"],
+        tool_registry=mock_orch_components["tool_registry"],
+        event_emitter=mock_orch_components["event_emitter"],
+    )
+
+    ctx = make_ctx(
+        tool_name="exec",
+        arguments={"command": "pwd && id"},
+    )
+    result = await orch.execute(ctx)
+
+    assert result.permission_decision is not None
+    assert result.permission_decision.verdict == PermissionVerdict.ALLOW
+    assert result.permission_decision.reason == "Auto-approved by approval bypass"
+    assert result.result == "uid=1000"
+    tool_mock.execute.assert_called_once()
+    emitted = [
+        call.args[0].__class__.__name__
+        for call in mock_orch_components["event_emitter"].emit.await_args_list
+    ]
+    assert "ApprovalRequestedEvent" not in emitted
 
 
 @pytest.mark.asyncio

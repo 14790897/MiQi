@@ -23,6 +23,28 @@ function isBypassEnabled(status: ApprovalBypassStatus | null, legacyCommandBypas
   );
 }
 
+function getBypassLabel(status: ApprovalBypassStatus | null, legacyCommandBypass: boolean): string {
+  if (status?.bypassAll) return 'BYPASS ALL';
+  const labels: string[] = [];
+  if (legacyCommandBypass || status?.bypassCommandApproval) labels.push('CMD');
+  if (status?.bypassFileWriteApproval) labels.push('FILE');
+  if (status?.bypassToolConfirmation) labels.push('TOOL');
+  if (status?.bypassNetworkApproval) labels.push('NET');
+  return labels.length > 0 ? `BYPASS: ${labels.join('/')}` : 'BYPASS';
+}
+
+function getBypassTitle(status: ApprovalBypassStatus | null, legacyCommandBypass: boolean): string {
+  if (status?.bypassAll) return 'Approval bypass enabled for all approval categories';
+  const labels: string[] = [];
+  if (legacyCommandBypass || status?.bypassCommandApproval) labels.push('command approval');
+  if (status?.bypassFileWriteApproval) labels.push('file-write approval');
+  if (status?.bypassToolConfirmation) labels.push('tool confirmation');
+  if (status?.bypassNetworkApproval) labels.push('network approval');
+  return labels.length > 0
+    ? `Approval bypass enabled for: ${labels.join(', ')}`
+    : 'Open approval settings';
+}
+
 export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
   const { status } = useRuntime();
   const [approvalBypass, setApprovalBypass] = useState<ApprovalBypassStatus | null>(null);
@@ -101,16 +123,10 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
               color: 'var(--approval-warning-pill-text)',
               border: '1px solid var(--approval-warning-border)',
             }}
-            title="打开审批设置"
+            title={getBypassTitle(approvalBypass, legacyCommandBypass)}
           >
             <AlertTriangle size={11} className="shrink-0" />
-            <span>
-              {approvalBypass?.bypassAll
-                ? 'APPROVAL BYPASS'
-                : legacyCommandBypass
-                  ? 'COMMAND BYPASS'
-                  : 'BYPASS PARTIAL'}
-            </span>
+            <span>{getBypassLabel(approvalBypass, legacyCommandBypass)}</span>
           </button>
         )}
         {/* Sync state */}
