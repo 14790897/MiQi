@@ -1281,6 +1281,7 @@ class BwrapSandbox:
 
     @property
     def is_running(self) -> bool:
+        """True if the sandbox has been started and not stopped."""
         return self._running
 
     @property
