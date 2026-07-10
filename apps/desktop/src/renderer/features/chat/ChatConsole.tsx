@@ -40,6 +40,11 @@ import type {
 } from '../../../shared/ipc';
 import { extractProgressMessage, type ProgressPayload } from './progressUtils';
 import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
+import PaperSearchResult, {
+  tryParsePaperSearchResult,
+  type PaperSearchPayload,
+  type PaperItem,
+} from './PaperSearchResult';
 
 interface Attachment {
   name: string;
@@ -55,6 +60,10 @@ interface Message {
   attachments?: Attachment[];
   toolHint?: boolean;
   toolCallId?: string;
+  /** Tool name for specialized rendering (e.g. 'paper_search') */
+  toolName?: string;
+  /** Parsed tool data for card rendering */
+  toolData?: unknown;
   action?: 'open-provider-settings';
   actionLabel?: string;
   /** When true the message is collapsed by default (user can click to expand) */
@@ -113,7 +122,10 @@ function parseToolHint(
     // nanobot / miqi style: write_file("path"), read_file("path"), edit_file("path")
     [/(?:write|edit|delete|read)_file\s*\(\s*["'](.+?)["']\s*\)/i, 'write'],
     // Office creation tools create files in the workspace.
-    [/(?:create_docx|create_xlsx|create_pptx|docx_write|xlsx_write|pptx_write)\s*\(\s*["'](.+?)["']\s*\)/i, 'write'],
+    [
+      /(?:create_docx|create_xlsx|create_pptx|docx_write|xlsx_write|pptx_write)\s*\(\s*["'](.+?)["']\s*\)/i,
+      'write',
+    ],
     [/(?:edit_docx|append_xlsx)\s*\(\s*["'](.+?)["']\s*\)/i, 'edit'],
     // Generic fallback: any mention of a path-like string after a colon
     [/(?:file|path)[:\s]+([^\s,]+\.[a-zA-Z]{1,6})/i, 'read'],
@@ -137,7 +149,8 @@ function parseToolHint(
         else if (re.source.includes('edit')) inferredOp = 'edit';
         else if (re.source.includes('delete')) inferredOp = 'delete';
         else if (re.source.includes('read')) inferredOp = 'read';
-        else if (re.source.includes('create_') || re.source.includes('_write')) inferredOp = 'write';
+        else if (re.source.includes('create_') || re.source.includes('_write'))
+          inferredOp = 'write';
         return { path: raw, op: inferredOp, truncated };
       }
     }
@@ -262,15 +275,44 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
       // Tool result messages → show as collapsed progress with toolHint
       const toolName = m.name || 'tool';
       const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-      const preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
-      result.push({
-        role: 'progress',
-        content: `${toolName}: ${preview}`,
-        summary: toolName,
-        toolHint: true,
-        collapsed: true,
-        timestamp: ts,
-      });
+
+      // Detect paper_search results → render as cards (not collapsed)
+      if (toolName === 'paper_search') {
+        const paperData = tryParsePaperSearchResult(content);
+        if (paperData && paperData.items?.length) {
+          result.push({
+            role: 'progress',
+            content: content,
+            summary: `📄 Found ${paperData.items.length} papers${paperData.query ? ` for "${paperData.query}"` : ''}`,
+            toolHint: true,
+            toolName: 'paper_search',
+            toolData: paperData,
+            collapsed: false,
+            timestamp: ts,
+          });
+        } else {
+          // Search returned empty or errored — still show normally
+          const preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
+          result.push({
+            role: 'progress',
+            content: `paper_search: ${preview}`,
+            summary: 'paper_search',
+            toolHint: true,
+            collapsed: true,
+            timestamp: ts,
+          });
+        }
+      } else {
+        const preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
+        result.push({
+          role: 'progress',
+          content: `${toolName}: ${preview}`,
+          summary: toolName,
+          toolHint: true,
+          collapsed: true,
+          timestamp: ts,
+        });
+      }
     }
     // Ignore other roles (system, etc.)
   }
@@ -314,7 +356,10 @@ function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[
   })();
 
   return messages.reduce((acc, message, index) => {
-    if (index <= lastUserIndex) { acc.push(message); return acc; }
+    if (index <= lastUserIndex) {
+      acc.push(message);
+      return acc;
+    }
     if (message.role === 'assistant') return acc;
     if (message.role !== 'progress' || message.toolHint) {
       // Retained toolHint progress should render collapsed after final
@@ -377,6 +422,7 @@ export function ChatConsole({
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [downloadingPaperId, setDownloadingPaperId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(280);
   const panelResizing = useRef(false);
@@ -860,13 +906,39 @@ export function ChatConsole({
             : extracted.role === 'warning'
               ? ('progress' as const) // warnings render as progress with warning style
               : ('progress' as const);
+        // Detect paper_search result from backend events
+        let toolName: string | undefined;
+        let toolData: unknown;
+        // Path A: item/toolResult notification (from turn_event_adapter)
+        if (!toolData && data.tool_hint && data.text && !data.stream) {
+          const parsed = tryParsePaperSearchResult(data.text);
+          if (parsed?.items?.length) {
+            toolName = 'paper_search';
+            toolData = parsed;
+          }
+        }
+        // Path B: toolExecution/outputDelta from PaperSearchTool itself
+        if (!toolData && data.delta && typeof data.delta === 'string') {
+          try {
+            const inner = JSON.parse(data.delta);
+            if (inner?.type === 'paper_search_result' && inner.payload) {
+              toolName = 'paper_search';
+              toolData = inner.payload;
+            }
+          } catch {
+            /* not JSON, ignore */
+          }
+        }
+
         setMessages((prev) => [
           ...prev,
           {
             role: msgRole,
             content: extracted.role === 'warning' ? `⚠️ ${extracted.message}` : extracted.message,
-            toolHint: data.tool_hint,
+            toolHint: data.tool_hint || toolName === 'paper_search',
             toolCallId: data.tool_call_id,
+            toolName,
+            toolData,
             timestamp: Date.now(),
           },
         ]);
@@ -900,10 +972,18 @@ export function ChatConsole({
         // hints that match parseToolHint patterns, so we extract file
         // paths directly from the final tool call list.
         const _FILE_WRITE_TOOLS = [
-          'write_file', 'edit_file', 'delete_file', 'apply_patch',
-          'create_docx', 'create_xlsx', 'create_pptx',
-          'docx_write', 'xlsx_write', 'pptx_write',
-          'edit_docx', 'append_xlsx',
+          'write_file',
+          'edit_file',
+          'delete_file',
+          'apply_patch',
+          'create_docx',
+          'create_xlsx',
+          'create_pptx',
+          'docx_write',
+          'xlsx_write',
+          'pptx_write',
+          'edit_docx',
+          'append_xlsx',
         ];
         const _FILE_READ_TOOLS = ['read_file'];
         for (const tc of (data.tool_calls ?? []) as any[]) {
@@ -911,12 +991,13 @@ export function ChatConsole({
           const toolName: string = fn?.name || '';
           if (!toolName) continue;
           let args: Record<string, unknown> = {};
-          try { args = JSON.parse(fn?.arguments || '{}'); } catch { continue; }
+          try {
+            args = JSON.parse(fn?.arguments || '{}');
+          } catch {
+            continue;
+          }
           const filePath: string =
-            (args.path as string) ||
-            (args.file_path as string) ||
-            (args.filename as string) ||
-            '';
+            (args.path as string) || (args.file_path as string) || (args.filename as string) || '';
           if (!filePath) continue;
           if (_FILE_WRITE_TOOLS.includes(toolName)) {
             trackFile(filePath, 'write', false);
@@ -929,9 +1010,7 @@ export function ChatConsole({
           const cleaned = removeTransientTurnMessagesSinceLastUser(prev);
           // Only append collapsed tool-call group if streaming didn't
           // already render toolHint progress for this turn (avoids dupes).
-          const hasToolHints = cleaned.some(
-            (m) => m.role === 'progress' && m.toolHint,
-          );
+          const hasToolHints = cleaned.some((m) => m.role === 'progress' && m.toolHint);
           if (hasToolHints) return cleaned;
           const toolMessages = sessionMsgsToUi([
             {
@@ -1042,6 +1121,33 @@ export function ChatConsole({
       cleanupListeners();
     }
   }, [input, attachments, streaming, cleanupListeners, onChatFinished]);
+
+  // ── Download paper via chat ─────────────────────────────────────
+  const handleDownloadPaper = useCallback(
+    (paper: PaperItem) => {
+      const title = (paper.title || 'this paper').trim();
+      const pid = paper.arxiv_id || paper.id || paper.doi || title;
+      const instruction = `请下载论文《${title}》的 PDF 文件。paperId: ${pid}`;
+      setDownloadingPaperId(paper.id || null);
+      // Set input and trigger send on next tick so React state propagates
+      setInput(instruction);
+      setTimeout(() => {
+        const text = instruction.trim();
+        if (!text) return;
+        // Direct send: bypasses the input-state read in handleSend since
+        // we just set it. We inline the send logic here for simplicity.
+        window.miqi.chat
+          .send(text, sessionKey)
+          .then(() => {
+            setDownloadingPaperId(null);
+          })
+          .catch(() => {
+            setDownloadingPaperId(null);
+          });
+      }, 0);
+    },
+    [sessionKey]
+  );
 
   /** Auto-resize textarea to fit content */
   const adjustTextareaHeight = useCallback(() => {
@@ -1253,7 +1359,10 @@ export function ChatConsole({
         }}
       >
         {/* Left: Logo */}
-        <span className="text-sm font-bold whitespace-nowrap shrink-0" style={{ color: 'var(--text)' }}>
+        <span
+          className="text-sm font-bold whitespace-nowrap shrink-0"
+          style={{ color: 'var(--text)' }}
+        >
           MiQi Workbench
         </span>
 
@@ -1266,8 +1375,17 @@ export function ChatConsole({
             color: 'var(--text-faint)',
           }}
         >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.3-4.3" />
           </svg>
           <span className="select-none">Search or use commands...</span>
         </div>
@@ -1275,7 +1393,10 @@ export function ChatConsole({
         {/* Right: Badges + user + actions */}
         <div className="flex items-center gap-2 shrink-0">
           {/* User avatar + name */}
-          <div className="flex items-center gap-1.5 pl-2 ml-1 border-l" style={{ borderColor: 'var(--border-subtle)' }}>
+          <div
+            className="flex items-center gap-1.5 pl-2 ml-1 border-l"
+            style={{ borderColor: 'var(--border-subtle)' }}
+          >
             <div
               className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
               style={{ background: 'var(--avatar-dark)' }}
@@ -1300,7 +1421,6 @@ export function ChatConsole({
               </button>
             )}
           </ContextMenu>
-
         </div>
       </div>
 
@@ -1331,10 +1451,19 @@ export function ChatConsole({
               style={{ background: 'var(--accent)', color: '#121212', cursor: 'not-allowed' }}
               title="Coming soon"
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
-                <polyline points="16 6 12 2 8 6"/>
-                <line x1="12" y1="2" x2="12" y2="15"/>
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+                <polyline points="16 6 12 2 8 6" />
+                <line x1="12" y1="2" x2="12" y2="15" />
               </svg>
               Share Task
             </button>
@@ -1389,6 +1518,8 @@ export function ChatConsole({
                     isCopied={copiedIdx === i}
                     onRetry={() => handleRetry(msg)}
                     onOpenProviderSettings={onOpenProviderSettings}
+                    onDownloadPaper={handleDownloadPaper}
+                    downloadingPaperId={downloadingPaperId}
                   />
                 ))
               )}
@@ -1715,10 +1846,7 @@ export function ChatConsole({
                 style={{
                   background:
                     merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'var(--accent)',
-                  color:
-                    merging || trackedFiles.length === 0
-                      ? 'var(--text-faint)'
-                      : '#121212',
+                  color: merging || trackedFiles.length === 0 ? 'var(--text-faint)' : '#121212',
                 }}
               >
                 {merging ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
@@ -2093,7 +2221,9 @@ function TrackedFileCard({
                 color: isOfficeFile ? 'var(--text-faint)' : 'var(--warning)',
                 opacity: isOfficeFile ? 0.55 : 1,
               }}
-              title={isOfficeFile ? 'Diff is not available for Office binary files' : 'Compare diff'}
+              title={
+                isOfficeFile ? 'Diff is not available for Office binary files' : 'Compare diff'
+              }
             >
               <GitCompare size={10} />
               Diff
@@ -2125,6 +2255,8 @@ function MessageBubble({
   isCopied,
   onRetry,
   onOpenProviderSettings,
+  onDownloadPaper,
+  downloadingPaperId,
 }: {
   msg: Message;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
@@ -2133,10 +2265,23 @@ function MessageBubble({
   isCopied: boolean;
   onRetry?: () => void;
   onOpenProviderSettings?: () => void;
+  onDownloadPaper?: (paper: PaperItem) => void;
+  downloadingPaperId?: string | null;
 }) {
   const [expanded, setExpanded] = useState(false);
 
   if (msg.role === 'progress') {
+    // ── Paper search result: render formatted cards ──────────────
+    if (msg.toolName === 'paper_search' && msg.toolData) {
+      return (
+        <PaperSearchResult
+          data={msg.toolData as PaperSearchPayload}
+          onDownloadPaper={onDownloadPaper || (() => {})}
+          downloadingId={downloadingPaperId || null}
+        />
+      );
+    }
+
     const isCollapsed = msg.collapsed && !expanded;
     return (
       <div
