@@ -1,3 +1,11 @@
+# [0.5.0](https://github.com/14790897/MiQi/compare/v0.4.0...v0.5.0) (2026-07-10)
+
+
+### Features
+
+* release v0.5.0 with sandbox isolation and approval bypass ([fed18a3](https://github.com/14790897/MiQi/commit/fed18a338845200d0cc4098c1a8327b590983fa3))
+* trigger release build from develop merge ([#206](https://github.com/14790897/MiQi/issues/206)) ([2f89fdb](https://github.com/14790897/MiQi/commit/2f89fdbc8c95584665d7deb4fc51086fe9dd6a09))
+
 # [0.4.0](https://github.com/14790897/MiQi/compare/v0.3.0...v0.4.0) (2026-07-06)
 
 
