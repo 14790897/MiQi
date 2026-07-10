@@ -11,8 +11,7 @@ interface ApprovalBypassStatus {
   bypassNetworkApproval?: boolean;
 }
 
-function isBypassEnabled(status: ApprovalBypassStatus | null, legacyCommandBypass: boolean): boolean {
-  if (legacyCommandBypass) return true;
+function isBypassEnabled(status: ApprovalBypassStatus | null): boolean {
   if (!status) return false;
   return Boolean(
     status.bypassAll ||
@@ -23,20 +22,20 @@ function isBypassEnabled(status: ApprovalBypassStatus | null, legacyCommandBypas
   );
 }
 
-function getBypassLabel(status: ApprovalBypassStatus | null, legacyCommandBypass: boolean): string {
+function getBypassLabel(status: ApprovalBypassStatus | null): string {
   if (status?.bypassAll) return 'BYPASS ALL';
   const labels: string[] = [];
-  if (legacyCommandBypass || status?.bypassCommandApproval) labels.push('CMD');
+  if (status?.bypassCommandApproval) labels.push('CMD');
   if (status?.bypassFileWriteApproval) labels.push('FILE');
   if (status?.bypassToolConfirmation) labels.push('TOOL');
   if (status?.bypassNetworkApproval) labels.push('NET');
   return labels.length > 0 ? `BYPASS: ${labels.join('/')}` : 'BYPASS';
 }
 
-function getBypassTitle(status: ApprovalBypassStatus | null, legacyCommandBypass: boolean): string {
+function getBypassTitle(status: ApprovalBypassStatus | null): string {
   if (status?.bypassAll) return 'Approval bypass enabled for all approval categories';
   const labels: string[] = [];
-  if (legacyCommandBypass || status?.bypassCommandApproval) labels.push('command approval');
+  if (status?.bypassCommandApproval) labels.push('command approval');
   if (status?.bypassFileWriteApproval) labels.push('file-write approval');
   if (status?.bypassToolConfirmation) labels.push('tool confirmation');
   if (status?.bypassNetworkApproval) labels.push('network approval');
@@ -48,33 +47,26 @@ function getBypassTitle(status: ApprovalBypassStatus | null, legacyCommandBypass
 export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
   const { status } = useRuntime();
   const [approvalBypass, setApprovalBypass] = useState<ApprovalBypassStatus | null>(null);
-  const [legacyCommandBypass, setLegacyCommandBypass] = useState(false);
 
   const isRunning = status.state === 'running';
   const isStarting = status.state === 'starting' || status.state === 'stopping';
-  const bypassEnabled = isBypassEnabled(approvalBypass, legacyCommandBypass);
+  const bypassEnabled = isBypassEnabled(approvalBypass);
 
   useEffect(() => {
     let cancelled = false;
     const loadApprovalBypass = async () => {
       if (!(window as any).miqi?.config?.get) {
         if (!cancelled) setApprovalBypass(null);
-        if (!cancelled) setLegacyCommandBypass(false);
         return;
       }
       try {
         const cfg = await window.miqi.config.get();
         const approvals = (cfg.approvals ?? {}) as ApprovalBypassStatus;
-        const commandApproval = ((cfg.agents as any)?.commandApproval ?? {}) as {
-          enabled?: boolean;
-        };
         if (!cancelled) {
           setApprovalBypass(approvals);
-          setLegacyCommandBypass(commandApproval.enabled === false);
         }
       } catch {
         if (!cancelled) setApprovalBypass(null);
-        if (!cancelled) setLegacyCommandBypass(false);
       }
     };
     loadApprovalBypass();
@@ -123,10 +115,10 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
               color: 'var(--approval-warning-pill-text)',
               border: '1px solid var(--approval-warning-border)',
             }}
-            title={getBypassTitle(approvalBypass, legacyCommandBypass)}
+            title={getBypassTitle(approvalBypass)}
           >
             <AlertTriangle size={11} className="shrink-0" />
-            <span>{getBypassLabel(approvalBypass, legacyCommandBypass)}</span>
+            <span>{getBypassLabel(approvalBypass)}</span>
           </button>
         )}
         {/* Sync state */}
