@@ -1,0 +1,96 @@
+/**
+ * PPTX Generator E2E Test
+ *
+ * Tests the pptx-generator skill end-to-end: AI creates a PowerPoint
+ * presentation via the full Electron app, with auto-approval.
+ *
+ * Run: cd apps/desktop && npx playwright test --config=playwright.config.ts --project=electron pptx-generator.spec.ts
+ */
+
+import { test, expect } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
+import {
+  createNewConversation,
+  sendMessage,
+  launchElectronApp,
+  closeElectronApp,
+} from './helpers/electron-setup';
+
+test.describe('PPTX Generator E2E', () => {
+  let electronApp: ElectronApplication;
+  let page: Page;
+
+  test.beforeAll(async () => {
+    const fixture = await launchElectronApp();
+    electronApp = fixture.electronApp;
+    page = fixture.page;
+  }, 120_000);
+
+  test.afterAll(async () => {
+    await closeElectronApp(electronApp);
+  });
+
+  test(
+    'pptx-generator skill creates AI PowerPoint',
+    { timeout: 600_000 },
+    async () => {
+      const fname = 'ai_intro.pptx';
+      let _fn = 0;
+      const shot = () => page.screenshot({ path: `test-results/videos/f${String(++_fn).padStart(4, '0')}.png`, timeout: 5000 }).catch(() => {});
+      await createNewConversation(page);
+      await shot();
+
+      await sendMessage(
+        page,
+        `使用 pptx-generator 技能创建 PPT。封面标题"人工智能简介"副标题"技术、应用与未来"，目录 topics:什么是AI、核心技术、应用场景、未来展望，内容 items:机器学习、深度学习、NLP，总结 points:AI重塑行业、人机协作、安全对齐 conclusion:拥抱AI。文件名 ${fname}`,
+      );
+      await shot();
+
+      // Wait for "Thinking…" to appear (AI started processing)
+      await expect(page.getByText('Thinking…')).toBeVisible({ timeout: 30_000 }).catch(() => {});
+      console.log('[test] AI started processing');
+      await shot();
+
+      // Pre-approve ALL tools via wildcard key
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
+      );
+      await shot();
+
+      // Wait for AI to finish, capturing frames along the way
+      const deadline = Date.now() + 300_000;
+      while (Date.now() < deadline) {
+        const thinking = await page.getByText('Thinking…').isVisible().catch(() => false);
+        if (!thinking) break;
+        await page.waitForTimeout(8000);
+        await shot();
+      }
+      await expect(page.getByText('Thinking…')).toBeHidden({ timeout: 300_000 });
+      await shot();
+
+      // Verify pptx file was created + check 14 internal items
+      await page.waitForTimeout(3000);
+      const { execSync } = require('node:child_process');
+      const { homedir } = require('node:os');
+      const { join } = require('node:path');
+      const ws = join(homedir(), '.miqi', 'workspace');
+      const verifier = join(__dirname, 'helpers', 'verify-pptx.py');
+      const PY = '"C:\\Users\\Intership003\\AppData\\Local\\Programs\\Python\\Python312\\python.exe"';
+      let result: any;
+      try {
+        const vout = execSync(`${PY} "${verifier}" "${ws}"`, { encoding: 'utf8', timeout: 15000 });
+        result = JSON.parse(vout);
+      } catch (e: any) {
+        // execSync throws on non-zero exit; stdout is in e.stdout
+        result = JSON.parse(e.stdout || '{"pass":false,"checks":[]}');
+      }
+      console.log('[test] PPTX checks:', JSON.stringify(result.checks));
+      await shot();
+      if (!result.pass) {
+        const failed = result.checks.filter((c: any) => !c.pass).map((c: any) => c.label);
+        throw new Error(`PPTX checks failed: ${failed.join(', ')}`);
+      }
+      console.log('[test] ✅ All 14 checks passed');
+    },
+  );
+});
