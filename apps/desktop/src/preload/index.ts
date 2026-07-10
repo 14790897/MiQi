@@ -5,7 +5,7 @@ import type {
   SessionInfo,
   SessionDetail,
   SessionClaimLegacyResult,
-  ProviderInfo,
+  ProvidersListResult,
   ProviderUpdateResult,
   ChannelsConfig,
   PendingApproval,
@@ -72,6 +72,8 @@ const api = {
     stop: (): Promise<RuntimeStatus> => ipcRenderer.invoke(IPC.RUNTIME_STOP),
     status: (): Promise<RuntimeStatus> => ipcRenderer.invoke(IPC.RUNTIME_STATUS),
     logs: (): Promise<string[]> => ipcRenderer.invoke(IPC.RUNTIME_LOGS),
+    fileLogs: (): Promise<string[]> => ipcRenderer.invoke(IPC.RUNTIME_FILE_LOGS),
+    backendLogs: (): Promise<string[]> => ipcRenderer.invoke(IPC.RUNTIME_BACKEND_LOGS),
     onStateChange: (callback: (status: RuntimeStatus) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, status: RuntimeStatus) =>
         callback(status);
@@ -82,6 +84,9 @@ const api = {
       const handler = (_event: Electron.IpcRendererEvent, message: string) => callback(message);
       ipcRenderer.on(IPC_EVENTS.RUNTIME_LOG, handler);
       return () => ipcRenderer.removeListener(IPC_EVENTS.RUNTIME_LOG, handler);
+    },
+    reportRendererLog: (entry: { level: string; message: string; source?: string; sessionKey?: string }) => {
+      ipcRenderer.send('runtime:renderer-log', entry);
     },
   },
 
@@ -149,12 +154,18 @@ const api = {
 
   // -- Providers --------------------------------------------------------------
   providers: {
-    list: (): Promise<{ providers: ProviderInfo[] }> => ipcRenderer.invoke(IPC.PROVIDERS_LIST),
-    test: (providerName: string, apiKey?: string, apiBase?: string): Promise<{ ok: boolean }> =>
+    list: (): Promise<ProvidersListResult> => ipcRenderer.invoke(IPC.PROVIDERS_LIST),
+    test: (
+      providerName: string,
+      apiKey?: string,
+      apiBase?: string,
+      model?: string
+    ): Promise<{ ok: boolean; model?: string }> =>
       ipcRenderer.invoke(IPC.PROVIDERS_TEST, {
         provider_name: providerName,
         api_key: apiKey,
         api_base: apiBase ?? null,
+        model,
       }),
     update: (
       providerName: string,
@@ -286,8 +297,8 @@ const api = {
   files: {
     tree: (): Promise<FilesTreeResult> => ipcRenderer.invoke(IPC.FILES_TREE),
     read: (path: string): Promise<FilesReadResult> => ipcRenderer.invoke(IPC.FILES_READ, { path }),
-    write: (path: string, content: string, sessionKey?: string): Promise<FilesWriteResult> =>
-      ipcRenderer.invoke(IPC.FILES_WRITE, { path, content, session_key: sessionKey }),
+    write: (path: string, content: string, sessionKey?: string, dataBase64?: string): Promise<FilesWriteResult> =>
+      ipcRenderer.invoke(IPC.FILES_WRITE, { path, content, session_key: sessionKey, data_base64: dataBase64 }),
     delete: (path: string): Promise<{ deleted: boolean; path: string }> =>
       ipcRenderer.invoke(IPC.FILES_DELETE, { path }),
     diff: (path: string, sessionKey?: string): Promise<FilesDiffResult> =>

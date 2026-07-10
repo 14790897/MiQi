@@ -246,7 +246,7 @@ async def sessions_delete_handler(
     state = getattr(bridge_module, "_state", None)
     if state is not None:
         try:
-            state.destroy_sandbox(session_key, client_id=client_id)
+            await state.destroy_sandbox_async(session_key, client_id=client_id)
         except Exception as exc:
             logger.warning(
                 "sessions.delete: error destroying sandbox for {} (client={}): {}",
@@ -309,7 +309,7 @@ async def sessions_archive_handler(
     state = getattr(bridge_module, "_state", None)
     if state is not None:
         try:
-            state.destroy_sandbox(session_key, client_id=client_id)
+            await state.destroy_sandbox_async(session_key, client_id=client_id)
         except Exception as exc:
             logger.warning(
                 "sessions.archive: error destroying sandbox for {} (client={}): {}",

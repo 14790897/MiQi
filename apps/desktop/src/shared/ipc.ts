@@ -10,6 +10,8 @@ export const IPC = {
   RUNTIME_STOP: 'runtime:stop',
   RUNTIME_STATUS: 'runtime:status',
   RUNTIME_LOGS: 'runtime:logs',
+  RUNTIME_FILE_LOGS: 'runtime:file-logs',
+  RUNTIME_BACKEND_LOGS: 'runtime:backend-logs',
 
   // Chat
   CHAT_SEND: 'chat:send',
@@ -188,6 +190,7 @@ export const ProviderTestInput = z.object({
   provider_name: z.string().min(1),
   api_key: z.string().optional(),
   api_base: z.string().nullable().optional(),
+  model: z.string().optional(),
 });
 
 export const ProviderUpdateInput = z.object({
@@ -245,6 +248,7 @@ export interface SessionInfo {
   created_at?: string;
   updated_at?: string;
   path?: string;
+  message_count?: number;
 }
 
 export interface SessionDetail {
@@ -271,6 +275,15 @@ export interface ProviderInfo {
   api_key_hint?: string | null;
   api_base: string | null;
   configured_model?: string;
+  verification_status?: 'missing' | 'unverified' | 'success' | 'failed';
+  verified_at?: string | null;
+  verification_message?: string | null;
+}
+
+export interface ProvidersListResult {
+  providers: ProviderInfo[];
+  active_model?: string;
+  active_provider?: string | null;
 }
 
 export interface ProviderUpdateResult {
@@ -637,8 +650,11 @@ export interface FilesTreeResult {
 
 export interface FilesReadResult {
   path: string;
-  content: string;
+  content?: string;
+  data_base64?: string;
   size: number;
+  mime_type?: string;
+  is_binary?: boolean;
 }
 
 export interface FilesWriteResult {

@@ -59,6 +59,8 @@ class AgentRegistry:
                 "read_file", "write_file", "edit_file", "list_dir",
                 "exec", "web_search", "web_fetch",
                 "memory", "plan_create", "plan_update",
+                "create_docx", "create_pptx", "create_xlsx",
+                "edit_docx", "append_xlsx",
                 "docx_read", "docx_write", "pptx_read", "pptx_write",
                 "xlsx_read", "xlsx_write",
                 "session_search", "task_begin", "task_end",
@@ -87,6 +89,8 @@ class AgentRegistry:
             system_prompt=self._build_doc_agent_prompt(),
             available_tools=[
                 "read_file", "write_file", "list_dir",
+                "create_docx", "create_pptx", "create_xlsx",
+                "edit_docx", "append_xlsx",
                 "docx_read", "docx_write",
                 "pptx_read", "pptx_write",
                 "xlsx_read", "xlsx_write",

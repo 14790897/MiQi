@@ -281,6 +281,8 @@ def register_config_app_handlers(server: AppServer) -> None:
                     if session_state is not None:
                         session_state.config_snapshot = new_config
                         propagated += 1
+                    from miqi.runtime.config_handlers import _apply_runtime_approval_bypass
+                    _apply_runtime_approval_bypass(runtime, new_config)
                 except Exception as exc:
                     logger.warning(
                         "config.batchWrite: failed to propagate to session {}: {}",

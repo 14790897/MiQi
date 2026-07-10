@@ -160,8 +160,6 @@ class SubagentManager:
                 provider=self.web_config.search.provider,
                 api_key=self.web_config.search.api_key or None,
                 max_results=self.web_config.search.max_results,
-                ollama_api_key=self.web_config.search.ollama_api_key or None,
-                ollama_api_base=self.web_config.search.ollama_api_base,
             ))
             tools.register(WebFetchTool(
                 provider=self.web_config.fetch.provider,

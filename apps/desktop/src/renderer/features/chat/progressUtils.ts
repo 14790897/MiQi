@@ -20,14 +20,24 @@ export interface ProgressPayload {
 export function extractProgressMessage(
   payload: ProgressPayload
 ): { message: string; role: 'progress' | 'error' | 'warning' } | null {
+  const eventName = payload.event ?? '';
+
   // 1) Direct text is the happy path
   if (payload.text && payload.text.trim()) {
+    if (/^ExecCommand(?:Begin|End)Event$/.test(payload.text.trim())) {
+      return null;
+    }
     return { message: payload.text, role: 'progress' };
   }
 
   // 2) Structured runtime events (ErrorEvent, WarningEvent, etc.)
-  const eventName = payload.event ?? '';
   const data = payload.data ?? {};
+
+  // Exec lifecycle events are internal plumbing. Rendering them as progress
+  // rows makes completed commands look like they are still spinning.
+  if (/^ExecCommand(?:Begin|End)Event$/.test(eventName)) {
+    return null;
+  }
 
   if (eventName.toLowerCase().includes('error') || data.error_kind) {
     const msg =

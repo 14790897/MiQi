@@ -282,7 +282,7 @@ async def test_task_runner_provider_error_auth_is_non_recoverable(error_services
     assert err.recoverable is False
     # AUTH is sensitive — surface a fixed, non-leaking message, never the raw
     # provider exception text (Plan 58.2).
-    assert err.message == "Authentication failed. Please check your API key or credentials."
+    assert err.message == "模型服务认证失败，请检查 Provider 的 API Key、API Base 或当前模型配置。"
 
     payload = _record_ledger_error_payload(ledger)
     assert payload.get("error_kind") == "auth"
