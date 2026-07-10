@@ -76,13 +76,18 @@ test.describe('PPTX Generator E2E', () => {
       const ws = join(homedir(), '.miqi', 'workspace');
       const verifier = join(__dirname, 'helpers', 'verify-pptx.py');
       const PY = process.platform === 'win32' ? 'python' : 'python3';
+      const env = { ...process.env, PYTHONIOENCODING: 'utf-8' };
       let result: any;
       try {
-        const vout = execSync(`${PY} "${verifier}" "${ws}"`, { encoding: 'utf8', timeout: 15000 });
+        const vout = execSync(`${PY} "${verifier}" "${ws}"`, { encoding: 'utf8', timeout: 15000, env });
         result = JSON.parse(vout);
       } catch (e: any) {
         // execSync throws on non-zero exit; stdout is in e.stdout
-        result = JSON.parse(e.stdout || '{"pass":false,"checks":[]}');
+        const raw = e.stdout || e.stderr || '';
+        console.log('[test] verify-pptx raw output:', raw.slice(0, 300));
+        try { result = JSON.parse(raw); } catch {
+          result = { pass: false, checks: [{ label: 'json parse error', pass: false, detail: raw.slice(0, 200) }] };
+        }
       }
       console.log('[test] PPTX checks:', JSON.stringify(result.checks));
       await shot();

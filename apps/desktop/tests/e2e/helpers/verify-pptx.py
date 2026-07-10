@@ -6,6 +6,9 @@ import glob as _glob
 from pathlib import Path
 from pptx import Presentation
 
+# Force UTF-8 stdout so Unicode bullets/symbols don't crash on GBK Windows
+sys.stdout.reconfigure(encoding='utf-8')
+
 workspace = sys.argv[1]
 files = _glob.glob(os.path.join(workspace, "**", "*.pptx"), recursive=True)
 if not files:
