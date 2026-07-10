@@ -520,6 +520,26 @@ class Config(BaseSettings):
             return get_miqi_home() / "workspace"
         return Path(raw).expanduser().resolve()
 
+    def _builtin_available(self, name: str | None) -> bool:
+        """True if the built-in trial credential is usable for ``name``.
+
+        Built-in is fallback-only vs a user key (see ``get_api_key``); this
+        just gates whether ``name`` counts as a configured provider at all
+        when the user has supplied no key of their own. State lives in the
+        opaque ``desktop["builtinModel"]`` block; the live key is in-memory in
+        ``BUILTIN_KEY_PROVIDER``. Trial-only in Phase 1 (deepseek).
+        """
+        if not name:
+            return False
+        from miqi.providers.builtin_credentials import BUILTIN_KEY_PROVIDER
+
+        if not BUILTIN_KEY_PROVIDER.is_unlocked(name):
+            return False
+        builtin_state = self.desktop.get("builtinModel") if isinstance(self.desktop, dict) else None
+        if not isinstance(builtin_state, dict) or not builtin_state.get("enabled"):
+            return False
+        return builtin_state.get("provider") == name
+
     def _match_provider(self, model: str | None = None) -> tuple["ProviderConfig | None", str | None]:
         """Match provider config and its registry name. Returns (config, spec_name)."""
         from miqi.providers.registry import PROVIDERS
@@ -534,6 +554,21 @@ class Config(BaseSettings):
             return kw in model_lower or kw.replace("-", "_") in model_normalized
 
         def _is_configured(spec, provider) -> bool:
+            if spec.is_local:
+                return bool(provider.api_base)
+            if provider.api_key:
+                return True
+            # Built-in trial fallback: a provider is "usable" even with no user
+            # key when the built-in credential for it is unlocked+enabled.
+            # TODO: migrate to a CredentialResolver when an activation backend
+            # is introduced.
+            return self._builtin_available(spec.name)
+
+        def _is_user_configured(spec, provider) -> bool:
+            # Strict (user-only) check used for the last-resort fallback match:
+            # the built-in trial must NOT satisfy a request for some other
+            # provider's model via the fallback branch. It only applies when the
+            # model explicitly names this provider (prefix/keyword match above).
             if spec.is_local:
                 return bool(provider.api_base)
             return bool(provider.api_key)
@@ -552,10 +587,12 @@ class Config(BaseSettings):
                 if _is_configured(spec, p):
                     return p, spec.name
 
-        # Fallback: gateways first, then others (follows registry order)
+        # Fallback: gateways first, then others (follows registry order).
+        # Uses the strict user-configured check so the built-in trial does
+        # not satisfy an unrelated model lookup here.
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
-            if p and _is_configured(spec, p):
+            if p and _is_user_configured(spec, p):
                 return p, spec.name
         return None, None
 
@@ -570,9 +607,21 @@ class Config(BaseSettings):
         return name
 
     def get_api_key(self, model: str | None = None) -> str | None:
-        """Get API key for the given model. Falls back to first available key."""
-        p = self.get_provider(model)
-        return p.api_key if p else None
+        """Get API key for the given model.
+
+        User-configured keys always take precedence over the built-in trial
+        credential (invariant 2). The built-in key lives only in process memory
+        and is returned as a fallback when the matched provider has no user key
+        but an unlocked built-in credential is available.
+        """
+        p, name = self._match_provider(model)
+        if p and p.api_key:
+            return p.api_key
+        if name and self._builtin_available(name):
+            from miqi.providers.builtin_credentials import BUILTIN_KEY_PROVIDER
+
+            return BUILTIN_KEY_PROVIDER.get_key(name)
+        return None
 
     def get_api_base(self, model: str | None = None) -> str | None:
         """Get API base URL for the given model. Applies default URLs for known gateways."""

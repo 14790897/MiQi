@@ -19,6 +19,8 @@ import {
   ChevronDown,
   ChevronRight,
   Play,
+  Unlock,
+  Key,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
@@ -615,6 +617,12 @@ export function ProvidersPage() {
   const [activatingName, setActivatingName] = useState<string | null>(null);
   const [activeModel, setActiveModel] = useState('');
   const [activeProvider, setActiveProvider] = useState<string | null>(null);
+  const [unlockCode, setUnlockCode] = useState('');
+  const [unlocking, setUnlocking] = useState(false);
+  const [unlockResult, setUnlockResult] = useState<
+    | { ok: boolean; message: string }
+    | null
+  >(null);
 
   const load = useCallback(async () => {
     try {
@@ -628,6 +636,41 @@ export function ProvidersPage() {
       setLoading(false);
     }
   }, []);
+
+  const handleUnlock = async () => {
+    const code = unlockCode.trim();
+    if (!code) return;
+    setUnlocking(true);
+    setUnlockResult(null);
+    try {
+      const res = await window.miqi.builtinModel.unlock(code);
+      if (res.success) {
+        const msg = res.userKeyPresent
+          ? '内置模型已解锁。检测到你已有 DeepSeek API Key，将优先使用你的 Key。'
+          : '内置模型已解锁。';
+        setUnlockResult({ ok: true, message: msg });
+        setUnlockCode('');
+        markRestartRequired();
+        await load();
+      } else {
+        const msg = res.error ?? '解锁失败';
+        setUnlockResult({
+          ok: false,
+          message: msg.includes('Invalid') || msg.includes('unlock code')
+            ? '解锁码无效'
+            : msg,
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setUnlockResult({
+        ok: false,
+        message: sanitizeUiMessage(msg),
+      });
+    } finally {
+      setUnlocking(false);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -725,6 +768,50 @@ export function ProvidersPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        <div className="px-4 py-4 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)]/40">
+          <div className="flex items-center gap-2 mb-2">
+            <Unlock size={14} className="text-[var(--accent)]" />
+            <h2 className="text-sm font-semibold text-[var(--text)]">内置模型</h2>
+            <span className="text-xs text-[var(--text-faint)]">通过解锁码使用内置 DeepSeek 试用</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={unlockCode}
+              onChange={(e) => {
+                setUnlockCode(e.target.value);
+                setUnlockResult(null);
+              }}
+              placeholder="输入解锁码"
+              className="flex-1 max-w-sm px-3 py-1.5 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button
+              onClick={handleUnlock}
+              disabled={unlocking || !unlockCode.trim()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {unlocking ? <Loader2 size={14} className="animate-spin" /> : <Key size={14} />}
+              解锁
+            </button>
+          </div>
+          {unlockResult && (
+            <div
+              className={cn(
+                'mt-2 rounded-lg px-3 py-2 text-xs',
+                unlockResult.ok
+                  ? 'bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]'
+                  : 'bg-[var(--accent-soft)] text-[var(--danger)]'
+              )}
+            >
+              {unlockResult.message}
+            </div>
+          )}
+          <p className="text-xs text-[var(--text-faint)] mt-2 leading-relaxed">
+            内置试用模型会在你未配置自己的 DeepSeek API Key 时作为兜底使用。若已配置自己的 Key，将优先使用你自己的 Key。
+          </p>
+        </div>
         {loading ? (
           <div className="flex items-center justify-center h-40 text-sm text-[var(--text-faint)]">
             <Loader2 size={16} className="animate-spin mr-2" /> 正在加载…
