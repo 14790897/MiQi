@@ -691,20 +691,28 @@ export interface TrackedFileInfo {
 export interface ChatProgress {
   text: string;
   tool_hint: boolean;
+  /** Session key for frontend-side event filtering (fix #212) */
+  session_key?: string;
 }
 
 export interface ChatFinal {
   content: string;
   aborted?: boolean;
   tool_calls?: unknown[];
+  /** Session key for frontend-side event filtering (fix #212) */
+  session_key?: string;
 }
 
 export interface ChatError {
   message: string;
+  /** Session key for frontend-side event filtering (fix #212) */
+  session_key?: string;
 }
 
 export interface ChatAborted {
   message: string;
+  /** Session key for frontend-side event filtering (fix #212) */
+  session_key?: string;
 }
 
 export interface ChatSubagentResult {
