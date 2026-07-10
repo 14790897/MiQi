@@ -500,6 +500,20 @@ class BwrapSandbox:
 
         Returns True if bwrap is available after installation, False otherwise.
         """
+        # Quick check: skip if bwrap already installed
+        try:
+            check = await asyncio.create_subprocess_exec(
+                "wsl.exe", "-d", distro, "--", "bash", "-c", "which bwrap",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await check.communicate()
+            if check.returncode == 0:
+                logger.info("bwrap already installed in WSL distro '{}'", distro)
+                return True
+        except Exception:
+            pass
+
         logger.info(
             "Auto-installing sandbox dependencies in WSL distro '{}'...", distro
         )
