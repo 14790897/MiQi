@@ -443,25 +443,31 @@ class BwrapSandbox:
         """Find any available WSL distribution (with or without bwrap).
 
         Returns the distro name if found, None if no WSL available.
+        Skips non-standard distros (docker-desktop*, etc.) by checking
+        that bash is available.
         """
         if not _is_windows():
             return None
 
-        # Try preferred distro first
-        if preferred:
+        async def _distro_has_bash(distro: str) -> bool:
+            """Check if a distro has bash (indicating a real Linux distro)."""
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "wsl.exe", "-d", preferred, "--", "bash", "-c", "echo ok",
+                    "wsl.exe", "-d", distro, "--", "bash", "-c", "echo ok",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
                 await proc.communicate()
-                if proc.returncode == 0:
-                    return preferred
+                return proc.returncode == 0
             except Exception:
-                pass
+                return False
 
-        # List all distros
+        # Try preferred distro first
+        if preferred:
+            if await _distro_has_bash(preferred):
+                return preferred
+
+        # List all distros and find the first one with bash
         try:
             proc = await asyncio.create_subprocess_exec(
                 "wsl.exe", "-l", "-q",
@@ -477,8 +483,12 @@ class BwrapSandbox:
                 line.strip().replace("\x00", "")
                 for line in output.splitlines()
                 if line.strip().replace("\x00", "")
+                and "docker-desktop" not in line.lower()
             ]
-            return distros[0] if distros else None
+            for distro in distros:
+                if await _distro_has_bash(distro):
+                    return distro
+            return None
         except Exception:
             return None
 

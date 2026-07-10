@@ -37,7 +37,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
       - name: Run portable and subprocess tests
-        run: uv run pytest -q -m "not sandbox" --tb=short
+        run: uv run pytest -q -m "not sandbox and not wsl" --tb=short
 
   bwrap:
     runs-on: ubuntu-latest
@@ -74,3 +74,31 @@ jobs:
             exit 0
           fi
           exit "$status"
+
+  wsl-sandbox:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install WSL Ubuntu distro
+        shell: pwsh
+        run: |
+          Write-Host "Installing WSL Ubuntu..."
+          wsl --install -d Ubuntu --no-launch
+          Write-Host "WSL distro list:"
+          wsl -l -v
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run WSL sandbox tests
+        run: |
+          uv run pytest -q -m "wsl" --tb=long -v
