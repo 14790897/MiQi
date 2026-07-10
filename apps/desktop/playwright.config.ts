@@ -4,9 +4,9 @@ export default defineConfig({
   testDir: './tests/smoke',
   testMatch: '**/*.spec.ts',
   testIgnore: '**/*.test.ts',  // Exclude vitest files from Playwright scan
-  fullyParallel: false,
+  fullyParallel: true,
   retries: 0,
-  workers: 1,
+  workers: 4,
   reporter: [
     ['html', { outputFolder: 'test-reports/html', open: 'never' }],
     ['json', { outputFile: 'test-reports/results.json' }],
@@ -35,8 +35,8 @@ export default defineConfig({
     {
       name: 'electron',
       testDir: './tests/e2e',
-      testMatch: ['full-electron.spec.ts', 'approval-persistence.spec.ts', 'session-key-mapping.spec.ts'],
-      timeout: 300000,  // 5 min — Electron boot + bridge + LLM are slow
+      testMatch: ['*.spec.ts'],
+      timeout: 600_000,  // 10 min — pptx-generator + LLM can be slow
     },
   ],
 

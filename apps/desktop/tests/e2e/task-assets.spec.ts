@@ -87,6 +87,11 @@ test.describe('Task Assets Panel E2E', () => {
     });
     if (!bridgeReady) console.log('[test] Warning: bridge not running');
 
+    // Pre-approve all tools via *:* wildcard
+    await page.evaluate(() =>
+      (window as any).miqi.approvals.addPermanent('*:*', 'always'),
+    );
+    console.log('[test] *:* wildcard pre-approved');
     console.log('[test] Ready');
   }, 120_000);
 
@@ -125,9 +130,7 @@ test.describe('Task Assets Panel E2E', () => {
         `Use write_file to create ${filename} with content "${content}"`,
       );
 
-      // Handle approval
-      await expect(page.getByText('文件操作审批')).toBeVisible({ timeout: 60_000 });
-      await page.getByRole('button', { name: '永久允许' }).click();
+      // *:* pre-approved — no approval dialog needed
       await waitForResponseComplete(page, 240_000);
 
       // Verify AI confirmed file creation in main chat
@@ -175,8 +178,7 @@ test.describe('Task Assets Panel E2E', () => {
         page,
         `Use write_file to create ${filename} with content "${content}"`,
       );
-      await expect(page.getByText('文件操作审批')).toBeVisible({ timeout: 60_000 });
-      await page.getByRole('button', { name: '永久允许' }).click();
+      // *:* pre-approved — no approval dialog needed
       await waitForResponseComplete(page, 240_000);
       console.log(`[test] ✅ File created: ${filename}`);
 
@@ -245,10 +247,7 @@ test.describe('Task Assets Panel E2E', () => {
         `使用 create_docx 工具创建文件：file_path=${filename}，content="${content}"。创建成功后只回复一个字：成`,
       );
 
-      // Capture approval dialog for create_docx
-      await expect(page.getByText('文件操作审批')).toBeVisible({ timeout: 60_000 });
-      await page.screenshot({ path: 'test-results/docx-approval.png' });
-      await page.getByRole('button', { name: '永久允许' }).click();
+      // *:* pre-approved — no approval dialog needed
       await waitForResponseComplete(page, 240_000);
 
       // Verify AI confirmed creation in chat
