@@ -111,6 +111,11 @@ test.describe('Native Electron E2E', () => {
     { timeout: LLM_TIMEOUT },
     async () => {
       await sendMessage(page, '搜索今天的日期，只回答日期格式YYYY-MM-DD');
+      const approvalDialog = page.locator('[role="alertdialog"]');
+      if (await approvalDialog.isVisible({ timeout: 30_000 }).catch(() => false)) {
+        console.log('[test] Network approval dialog appeared for web search');
+        await page.getByRole('button', { name: '允许一次' }).click();
+      }
       // Wait for streaming to finish before asserting visibility —
       // during streaming the response element may exist in DOM but be hidden
       await waitForResponseComplete(page);
