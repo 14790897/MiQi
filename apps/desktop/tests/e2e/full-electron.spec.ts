@@ -110,13 +110,22 @@ test.describe('Native Electron E2E', () => {
     'web search with real search tool',
     { timeout: LLM_TIMEOUT },
     async () => {
-      await sendMessage(page, '搜索今天的日期，只回答日期格式YYYY-MM-DD');
+      const marker = `WEB_SEARCH_E2E_DONE_${Date.now()}`;
+      await sendMessage(
+        page,
+        `必须调用 web_search 搜索 "IANA reserved domains"，搜索完成后只回复 ${marker}`,
+      );
+      const approvalDialog = page.locator('[role="alertdialog"]');
+      if (await approvalDialog.isVisible({ timeout: 30_000 }).catch(() => false)) {
+        console.log('[test] Network approval dialog appeared for web search');
+        await page.getByRole('button', { name: '允许一次' }).click();
+      }
       // Wait for streaming to finish before asserting visibility —
       // during streaming the response element may exist in DOM but be hidden
       await waitForResponseComplete(page);
-      const dateEl = page.getByText(/2026/i).first();
-      await dateEl.scrollIntoViewIfNeeded().catch(() => {});
-      await expect(dateEl).toBeVisible({ timeout: 30_000 });
+      const markerEl = page.getByText(marker).first();
+      await markerEl.scrollIntoViewIfNeeded().catch(() => {});
+      await expect(markerEl).toBeVisible({ timeout: 30_000 });
       console.log('[test] Web search completed');
     },
   );

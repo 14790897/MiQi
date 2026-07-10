@@ -13,6 +13,13 @@ MiQi Desktop 的全局配置存储在 `~/.miqi/config.json` 中。
 
 ```json
 {
+  "approvals": {
+    "bypassAll": false,
+    "bypassCommandApproval": false,
+    "bypassFileWriteApproval": false,
+    "bypassToolConfirmation": false,
+    "bypassNetworkApproval": false
+  },
   "providers": {
     "openai": {
       "apiKey": "sk-...",
@@ -100,6 +107,20 @@ MiQi Desktop 的全局配置存储在 `~/.miqi/config.json` 中。
 | `trace_similarity_threshold` | float | 0.65 | 相似度阈值 |
 | `trace_nudge_interval` | int | 8 | Nudge 间隔 (轮) |
 | `lessons_legacy_inject_enabled` | bool | false | 启用旧版 Lessons 注入 |
+
+### approvals - approval bypass
+
+These switches skip approval prompts while keeping explicit deny rules and
+parameter validation active. When any bypass switch is enabled, MiQi Desktop
+shows a persistent warning in the top bar.
+
+| Field | Type | Default | Description |
+|------|------|--------|-------------|
+| `bypassAll` | bool | false | Skip every approval prompt. |
+| `bypassCommandApproval` | bool | false | Skip command execution approval prompts. |
+| `bypassFileWriteApproval` | bool | false | Skip file mutation approval prompts. |
+| `bypassToolConfirmation` | bool | false | Skip generic tool confirmation prompts. |
+| `bypassNetworkApproval` | bool | false | Reserved for network approval prompts. |
 
 ### tools — 工具配置
 
