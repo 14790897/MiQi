@@ -167,6 +167,8 @@ export class BridgeManager extends EventEmitter {
   private hotReloadEnabled: boolean = false;
   private lastReloadTime: number = 0;
   private reloadCooldown: number = 1000; // 1 second cooldown between reloads
+  private reloadTimer: ReturnType<typeof setTimeout> | null = null;
+  private restartInProgress: boolean = false;
   private initialized: boolean = false;
   private clientId: string = 'miqi-desktop';
 
@@ -212,9 +214,6 @@ export class BridgeManager extends EventEmitter {
     this.addLog(`Starting MiQi bridge: ${command} ${args.join(' ')}`);
     this.addLog(`Working directory: ${this.projectRoot}`);
     this.recordMainLog('INFO', `Starting MiQi bridge: ${command} ${args.join(' ')}`);
-
-    // Start file watcher for hot reload
-    this.startFileWatcher();
 
     let startedProcess: ChildProcess | null = null;
     let startedReader: Interface | null = null;
@@ -471,6 +470,7 @@ export class BridgeManager extends EventEmitter {
       // will see state='running' and may safely start making calls.
       this.state = 'running';
       this.emitState();
+      this.startFileWatcher();
     } catch (err) {
       this.state = 'error';
       this.addLog(`Failed to start bridge: ${err}`);
@@ -550,6 +550,10 @@ export class BridgeManager extends EventEmitter {
   }
 
   private stopFileWatcher(): void {
+    if (this.reloadTimer) {
+      clearTimeout(this.reloadTimer);
+      this.reloadTimer = null;
+    }
     if (this.fileWatcher) {
       this.fileWatcher.close();
       this.fileWatcher = null;
@@ -566,8 +570,20 @@ export class BridgeManager extends EventEmitter {
     this.lastReloadTime = now;
     this.addLog(`[Hot Reload] Detected change in: ${filename}`);
 
+    if (this.state !== 'running' || !this.initialized || this.restartInProgress) {
+      this.addLog(
+        `[Hot Reload] Ignoring change while bridge is ${this.state}`
+      );
+      return;
+    }
+
+    if (this.reloadTimer) {
+      clearTimeout(this.reloadTimer);
+    }
+
     // Schedule restart after a short delay to allow multiple files to change
-    setTimeout(() => {
+    this.reloadTimer = setTimeout(() => {
+      this.reloadTimer = null;
       this.restart().catch((err) => {
         this.addLog(`[Hot Reload] Restart error: ${err}`);
       });
@@ -575,9 +591,11 @@ export class BridgeManager extends EventEmitter {
   }
 
   private async restart(): Promise<void> {
-    if (this.state !== 'running') return;
+    if (this.restartInProgress || this.state !== 'running' || !this.process) return;
+    this.restartInProgress = true;
 
     this.addLog('[Hot Reload] Restarting bridge due to code changes...');
+    this.stopFileWatcher();
 
     // Reject all pending requests so callers don't hang forever
     for (const [id, entry] of this.pending) {
@@ -585,18 +603,36 @@ export class BridgeManager extends EventEmitter {
     }
     this.pending.clear();
 
+    const oldProcess = this.process;
+
     // Stop current process
-    if (this.process) {
-      this.process.stdin?.end();
-      this.process.kill('SIGTERM');
+    this.state = 'stopping';
+    this.emitState();
+    oldProcess.stdin?.end();
+    oldProcess.kill('SIGTERM');
+
+    // Wait for the old process to finish its own cleanup before starting a
+    // replacement. Starting too early can race sandbox state cleanup on Windows.
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        oldProcess.removeListener?.('close', finish);
+        resolve();
+      };
+      const timeout = setTimeout(finish, 5000);
+      oldProcess.once?.('close', finish);
+    });
+
+    if (this.process === oldProcess) {
+      this.process = null;
+      this.rl = null;
     }
-
-    // Reset state so start() can proceed
+    this.initialized = false;
+    this.clientId = 'miqi-desktop';
     this.state = 'stopped';
-    this.process = null;
-
-    // Wait briefly for process to exit
-    await new Promise((resolve) => setTimeout(resolve, 500));
 
     // Restart
     try {
@@ -604,6 +640,8 @@ export class BridgeManager extends EventEmitter {
       this.addLog('[Hot Reload] Bridge restarted successfully');
     } catch (err) {
       this.addLog(`[Hot Reload] Failed to restart bridge: ${err}`);
+    } finally {
+      this.restartInProgress = false;
     }
   }
 
