@@ -16,7 +16,15 @@ import {
   closeElectronApp,
 } from './helpers/electron-setup';
 
+const SKIP_REAL_PPTX_GENERATOR_ON_CI =
+  !!process.env.CI && process.env.MIQI_RUN_REAL_PPTX_E2E !== '1';
+
 test.describe('PPTX Generator E2E', () => {
+  test.skip(
+    SKIP_REAL_PPTX_GENERATOR_ON_CI,
+    'Real PPTX generation depends on LLM tool/file choices; run with MIQI_RUN_REAL_PPTX_E2E=1 for manual/nightly verification.',
+  );
+
   let electronApp: ElectronApplication;
   let page: Page;
   let miqiHome: string;
