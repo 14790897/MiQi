@@ -177,26 +177,21 @@ def _sandbox_to_host_path(sandbox_path: str, workspace: Path | None, sandbox) ->
 
 
 async def _ensure_sandbox(sandbox_manager, tool_name="file_tool", session_key=None):
-    """Get or create a sandbox so file tools have an isolated environment.
-    session_key comes from the tool orchestrator (already namespaced).
+    """Get or create a session-isolated sandbox.
+
+    Industry standard: sandboxes MUST be per-session. session_key is not optional.
+    Without session_key, returns None (caller must handle, no shared fallback).
     """
     if sandbox_manager is None:
         return None
-    # With session_key, use get_or_create for per-session isolation
-    if session_key:
-        sandbox = await sandbox_manager.get_or_create(session_key)
-        return sandbox if sandbox is not None and sandbox.is_running else None
-    sandbox = sandbox_manager.active_sandbox
-    if sandbox is not None and sandbox.is_running:
-        return sandbox
-    for sb in sandbox_manager.list_sandboxes():
-        if sb.get("is_running"):
-            sandbox = sandbox_manager.get_sandbox(sb["session_key"])
-            if sandbox is not None:
-                return sandbox
-    _log.info("%s: creating sandbox (no active sandbox found)", tool_name)
-    sandbox = await sandbox_manager.get_or_create("_auto_exec")
-    return sandbox if sandbox is not None and sandbox.is_running else None
+    if not session_key:
+        _log.warning("%s: no session_key provided, cannot ensure isolation", tool_name)
+        return None
+    sandbox = await sandbox_manager.get_or_create(session_key)
+    if sandbox is None or not sandbox.is_running:
+        _log.error("%s: failed to get_or_create sandbox for session=%s", tool_name, session_key)
+        return None
+    return sandbox
 
 
 def _get_session_workspace(base_workspace: Path | None, sandbox) -> Path | None:

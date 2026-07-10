@@ -210,18 +210,9 @@ class ExecTool(Tool):
                     _sandbox, command, cwd, **exec_kwargs,
                 )
 
-            # Legacy path (no orchestrator): backward-compatible behavior.
-            if self._sandbox_manager is not None:
-                sandbox = self._sandbox_manager.active_sandbox
-                if not sandbox or not sandbox.is_running:
-                    for sb in self._sandbox_manager.list_sandboxes():
-                        if sb.get("is_running"):
-                            sandbox = self._sandbox_manager.get_sandbox(sb["session_key"])
-                            if sandbox is not None:
-                                break
-                    if sandbox is None:
-                        fallback = _session_key or "_auto_exec"
-                        sandbox = await self._sandbox_manager.get_or_create(fallback)
+            # Legacy path (no orchestrator): session_key required for isolation
+            if self._sandbox_manager is not None and _session_key:
+                sandbox = await self._sandbox_manager.get_or_create(_session_key)
                 if sandbox and sandbox.is_running:
                     return await self._execute_in_sandbox(
                         sandbox, command, cwd, **exec_kwargs,
@@ -557,26 +548,19 @@ class ExecTool(Tool):
         if st == SandboxType.NONE:
             return await self._execute_direct(command, cwd, **common)
 
-        # ── BWRAP: strongest isolation; must be available ───────────────
+        # ── BWRAP: strongest isolation; session_key is REQUIRED ────────
         if st == SandboxType.BWRAP:
-            sandbox = None
-            if self._sandbox_manager is not None:
-                # With session_key, go straight to get_or_create for per-session isolation
-                if session_key:
-                    sandbox = await self._sandbox_manager.get_or_create(session_key)
-                else:
-                    # 1. Try active sandbox first
-                    sandbox = self._sandbox_manager.active_sandbox
-                    # 2. Try any running sandbox
-                    if sandbox is None or not sandbox.is_running:
-                        for sb in self._sandbox_manager.list_sandboxes():
-                            if sb.get("is_running"):
-                                sandbox = self._sandbox_manager.get_sandbox(sb["session_key"])
-                                if sandbox is not None:
-                                    break
-                    # 3. Create a new sandbox with a default key
-                    if sandbox is None:
-                        sandbox = await self._sandbox_manager.get_or_create("_auto_exec")
+            if self._sandbox_manager is None:
+                return _ExecResult(
+                    output="Error: BWRAP sandbox required but sandbox manager is unavailable.",
+                    exit_code=-1, sandbox_type="bwrap",
+                )
+            if not session_key:
+                return _ExecResult(
+                    output="Error: BWRAP sandbox requires session_key but none was provided.",
+                    exit_code=-1, sandbox_type="bwrap",
+                )
+            sandbox = await self._sandbox_manager.get_or_create(session_key)
             if sandbox is not None and sandbox.is_running:
                 return await self._execute_in_sandbox(
                     sandbox, command, cwd, **common,

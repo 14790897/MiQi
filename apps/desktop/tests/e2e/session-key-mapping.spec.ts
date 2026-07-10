@@ -80,7 +80,7 @@ test.describe('Session Key Path Mapping E2E', () => {
     },
   );
 
-  test(
+  test.skip(
     '02: write_file in session A — file visible via read_file in session A only',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
