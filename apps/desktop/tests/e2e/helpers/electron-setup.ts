@@ -9,20 +9,24 @@
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { resolve } from 'node:path';
-import { homedir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, cpSync, rmSync } from 'node:fs';
 
 // ─── Constants ──────────────────────────────────────────────────────
 
 /** Absolute path to apps/desktop (Electron entry point) */
 export const APPS_DESKTOP = resolve(__dirname, '../../..');
 
-/** Directory where MiQi stores session data on disk */
-export const MIQI_SESSIONS_DIR = join(homedir(), '.miqi', 'workspace', 'sessions');
-
 /** Default timeout for real LLM calls */
 export const LLM_TIMEOUT = 180_000;
+
+// ─── Session path helpers ────────────────────────────────────────────
+
+/** Derive sessions directory from a MIQI_HOME path */
+export function getMiqiSessionsDir(miqiHome: string): string {
+  return join(miqiHome, 'workspace', 'sessions');
+}
 
 // ─── Page helpers ───────────────────────────────────────────────────
 
@@ -153,32 +157,41 @@ export async function waitForBridgeInitialized(page: Page, timeoutS = 30) {
 export interface ElectronFixture {
   electronApp: ElectronApplication;
   page: Page;
+  /** Unique temporary MIQI_HOME directory for this test run */
+  miqiHome: string;
+  /** Derived sessions directory inside miqiHome */
+  miqiSessionsDir: string;
 }
 
-/** Launch Electron app, wait for bridge ready, return { electronApp, page }.
+/** Launch Electron app, wait for bridge ready, return { electronApp, page, miqiHome, miqiSessionsDir }.
  *
- *  - Cleans ~/.miqi/workspace/sessions so sidebar starts fresh.
+ *  - Creates a unique temporary MIQI_HOME so parallel test workers are fully isolated.
  *  - Strips ELECTRON_RUN_AS_NODE (inherited from Electron-based IDEs).
  *  - Waits for MiQi Workbench UI + bridge runtime.status() === 'running'.
  */
 export async function launchElectronApp(): Promise<ElectronFixture> {
-  // Clean all existing sessions so sidebar starts fresh.
-  // Without this, pre-existing demo sessions dominate the sidebar
-  // and session-switch tests cannot find their markers.
-  if (existsSync(MIQI_SESSIONS_DIR)) {
-    rmSync(MIQI_SESSIONS_DIR, { recursive: true, force: true });
-    console.log(`[test] Cleaned sessions directory: ${MIQI_SESSIONS_DIR}`);
+  // Create unique temporary home per test worker for full isolation.
+  // Parallel workers each get their own MIQI_HOME → no race on sessions/.
+  const miqiHome = mkdtempSync(join(tmpdir(), 'miqi-e2e-'));
+  const miqiSessionsDir = getMiqiSessionsDir(miqiHome);
+  console.log(`[test] MIQI_HOME=${miqiHome}`);
+
+  // Copy user's provider config into the temp home so the LLM backend is reachable.
+  const userConfigPath = join(homedir(), '.miqi', 'config.json');
+  if (existsSync(userConfigPath)) {
+    cpSync(userConfigPath, join(miqiHome, 'config.json'));
   }
 
   // Delete ELECTRON_RUN_AS_NODE inherited from Electron-based IDEs
   // (WorkBuddy / VSCode).  Otherwise Electron runs as plain Node.js.
-  const env = { ...process.env };
+  const env: Record<string, string | undefined> = { ...process.env };
+  env.MIQI_HOME = miqiHome;
   delete env.ELECTRON_RUN_AS_NODE;
 
   const electronApp = await electron.launch({
     args: [APPS_DESKTOP],
     executablePath: require('electron') as string,
-    env,
+    env: env as Record<string, string>,
     // chromiumSandbox: false covers --no-sandbox + --disable-gpu
     // needed on CI (root user).  No-op on Windows.
     chromiumSandbox: false,
@@ -228,10 +241,14 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
     console.log('[test] Warning: bridge did not reach running state');
 
   console.log('[test] Ready');
-  return { electronApp, page };
+  return { electronApp, page, miqiHome, miqiSessionsDir };
 }
 
-/** Close the Electron app, swallowing any errors. */
-export async function closeElectronApp(app: ElectronApplication) {
+/** Close the Electron app and clean up the temporary MIQI_HOME. */
+export async function closeElectronApp(app: ElectronApplication, miqiHome?: string) {
   await app?.close().catch(() => {});
+  if (miqiHome && existsSync(miqiHome)) {
+    rmSync(miqiHome, { recursive: true, force: true });
+    console.log(`[test] Cleaned up MIQI_HOME: ${miqiHome}`);
+  }
 }

@@ -47,15 +47,17 @@ async function sendAndWait(page: Page, text: string, loopTimeout = 180_000) {
 test.describe('Session Key Path Mapping E2E', () => {
   let electronApp: ElectronApplication;
   let page: Page;
+  let miqiHome: string;
 
   test.beforeAll(async () => {
     const fixture = await launchElectronApp();
     electronApp = fixture.electronApp;
     page = fixture.page;
+    miqiHome = fixture.miqiHome;
   });
 
   test.afterAll(async () => {
-    await closeElectronApp(electronApp);
+    await closeElectronApp(electronApp, miqiHome);
   });
 
   test(

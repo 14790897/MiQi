@@ -19,15 +19,17 @@ import {
 test.describe('PPTX Generator E2E', () => {
   let electronApp: ElectronApplication;
   let page: Page;
+  let miqiHome: string;
 
   test.beforeAll(async () => {
     const fixture = await launchElectronApp();
     electronApp = fixture.electronApp;
     page = fixture.page;
+    miqiHome = fixture.miqiHome;
   }, 120_000);
 
   test.afterAll(async () => {
-    await closeElectronApp(electronApp);
+    await closeElectronApp(electronApp, miqiHome);
   });
 
   test(
