@@ -12,6 +12,7 @@ import {
   Loader2,
   Copy,
   Check,
+  CheckCircle,
   Paperclip,
   X,
   FileText,
@@ -54,11 +55,41 @@ interface Message {
   attachments?: Attachment[];
   toolHint?: boolean;
   toolCallId?: string;
+  action?: 'open-provider-settings';
+  actionLabel?: string;
   /** When true the message is collapsed by default (user can click to expand) */
   collapsed?: boolean;
   /** Short label shown when collapsed (e.g. "exec" or "write_file → /path/to/file") */
   summary?: string;
   timestamp: number;
+}
+
+function isMissingProviderConfigMessage(message: string) {
+  const normalized = message.toLowerCase();
+  return normalized.includes('no api key configured');
+}
+
+function isProviderConfigurationProblem(message: string) {
+  const normalized = message.toLowerCase();
+  return (
+    isMissingProviderConfigMessage(message) ||
+    normalized.includes('模型服务认证失败') ||
+    normalized.includes('authentication') ||
+    normalized.includes('invalid api key') ||
+    normalized.includes('api key') ||
+    normalized.includes('api base') ||
+    normalized.includes('当前模型配置')
+  );
+}
+
+function createProviderConfigMessage(content?: string): Message {
+  return {
+    role: 'error',
+    content: content || '尚未配置模型服务。请先配置 Provider/API Key 后再发送消息。',
+    action: 'open-provider-settings',
+    actionLabel: '去配置模型',
+    timestamp: Date.now(),
+  };
 }
 
 /* ─── Tracked file from tool hints ───────────────────────────────── */
@@ -71,6 +102,8 @@ interface TrackedFile {
   /** path was truncated in the progress message (ends with ...) */
   truncated?: boolean;
 }
+
+const OFFICE_FILE_RE = /\.(docx|xlsx|pptx)$/i;
 
 /** Extract file path + operation from a tool-hint progress text.
  *  Nanobot tool hints look like:
@@ -92,6 +125,9 @@ function parseToolHint(
     [/^(?:Delete|Deleting(?:\s+file)?)[:\s]+(.+?)(?:\s*….*)?$/i, 'delete'],
     // nanobot / miqi style: write_file("path"), read_file("path"), edit_file("path")
     [/(?:write|edit|delete|read)_file\s*\(\s*["'](.+?)["']\s*\)/i, 'write'],
+    // Office creation tools create files in the workspace.
+    [/(?:create_docx|create_xlsx|create_pptx|docx_write|xlsx_write|pptx_write)\s*\(\s*["'](.+?)["']\s*\)/i, 'write'],
+    [/(?:edit_docx|append_xlsx)\s*\(\s*["'](.+?)["']\s*\)/i, 'edit'],
     // Generic fallback: any mention of a path-like string after a colon
     [/(?:file|path)[:\s]+([^\s,]+\.[a-zA-Z]{1,6})/i, 'read'],
   ];
@@ -114,6 +150,7 @@ function parseToolHint(
         else if (re.source.includes('edit')) inferredOp = 'edit';
         else if (re.source.includes('delete')) inferredOp = 'delete';
         else if (re.source.includes('read')) inferredOp = 'read';
+        else if (re.source.includes('create_') || re.source.includes('_write')) inferredOp = 'write';
         return { path: raw, op: inferredOp, truncated };
       }
     }
@@ -127,9 +164,66 @@ function basename(path: string): string {
 
 const DEFAULT_SESSION = 'desktop:default';
 
-function sessionMsgsToUi(rawMsgs: any[]): Message[] {
+function messageContentToString(content: unknown): string {
+  return typeof content === 'string' ? content : JSON.stringify(content);
+}
+
+function isAssistantTextMessage(msg: any): boolean {
+  return msg?.role === 'assistant' && !!msg.content && String(msg.content).trim().length > 0;
+}
+
+function isToolActivityMessage(msg: any): boolean {
+  return (
+    msg?.role === 'tool' ||
+    (msg?.role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0)
+  );
+}
+
+function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
+  const result: any[] = [];
+  let turnBuffer: any[] = [];
+
+  const flushTurn = () => {
+    if (turnBuffer.length === 0) return;
+
+    const lastAssistantTextIndex = (() => {
+      for (let i = turnBuffer.length - 1; i >= 0; i -= 1) {
+        if (isAssistantTextMessage(turnBuffer[i])) return i;
+      }
+      return -1;
+    })();
+
+    turnBuffer.forEach((msg, index) => {
+      if (
+        isAssistantTextMessage(msg) &&
+        isToolActivityMessage(msg) &&
+        index !== lastAssistantTextIndex
+      ) {
+        result.push({ ...msg, content: '' });
+        return;
+      }
+      if (isAssistantTextMessage(msg) && index !== lastAssistantTextIndex) return;
+      result.push(msg);
+    });
+    turnBuffer = [];
+  };
+
+  for (const msg of rawMsgs) {
+    if (msg?.role === 'user') {
+      flushTurn();
+      result.push(msg);
+      continue;
+    }
+    turnBuffer.push(msg);
+  }
+  flushTurn();
+
+  return result;
+}
+
+export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   const result: Message[] = [];
-  for (const m of rawMsgs) {
+  for (const m of collapseAssistantMessagesWithinTurns(rawMsgs)) {
     const ts = m.timestamp ? new Date(m.timestamp).getTime() : Date.now();
 
     if (m.role === 'user' || m.role === 'assistant') {
@@ -166,7 +260,7 @@ function sessionMsgsToUi(rawMsgs: any[]): Message[] {
       if (m.role === 'user' || hasContent) {
         result.push({
           role: m.role as 'user' | 'assistant',
-          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+          content: messageContentToString(m.content),
           timestamp: ts,
         });
       }
@@ -174,7 +268,7 @@ function sessionMsgsToUi(rawMsgs: any[]): Message[] {
       // Subagent result messages — render with the subagent style
       result.push({
         role: 'subagent',
-        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+        content: messageContentToString(m.content),
         timestamp: ts,
       });
     } else if (m.role === 'tool') {
@@ -224,6 +318,29 @@ function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   return merged;
 }
 
+function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[] {
+  const lastUserIndex = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === 'user') return i;
+    }
+    return -1;
+  })();
+
+  return messages.reduce((acc, message, index) => {
+    if (index <= lastUserIndex) { acc.push(message); return acc; }
+    if (message.role === 'assistant') return acc;
+    if (message.role !== 'progress' || message.toolHint) {
+      // Retained toolHint progress should render collapsed after final
+      if (message.role === 'progress' && message.toolHint && !message.collapsed) {
+        acc.push({ ...message, collapsed: true });
+      } else {
+        acc.push(message);
+      }
+    }
+    return acc;
+  }, [] as Message[]);
+}
+
 /** Parse tracked files from raw session messages (includes progress entries with _tool_hint). */
 function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
   const fileMap = new Map<string, TrackedFile>();
@@ -258,12 +375,14 @@ export function ChatConsole({
   loadTrigger,
   onNewSession,
   onChatFinished,
+  onOpenProviderSettings,
 }: {
   sessionKey?: string;
   /** Increment to force a session history reload (e.g. after bridge becomes ready) */
   loadTrigger?: number;
   onNewSession?: (newKey: string) => void;
   onChatFinished?: () => void;
+  onOpenProviderSettings?: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -336,6 +455,7 @@ export function ChatConsole({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const unsubsRef = useRef<Array<() => void>>([]);
+  const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef(sessionKey);
   // Track the active thread ID for new-protocol thread-aware conversations
   const currentThreadIdRef = useRef<string | null>(null);
@@ -501,13 +621,23 @@ export function ChatConsole({
       const content = `${statusIcon} Subagent "${label}" ${data.status === 'ok' ? 'completed' : 'failed'}:\n\n${data.result}`;
       setMessages((prev) => [...prev, { role: 'subagent', content, timestamp: Date.now() }]);
     });
-    return unsub;
+    return () => {
+      unsub();
+    };
+  }, []);
+
+  const clearFinalCleanupTimer = useCallback(() => {
+    if (finalCleanupTimerRef.current) {
+      clearTimeout(finalCleanupTimerRef.current);
+      finalCleanupTimerRef.current = null;
+    }
   }, []);
 
   const cleanupListeners = useCallback(() => {
+    clearFinalCleanupTimer();
     for (const unsub of unsubsRef.current) unsub();
     unsubsRef.current = [];
-  }, []);
+  }, [clearFinalCleanupTimer]);
 
   const handleAttachClick = () => fileInputRef.current?.click();
 
@@ -548,7 +678,7 @@ export function ChatConsole({
     setCurrentReqId(null);
     setMessages((prev) => [
       ...prev,
-      { role: 'progress', content: 'Aborted.', timestamp: Date.now() },
+      { role: 'progress', content: '已停止。', timestamp: Date.now() },
     ]);
   }, [cleanupListeners, currentReqId]);
 
@@ -575,6 +705,18 @@ export function ChatConsole({
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text && attachments.length === 0) return;
+
+    try {
+      const result = await window.miqi.providers.list();
+      const hasConfiguredProvider = result.providers.some((provider) => provider.configured);
+      if (!hasConfiguredProvider) {
+        setMessages((prev) => [...prev, createProviderConfigMessage()]);
+        return;
+      }
+    } catch {
+      // If provider status cannot be read, keep the original send path so the
+      // bridge can surface the underlying runtime error.
+    }
 
     // If a reveal animation is still running from the previous response,
     // cancel it and abort the in-flight request so we can start fresh.
@@ -622,6 +764,7 @@ export function ChatConsole({
     let displayed = '';
     let animId: number | null = null;
     let finalDone = false;
+    let streamErrorHandled = false;
 
     // Reveal the assistant reply with a typewriter animation. The bubble is
     // created lazily — only once the first chunk of content is available — so
@@ -632,8 +775,7 @@ export function ChatConsole({
       if (displayed.length >= fullContent.length) {
         if (finalDone) {
           setStreaming(false);
-          sendCleanup();
-          if (onChatFinished) onChatFinished();
+          scheduleFinalCleanup();
         }
         return;
       }
@@ -689,7 +831,19 @@ export function ChatConsole({
         clearInterval(watchdogTimer);
         watchdogTimer = null;
       }
-      cleanupListeners();
+      // NOTE: cleanupListeners() is deliberately NOT called here.
+      // The typewriter completing does not mean the turn is over —
+      // another final may still arrive (e.g. tool-call then final-text).
+      // Listeners are torn down only on abort / error / new-session.
+    };
+
+    const scheduleFinalCleanup = () => {
+      if (finalCleanupTimerRef.current) return;
+      finalCleanupTimerRef.current = setTimeout(() => {
+        finalCleanupTimerRef.current = null;
+        sendCleanup();
+        if (onChatFinished) onChatFinished();
+      }, 100);
     };
 
     const unsubProgress = window.miqi.chat.onProgress((data: any) => {
@@ -745,19 +899,66 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
+      clearFinalCleanupTimer();
+      if (animId !== null) {
+        cancelAnimationFrame(animId);
+        animId = null;
+      }
       fullContent = data.content;
+      displayed = '';
       finalDone = true;
       setCurrentReqId(null);
       if (data.tool_calls?.length) {
-        const toolMessages = sessionMsgsToUi([
-          {
-            role: 'assistant',
-            content: '',
-            tool_calls: data.tool_calls,
-            timestamp: new Date().toISOString(),
-          },
-        ]);
-        setMessages((prev) => [...prev, ...toolMessages]);
+        // Track file operations from tool_calls for Task Assets panel.
+        // Office tools (create_docx, etc.) don't always produce progress
+        // hints that match parseToolHint patterns, so we extract file
+        // paths directly from the final tool call list.
+        const _FILE_WRITE_TOOLS = [
+          'write_file', 'edit_file', 'delete_file', 'apply_patch',
+          'create_docx', 'create_xlsx', 'create_pptx',
+          'docx_write', 'xlsx_write', 'pptx_write',
+          'edit_docx', 'append_xlsx',
+        ];
+        const _FILE_READ_TOOLS = ['read_file'];
+        for (const tc of (data.tool_calls ?? []) as any[]) {
+          const fn = tc?.function || tc?.tool?.function || {};
+          const toolName: string = fn?.name || '';
+          if (!toolName) continue;
+          let args: Record<string, unknown> = {};
+          try { args = JSON.parse(fn?.arguments || '{}'); } catch { continue; }
+          const filePath: string =
+            (args.path as string) ||
+            (args.file_path as string) ||
+            (args.filename as string) ||
+            '';
+          if (!filePath) continue;
+          if (_FILE_WRITE_TOOLS.includes(toolName)) {
+            trackFile(filePath, 'write', false);
+          } else if (_FILE_READ_TOOLS.includes(toolName)) {
+            trackFile(filePath, 'read', false);
+          }
+        }
+
+        setMessages((prev) => {
+          const cleaned = removeTransientTurnMessagesSinceLastUser(prev);
+          // Only append collapsed tool-call group if streaming didn't
+          // already render toolHint progress for this turn (avoids dupes).
+          const hasToolHints = cleaned.some(
+            (m) => m.role === 'progress' && m.toolHint,
+          );
+          if (hasToolHints) return cleaned;
+          const toolMessages = sessionMsgsToUi([
+            {
+              role: 'assistant',
+              content: '',
+              tool_calls: data.tool_calls,
+              timestamp: new Date().toISOString(),
+            },
+          ]);
+          return [...cleaned, ...toolMessages];
+        });
+      } else {
+        setMessages((prev) => removeTransientTurnMessagesSinceLastUser(prev));
       }
       // Do NOT push an empty assistant bubble here — revealNext creates the
       // bubble lazily once the first chunk is available, so we never flash a
@@ -765,21 +966,26 @@ export function ChatConsole({
       // immediately instead of waiting on an animation that has nothing to show.
       if (!fullContent) {
         setStreaming(false);
-        sendCleanup();
-        if (onChatFinished) onChatFinished();
+        scheduleFinalCleanup();
         return;
       }
+      setStreaming(true);
       animId = requestAnimationFrame(revealNext);
     });
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
+      streamErrorHandled = true;
       if (animId !== null) cancelAnimationFrame(animId);
+      const message = sanitizeUiMessage(data.message);
       setMessages((prev) => [
         ...prev,
-        { role: 'error', content: data.message, timestamp: Date.now() },
+        isProviderConfigurationProblem(message)
+          ? createProviderConfigMessage(message)
+          : { role: 'error', content: message, timestamp: Date.now() },
       ]);
       setStreaming(false);
       sendCleanup();
+      cleanupListeners();
     });
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
@@ -788,7 +994,7 @@ export function ChatConsole({
       setCurrentReqId(null);
       setMessages((prev) => [
         ...prev,
-        { role: 'progress', content: 'Aborted.', timestamp: Date.now() },
+        { role: 'progress', content: '已停止。', timestamp: Date.now() },
       ]);
       sendCleanup();
     });
@@ -832,21 +1038,29 @@ export function ChatConsole({
       await window.miqi.chat.send(content, key, threadId ?? undefined);
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
+      if (streamErrorHandled) {
+        setStreaming(false);
+        sendCleanup();
+        cleanupListeners();
+        return;
+      }
       const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? 'Unknown error'));
-      const detail = `chat.send failed: ${errMsg}`;
-      if (e?.code) {
+      if (isProviderConfigurationProblem(errMsg)) {
+        setMessages((prev) => [...prev, createProviderConfigMessage(errMsg)]);
+      } else if (e?.code) {
         setMessages((prev) => [
           ...prev,
-          { role: 'error' as const, content: `${detail} (code: ${e.code})`, timestamp: Date.now() },
+          { role: 'error' as const, content: errMsg, timestamp: Date.now() },
         ]);
       } else {
         setMessages((prev) => [
           ...prev,
-          { role: 'error' as const, content: detail, timestamp: Date.now() },
+          { role: 'error' as const, content: errMsg, timestamp: Date.now() },
         ]);
       }
       setStreaming(false);
       sendCleanup();
+      cleanupListeners();
     }
   }, [input, attachments, streaming, cleanupListeners, onChatFinished]);
 
@@ -866,9 +1080,20 @@ export function ChatConsole({
   };
 
   const handlePreview = useCallback(async (path: string) => {
+    if (OFFICE_FILE_RE.test(path)) {
+      setPreviewFile({
+        path,
+        content:
+          'Office document created. Text preview is not available for .docx/.xlsx/.pptx files; open it from the workspace or Task Assets file entry.',
+      });
+      return;
+    }
     try {
       const result = await window.miqi.files.read(path);
-      setPreviewFile({ path, content: result.content });
+      setPreviewFile({
+        path,
+        content: result.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
+      });
     } catch {
       setPreviewFile({ path, content: `(Could not read file: ${path})` });
     }
@@ -916,7 +1141,10 @@ export function ChatConsole({
         // Refresh preview if open
         if (previewFile?.path === diffFile.path) {
           const content = await window.miqi.files.read(diffFile.path);
-          setPreviewFile({ path: diffFile.path, content: content.content });
+          setPreviewFile({
+            path: diffFile.path,
+            content: content.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
+          });
         }
       }
     } catch {
@@ -1187,6 +1415,7 @@ export function ChatConsole({
                     onCopy={(text) => handleCopy(text, i)}
                     isCopied={copiedIdx === i}
                     onRetry={() => handleRetry(msg)}
+                    onOpenProviderSettings={onOpenProviderSettings}
                   />
                 ))
               )}
@@ -1339,6 +1568,7 @@ export function ChatConsole({
         {/* ── Right panel: Task Assets ── */}
         {panelOpen && (
           <div
+            data-testid="task-assets-panel"
             className="flex flex-col shrink-0 border-l overflow-y-auto relative"
             style={{
               width: panelWidth,
@@ -1822,6 +2052,7 @@ function TrackedFileCard({
   };
   const OpIcon = file.op === 'read' ? BookOpen : file.op === 'delete' ? X : Pencil;
   const displayPath = file.path.replace(/\\/g, '/');
+  const isOfficeFile = OFFICE_FILE_RE.test(file.path);
 
   return (
     <div
@@ -1851,6 +2082,17 @@ function TrackedFileCard({
             >
               {file.op.toUpperCase()}
             </span>
+            {isOfficeFile && (
+              <span
+                className="text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0"
+                style={{
+                  background: 'var(--surface-muted)',
+                  color: 'var(--text-faint)',
+                }}
+              >
+                OFFICE
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -1871,12 +2113,14 @@ function TrackedFileCard({
           {onDiff && (file.op === 'write' || file.op === 'edit') && (
             <button
               onClick={onDiff}
+              disabled={isOfficeFile}
               className="flex-1 flex items-center justify-center gap-1 py-1 rounded-md text-[11px] transition-colors"
               style={{
                 border: '1px solid var(--border)',
-                color: 'var(--warning)',
+                color: isOfficeFile ? 'var(--text-faint)' : 'var(--warning)',
+                opacity: isOfficeFile ? 0.55 : 1,
               }}
-              title="Compare diff"
+              title={isOfficeFile ? 'Diff is not available for Office binary files' : 'Compare diff'}
             >
               <GitCompare size={10} />
               Diff
@@ -1889,6 +2133,7 @@ function TrackedFileCard({
               border: '1px solid var(--border)',
               color: 'var(--text-muted)',
             }}
+            title={isOfficeFile ? 'Office binary preview is not available' : 'Preview file'}
           >
             <Eye size={10} />
             Preview
@@ -1906,6 +2151,7 @@ function MessageBubble({
   onCopy,
   isCopied,
   onRetry,
+  onOpenProviderSettings,
 }: {
   msg: Message;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
@@ -1913,6 +2159,7 @@ function MessageBubble({
   onCopy: (text: string) => void;
   isCopied: boolean;
   onRetry?: () => void;
+  onOpenProviderSettings?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -1927,7 +2174,13 @@ function MessageBubble({
         style={{ color: msg.toolHint ? 'var(--info)' : 'var(--text-muted)' }}
         onClick={msg.collapsed ? () => setExpanded((v) => !v) : undefined}
       >
-        {msg.toolHint ? <Wrench size={12} /> : <Loader2 size={12} className="animate-spin" />}
+        {msg.toolHint ? (
+          <Wrench size={12} />
+        ) : isLast ? (
+          <Loader2 size={12} className="animate-spin" />
+        ) : (
+          <CheckCircle size={12} />
+        )}
         {msg.collapsed &&
           (isCollapsed ? (
             <ChevronRight size={10} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
@@ -1968,7 +2221,21 @@ function MessageBubble({
             border: '1px solid var(--danger)',
           }}
         >
-          {msg.content}
+          <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+          {msg.action === 'open-provider-settings' && onOpenProviderSettings && (
+            <button
+              type="button"
+              onClick={onOpenProviderSettings}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors"
+              style={{
+                background: 'var(--danger)',
+                color: 'var(--danger-bg)',
+              }}
+            >
+              <Settings size={13} />
+              {msg.actionLabel ?? '配置 Provider'}
+            </button>
+          )}
         </div>
       </div>
     );

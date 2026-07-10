@@ -1,6 +1,6 @@
 import { electron } from '../../shared/electron';
 import { spawnSync } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import type { BridgeManager } from '../bridge';
@@ -41,6 +41,118 @@ import type { WslCheckResult, WslStatsResult } from '../../shared/ipc';
 
 const { ipcMain, dialog } = electron;
 
+function readWorkspaceLogLines(
+  projectRoot: string,
+  includeFile: (name: string) => boolean,
+): string[] {
+  const logDir = join(projectRoot, 'workspace', 'logs');
+  const lines: string[] = [];
+  try {
+    const files = readdirSync(logDir)
+      .filter((name) => name.endsWith('.log') && includeFile(name))
+      .sort();
+    for (const file of files) {
+      try {
+        const content = readFileSync(join(logDir, file), 'utf8');
+        lines.push(...content.split('\n').filter(Boolean));
+      } catch {
+        /* skip unreadable files */
+      }
+    }
+  } catch {
+    /* log dir may not exist yet */
+  }
+  return lines;
+}
+
+function getConfigDir(): string {
+  const miqiHome = process.env['MIQI_HOME']?.trim();
+  return miqiHome ? miqiHome : join(homedir(), '.miqi');
+}
+
+function getConfigPath(): string {
+  return join(getConfigDir(), 'config.json');
+}
+
+function readLocalConfig(): Record<string, unknown> {
+  const configPath = getConfigPath();
+  try {
+    if (!existsSync(configPath)) return {};
+    const raw = readFileSync(configPath, 'utf8');
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function deepMergeConfig(base: Record<string, unknown>, updates: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(updates)) {
+    const current = result[key];
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      current &&
+      typeof current === 'object' &&
+      !Array.isArray(current)
+    ) {
+      result[key] = deepMergeConfig(
+        current as Record<string, unknown>,
+        value as Record<string, unknown>
+      );
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+function writeLocalConfig(updates: Record<string, unknown>): { saved: boolean; path: string; offline: boolean } {
+  const configDir = getConfigDir();
+  const configPath = getConfigPath();
+  const merged = deepMergeConfig(readLocalConfig(), updates);
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(configPath, JSON.stringify(merged, null, 2), 'utf8');
+  return { saved: true, path: configPath, offline: true };
+}
+
+function isApprovalBypassUpdate(updates: Record<string, unknown>): boolean {
+  const allowedTopLevel = new Set(['approvals', 'agents']);
+  if (!Object.keys(updates).every((key) => allowedTopLevel.has(key))) return false;
+
+  if ('approvals' in updates) {
+    const approvals = updates['approvals'];
+    if (!approvals || typeof approvals !== 'object' || Array.isArray(approvals)) return false;
+    const allowedApprovalKeys = new Set([
+      'bypassAll',
+      'bypassCommandApproval',
+      'bypassFileWriteApproval',
+      'bypassToolConfirmation',
+      'bypassNetworkApproval',
+    ]);
+    for (const [key, value] of Object.entries(approvals as Record<string, unknown>)) {
+      if (!allowedApprovalKeys.has(key) || typeof value !== 'boolean') return false;
+    }
+  }
+
+  if ('agents' in updates) {
+    const agents = updates['agents'];
+    if (!agents || typeof agents !== 'object' || Array.isArray(agents)) return false;
+    const agentKeys = Object.keys(agents as Record<string, unknown>);
+    if (agentKeys.length !== 1 || agentKeys[0] !== 'commandApproval') return false;
+    const commandApproval = (agents as Record<string, unknown>)['commandApproval'];
+    if (!commandApproval || typeof commandApproval !== 'object' || Array.isArray(commandApproval)) {
+      return false;
+    }
+    const commandKeys = Object.keys(commandApproval as Record<string, unknown>);
+    if (commandKeys.length !== 1 || commandKeys[0] !== 'enabled') return false;
+    if (typeof (commandApproval as Record<string, unknown>)['enabled'] !== 'boolean') return false;
+  }
+
+  return 'approvals' in updates || 'agents' in updates;
+}
+
 export function registerIpcHandlers(bridge: BridgeManager): void {
   // -----------------------------------------------------------------------
   // Runtime
@@ -61,6 +173,36 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
 
   ipcMain.handle(IPC.RUNTIME_LOGS, () => {
     return bridge.getLogs();
+  });
+
+  ipcMain.handle(IPC.RUNTIME_FILE_LOGS, () => {
+    return readWorkspaceLogLines(bridge.getProjectRoot(), () => true);
+  });
+
+  ipcMain.handle(IPC.RUNTIME_BACKEND_LOGS, () => {
+    const backendPrefixes = ['bridge-', 'sandbox-', 'tool-', 'electron-main-'];
+    return readWorkspaceLogLines(
+      bridge.getProjectRoot(),
+      (name) => backendPrefixes.some((prefix) => name.startsWith(prefix)),
+    );
+  });
+
+  ipcMain.on('runtime:renderer-log', (_event, payload: unknown) => {
+    if (!payload || typeof payload !== 'object') return;
+    const entry = payload as Record<string, unknown>;
+    const level =
+      typeof entry.level === 'string' && ['INFO', 'WARN', 'ERROR'].includes(entry.level)
+        ? entry.level
+        : 'INFO';
+    const rawMessage = typeof entry.message === 'string' ? entry.message : 'Renderer log';
+    // Cap message length to prevent log file bloat from runaway renderers
+    const message = rawMessage.length > 4096 ? rawMessage.slice(0, 4096) + '…[truncated]' : rawMessage;
+    const sessionKey =
+      typeof entry.sessionKey === 'string' && /^[\w:.-]{1,128}$/.test(entry.sessionKey)
+        ? entry.sessionKey
+        : undefined;
+    const sessionPart = sessionKey ? ` session=${sessionKey}` : '';
+    bridge.recordMainLog(level, `[renderer${sessionPart}] ${message}`, 'renderer');
   });
 
   // -----------------------------------------------------------------------
@@ -163,12 +305,29 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   // Config
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.CONFIG_GET, async () => {
-    return bridge.sendSafe('config.get');
+    const bridgeConfig = await bridge.sendSafe('config.get');
+    return bridgeConfig ?? readLocalConfig();
   });
 
   ipcMain.handle(IPC.CONFIG_UPDATE, async (_event, payload: unknown) => {
     const input = ConfigUpdateInput.parse(payload);
-    return bridge.send('config.update', { config: input.config });
+    if (!bridge.isRunning()) {
+      if (!isApprovalBypassUpdate(input.config)) {
+        throw new Error('Bridge not running');
+      }
+      return writeLocalConfig(input.config);
+    }
+    try {
+      return await bridge.send('config.update', { config: input.config });
+    } catch (error) {
+      if ((error as Error)?.message?.includes('Bridge not running')) {
+        if (!isApprovalBypassUpdate(input.config)) {
+          throw error;
+        }
+        return writeLocalConfig(input.config);
+      }
+      throw error;
+    }
   });
 
   // -----------------------------------------------------------------------
@@ -1100,48 +1259,19 @@ for m in ("pydantic", "httpx", "loguru"):
   // MiQi has ever been configured or started).
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.CONFIG_WRITE_INITIAL, (_event, payload: unknown) => {
-    const {
-      provider_name,
-      api_key,
-      api_base,
-      model,
-      agent_name,
-      workspace,
-      soul_preset,
-      brave_api_key,
-      search_provider,
-      search_ollama_api_base,
-      search_ollama_api_key,
-      fetch_provider,
-      fetch_ollama_api_base,
-      fetch_ollama_api_key,
-      papers_provider,
-      semantic_scholar_api_key,
-    } = payload as {
-      provider_name: string;
+    const { provider_name, api_key, api_base, model, workspace } = payload as {
+      provider_name?: string | null;
       api_key?: string | null;
       api_base?: string | null;
       model?: string | null;
-      agent_name?: string | null;
       workspace?: string | null;
-      soul_preset?: string | null;
-      brave_api_key?: string | null;
-      search_provider?: string | null;
-      search_ollama_api_base?: string | null;
-      search_ollama_api_key?: string | null;
-      fetch_provider?: string | null;
-      fetch_ollama_api_base?: string | null;
-      fetch_ollama_api_key?: string | null;
-      papers_provider?: string | null;
-      semantic_scholar_api_key?: string | null;
     };
-    const configDir = join(homedir(), '.miqi');
-    const configPath = join(configDir, 'config.json');
+    const configDir = getConfigDir();
+    const configPath = getConfigPath();
 
     // Load existing config if it exists, so we don't clobber other keys
     let existing: Record<string, unknown> = {};
     try {
-      const { readFileSync } = require('fs') as typeof import('fs');
       if (existsSync(configPath)) {
         existing = JSON.parse(readFileSync(configPath, 'utf8'));
       }
@@ -1149,56 +1279,28 @@ for m in ("pydantic", "httpx", "loguru"):
       // Start fresh
     }
 
-    // Deep-merge provider key
-    const providers = (existing['providers'] as Record<string, unknown> | undefined) ?? {};
-    providers[provider_name] = {
-      ...((providers[provider_name] as Record<string, unknown> | undefined) ?? {}),
-      ...(api_key ? { apiKey: api_key } : {}),
-      ...(api_base ? { apiBase: api_base } : {}),
-    };
-    existing['providers'] = providers;
+    // Deep-merge provider key only when the advanced flow picked one.
+    if (provider_name) {
+      const providers = (existing['providers'] as Record<string, unknown> | undefined) ?? {};
+      providers[provider_name] = {
+        ...((providers[provider_name] as Record<string, unknown> | undefined) ?? {}),
+        ...(api_key ? { apiKey: api_key } : {}),
+        ...(api_base ? { apiBase: api_base } : {}),
+      };
+      existing['providers'] = providers;
+    }
 
-    // Set agent defaults (model, name, workspace, soulPreset)
-    const agents = (existing['agents'] as Record<string, unknown> | undefined) ?? {};
-    const defaults = (agents['defaults'] as Record<string, unknown> | undefined) ?? {};
-    if (model) defaults['model'] = model;
-    if (agent_name) defaults['name'] = agent_name;
-    if (workspace) defaults['workspace'] = workspace;
-    if (soul_preset) defaults['soulPreset'] = soul_preset;
-    agents['defaults'] = defaults;
-    existing['agents'] = agents;
-
-    // Web tools
-    const tools = (existing['tools'] as Record<string, unknown> | undefined) ?? {};
-    const web = (tools['web'] as Record<string, unknown> | undefined) ?? {};
-
-    // Web Search
-    const search = (web['search'] as Record<string, unknown> | undefined) ?? {};
-    if (search_provider) search['provider'] = search_provider;
-    if (brave_api_key) search['apiKey'] = brave_api_key;
-    if (search_ollama_api_base) search['ollamaApiBase'] = search_ollama_api_base;
-    if (search_ollama_api_key) search['ollamaApiKey'] = search_ollama_api_key;
-    web['search'] = search;
-
-    // Web Fetch
-    const fetch = (web['fetch'] as Record<string, unknown> | undefined) ?? {};
-    if (fetch_provider) fetch['provider'] = fetch_provider;
-    if (fetch_ollama_api_base) fetch['ollamaApiBase'] = fetch_ollama_api_base;
-    if (fetch_ollama_api_key) fetch['ollamaApiKey'] = fetch_ollama_api_key;
-    web['fetch'] = fetch;
-
-    tools['web'] = web;
-
-    // Papers
-    const papers = (tools['papers'] as Record<string, unknown> | undefined) ?? {};
-    if (papers_provider) papers['provider'] = papers_provider;
-    if (semantic_scholar_api_key) papers['semanticScholarApiKey'] = semantic_scholar_api_key;
-    tools['papers'] = papers;
-
-    existing['tools'] = tools;
+    // Set only the agent defaults provided by the simplified setup flow.
+    if (model || workspace) {
+      const agents = (existing['agents'] as Record<string, unknown> | undefined) ?? {};
+      const defaults = (agents['defaults'] as Record<string, unknown> | undefined) ?? {};
+      if (model) defaults['model'] = model;
+      if (workspace) defaults['workspace'] = workspace;
+      agents['defaults'] = defaults;
+      existing['agents'] = agents;
+    }
 
     // Ensure directory exists
-    const { mkdirSync, writeFileSync } = require('fs') as typeof import('fs');
     mkdirSync(configDir, { recursive: true });
     writeFileSync(configPath, JSON.stringify(existing, null, 2), 'utf8');
 

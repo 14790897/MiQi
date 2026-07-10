@@ -233,6 +233,59 @@ async def test_runtime_session_abort_cancels_active_turn(fake_config):
     ), f"No abort event seen. Events: {events_seen}"
 
 
+@pytest.mark.asyncio
+async def test_runtime_session_cancel_cleanup_error_stays_aborted(fake_config, fake_provider):
+    """Cleanup errors after abort must not surface as chat.send failures."""
+    import sqlite3
+
+    from miqi.protocol.commands import AbortTurn
+    from miqi.protocol.events import ErrorEvent, TurnAbortedEvent
+
+    runtime = RuntimeSession.create(
+        config=fake_config,
+        provider=fake_provider,
+        session_id="cli:default",
+        workspace=fake_config.workspace_path,
+    )
+    started = asyncio.Event()
+
+    async def handle_spy(submission):
+        if isinstance(submission, UserMessage):
+            started.set()
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError as exc:
+                raise sqlite3.OperationalError("database is locked") from exc
+
+    runtime._runner.handle = handle_spy
+
+    await runtime.start()
+    await runtime.submit(UserMessage(
+        content="long task",
+        thread_id="cli:default",
+    ))
+    await asyncio.wait_for(started.wait(), timeout=5)
+
+    await runtime.submit(AbortTurn(thread_id="cli:default"))
+
+    events = []
+    try:
+        while True:
+            event = await asyncio.wait_for(runtime.next_event(), timeout=2)
+            events.append(event)
+            if isinstance(event, TurnAbortedEvent):
+                break
+    finally:
+        await runtime.stop()
+
+    assert any(isinstance(event, TurnAbortedEvent) for event in events)
+    assert not any(
+        isinstance(event, ErrorEvent)
+        and "Cancelled turn task failed" in event.message
+        for event in events
+    )
+
+
 # ---------------------------------------------------------------------------
 # Phase 14 follow-up v2: queued submissions during active turn
 # ---------------------------------------------------------------------------

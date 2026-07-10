@@ -19,6 +19,19 @@ from miqi.runtime.app_server import AppServerError, get_bridge_state
 from miqi.runtime.core_request_models import validate_core_params
 
 
+def _apply_runtime_approval_bypass(runtime: Any, config: Any) -> None:
+    services = getattr(runtime, "services", None)
+    orchestrator = getattr(services, "orchestrator", None)
+    permissions = getattr(orchestrator, "permissions", None)
+    if permissions is not None and hasattr(permissions, "approval_bypass"):
+        effective_bypass = getattr(config, "effective_approval_bypass", None)
+        permissions.approval_bypass = (
+            effective_bypass()
+            if callable(effective_bypass)
+            else getattr(config, "approvals", None)
+        )
+
+
 async def config_get_handler(
     request_id: str,
     params: dict[str, Any],
@@ -104,6 +117,7 @@ async def config_update_handler(
             if session_state is not None:
                 session_state.config_snapshot = new_config
                 propagated += 1
+            _apply_runtime_approval_bypass(runtime, new_config)
         except Exception as exc:
             logger.warning(
                 "config.update: failed to propagate to session {}: {}",

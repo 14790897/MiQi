@@ -41,6 +41,7 @@ dependencies = [
     "python-pptx>=1.0.2",
     "openpyxl>=3.1.5",
     "textual>=8.2.7",
+    "ddgs>=9.14.4",
 ]
 
 [project.optional-dependencies]
@@ -85,6 +86,12 @@ include = [
     "miqi/",
     "README.md",
     "LICENSE",
+]
+
+[tool.pylint.messages_control]
+# PEP 562 __getattr__ lazy imports; disable false positives
+disable = [
+    "undefined-all-variable",
 ]
 
 [tool.ruff]

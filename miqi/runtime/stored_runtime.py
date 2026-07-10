@@ -222,7 +222,7 @@ class StoredRuntimeReader:
             cursor = await db.execute(
                 """SELECT * FROM runtime_history_items
                    WHERE session_id = ? AND thread_id = ?
-                   ORDER BY created_at ASC, item_id ASC""",
+                   ORDER BY created_at ASC, rowid ASC""",
                 (thread.session_id, thread.thread_id),
             )
             rows = await cursor.fetchall()

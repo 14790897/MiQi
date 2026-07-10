@@ -203,6 +203,13 @@ class TelemetrySink:
             span.end()
             self._context.detach(token)
 
+        # Clean up any orphaned child tool spans
+        for tc_id, (tool_span, tool_token) in list(self._tool_spans.items()):
+            tool_span.set_status(self._Status(self._StatusCode.ERROR, "parent turn errored"))
+            tool_span.end()
+            self._context.detach(tool_token)
+        self._tool_spans.clear()
+
 
 # ── Factory ────────────────────────────────────────────────────
 

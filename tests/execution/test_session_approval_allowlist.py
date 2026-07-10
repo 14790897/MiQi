@@ -194,6 +194,44 @@ async def test_resolve_approval_always_adds_to_permanent():
 
 
 @pytest.mark.asyncio
+async def test_apply_patch_always_approval_matches_future_permission_check():
+    """always-approved apply_patch calls must use the same key as PermissionEngine."""
+    from miqi.execution.orchestrator import ToolOrchestrator
+    from miqi.execution.permission_engine import PermissionEngine, PermissionVerdict
+
+    permission_engine = PermissionEngine()
+    orchestrator = ToolOrchestrator(
+        permission_engine=permission_engine,
+        sandbox_engine=MagicMock(),
+        hook_runtime=MagicMock(),
+        tool_registry=MagicMock(),
+        event_emitter=MagicMock(),
+        session_id="test-session",
+    )
+
+    approval_id = "turn-1:tool-apply-patch"
+    future = asyncio.get_event_loop().create_future()
+    orchestrator._pending_approvals[approval_id] = future
+    orchestrator._approval_meta[approval_id] = _make_meta(
+        tool_name="apply_patch",
+        command="",
+        details={"path": "/tmp/test.txt", "operation": "apply_patch"},
+    )
+
+    result = orchestrator.resolve_approval(approval_id, "always")
+    assert result.resolved is True
+    assert "apply_patch:/tmp/test.txt" in permission_engine.permanent_allowlist
+
+    ctx = MagicMock()
+    ctx.tool_name = "apply_patch"
+    ctx.arguments = {"path": "/tmp/test.txt"}
+    ctx.permission_profile = None
+
+    decision = await permission_engine.check(ctx)
+    assert decision.verdict == PermissionVerdict.ALLOW
+
+
+@pytest.mark.asyncio
 async def test_resolve_approval_once_does_not_add_to_allowlist():
     """resolve_approval with 'once' does NOT add to any allowlist."""
     from miqi.execution.orchestrator import ToolOrchestrator
@@ -297,3 +335,37 @@ async def test_session_approval_after_permanent_approval():
     assert "exec:echo permanent" in permission_engine.permanent_allowlist
     # Permanent allowlist should NOT have "echo new" (only session-scoped)
     assert "exec:echo new" not in permission_engine.permanent_allowlist
+
+
+def test_sanitize_details_truncates_deeply_nested_dicts():
+    """Deep approval metadata should be truncated instead of overflowing stack."""
+    from miqi.execution.orchestrator import ToolOrchestrator
+
+    details = current = {}
+    for _ in range(1200):
+        child = {}
+        current["child"] = child
+        current = child
+
+    sanitized = ToolOrchestrator._sanitize_details(details)
+
+    current = sanitized
+    for _ in range(20):
+        if current.get("child") == "<max_depth_exceeded>":
+            break
+        current = current["child"]
+    else:
+        pytest.fail("expected deeply nested metadata to be truncated")
+
+
+def test_sanitize_details_handles_self_referential_dicts():
+    """Cyclic approval metadata should not recurse forever."""
+    from miqi.execution.orchestrator import ToolOrchestrator
+
+    details = {"name": "cyclic"}
+    details["self"] = details
+
+    sanitized = ToolOrchestrator._sanitize_details(details)
+
+    assert sanitized["name"] == "cyclic"
+    assert sanitized["self"] == "<cycle>"

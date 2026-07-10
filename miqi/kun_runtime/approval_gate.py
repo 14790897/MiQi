@@ -62,8 +62,9 @@ class ApprovalRequest:
 class ApprovalGate:
     """Manages approval requests for tool calls requiring user confirmation."""
 
-    def __init__(self) -> None:
+    def __init__(self, approval_bypass: Any | None = None) -> None:
         self._pending: dict[str, ApprovalRequest] = {}
+        self.approval_bypass = approval_bypass
 
     async def request(
         self,
@@ -74,6 +75,8 @@ class ApprovalGate:
         details: dict[str, Any] | None = None,
     ) -> Literal["allow", "deny"]:
         """Submit an approval request and wait for the decision."""
+        if self._bypasses_tool_confirmation():
+            return "allow"
         approval_id = f"approval_{uuid.uuid4().hex[:12]}"
         req = ApprovalRequest(
             approval_id=approval_id,
@@ -113,3 +116,15 @@ class ApprovalGate:
     @property
     def pending_count(self) -> int:
         return len(self._pending)
+
+    def _bypasses_tool_confirmation(self) -> bool:
+        bypass = self.approval_bypass
+        if bypass is None:
+            return False
+        bypasses_category = getattr(bypass, "bypasses_category", None)
+        if callable(bypasses_category):
+            return bool(bypasses_category("tool"))
+        return bool(
+            getattr(bypass, "bypass_all", False)
+            or getattr(bypass, "bypass_tool_confirmation", False)
+        )

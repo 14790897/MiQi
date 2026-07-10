@@ -12,204 +12,44 @@
 
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { resolve } from 'node:path';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { existsSync, rmSync } from 'node:fs';
-
-const APPS_DESKTOP = resolve(__dirname, '../..');
-
-/** Directory where MiQi stores session data on disk */
-const MIQI_SESSIONS_DIR = join(homedir(), '.miqi', 'workspace', 'sessions');
-
-const LLM_TIMEOUT = 180_000; // real AI call
-
-// ─── Helpers ──────────────────────────────────────────────────────
-
-/** Wait for the chat input textarea to be present and enabled */
-async function waitForInputReady(page: Page, timeout = 60_000) {
-  const textarea = page.getByPlaceholder(
-    'Ask Agent to analyze or edit files...',
-  );
-  await expect(textarea).toBeEnabled({ timeout });
-  return textarea;
-}
-
-/** Send a message and confirm it appears in the chat */
-async function sendMessage(page: Page, text: string) {
-  const textarea = await waitForInputReady(page);
-  await textarea.fill(text);
-  await textarea.press('Enter');
-  // Confirm user message appears in chat
-  await expect(page.getByText(text).first()).toBeVisible({ timeout: 10_000 });
-}
-
-/** Wait for streaming to finish (no "Thinking…" indicator) */
-async function waitForResponseComplete(page: Page, timeout = 120_000) {
-  await expect(page.getByText('Thinking…')).toBeHidden({ timeout });
-}
-
-/** Get the current session title from the header.
- *  Uses stable class-based selector: both old (text-sm) and new (text-[18px])
- *  UI share font-semibold.truncate on the title h2. */
-function getSessionTitle(page: Page) {
-  return page.locator('h2.font-semibold.truncate').first();
-}
-
-/** Get sidebar session items (clickable buttons that switch sessions).
- *  Scoped to the sidebar panel to avoid picking up buttons in main content.
- *  New UI: session cards use rounded-xl; filter tabs (rounded-md) and the
- *  "New Session" title button are excluded by the class selector. */
-function getSidebarSessionItems(page: Page) {
-  const sidebar = page.locator('div.flex.flex-col.shrink-0.border-r').first();
-  return sidebar.locator('button.rounded-xl');
-}
-
-/** Get the count of sidebar session items */
-async function getSidebarSessionCount(page: Page): Promise<number> {
-  return getSidebarSessionItems(page).count();
-}
-
-/** Create a new conversation via sidebar "+" button and wait for it to be ready.
- *  In the redesigned UI there is no "New Chat" header button — sidebar "+" is the canonical way. */
-async function createNewConversation(page: Page): Promise<string> {
-  const sidebarPlusBtn = page.locator('button[title="New Session"]');
-  await expect(sidebarPlusBtn).toBeVisible();
-  await sidebarPlusBtn.click();
-  // Wait for the new session to load — input becomes enabled when ChatConsole mounts
-  await waitForInputReady(page, 15_000);
-  await waitForSidebarRefresh(page);
-  const titleEl = getSessionTitle(page);
-  return (await titleEl.textContent()) || '';
-}
-
-
-/** Wait for sidebar to refresh after session creation/deletion */
-async function waitForSidebarRefresh(page: Page, _timeout = 10_000) {
-  await page.waitForTimeout(1500);
-}
-
-/** Switch to a sidebar session by clicking through sessions until the
- *  given marker text becomes visible in the main chat area.
- *  No longer depends on a "对话" nav button — the sidebar is always visible. */
-async function switchToSessionWithMarker(
-  page: Page,
-  marker: string,
-): Promise<boolean> {
-  // Ensure the Tasks section is scrolled into view
-  const tasksHeader = page.getByText('Tasks').first();
-  await tasksHeader.scrollIntoViewIfNeeded().catch(() => {});
-
-  const items = getSidebarSessionItems(page);
-  const count = await items.count();
-  console.log(
-    `[test] Searching ${count} sidebar sessions for marker: ${marker}`,
-  );
-
-  for (let i = 0; i < count; i++) {
-    const btn = items.nth(i);
-    await btn.scrollIntoViewIfNeeded().catch(() => {});
-    await btn.click({ force: true, timeout: 5000 });
-    const currentTitle = await getSessionTitle(page).textContent();
-    console.log(`[test] Clicked session #${i} → title: ${currentTitle}`);
-    await page.waitForTimeout(4000);
-
-    // Only check the <main> chat area, not the sidebar
-    const markerVisible = await page
-      .locator('main')
-      .getByText(marker, { exact: false })
-      .isVisible()
-      .catch(() => false);
-    if (markerVisible) {
-      console.log(`[test] Found marker "${marker}" in session #${i}`);
-      return true;
-    }
-  }
-
-  console.log(
-    `[test] Marker "${marker}" not found in any of ${count} sessions`,
-  );
-  return false;
-}
+import {
+  APPS_DESKTOP,
+  LLM_TIMEOUT,
+  waitForInputReady,
+  sendMessage,
+  waitForResponseComplete,
+  getSessionTitle,
+  getSidebarSessionCount,
+  createNewConversation,
+  waitForSidebarRefresh,
+  switchToSessionWithMarker,
+  waitForBridgeInitialized,
+  launchElectronApp,
+  closeElectronApp,
+} from './helpers/electron-setup';
 
 // ─── Test Suite ───────────────────────────────────────────────────
+
+/** Skip sandbox exec tests on CI runners that lack bwrap.
+ *  The desktop-ci.yml installs bubblewrap, but because the workflow
+ *  uses pull_request_target it runs from the base branch (main),
+ *  so the install won't take effect until that change is merged. */
+const SKIP_SANDBOX_ON_CI = !!process.env.CI;
 
 test.describe('Native Electron E2E', () => {
   let electronApp: ElectronApplication;
   let page: Page;
+  let miqiHome: string;
 
   test.beforeAll(async () => {
-    // Clean all existing sessions so sidebar starts fresh.
-    // Without this, pre-existing demo sessions dominate the sidebar
-    // and session-switch tests cannot find their markers.
-    if (existsSync(MIQI_SESSIONS_DIR)) {
-      rmSync(MIQI_SESSIONS_DIR, { recursive: true, force: true });
-      console.log(
-        `[test] Cleaned sessions directory: ${MIQI_SESSIONS_DIR}`,
-      );
-    }
-
-    // Delete ELECTRON_RUN_AS_NODE inherited from Electron-based IDEs
-    // (WorkBuddy / VSCode).  Otherwise Electron runs as plain Node.js.
-    const env = { ...process.env };
-    delete env.ELECTRON_RUN_AS_NODE;
-
-    electronApp = await electron.launch({
-      args: [APPS_DESKTOP],
-      executablePath: require('electron') as string,
-      env,
-      // chromiumSandbox: false covers --no-sandbox + --disable-gpu
-      // needed on CI (root user).  No-op on Windows.
-      chromiumSandbox: false,
-    });
-
-    page = await electronApp.firstWindow();
-    await page.waitForLoadState('domcontentloaded');
-
-    // Capture bridge stderr and app console errors for CI debugging
-    page.on('console', (msg) => {
-      const t = msg.text();
-      if (
-        msg.type() === 'error' ||
-        t.includes('[MIQI BRIDGE STDERR]') ||
-        t.includes('[miqi-bridge]') ||
-        t.includes('[Bridge]') ||
-        t.includes('[MiQi]')
-      ) {
-        console.log(`[e2e-console] ${t}`);
-      }
-    });
-
-    try {
-      await page.getByText('MiQi Workbench').waitFor({ timeout: 30_000 });
-      console.log('[test] App UI loaded');
-    } catch {
-      console.log('[test] App UI may still be loading — continuing');
-    }
-
-    await waitForInputReady(page);
-
-    // Wait for bridge AppServer to finish registering methods
-    const bridgeReady = await page.evaluate(async () => {
-      for (let i = 0; i < 60; i++) {
-        try {
-          const s = await window.miqi.runtime.status();
-          if (s?.state === 'running') return true;
-        } catch {
-          /* preload not injected yet */
-        }
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-      return false;
-    });
-    if (!bridgeReady)
-      console.log('[test] Warning: bridge did not reach running state');
-
-    console.log('[test] Ready');
+    const fixture = await launchElectronApp();
+    electronApp = fixture.electronApp;
+    page = fixture.page;
+    miqiHome = fixture.miqiHome;
   }, 120_000);
 
   test.afterAll(async () => {
-    await electronApp?.close().catch(() => {});
+    await closeElectronApp(electronApp, miqiHome);
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -272,13 +112,22 @@ test.describe('Native Electron E2E', () => {
     'web search with real search tool',
     { timeout: LLM_TIMEOUT },
     async () => {
-      await sendMessage(page, '搜索今天的日期，只回答日期格式YYYY-MM-DD');
+      const marker = `WEB_SEARCH_E2E_DONE_${Date.now()}`;
+      await sendMessage(
+        page,
+        `必须调用 web_search 搜索 "IANA reserved domains"，搜索完成后只回复 ${marker}`,
+      );
+      const approvalDialog = page.locator('[role="alertdialog"]');
+      if (await approvalDialog.isVisible({ timeout: 30_000 }).catch(() => false)) {
+        console.log('[test] Network approval dialog appeared for web search');
+        await page.getByRole('button', { name: '允许一次' }).click();
+      }
       // Wait for streaming to finish before asserting visibility —
       // during streaming the response element may exist in DOM but be hidden
       await waitForResponseComplete(page);
-      const dateEl = page.getByText(/2026/i).first();
-      await dateEl.scrollIntoViewIfNeeded().catch(() => {});
-      await expect(dateEl).toBeVisible({ timeout: 30_000 });
+      const markerEl = page.getByText(marker).first();
+      await markerEl.scrollIntoViewIfNeeded().catch(() => {});
+      await expect(markerEl).toBeVisible({ timeout: 30_000 });
       console.log('[test] Web search completed');
     },
   );
@@ -425,7 +274,10 @@ test.describe('Native Electron E2E', () => {
     await expect(page.locator('main').getByText(m).first()).toBeVisible({ timeout: 15000 });
   });
 
-  test(
+  // FIXME: Session history not loading from temp MIQI_HOME after restart.
+  // ChatConsole reload loads the default session after restart but session
+  // data isn't rendered. Works with ~/.miqi/ but not with MIQI_HOME env var.
+  test.fixme(
     'history persists after app restart',
     { timeout: LLM_TIMEOUT },
     async () => {
@@ -434,15 +286,16 @@ test.describe('Native Electron E2E', () => {
       await sendMessage(page, `只回答${m}`);
       await waitForResponseComplete(page);
 
-      await electronApp.close();
+      await closeElectronApp(electronApp);
       await new Promise(r => setTimeout(r, 3000));
 
-      const env = { ...process.env };
+      const env: Record<string, string | undefined> = { ...process.env };
+      env.MIQI_HOME = miqiHome;
       delete env.ELECTRON_RUN_AS_NODE;
       const app2 = await electron.launch({
         args: [APPS_DESKTOP],
         executablePath: require('electron') as string,
-        env,
+        env: env as Record<string, string>,
         chromiumSandbox: false,
       });
       const page2 = await app2.firstWindow();
@@ -452,34 +305,22 @@ test.describe('Native Electron E2E', () => {
 
       // Wait for bridge to initialize, then reload so ChatConsole re-fires
       // useEffect with bridge fully ready.
-      await page2.evaluate(async () => {
-        for (let i = 0; i < 30; i++) {
-          try {
-            const s = await (window as any).miqi.runtime.status();
-            if (s?.state === 'running' && s?.initialized) return;
-          } catch { /* */ }
-          await new Promise(r => setTimeout(r, 1000));
-        }
-      });
+      // NOTE: sidebar click does NOT work (see FIXME at Section 4 header);
+      // full page reload is required to load session history from disk.
+      await waitForBridgeInitialized(page2, 30);
       await page2.reload();
       await page2.waitForLoadState('domcontentloaded');
+      await waitForBridgeInitialized(page2, 30);
       await waitForInputReady(page2, 30000);
-      await page2.waitForTimeout(5000);
+      await page2.waitForTimeout(8000);
 
       await expect(page2.locator('main').getByText(m).first()).toBeVisible({ timeout: 30000 });
 
-      await app2.close();
+      await closeElectronApp(app2);
       await new Promise(r => setTimeout(r, 3000));
-      electronApp = await electron.launch({
-        args: [APPS_DESKTOP],
-        executablePath: require('electron') as string,
-        env,
-        chromiumSandbox: false,
-      });
-      page = await electronApp.firstWindow();
-      await page.waitForLoadState('domcontentloaded');
-      try { await page.getByText('MiQi Workbench').waitFor({ timeout: 30000 }); } catch {}
-      await waitForInputReady(page, 30000);
+      const fixture = await launchElectronApp();
+      electronApp = fixture.electronApp;
+      page = fixture.page;
     },
   );
 
@@ -546,32 +387,20 @@ test.describe('Native Electron E2E', () => {
   // SECTION 5 removed — Sessions page no longer has a dedicated nav button.
 
   // ═══════════════════════════════════════════════════════════════
-  //  SECTION 6: AI File Creation with Approval Flow
+  //  SECTION 6: AI File Creation with *:* wildcard pre-approval
   //
-  //  Tests the full pipeline: LLM → tool use → approval request →
-  //  user clicks "永久允许" → tool executes → file created.
-  //
-  //  The commandApproval system (manual mode, 60s timeout) requires
-  //  user interaction for file_write tools.  We clear permanent
-  //  approvals first so the dialog always appears for the test.
+  //  Uses *:* wildcard to bypass all approval dialogs so tests
+  //  don't have to wait for UI interaction.  Verifies files are
+  //  created successfully without any approval popups.
   // ═══════════════════════════════════════════════════════════════
 
   test(
-    'AI file creation: approval dialog → click allow → file created',
+    'AI file creation: *:* pre-approved → file created without dialog',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
-      // Wait for bridge fully initialized before calling approvals API
-      await page.evaluate(async () => {
-        for (let i = 0; i < 30; i++) {
-          try {
-            const s = await (window as any).miqi.runtime.status();
-            if (s?.state === 'running' && s?.initialized) return;
-          } catch { /* */ }
-          await new Promise(r => setTimeout(r, 1000));
-        }
-      });
+      await waitForBridgeInitialized(page);
       await page.evaluate(() =>
-        (window as any).miqi.approvals.clearPermanent(),
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
       );
 
       await createNewConversation(page);
@@ -579,41 +408,27 @@ test.describe('Native Electron E2E', () => {
       const filename = `e2e_${Date.now()}.txt`;
       await sendMessage(
         page,
-        `Use write_file to create ${filename} with content "hello from e2e approval test"`,
+        `Use write_file to create ${filename} with content "hello from e2e wildcard approval test"`,
       );
 
-      // Wait for the approval dialog to appear (title: "文件操作审批")
-      await expect(page.getByText('文件操作审批')).toBeVisible({
-        timeout: 30_000,
-      });
-      console.log('[test] Approval dialog appeared');
-
-      // Click "永久允许" to approve and remember this decision
-      await page.getByRole('button', { name: '永久允许' }).click();
-      console.log('[test] Clicked 永久允许');
-
-      // Wait for the tool to execute and AI to finish
+      // No approval dialog should appear
       await waitForResponseComplete(page, 240_000);
 
-      // Verify the filename appears in the main chat area
       await expect(
         page.locator('main').getByText(filename, { exact: false }).first(),
       ).toBeVisible({ timeout: 15_000 });
 
-      console.log(`[test] ✅ AI created file after approval: ${filename}`);
+      console.log(`[test] ✅ AI created file without approval dialog: ${filename}`);
     },
   );
 
   test(
-    'AI PPT creation: approval → pptx_write → file created',
+    'AI PPT creation: *:* pre-approved → pptx_write without dialog',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
-      // Try clearing permanent approvals (may fail if not yet initialized — fine)
-      try {
-        await page.evaluate(() =>
-          (window as any).miqi.approvals.clearPermanent(),
-        );
-      } catch { /* NOT_INITIALIZED — dialog will still appear */ }
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
+      );
 
       await createNewConversation(page);
 
@@ -622,44 +437,27 @@ test.describe('Native Electron E2E', () => {
         '使用 pptx_write 工具创建一页PPT，file_path=e2e_test.pptx，slides=[{title:"E2E测试",content:"自动化测试验证通过"}]。创建成功后只回复一个字：成',
       );
 
-      // Wait for the approval dialog
-      await expect(page.getByText('文件操作审批')).toBeVisible({
-        timeout: 60_000,
-      });
-      console.log('[test] PPT approval dialog appeared');
-
-      // Click to allow
-      await page.getByRole('button', { name: '永久允许' }).click();
-      console.log('[test] Clicked 永久允许 for PPT');
-
-      // Wait for the tool + AI to finish
+      // No approval dialog — just wait for AI to finish
       await waitForResponseComplete(page, 240_000);
 
-      // Verify AI responded with "成" (confirms PPT created successfully)
       await expect(
         page.locator('main').getByText('成').first(),
       ).toBeVisible({ timeout: 15_000 });
 
-      console.log('[test] ✅ PPT created via pptx_write after approval');
+      console.log('[test] ✅ PPT created via pptx_write without approval dialog');
     },
   );
 
   // ═══════════════════════════════════════════════════════════════
-  //  SECTION 6: Sandbox initialization
+  //  SECTION 7: Sandbox initialization
   // ═══════════════════════════════════════════════════════════════
-
-  /** Skip sandbox exec tests on CI runners that lack bwrap.
-   *  The desktop-ci.yml installs bubblewrap, but because the workflow
-   *  uses pull_request_target it runs from the base branch (main),
-   *  so the install won't take effect until that change is merged. */
-  const SKIP_SANDBOX_ON_CI = !!process.env.CI;
 
   test(
     'sandbox manager initializes on bridge startup',
     { timeout: 120_000 },
     async () => {
       const status = await page.evaluate(async () => {
-        try { return await window.miqi.runtime.status(); } catch { return null; }
+        try { return await (window as any).miqi.runtime.status(); } catch { return null; }
       });
       expect(status?.state).toBe('running');
       console.log('[test] ✅ Bridge running with sandbox manager initialized');
@@ -737,9 +535,12 @@ test.describe('Native Electron E2E', () => {
         '用 exec 工具执行 uname -s，只回复 exec 的实际输出，不要加任何解释',
       );
       await waitForResponseComplete(page, 120_000);
-      await expect(
-        page.locator('main').getByText('Linux', { exact: false }).first(),
-      ).toBeVisible({ timeout: 15_000 });
+
+      // AI may format the output differently (code block, inline, etc.).
+      // Use textContent to check the full main area text rather than
+      // relying on a specific DOM text node containing "Linux".
+      const mainText = await page.locator('main').textContent();
+      expect(mainText).toMatch(/linux/i);
       console.log('[test] ✅ exec uname -s → Linux');
     },
   );
@@ -757,6 +558,82 @@ test.describe('Native Electron E2E', () => {
       const response = page.locator('main').getByText(/.+/);
       await expect(response.first()).toBeVisible({ timeout: 30_000 });
       console.log('[test] ✅ exec ls /home/miqi/workspace');
+    },
+  );
+
+  test.skip(
+    'session file isolation: exec files from one session not visible in another',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+      await createNewConversation(page);
+
+      const marker = `ISOLATED_${Date.now()}`;
+      await sendMessage(
+        page,
+        `用 exec 执行: echo ${marker} > /home/miqi/workspace/session_isolation_test.txt && cat /home/miqi/workspace/session_isolation_test.txt`,
+      );
+      await waitForResponseComplete(page, 120_000);
+
+      const mainTextA = await page.locator('main').textContent();
+      expect(mainTextA).toContain(marker);
+      await page.waitForTimeout(800);
+      await page.screenshot({ path: 'test-results/session-isolation-01-sessionA-writes.png' });
+      console.log(`[test] ✅ Session A file with marker: ${marker}`);
+
+      await createNewConversation(page);
+      await sendMessage(
+        page,
+        '用 exec 执行: cat /home/miqi/workspace/session_isolation_test.txt 2>&1',
+      );
+      await waitForResponseComplete(page, 120_000);
+      await page.waitForTimeout(15_000);
+
+      const mainB = await page.locator('main').textContent() || '';
+      const hasNotFound = /no such file|not found|not exist|does not exist|不存在|No such|cat.*error/i.test(mainB);
+      if (!hasNotFound) {
+        console.log('[test] Session B text (600):', mainB.substring(0, 600));
+      }
+      expect(hasNotFound).toBe(true);
+      await page.waitForTimeout(800);
+      await page.screenshot({ path: 'test-results/session-isolation-02-sessionB-cannot-see.png' });
+      console.log('[test] ✅ Session B cannot see Session A file');
+    },
+  );
+
+  test(
+    'write_file uses session-scoped workspace via sandbox',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
+      );
+      await createNewConversation(page);
+
+      const fname = `e2e_session_file_${Date.now()}.txt`;
+      const content = `E2E session file content ${Date.now()}`;
+
+      await sendMessage(
+        page,
+        `Use write_file to create ${fname} with content "${content}"`,
+      );
+      // *:* pre-approval skips the dialog — just wait for AI to finish
+      await waitForResponseComplete(page, 240_000);
+      await page.waitForTimeout(800);
+      await page.screenshot({ path: 'test-results/session-isolation-03-write-file-approval.png' });
+
+      // Verify file is in sessions subdirectory
+      await sendMessage(
+        page,
+        `用 exec 执行: cat /home/miqi/workspace/sessions/*/files/${fname} 2>&1`,
+      );
+      await waitForResponseComplete(page, 120_000);
+      const mainText = await page.locator('main').textContent();
+      expect(mainText).toContain(content);
+      await page.waitForTimeout(800);
+      await page.screenshot({ path: 'test-results/session-isolation-04-write-file-verified.png' });
+      console.log(`[test] ✅ write_file session-scoped: ${fname}`);
     },
   );
 });

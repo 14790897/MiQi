@@ -266,6 +266,8 @@ async def test_filesystem_policy_for_write():
 _FILE_MUTATION_TOOL_NAMES = [
     "write_file", "edit_file", "delete_file",
     "docx_write", "pptx_write", "xlsx_write",
+    "create_docx", "create_pptx", "create_xlsx",
+    "edit_docx", "append_xlsx",
 ]
 
 
@@ -363,6 +365,20 @@ async def test_filesystem_policy_for_xlsx_write_includes_write_rule():
 
 
 @pytest.mark.asyncio
+async def test_filesystem_policy_for_create_docx_uses_final_suffix():
+    """create_docx auto-adds .docx, so the sandbox must allow the final path."""
+    from miqi.protocol.permissions import FileSystemAccessMode
+
+    engine = SandboxPolicyEngine()
+    ctx = FakeContext("create_docx", {"filename": "/tmp/report"})
+    selection = await engine.select(ctx)
+    assert len(selection.filesystem_policy.rules) >= 1
+    rule = selection.filesystem_policy.rules[0]
+    assert rule.path == "/tmp/report.docx"
+    assert rule.mode == FileSystemAccessMode.WRITE
+
+
+@pytest.mark.asyncio
 async def test_sandbox_denied_error_for_file_mutation_is_actionable():
     """Phase 34: SandboxDeniedError for file mutation must list actionable info."""
     engine = SandboxPolicyEngine(allow_fallback_to_none=True)
@@ -382,6 +398,8 @@ def test_file_mutation_tools_matches_policy_set():
     orch_set = frozenset({
         "write_file", "edit_file", "delete_file", "apply_patch",
         "docx_write", "pptx_write", "xlsx_write",
+        "create_docx", "create_pptx", "create_xlsx",
+        "edit_docx", "append_xlsx",
     })
     assert orch_set == SandboxPolicyEngine.FILE_MUTATION_TOOLS, (
         "Orchestrator's _FILE_MUTATION_TOOLS must match "

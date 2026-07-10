@@ -1,6 +1,7 @@
 """Tests for miqi.execution.permission_engine."""
 
 import pytest
+from miqi.config.schema import ApprovalBypassConfig
 from miqi.execution.permission_engine import (
     PermissionEngine,
     PermissionDecision,
@@ -23,11 +24,20 @@ async def test_read_only_tools_auto_allow():
 
 
 @pytest.mark.asyncio
-async def test_web_search_auto_allow():
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "target"),
+    [
+        ("web_search", {"query": "python"}, "python"),
+        ("web_fetch", {"url": "https://www.iana.org/domains/reserved"}, "https://www.iana.org/domains/reserved"),
+    ],
+)
+async def test_network_tools_require_approval(tool_name, arguments, target):
     engine = PermissionEngine()
-    ctx = FakeContext("web_search", {"query": "python"})
+    ctx = FakeContext(tool_name, arguments)
     decision = await engine.check(ctx)
-    assert decision.verdict == PermissionVerdict.ALLOW
+    assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
+    assert decision.category == "network"
+    assert decision.details["target"] == target
 
 
 @pytest.mark.asyncio
@@ -245,6 +255,57 @@ async def test_granular_keeps_prompt_for_untrusted_category(tmp_path):
     engine = PermissionEngine()
     d = await engine.check(_Ctx("write_file", {"path": str(tmp_path / "a.txt")}, profile))
     assert d.verdict == PermissionVerdict.APPROVAL_REQUIRED
+
+
+@pytest.mark.asyncio
+async def test_bypass_all_auto_allows_approval_required_exec():
+    engine = PermissionEngine(
+        approval_bypass=ApprovalBypassConfig(bypass_all=True),
+    )
+    d = await engine.check(FakeContext("exec", {"command": "rm -rf /tmp/test"}))
+    assert d.verdict == PermissionVerdict.ALLOW
+    assert d.reason == "Auto-approved by approval bypass"
+
+
+@pytest.mark.asyncio
+async def test_bypass_all_does_not_override_explicit_deny():
+    engine = PermissionEngine(
+        deny_patterns={"sudo"},
+        approval_bypass=ApprovalBypassConfig(bypass_all=True),
+    )
+    d = await engine.check(FakeContext("exec", {"command": "sudo rm -rf /tmp/test"}))
+    assert d.verdict == PermissionVerdict.DENY
+
+
+@pytest.mark.asyncio
+async def test_file_write_bypass_only_allows_file_write():
+    engine = PermissionEngine(
+        approval_bypass=ApprovalBypassConfig(bypass_file_write_approval=True),
+    )
+    file_decision = await engine.check(FakeContext("write_file", {"path": "/tmp/a.txt"}))
+    exec_decision = await engine.check(FakeContext("exec", {"command": "rm -rf /tmp/test"}))
+    assert file_decision.verdict == PermissionVerdict.ALLOW
+    assert exec_decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
+
+
+@pytest.mark.asyncio
+async def test_tool_confirmation_bypass_allows_real_tool_confirmation():
+    engine = PermissionEngine(
+        approval_bypass=ApprovalBypassConfig(bypass_tool_confirmation=True),
+    )
+    d = await engine.check(FakeContext("message", {"content": "hello"}))
+    assert d.verdict == PermissionVerdict.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_network_bypass_only_allows_network_tools():
+    engine = PermissionEngine(
+        approval_bypass=ApprovalBypassConfig(bypass_network_approval=True),
+    )
+    d = await engine.check(FakeContext("web_search", {"query": "python"}))
+    exec_decision = await engine.check(FakeContext("exec", {"command": "rm -rf /tmp/test"}))
+    assert d.verdict == PermissionVerdict.ALLOW
+    assert exec_decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
 
 
 @pytest.mark.asyncio

@@ -3,9 +3,11 @@ import { RuntimeProvider, useRuntime } from './contexts/RuntimeContext';
 import { TooltipProvider } from './components/ui/Tooltip';
 import { Sidebar } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
+import { TopBar } from './components/TopBar';
+import { ApprovalBypassBanner } from './components/ApprovalBypassBanner';
 import { SetupWizard } from './features/setup/SetupWizard';
 import { ChatConsole } from './features/chat/ChatConsole';
-import { SettingsPage } from './features/settings/SettingsPage';
+import { SettingsPage, type SettingsTab } from './features/settings/SettingsPage';
 import { MCPsPage } from './features/mcps/MCPsPage';
 import { ApprovalProvider } from './contexts/ApprovalContext';
 import { RestartRequiredProvider } from './contexts/RestartRequiredContext';
@@ -56,6 +58,7 @@ function AppShell() {
   const [runtimeReadyKey, setRuntimeReadyKey] = useState(0);
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
   const [canSkipSetup, setCanSkipSetup] = useState(false); // true when re-running wizard from settings
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
 
   // Persist last active session so the app restores it on next launch
   useEffect(() => {
@@ -112,6 +115,11 @@ function AppShell() {
     const newKey = `desktop:${Date.now()}`;
     setSessionKey(newKey);
     setSessionRefreshKey((k) => k + 1);
+  };
+
+  const openApprovalSettings = () => {
+    setSettingsTab('approvals');
+    setActiveNav('settings');
   };
 
   // Loading state
@@ -216,6 +224,8 @@ function AppShell() {
         <ApprovalProvider>
           {/* Full-height flex column */}
           <div className="flex flex-col h-screen" style={{ background: 'var(--background)' }}>
+            <TopBar onOpenApprovals={openApprovalSettings} />
+            <ApprovalBypassBanner onOpenApprovals={openApprovalSettings} />
             {/* Body row */}
             <div className="flex flex-1 overflow-hidden">
               <Sidebar
@@ -225,7 +235,10 @@ function AppShell() {
                   setActiveNav('chat');
                   setSessionRefreshKey((k) => k + 1);
                 }}
-                onNavChange={(id) => setActiveNav(id as NavId)}
+                onNavChange={(id) => {
+                  if (id === 'settings') setSettingsTab('general');
+                  setActiveNav(id as NavId);
+                }}
                 refreshKey={sessionRefreshKey + runtimeReadyKey * 100000}
                 onNewSession={handleNewSession}
               />
@@ -248,6 +261,10 @@ function AppShell() {
                       setSessionRefreshKey((k) => k + 1);
                     }}
                     onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
+                    onOpenProviderSettings={() => {
+                      setSettingsTab('providers');
+                      setActiveNav('settings');
+                    }}
                   />
                 </div>
                 {activeNav === 'workspace' && <WorkspacePage />}
@@ -272,6 +289,7 @@ function AppShell() {
                 )}
                 {activeNav === 'settings' && (
                   <SettingsPage
+                    tab={settingsTab}
                     onReopenSetup={() => {
                       setCanSkipSetup(true);
                       setNeedsSetup(true);

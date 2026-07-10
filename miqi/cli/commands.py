@@ -360,17 +360,17 @@ def _interactive_onboard_setup(config) -> tuple[str, str]:
 
     console.print("\n[bold]2) Configure web search & fetch tools[/bold]")
     console.print("  Search provider options:")
-    console.print("    1. Brave")
-    console.print("    2. Ollama web_search")
-    console.print("    3. Hybrid (Brave first, fallback to Ollama)")
+    console.print("    1. DuckDuckGo (ddgs, default, no API key)")
+    console.print("    2. Brave Search")
+    console.print("    3. Hybrid (ddgs first, fallback to Brave)")
     search_mode = typer.prompt("Search mode", type=int, default=1, show_default=True)
 
     if search_mode == 2:
-        config.tools.web.search.provider = "ollama"
+        config.tools.web.search.provider = "brave"
     elif search_mode == 3:
         config.tools.web.search.provider = "hybrid"
     else:
-        config.tools.web.search.provider = "brave"
+        config.tools.web.search.provider = "ddgs"
 
     if config.tools.web.search.provider in {"brave", "hybrid"}:
         brave_key = typer.prompt("Brave Search API key", default="", show_default=False).strip()
@@ -379,47 +379,6 @@ def _interactive_onboard_setup(config) -> tuple[str, str]:
             console.print("[yellow]Brave key not set: Brave search may be unavailable.[/yellow]")
     else:
         config.tools.web.search.api_key = ""
-
-    if config.tools.web.search.provider in {"ollama", "hybrid"}:
-        default_ollama_base = (
-            config.providers.ollama_cloud.api_base
-            if config.providers.ollama_cloud.api_base
-            else "https://ollama.com"
-        )
-        default_ollama_key = config.providers.ollama_cloud.api_key or ""
-
-        config.tools.web.search.ollama_api_base = typer.prompt(
-            "Ollama web_search base URL",
-            default=default_ollama_base,
-            show_default=True,
-        ).strip()
-
-        if default_ollama_key:
-            use_provider_key = typer.confirm(
-                "Reuse providers.ollamaCloud.apiKey for Ollama web_search?",
-                default=True,
-            )
-            if use_provider_key:
-                config.tools.web.search.ollama_api_key = default_ollama_key
-            else:
-                config.tools.web.search.ollama_api_key = typer.prompt(
-                    "Ollama web_search API key",
-                    default="",
-                    show_default=False,
-                ).strip()
-        else:
-            config.tools.web.search.ollama_api_key = typer.prompt(
-                "Ollama web_search API key",
-                default="",
-                show_default=False,
-            ).strip()
-
-        if not config.tools.web.search.ollama_api_key:
-            console.print(
-                "[yellow]Ollama API key not set: Ollama web_search may be unavailable.[/yellow]"
-            )
-    else:
-        config.tools.web.search.ollama_api_key = ""
 
     console.print("\n  Fetch provider options:")
     console.print("    1. Built-in web_fetch (default)")
@@ -435,8 +394,8 @@ def _interactive_onboard_setup(config) -> tuple[str, str]:
         config.tools.web.fetch.provider = "builtin"
 
     if config.tools.web.fetch.provider in {"ollama", "hybrid"}:
-        default_fetch_base = config.tools.web.search.ollama_api_base or "https://ollama.com"
-        default_fetch_key = config.tools.web.search.ollama_api_key or ""
+        default_fetch_base = config.tools.web.fetch.ollama_api_base or "https://ollama.com"
+        default_fetch_key = config.tools.web.fetch.ollama_api_key or ""
         config.tools.web.fetch.ollama_api_base = typer.prompt(
             "Ollama web_fetch base URL",
             default=default_fetch_base,
@@ -444,11 +403,11 @@ def _interactive_onboard_setup(config) -> tuple[str, str]:
         ).strip()
 
         if default_fetch_key:
-            use_search_key = typer.confirm(
-                "Reuse Ollama web_search API key for web_fetch?",
+            keep_fetch_key = typer.confirm(
+                "Keep existing Ollama web_fetch API key?",
                 default=True,
             )
-            if use_search_key:
+            if keep_fetch_key:
                 config.tools.web.fetch.ollama_api_key = default_fetch_key
             else:
                 config.tools.web.fetch.ollama_api_key = typer.prompt(

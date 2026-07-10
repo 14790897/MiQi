@@ -9,7 +9,11 @@
 export interface MockBridgeOptions {
   runtimeStatus?: 'stopped' | 'running' | 'starting';
   sessions?: Array<{ key: string; title: string; updated_at: number; message_count: number }>;
+  sessionMessages?: Record<string, unknown[]>;
   preloadOk?: boolean;
+  providers?: Array<Record<string, unknown>>;
+  activeModel?: string;
+  activeProvider?: string | null;
 }
 
 export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
@@ -17,19 +21,37 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   const preloadOk = opts.preloadOk !== false;
   const initialSessions = opts.sessions || [
     { key: 'sess-001', title: 'Test conversation 1', updated_at: Date.now(), message_count: 5 },
-    { key: 'sess-002', title: 'Test conversation 2', updated_at: Date.now() - 3600000, message_count: 3 },
+    {
+      key: 'sess-002',
+      title: 'Test conversation 2',
+      updated_at: Date.now() - 3600000,
+      message_count: 3,
+    },
   ];
   const sessionsJson = JSON.stringify(initialSessions);
+  const sessionMessagesJson = JSON.stringify(opts.sessionMessages || {});
+  const providersJson = JSON.stringify(opts.providers || []);
+  const activeModelJson = JSON.stringify(opts.activeModel || '');
+  const activeProviderJson = JSON.stringify(opts.activeProvider ?? null);
 
   return `
 (function() {
   if (typeof window === 'undefined') return;
   if (!${preloadOk}) return;
 
+  // Polyfill requestAnimationFrame with setTimeout so the ChatConsole
+  // typewriter animation completes instantly in headless Playwright.
+  // In idle / background pages, native rAF can be throttled to 1 fps
+  // or stopped entirely, causing expect(...).toBeVisible() timeouts.
+  window._requestAnimationFrame = window.requestAnimationFrame;
+  window._cancelAnimationFrame = window.cancelAnimationFrame;
+  window.requestAnimationFrame = function(fn) { return setTimeout(fn, 0); };
+  window.cancelAnimationFrame = function(id) { clearTimeout(id); };
+
   var noop = function() { return function() {}; };
 
   // ── Interactive helpers ──────────────────────────────────────────
-  var _callbacks = { progress: [], final: [], error: [], aborted: [] };
+  var _callbacks = { progress: [], final: [], error: [], aborted: [], log: [] };
 
   function _on(type, cb) {
     _callbacks[type].push(cb);
@@ -42,6 +64,15 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
     _callbacks[type].forEach(function(f) { try { f(data); } catch(e) {} });
   }
 
+  // ── Mock log data ────────────────────────────────────────────────
+  var _mockLogs = [
+    '[2026-07-07T10:00:00.000Z] [INFO] [bridge] Bridge process started',
+    '[2026-07-07T10:00:01.000Z] [INFO] [bridge] Agent ready',
+    '[2026-07-07T10:00:02.000Z] [INFO] [renderer] Runtime context initialized',
+    '[2026-07-07T10:00:05.000Z] [WARN] [bridge] Slow IPC response: sessions.list (850ms)',
+    '[2026-07-07T10:00:10.000Z] [ERROR] [sandbox] Sandbox timeout after 30s',
+  ];
+
   // ── window.miqi ──────────────────────────────────────────────────
 
   window.miqi = {
@@ -49,9 +80,16 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       start: function() { return Promise.resolve({ state: 'running', pid: 12345 }); },
       stop: function() { return Promise.resolve({ state: 'stopped', pid: 0 }); },
       status: function() { return Promise.resolve({ state: '${runtimeStatus}', pid: ${runtimeStatus === 'running' ? 12345 : 0} }); },
-      logs: function() { return Promise.resolve(['[miqi-bridge] Bridge started', '[miqi-bridge] Agent ready']); },
+      logs: function() { return Promise.resolve(_mockLogs.slice()); },
       onStateChange: noop,
-      onLog: noop,
+      onLog: function(cb) { return _on('log', cb); },
+      reportRendererLog: function(entry) {
+        // Simulate renderer log by also firing the log callback
+        if (entry && entry.message) {
+          var msg = '[' + new Date().toISOString() + '] [' + (entry.level || 'INFO') + '] [' + (entry.source || 'renderer') + '] ' + entry.message;
+          setTimeout(function() { _fire('log', msg); }, 0);
+        }
+      },
     },
 
     chat: {
@@ -78,11 +116,12 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       list: function() { return Promise.resolve({ sessions: ${sessionsJson} }); },
       get: function(key) {
         var sessions = ${sessionsJson};
+        var sessionMessages = ${sessionMessagesJson};
         var found = null;
         for (var i = 0; i < sessions.length; i++) {
           if (sessions[i].key === key) { found = sessions[i]; break; }
         }
-        return Promise.resolve({ key: key, title: found ? found.title : key, messages: [], tracked_files: [] });
+        return Promise.resolve({ key: key, title: found ? found.title : key, messages: sessionMessages[key] || [], tracked_files: [] });
       },
       delete: function() { return Promise.resolve({ deleted: true }); },
       archive: function() { return Promise.resolve({ archived: true }); },
@@ -118,7 +157,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
     },
 
     providers: {
-      list: function() { return Promise.resolve([]); },
+      list: function() { return Promise.resolve({ providers: ${providersJson}, active_model: ${activeModelJson}, active_provider: ${activeProviderJson} }); },
       test: function() { return Promise.resolve({ ok: true }); },
       update: function() { return Promise.resolve({ ok: true }); },
     },
@@ -225,6 +264,11 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       }, 50);
     },
 
+    /** Fire a final event immediately, without adding mock progress. */
+    rawFinal: function(content) {
+      _fire('final', { content: content });
+    },
+
     /** Simulate a backend error */
     error: function(message) {
       _fire('error', { message: message || 'Mock backend error' });
@@ -244,9 +288,21 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       });
     },
 
+    /**
+     * Simulate a real-time log event from the backend.
+     * The RuntimeContext's onLog callback will receive this string and
+     * parse it into a structured RuntimeLogEntry.
+     */
+    triggerLog: function(message, level, source) {
+      var ts = new Date().toISOString();
+      var lvl = level || 'INFO';
+      var src = source || 'bridge';
+      _fire('log', '[' + ts + '] [' + lvl + '] [' + src + '] ' + message);
+    },
+
     /** Clear all registered callbacks */
     reset: function() {
-      _callbacks = { progress: [], final: [], error: [], aborted: [] };
+      _callbacks = { progress: [], final: [], error: [], aborted: [], log: [] };
     },
   };
 

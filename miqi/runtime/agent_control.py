@@ -6,6 +6,8 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from miqi.runtime.workspace_logging import append_workspace_log
 from typing import Any
 
 from loguru import logger
@@ -229,6 +231,38 @@ class AgentControl:
             self._agents[agent_id] = agent
             self._thread_agents[fork_thread_id] = agent_id
 
+        if self._store is not None:
+            self._store.add_edge(
+                parent_agent_id=source_agent_id,
+                child_agent_id=agent_id,
+                child_thread_id=fork_thread_id,
+            )
+
+        # Emit spawned event for forked agent
+        await self._events.emit(SubAgentSpawnedEvent(
+            parent_turn_id=source_thread_id,
+            sub_agent_id=agent_id,
+            sub_thread_id=fork_thread_id,
+            agent_type=fork_type,
+            task_label=f"fork from {source_thread_id}",
+        ))
+
+        # Fire sub-agent lifecycle start hook
+        if self._hooks is not None:
+            await self._hooks.run(
+                HookPoint.SUBAGENT_START,
+                LifecycleHookContext(
+                    hook_point=HookPoint.SUBAGENT_START,
+                    data={
+                        "agent_id": agent_id,
+                        "thread_id": fork_thread_id,
+                        "agent_type": fork_type,
+                        "task": f"fork from {source_thread_id}",
+                        "parent_agent_id": source_agent_id,
+                    },
+                ),
+            )
+
         logger.info(
             "Forked thread {} → {} (type: {})",
             source_thread_id, fork_thread_id, fork_type,
@@ -370,8 +404,23 @@ class AgentControl:
             # Only transition if not already in THINKING (spawn may have pre-set it)
             if agent.state.current != AgentStatus.THINKING:
                 agent.state.transition(AgentStatus.THINKING)
+            # Inject session workspace info so the AI knows where its files live
+            _sess_key = "".join(
+                c if c.isalnum() or c in "_-" else "_"
+                for c in self.session_id.split(":", 1)[-1]
+            )
+            _session_context = (
+                f"\n\n## File Isolations（重要：目录说明）\n"
+                f"每个会话有独立的文件目录，互不干扰：\n"
+                f"  pwd / exec 目录: /home/miqi/workspace (共享宿主机根)\n"
+                f"  文件工具目录: {self.workspace / 'sessions' / _sess_key / 'files'}\n"
+                f"\n"
+                f"write_file / read_file 操作均走文件工具目录。\n"
+                f"回答保存位置时用文件工具目录，别用 pwd 结果。\n"
+                f"MIQI_SESSION_KEY={self.session_id}"
+            )
             agent.messages = [
-                {"role": "system", "content": agent.metadata.system_prompt},
+                {"role": "system", "content": agent.metadata.system_prompt + _session_context},
                 {"role": "user", "content": task},
             ]
 
@@ -431,6 +480,7 @@ class AgentControl:
                         )
 
                     tool_call_dicts = []
+                    tool_results: list[str] = []
                     for tc in response.tool_calls:
                         tools_used.append(tc.name)
 
@@ -466,6 +516,26 @@ class AgentControl:
                         success = ctx.status == OrchestrationResult.SUCCESS
                         duration = ctx.duration_ms
 
+                        # Log tool call to workspace for debugging / audit
+                        session_key = ":".join(
+                            filter(None, (ctx.client_id, ctx.session_id))
+                        ) or None
+                        log_level = "INFO" if success else "ERROR"
+                        args_preview = json.dumps(tc.arguments, ensure_ascii=False)[:500]
+                        result_preview = (result or "")[:200]
+                        append_workspace_log(
+                            self.workspace,
+                            (
+                                f"tool_call [{tc.name}] success={success} "
+                                f"duration={duration}ms session={session_key}\n"
+                                f"  args: {args_preview}\n"
+                                f"  result: {result_preview}"
+                            ),
+                            level=log_level,
+                            source="tool",
+                            session_key=session_key,
+                        )
+
                         # Emit tool end event
                         preview = (result or "")[:200]
                         await self._events.emit(ToolCallEndEvent(
@@ -477,6 +547,9 @@ class AgentControl:
                             output_size=len(result or ""),
                             duration_ms=duration,
                         ))
+
+                        # Accumulate result for message history
+                        tool_results.append(result or "")
 
                         # Build tool call dict for message history
                         tool_call_dicts.append({
@@ -593,22 +666,32 @@ class AgentControl:
         finally:
             # Phase 51.3: fire sub-agent lifecycle end hook on every completion path.
             if self._hooks is not None:
-                await self._hooks.run(
-                    HookPoint.SUBAGENT_END,
-                    LifecycleHookContext(
-                        hook_point=HookPoint.SUBAGENT_END,
-                        data={
-                            "agent_id": agent.agent_id,
-                            "thread_id": agent.thread_id,
-                            "status": agent.state.current.value,
-                        },
-                    ),
-                )
+                try:
+                    await self._hooks.run(
+                        HookPoint.SUBAGENT_END,
+                        LifecycleHookContext(
+                            hook_point=HookPoint.SUBAGENT_END,
+                            data={
+                                "agent_id": agent.agent_id,
+                                "thread_id": agent.thread_id,
+                                "status": agent.state.current.value,
+                            },
+                        ),
+                    )
+                except Exception:
+                    logger.exception(
+                        "SUBAGENT_END hook failed for agent {}",
+                        agent.agent_id,
+                    )
 
     @staticmethod
     def _format_tool_hint(name: str, args: dict) -> str:
         """Format a tool call as a concise display hint."""
-        val = next(iter(args.values()), "") if args else ""
+        val = ""
+        if args:
+            val = args.get("path") or args.get("file_path") or args.get("filename")
+            if val is None:
+                val = next(iter(args.values()), "")
         if not isinstance(val, str):
             return name
         if len(val) > 50:
