@@ -80,8 +80,8 @@ test.describe('Session Key Path Mapping E2E', () => {
     },
   );
 
-  test.skip(
-    '02: write_file in session A — not visible in session B via exec find',
+  test(
+    '02: write_file in session A — file visible via read_file in session A only',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
       test.skip(SKIP_SANDBOX_ON_CI, 'CI lacks bwrap');
@@ -93,17 +93,16 @@ test.describe('Session Key Path Mapping E2E', () => {
       expect((await page.locator('main').textContent()) || '').toContain('DONE2');
       console.log('[test] ✅ Session A wrote file via write_file');
 
-      // ── Session B: find in workspace ──
+      // ── Session B: try read_file ──
       await createNewConversation(page);
-      await sendAndWait(page, `用 exec 执行: find /home/miqi/workspace/sessions -name "${fnameA}" 2>&1; echo EXIT:$?`, 120_000);
+      await sendAndWait(page, `Use read_file to read ${fnameA}. Reply with file content or "NOT FOUND"`, 120_000);
       const respB = (await page.locator('main').textContent()) || '';
-      // Session B's session dir shouldn't contain Session A's file
-      expect(respB).not.toContain(fnameA);
-      console.log('[test] ✅ Session B cannot find Session A file in its session dir');
+      expect(respB).not.toContain('test2');
+      console.log('[test] ✅ Session B isolated from Session A file');
     },
   );
 
-  test.skip(
+  test(
     '03: same-named file independently via write_file in two sessions',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
