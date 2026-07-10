@@ -24,11 +24,20 @@ async def test_read_only_tools_auto_allow():
 
 
 @pytest.mark.asyncio
-async def test_web_search_auto_allow():
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "target"),
+    [
+        ("web_search", {"query": "python"}, "python"),
+        ("web_fetch", {"url": "https://www.iana.org/domains/reserved"}, "https://www.iana.org/domains/reserved"),
+    ],
+)
+async def test_network_tools_require_approval(tool_name, arguments, target):
     engine = PermissionEngine()
-    ctx = FakeContext("web_search", {"query": "python"})
+    ctx = FakeContext(tool_name, arguments)
     decision = await engine.check(ctx)
-    assert decision.verdict == PermissionVerdict.ALLOW
+    assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
+    assert decision.category == "network"
+    assert decision.details["target"] == target
 
 
 @pytest.mark.asyncio
@@ -280,12 +289,23 @@ async def test_file_write_bypass_only_allows_file_write():
 
 
 @pytest.mark.asyncio
-async def test_tool_confirmation_bypass_allows_unknown_tool():
+async def test_tool_confirmation_bypass_allows_real_tool_confirmation():
     engine = PermissionEngine(
         approval_bypass=ApprovalBypassConfig(bypass_tool_confirmation=True),
     )
-    d = await engine.check(FakeContext("custom_tool", {"value": 1}))
+    d = await engine.check(FakeContext("message", {"content": "hello"}))
     assert d.verdict == PermissionVerdict.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_network_bypass_only_allows_network_tools():
+    engine = PermissionEngine(
+        approval_bypass=ApprovalBypassConfig(bypass_network_approval=True),
+    )
+    d = await engine.check(FakeContext("web_search", {"query": "python"}))
+    exec_decision = await engine.check(FakeContext("exec", {"command": "rm -rf /tmp/test"}))
+    assert d.verdict == PermissionVerdict.ALLOW
+    assert exec_decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
 
 
 @pytest.mark.asyncio

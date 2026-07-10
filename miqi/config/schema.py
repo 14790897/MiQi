@@ -275,6 +275,8 @@ class ApprovalBypassConfig(Base):
             return self.bypass_file_write_approval
         if category == "network":
             return self.bypass_network_approval
+        if category == "tool_confirmation":
+            return self.bypass_tool_confirmation
         return self.bypass_tool_confirmation
 
 
