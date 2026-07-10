@@ -24,15 +24,19 @@ export function StatusBar() {
     setRestartError(null);
     try {
       await stop();
-      await new Promise((r) => setTimeout(r, 800));
       const result = await start();
       if (result?.state === 'running') {
         clearRestartRequired();
       } else if (result) {
-        setRestartError(`Runtime is ${result.state}`);
+        setRestartError(`运行时状态：${result.state}`);
       }
     } catch (err: unknown) {
-      setRestartError(err instanceof Error ? err.message : 'Restart failed');
+      const message = err instanceof Error ? err.message : String(err);
+      setRestartError(
+        message.includes('Bridge not running')
+          ? '运行时正在重启，请稍后再试。'
+          : '重启失败，请稍后再试或重新打开应用。'
+      );
     } finally {
       setRestarting(false);
     }

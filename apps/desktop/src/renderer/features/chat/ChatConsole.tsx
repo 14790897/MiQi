@@ -69,12 +69,25 @@ function isMissingProviderConfigMessage(message: string) {
   return normalized.includes('no api key configured');
 }
 
-function createProviderConfigMessage(): Message {
+function isProviderConfigurationProblem(message: string) {
+  const normalized = message.toLowerCase();
+  return (
+    isMissingProviderConfigMessage(message) ||
+    normalized.includes('模型服务认证失败') ||
+    normalized.includes('authentication') ||
+    normalized.includes('invalid api key') ||
+    normalized.includes('api key') ||
+    normalized.includes('api base') ||
+    normalized.includes('当前模型配置')
+  );
+}
+
+function createProviderConfigMessage(content?: string): Message {
   return {
     role: 'error',
-    content: '尚未配置模型服务。请先配置 Provider/API Key 后再发送消息。',
+    content: content || '尚未配置模型服务。请先配置 Provider/API Key 后再发送消息。',
     action: 'open-provider-settings',
-    actionLabel: '配置 Provider',
+    actionLabel: '去配置模型',
     timestamp: Date.now(),
   };
 }
@@ -665,7 +678,7 @@ export function ChatConsole({
     setCurrentReqId(null);
     setMessages((prev) => [
       ...prev,
-      { role: 'progress', content: 'Aborted.', timestamp: Date.now() },
+      { role: 'progress', content: '已停止。', timestamp: Date.now() },
     ]);
   }, [cleanupListeners, currentReqId]);
 
@@ -751,6 +764,7 @@ export function ChatConsole({
     let displayed = '';
     let animId: number | null = null;
     let finalDone = false;
+    let streamErrorHandled = false;
 
     // Reveal the assistant reply with a typewriter animation. The bubble is
     // created lazily — only once the first chunk of content is available — so
@@ -960,12 +974,14 @@ export function ChatConsole({
     });
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
+      streamErrorHandled = true;
       if (animId !== null) cancelAnimationFrame(animId);
+      const message = sanitizeUiMessage(data.message);
       setMessages((prev) => [
         ...prev,
-        isMissingProviderConfigMessage(data.message)
-          ? createProviderConfigMessage()
-          : { role: 'error', content: data.message, timestamp: Date.now() },
+        isProviderConfigurationProblem(message)
+          ? createProviderConfigMessage(message)
+          : { role: 'error', content: message, timestamp: Date.now() },
       ]);
       setStreaming(false);
       sendCleanup();
@@ -978,7 +994,7 @@ export function ChatConsole({
       setCurrentReqId(null);
       setMessages((prev) => [
         ...prev,
-        { role: 'progress', content: 'Aborted.', timestamp: Date.now() },
+        { role: 'progress', content: '已停止。', timestamp: Date.now() },
       ]);
       sendCleanup();
     });
@@ -1022,19 +1038,24 @@ export function ChatConsole({
       await window.miqi.chat.send(content, key, threadId ?? undefined);
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
+      if (streamErrorHandled) {
+        setStreaming(false);
+        sendCleanup();
+        cleanupListeners();
+        return;
+      }
       const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? 'Unknown error'));
-      const detail = `chat.send failed: ${errMsg}`;
-      if (isMissingProviderConfigMessage(errMsg)) {
-        setMessages((prev) => [...prev, createProviderConfigMessage()]);
+      if (isProviderConfigurationProblem(errMsg)) {
+        setMessages((prev) => [...prev, createProviderConfigMessage(errMsg)]);
       } else if (e?.code) {
         setMessages((prev) => [
           ...prev,
-          { role: 'error' as const, content: `${detail} (code: ${e.code})`, timestamp: Date.now() },
+          { role: 'error' as const, content: errMsg, timestamp: Date.now() },
         ]);
       } else {
         setMessages((prev) => [
           ...prev,
-          { role: 'error' as const, content: detail, timestamp: Date.now() },
+          { role: 'error' as const, content: errMsg, timestamp: Date.now() },
         ]);
       }
       setStreaming(false);
@@ -1069,7 +1090,10 @@ export function ChatConsole({
     }
     try {
       const result = await window.miqi.files.read(path);
-      setPreviewFile({ path, content: result.content });
+      setPreviewFile({
+        path,
+        content: result.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
+      });
     } catch {
       setPreviewFile({ path, content: `(Could not read file: ${path})` });
     }
@@ -1117,7 +1141,10 @@ export function ChatConsole({
         // Refresh preview if open
         if (previewFile?.path === diffFile.path) {
           const content = await window.miqi.files.read(diffFile.path);
-          setPreviewFile({ path: diffFile.path, content: content.content });
+          setPreviewFile({
+            path: diffFile.path,
+            content: content.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
+          });
         }
       }
     } catch {
