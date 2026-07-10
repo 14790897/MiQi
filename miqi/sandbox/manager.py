@@ -63,6 +63,7 @@ class SandboxManager:
         wsl_distro: str = "",
         wsl_base_dir: str = "/tmp/miqi-sandboxes",
         sandbox_distro_name: str = "AIShadowSandbox",
+        auto_install_deps: bool = True,
     ):
         self.workspace = workspace
         self.sandbox_base_dir = sandbox_base_dir or workspace / "sandboxes"
@@ -73,6 +74,7 @@ class SandboxManager:
         self.wsl_distro = wsl_distro
         self.wsl_base_dir = wsl_base_dir
         self.sandbox_distro_name = sandbox_distro_name
+        self.auto_install_deps = auto_install_deps
 
         self._sandboxes: dict[str, BwrapSandbox] = {}
         self._active_key: str | None = None
@@ -238,7 +240,10 @@ class SandboxManager:
             self._initialized = True
             return False
 
-        available = await BwrapSandbox.is_available(wsl_distro=self.wsl_distro)
+        available = await BwrapSandbox.is_available(
+            wsl_distro=self.wsl_distro,
+            auto_install_deps=self.auto_install_deps,
+        )
         if not available:
             logger.warning(
                 "bwrap not found — sandbox isolation is NOT available. "
@@ -293,7 +298,10 @@ class SandboxManager:
             return None
 
         # Check bwrap availability on first create
-        if not await BwrapSandbox.is_available(wsl_distro=self.wsl_distro):
+        if not await BwrapSandbox.is_available(
+            wsl_distro=self.wsl_distro,
+            auto_install_deps=self.auto_install_deps,
+        ):
             return None
 
         sandbox_key = self._sandbox_key(session_key, client_id=client_id)
@@ -327,6 +335,7 @@ class SandboxManager:
             wsl_distro=self.wsl_distro,
             wsl_base_dir=self.wsl_base_dir,
             sandbox_distro_name=self.sandbox_distro_name,
+            auto_install_deps=self.auto_install_deps,
         )
 
         try:
