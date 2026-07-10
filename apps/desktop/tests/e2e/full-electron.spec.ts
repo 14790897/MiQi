@@ -43,15 +43,17 @@ const SKIP_STATEFUL_SESSION_E2E_ON_CI =
 test.describe('Native Electron E2E', () => {
   let electronApp: ElectronApplication;
   let page: Page;
+  let miqiHome: string;
 
   test.beforeAll(async () => {
     const fixture = await launchElectronApp();
     electronApp = fixture.electronApp;
     page = fixture.page;
+    miqiHome = fixture.miqiHome;
   }, 120_000);
 
   test.afterAll(async () => {
-    await closeElectronApp(electronApp);
+    await closeElectronApp(electronApp, miqiHome);
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -306,12 +308,13 @@ test.describe('Native Electron E2E', () => {
       await closeElectronApp(electronApp);
       await new Promise(r => setTimeout(r, 3000));
 
-      const env = { ...process.env };
+      const env: Record<string, string | undefined> = { ...process.env };
+      env.MIQI_HOME = miqiHome;
       delete env.ELECTRON_RUN_AS_NODE;
       const app2 = await electron.launch({
         args: [APPS_DESKTOP],
         executablePath: require('electron') as string,
-        env,
+        env: env as Record<string, string>,
         chromiumSandbox: false,
       });
       const page2 = await app2.firstWindow();
