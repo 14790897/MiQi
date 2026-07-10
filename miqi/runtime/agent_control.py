@@ -404,8 +404,21 @@ class AgentControl:
             # Only transition if not already in THINKING (spawn may have pre-set it)
             if agent.state.current != AgentStatus.THINKING:
                 agent.state.transition(AgentStatus.THINKING)
+            # Inject session workspace info so the AI knows where its files live
+            _sess_key = "".join(
+                c if c.isalnum() or c in "_-" else "_"
+                for c in self.session_id.split(":", 1)[-1]
+            )
+            _session_context = (
+                f"\n\n## Session Workspace\n"
+                f"Your per-session workspace is: {self.workspace / 'sessions' / _sess_key / 'files'}\n"
+                f"- Files you create go to this directory automatically.\n"
+                f"- Use relative paths (e.g. 'output.docx') — they resolve here.\n"
+                f"- Other sessions have their own isolated directories.\n"
+                f"- env: MIQI_SESSION_KEY={self.session_id}"
+            )
             agent.messages = [
-                {"role": "system", "content": agent.metadata.system_prompt},
+                {"role": "system", "content": agent.metadata.system_prompt + _session_context},
                 {"role": "user", "content": task},
             ]
 
