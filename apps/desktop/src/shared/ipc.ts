@@ -650,8 +650,11 @@ export interface FilesTreeResult {
 
 export interface FilesReadResult {
   path: string;
-  content: string;
+  content?: string;
+  data_base64?: string;
   size: number;
+  mime_type?: string;
+  is_binary?: boolean;
 }
 
 export interface FilesWriteResult {

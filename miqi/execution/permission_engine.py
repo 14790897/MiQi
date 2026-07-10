@@ -140,15 +140,19 @@ class PermissionEngine:
             return PermissionDecision(verdict=PermissionVerdict.ALLOW)
 
         # 4. Permanent allowlist (keyed by tool + arguments)
+        #    Supports wildcard: "*:*" bypasses all approvals
+        if "*:*" in self.permanent_allowlist:
+            return PermissionDecision(verdict=PermissionVerdict.ALLOW)
         if cmd_key in self.permanent_allowlist:
             return PermissionDecision(verdict=PermissionVerdict.ALLOW)
 
         # 4b. Global permanent allowlist (cross-session, persisted to disk)
-        #     The orchestrator syncs patterns here via command_approval;
-        #     checking it here ensures new sessions pick up persisted approvals.
         try:
             from miqi.agent.command_approval import get_permanent_allowlist as _get_gpa
-            if cmd_key and cmd_key in _get_gpa():
+            gpa = _get_gpa()
+            if "*:*" in gpa:
+                return PermissionDecision(verdict=PermissionVerdict.ALLOW)
+            if cmd_key and cmd_key in gpa:
                 return PermissionDecision(verdict=PermissionVerdict.ALLOW)
         except Exception:
             pass

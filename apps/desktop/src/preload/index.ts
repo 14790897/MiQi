@@ -297,8 +297,8 @@ const api = {
   files: {
     tree: (): Promise<FilesTreeResult> => ipcRenderer.invoke(IPC.FILES_TREE),
     read: (path: string): Promise<FilesReadResult> => ipcRenderer.invoke(IPC.FILES_READ, { path }),
-    write: (path: string, content: string, sessionKey?: string): Promise<FilesWriteResult> =>
-      ipcRenderer.invoke(IPC.FILES_WRITE, { path, content, session_key: sessionKey }),
+    write: (path: string, content: string, sessionKey?: string, dataBase64?: string): Promise<FilesWriteResult> =>
+      ipcRenderer.invoke(IPC.FILES_WRITE, { path, content, session_key: sessionKey, data_base64: dataBase64 }),
     delete: (path: string): Promise<{ deleted: boolean; path: string }> =>
       ipcRenderer.invoke(IPC.FILES_DELETE, { path }),
     diff: (path: string, sessionKey?: string): Promise<FilesDiffResult> =>

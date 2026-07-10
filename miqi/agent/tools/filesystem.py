@@ -163,6 +163,49 @@ def _get_active_sandbox(sandbox_manager):
     return None
 
 
+async def _ensure_sandbox(sandbox_manager, tool_name="file_tool"):
+    """Get or create a sandbox so file tools have an isolated environment."""
+    if sandbox_manager is None:
+        return None
+    sandbox = sandbox_manager.active_sandbox
+    if sandbox is not None and sandbox.is_running:
+        return sandbox
+    for sb in sandbox_manager.list_sandboxes():
+        if sb.get("is_running"):
+            sandbox = sandbox_manager.get_sandbox(sb["session_key"])
+            if sandbox is not None:
+                return sandbox
+    _log.info("%s: creating sandbox (no active sandbox found)", tool_name)
+    sandbox = await sandbox_manager.get_or_create("_auto_exec")
+    return sandbox if sandbox is not None and sandbox.is_running else None
+
+
+def _get_session_workspace(base_workspace: Path | None, sandbox) -> Path | None:
+    """Compute the per-session workspace directory based on the sandbox session_key.
+
+    When session_workspace_enabled is True, each session gets its own
+    isolated directory under <base_workspace>/sessions/<safe_key>/files/.
+    This is used by WriteFileTool/ReadFileTool/EditFileTool to ensure
+    files created in one session are not visible to another.
+
+    When no sandbox is available (sandbox_manager.active_sandbox is None),
+    returns the base workspace unchanged.  In that case file tools operate
+    on the host filesystem which has no sandbox isolation.
+    """
+    if base_workspace is None or sandbox is None:
+        return base_workspace
+    session_key = getattr(sandbox, "session_key", None) or ""
+    key = session_key.split(":", 1)[-1] if ":" in session_key else session_key
+    if not key:
+        return base_workspace
+    from miqi.utils.helpers import safe_filename
+    safe_key = safe_filename(key.replace(":", "_"))
+    session_ws = base_workspace / "sessions" / safe_key / "files"
+    session_ws.mkdir(parents=True, exist_ok=True)
+    _log.debug("Session workspace: %s → %s", session_key, session_ws)
+    return session_ws
+
+
 def _resolve_sandbox_path(path: str, workspace: Path | None, sandbox) -> str:
     """Resolve a path for use inside the sandbox.
 
@@ -376,10 +419,11 @@ class ReadFileTool(Tool):
         }
 
     async def execute(self, path: str, **kwargs: Any) -> str:
-        sandbox = _get_active_sandbox(self._sandbox_manager)
+        sandbox = await _ensure_sandbox(self._sandbox_manager)
+        session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
-            sandbox_path = _resolve_sandbox_path(path, self._workspace, sandbox)
+            sandbox_path = _resolve_sandbox_path(path, session_ws, sandbox)
             _log.info("read_file [sandbox]: %s → %s", path, sandbox_path)
             try:
                 exists = await _sandbox_file_exists(sandbox, sandbox_path)
@@ -461,10 +505,11 @@ class WriteFileTool(Tool):
                 "Use create_docx, create_xlsx, or create_pptx instead."
             )
 
-        sandbox = _get_active_sandbox(self._sandbox_manager)
+        sandbox = await _ensure_sandbox(self._sandbox_manager)
+        session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
-            sandbox_path = _resolve_sandbox_path(path, self._workspace, sandbox)
+            sandbox_path = _resolve_sandbox_path(path, session_ws, sandbox)
             _log.info("write_file [sandbox]: %s → %s", path, sandbox_path)
             try:
                 await _sandbox_write_file(sandbox, sandbox_path, content)
@@ -538,10 +583,11 @@ class EditFileTool(Tool):
         }
 
     async def execute(self, path: str, old_text: str, new_text: str, **kwargs: Any) -> str:
-        sandbox = _get_active_sandbox(self._sandbox_manager)
+        sandbox = await _ensure_sandbox(self._sandbox_manager)
+        session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
-            sandbox_path = _resolve_sandbox_path(path, self._workspace, sandbox)
+            sandbox_path = _resolve_sandbox_path(path, session_ws, sandbox)
             _log.info("edit_file [sandbox]: %s → %s", path, sandbox_path)
             try:
                 exists = await _sandbox_file_exists(sandbox, sandbox_path)
@@ -661,10 +707,11 @@ class ListDirTool(Tool):
         }
 
     async def execute(self, path: str, **kwargs: Any) -> str:
-        sandbox = _get_active_sandbox(self._sandbox_manager)
+        sandbox = await _ensure_sandbox(self._sandbox_manager)
+        session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
-            sandbox_path = _resolve_sandbox_path(path, self._workspace, sandbox)
+            sandbox_path = _resolve_sandbox_path(path, session_ws, sandbox)
             _log.info("list_dir [sandbox]: %s → %s", path, sandbox_path)
             try:
                 exists = await _sandbox_dir_exists(sandbox, sandbox_path)

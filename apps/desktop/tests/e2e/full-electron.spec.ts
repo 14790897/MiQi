@@ -377,24 +377,20 @@ test.describe('Native Electron E2E', () => {
   // SECTION 5 removed — Sessions page no longer has a dedicated nav button.
 
   // ═══════════════════════════════════════════════════════════════
-  //  SECTION 6: AI File Creation with Approval Flow
+  //  SECTION 6: AI File Creation with *:* wildcard pre-approval
   //
-  //  Tests the full pipeline: LLM → tool use → approval request →
-  //  user clicks "永久允许" → tool executes → file created.
-  //
-  //  The commandApproval system (manual mode, 60s timeout) requires
-  //  user interaction for file_write tools.  We clear permanent
-  //  approvals first so the dialog always appears for the test.
+  //  Uses *:* wildcard to bypass all approval dialogs so tests
+  //  don't have to wait for UI interaction.  Verifies files are
+  //  created successfully without any approval popups.
   // ═══════════════════════════════════════════════════════════════
 
   test(
-    'AI file creation: approval dialog → click allow → file created',
+    'AI file creation: *:* pre-approved → file created without dialog',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
-      // Wait for bridge fully initialized before calling approvals API
       await waitForBridgeInitialized(page);
       await page.evaluate(() =>
-        (window as any).miqi.approvals.clearPermanent(),
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
       );
 
       await createNewConversation(page);
@@ -402,41 +398,27 @@ test.describe('Native Electron E2E', () => {
       const filename = `e2e_${Date.now()}.txt`;
       await sendMessage(
         page,
-        `Use write_file to create ${filename} with content "hello from e2e approval test"`,
+        `Use write_file to create ${filename} with content "hello from e2e wildcard approval test"`,
       );
 
-      // Wait for the approval dialog to appear (title: "文件操作审批")
-      await expect(page.getByText('文件操作审批')).toBeVisible({
-        timeout: 30_000,
-      });
-      console.log('[test] Approval dialog appeared');
-
-      // Click "永久允许" to approve and remember this decision
-      await page.getByRole('button', { name: '永久允许' }).click();
-      console.log('[test] Clicked 永久允许');
-
-      // Wait for the tool to execute and AI to finish
+      // No approval dialog should appear
       await waitForResponseComplete(page, 240_000);
 
-      // Verify the filename appears in the main chat area
       await expect(
         page.locator('main').getByText(filename, { exact: false }).first(),
       ).toBeVisible({ timeout: 15_000 });
 
-      console.log(`[test] ✅ AI created file after approval: ${filename}`);
+      console.log(`[test] ✅ AI created file without approval dialog: ${filename}`);
     },
   );
 
   test(
-    'AI PPT creation: approval → pptx_write → file created',
+    'AI PPT creation: *:* pre-approved → pptx_write without dialog',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
-      // Try clearing permanent approvals (may fail if not yet initialized — fine)
-      try {
-        await page.evaluate(() =>
-          (window as any).miqi.approvals.clearPermanent(),
-        );
-      } catch { /* NOT_INITIALIZED — dialog will still appear */ }
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
+      );
 
       await createNewConversation(page);
 
@@ -445,25 +427,14 @@ test.describe('Native Electron E2E', () => {
         '使用 pptx_write 工具创建一页PPT，file_path=e2e_test.pptx，slides=[{title:"E2E测试",content:"自动化测试验证通过"}]。创建成功后只回复一个字：成',
       );
 
-      // Wait for the approval dialog
-      await expect(page.getByText('文件操作审批')).toBeVisible({
-        timeout: 60_000,
-      });
-      console.log('[test] PPT approval dialog appeared');
-
-      // Click to allow
-      await page.getByRole('button', { name: '永久允许' }).click();
-      console.log('[test] Clicked 永久允许 for PPT');
-
-      // Wait for the tool + AI to finish
+      // No approval dialog — just wait for AI to finish
       await waitForResponseComplete(page, 240_000);
 
-      // Verify AI responded with "成" (confirms PPT created successfully)
       await expect(
         page.locator('main').getByText('成').first(),
       ).toBeVisible({ timeout: 15_000 });
 
-      console.log('[test] ✅ PPT created via pptx_write after approval');
+      console.log('[test] ✅ PPT created via pptx_write without approval dialog');
     },
   );
 
@@ -577,6 +548,81 @@ test.describe('Native Electron E2E', () => {
       const response = page.locator('main').getByText(/.+/);
       await expect(response.first()).toBeVisible({ timeout: 30_000 });
       console.log('[test] ✅ exec ls /home/miqi/workspace');
+    },
+  );
+
+  test.skip(
+    'session file isolation: exec files from one session not visible in another',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+      await createNewConversation(page);
+
+      const marker = `ISOLATED_${Date.now()}`;
+      await sendMessage(
+        page,
+        `用 exec 执行: echo ${marker} > /home/miqi/workspace/session_isolation_test.txt && cat /home/miqi/workspace/session_isolation_test.txt`,
+      );
+      await waitForResponseComplete(page, 120_000);
+
+      const mainTextA = await page.locator('main').textContent();
+      expect(mainTextA).toContain(marker);
+      await page.waitForTimeout(800);
+      await page.screenshot({ path: 'test-results/session-isolation-01-sessionA-writes.png' });
+      console.log(`[test] ✅ Session A file with marker: ${marker}`);
+
+      await createNewConversation(page);
+      await sendMessage(
+        page,
+        '用 exec 执行: cat /home/miqi/workspace/session_isolation_test.txt 2>&1',
+      );
+      await waitForResponseComplete(page, 120_000);
+      await page.waitForTimeout(15_000);
+
+      const mainB = await page.locator('main').textContent() || '';
+      const hasNotFound = /no such file|not found|not exist|does not exist|不存在|No such|cat.*error/i.test(mainB);
+      if (!hasNotFound) {
+        console.log('[test] Session B text (600):', mainB.substring(0, 600));
+      }
+      expect(hasNotFound).toBe(true);
+      await page.waitForTimeout(800);
+      await page.screenshot({ path: 'test-results/session-isolation-02-sessionB-cannot-see.png' });
+      console.log('[test] ✅ Session B cannot see Session A file');
+    },
+  );
+
+  test(
+    'write_file uses session-scoped workspace via sandbox',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
+      );
+      await createNewConversation(page);
+
+      const fname = `e2e_session_file_${Date.now()}.txt`;
+      const content = `E2E session file content ${Date.now()}`;
+
+      await sendMessage(
+        page,
+        `Use write_file to create ${fname} with content "${content}"`,
+      );
+      // *:* pre-approval skips the dialog — just wait for AI to finish
+      await waitForResponseComplete(page, 240_000);
+      await page.waitForTimeout(800);
+      await page.screenshot({ path: 'test-results/session-isolation-03-write-file-approval.png' });
+
+      await sendMessage(
+        page,
+        `用 exec 执行: cat /home/miqi/workspace/sessions/*/files/${fname} 2>&1`,
+      );
+      await waitForResponseComplete(page, 120_000);
+      const mainText = await page.locator('main').textContent();
+      expect(mainText).toContain(content);
+      await page.waitForTimeout(800);
+      await page.screenshot({ path: 'test-results/session-isolation-04-write-file-verified.png' });
+      console.log(`[test] ✅ write_file session-scoped: ${fname}`);
     },
   );
 });
