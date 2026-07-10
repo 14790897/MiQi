@@ -550,19 +550,18 @@ class ExecTool(Tool):
         if st == SandboxType.NONE:
             return await self._execute_direct(command, cwd, **common)
 
-        # ── BWRAP: strongest isolation; session_key is REQUIRED ────────
+        # ── BWRAP: strongest isolation; session_key preferred ──────────
         if st == SandboxType.BWRAP:
             if self._sandbox_manager is None:
                 return _ExecResult(
                     output="Error: BWRAP sandbox required but sandbox manager is unavailable.",
                     exit_code=-1, sandbox_type="bwrap",
                 )
-            if not session_key:
-                return _ExecResult(
-                    output="Error: BWRAP sandbox requires session_key but none was provided.",
-                    exit_code=-1, sandbox_type="bwrap",
-                )
-            sandbox = await self._sandbox_manager.get_or_create(session_key)
+            # Prefer session_key for per-session isolation, fall back to active sandbox
+            if session_key:
+                sandbox = await self._sandbox_manager.get_or_create(session_key)
+            else:
+                sandbox = self._sandbox_manager.active_sandbox
             if sandbox is not None and sandbox.is_running:
                 return await self._execute_in_sandbox(
                     sandbox, command, cwd, **common,
