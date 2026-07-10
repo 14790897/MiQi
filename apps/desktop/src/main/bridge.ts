@@ -167,6 +167,8 @@ export class BridgeManager extends EventEmitter {
   private hotReloadEnabled: boolean = false;
   private lastReloadTime: number = 0;
   private reloadCooldown: number = 1000; // 1 second cooldown between reloads
+  private reloadTimer: ReturnType<typeof setTimeout> | null = null;
+  private restartInProgress: boolean = false;
   private initialized: boolean = false;
   private clientId: string = 'miqi-desktop';
   private stoppingPromise: Promise<void> | null = null;
@@ -217,30 +219,28 @@ export class BridgeManager extends EventEmitter {
     this.addLog(`Working directory: ${this.projectRoot}`);
     this.recordMainLog('INFO', `Starting MiQi bridge: ${command} ${args.join(' ')}`);
 
-    // Start file watcher for hot reload
-    this.startFileWatcher();
+    let startedProcess: ChildProcess | null = null;
+    let startedReader: Interface | null = null;
 
-    let startedProc: ChildProcess | null = null;
-    let startedRl: Interface | null = null;
     try {
-      const proc = spawn(command, args, {
+      const bridgeProcess = spawn(command, args, {
         cwd: this.projectRoot,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' },
         windowsHide: true,
       });
-      startedProc = proc;
-      this.process = proc;
+      this.process = bridgeProcess;
+      startedProcess = bridgeProcess;
 
-      const rl = createInterface({
-        input: proc.stdout!,
+      const lineReader = createInterface({
+        input: bridgeProcess.stdout!,
         crlfDelay: Infinity,
       });
-      startedRl = rl;
-      this.rl = rl;
+      this.rl = lineReader;
+      startedReader = lineReader;
 
-      rl.on('line', (line: string) => {
-        if (this.process !== proc) return;
+      lineReader.on('line', (line: string) => {
+        if (this.process !== bridgeProcess) return;
         try {
           const raw: BridgeResponse = JSON.parse(line);
           const resp = normalizeBridgeMessage(raw);
@@ -323,7 +323,7 @@ export class BridgeManager extends EventEmitter {
         }
       });
 
-      proc.stderr!.on('data', (data: Buffer) => {
+      bridgeProcess.stderr!.on('data', (data: Buffer) => {
         const text = data.toString().trim();
         if (text) {
           const msg = `[MIQI BRIDGE STDERR] ${text}`;
@@ -333,11 +333,14 @@ export class BridgeManager extends EventEmitter {
         }
       });
 
-      proc.on('error', (err) => {
-        if (this.process !== proc) return;
+      bridgeProcess.on('error', (err) => {
+        if (this.process !== bridgeProcess) return;
         this.addLog(`Bridge process error: ${err.message}`);
         this.state = 'error';
         this.process = null;
+        this.rl = null;
+        this.initialized = false;
+        this.clientId = 'miqi-desktop';
         this.emitState();
         // Reject all pending requests so callers don't hang
         for (const [id, entry] of this.pending) {
@@ -359,8 +362,8 @@ export class BridgeManager extends EventEmitter {
           if (settled) return;
           settled = true;
           clearTimeout(timeout);
-          rl.removeListener('line', onReadyLine);
-          proc.removeListener('close', onClose);
+          lineReader.removeListener('line', onReadyLine);
+          bridgeProcess.removeListener('close', onClose);
           if (err) _reject(err);
           else _resolve();
         };
@@ -388,8 +391,8 @@ export class BridgeManager extends EventEmitter {
           );
         }, 60_000);
 
-        rl.on('line', onReadyLine);
-        proc.once('close', onClose);
+        lineReader.on('line', onReadyLine);
+        bridgeProcess.once('close', onClose);
       });
 
       // Bridge process is alive and accepting stdin.
@@ -405,8 +408,8 @@ export class BridgeManager extends EventEmitter {
       // orphan events (no pending request) to renderer windows so late
       // events are not dropped.  Do NOT process tracked responses/events
       // here — the primary handler already does that.
-      rl.on('line', (line: string) => {
-        if (this.process !== proc) return;
+      lineReader.on('line', (line: string) => {
+        if (this.process !== bridgeProcess) return;
         try {
           const resp: BridgeResponse = JSON.parse(line);
           const normalized = normalizeBridgeMessage(resp);
@@ -432,8 +435,8 @@ export class BridgeManager extends EventEmitter {
       });
 
       // Handle unexpected exit after ready
-      proc.on('close', (code) => {
-        if (this.process !== proc) return;
+      bridgeProcess.on('close', (code) => {
+        if (this.process !== bridgeProcess) return;
         if (this.state === 'stopping') return;
         this.addLog(`Bridge process exited with code ${code}`);
         this.state = code === 0 ? 'stopped' : 'error';
@@ -449,23 +452,15 @@ export class BridgeManager extends EventEmitter {
         }
       });
 
-      proc.on('error', (err) => {
-        if (this.process !== proc) return;
-        this.addLog(`Bridge process error: ${err.message}`);
-        this.state = 'error';
-        this.process = null;
-        this.initialized = false;
-        this.clientId = 'miqi-desktop';
-        this.emitState();
-      });
-
       // Wait briefly and check if process is still alive
       await new Promise<void>((resolve, reject) => {
         setTimeout(() => {
-          if (this.process !== proc) {
+          if (this.process !== bridgeProcess) {
             reject(new Error('Bridge process was replaced before initialization completed'));
-          } else if (proc.exitCode !== null && proc.exitCode !== undefined) {
-            reject(new Error(`Bridge process exited immediately with code ${proc.exitCode}`));
+          } else if (bridgeProcess.exitCode !== null && bridgeProcess.exitCode !== undefined) {
+            reject(
+              new Error(`Bridge process exited immediately with code ${bridgeProcess.exitCode}`)
+            );
           } else {
             resolve();
           }
@@ -477,9 +472,10 @@ export class BridgeManager extends EventEmitter {
       // will see state='running' and may safely start making calls.
       this.state = 'running';
       this.emitState();
+      this.startFileWatcher();
     } catch (err) {
       this.addLog(`Failed to start bridge: ${err}`);
-      const isActiveStart = this.process === startedProc;
+      const isActiveStart = this.process === startedProcess;
       if (isActiveStart) {
         this.state = 'error';
         this.emitState();
@@ -489,15 +485,15 @@ export class BridgeManager extends EventEmitter {
       if (isActiveStart) {
         this.stopFileWatcher();
       }
-      if (startedRl) {
-        startedRl.close();
+      if (startedReader) {
+        startedReader.close();
       }
-      if (this.rl === startedRl) {
+      if (this.rl === startedReader) {
         this.rl = null;
       }
-      if (this.process === startedProc) {
-        startedProc?.stdin?.end();
-        startedProc?.kill('SIGTERM');
+      if (startedProcess && this.process === startedProcess) {
+        startedProcess.stdin?.end();
+        startedProcess.kill('SIGTERM');
         this.process = null;
       }
       if (isActiveStart) {
@@ -599,6 +595,10 @@ export class BridgeManager extends EventEmitter {
   }
 
   private stopFileWatcher(): void {
+    if (this.reloadTimer) {
+      clearTimeout(this.reloadTimer);
+      this.reloadTimer = null;
+    }
     if (this.fileWatcher) {
       this.fileWatcher.close();
       this.fileWatcher = null;
@@ -615,18 +615,32 @@ export class BridgeManager extends EventEmitter {
     this.lastReloadTime = now;
     this.addLog(`[Hot Reload] Detected change in: ${filename}`);
 
+    if (this.state !== 'running' || !this.initialized || this.restartInProgress) {
+      this.addLog(
+        `[Hot Reload] Ignoring change while bridge is ${this.state}`
+      );
+      return;
+    }
+
+    if (this.reloadTimer) {
+      clearTimeout(this.reloadTimer);
+    }
+
     // Schedule restart after a short delay to allow multiple files to change
-    setTimeout(() => {
-      this.hotReloadRestart().catch((err) => {
+    this.reloadTimer = setTimeout(() => {
+      this.reloadTimer = null;
+      this.restart().catch((err) => {
         this.addLog(`[Hot Reload] Restart error: ${err}`);
       });
     }, 500);
   }
 
-  private async hotReloadRestart(): Promise<void> {
-    if (this.state !== 'running') return;
+  private async restart(): Promise<void> {
+    if (this.restartInProgress || this.state !== 'running' || !this.process) return;
+    this.restartInProgress = true;
 
     this.addLog('[Hot Reload] Restarting bridge due to code changes...');
+    this.stopFileWatcher();
 
     // Reject all pending requests so callers don't hang forever
     for (const [id, entry] of this.pending) {
@@ -634,7 +648,36 @@ export class BridgeManager extends EventEmitter {
     }
     this.pending.clear();
 
-    await this.stop();
+    const oldProcess = this.process;
+
+    // Stop current process
+    this.state = 'stopping';
+    this.emitState();
+    oldProcess.stdin?.end();
+    oldProcess.kill('SIGTERM');
+
+    // Wait for the old process to finish its own cleanup before starting a
+    // replacement. Starting too early can race sandbox state cleanup on Windows.
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        oldProcess.removeListener?.('close', finish);
+        resolve();
+      };
+      const timeout = setTimeout(finish, 5000);
+      oldProcess.once?.('close', finish);
+    });
+
+    if (this.process === oldProcess) {
+      this.process = null;
+      this.rl = null;
+    }
+    this.initialized = false;
+    this.clientId = 'miqi-desktop';
+    this.state = 'stopped';
 
     // Restart
     try {
@@ -642,6 +685,8 @@ export class BridgeManager extends EventEmitter {
       this.addLog('[Hot Reload] Bridge restarted successfully');
     } catch (err) {
       this.addLog(`[Hot Reload] Failed to restart bridge: ${err}`);
+    } finally {
+      this.restartInProgress = false;
     }
   }
 

@@ -108,6 +108,7 @@ vi.mock('child_process', async (importOriginal) => {
 
 // Captured watcher close spies for cleanup assertions
 const watcherCloses: Array<ReturnType<typeof vi.fn>> = [];
+const watchCallbacks: Array<(eventType: string, filename: string | Buffer | null) => void> = [];
 
 // Captured readline close spies — collected by the readline mock below
 const rlCloseSpies: Array<ReturnType<typeof vi.fn>> = [];
@@ -125,9 +126,10 @@ vi.mock('fs', async (importOriginal) => {
       }
       return false;
     }),
-    watch: vi.fn(() => {
+    watch: vi.fn((_path: string, _options: any, callback: any) => {
       const closeFn = vi.fn();
       watcherCloses.push(closeFn);
+      watchCallbacks.push(callback);
       return { close: closeFn };
     }),
   };
@@ -223,6 +225,7 @@ async function startBridge(
 beforeEach(() => {
   vi.clearAllMocks();
   watcherCloses.length = 0;
+  watchCallbacks.length = 0;
   rlCloseSpies.length = 0;
 });
 
@@ -296,9 +299,8 @@ describe('BridgeManager lifecycle', () => {
     for (const spy of rlCloseSpies) {
       expect(spy).toHaveBeenCalled();
     }
-    // 2. watcher.close() spy was called
-    expect(watcherCloses.length).toBeGreaterThan(0);
-    expect(watcherCloses[0]).toHaveBeenCalled();
+    // 2. watcher is not started until initialization succeeds
+    expect(watcherCloses.length).toBe(0);
     // 3. rl and fileWatcher set to null after cleanup
     expect((bridge as any).rl).toBeNull();
     expect((bridge as any).fileWatcher).toBeNull();
@@ -604,5 +606,48 @@ describe('BridgeManager lifecycle', () => {
       proc.stdout.destroy();
       proc.stderr.destroy();
     }
+  }, 10_000);
+
+  it('hot reload waits for old bridge close before spawning replacement', async () => {
+    process.env['ELECTRON_RENDERER_URL'] = 'test';
+    const BridgeManager = await importBridgeManager();
+    const firstProc = createMockProcess();
+    const bridge = new BridgeManager('/fake/root');
+
+    await startBridge(firstProc, bridge, {
+      clientId: 'reload-test',
+      serverInfo: { version: '1' },
+    });
+    expect(watchCallbacks.length).toBe(1);
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+
+    const secondProc = createMockProcess();
+    const restartPromise = (bridge as any).restart() as Promise<void>;
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(firstProc.stdin.end).toHaveBeenCalled();
+    expect(firstProc.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(watcherCloses[0]).toHaveBeenCalled();
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+
+    const closeHandlers = firstProc.once.mock.calls.filter((c: any[]) => c[0] === 'close');
+    const restartClose = closeHandlers[closeHandlers.length - 1]?.[1] as () => void;
+    expect(restartClose).toBeTruthy();
+    restartClose();
+
+    await new Promise((r) => setTimeout(r, 300));
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    feedLine(secondProc, { type: 'ready' });
+    await new Promise((r) => setTimeout(r, 350));
+    const initId = findRequestId(secondProc, 'initialize');
+    feedLine(secondProc, {
+      id: initId,
+      result: { clientId: 'reload-test', serverInfo: { version: '2' } },
+    });
+
+    await restartPromise;
+    expect(bridge.isRunning()).toBe(true);
+    expect(bridge.isInitialized()).toBe(true);
+    expect(watchCallbacks.length).toBe(2);
   }, 10_000);
 });
