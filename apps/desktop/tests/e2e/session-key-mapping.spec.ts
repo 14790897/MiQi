@@ -17,7 +17,8 @@ import {
   closeElectronApp,
 } from './helpers/electron-setup';
 
-const SKIP_SANDBOX_ON_CI = !!process.env.CI;
+const SKIP_SANDBOX_ON_CI =
+  !!process.env.CI && process.env.MIQI_RUN_SANDBOX_E2E !== '1';
 
 async function approveLoop(page: Page, timeout = 180_000) {
   const deadline = Date.now() + timeout;

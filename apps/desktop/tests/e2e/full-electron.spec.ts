@@ -31,10 +31,9 @@ import {
 // ─── Test Suite ───────────────────────────────────────────────────
 
 /** Skip sandbox exec tests on CI runners that lack bwrap.
- *  The desktop-ci.yml installs bubblewrap, but because the workflow
- *  uses pull_request_target it runs from the base branch (main),
- *  so the install won't take effect until that change is merged. */
-const SKIP_SANDBOX_ON_CI = !!process.env.CI;
+ *  Set MIQI_RUN_SANDBOX_E2E=1 to force-enable on CI (e.g., WSL runner). */
+const SKIP_SANDBOX_ON_CI =
+  !!process.env.CI && process.env.MIQI_RUN_SANDBOX_E2E !== '1';
 const SKIP_REAL_WEB_SEARCH_ON_CI =
   !!process.env.CI && process.env.MIQI_RUN_REAL_WEB_SEARCH_E2E !== '1';
 const SKIP_STATEFUL_SESSION_E2E_ON_CI =
