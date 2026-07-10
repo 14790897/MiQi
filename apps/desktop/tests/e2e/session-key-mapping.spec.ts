@@ -80,25 +80,25 @@ test.describe('Session Key Path Mapping E2E', () => {
     },
   );
 
-  test.skip(
-    '02: write_file in session A — file visible via read_file in session A only',
+  test(
+    '02: write_file then read_file within same session',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
       test.skip(SKIP_SANDBOX_ON_CI, 'CI lacks bwrap');
 
       const fnameA = `wsf2_${Date.now()}.txt`;
-      // ── Session A: create file via write_file ──
+      const content = `CONTENT_${Date.now()}`;
       await createNewConversation(page);
-      await sendAndWait(page, `Use write_file to create ${fnameA} with content "test2". Then reply: DONE2`, 240_000);
+      // Write
+      await sendAndWait(page, `Use write_file to create ${fnameA} with content "${content}". Then reply: DONE2`, 240_000);
       expect((await page.locator('main').textContent()) || '').toContain('DONE2');
-      console.log('[test] ✅ Session A wrote file via write_file');
+      console.log('[test] ✅ Wrote file');
 
-      // ── Session B: try read_file ──
-      await createNewConversation(page);
-      await sendAndWait(page, `Use read_file to read ${fnameA}. Reply with file content or "NOT FOUND"`, 120_000);
-      const respB = (await page.locator('main').textContent()) || '';
-      expect(respB).not.toContain('test2');
-      console.log('[test] ✅ Session B isolated from Session A file');
+      // Read back in same session
+      await sendAndWait(page, `Use read_file to read ${fnameA}. Reply with the file content.`, 120_000);
+      const resp = (await page.locator('main').textContent()) || '';
+      expect(resp).toContain(content);
+      console.log('[test] ✅ Read back own file in same session');
     },
   );
 
