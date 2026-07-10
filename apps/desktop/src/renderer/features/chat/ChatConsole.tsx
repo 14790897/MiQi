@@ -577,20 +577,6 @@ export function ChatConsole({
     };
     load();
     // loadTrigger lets the parent force a reload (e.g. after bridge becomes ready)
-
-    // Clean up IPC listeners from the previous session BEFORE loading the
-    // new one (fix #212).  React runs this cleanup when sessionKey changes
-    // (component stays mounted), NOT just on unmount.  Without this,
-    // switching sessions while streaming leaves old handlers alive that
-    // push data into the new session's message list.
-    return () => {
-      if (finalCleanupTimerRef.current) {
-        clearTimeout(finalCleanupTimerRef.current);
-        finalCleanupTimerRef.current = null;
-      }
-      for (const unsub of unsubsRef.current) unsub();
-      unsubsRef.current = [];
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionKey, loadTrigger]);
 
@@ -861,7 +847,6 @@ export function ChatConsole({
     };
 
     const unsubProgress = window.miqi.chat.onProgress((data: any) => {
-      // Filter events by session_key to prevent cross-session leaks (#212)
       if (data.session_key && data.session_key !== currentSessionRef.current) return;
       lastEventAt = Date.now();
       // Handle stream deltas from exec (Phase 7 inline tool progress)
@@ -915,7 +900,6 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
-      // Filter events by session_key to prevent cross-session leaks (#212)
       if (data.session_key && data.session_key !== currentSessionRef.current) return;
       clearFinalCleanupTimer();
       if (animId !== null) {
@@ -992,7 +976,6 @@ export function ChatConsole({
     });
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
-      // Filter events by session_key to prevent cross-session leaks (#212)
       if (data.session_key && data.session_key !== currentSessionRef.current) return;
       streamErrorHandled = true;
       if (animId !== null) cancelAnimationFrame(animId);
@@ -1009,7 +992,6 @@ export function ChatConsole({
     });
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
-      // Filter events by session_key to prevent cross-session leaks (#212)
       if (_data.session_key && _data.session_key !== currentSessionRef.current) return;
       if (animId !== null) cancelAnimationFrame(animId);
       setStreaming(false);
