@@ -410,12 +410,14 @@ class AgentControl:
                 for c in self.session_id.split(":", 1)[-1]
             )
             _session_context = (
-                f"\n\n## Session Workspace\n"
-                f"Your per-session workspace is: {self.workspace / 'sessions' / _sess_key / 'files'}\n"
-                f"- Files you create go to this directory automatically.\n"
-                f"- Use relative paths (e.g. 'output.docx') — they resolve here.\n"
-                f"- Other sessions have their own isolated directories.\n"
-                f"- env: MIQI_SESSION_KEY={self.session_id}"
+                f"\n\n## File Isolations（重要：目录说明）\n"
+                f"每个会话有独立的文件目录，互不干扰：\n"
+                f"  pwd / exec 目录: /home/miqi/workspace (共享宿主机根)\n"
+                f"  文件工具目录: {self.workspace / 'sessions' / _sess_key / 'files'}\n"
+                f"\n"
+                f"write_file / read_file 操作均走文件工具目录。\n"
+                f"回答保存位置时用文件工具目录，别用 pwd 结果。\n"
+                f"MIQI_SESSION_KEY={self.session_id}"
             )
             agent.messages = [
                 {"role": "system", "content": agent.metadata.system_prompt + _session_context},
