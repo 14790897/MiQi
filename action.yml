@@ -39,6 +39,11 @@ inputs:
     required: false
     default: '10'
 
+  min-freq:
+    description: 'Minimum characters for frequency section'
+    required: false
+    default: '1'
+
   min-logs:
     description: 'Minimum characters for logs section'
     required: false
@@ -86,6 +91,7 @@ runs:
       env:
         MIN_DESC: ${{ inputs.min-description }}
         MIN_STEPS: ${{ inputs.min-steps }}
+        MIN_FREQ: ${{ inputs.min-freq }}
         MIN_LOGS: ${{ inputs.min-logs }}
         SYS_KW: ${{ inputs.sys-keywords }}
         MIN_SYS_KW: ${{ inputs.min-sys-keywords }}
@@ -98,6 +104,7 @@ runs:
           const minDesc = parseInt(process.env.MIN_DESC || '10');
           const minSteps = parseInt(process.env.MIN_STEPS || '10');
           const minLogs = parseInt(process.env.MIN_LOGS || '20');
+          const minFreq = parseInt(process.env.MIN_FREQ || '1');
           const sysKw = (process.env.SYS_KW || 'OS,Python,CPU').split(',').map(s => s.trim());
           const minSysKw = parseInt(process.env.MIN_SYS_KW || '3');
           const featurePrefix = process.env.FEATURE_PREFIX || '[FEATURE]';
@@ -120,7 +127,7 @@ runs:
 
           const failures = [];
           const extract = (label) => {
-            const m = withoutComments.match(new RegExp('### ' + label + '\\s*\\n+(.+?)(?=\\n###|\\n*$)', 's'));
+            const m = withoutComments.match(new RegExp('#{2,3} ' + label + '\\s*\\n+(.+?)(?=\\n#{2,3}|\\n*$)', 's'));
             return m?.[1]?.trim() || '';
           };
 
@@ -157,9 +164,9 @@ runs:
           // 4. Frequency
           {
             const val = extract('复现频率');
-            if (!val || val.length < minDesc) {
+            if (!val || val.length < minFreq) {
               const actual = val ? val.length : 0;
-              failures.push(`复现频率：未填写或内容过短（当前 ${actual} 字符，需至少 ${minDesc} 字符）`);
+              failures.push(`复现频率：未填写或内容过短（当前 ${actual} 字符，需至少 ${minFreq} 字符）`);
             }
           }
 
@@ -260,7 +267,7 @@ runs:
           }
 
           const extract = (label) => {
-            const m = body.match(new RegExp('### ' + label + '\\s*\\n+(.+?)(?=\\n###|\\n*$)', 's'));
+            const m = body.match(new RegExp('#{2,3} ' + label + '\\s*\\n+(.+?)(?=\\n#{2,3}|\\n*$)', 's'));
             return m?.[1]?.trim() || '';
           };
 
