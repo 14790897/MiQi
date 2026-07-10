@@ -823,6 +823,7 @@ class ToolOrchestrator:
         # for tool-body sandbox enforcement and auditing.
         _FILE_MUTATION_TOOLS = frozenset({
             "write_file", "edit_file", "delete_file", "apply_patch",
+            "read_file", "list_dir",
             "docx_write", "pptx_write", "xlsx_write",
             "create_docx", "create_pptx", "create_xlsx",
             "edit_docx", "append_xlsx",
@@ -830,6 +831,8 @@ class ToolOrchestrator:
         kwargs = {**ctx.arguments}
         if ctx.tool_name == "exec" or ctx.tool_name in _FILE_MUTATION_TOOLS:
             kwargs["_sandbox"] = sandbox
+            # _session_key already includes client_id prefix (e.g. "miqi-desktop:desktop:xxx")
+            kwargs["_session_key"] = ctx.session_id
         elif sandbox.sandbox_type != SandboxType.NONE:
             kwargs["_sandbox"] = sandbox
 

@@ -404,8 +404,23 @@ class AgentControl:
             # Only transition if not already in THINKING (spawn may have pre-set it)
             if agent.state.current != AgentStatus.THINKING:
                 agent.state.transition(AgentStatus.THINKING)
+            # Inject session workspace info so the AI knows where its files live
+            _sess_key = "".join(
+                c if c.isalnum() or c in "_-" else "_"
+                for c in self.session_id.split(":", 1)[-1]
+            )
+            _session_context = (
+                f"\n\n## File Isolations（重要：目录说明）\n"
+                f"每个会话有独立的文件目录，互不干扰：\n"
+                f"  pwd / exec 目录: /home/miqi/workspace (共享宿主机根)\n"
+                f"  文件工具目录: {self.workspace / 'sessions' / _sess_key / 'files'}\n"
+                f"\n"
+                f"write_file / read_file 操作均走文件工具目录。\n"
+                f"回答保存位置时用文件工具目录，别用 pwd 结果。\n"
+                f"MIQI_SESSION_KEY={self.session_id}"
+            )
             agent.messages = [
-                {"role": "system", "content": agent.metadata.system_prompt},
+                {"role": "system", "content": agent.metadata.system_prompt + _session_context},
                 {"role": "user", "content": task},
             ]
 
