@@ -367,6 +367,7 @@ async def test_drain_chat_events_converts_tool_begin_to_tool_hint_progress():
             "text": 'write_file("/tmp/asset.txt")',
             "tool_hint": True,
             "tool_call_id": "tc-asset",
+            "session_key": "session-asset",
         },
         "request_id": "req-asset",
     }
@@ -404,6 +405,7 @@ async def test_drain_chat_events_sends_backend_timeout_error_directly():
         "type": "error",
         "data": {
             "message": "Turn timed out after 300s",
+            "session_key": "session-timeout",
         },
     }
 
