@@ -127,7 +127,7 @@ runs:
 
           const failures = [];
           const extract = (label) => {
-            const m = withoutComments.match(new RegExp('### ' + label + '\\s*\\n+(.+?)(?=\\n###|\\n*$)', 's'));
+            const m = withoutComments.match(new RegExp('#{2,3} ' + label + '\\s*\\n+(.+?)(?=\\n#{2,3}|\\n*$)', 's'));
             return m?.[1]?.trim() || '';
           };
 
@@ -267,7 +267,7 @@ runs:
           }
 
           const extract = (label) => {
-            const m = body.match(new RegExp('### ' + label + '\\s*\\n+(.+?)(?=\\n###|\\n*$)', 's'));
+            const m = body.match(new RegExp('#{2,3} ' + label + '\\s*\\n+(.+?)(?=\\n#{2,3}|\\n*$)', 's'));
             return m?.[1]?.trim() || '';
           };
 
