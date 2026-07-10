@@ -77,7 +77,7 @@ jobs:
 
   wsl-sandbox:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -99,6 +99,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
-      - name: Run WSL sandbox tests
-        run: |
-          uv run pytest -q -m "wsl" --tb=long -v
+      - name: Run WSL sandbox tests (auto-install)
+        run: uv run pytest -q -m "wsl" --tb=long -v
+
+      - name: Run WSL sandbox tests (bwrap integration)
+        run: uv run pytest -q -m "sandbox and bwrap" --tb=long -v
