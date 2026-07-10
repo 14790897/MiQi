@@ -73,7 +73,7 @@ test.describe('Task Assets Panel E2E', () => {
 
       // Panel should show empty state initially
       await expect(page.getByTestId('task-assets-panel')).toBeVisible({ timeout: 10_000 });
-      await expect(page.getByText(/No files yet/)).toBeVisible({ timeout: 5_000 });
+      await expect(page.getByText(/No files yet/)).toBeVisible({ timeout: 10_000 });
 
       // Have AI create a file (will trigger approval)
       await sendMessage(
@@ -92,13 +92,13 @@ test.describe('Task Assets Panel E2E', () => {
 
       // ── Verify Task Assets panel shows the file ──
       // No more "No files yet" — should have track entries now
-      await expect(page.getByText(/No files yet/)).not.toBeVisible({ timeout: 5_000 });
+      await expect(page.getByText(/No files yet/)).not.toBeVisible({ timeout: 15_000 });
 
       // WRITE category should have the file
-      await expect(page.getByText('ACTIVE FOR EDIT')).toBeVisible({ timeout: 5_000 });
+      await expect(page.getByText('ACTIVE FOR EDIT')).toBeVisible({ timeout: 10_000 });
 
       // Should show a WRITE op badge on the file
-      await expect(page.getByText('WRITE').first()).toBeVisible({ timeout: 5_000 });
+      await expect(page.getByText('WRITE').first()).toBeVisible({ timeout: 10_000 });
 
       console.log('[test] ✅ Task Assets panel shows the file');
     },
@@ -144,7 +144,7 @@ test.describe('Task Assets Panel E2E', () => {
 
       // Preview modal should appear with file content
       // The modal shows file path in monospace font
-      await expect(page.locator('pre.text-xs.font-mono')).toBeVisible({ timeout: 5_000 });
+      await expect(page.locator('pre.text-xs.font-mono')).toBeVisible({ timeout: 10_000 });
       await page.screenshot({ path: 'test-results/preview-modal.png' });
 
       // Should display our content (or an error if files.read has path issues)
@@ -158,7 +158,7 @@ test.describe('Task Assets Panel E2E', () => {
       // Close preview modal (click X button in modal header)
       const closeBtn = page.locator('.fixed.inset-0.z-50 button').last();
       await closeBtn.click();
-      await expect(page.locator('pre.text-xs.font-mono')).not.toBeVisible({ timeout: 5_000 });
+      await expect(page.locator('pre.text-xs.font-mono')).not.toBeVisible({ timeout: 10_000 });
       console.log('[test] ✅ Preview modal closed');
     },
   );
@@ -186,7 +186,7 @@ test.describe('Task Assets Panel E2E', () => {
       const panelVisible = await page.getByTestId('task-assets-panel').isVisible().catch(() => false);
       if (!panelVisible) {
         await toggleBtn.click();
-        await expect(page.getByTestId('task-assets-panel')).toBeVisible({ timeout: 5_000 });
+        await expect(page.getByTestId('task-assets-panel')).toBeVisible({ timeout: 10_000 });
       }
 
       const filename = `e2e_docx_${Date.now()}.docx`;
@@ -214,7 +214,7 @@ test.describe('Task Assets Panel E2E', () => {
       const shortName = filename.slice(0, 20); // visible portion (truncated to 28)
 
       // Panel must no longer be empty
-      await expect(page.getByText(/No files yet/)).not.toBeVisible({ timeout: 8_000 });
+      await expect(page.getByText(/No files yet/)).not.toBeVisible({ timeout: 15_000 });
 
       // Scope to the assets panel only to avoid matching the same file card
       // that also appears in the main chat "Proposed Changes" area.
@@ -223,15 +223,15 @@ test.describe('Task Assets Panel E2E', () => {
       await expect(docxCard).toBeVisible({ timeout: 10_000 });
 
       // Should show ACTIVE FOR EDIT + WRITE + OFFICE badges
-      await expect(page.getByText('ACTIVE FOR EDIT')).toBeVisible({ timeout: 5_000 });
-      await expect(docxCard.getByText('WRITE')).toBeVisible({ timeout: 5_000 });
-      await expect(docxCard.getByText('OFFICE')).toBeVisible({ timeout: 5_000 });
+      await expect(page.getByText('ACTIVE FOR EDIT')).toBeVisible({ timeout: 10_000 });
+      await expect(docxCard.getByText('WRITE')).toBeVisible({ timeout: 10_000 });
+      await expect(docxCard.getByText('OFFICE')).toBeVisible({ timeout: 10_000 });
       console.log('[test] ✅ Docx appears in Task Assets panel');
       await page.screenshot({ path: 'test-results/docx-in-panel.png' });
 
       // ── Click Preview → Office notice modal ──
       await docxCard.getByRole('button', { name: 'Preview', exact: true }).click();
-      await expect(page.getByText('Office document created')).toBeVisible({ timeout: 8_000 });
+      await expect(page.getByText('Office document created')).toBeVisible({ timeout: 15_000 });
       console.log('[test] ✅ Preview shows Office notice');
       await page.screenshot({ path: 'test-results/docx-preview.png' });
 

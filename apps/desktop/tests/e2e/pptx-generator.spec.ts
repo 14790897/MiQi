@@ -73,11 +73,10 @@ test.describe('PPTX Generator E2E', () => {
       // Verify pptx file was created + check 14 internal items
       await page.waitForTimeout(3000);
       const { execSync } = require('node:child_process');
-      const { homedir } = require('node:os');
       const { join } = require('node:path');
-      const ws = join(homedir(), '.miqi', 'workspace');
+      const ws = join(miqiHome, 'workspace');
       const verifier = join(__dirname, 'helpers', 'verify-pptx.py');
-      const PY = process.platform === 'win32' ? 'python' : 'python3';
+      const PY = process.platform === 'win32' ? 'python' : 'uv run python';
       const env = { ...process.env, PYTHONIOENCODING: 'utf-8' };
       let result: any;
       try {
