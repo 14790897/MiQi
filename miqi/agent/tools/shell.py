@@ -33,6 +33,7 @@ class _ExecResult:
     duration_ms: int = 0
     cancelled: bool = False
     timed_out: bool = False
+    sandbox_type: str = "none"
 
 
 class ExecTool(Tool):
@@ -264,6 +265,7 @@ class ExecTool(Tool):
         # Phase 31.8: ledger runtime for replay-persistent event recording
         ledger_runtime=None,
         thread_id: str = "",
+        session_key: str | None = None,
     ) -> _ExecResult:
         """Execute a command inside the bwrap sandbox with streaming I/O.
 
@@ -901,6 +903,7 @@ class ExecTool(Tool):
         # Phase 31.8: ledger runtime for replay-persistent exec event recording
         ledger_runtime=None,
         thread_id: str = "",
+        session_key: str | None = None,
     ) -> _ExecResult:
         """Execute a command directly on the host (no sandbox).
 
