@@ -76,15 +76,21 @@ test.describe('PPTX Generator E2E', () => {
 
       // Verify pptx file was created + check 14 internal items
       await page.waitForTimeout(3000);
-      const { execSync } = require('node:child_process');
-      const { join } = require('node:path');
+      const { execFileSync } = require('node:child_process');
+      const { join, resolve } = require('node:path');
       const ws = join(miqiHome, 'workspace');
       const verifier = join(__dirname, 'helpers', 'verify-pptx.py');
-      const PY = process.platform === 'win32' ? 'python' : 'uv run python';
+      const repoRoot = resolve(__dirname, '..', '..', '..', '..');
+      const uv = process.platform === 'win32' ? 'uv.cmd' : 'uv';
       const env = { ...process.env, PYTHONIOENCODING: 'utf-8' };
       let result: any;
       try {
-        const vout = execSync(`${PY} "${verifier}" "${ws}"`, { encoding: 'utf8', timeout: 15000, env });
+        const vout = execFileSync(uv, ['run', 'python', verifier, ws, fname], {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          timeout: 15000,
+          env,
+        });
         result = JSON.parse(vout);
       } catch (e: any) {
         // execSync throws on non-zero exit; stdout is in e.stdout

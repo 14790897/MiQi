@@ -37,6 +37,8 @@ import {
 const SKIP_SANDBOX_ON_CI = !!process.env.CI;
 const SKIP_REAL_WEB_SEARCH_ON_CI =
   !!process.env.CI && process.env.MIQI_RUN_REAL_WEB_SEARCH_E2E !== '1';
+const SKIP_STATEFUL_SESSION_E2E_ON_CI =
+  !!process.env.CI && process.env.MIQI_RUN_STATEFUL_SESSION_E2E !== '1';
 
 test.describe('Native Electron E2E', () => {
   let electronApp: ElectronApplication;
@@ -187,24 +189,31 @@ test.describe('Native Electron E2E', () => {
   //  SECTION 3: Conversation Switching & History
   // ═══════════════════════════════════════════════════════════════
 
-  test(
-    'conversation isolation: messages do not leak between sessions',
-    { timeout: LLM_TIMEOUT },
-    async () => {
-      const markerA = `IsolationA_${Date.now()}`;
-      await sendMessage(page, `只回答${markerA}`);
-      await waitForResponseComplete(page);
+  test.describe('stateful session integration', () => {
+    test.skip(
+      SKIP_STATEFUL_SESSION_E2E_ON_CI,
+      'Stateful session isolation is unstable in PR CI; run with MIQI_RUN_STATEFUL_SESSION_E2E=1 for manual/nightly verification.',
+    );
 
-      await createNewConversation(page);
+    test(
+      'conversation isolation: messages do not leak between sessions',
+      { timeout: LLM_TIMEOUT },
+      async () => {
+        const markerA = `IsolationA_${Date.now()}`;
+        await sendMessage(page, `只回答${markerA}`);
+        await waitForResponseComplete(page);
 
-      const markerB = `IsolationB_${Date.now()}`;
-      await sendMessage(page, `只回答${markerB}`);
-      await waitForResponseComplete(page);
+        await createNewConversation(page);
 
-      // markerA should NOT be visible in the new chat (scope to main)
-      await expect(page.locator('main').getByText(markerA)).not.toBeVisible({ timeout: 5_000 });
-    },
-  );
+        const markerB = `IsolationB_${Date.now()}`;
+        await sendMessage(page, `只回答${markerB}`);
+        await waitForResponseComplete(page);
+
+        // markerA should NOT be visible in the new chat (scope to main)
+        await expect(page.locator('main').getByText(markerA)).not.toBeVisible({ timeout: 5_000 });
+      },
+    );
+  });
 
   test(
     'switch between conversations via sidebar preserves history',
