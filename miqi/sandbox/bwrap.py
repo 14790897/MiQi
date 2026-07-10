@@ -54,6 +54,10 @@ class BwrapSandboxError(Exception):
     """Error raised when bwrap operations fail."""
 
 
+_auto_install_cache: dict[str, bool] = {}
+"""Cache auto-install results per distro to avoid repeated apt-get calls."""
+
+
 class BwrapCommandHandle:
     """Handle to a running command inside the bwrap sandbox.
 
@@ -457,9 +461,11 @@ class BwrapSandbox:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                await proc.communicate()
+                await asyncio.wait_for(proc.communicate(), timeout=30.0)
                 return proc.returncode == 0
-            except Exception:
+            except (asyncio.TimeoutError, Exception):
+                if isinstance(proc, asyncio.subprocess.Process):
+                    proc.kill()
                 return False
 
         # Try preferred distro first
@@ -474,7 +480,7 @@ class BwrapSandbox:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout_data, _ = await proc.communicate()
+            stdout_data, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
             if proc.returncode != 0:
                 return None
 
@@ -489,10 +495,8 @@ class BwrapSandbox:
                 if await _distro_has_bash(distro):
                     return distro
             return None
-        except Exception:
+        except (asyncio.TimeoutError, OSError, ValueError):
             return None
-
-    @staticmethod
     async def _ensure_wsl_deps(distro: str) -> bool:
         """Install required packages in a WSL distro and verify bwrap.
 
@@ -507,11 +511,11 @@ class BwrapSandbox:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            await check.communicate()
+            await asyncio.wait_for(check.communicate(), timeout=30.0)
             if check.returncode == 0:
                 logger.info("bwrap already installed in WSL distro '{}'", distro)
                 return True
-        except Exception:
+        except (asyncio.TimeoutError, OSError):
             pass
 
         logger.info(
@@ -525,16 +529,16 @@ class BwrapSandbox:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            await check_sudo.communicate()
+            await asyncio.wait_for(check_sudo.communicate(), timeout=30.0)
             has_sudo = (check_sudo.returncode == 0)
-        except Exception:
+        except (asyncio.TimeoutError, OSError):
             has_sudo = False
 
         # Build install command
         install_cmd = (
             "export DEBIAN_FRONTEND=noninteractive; "
             "apt-get update -qq 2>/dev/null; "
-            "apt-get install -y -qq bubblewrap coreutils rsync 2>&1"
+            "apt-get install -y -qq bubblewrap coreutils rsync"
         )
         if has_sudo:
             install_cmd = f"sudo bash -c '{install_cmd}'"
@@ -545,7 +549,7 @@ class BwrapSandbox:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await proc.communicate()
+            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180.0)
 
             if proc.returncode != 0:
                 err_msg = stderr.decode("utf-8", errors="replace")[:300] if stderr else "unknown error"
@@ -554,7 +558,7 @@ class BwrapSandbox:
                     distro, err_msg,
                 )
                 return False
-        except Exception as exc:
+        except (asyncio.TimeoutError, OSError) as exc:
             logger.warning(
                 "Failed to run apt install in WSL distro '{}': {}", distro, exc,
             )
@@ -567,14 +571,14 @@ class BwrapSandbox:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            await verify.communicate()
+            await asyncio.wait_for(verify.communicate(), timeout=30.0)
             if verify.returncode == 0:
                 logger.info(
                     "Successfully installed sandbox dependencies in WSL distro '{}'",
                     distro,
                 )
                 return True
-        except Exception:
+        except (asyncio.TimeoutError, OSError):
             pass
 
         logger.warning(
@@ -1218,9 +1222,16 @@ class BwrapSandbox:
             if auto_install_deps:
                 install_distro = await BwrapSandbox._find_any_wsl_distro(wsl_distro)
                 if install_distro:
+                    cached = _auto_install_cache.get(install_distro)
+                    if cached is False:
+                        return False  # already tried and failed
                     if await BwrapSandbox._ensure_wsl_deps(install_distro):
                         distro = await BwrapSandbox._detect_wsl_distro(install_distro)
-                        return distro is not None
+                        result = distro is not None
+                    else:
+                        result = False
+                    _auto_install_cache[install_distro] = result
+                    return result
             return False
         else:
             return await BwrapSandbox._find_bwrap_native() is not None

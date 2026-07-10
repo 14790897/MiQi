@@ -115,6 +115,8 @@ jobs:
         working-directory: apps/desktop
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install WSL Ubuntu distro
         shell: pwsh
