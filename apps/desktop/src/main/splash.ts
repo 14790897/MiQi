@@ -6,7 +6,7 @@ const { BrowserWindow } = electron;
 let splashWindow: InstanceType<typeof BrowserWindow> | null = null;
 let splashReady = false;
 
-export function createSplash(): void {
+export function createSplash(onDone: () => void): void {
   const splashPath = process.env['ELECTRON_RENDERER_URL']
     ? join(__dirname, '../../src/renderer/splash.html')
     : join(__dirname, '../renderer/splash.html');
@@ -35,6 +35,13 @@ export function createSplash(): void {
   splashWindow.once('ready-to-show', () => {
     splashReady = true;
     splashWindow?.show();
+  });
+
+  // Listen for animation completion signal from splash HTML
+  splashWindow.on('page-title-updated', (_event, title) => {
+    if (title === 'DONE') {
+      onDone();
+    }
   });
 }
 
