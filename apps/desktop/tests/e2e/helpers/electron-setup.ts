@@ -61,15 +61,26 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
     // Fast responses may never show IN PROGRESS.
   }
 
-  // Phase 3: wait for streaming character animation to finish.
+  // Phase 3: wait for textContent to have changed AND stabilized.
+  // The length must increase at least once, then remain stable for
+  // two consecutive polls (400ms).  This prevents false positives
+  // when streaming never started (AI call failed silently).
   await page.waitForFunction(() => {
     const main = document.querySelector('main');
     if (!main) return false;
     const text = main.textContent || '';
-    const w = (window as any).__miqi_last_len;
-    if (w !== undefined && text.length === w) return true;
-    (window as any).__miqi_last_len = text.length;
-    return false;
+    const s = (window as any).__miqi_stream_state;
+    if (!s) {
+      (window as any).__miqi_stream_state = { base: text.length, stable: 0 };
+      return false;
+    }
+    if (text.length > s.base) {
+      s.base = text.length;
+      s.stable = 0;
+      return false;
+    }
+    s.stable++;
+    return s.stable >= 2;
   }, { timeout: 5000, polling: 200 });
 }
 
