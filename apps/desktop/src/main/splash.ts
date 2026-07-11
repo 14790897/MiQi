@@ -20,11 +20,13 @@ export function createSplash(): void {
     resizable: false,
     skipTaskbar: true,
     show: false,
+    backgroundColor: '#ffffff',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
-      autoplayPolicy: 'no-user-gesture-required',
+      sandbox: true,
+      backgroundThrottling: false,
+      offscreen: false,
     },
   });
 
