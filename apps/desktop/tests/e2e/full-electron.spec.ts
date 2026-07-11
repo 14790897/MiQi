@@ -558,9 +558,9 @@ test.describe('Native Electron E2E', () => {
         '用 exec 工具执行 uname -s，只回复 exec 的实际输出，不要加任何解释',
       );
       await waitForResponseComplete(page, 120_000);
-      // Wait for streaming character animation to finish (textContent may
-      // be stale right after "Thinking…" disappears on slow CI).
-      await page.waitForTimeout(500);
+      // Wait for the "Thinking…" indicator to disappear so the streaming
+      // character animation has finished before checking text content.
+      await expect(page.getByText('Thinking…')).not.toBeVisible({ timeout: 15_000 });
       await expect(page.locator('main')).toContainText('Linux', { timeout: 10_000 });
       console.log('[test] ✅ exec uname -s → Linux');
     },

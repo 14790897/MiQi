@@ -80,9 +80,10 @@ test.describe('Streaming Isolation E2E', () => {
       const markerA = `ISOLATE_A_${Date.now().toString(36)}`;
       await sendWithoutWaiting(page, `只回答${markerA}`);
 
-      // Give the backend a moment to register IPC listeners,
-      // but switch sessions BEFORE the response completes.
-      await page.waitForTimeout(500);
+      // Wait for the "Thinking…" indicator to confirm the stream has
+      // actually started before switching sessions mid-stream. This is
+      // deterministic regardless of CI speed (unlike a fixed timeout).
+      await expect(page.getByText('Thinking…')).toBeVisible({ timeout: 15_000 });
 
       // ── Session B: create and send ──
       await createNewConversation(page);
@@ -127,7 +128,9 @@ test.describe('Streaming Isolation E2E', () => {
             const msgs = Array.isArray(detail?.messages) ? detail.messages : [];
             const text = msgs.map((m: any) => m.content || '').join('\n');
             results.push({ key: s.key, title: s.title, text });
-          } catch { /* skip */ }
+          } catch (e) {
+            results.push({ key: s.key, title: s.title, text: '', error: String(e) });
+          }
         }
         return results;
       }, [markerA, markerB]);

@@ -357,6 +357,7 @@ async def test_drain_chat_events_converts_tool_begin_to_tool_hint_progress():
         thread_id="thread-asset",
         session_id="session-asset",
         client_id="client-asset",
+        session_key="session-asset",
     )
 
     progress = loop._app_server.events[0]
@@ -398,6 +399,7 @@ async def test_drain_chat_events_sends_backend_timeout_error_directly():
         thread_id="thread-timeout",
         session_id="session-timeout",
         client_id="client-timeout",
+        session_key="session-timeout",
     )
 
     assert capturer.messages[0] == {
