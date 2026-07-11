@@ -558,12 +558,10 @@ test.describe('Native Electron E2E', () => {
         '用 exec 工具执行 uname -s，只回复 exec 的实际输出，不要加任何解释',
       );
       await waitForResponseComplete(page, 120_000);
-
-      // AI may format the output differently (code block, inline, etc.).
-      // Use textContent to check the full main area text rather than
-      // relying on a specific DOM text node containing "Linux".
-      const mainText = await page.locator('main').textContent();
-      expect(mainText).toMatch(/linux/i);
+      // Wait for streaming character animation to finish (textContent may
+      // be stale right after "Thinking…" disappears on slow CI).
+      await page.waitForTimeout(500);
+      await expect(page.locator('main')).toContainText('Linux', { timeout: 10_000 });
       console.log('[test] ✅ exec uname -s → Linux');
     },
   );
