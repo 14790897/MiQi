@@ -13,7 +13,7 @@ export function createSplash(): void {
 
   splashWindow = new BrowserWindow({
     width: 640,
-    height: 140,
+    height: 160,
     frame: false,
     alwaysOnTop: true,
     center: true,

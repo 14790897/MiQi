@@ -14,18 +14,22 @@ mkdirSync(videoDir, { recursive: true });
 
 const browser = await chromium.launch();
 const context = await browser.newContext({
-  viewport: { width: 400, height: 300 },
+  viewport: { width: 640, height: 160 },
   recordVideo: {
     dir: videoDir,
-    size: { width: 400, height: 300 }
+    size: { width: 640, height: 160 }
   }
 });
 const page = await context.newPage();
 await page.goto('file:///' + splashPath.replaceAll('\\', '/'), { waitUntil: 'networkidle' });
 
-await page.waitForTimeout(1000);
+await page.waitForTimeout(1500);
+const imgCount = await page.evaluate(() => document.querySelectorAll('img').length);
+const imgSrc = await page.evaluate(() => document.querySelector('img')?.src || 'none');
+const bgColor = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+console.log(`img count: ${imgCount}, src: ${imgSrc}, bg: ${bgColor}`);
 await page.screenshot({ path: stillPath });
-console.log('Still frame captured at 1.0s');
+console.log('Still frame captured at 1.5s');
 
 await page.waitForTimeout(1500);
 
