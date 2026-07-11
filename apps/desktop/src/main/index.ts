@@ -140,19 +140,12 @@ export function main(): void {
     bridgeManager.on('log', onLog);
 
     createSplash();
-
     createWindow();
 
-    // Ensure splash shows for at least 5s
-    const MIN_SPLASH_MS = 5000;
-    const splashStart = Date.now();
-
     mainWindow!.once('ready-to-show', async () => {
-      const elapsed = Date.now() - splashStart;
-      if (elapsed < MIN_SPLASH_MS) {
-        await new Promise(r => setTimeout(r, MIN_SPLASH_MS - elapsed));
-      }
-      await closeSplash();
+      // Keep splash visible for at least 5s after main window is ready
+      // closeSplash handles the case where splash hasn't loaded yet
+      await closeSplash(5000);
       mainWindow?.show();
     });
 

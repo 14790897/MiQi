@@ -36,29 +36,38 @@ export function createSplash(): void {
   });
 }
 
-export function closeSplash(): Promise<void> {
+export function closeSplash(minDisplayMs = 0): Promise<void> {
   return new Promise((resolve) => {
+    const destroy = () => {
+      if (splashWindow && !splashWindow.isDestroyed()) {
+        splashWindow.destroy();
+      }
+      splashWindow = null;
+      resolve();
+    };
+
     if (!splashWindow || splashWindow.isDestroyed()) {
       splashWindow = null;
       resolve();
       return;
     }
 
-    const win = splashWindow;
-
-    const cleanup = () => {
-      if (!win.isDestroyed()) {
-        win.destroy();
+    const doClose = () => {
+      if (minDisplayMs > 0) {
+        setTimeout(destroy, minDisplayMs);
+      } else {
+        destroy();
       }
-      splashWindow = null;
-      resolve();
     };
 
     if (!splashReady) {
-      cleanup();
-      return;
+      splashWindow.once('ready-to-show', () => {
+        splashReady = true;
+        splashWindow?.show();
+        doClose();
+      });
+    } else {
+      doClose();
     }
-
-    cleanup();
   });
 }
