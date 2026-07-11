@@ -4,6 +4,7 @@ import { electron } from '../shared/electron';
 import { registerIpcHandlers } from './ipc';
 import { BridgeManager } from './bridge';
 import { writeMainProcessLog } from './electron-log';
+import { createSplash, closeSplash } from './splash';
 
 const originalConsoleLog = console.log.bind(console);
 const originalConsoleWarn = console.warn.bind(console);
@@ -34,7 +35,9 @@ function createWindow(): void {
   mainWindow.removeMenu();
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow?.show();
+    closeSplash().then(() => {
+      mainWindow?.show();
+    });
   });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -136,7 +139,17 @@ export function main(): void {
     bridgeManager.on('state', onState);
     bridgeManager.on('log', onLog);
 
+    createSplash();
+
     createWindow();
+
+    const splashTimeout = setTimeout(() => {
+      closeSplash().catch(() => {});
+    }, 5000);
+
+    mainWindow!.once('ready-to-show', () => {
+      clearTimeout(splashTimeout);
+    });
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {

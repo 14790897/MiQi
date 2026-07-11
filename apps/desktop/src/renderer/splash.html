@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com">
+  <title>MiQi Desktop</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@900&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --navy: #272c40;
+      --gold: #ffd058;
+      --red: #ff4050;
+      --green: #40ff60;
+      --fade-in: 0.3s;
+      --breathe: 1.2s;
+      --fade-out: 0.3s;
+      --total: 1.8s;
+    }
+
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+    }
+
+    body {
+      background: var(--navy);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+      -webkit-app-region: drag;
+      transition: opacity var(--fade-out) ease;
+    }
+
+    body.fade-out { opacity: 0; }
+
+    .logo-wrapper {
+      position: relative;
+      width: 120px; height: 120px;
+      animation:
+        fadeInScale var(--fade-in) ease-out forwards,
+        breathe var(--breathe) ease-in-out var(--fade-in) forwards;
+    }
+
+    .logo-bg {
+      position: absolute; inset: 0;
+      background: var(--navy);
+      border-radius: 18px;
+    }
+
+    .m-layer {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 64px; font-weight: 900; line-height: 1;
+      user-select: none;
+      -webkit-app-region: no-drag;
+    }
+
+    /* RGB chromatic aberration — red channel left, green channel right */
+    .m-red {
+      color: var(--red); opacity: 0.55;
+      filter: blur(0.5px);
+      transform: translateX(-2px);
+      mix-blend-mode: screen;
+    }
+
+    .m-green {
+      color: var(--green); opacity: 0.55;
+      filter: blur(0.5px);
+      transform: translateX(2px);
+      mix-blend-mode: screen;
+    }
+
+    /* Gold base layer — centered */
+    .m-gold {
+      color: var(--gold); opacity: 0.85;
+      filter: blur(0.5px);
+    }
+
+    .subtitle {
+      margin-top: 20px;
+      color: var(--gold);
+      font-size: 15px; font-weight: 600;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      opacity: 0;
+      animation: fadeUp 0.4s var(--fade-in) ease forwards;
+    }
+
+    /* Progress bar — anchors the eye during wait */
+    .progress-bar {
+      position: absolute; bottom: 40px;
+      width: 60px; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+      animation: progressSlide var(--total) ease-out forwards;
+    }
+
+    @keyframes fadeInScale {
+      from { opacity: 0; transform: scale(0.85); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+
+    @keyframes breathe {
+      0%, 100% { filter: brightness(1); }
+      50%      { filter: brightness(1.05); }
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes progressSlide {
+      from { transform: scaleX(0); }
+      to   { transform: scaleX(1); }
+    }
+
+    /* Accessibility — skip animation for users who prefer reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      .logo-wrapper {
+        animation: fadeInScale 0.3s ease-out forwards;
+      }
+      .subtitle {
+        animation: fadeUp 0.3s ease forwards;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="logo-wrapper">
+    <div class="logo-bg"></div>
+    <div class="m-layer m-red">M</div>
+    <div class="m-layer m-green">M</div>
+    <div class="m-layer m-gold">M</div>
+  </div>
+  <div class="subtitle">MiQi Desktop</div>
+  <div class="progress-bar"></div>
+</body>
+</html>
