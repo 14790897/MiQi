@@ -147,7 +147,7 @@ export function main(): void {
       setTimeout(() => {
         closeSplash();
         mainWindow?.show();
-      }, 5000);
+      }, 10000);
     });
 
     app.on('activate', () => {
