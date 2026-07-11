@@ -143,12 +143,17 @@ export function main(): void {
 
     createWindow();
 
-    const splashTimeout = setTimeout(() => {
-      closeSplash().catch(() => {});
-    }, 5000);
+    // Ensure splash shows for at least 3s (GIF animation duration)
+    const MIN_SPLASH_MS = 3000;
+    const splashStart = Date.now();
 
-    mainWindow!.once('ready-to-show', () => {
-      clearTimeout(splashTimeout);
+    mainWindow!.once('ready-to-show', async () => {
+      const elapsed = Date.now() - splashStart;
+      if (elapsed < MIN_SPLASH_MS) {
+        await new Promise(r => setTimeout(r, MIN_SPLASH_MS - elapsed));
+      }
+      await closeSplash();
+      mainWindow?.show();
     });
 
     app.on('activate', () => {
