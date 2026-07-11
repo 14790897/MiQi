@@ -558,6 +558,10 @@ test.describe('Native Electron E2E', () => {
         '用 exec 工具执行 uname -s，只回复 exec 的实际输出，不要加任何解释',
       );
       await waitForResponseComplete(page, 120_000);
+      // ChatConsole textarea is disabled={streaming}.  Wait for it to
+      // become enabled — this only happens after setStreaming(false),
+      // which runs AFTER the character animation finishes.
+      await expect(page.locator('textarea').last()).not.toHaveAttribute('disabled', { timeout: 10_000 });
       await expect(page.locator('main')).toContainText(/linux/i, { timeout: 10_000 });
       console.log('[test] ✅ exec uname -s → Linux');
     },
