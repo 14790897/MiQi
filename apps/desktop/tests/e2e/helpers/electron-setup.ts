@@ -52,10 +52,11 @@ export async function sendMessage(page: Page, text: string) {
 export async function waitForResponseComplete(page: Page, timeout = 120_000) {
   // "Thinking…" disappears when the AI model finishes generating.
   await expect(page.getByText('Thinking…')).toBeHidden({ timeout });
-  // "IN PROGRESS" disappears when streaming animation finishes and
-  // ChatConsole calls setStreaming(false).  Without this, textContent
-  // reads can be stale on slow CI (e.g. WSL runner).
-  await expect(page.getByText('IN PROGRESS')).toBeHidden({ timeout: 15_000 });
+  // ChatConsole shows "IN PROGRESS" while streaming; it disappears
+  // only after setStreaming(false) — which runs AFTER the character
+  // animation finishes.  Without this, textContent reads can be stale.
+  // Use the CSS class to avoid false positives from sidebar content.
+  await expect(page.locator('.tag-inprogress')).toBeHidden({ timeout: 15_000 });
 }
 
 // ─── Session / Sidebar helpers ──────────────────────────────────────
