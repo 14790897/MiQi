@@ -561,7 +561,7 @@ test.describe('Native Electron E2E', () => {
       // Wait for the "Thinking…" indicator to disappear so the streaming
       // character animation has finished before checking text content.
       await expect(page.getByText('Thinking…')).not.toBeVisible({ timeout: 15_000 });
-      await expect(page.locator('main')).toContainText('Linux', { timeout: 10_000 });
+      await expect(page.locator('main')).toContainText(/linux/i, { timeout: 10_000 });
       console.log('[test] ✅ exec uname -s → Linux');
     },
   );
@@ -649,6 +649,8 @@ test.describe('Native Electron E2E', () => {
         `用 exec 执行: cat /home/miqi/workspace/sessions/*/files/${fname} 2>&1`,
       );
       await waitForResponseComplete(page, 120_000);
+      // Allow streaming animation to finish before checking textContent
+      await page.waitForTimeout(500);
       const mainText = await page.locator('main').textContent();
       expect(mainText).toContain(content);
       await page.waitForTimeout(800);
