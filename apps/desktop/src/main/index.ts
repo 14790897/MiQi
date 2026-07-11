@@ -21,7 +21,6 @@ function createWindow(): void {
     height: 860,
     minWidth: 900,
     minHeight: 760,
-    show: false,
     title: 'MiQi Desktop',
     webPreferences: {
       contextIsolation: true,
@@ -135,7 +134,6 @@ export function main(): void {
 
     createSplash(() => {
       closeSplash();
-      mainWindow?.show();
     });
     createWindow();
 
