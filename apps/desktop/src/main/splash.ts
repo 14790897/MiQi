@@ -4,7 +4,7 @@ import { electron } from '../shared/electron';
 const { BrowserWindow } = electron;
 
 let splashWindow: InstanceType<typeof BrowserWindow> | null = null;
-let splashReady = false;
+let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function createSplash(onDone: () => void): void {
   const splashPath = process.env['ELECTRON_RENDERER_URL']
@@ -25,23 +25,58 @@ export function createSplash(onDone: () => void): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      backgroundThrottling: false,
-      offscreen: false,
     },
   });
+
+  const wc = splashWindow.webContents;
+
+  // Animation completion signal
+  const onTitle = (_event: unknown, title: string) => {
+    if (title === 'DONE') {
+      cleanup();
+      onDone();
+    }
+  };
+  splashWindow.on('page-title-updated', onTitle);
+
+  // Fallback: if GIF never signals, close after 8s
+  fallbackTimer = setTimeout(() => {
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      cleanup();
+      onDone();
+    }
+  }, 8000);
+
+  // Window closed externally
+  splashWindow.once('closed', () => {
+    cleanup();
+  });
+
+  // Renderer failure
+  wc.on('did-fail-load', (_event, code, desc) => {
+    console.error(`[splash] load failed: ${code} ${desc}`);
+    cleanup();
+    onDone();
+  });
+
+  wc.on('render-process-gone', (_event, details) => {
+    console.error(`[splash] renderer gone: ${details.reason}`);
+    cleanup();
+    onDone();
+  });
+
+  function cleanup() {
+    if (fallbackTimer) {
+      clearTimeout(fallbackTimer);
+      fallbackTimer = null;
+    }
+    splashWindow?.off('page-title-updated', onTitle);
+  }
 
   splashWindow.loadFile(splashPath);
 
   splashWindow.once('ready-to-show', () => {
-    splashReady = true;
     splashWindow?.show();
-  });
-
-  // Listen for animation completion signal from splash HTML
-  splashWindow.on('page-title-updated', (_event, title) => {
-    if (title === 'DONE') {
-      onDone();
-    }
   });
 }
 

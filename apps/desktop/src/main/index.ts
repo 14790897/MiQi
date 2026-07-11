@@ -34,10 +34,6 @@ function createWindow(): void {
   // Remove native menu bar — app has its own navigation
   mainWindow.removeMenu();
 
-  mainWindow.on('ready-to-show', () => {
-    // Splash is handled in main() below — do not close here
-  });
-
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
     return { action: 'deny' };
