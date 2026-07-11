@@ -228,7 +228,20 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
     chromiumSandbox: false,
   });
 
-  const page = await electronApp.firstWindow();
+  // Wait for the main window (skip splash window — 480x100, title "MiQi")
+  let page;
+  for (let i = 0; i < 100; i++) {
+    const windows = electronApp.windows();
+    for (const w of windows) {
+      try {
+        const info = await w.evaluate(() => ({ t: document.title, w: window.outerWidth }));
+        if (info.w > 500 && info.t === 'MiQi Desktop') { page = w; break; }
+      } catch {}
+    }
+    if (page) break;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  if (!page) page = await electronApp.firstWindow();
   await page.waitForLoadState('domcontentloaded');
 
   // Capture bridge stderr and app console errors for CI debugging

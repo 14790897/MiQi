@@ -342,7 +342,7 @@ class BwrapSandbox:
         while the actual content flows through stdin.
         """
         # Use a short command; data goes through stdin pipe
-        write_cmd = f"cat > '{linux_path}'"
+        write_cmd = f"mkdir -p \"$(dirname '{linux_path}')\" && cat > '{linux_path}'"
         if self._use_wsl:
             full_args = self._wsl_prefix() + ["bash", "-c", write_cmd]
         else:
