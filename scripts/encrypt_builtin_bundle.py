@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import secrets
 import sys
 from pathlib import Path
@@ -64,13 +65,20 @@ def encrypt_bundle(provider: str, api_key: str, code: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate an encrypted builtin-model bundle.")
     parser.add_argument("--provider", required=True, help="Provider name, e.g. deepseek")
-    parser.add_argument("--key", required=True, help="Plaintext API key to bundle")
-    parser.add_argument("--code", required=True, help="Unlock code that should activate this bundle")
+    parser.add_argument("--key", default=None, help="Plaintext API key to bundle (or env BUILTIN_BUNDLE_KEY)")
+    parser.add_argument("--code", default=None, help="Unlock code that should activate this bundle (or env BUILTIN_BUNDLE_CODE)")
     parser.add_argument("--out", required=True, help="Output bundle JSON path")
     parser.add_argument("--bundle-id", default=None, help="Optional bundle id; defaults to provider name")
     args = parser.parse_args()
 
-    bundle = encrypt_bundle(args.provider, args.key, args.code)
+    api_key = args.key or os.environ.get("BUILTIN_BUNDLE_KEY")
+    unlock_code = args.code or os.environ.get("BUILTIN_BUNDLE_CODE")
+    if not api_key:
+        parser.error("--key or BUILTIN_BUNDLE_KEY env var is required")
+    if not unlock_code:
+        parser.error("--code or BUILTIN_BUNDLE_CODE env var is required")
+
+    bundle = encrypt_bundle(args.provider, api_key, unlock_code)
     bundle["bundle_id"] = args.bundle_id or args.provider
 
     out_path = Path(args.out)

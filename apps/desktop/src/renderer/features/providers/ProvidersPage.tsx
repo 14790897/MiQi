@@ -653,13 +653,12 @@ export function ProvidersPage() {
         markRestartRequired();
         await load();
       } else {
-        const msg = res.error ?? '解锁失败';
-        setUnlockResult({
-          ok: false,
-          message: msg.includes('Invalid') || msg.includes('unlock code')
-            ? '解锁码无效'
-            : msg,
-        });
+        const rawMsg = res.error ?? '解锁失败';
+        if (rawMsg.includes('Invalid') || rawMsg.includes('unlock code')) {
+          setUnlockResult({ ok: false, message: '解锁码无效' });
+        } else {
+          setUnlockResult({ ok: false, message: sanitizeUiMessage(rawMsg) });
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

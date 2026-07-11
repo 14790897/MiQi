@@ -43,10 +43,10 @@ def make_provider(config: Any) -> Any:
     spec = find_by_name(provider_name)
     if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and spec.is_local):
         # Allow the built-in trial credential to satisfy the "needs a key" check
-        # when no user key is configured.
-        from miqi.providers.builtin_credentials import BUILTIN_KEY_PROVIDER
-
-        builtin_ok = bool(provider_name) and BUILTIN_KEY_PROVIDER.get_key(provider_name) is not None
+        # when no user key is configured.  Use the already-resolved api_key (which
+        # includes the builtin fallback via Config.get_api_key) rather than calling
+        # BUILTIN_KEY_PROVIDER directly, so the enabled gate is consistently applied.
+        builtin_ok = bool(api_key) and not (p and p.api_key)
         if not builtin_ok:
             raise ValueError(
                 "No API key configured. "
