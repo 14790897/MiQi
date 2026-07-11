@@ -50,7 +50,12 @@ export async function sendMessage(page: Page, text: string) {
 
 /** Wait for streaming to finish (no "Thinking…" indicator) */
 export async function waitForResponseComplete(page: Page, timeout = 120_000) {
+  // "Thinking…" disappears when the AI model finishes generating.
   await expect(page.getByText('Thinking…')).toBeHidden({ timeout });
+  // "IN PROGRESS" disappears when streaming animation finishes and
+  // ChatConsole calls setStreaming(false).  Without this, textContent
+  // reads can be stale on slow CI (e.g. WSL runner).
+  await expect(page.getByText('IN PROGRESS')).toBeHidden({ timeout: 15_000 });
 }
 
 // ─── Session / Sidebar helpers ──────────────────────────────────────
