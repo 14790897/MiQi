@@ -142,10 +142,11 @@ export function main(): void {
 
     mainWindow!.once('ready-to-show', () => {
       // Show splash now, then switch to main window after delay
+      // GIF animation: 19 frames × 80ms + 1580ms hold = 3020ms total
       setTimeout(() => {
         closeSplash();
         mainWindow?.show();
-      }, 3000);
+      }, 3020);
     });
 
     app.on('activate', () => {
