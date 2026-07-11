@@ -29,41 +29,38 @@ export function createSplash(onDone: () => void): void {
   });
 
   const wc = splashWindow.webContents;
+  let done = false;
+
+  const complete = () => {
+    if (done) return;
+    done = true;
+    cleanup();
+    onDone();
+  };
 
   // Animation completion signal
   const onTitle = (_event: unknown, title: string) => {
-    if (title === 'DONE') {
-      cleanup();
-      onDone();
-    }
+    if (title === 'DONE') complete();
   };
   splashWindow.on('page-title-updated', onTitle);
 
   // Fallback: if GIF never signals, close after 8s
   fallbackTimer = setTimeout(() => {
-    if (splashWindow && !splashWindow.isDestroyed()) {
-      cleanup();
-      onDone();
-    }
+    if (splashWindow && !splashWindow.isDestroyed()) complete();
   }, 8000);
 
   // Window closed externally — treat as done
-  splashWindow.once('closed', () => {
-    cleanup();
-    onDone();
-  });
+  splashWindow.once('closed', () => complete());
 
   // Renderer failure
   wc.on('did-fail-load', (_event, code, desc) => {
     console.error(`[splash] load failed: ${code} ${desc}`);
-    cleanup();
-    onDone();
+    complete();
   });
 
   wc.on('render-process-gone', (_event, details) => {
     console.error(`[splash] renderer gone: ${details.reason}`);
-    cleanup();
-    onDone();
+    complete();
   });
 
   function cleanup() {
@@ -72,6 +69,8 @@ export function createSplash(onDone: () => void): void {
       fallbackTimer = null;
     }
     splashWindow?.off('page-title-updated', onTitle);
+    wc.removeAllListeners('did-fail-load');
+    wc.removeAllListeners('render-process-gone');
   }
 
   splashWindow.loadFile(splashPath);
