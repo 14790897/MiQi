@@ -46,6 +46,7 @@ export const IPC = {
   PROVIDERS_LIST: 'providers:list',
   PROVIDERS_TEST: 'providers:test',
   PROVIDERS_UPDATE: 'providers:update',
+  BUILTIN_MODEL_UNLOCK: 'builtin_model:unlock',
   CHANNELS_LIST: 'channels:list',
   CHANNELS_UPDATE: 'channels:update',
   APPROVALS_LIST: 'approvals:list',
@@ -928,4 +929,14 @@ export interface TurnInterruptResult {
 
 export interface ThreadStartedEvent {
   thread: Record<string, unknown>;
+}
+
+export const BuiltinModelUnlockInput = z.object({
+  activation_code: z.string().min(1),
+});
+
+export interface BuiltinModelUnlockResult {
+  success: boolean;
+  userKeyPresent?: boolean;
+  error?: string;
 }

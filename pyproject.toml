@@ -42,6 +42,7 @@ dependencies = [
     "openpyxl>=3.1.5",
     "textual>=8.2.7",
     "ddgs>=9.14.4",
+    "cryptography>=46.0.7",
 ]
 
 [project.optional-dependencies]
@@ -79,6 +80,7 @@ include = [
     "miqi/**/*.py",
     "miqi/templates/**/*.md",
     "miqi/skills/**/*",
+    "miqi/resources/**/*",
 ]
 
 [tool.hatch.build.targets.sdist]

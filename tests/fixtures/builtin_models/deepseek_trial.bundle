@@ -1,0 +1,9 @@
+{
+  "provider": "deepseek",
+  "version": 1,
+  "kdf_salt": "Kr9FN0hv5qd3JzV0/Dv9Jg==",
+  "kdf_iters": 200000,
+  "nonce": "GoYEU1Xz0+UBAAtK",
+  "ciphertext": "h6pCFhvWiBiCtsa54Jj/EgyHswUbMqFJIXQY88SCYBtHTAR0B8yzw6B3t/2kkZU4kw5IbnUd1IlKws4mZhKCgMI=",
+  "bundle_id": "deepseek_trial_001"
+}
