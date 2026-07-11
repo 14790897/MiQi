@@ -12,8 +12,8 @@ export function createSplash(): void {
     : join(__dirname, '../renderer/splash.html');
 
   splashWindow = new BrowserWindow({
-    width: 400,
-    height: 300,
+    width: 640,
+    height: 140,
     frame: false,
     alwaysOnTop: true,
     center: true,
@@ -58,13 +58,6 @@ export function closeSplash(): Promise<void> {
       return;
     }
 
-    win.webContents
-      .executeJavaScript('document.body.classList.add("fade-out")')
-      .then(() => {
-        setTimeout(cleanup, 350);
-      })
-      .catch(() => {
-        cleanup();
-      });
+    cleanup();
   });
 }
