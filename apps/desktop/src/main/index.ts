@@ -21,6 +21,7 @@ function createWindow(): void {
     height: 860,
     minWidth: 900,
     minHeight: 760,
+    show: false,
     title: 'MiQi Desktop',
     webPreferences: {
       contextIsolation: true,
@@ -132,12 +133,11 @@ export function main(): void {
     bridgeManager.on('state', onState);
     bridgeManager.on('log', onLog);
 
-    // Main window loads behind splash (splash is alwaysOnTop)
-    createWindow();
     createSplash(() => {
       closeSplash();
-      // Main window is already visible behind the splash
+      mainWindow?.show();
     });
+    createWindow();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
