@@ -35,9 +35,7 @@ function createWindow(): void {
   mainWindow.removeMenu();
 
   mainWindow.on('ready-to-show', () => {
-    closeSplash().then(() => {
-      mainWindow?.show();
-    });
+    // Splash is handled in main() below — do not close here
   });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -147,7 +145,7 @@ export function main(): void {
       setTimeout(() => {
         closeSplash();
         mainWindow?.show();
-      }, 10000);
+      }, 5000);
     });
 
     app.on('activate', () => {
