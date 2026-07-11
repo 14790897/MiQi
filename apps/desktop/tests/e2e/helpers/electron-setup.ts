@@ -52,15 +52,17 @@ export async function sendMessage(page: Page, text: string) {
 export async function waitForResponseComplete(page: Page, timeout = 120_000) {
   // "Thinking…" disappears when the AI model finishes generating.
   await expect(page.getByText('Thinking…')).toBeHidden({ timeout });
-  // ChatConsole textarea is disabled={streaming}.  Wait for it to
-  // become enabled — setStreaming(false) fires after the character
-  // animation finishes, so textContent is guaranteed current.
-  const input = page.locator(
-    'textarea[placeholder*="Ask Agent to analyze or edit files"]',
-  );
-  if (await input.isVisible({ timeout: 1000 }).catch(() => false)) {
-    await expect(input).not.toBeDisabled({ timeout: 10_000 });
-  }
+  // Wait for textContent to stop changing — streaming character
+  // animation can continue after "Thinking…" is hidden.
+  await page.waitForFunction(() => {
+    const main = document.querySelector('main');
+    if (!main) return false;
+    const text = main.textContent || '';
+    const w = (window as any).__miqi_last_len;
+    if (w !== undefined && text.length === w) return true;
+    (window as any).__miqi_last_len = text.length;
+    return false;
+  }, { timeout: 5000, polling: 200 });
 }
 
 // ─── Session / Sidebar helpers ──────────────────────────────────────
