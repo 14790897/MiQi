@@ -20,7 +20,7 @@ class ThreadStore:
     async def initialize(self) -> None:
         """Create tables if they don't exist."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(str(self.db_path)) as db:
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS threads (
                     thread_id TEXT PRIMARY KEY,
@@ -39,7 +39,7 @@ class ThreadStore:
     ) -> None:
         """Save or update a thread record."""
         now = time.time()
-        async with aiosqlite.connect(str(self.db_path)) as db:
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
             await db.execute(
                 """INSERT OR REPLACE INTO threads
                    (thread_id, agent_id, agent_type, status, created_at, updated_at)
@@ -50,7 +50,7 @@ class ThreadStore:
 
     async def get_thread(self, thread_id: str) -> dict | None:
         """Get a thread record by ID."""
-        async with aiosqlite.connect(str(self.db_path)) as db:
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 "SELECT * FROM threads WHERE thread_id = ?",
@@ -63,7 +63,7 @@ class ThreadStore:
 
     async def update_status(self, thread_id: str, status: str) -> None:
         """Update thread status."""
-        async with aiosqlite.connect(str(self.db_path)) as db:
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
             await db.execute(
                 "UPDATE threads SET status = ?, updated_at = ? WHERE thread_id = ?",
                 (status, time.time(), thread_id),
@@ -72,7 +72,7 @@ class ThreadStore:
 
     async def save_plan(self, thread_id: str, plan_json: str) -> None:
         """Save plan JSON for a thread."""
-        async with aiosqlite.connect(str(self.db_path)) as db:
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
             await db.execute(
                 "UPDATE threads SET plan_json = ?, updated_at = ? WHERE thread_id = ?",
                 (plan_json, time.time(), thread_id),
@@ -81,7 +81,7 @@ class ThreadStore:
 
     async def list_threads(self) -> list[dict]:
         """List all threads."""
-        async with aiosqlite.connect(str(self.db_path)) as db:
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 "SELECT * FROM threads ORDER BY updated_at DESC"

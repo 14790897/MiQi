@@ -73,7 +73,8 @@ class HistoryRuntime:
     async def initialize(self) -> None:
         """Open persistent connection and create tables."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = await aiosqlite.connect(str(self.db_path))
+        self._db = await aiosqlite.connect(str(self.db_path), timeout=30)
+        await self._db.execute("PRAGMA journal_mode=WAL")
         self._db.row_factory = aiosqlite.Row
         await self._db.execute("""
             CREATE TABLE IF NOT EXISTS runtime_turns (
