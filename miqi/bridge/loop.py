@@ -575,6 +575,7 @@ class BridgeRuntimeLoop:
                 runtime=runtime,
                 thread_id=thread_id,
                 session_id=runtime_id,
+                session_key=session_key,
                 client_id=client_id,
             )
         )
@@ -602,6 +603,7 @@ class BridgeRuntimeLoop:
         thread_id: str,
         session_id: str,
         client_id: str,
+        session_key: str = "",
     ) -> None:
         """Background task: drain events from RuntimeSession and forward them.
 
@@ -613,6 +615,10 @@ class BridgeRuntimeLoop:
 
         async def _emit(event_type: str, data: Any) -> None:
             """Emit a non-terminal event through AppServer fanout."""
+            # Inject session_key so the frontend can filter events
+            # by session, preventing cross-session message leaks (#212).
+            if isinstance(data, dict):
+                data["session_key"] = session_key
             await app_server.emit_event(
                 session_id, event_type, data,
                 request_id=request_id,
@@ -629,6 +635,9 @@ class BridgeRuntimeLoop:
             if request_id in self._terminal_sent:
                 return False
             self._terminal_sent.add(request_id)
+            # Inject session_key so the frontend can filter (#212)
+            if isinstance(data, dict):
+                data["session_key"] = session_key
             self._send({
                 "id": request_id,
                 "type": event_type,

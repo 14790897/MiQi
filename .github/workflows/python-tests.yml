@@ -183,7 +183,7 @@ jobs:
 
       - name: Run sandbox E2E tests (WSL)
         run: |
-          npx playwright test --config=playwright.config.ts --project=electron -g "sandbox"
+          npx playwright test --config=playwright.config.ts --project=electron sandbox-exec.spec.ts session-key-mapping.spec.ts --workers=1
         env:
           MIQI_RUN_SANDBOX_E2E: '1'
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
