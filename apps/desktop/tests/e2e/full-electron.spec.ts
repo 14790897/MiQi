@@ -32,10 +32,8 @@ import {
 
 /** Skip sandbox exec tests on CI runners that lack bwrap.
  *  Set MIQI_RUN_SANDBOX_E2E=1 to force-enable on CI (e.g., WSL runner). */
-const SKIP_SANDBOX_ON_CI || SKIP_SANDBOX_ON_WSL =
+const SKIP_SANDBOX_ON_CI =
   !!process.env.CI && process.env.MIQI_RUN_SANDBOX_E2E !== '1';
-const SKIP_SANDBOX_ON_WSL =
-  process.platform === 'win32' && !!process.env.WSL_DISTRO_NAME;
 const SKIP_REAL_WEB_SEARCH_ON_CI =
   !!process.env.CI && process.env.MIQI_RUN_REAL_WEB_SEARCH_E2E !== '1';
 const SKIP_STATEFUL_SESSION_E2E_ON_CI =
@@ -493,7 +491,7 @@ test.describe('Native Electron E2E', () => {
     'exec pwd in sandbox returns /home/miqi/workspace',
     { timeout: LLM_TIMEOUT },
     async () => {
-      test.skip(SKIP_SANDBOX_ON_CI || SKIP_SANDBOX_ON_WSL, 'CI runner lacks bwrap');
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
       await createNewConversation(page);
       await sendMessage(
         page,
@@ -520,7 +518,7 @@ test.describe('Native Electron E2E', () => {
     'exec whoami returns miqi user',
     { timeout: LLM_TIMEOUT },
     async () => {
-      test.skip(SKIP_SANDBOX_ON_CI || SKIP_SANDBOX_ON_WSL, 'CI runner lacks bwrap');
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
       await sendMessage(
         page,
         '用 exec 工具执行 whoami，只回复 exec 的实际输出，不要加任何解释',
@@ -537,7 +535,7 @@ test.describe('Native Electron E2E', () => {
     'exec echo returns command output',
     { timeout: LLM_TIMEOUT },
     async () => {
-      test.skip(SKIP_SANDBOX_ON_CI || SKIP_SANDBOX_ON_WSL, 'CI runner lacks bwrap');
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
       await sendMessage(
         page,
         '用 exec 工具执行 echo "sandbox_e2e_OK"，只回复 exec 的实际输出，不要加任何解释',
@@ -554,7 +552,7 @@ test.describe('Native Electron E2E', () => {
     'exec uname returns Linux sandbox',
     { timeout: LLM_TIMEOUT },
     async () => {
-      test.skip(SKIP_SANDBOX_ON_CI || SKIP_SANDBOX_ON_WSL, 'CI runner lacks bwrap');
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
       await sendMessage(
         page,
         '用 exec 工具执行 uname -s，只回复 exec 的实际输出，不要加任何解释',
@@ -573,7 +571,7 @@ test.describe('Native Electron E2E', () => {
     'exec ls shows sandbox workspace contents',
     { timeout: LLM_TIMEOUT },
     async () => {
-      test.skip(SKIP_SANDBOX_ON_CI || SKIP_SANDBOX_ON_WSL, 'CI runner lacks bwrap');
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
       await sendMessage(
         page,
         '用 exec 工具执行 ls /home/miqi/workspace，只回复 exec 的实际输出，不要加任何解释',
@@ -589,7 +587,7 @@ test.describe('Native Electron E2E', () => {
     'session file isolation: exec files from one session not visible in another',
     { timeout: LLM_TIMEOUT },
     async () => {
-      test.skip(SKIP_SANDBOX_ON_CI || SKIP_SANDBOX_ON_WSL, 'CI runner lacks bwrap');
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
       await createNewConversation(page);
 
       const marker = `ISOLATED_${Date.now()}`;
@@ -629,7 +627,7 @@ test.describe('Native Electron E2E', () => {
     'write_file uses session-scoped workspace via sandbox',
     { timeout: LLM_TIMEOUT },
     async () => {
-      test.skip(SKIP_SANDBOX_ON_CI || SKIP_SANDBOX_ON_WSL, 'CI runner lacks bwrap');
+      test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
       await page.evaluate(() =>
         (window as any).miqi.approvals.addPermanent('*:*', 'always'),
       );
