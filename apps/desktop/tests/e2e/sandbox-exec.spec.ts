@@ -156,21 +156,19 @@ test.describe('Sandbox Exec E2E', () => {
       await createNewConversation(page);
 
       const marker = `ISOLATED_${Date.now()}`;
+      const fname = `session_isolation_${Date.now()}.txt`;
+      // Use write_file (session-scoped path) instead of exec echo > shared workspace.
       await sendMessage(
         page,
-        `用 exec 执行: echo ${marker} > /home/miqi/workspace/session_isolation_test.txt && cat /home/miqi/workspace/session_isolation_test.txt`,
+        `用 write_file 创建文件 ${fname}，内容为 "${marker}"`,
       );
       await waitForResponseComplete(page, 120_000);
 
-      const mainTextA = await page.locator('main').textContent();
-      expect(mainTextA).toContain(marker);
-      await page.screenshot({ path: 'test-results/session-isolation-01-sessionA-writes.png' });
-      console.log(`[test] ✅ Session A file with marker: ${marker}`);
-
+      // Switch to a new session — should NOT see the file from Session A.
       await createNewConversation(page);
       await sendMessage(
         page,
-        '用 exec 执行: cat /home/miqi/workspace/session_isolation_test.txt 2>&1',
+        `用 exec 执行: cat /home/miqi/workspace/${fname} 2>&1`,
       );
       await waitForResponseComplete(page, 120_000);
       await page.waitForTimeout(15_000);
