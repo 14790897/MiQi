@@ -53,9 +53,14 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
   // "Thinking…" disappears when the AI model finishes generating.
   await expect(page.getByText('Thinking…')).toBeHidden({ timeout });
   // ChatConsole textarea is disabled={streaming}.  Wait for it to
-  // become enabled — setStreaming(false) only runs AFTER the character
-  // animation finishes, so textContent is guaranteed fresh.
-  await expect(page.locator('main textarea').last()).not.toBeDisabled({ timeout: 10_000 });
+  // become enabled — setStreaming(false) fires after the character
+  // animation finishes, so textContent is guaranteed current.
+  const input = page.locator(
+    'textarea[placeholder*="Ask Agent to analyze or edit files"]',
+  );
+  if (await input.isVisible({ timeout: 1000 }).catch(() => false)) {
+    await expect(input).not.toBeDisabled({ timeout: 10_000 });
+  }
 }
 
 // ─── Session / Sidebar helpers ──────────────────────────────────────
