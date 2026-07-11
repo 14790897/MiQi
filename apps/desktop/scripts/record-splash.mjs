@@ -14,10 +14,10 @@ mkdirSync(videoDir, { recursive: true });
 
 const browser = await chromium.launch();
 const context = await browser.newContext({
-  viewport: { width: 640, height: 160 },
+  viewport: { width: 480, height: 100 },
   recordVideo: {
     dir: videoDir,
-    size: { width: 640, height: 160 }
+    size: { width: 480, height: 100 }
   }
 });
 const page = await context.newPage();

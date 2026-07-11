@@ -12,8 +12,8 @@ export function createSplash(): void {
     : join(__dirname, '../renderer/splash.html');
 
   splashWindow = new BrowserWindow({
-    width: 640,
-    height: 160,
+    width: 480,
+    height: 100,
     frame: false,
     alwaysOnTop: true,
     center: true,
