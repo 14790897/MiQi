@@ -42,42 +42,12 @@ import os
 import platform
 import signal
 import tempfile
-import time
 import uuid
 from pathlib import Path
 
 from loguru import logger
 
 from miqi.runtime.workspace_logging import append_workspace_log
-
-# Cross-process lock: multiple bridge processes launching bwrap contend
-# for the WSL kernel mount namespace.  Only the spawn phase (ms) is
-# serialized; tool execution runs unlocked so LLM waits stay parallel.
-_BWRAP_LOCK = os.path.join(tempfile.gettempdir(), ".miqi-bwrap.lock")
-_BWRAP_LOCK_TIMEOUT = 30.0
-
-
-def _acquire_bwrap_lock() -> int:
-    """Acquire cross-process lock for bwrap spawning.  Returns fd."""
-    deadline = time.time() + _BWRAP_LOCK_TIMEOUT
-    while time.time() < deadline:
-        try:
-            return os.open(_BWRAP_LOCK, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
-        except FileExistsError:
-            time.sleep(0.01)
-    raise RuntimeError(f"Could not acquire bwrap lock after {_BWRAP_LOCK_TIMEOUT}s")
-
-
-def _release_bwrap_lock(fd: int) -> None:
-    """Release the lock acquired by _acquire_bwrap_lock."""
-    try:
-        os.close(fd)
-    except OSError:
-        pass
-    try:
-        os.unlink(_BWRAP_LOCK)
-    except FileNotFoundError:
-        pass
 
 
 class BwrapSandboxError(Exception):
@@ -949,15 +919,11 @@ class BwrapSandbox:
 
         full_args = self._wsl_prefix() + ["bash", script_path]
 
-        lock_fd = await asyncio.to_thread(_acquire_bwrap_lock)
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *full_args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-        finally:
-            await asyncio.to_thread(_release_bwrap_lock, lock_fd)
+        process = await asyncio.create_subprocess_exec(
+            *full_args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
 
         handle = BwrapCommandHandle(
             process, pgid=None, use_wsl=True,
@@ -1007,18 +973,11 @@ class BwrapSandbox:
             # Execute the script via wsl.exe — short command line
             full_args = self._wsl_prefix() + ["bash", script_path]
 
-            # Serialize bwrap spawn across parallel bridge processes.
-            # Only the mount namespace creation is critical (~ms); tool
-            # execution runs unlocked so LLM waits remain parallel.
-            lock_fd = await asyncio.to_thread(_acquire_bwrap_lock)
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    *full_args,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-            finally:
-                await asyncio.to_thread(_release_bwrap_lock, lock_fd)
+            process = await asyncio.create_subprocess_exec(
+                *full_args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
 
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
