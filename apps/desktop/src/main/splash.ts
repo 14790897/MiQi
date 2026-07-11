@@ -24,6 +24,7 @@ export function createSplash(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
 
