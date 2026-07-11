@@ -629,11 +629,20 @@ class BwrapSandbox:
 
         # Create per-session directory structure inside Linux/WSL
         rc, out, err = await self._run_linux_command(
-            f"mkdir -p '{self.sandbox_home}' '{self.sandbox_workspace}'"
+            f"mkdir -p '{self._linux_base_dir}' '{self.sandbox_home}' '{self.sandbox_workspace}'"
         )
         if rc != 0:
             raise BwrapSandboxError(
                 f"Failed to create sandbox directories: {err}"
+            )
+
+        # Verify directories actually exist
+        rc, _, err = await self._run_linux_command(
+            f"test -d '{self.sandbox_home}' && test -d '{self.sandbox_workspace}'"
+        )
+        if rc != 0:
+            raise BwrapSandboxError(
+                f"Sandbox directories not found after creation: {err}"
             )
 
         # Copy workspace into sandbox if it exists
