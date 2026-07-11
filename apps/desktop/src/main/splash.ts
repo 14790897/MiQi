@@ -47,9 +47,10 @@ export function createSplash(onDone: () => void): void {
     }
   }, 8000);
 
-  // Window closed externally
+  // Window closed externally — treat as done
   splashWindow.once('closed', () => {
     cleanup();
+    onDone();
   });
 
   // Renderer failure
