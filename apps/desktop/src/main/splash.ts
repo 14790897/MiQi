@@ -38,38 +38,15 @@ export function createSplash(): void {
   });
 }
 
-export function closeSplash(minDisplayMs = 0): Promise<void> {
+export function closeSplash(): Promise<void> {
   return new Promise((resolve) => {
-    const destroy = () => {
-      if (splashWindow && !splashWindow.isDestroyed()) {
-        splashWindow.destroy();
-      }
-      splashWindow = null;
-      resolve();
-    };
-
     if (!splashWindow || splashWindow.isDestroyed()) {
       splashWindow = null;
       resolve();
       return;
     }
-
-    const doClose = () => {
-      if (minDisplayMs > 0) {
-        setTimeout(destroy, minDisplayMs);
-      } else {
-        destroy();
-      }
-    };
-
-    if (!splashReady) {
-      splashWindow.once('ready-to-show', () => {
-        splashReady = true;
-        splashWindow?.show();
-        doClose();
-      });
-    } else {
-      doClose();
-    }
+    splashWindow.destroy();
+    splashWindow = null;
+    resolve();
   });
 }

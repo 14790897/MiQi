@@ -142,11 +142,12 @@ export function main(): void {
     createSplash();
     createWindow();
 
-    mainWindow!.once('ready-to-show', async () => {
-      // Keep splash visible for at least 5s after main window is ready
-      // closeSplash handles the case where splash hasn't loaded yet
-      await closeSplash(8000);
-      mainWindow?.show();
+    mainWindow!.once('ready-to-show', () => {
+      // Show splash now, then switch to main window after delay
+      setTimeout(() => {
+        closeSplash();
+        mainWindow?.show();
+      }, 5000);
     });
 
     app.on('activate', () => {
