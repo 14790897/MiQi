@@ -143,8 +143,8 @@ export function main(): void {
 
     createWindow();
 
-    // Ensure splash shows for at least 3s (GIF animation duration)
-    const MIN_SPLASH_MS = 3000;
+    // Ensure splash shows for at least 5s
+    const MIN_SPLASH_MS = 5000;
     const splashStart = Date.now();
 
     mainWindow!.once('ready-to-show', async () => {
