@@ -133,11 +133,12 @@ export function main(): void {
     bridgeManager.on('state', onState);
     bridgeManager.on('log', onLog);
 
+    // Create main window first so Playwright firstWindow() gets it
+    createWindow();
     createSplash(() => {
       closeSplash();
       mainWindow?.show();
     });
-    createWindow();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
