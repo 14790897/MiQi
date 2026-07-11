@@ -1,7 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const isCI = !!process.env.CI;
-
 export default defineConfig({
   testDir: './tests/smoke',
   testMatch: '**/*.spec.ts',
@@ -39,9 +37,6 @@ export default defineConfig({
       testDir: './tests/e2e',
       testMatch: ['*.spec.ts'],
       timeout: 600_000,  // 10 min — pptx-generator + LLM can be slow
-      // Electron E2E shares real desktop state; keep CI serial to avoid cross-spec interference.
-      fullyParallel: !isCI,
-      workers: isCI ? 1 : 4,
     },
   ],
 
