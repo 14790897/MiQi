@@ -50,7 +50,38 @@ export async function sendMessage(page: Page, text: string) {
 
 /** Wait for streaming to finish (no "Thinking…" indicator) */
 export async function waitForResponseComplete(page: Page, timeout = 120_000) {
+  // Phase 1: model stops generating → "Thinking…" hidden.
   await expect(page.getByText('Thinking…')).toBeHidden({ timeout });
+
+  // Phase 2: if the AI used tools, "IN PROGRESS" stays visible while
+  // the tool runs.  Wait for it to hide (tool result rendered).
+  try {
+    await expect(page.locator('.tag-inprogress')).toBeHidden({ timeout: 15_000 });
+  } catch {
+    // Fast responses may never show IN PROGRESS.
+  }
+
+  // Phase 3: wait for textContent to have changed AND stabilized.
+  // The length must increase at least once, then remain stable for
+  // two consecutive polls (400ms).  This prevents false positives
+  // when streaming never started (AI call failed silently).
+  await page.waitForFunction(() => {
+    const main = document.querySelector('main');
+    if (!main) return false;
+    const text = main.textContent || '';
+    const s = (window as any).__miqi_stream_state;
+    if (!s) {
+      (window as any).__miqi_stream_state = { base: text.length, stable: 0 };
+      return false;
+    }
+    if (text.length > s.base) {
+      s.base = text.length;
+      s.stable = 0;
+      return false;
+    }
+    s.stable++;
+    return s.stable >= 2;
+  }, { timeout: 5000, polling: 200 });
 }
 
 // ─── Session / Sidebar helpers ──────────────────────────────────────

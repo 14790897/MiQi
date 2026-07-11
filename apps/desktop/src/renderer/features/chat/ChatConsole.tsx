@@ -544,6 +544,10 @@ export function ChatConsole({
   }, []);
 
   useEffect(() => {
+    // Tear down any in-flight stream listeners from a previous session
+    // before updating the ref.  This makes the per-handler session_key
+    // guard a defence-in-depth measure rather than the sole mechanism.
+    cleanupListeners();
     currentSessionRef.current = sessionKey;
     currentThreadIdRef.current = null; // Reset on session change
     setHistoryLoaded(false);
@@ -846,7 +850,8 @@ export function ChatConsole({
       }, 100);
     };
 
-    const unsubProgress = window.miqi.chat.onProgress((data: any) => {
+    const unsubProgress = window.miqi.chat.onProgress((data: ChatProgress) => {
+      if (data.session_key && data.session_key !== currentSessionRef.current) return;
       lastEventAt = Date.now();
       // Handle stream deltas from exec (Phase 7 inline tool progress)
       if (data.stream && data.delta && data.tool_call_id) {
@@ -899,6 +904,7 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
+      if (data.session_key && data.session_key !== currentSessionRef.current) return;
       clearFinalCleanupTimer();
       if (animId !== null) {
         cancelAnimationFrame(animId);
@@ -974,6 +980,7 @@ export function ChatConsole({
     });
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
+      if (data.session_key && data.session_key !== currentSessionRef.current) return;
       streamErrorHandled = true;
       if (animId !== null) cancelAnimationFrame(animId);
       const message = sanitizeUiMessage(data.message);
@@ -989,6 +996,7 @@ export function ChatConsole({
     });
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
+      if (_data.session_key && _data.session_key !== currentSessionRef.current) return;
       if (animId !== null) cancelAnimationFrame(animId);
       setStreaming(false);
       setCurrentReqId(null);

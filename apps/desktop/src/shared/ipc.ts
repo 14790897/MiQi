@@ -691,20 +691,34 @@ export interface TrackedFileInfo {
 export interface ChatProgress {
   text: string;
   tool_hint: boolean;
+  /** Session key for frontend-side event filtering (fix #212).
+   *  Optional for backward compatibility with backends that don't yet
+   *  emit this field.  Should become required once all backends are
+   *  updated. */
+  session_key?: string;
 }
 
 export interface ChatFinal {
   content: string;
   aborted?: boolean;
   tool_calls?: unknown[];
+  /** Session key for frontend-side event filtering (fix #212).  Optional
+   *  for backward compatibility; see ChatProgress.session_key. */
+  session_key?: string;
 }
 
 export interface ChatError {
   message: string;
+  /** Session key for frontend-side event filtering (fix #212).  Optional
+   *  for backward compatibility; see ChatProgress.session_key. */
+  session_key?: string;
 }
 
 export interface ChatAborted {
   message: string;
+  /** Session key for frontend-side event filtering (fix #212).  Optional
+   *  for backward compatibility; see ChatProgress.session_key. */
+  session_key?: string;
 }
 
 export interface ChatSubagentResult {
