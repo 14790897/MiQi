@@ -7,7 +7,7 @@
   <title>MiQi Desktop</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -15,29 +15,26 @@
       --navy: #272c40;
       --gold: #ffd058;
       --red: #ff4050;
-      --green: #40ff60;
+      --cyan: #40d0ff;
       --fade-in: 0.3s;
       --breathe: 1.2s;
       --fade-out: 0.3s;
-      --total: 1.8s;
     }
 
-    html, body {
-      width: 100%; height: 100%; overflow: hidden;
-    }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
 
     body {
-      background: var(--navy);
+      background: radial-gradient(ellipse at center, #2d3348 0%, var(--navy) 70%);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
       -webkit-app-region: drag;
-      transition: opacity var(--fade-out) ease;
+      padding-bottom: 8%;
     }
 
-    body.fade-out { opacity: 0; }
+    body.fade-out { opacity: 0; transition: opacity var(--fade-out) ease; }
 
     .logo-wrapper {
       position: relative;
@@ -49,8 +46,9 @@
 
     .logo-bg {
       position: absolute; inset: 0;
-      background: var(--navy);
+      background: linear-gradient(135deg, #303550 0%, #272c40 100%);
       border-radius: 18px;
+      box-shadow: inset 0 1px 0 rgba(255, 208, 88, 0.08);
     }
 
     .m-layer {
@@ -61,43 +59,65 @@
       -webkit-app-region: no-drag;
     }
 
-    /* RGB chromatic aberration — red channel left, green channel right */
+    /* RGB chromatic aberration — 1px blur for lens-style split */
     .m-red {
-      color: var(--red); opacity: 0.55;
-      filter: blur(0.5px);
-      transform: translateX(-2px);
+      color: var(--red); opacity: 1;
+      transform: translate(-3px, -1px);
       mix-blend-mode: screen;
+      filter: blur(1px);
     }
 
-    .m-green {
-      color: var(--green); opacity: 0.55;
-      filter: blur(0.5px);
-      transform: translateX(2px);
+    .m-cyan {
+      color: var(--cyan); opacity: 1;
+      transform: translate(4px, 2px);
       mix-blend-mode: screen;
+      filter: blur(1px);
     }
 
-    /* Gold base layer — centered */
     .m-gold {
-      color: var(--gold); opacity: 0.85;
-      filter: blur(0.5px);
+      color: var(--gold); opacity: 1;
     }
 
-    .subtitle {
-      margin-top: 20px;
-      color: var(--gold);
-      font-size: 15px; font-weight: 600;
-      letter-spacing: 3px;
-      text-transform: uppercase;
+    /* Clean gold top-stamp — fixes muddy RGB overlap at M apex */
+    .m-stamp {
+      color: var(--gold); opacity: 1;
+    }
+
+    .brand {
+      margin-top: 22px; text-align: center;
       opacity: 0;
       animation: fadeUp 0.4s var(--fade-in) ease forwards;
     }
 
-    /* Progress bar — anchors the eye during wait */
-    .progress-bar {
-      position: absolute; bottom: 40px;
-      width: 60px; height: 2px;
+    .brand-name {
+      color: var(--gold);
+      font-size: 20px; font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+
+    .brand-sub {
+      color: var(--gold);
+      font-size: 13px; font-weight: 500;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      opacity: 0.7;
+      margin-top: 2px;
+    }
+
+    .progress-track {
+      position: absolute; bottom: 32px;
+      width: 160px; height: 4px;
+      background: rgba(255, 208, 88, 0.12);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
       background: linear-gradient(90deg, transparent, var(--gold), transparent);
-      animation: progressSlide var(--total) ease-out forwards;
+      border-radius: 2px;
+      animation: progressShimmer 1.8s ease-out forwards;
     }
 
     @keyframes fadeInScale {
@@ -107,7 +127,7 @@
 
     @keyframes breathe {
       0%, 100% { filter: brightness(1); }
-      50%      { filter: brightness(1.05); }
+      50%      { filter: brightness(1.06); }
     }
 
     @keyframes fadeUp {
@@ -115,19 +135,15 @@
       to   { opacity: 1; transform: translateY(0); }
     }
 
-    @keyframes progressSlide {
-      from { transform: scaleX(0); }
-      to   { transform: scaleX(1); }
+    @keyframes progressShimmer {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(0%); }
     }
 
-    /* Accessibility — skip animation for users who prefer reduced motion */
     @media (prefers-reduced-motion: reduce) {
-      .logo-wrapper {
-        animation: fadeInScale 0.3s ease-out forwards;
-      }
-      .subtitle {
-        animation: fadeUp 0.3s ease forwards;
-      }
+      .logo-wrapper { animation: fadeInScale 0.3s ease-out forwards; }
+      .brand { animation: fadeUp 0.3s ease forwards; }
+      .progress-fill { animation: none; transform: translateX(0); }
     }
   </style>
 </head>
@@ -135,10 +151,16 @@
   <div class="logo-wrapper">
     <div class="logo-bg"></div>
     <div class="m-layer m-red">M</div>
-    <div class="m-layer m-green">M</div>
+    <div class="m-layer m-cyan">M</div>
     <div class="m-layer m-gold">M</div>
+    <div class="m-layer m-stamp">M</div>
   </div>
-  <div class="subtitle">MiQi Desktop</div>
-  <div class="progress-bar"></div>
+  <div class="brand">
+    <div class="brand-name">MiQi</div>
+    <div class="brand-sub">Desktop</div>
+  </div>
+  <div class="progress-track">
+    <div class="progress-fill"></div>
+  </div>
 </body>
 </html>
