@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com">
+  <title>MiQi Desktop</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root { --navy: #272c40; --gold: #ffd058; --red: #ff4050; --cyan: #40d0ff; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    body {
+      background: radial-gradient(ellipse at center, #2d3348 0%, var(--navy) 70%);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+      -webkit-app-region: drag; padding-bottom: 8%;
+    }
+    body.fade-out { opacity: 0; transition: opacity 0.3s ease; }
+
+    .logo-wrapper { position: relative; width: 120px; height: 120px; }
+    .logo-bg {
+      position: absolute; inset: 0;
+      background: linear-gradient(135deg, #303550 0%, #272c40 100%);
+      border-radius: 18px; box-shadow: inset 0 1px 0 rgba(255,208,88,0.08);
+    }
+    .m-layer {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-size: 64px; font-weight: 900; line-height: 1; user-select: none; -webkit-app-region: no-drag;
+    }
+    .m-red   { color: var(--red);  opacity: 1; transform: translate(-3px,-1px); mix-blend-mode: screen; filter: blur(1px); }
+    .m-cyan  { color: var(--cyan); opacity: 1; transform: translate(4px,2px);   mix-blend-mode: screen; filter: blur(1px); }
+    .m-gold  { color: var(--gold); opacity: 1; }
+    .m-stamp { color: var(--gold); opacity: 1; }
+
+    .brand { margin-top: 22px; text-align: center; }
+    .brand-name { color: var(--gold); font-size: 20px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; }
+    .brand-sub  { color: var(--gold); font-size: 13px; font-weight: 500; letter-spacing: 2px; text-transform: uppercase; opacity: 0.7; margin-top: 2px; }
+
+    .progress-track { position: absolute; bottom: 32px; width: 160px; height: 4px; background: rgba(255,208,88,0.12); border-radius: 2px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, transparent, var(--gold), transparent); border-radius: 2px; }
+
+    .logo-bg    { opacity: 0; animation: fadeIn 0.4s 0.10s ease forwards; }
+    .m-red      { opacity: 0; animation: fadeIn 0.3s 0.30s ease forwards; }
+    .m-cyan     { opacity: 0; animation: fadeIn 0.3s 0.35s ease forwards; }
+    .m-gold     { opacity: 0; animation: fadeIn 0.3s 0.40s ease forwards; }
+    .m-stamp    { opacity: 0; animation: fadeIn 0.3s 0.45s ease forwards; }
+    .brand-name { opacity: 0; animation: fadeUp 0.4s 0.55s ease forwards; }
+    .brand-sub  { opacity: 0; animation: fadeUp 0.4s 0.65s ease forwards; }
+    .progress-track { opacity: 0; animation: fadeIn 0.3s 0.10s ease forwards; }
+    .progress-fill  { animation: shimmer 1.8s ease-out forwards; }
+
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(0%); } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .logo-bg,.m-red,.m-cyan,.m-gold,.m-stamp,.brand-name,.brand-sub,.progress-track { animation: fadeIn 0.2s ease forwards; }
+      .progress-fill { animation: none; transform: translateX(0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="logo-wrapper">
+    <div class="logo-bg"></div>
+    <div class="m-layer m-red">M</div>
+    <div class="m-layer m-cyan">M</div>
+    <div class="m-layer m-gold">M</div>
+    <div class="m-layer m-stamp">M</div>
+  </div>
+  <div class="brand">
+    <div class="brand-name">MiQi</div>
+    <div class="brand-sub">Desktop</div>
+  </div>
+  <div class="progress-track"><div class="progress-fill"></div></div>
+</body>
+</html>
