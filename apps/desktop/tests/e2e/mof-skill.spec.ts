@@ -67,23 +67,26 @@ test.describe('MOF Synthesis Price E2E', () => {
 
       await sendMessage(
         page,
-        `使用 /mof-synthesis-price-agent 技能处理这篇 MOF 论文。${inputHint}。
+        `使用 /mof-synthesis-price-agent 技能。先读取 references/agent-extraction-rules.md、references/schemas.md、references/evidence-boundaries.md 了解提取规则。
 
-从零开始：先用 Read 工具读取 PDF 文件（${pdfName}）获取全文内容，然后从中提取合成路线和试剂信息。只做 agent extraction 阶段，用 write_file 输出 agent_extraction.json。
+然后处理这篇 MOF 论文：${inputHint}。先用 Read 工具读取 PDF 全文，然后从论文文本中提取合成信息。
 
-输出 JSON schema（严格遵循）：
+输出 agent_extraction.json，包含：
 {
-  "synthesis_routes": [{ "target_compound": "材料名", "yield_percent": null, "temperature": "120 ℃", "duration": "24 h", "atmosphere": "air", "procedure_text": "步骤", "source": "main_text", "route_type": "primary" }],
-  "reagents": [{ "name": "英文缩写如ZrCl4", "name_zh": "中文名", "name_en": "英文全称", "cas": "CAS号", "role": "reactant|ligand|solvent|workup", "amount": "用量", "equiv": null }],
-  "synthesis_summary": "Markdown格式的合成摘要"
+  "synthesis_routes": [...],
+  "reagents": [...],
+  "synthesis_summary": "Markdown格式摘要",
+  "feasibility": null
 }
 
-注意事项：
-- name 字段用英文缩写（ZrCl4, NH2-BDC, H2-BDC, DMF, Methanol）
+提取要求（严格按照 references/schemas.md）：
+- name 用英文缩写（ZrCl4, NH2-BDC, H2-BDC, DMF, Methanol）
 - role 用英文枚举：reactant / ligand / solvent / workup
-- target_compound 不能为空
-- 试剂至少包含 ZrCl4, NH2-BDC, H2-BDC, DMF
-- 输出文件名为 agent_extraction.json（无前缀）`,
+- target_compound 不能为空，procedure_text 保留原文证据
+- route_index=-1 仅用于真正的通用试剂
+- 无法确定的字段用 null，不要编造
+- 证据不足时返回 evidence-boundary 说明而不是猜测
+- 文件名：agent_extraction.json（无前缀）`,
       );
 
       // Pre-approve ALL tools
