@@ -46,14 +46,24 @@ test.describe('MOF Synthesis Price E2E', () => {
     async () => {
       await createNewConversation(page);
 
-      const pdfPath = process.env.MOF_TEST_PDF || '';
-      const pdfHint = pdfPath
-        ? `PDF文件路径: ${pdfPath}`
+      // Copy sample cleaned text into workspace so AI can read it
+      const sampleCleaned = process.env.MOF_CLEANED_TEXT || '';
+      const fname = 'mof_test_paper_cleaned.txt';
+      if (sampleCleaned) {
+        const { copyFileSync } = require('node:fs');
+        const { join } = require('node:path');
+        const ws = join(miqiHome, 'workspace');
+        copyFileSync(sampleCleaned, join(ws, fname));
+        console.log(`[test] Copied cleaned text: ${sampleCleaned} → ${join(ws, fname)}`);
+      }
+
+      const inputHint = sampleCleaned
+        ? `已清洗文本文件: ${fname}`
         : '使用 DOI: 10.ki/2024.082';
 
       await sendMessage(
         page,
-        `使用 /mof-synthesis-price-agent 技能处理这篇 MOF 论文。${pdfHint}。只做 agent extraction 阶段：读取论文文本，提取合成路线（synthesis_routes）、试剂清单（reagents）和合成摘要（synthesis_summary），输出 agent_extraction.json。不要跑定价和报告阶段。`,
+        `使用 /mof-synthesis-price-agent 技能处理这篇 MOF 论文。${inputHint}。只做 agent extraction 阶段：读取清洗后的论文文本（${fname}），从文本中提取合成路线（synthesis_routes）、试剂清单（reagents）和合成摘要（synthesis_summary），输出 agent_extraction.json 到 workspace。不要跑定价和报告阶段。`,
       );
 
       // Pre-approve ALL tools
@@ -70,6 +80,15 @@ test.describe('MOF Synthesis Price E2E', () => {
       }
       await expect(page.getByText('Thinking…')).toBeHidden({ timeout: 300_000 });
       await page.waitForTimeout(3000);
+
+      // Merge sandbox files back to host workspace (WSL sandbox mode)
+      const mergeBtn = page.locator('button, [role="button"]').filter({ hasText: 'MERGE ALL CHANGES' });
+      if (await mergeBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+        console.log('[test] Merging sandbox files to host workspace…');
+        await mergeBtn.click();
+        await page.waitForTimeout(5000);
+        console.log('[test] Merge complete');
+      }
 
       // Verify output
       const { execFileSync } = require('node:child_process');
