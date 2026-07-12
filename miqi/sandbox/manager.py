@@ -33,6 +33,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -319,6 +320,19 @@ class SandboxManager:
             if sandbox_key in self._creating:
                 logger.warning(
                     "Sandbox {} is already being created by another thread",
+                    sandbox_key,
+                )
+                # Wait for the other thread to finish, then return the sandbox
+                for _ in range(30):  # 30 × 100ms = 3s max
+                    with self._lock:
+                        if sandbox_key in self._sandboxes:
+                            sandbox = self._sandboxes[sandbox_key]
+                            if sandbox.is_running:
+                                return sandbox
+                    time.sleep(0.1)
+                # Timed out — log and fall through
+                logger.error(
+                    "Timed out waiting for sandbox {} creation, falling through",
                     sandbox_key,
                 )
             else:
