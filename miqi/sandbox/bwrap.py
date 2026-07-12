@@ -922,7 +922,11 @@ class BwrapSandbox:
         escaped_args = " ".join(
             _shell_quote(a) for a in bwrap_args
         )
-        script_content = f"#!/bin/bash\n{escaped_args}\n"
+        script_content = (
+            f"#!/bin/bash\n"
+            f"mkdir -p '{self.sandbox_home}' '{self.sandbox_workspace}'\n"
+            f"{escaped_args}\n"
+        )
 
         write_rc, _, write_err = await self._write_wsl_file_via_stdin(
             script_path, script_content,
@@ -974,7 +978,11 @@ class BwrapSandbox:
         escaped_args = " ".join(
             _shell_quote(a) for a in bwrap_args
         )
-        script_content = f"#!/bin/bash\n{escaped_args}\n"
+        script_content = (
+            f"#!/bin/bash\n"
+            f"mkdir -p '{self.sandbox_home}' '{self.sandbox_workspace}'\n"
+            f"{escaped_args}\n"
+        )
 
         # Write script into WSL via stdin pipe (avoids cmd-line length limit)
         write_rc, _, write_err = await self._write_wsl_file_via_stdin(
