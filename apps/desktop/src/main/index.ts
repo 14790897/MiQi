@@ -15,6 +15,11 @@ const { app, BrowserWindow, shell, Menu } = electron;
 let mainWindow: typeof BrowserWindow.prototype | null = null;
 let bridgeManager: BridgeManager | null = null;
 
+const userDataOverride = process.env['ELECTRON_USER_DATA_DIR']?.trim();
+if (userDataOverride) {
+  app.setPath('userData', userDataOverride);
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,

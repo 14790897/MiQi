@@ -232,6 +232,7 @@ beforeEach(() => {
 afterEach(() => {
   // Restore env set by cleanup/hot-reload tests to avoid cross-test leakage
   delete process.env['ELECTRON_RENDERER_URL'];
+  delete process.env['MIQI_BRIDGE_HOT_RELOAD'];
 });
 
 describe('BridgeManager lifecycle', () => {
@@ -275,7 +276,7 @@ describe('BridgeManager lifecycle', () => {
 
   it('cleans up all resources on initialize failure', async () => {
     // Enable hot reload so the file watcher is started
-    process.env['ELECTRON_RENDERER_URL'] = 'test';
+    process.env['MIQI_BRIDGE_HOT_RELOAD'] = '1';
     const BridgeManager = await importBridgeManager();
     const proc = createMockProcess();
     const bridge = new BridgeManager('/fake/root');
@@ -609,7 +610,7 @@ describe('BridgeManager lifecycle', () => {
   }, 10_000);
 
   it('hot reload waits for old bridge close before spawning replacement', async () => {
-    process.env['ELECTRON_RENDERER_URL'] = 'test';
+    process.env['MIQI_BRIDGE_HOT_RELOAD'] = '1';
     const BridgeManager = await importBridgeManager();
     const firstProc = createMockProcess();
     const bridge = new BridgeManager('/fake/root');
@@ -650,4 +651,16 @@ describe('BridgeManager lifecycle', () => {
     expect(bridge.isInitialized()).toBe(true);
     expect(watchCallbacks.length).toBe(2);
   }, 10_000);
+
+  it('does not start hot reload watcher by default in dev renderer mode', async () => {
+    process.env['ELECTRON_RENDERER_URL'] = 'test';
+    const BridgeManager = await importBridgeManager();
+    const proc = createMockProcess();
+    const bridge = new BridgeManager('/fake/root');
+
+    await startBridge(proc, bridge);
+
+    expect(watchCallbacks.length).toBe(0);
+    expect((bridge as any).fileWatcher).toBeNull();
+  });
 });

@@ -19,6 +19,8 @@ import {
   ChevronDown,
   ChevronRight,
   Play,
+  Unlock,
+  Key,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
@@ -42,9 +44,23 @@ function getCategory(p: ProviderInfo): 'gateway' | 'domestic' | 'local' | 'inter
 
 type VerificationStatus = NonNullable<ProviderInfo['verification_status']>;
 
+function canTestProvider(provider: ProviderInfo): boolean {
+  return provider.configured || provider.builtin_unlocked === true;
+}
+
 function getVerificationStatus(provider: ProviderInfo): VerificationStatus {
-  if (!provider.configured) return 'missing';
+  if (!canTestProvider(provider)) return 'missing';
   return provider.verification_status ?? 'unverified';
+}
+
+function canActivateProvider(provider: ProviderInfo): boolean {
+  return provider.configured || provider.builtin_unlocked === true;
+}
+
+function credentialLabel(provider: ProviderInfo): string {
+  if (provider.credential_source === 'builtin') return '内置';
+  if (provider.credential_source === 'user') return '自有 Key';
+  return '未选';
 }
 
 function getStatusMeta(provider: ProviderInfo) {
@@ -423,7 +439,7 @@ interface ProviderRowProps {
   provider: ProviderInfo;
   onEdit: (p: ProviderInfo) => void;
   onTest: (p: ProviderInfo) => void;
-  onActivate: (p: ProviderInfo) => void;
+  onActivate: (p: ProviderInfo, credentialSource?: 'user' | 'builtin') => void;
   testingName: string | null;
   activatingName: string | null;
   activeProvider?: string | null;
@@ -441,9 +457,46 @@ function ProviderRow({
   const label = PROVIDER_DISPLAY_NAMES[provider.name] ?? provider.display_name;
   const isTesting = testingName === provider.name;
   const isActivating = activatingName === provider.name;
-  const statusMeta = getStatusMeta(provider);
+  const baseStatusMeta = getStatusMeta(provider);
+  const statusMeta =
+    provider.credential_source === 'builtin' && getVerificationStatus(provider) === 'unverified'
+      ? {
+          label: '内置待验',
+          icon: AlertCircle,
+          tone: 'warning',
+          title: '解锁码已启用内置凭据，但还没有通过真实连接测试',
+        }
+      : baseStatusMeta;
   const StatusIcon = statusMeta.icon;
   const isActive = provider.name === activeProvider;
+  const verificationStatus = getVerificationStatus(provider);
+  const activeMeta =
+    verificationStatus === 'success'
+      ? {
+          label: '默认',
+          icon: CheckCircle,
+          background: 'color-mix(in srgb, var(--success) 18%, transparent)',
+          color: 'var(--success)',
+          border: '1px solid color-mix(in srgb, var(--success) 35%, transparent)',
+        }
+      : verificationStatus === 'failed'
+        ? {
+            label: '默认失败',
+            icon: XCircle,
+            background: 'color-mix(in srgb, var(--danger) 14%, transparent)',
+            color: 'var(--danger)',
+            border: '1px solid color-mix(in srgb, var(--danger) 30%, transparent)',
+          }
+        : {
+            label: '默认待验',
+            icon: AlertCircle,
+            background: 'color-mix(in srgb, var(--warning) 14%, transparent)',
+            color: 'var(--warning)',
+            border: '1px solid color-mix(in srgb, var(--warning) 30%, transparent)',
+          };
+  const ActiveIcon = activeMeta.icon;
+  const canActivate = canActivateProvider(provider);
+  const currentCredential = provider.credential_source;
 
   return (
     <div
@@ -460,13 +513,16 @@ function ProviderRow({
           <span className="text-sm text-[var(--text)] truncate">{label}</span>
           {isActive && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--accent)] text-white shrink-0">
-              当前使用
+              默认模型
             </span>
           )}
         </div>
-        {provider.configured && (
+        {canTestProvider(provider) && (
           <div className="flex items-center gap-2 mt-0.5">
-            {provider.api_key_hint && (
+            <span className="text-xs text-[var(--text-faint)]">
+              当前凭据：{credentialLabel(provider)}
+            </span>
+            {provider.api_key_hint && currentCredential !== 'builtin' && (
               <span className="text-xs text-[var(--text-faint)] font-mono">
                 {provider.api_key_hint}
               </span>
@@ -501,11 +557,43 @@ function ProviderRow({
         {statusMeta.label}
       </span>
       <div className="flex items-center gap-1 shrink-0">
-        {provider.configured && !isActive && (
+        {provider.builtin_unlocked && currentCredential !== 'builtin' && (
           <button
-            onClick={() => onActivate(provider)}
+            onClick={() => onActivate(provider, 'builtin')}
             disabled={isActivating}
-            title="启用为当前模型"
+            title="切换为内置凭据"
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors disabled:opacity-50"
+            style={{
+              borderColor: 'color-mix(in srgb, var(--accent) 45%, transparent)',
+              background: 'color-mix(in srgb, var(--accent) 10%, transparent)',
+              color: 'var(--accent)',
+            }}
+          >
+            {isActivating ? <Loader2 size={13} className="animate-spin" /> : <Key size={13} />}
+            用内置
+          </button>
+        )}
+        {provider.configured && currentCredential !== 'user' && (
+          <button
+            onClick={() => onActivate(provider, 'user')}
+            disabled={isActivating}
+            title="切换为自己的 API Key"
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors disabled:opacity-50"
+            style={{
+              borderColor: 'color-mix(in srgb, var(--info) 45%, transparent)',
+              background: 'color-mix(in srgb, var(--info) 10%, transparent)',
+              color: 'var(--info)',
+            }}
+          >
+            {isActivating ? <Loader2 size={13} className="animate-spin" /> : <Key size={13} />}
+            用自有
+          </button>
+        )}
+        {canActivate && !isActive && (
+          <button
+            onClick={() => onActivate(provider, currentCredential === 'builtin' ? 'builtin' : 'user')}
+            disabled={isActivating}
+            title="设为默认模型"
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors disabled:opacity-50"
             style={{
               borderColor: 'color-mix(in srgb, var(--info) 45%, transparent)',
@@ -518,20 +606,20 @@ function ProviderRow({
             ) : (
               <Play size={13} />
             )}
-            启用
+            设为默认
           </button>
         )}
         {isActive && (
           <span
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium shrink-0"
             style={{
-              background: 'color-mix(in srgb, var(--success) 18%, transparent)',
-              color: 'var(--success)',
-              border: '1px solid color-mix(in srgb, var(--success) 35%, transparent)',
+              background: activeMeta.background,
+              color: activeMeta.color,
+              border: activeMeta.border,
             }}
           >
-            <CheckCircle size={13} />
-            使用中
+            <ActiveIcon size={13} />
+            {credentialLabel(provider)} · {activeMeta.label}
           </span>
         )}
         <button
@@ -615,6 +703,9 @@ export function ProvidersPage() {
   const [activatingName, setActivatingName] = useState<string | null>(null);
   const [activeModel, setActiveModel] = useState('');
   const [activeProvider, setActiveProvider] = useState<string | null>(null);
+  const [unlockCode, setUnlockCode] = useState('');
+  const [unlocking, setUnlocking] = useState(false);
+  const [unlockResult, setUnlockResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -629,12 +720,50 @@ export function ProvidersPage() {
     }
   }, []);
 
+  const handleUnlock = async () => {
+    const code = unlockCode.trim();
+    if (!code) return;
+    setUnlocking(true);
+    setUnlockResult(null);
+    try {
+      const result = await window.miqi.builtinModel.unlock(code);
+      if (result.success) {
+        const unlockedCount = result.providers?.length ?? 0;
+        const providerNames = (result.providers ?? [])
+          .map((provider) => PROVIDER_DISPLAY_NAMES[provider.provider] ?? provider.provider)
+          .join('、');
+        const licenseLabel = result.label ? `${result.label}：` : '';
+        const activationNote = result.activatedModel
+          ? ' 已切换为当前凭据并设为默认模型；请点击验证确认真实连接。'
+          : ' 已切换为当前凭据；请点击验证确认真实连接。';
+        const message = result.userKeyPresent
+          ? `${licenseLabel}内置凭据已加载（${unlockedCount} 个 Provider${providerNames ? `：${providerNames}` : ''}）。已切换到内置凭据，之前填写的 API Key 会保留但不会被当前模型使用；请点击验证确认真实连接。`
+          : `${licenseLabel}内置凭据已加载（${unlockedCount} 个 Provider${providerNames ? `：${providerNames}` : ''}）。这只代表解锁成功，不代表连接成功；${activationNote}`;
+        setUnlockResult({ ok: true, message });
+        setUnlockCode('');
+        await load();
+      } else {
+        const rawMessage = result.error ?? '解锁失败';
+        const message =
+          rawMessage.includes('Invalid') || rawMessage.includes('unlock code')
+            ? '解锁码无效'
+            : sanitizeUiMessage(rawMessage);
+        setUnlockResult({ ok: false, message });
+      }
+    } catch (err: unknown) {
+      const message = sanitizeUiMessage(err instanceof Error ? err.message : String(err));
+      setUnlockResult({ ok: false, message });
+    } finally {
+      setUnlocking(false);
+    }
+  };
+
   useEffect(() => {
     load();
   }, [load]);
 
   const handleTest = async (p: ProviderInfo) => {
-    if (!p.configured) {
+    if (!canTestProvider(p)) {
       return;
     }
     setTestingName(p.name);
@@ -653,8 +782,8 @@ export function ProvidersPage() {
     }
   };
 
-  const handleActivate = async (p: ProviderInfo) => {
-    if (!p.configured) return;
+  const handleActivate = async (p: ProviderInfo, credentialSource?: 'user' | 'builtin') => {
+    if (!canActivateProvider(p)) return;
     const fallbackModel = (PROVIDER_SUGGESTED_MODELS[p.name] ?? [])[0];
     const model = p.configured_model || fallbackModel;
     if (!model) {
@@ -668,7 +797,8 @@ export function ProvidersPage() {
         undefined,
         undefined,
         undefined,
-        model
+        model,
+        credentialSource
       );
       markRestartRequired();
       await load();
@@ -682,6 +812,7 @@ export function ProvidersPage() {
   const domestic = providers.filter((p) => getCategory(p) === 'domestic');
   const local = providers.filter((p) => getCategory(p) === 'local');
   const filledCount = providers.filter((p) => p.configured).length;
+  const builtinCount = providers.filter((p) => p.builtin_unlocked).length;
   const verifiedCount = providers.filter((p) => getVerificationStatus(p) === 'success').length;
   const activeProviderLabel = activeProvider
     ? (PROVIDER_DISPLAY_NAMES[activeProvider] ?? activeProvider)
@@ -698,7 +829,7 @@ export function ProvidersPage() {
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
             {loading
               ? '加载中…'
-              : `${filledCount} / ${providers.length} 已填写，${verifiedCount} 个验证成功`}
+              : `${filledCount} / ${providers.length} 已填写，${builtinCount} 个内置已加载，${verifiedCount} 个验证成功`}
           </p>
           {!loading && (
             <p className="text-xs text-[var(--text-faint)] mt-1">
@@ -725,6 +856,57 @@ export function ProvidersPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        <div className="px-4 py-4 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)]/40">
+          <div className="flex items-center gap-2 mb-2">
+            <Unlock size={14} className="text-[var(--accent)]" />
+            <h2 className="text-sm font-semibold text-[var(--text)]">内置模型</h2>
+            <span className="text-xs text-[var(--text-faint)]">
+              使用解锁码启用内置模型套餐
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="password"
+              value={unlockCode}
+              onChange={(event) => {
+                setUnlockCode(event.target.value);
+                setUnlockResult(null);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  void handleUnlock();
+                }
+              }}
+              placeholder="输入解锁码"
+              className="w-full max-w-sm px-3 py-1.5 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button
+              onClick={handleUnlock}
+              disabled={unlocking || !unlockCode.trim()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {unlocking ? <Loader2 size={14} className="animate-spin" /> : <Key size={14} />}
+              解锁
+            </button>
+          </div>
+          {unlockResult && (
+            <div
+              className={cn(
+                'mt-2 rounded-lg px-3 py-2 text-xs',
+                unlockResult.ok
+                  ? 'bg-[var(--accent-soft)] text-[var(--text)]'
+                  : 'bg-[var(--accent-soft)] text-[var(--danger)]'
+              )}
+            >
+              {unlockResult.message}
+            </div>
+          )}
+          <p className="text-xs text-[var(--text-faint)] mt-2 leading-relaxed">
+            解锁码只会加载一组内置 Provider 凭据；已配置自己的 API Key 时会优先使用自己的 Key，内置密钥不会写入本地配置。加载不等于连接成功，请用验证按钮做真实连接测试。
+          </p>
+        </div>
         {loading ? (
           <div className="flex items-center justify-center h-40 text-sm text-[var(--text-faint)]">
             <Loader2 size={16} className="animate-spin mr-2" /> 正在加载…

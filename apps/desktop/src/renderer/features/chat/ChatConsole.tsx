@@ -855,14 +855,15 @@ export function ChatConsole({
       lastEventAt = Date.now();
       // Handle stream deltas from exec (Phase 7 inline tool progress)
       if (data.stream && data.delta && data.tool_call_id) {
+        const toolCallId = data.tool_call_id;
+        const stream = data.stream === 'stdout' ? 'stdout' : 'stderr';
         setExecOutputs((prev) => {
-          const current = prev[data.tool_call_id] || { stdout: '', stderr: '', running: true };
+          const current = prev[toolCallId] || { stdout: '', stderr: '', running: true };
           return {
             ...prev,
-            [data.tool_call_id]: {
+            [toolCallId]: {
               ...current,
-              [data.stream === 'stdout' ? 'stdout' : 'stderr']:
-                current[data.stream === 'stdout' ? 'stdout' : 'stderr'] + data.delta,
+              [stream]: current[stream] + data.delta,
             },
           };
         });

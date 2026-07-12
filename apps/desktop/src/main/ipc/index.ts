@@ -14,6 +14,7 @@ import {
   ConfigUpdateInput,
   ProviderTestInput,
   ProviderUpdateInput,
+  BuiltinModelUnlockInput,
   ChannelsUpdateInput,
   CronCreateInput,
   CronUpdateInput,
@@ -345,6 +346,20 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   ipcMain.handle(IPC.PROVIDERS_UPDATE, async (_event, payload: unknown) => {
     const input = ProviderUpdateInput.parse(payload);
     return bridge.send('providers.update', input as Record<string, unknown>);
+  });
+
+  ipcMain.handle(IPC.BUILTIN_MODEL_UNLOCK, async (_event, payload: unknown) => {
+    const input = BuiltinModelUnlockInput.parse(payload);
+    try {
+      const result = await bridge.send(
+        'builtin_model.unlock',
+        input as Record<string, unknown>
+      ) as Record<string, unknown>;
+      return { success: true, ...result };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { success: false, error: message };
+    }
   });
 
   // -----------------------------------------------------------------------

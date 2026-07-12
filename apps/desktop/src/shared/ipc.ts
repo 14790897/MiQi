@@ -46,6 +46,7 @@ export const IPC = {
   PROVIDERS_LIST: 'providers:list',
   PROVIDERS_TEST: 'providers:test',
   PROVIDERS_UPDATE: 'providers:update',
+  BUILTIN_MODEL_UNLOCK: 'builtin_model:unlock',
   CHANNELS_LIST: 'channels:list',
   CHANNELS_UPDATE: 'channels:update',
   APPROVALS_LIST: 'approvals:list',
@@ -199,6 +200,11 @@ export const ProviderUpdateInput = z.object({
   api_base: z.string().nullable().optional(),
   extra_headers: z.record(z.string()).nullable().optional(),
   model: z.string().optional(),
+  credential_source: z.enum(['user', 'builtin']).optional(),
+});
+
+export const BuiltinModelUnlockInput = z.object({
+  activation_code: z.string().min(1),
 });
 
 // New Phase 1 schemas
@@ -272,6 +278,9 @@ export interface ProviderInfo {
   is_local: boolean;
   default_api_base: string;
   configured: boolean;
+  builtin_unlocked?: boolean;
+  credential_source?: 'user' | 'builtin' | 'missing';
+  active_credential?: 'user' | 'builtin' | 'missing';
   api_key_hint?: string | null;
   api_base: string | null;
   configured_model?: string;
@@ -289,6 +298,23 @@ export interface ProvidersListResult {
 export interface ProviderUpdateResult {
   saved: boolean;
   provider_name: string;
+}
+
+export interface BuiltinModelUnlockResult {
+  success: boolean;
+  provider?: string;
+  providers?: Array<{
+    provider: string;
+    models?: string[];
+    defaultModel?: string;
+  }>;
+  bundleId?: string | null;
+  licenseId?: string | null;
+  label?: string;
+  userKeyPresent?: boolean;
+  activatedModel?: boolean;
+  model?: string;
+  error?: string;
 }
 
 export interface FeishuChannelConfig {
@@ -691,6 +717,9 @@ export interface TrackedFileInfo {
 export interface ChatProgress {
   text: string;
   tool_hint: boolean;
+  stream?: string;
+  delta?: string;
+  tool_call_id?: string;
   /** Session key for frontend-side event filtering (fix #212).
    *  Optional for backward compatibility with backends that don't yet
    *  emit this field.  Should become required once all backends are
