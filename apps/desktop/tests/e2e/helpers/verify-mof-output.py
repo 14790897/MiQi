@@ -67,8 +67,23 @@ check("reagent count >= 4", len(reagents) >= 4, f"got {len(reagents)}")
 expected_reagents = {"ZrCl4": None, "NH2-BDC": None, "H2-BDC": None, "DMF": None}
 for r in reagents:
     name = r.get("name", "")
+    name_lower = name.lower()
     for exp in expected_reagents:
-        if exp.lower() in name.lower() or name.lower() in exp.lower():
+        if expected_reagents[exp] is not None:
+            continue  # already matched
+        exp_lower = exp.lower()
+        # exact match first, then exact-token match, then substring
+        if name_lower == exp_lower:
+            expected_reagents[exp] = name
+            break
+for r in reagents:
+    name = r.get("name", "")
+    name_lower = name.lower()
+    for exp in expected_reagents:
+        if expected_reagents[exp] is not None:
+            continue
+        exp_lower = exp.lower()
+        if exp_lower in name_lower:
             expected_reagents[exp] = name
 
 for exp_name, found_name in expected_reagents.items():
