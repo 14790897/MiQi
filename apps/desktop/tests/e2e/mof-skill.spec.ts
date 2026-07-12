@@ -44,7 +44,11 @@ test.describe('MOF Synthesis Price E2E', () => {
     'mof-synthesis-price-agent extracts synthesis routes and reagents from PDF',
     { timeout: 600_000 },
     async () => {
+      let _fn = 0;
+      const shot = () => page.screenshot({ path: `test-results/videos/mof_f${String(++_fn).padStart(4, '0')}.png`, timeout: 5000 }).catch(() => {});
+
       await createNewConversation(page);
+      await shot();
 
       // Copy sample cleaned text into workspace so AI can read it
       const sampleCleaned = process.env.MOF_CLEANED_TEXT || '';
@@ -86,6 +90,7 @@ test.describe('MOF Synthesis Price E2E', () => {
       await page.evaluate(() =>
         (window as any).miqi.approvals.addPermanent('*:*', 'always'),
       );
+      await shot();
 
       // Wait for AI to finish
       const _deadline = Date.now() + 300_000;
@@ -95,6 +100,7 @@ test.describe('MOF Synthesis Price E2E', () => {
         await page.waitForTimeout(8000);
       }
       await expect(page.getByText('Thinking…')).toBeHidden({ timeout: 300_000 });
+      await shot();
       await page.waitForTimeout(3000);
 
       // Merge sandbox files back to host workspace (WSL sandbox mode)
