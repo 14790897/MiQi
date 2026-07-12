@@ -1068,14 +1068,11 @@ class BwrapSandbox:
         args.extend(["--bind", self.sandbox_home, "/home/miqi"])
 
         # ── Workspace mount ────────────────────────────────────────
-        # If we have a Linux workspace path accessible from WSL,
-        # bind-mount it directly as the sandbox workspace.
-        # Otherwise, use the per-session directory (which may have
-        # been synced via rsync on native Linux).
-        if self._linux_workspace:
-            args.extend(["--bind", self._linux_workspace, "/home/miqi/workspace"])
-        else:
-            args.extend(["--bind", self.sandbox_workspace, "/home/miqi/workspace"])
+        # Always use the per-sandbox workspace directory for full
+        # session isolation. Do NOT bind-mount the shared host
+        # workspace, which would let any sandbox see all sessions'
+        # files (Issue #221).
+        args.extend(["--bind", self.sandbox_workspace, "/home/miqi/workspace"])
 
         # ── /etc/resolv.conf ─────────────────────────────────────────
         # /etc is already ro-bind-mounted from host (share_net=True),
