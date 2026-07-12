@@ -25,7 +25,7 @@ site/
 .ruff_cache/
 featherflow/agent/memory.py.bak
 .miqi/
-CLAUDE*.md
+CLAUDE.md
 .workbuddy/
 dist-new/
 node_modules/
@@ -51,7 +51,3 @@ plan/*
 *.png
 3skills/
 drill-r-d.zip
-execution-policy-mockup.html\nmode-selector-mockup.html\nmode-selector-prototype.html\npolicy-compare.html
-*-mockup.html\n*-prototype.html\npolicy-compare.html
-test-screenshots/
-apps/desktop/drive-test.mjs
