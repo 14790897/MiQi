@@ -17,8 +17,11 @@ def check(label, condition, detail=""):
     if not condition:
         result["pass"] = False
 
-# Find agent extraction JSON
+# Find agent extraction JSON — AI may name it with or without a prefix
 json_files = _glob.glob(os.path.join(workspace, "**", "*_agent_extraction.json"), recursive=True)
+json_files += _glob.glob(os.path.join(workspace, "**", "agent_extraction.json"), recursive=True)
+# deduplicate
+json_files = list(dict.fromkeys(json_files))
 if expected_prefix:
     json_files = [f for f in json_files if expected_prefix in os.path.basename(f)]
 
