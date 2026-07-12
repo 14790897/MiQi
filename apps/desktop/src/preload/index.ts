@@ -7,7 +7,6 @@ import type {
   SessionClaimLegacyResult,
   ProvidersListResult,
   ProviderUpdateResult,
-  BuiltinModelUnlockResult,
   ChannelsConfig,
   PendingApproval,
   ApprovalCleared,
@@ -181,15 +180,6 @@ const api = {
         api_base: apiBase ?? null,
         extra_headers: extraHeaders ?? null,
         model: model ?? undefined,
-      }),
-  },
-
-  // -- Built-in model (issue #191) -----------------------------------------
-  // Credential activation only, not a provider-management op.
-  builtinModel: {
-    unlock: (activationCode: string): Promise<BuiltinModelUnlockResult> =>
-      ipcRenderer.invoke(IPC.BUILTIN_MODEL_UNLOCK, {
-        activation_code: activationCode,
       }),
   },
 

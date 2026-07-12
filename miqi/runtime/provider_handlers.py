@@ -19,6 +19,7 @@ from loguru import logger
 
 from miqi.runtime.app_server import AppServerError, get_bridge_state
 
+
 VERIFICATION_KEY = "providerVerification"
 VERIFICATION_STATUSES = {"success", "failed", "unverified"}
 PROVIDER_TEST_MODELS = {
@@ -359,67 +360,3 @@ async def providers_update_handler(
     state.config = config
 
     return {"result": {"saved": True, "provider_name": provider_name}}
-
-
-BUILTIN_MODEL_KEY = "builtinModel"
-
-
-def _builtin_model_store(config: Any) -> dict[str, Any]:
-    """Get/create the desktop['builtinModel'] state block (never the key)."""
-    desktop = getattr(config, "desktop", None)
-    if not isinstance(desktop, dict):
-        desktop = {}
-        config.desktop = desktop
-    store = desktop.get(BUILTIN_MODEL_KEY)
-    if not isinstance(store, dict):
-        store = {}
-        desktop[BUILTIN_MODEL_KEY] = store
-    return store
-
-
-async def builtin_model_unlock_handler(
-    request_id: str,
-    params: dict[str, Any],
-    client_id: str,
-    session_id: str | None,
-    registry: Any,
-) -> dict[str, Any]:
-    """Unlock the built-in trial model with an activation code (issue #191).
-
-    Validates the code, decrypts the bundled credential into process memory
-    (never persisted), and records the enabled state in desktop['builtinModel'].
-    Returns whether the user already has their own key for the provider, so the
-    UI can warn that the user key will take precedence.
-    """
-    from miqi.config.loader import save_config
-    from miqi.providers.builtin_credentials import BUILTIN_KEY_PROVIDER, BUILTIN_PROVIDER
-
-    code = str(params.get("activation_code", "") or "").strip()
-    if not code:
-        raise AppServerError("activation_code is required", code="INVALID_PARAMS")
-
-    if not BUILTIN_KEY_PROVIDER.unlock(code):
-        raise AppServerError("Invalid unlock code", code="INVALID_CODE")
-
-    state = get_bridge_state(registry)
-    config = state.load_config()
-    store = _builtin_model_store(config)
-    store.clear()
-    store["enabled"] = True
-    store["provider"] = BUILTIN_PROVIDER
-    store["bundleId"] = BUILTIN_KEY_PROVIDER.bundle_id()
-    # Deliberately NOT storing the decrypted key — runtime-only, in memory.
-
-    pc = getattr(config.providers, BUILTIN_PROVIDER, None)
-    user_key_present = bool(pc and pc.api_key)
-
-    save_config(config)
-    state.config = config
-
-    return {
-        "result": {
-            "provider": BUILTIN_PROVIDER,
-            "bundleId": store["bundleId"],
-            "userKeyPresent": user_key_present,
-        }
-    }
