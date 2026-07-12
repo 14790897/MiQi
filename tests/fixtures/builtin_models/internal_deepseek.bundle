@@ -1,0 +1,9 @@
+{
+  "license_id": "internal_deepseek",
+  "version": 1,
+  "kdf_salt": "ncm089+GBySCcOD5yT1X4Q==",
+  "kdf_iters": 200000,
+  "nonce": "VRWjiYySRFZGutTs",
+  "ciphertext": "Msrecl5J3zkVJgjdfmLgiq80j+zst3+66pam6bdNldY0i2kQ/dRWVk60Vwo6x2erx8U6ZOg6nAOR3xfbYY0gTTf0M6dYg1Feymk4wVvmcyebJz0RXNCN2n2DOXfsmZPKrMMWNP23VGn1Tjve2dSVVi9y4huEv5968fg/A3SlnkFmRDm9aKyY3WdSdNWV4U5OxItw6ndRxq4KpxU1Qb9Z32aiD3hLC/ZzDLLKbPPHG23Y5SI0myuzabQ3fATS/iPnPWOlxgaJKA9i4FAZQh8j9ogDhmMiFGPN5JQgLGTLbQVkZ097J87xZvyDv17rTv7KGAJVLyvH3X8=",
+  "bundle_id": "internal_deepseek"
+}

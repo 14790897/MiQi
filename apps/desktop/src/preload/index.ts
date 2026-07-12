@@ -7,6 +7,7 @@ import type {
   SessionClaimLegacyResult,
   ProvidersListResult,
   ProviderUpdateResult,
+  BuiltinModelUnlockResult,
   ChannelsConfig,
   PendingApproval,
   ApprovalCleared,
@@ -172,7 +173,8 @@ const api = {
       apiKey?: string,
       apiBase?: string | null,
       extraHeaders?: Record<string, string> | null,
-      model?: string
+      model?: string,
+      credentialSource?: 'user' | 'builtin'
     ): Promise<ProviderUpdateResult> =>
       ipcRenderer.invoke(IPC.PROVIDERS_UPDATE, {
         provider_name: providerName,
@@ -180,6 +182,14 @@ const api = {
         api_base: apiBase ?? null,
         extra_headers: extraHeaders ?? null,
         model: model ?? undefined,
+        credential_source: credentialSource,
+      }),
+  },
+
+  builtinModel: {
+    unlock: (activationCode: string): Promise<BuiltinModelUnlockResult> =>
+      ipcRenderer.invoke(IPC.BUILTIN_MODEL_UNLOCK, {
+        activation_code: activationCode,
       }),
   },
 

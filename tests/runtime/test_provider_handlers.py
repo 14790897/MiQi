@@ -5,10 +5,29 @@ migrated from bridge legacy to AppServer async handlers.
 """
 
 import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+
+_FIXTURE_BUNDLE_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "builtin_models"
+_FIXTURE_BUILTIN_KEY = "sk-test-deepseek-internal-placeholder-not-a-real-key"
+
+
+def _internal_unlock_code() -> str:
+    return "".join(["wei", "guan", "ji", "yuan"])
+
+
+@pytest.fixture(autouse=True)
+def _reset_builtin_credentials():
+    from miqi.providers import builtin_credentials as bc
+
+    bc._bundle_dir_override = _FIXTURE_BUNDLE_DIR
+    bc.BUILTIN_KEY_PROVIDER.deactivate()
+    yield
+    bc.BUILTIN_KEY_PROVIDER.deactivate()
+    bc._bundle_dir_override = None
 
 
 def _make_config_with_workspace():
@@ -21,6 +40,46 @@ def _make_config_with_workspace():
 
 def _provider_entry(result: dict, name: str) -> dict:
     return next(p for p in result["result"]["providers"] if p["name"] == name)
+
+
+def _unlock_builtin_fixture():
+    from miqi.providers.builtin_credentials import BUILTIN_KEY_PROVIDER
+
+    metadata = BUILTIN_KEY_PROVIDER.unlock(_internal_unlock_code())
+    assert metadata is not None
+    return BUILTIN_KEY_PROVIDER
+
+
+def test_builtin_bundle_dir_env_override(monkeypatch):
+    from miqi.providers import builtin_credentials as bc
+
+    bc._bundle_dir_override = None
+    monkeypatch.setenv("MIQI_BUILTIN_MODELS_DIR", str(_FIXTURE_BUNDLE_DIR))
+    bc.BUILTIN_KEY_PROVIDER.deactivate()
+
+    metadata = bc.BUILTIN_KEY_PROVIDER.unlock(_internal_unlock_code())
+
+    assert metadata is not None
+    assert metadata["providers"][0]["provider"] == "deepseek"
+
+
+def _trial_config(model: str = "deepseek-v4-flash"):
+    config = _make_config_with_workspace()
+    config.agents.defaults.model = model
+    config.desktop["builtinModel"] = {
+        "enabled": True,
+        "bundleId": "internal_deepseek",
+        "licenseId": "internal_deepseek",
+        "providers": [
+            {
+                "provider": "deepseek",
+                "models": ["deepseek-v4-flash"],
+                "defaultModel": "deepseek-v4-flash",
+            },
+        ],
+    }
+    config.desktop["providerCredentials"] = {"active": {"deepseek": "builtin"}}
+    return config
 
 
 # ── providers.list ────────────────────────────────────────────────────────────
@@ -380,6 +439,37 @@ async def test_providers_test_treats_error_response_as_failure(registry_with_sta
 
 
 @pytest.mark.asyncio
+async def test_providers_test_uses_builtin_key_for_unlocked_trial(registry_with_state, monkeypatch):
+    """Unlocked built-in credentials should support the saved-config test path."""
+    from miqi.providers.openai_provider import OpenAIProvider
+    from miqi.runtime.provider_handlers import providers_test_handler
+
+    _unlock_builtin_fixture()
+    registry, mock_state = registry_with_state
+    config = _trial_config()
+    config.providers.deepseek.api_key = "sk-user-wrong"
+    mock_state.load_config.return_value = config
+    seen_api_keys = []
+
+    async def fake_chat(self, *args, **kwargs):
+        seen_api_keys.append(self.api_key)
+        return SimpleNamespace(content="ok")
+
+    monkeypatch.setattr(OpenAIProvider, "chat", fake_chat)
+    monkeypatch.setattr("miqi.config.loader.save_config", lambda cfg: None)
+
+    result = await providers_test_handler(
+        "req-1",
+        {"provider_name": "deepseek", "model": "deepseek-v4-flash"},
+        "client-1", None, registry,
+    )
+
+    assert result["result"]["ok"] is True
+    assert seen_api_keys == [_FIXTURE_BUILTIN_KEY]
+    assert config.desktop["providerVerification"]["deepseek"]["status"] == "success"
+
+
+@pytest.mark.asyncio
 async def test_providers_update_missing_provider_name():
     """providers.update should reject empty provider_name."""
     from miqi.runtime.provider_handlers import providers_update_handler
@@ -452,6 +542,7 @@ async def test_providers_update_marks_changed_config_unverified(registry_with_st
     assert result["result"]["saved"] is True
     assert saved
     assert config.providers.deepseek.api_key == "sk-new"
+    assert config.desktop["providerCredentials"]["active"]["deepseek"] == "user"
     assert config.desktop["providerVerification"]["deepseek"]["status"] == "unverified"
 
 
@@ -516,3 +607,218 @@ async def test_providers_update_fills_default_api_base_for_key_only_config(
     assert result["result"]["saved"] is True
     assert config.providers.deepseek.api_key == "sk-new"
     assert config.providers.deepseek.api_base == "https://api.deepseek.com/v1"
+
+
+# Built-in model unlock (issue #191)
+
+
+def test_builtin_fallback_used_when_no_user_key():
+    _unlock_builtin_fixture()
+    config = _trial_config()
+
+    assert config.get_provider_name() == "deepseek"
+    assert config.get_api_key() == _FIXTURE_BUILTIN_KEY
+
+
+def test_active_builtin_overrides_user_key():
+    _unlock_builtin_fixture()
+    config = _trial_config()
+    config.providers.deepseek.api_key = "sk-user-key"
+
+    assert config.get_api_key() == _FIXTURE_BUILTIN_KEY
+
+
+def test_active_user_credential_uses_user_key():
+    _unlock_builtin_fixture()
+    config = _trial_config()
+    config.providers.deepseek.api_key = "sk-user-key"
+    config.desktop["providerCredentials"]["active"]["deepseek"] = "user"
+
+    assert config.get_api_key() == "sk-user-key"
+
+
+def test_builtin_does_not_leak_to_other_providers():
+    _unlock_builtin_fixture()
+    config = _trial_config(model="anthropic/claude-opus-4-5")
+
+    assert config.get_provider_name() is None
+    assert config.get_api_key() is None
+
+
+def test_builtin_bundle_only_unlocks_deepseek():
+    _unlock_builtin_fixture()
+    config = _trial_config(model="gemini/gemini-2.5-flash")
+
+    assert config.get_provider_name() is None
+    assert config.get_api_key() is None
+
+
+def test_builtin_disabled_is_unreachable():
+    _unlock_builtin_fixture()
+    config = _trial_config()
+    config.desktop["builtinModel"]["enabled"] = False
+
+    assert config.get_provider_name() is None
+    assert config.get_api_key() is None
+
+
+def test_builtin_key_never_persisted_to_disk(tmp_path):
+    import json
+
+    from miqi.config.loader import load_config, save_config
+
+    _unlock_builtin_fixture()
+    config = _trial_config()
+    config_path = tmp_path / "config.json"
+
+    save_config(config, config_path)
+    raw = config_path.read_text(encoding="utf-8")
+    assert _FIXTURE_BUILTIN_KEY not in raw
+    data = json.loads(raw)
+    assert data["desktop"]["builtinModel"]["enabled"] is True
+    assert "api_key" not in data["desktop"]["builtinModel"]
+    assert "key" not in data["desktop"]["builtinModel"]
+
+    loaded = load_config(config_path)
+    assert loaded.desktop["builtinModel"]["providers"][0]["provider"] == "deepseek"
+
+
+def test_make_provider_uses_builtin_for_trial_user():
+    from miqi.providers.factory import make_provider
+
+    _unlock_builtin_fixture()
+    config = _trial_config()
+    provider = make_provider(config)
+
+    assert provider.api_key == _FIXTURE_BUILTIN_KEY
+
+
+def test_make_provider_builtin_active_wins_over_user_key():
+    from miqi.providers.factory import make_provider
+
+    _unlock_builtin_fixture()
+    config = _trial_config()
+    config.providers.deepseek.api_key = "sk-user-key"
+    provider = make_provider(config)
+
+    assert provider.api_key == _FIXTURE_BUILTIN_KEY
+
+
+def test_make_provider_user_active_wins():
+    from miqi.providers.factory import make_provider
+
+    _unlock_builtin_fixture()
+    config = _trial_config()
+    config.providers.deepseek.api_key = "sk-user-key"
+    config.desktop["providerCredentials"]["active"]["deepseek"] = "user"
+    provider = make_provider(config)
+
+    assert provider.api_key == "sk-user-key"
+
+
+@pytest.mark.asyncio
+async def test_providers_list_reports_builtin_as_unlocked(registry_with_state):
+    from miqi.runtime.provider_handlers import providers_list_handler
+
+    _unlock_builtin_fixture()
+    registry, mock_state = registry_with_state
+    config = _trial_config()
+    mock_state.load_config.return_value = config
+
+    result = await providers_list_handler("req-1", {}, "client-1", None, registry)
+
+    deepseek = _provider_entry(result, "deepseek")
+    assert deepseek["configured"] is False
+    assert deepseek["builtin_unlocked"] is True
+    assert deepseek["credential_source"] == "builtin"
+    assert deepseek["active_credential"] == "builtin"
+    assert deepseek["verification_status"] == "unverified"
+    assert deepseek["api_key_hint"] is None
+
+
+@pytest.mark.asyncio
+async def test_builtin_unlock_handler_valid_code(registry_with_state, monkeypatch):
+    from miqi.runtime.provider_handlers import builtin_model_unlock_handler
+
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    config.agents.defaults.model = "anthropic/claude-opus-4-5"
+    mock_state.load_config.return_value = config
+    saved = []
+    monkeypatch.setattr("miqi.config.loader.save_config", lambda cfg: saved.append(cfg))
+
+    result = await builtin_model_unlock_handler(
+        "req-1", {"activation_code": _internal_unlock_code()}, "client-1", None, registry
+    )
+
+    assert result["result"]["providers"][0]["provider"] == "deepseek"
+    assert len(result["result"]["providers"]) == 1
+    assert result["result"]["userKeyPresent"] is False
+    assert result["result"]["activatedModel"] is True
+    assert config.agents.defaults.model == "deepseek-v4-flash"
+    assert saved
+    state = config.desktop["builtinModel"]
+    assert state["enabled"] is True
+    assert state["providers"][0]["provider"] == "deepseek"
+    assert len(state["providers"]) == 1
+    assert "api_key" not in state and "key" not in state and "token" not in state
+    assert "sealedCredential" in state
+    assert _FIXTURE_BUILTIN_KEY not in str(state["sealedCredential"])
+    assert config.desktop["providerCredentials"]["active"]["deepseek"] == "builtin"
+
+
+@pytest.mark.asyncio
+async def test_builtin_unlock_handler_overrides_existing_user_deepseek(registry_with_state, monkeypatch):
+    from miqi.runtime.provider_handlers import builtin_model_unlock_handler
+
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    config.providers.deepseek.api_key = "sk-deepseek-user"
+    config.agents.defaults.model = "openai/gpt-4o"
+    mock_state.load_config.return_value = config
+    monkeypatch.setattr("miqi.config.loader.save_config", lambda cfg: None)
+
+    result = await builtin_model_unlock_handler(
+        "req-1", {"activation_code": _internal_unlock_code()}, "client-1", None, registry
+    )
+
+    assert result["result"]["userKeyPresent"] is True
+    assert result["result"]["activatedModel"] is True
+    assert config.agents.defaults.model == "deepseek-v4-flash"
+    assert config.desktop["providerCredentials"]["active"]["deepseek"] == "builtin"
+    assert config.get_api_key() == _FIXTURE_BUILTIN_KEY
+
+
+@pytest.mark.asyncio
+async def test_builtin_unlock_survives_bridge_restart(registry_with_state, monkeypatch):
+    from miqi.providers.builtin_credentials import BUILTIN_KEY_PROVIDER
+    from miqi.runtime.provider_handlers import builtin_model_unlock_handler
+
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    config.providers.deepseek.api_key = "sk-user-wrong"
+    mock_state.load_config.return_value = config
+    monkeypatch.setattr("miqi.config.loader.save_config", lambda cfg: None)
+
+    await builtin_model_unlock_handler(
+        "req-1", {"activation_code": _internal_unlock_code()}, "client-1", None, registry
+    )
+    BUILTIN_KEY_PROVIDER.deactivate()
+
+    assert config.get_api_key("deepseek/deepseek-v4-flash") == _FIXTURE_BUILTIN_KEY
+
+
+@pytest.mark.asyncio
+async def test_builtin_unlock_handler_invalid_code(registry_with_state):
+    from miqi.runtime.app_server import AppServerError
+    from miqi.runtime.provider_handlers import builtin_model_unlock_handler
+
+    registry, mock_state = registry_with_state
+    mock_state.load_config.return_value = _make_config_with_workspace()
+
+    with pytest.raises(AppServerError) as exc_info:
+        await builtin_model_unlock_handler(
+            "req-1", {"activation_code": "wrong-code"}, "client-1", None, registry
+        )
+
+    assert exc_info.value.code == "INVALID_CODE"
