@@ -49,4 +49,5 @@ plan/*
 .debug/
 .playwright-mcp/
 *.png
-mof-synthesis-price-agent/
+3skills/
+drill-r-d.zip
