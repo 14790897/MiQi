@@ -50,26 +50,26 @@ test.describe('MOF Synthesis Price E2E', () => {
       await createNewConversation(page);
       await shot();
 
-      // Copy sample cleaned text into workspace so AI can read it
-      const sampleCleaned = process.env.MOF_CLEANED_TEXT || '';
-      const fname = 'mof_test_paper_cleaned.txt';
-      if (sampleCleaned) {
+      // Copy sample PDF into workspace so AI can read it
+      const samplePdf = process.env.MOF_TEST_PDF || '';
+      const pdfName = 'mof_test_paper.pdf';
+      if (samplePdf) {
         const { copyFileSync } = require('node:fs');
         const { join } = require('node:path');
         const ws = join(miqiHome, 'workspace');
-        copyFileSync(sampleCleaned, join(ws, fname));
-        console.log(`[test] Copied cleaned text: ${sampleCleaned} → ${join(ws, fname)}`);
+        copyFileSync(samplePdf, join(ws, pdfName));
+        console.log(`[test] Copied PDF: ${samplePdf} → ${join(ws, pdfName)}`);
       }
 
-      const inputHint = sampleCleaned
-        ? `已清洗文本文件: ${fname}`
+      const inputHint = samplePdf
+        ? `PDF文件: ${pdfName}`
         : '使用 DOI: 10.ki/2024.082';
 
       await sendMessage(
         page,
         `使用 /mof-synthesis-price-agent 技能处理这篇 MOF 论文。${inputHint}。
 
-只做 agent extraction 阶段：读取 ${fname}，用 write_file 输出 agent_extraction.json。
+从零开始：先用 Read 工具读取 PDF 文件（${pdfName}）获取全文内容，然后从中提取合成路线和试剂信息。只做 agent extraction 阶段，用 write_file 输出 agent_extraction.json。
 
 输出 JSON schema（严格遵循）：
 {
