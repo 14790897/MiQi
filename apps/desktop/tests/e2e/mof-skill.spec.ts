@@ -63,7 +63,23 @@ test.describe('MOF Synthesis Price E2E', () => {
 
       await sendMessage(
         page,
-        `使用 /mof-synthesis-price-agent 技能处理这篇 MOF 论文。${inputHint}。只做 agent extraction 阶段：读取清洗后的论文文本（${fname}），从文本中提取合成路线（synthesis_routes）、试剂清单（reagents）和合成摘要（synthesis_summary），输出 agent_extraction.json 到 workspace。不要跑定价和报告阶段。`,
+        `使用 /mof-synthesis-price-agent 技能处理这篇 MOF 论文。${inputHint}。
+
+只做 agent extraction 阶段：读取 ${fname}，用 write_file 输出 agent_extraction.json。
+
+输出 JSON schema（严格遵循）：
+{
+  "synthesis_routes": [{ "target_compound": "材料名", "yield_percent": null, "temperature": "120 ℃", "duration": "24 h", "atmosphere": "air", "procedure_text": "步骤", "source": "main_text", "route_type": "primary" }],
+  "reagents": [{ "name": "英文缩写如ZrCl4", "name_zh": "中文名", "name_en": "英文全称", "cas": "CAS号", "role": "reactant|ligand|solvent|workup", "amount": "用量", "equiv": null }],
+  "synthesis_summary": "Markdown格式的合成摘要"
+}
+
+注意事项：
+- name 字段用英文缩写（ZrCl4, NH2-BDC, H2-BDC, DMF, Methanol）
+- role 用英文枚举：reactant / ligand / solvent / workup
+- target_compound 不能为空
+- 试剂至少包含 ZrCl4, NH2-BDC, H2-BDC, DMF
+- 输出文件名为 agent_extraction.json（无前缀）`,
       );
 
       // Pre-approve ALL tools
