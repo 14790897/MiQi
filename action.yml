@@ -118,9 +118,10 @@ runs:
           const issueNumber = context.issue.number;
           const repo = context.repo;
 
-          // Skip feature requests
-          if (context.payload.issue.title?.startsWith(featurePrefix)) {
-            console.log('Feature request — skipping template validation');
+          // Skip feature requests and enhancements
+          const labels = (context.payload.issue.labels || []).map(l => typeof l === 'string' ? l : l.name);
+          if (context.payload.issue.title?.startsWith(featurePrefix) || labels.includes('enhancement')) {
+            console.log('Feature request / enhancement — skipping template validation');
             core.setOutput('valid', 'true');
             return;
           }
@@ -259,10 +260,11 @@ runs:
           let body = context.payload.issue.body || '';
           body = body.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
-          // Skip feature requests — they don't have bug-report sections
+          // Skip feature requests and enhancements — they don't have bug-report sections
           const featurePrefix = process.env.FEATURE_PREFIX || '[FEATURE]';
-          if (context.payload.issue.title?.startsWith(featurePrefix)) {
-            console.log('Feature request — skipping AI log review');
+          const labels = (context.payload.issue.labels || []).map(l => typeof l === 'string' ? l : l.name);
+          if (context.payload.issue.title?.startsWith(featurePrefix) || labels.includes('enhancement')) {
+            console.log('Feature request / enhancement — skipping AI log review');
             return;
           }
 
