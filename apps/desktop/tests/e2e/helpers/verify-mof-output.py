@@ -100,8 +100,15 @@ for r in reagents:
 
 # ── synthesis_summary ──
 summary = data.get("synthesis_summary", "")
-check("synthesis_summary not empty", bool(summary and summary.strip()),
-      f"len={len(summary)}")
+if isinstance(summary, dict):
+    check("synthesis_summary not empty", bool(summary),
+          f"keys={list(summary.keys())}")
+elif isinstance(summary, str):
+    check("synthesis_summary not empty", bool(summary and summary.strip()),
+          f"len={len(summary)}")
+else:
+    check("synthesis_summary not empty", bool(summary),
+          f"type={type(summary).__name__}")
 
 # ── Output files check ──
 prefix = Path(filepath).stem.replace("_agent_extraction", "")
