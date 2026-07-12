@@ -722,6 +722,28 @@ class BwrapSandbox:
         if not self._running or not self._bwrap_path:
             raise BwrapSandboxError("Sandbox not started")
 
+        # ── Defensive: verify sandbox directories still exist ──────────
+        # In WSL, tmpfs /tmp directories can vanish between calls (e.g.
+        # when multiple sandboxes are created/destroyed in CI).  Recreate
+        # if the source bind-mounts are missing so bwrap doesn't fail with
+        # "Can't find source path".
+        rc, _, _ = await self._run_linux_command(
+            f"test -d '{self.sandbox_home}' && test -d '{self.sandbox_workspace}'"
+        )
+        if rc != 0:
+            logger.warning(
+                "Sandbox directories missing for {} — recreating ({}, {})",
+                self.session_key, self.sandbox_home, self.sandbox_workspace,
+            )
+            rc2, _, err2 = await self._run_linux_command(
+                f"mkdir -p '{self._linux_base_dir}' '{self.sandbox_home}' '{self.sandbox_workspace}'"
+            )
+            if rc2 != 0:
+                raise BwrapSandboxError(
+                    f"Sandbox directories vanished and could not be recreated: {err2}"
+                )
+            logger.info("Sandbox directories recreated for {}", self.session_key)
+
         bwrap_args = self._build_bwrap_args(command, env=env, cwd=cwd)
 
         exit_code = -1
