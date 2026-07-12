@@ -924,7 +924,15 @@ class BwrapSandbox:
         )
         script_content = (
             f"#!/bin/bash\n"
-            f"mkdir -p '{self.sandbox_home}' '{self.sandbox_workspace}'\n"
+            f"# Diagnostic: log whether sandbox dirs needed recreation\n"
+            f"for d in '{self.sandbox_home}' '{self.sandbox_workspace}'; do\n"
+            f"  if test -d \"$d\"; then\n"
+            f"    echo \"[sandbox] dir OK: $d\" >&2\n"
+            f"  else\n"
+            f"    echo \"[sandbox] dir MISSING — recreating: $d\" >&2\n"
+            f"    mkdir -p \"$d\" || {{ echo \"[sandbox] FATAL: cannot create $d\" >&2; exit 1; }}\n"
+            f"  fi\n"
+            f"done\n"
             f"{escaped_args}\n"
         )
 
@@ -980,7 +988,15 @@ class BwrapSandbox:
         )
         script_content = (
             f"#!/bin/bash\n"
-            f"mkdir -p '{self.sandbox_home}' '{self.sandbox_workspace}'\n"
+            f"# Diagnostic: log whether sandbox dirs needed recreation\n"
+            f"for d in '{self.sandbox_home}' '{self.sandbox_workspace}'; do\n"
+            f"  if test -d \"$d\"; then\n"
+            f"    echo \"[sandbox] dir OK: $d\" >&2\n"
+            f"  else\n"
+            f"    echo \"[sandbox] dir MISSING — recreating: $d\" >&2\n"
+            f"    mkdir -p \"$d\" || {{ echo \"[sandbox] FATAL: cannot create $d\" >&2; exit 1; }}\n"
+            f"  fi\n"
+            f"done\n"
             f"{escaped_args}\n"
         )
 
