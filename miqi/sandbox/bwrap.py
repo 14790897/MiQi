@@ -644,11 +644,12 @@ class BwrapSandbox:
             # In that case, we can skip rsync and just bind-mount it
             rc, _, _ = await self._run_linux_command(f"test -d '{linux_workspace}'")
             if rc == 0:
-                # Don't bind-mount the shared host workspace — sync its content
-                # into the per-sandbox workspace for true isolation
-                await self._sync_workspace(linux_workspace)
+                logger.debug(
+                    "Workspace accessible at {} — will use per-sandbox workspace instead of shared bind-mount",
+                    linux_workspace,
+                )
 
-        # Force _linux_workspace to None — always use per-sandbox workspace
+        # Always use per-sandbox workspace — no shared host workspace bind mount
         self._linux_workspace = None
 
         self._running = True
