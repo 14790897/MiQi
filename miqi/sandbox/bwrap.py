@@ -644,18 +644,12 @@ class BwrapSandbox:
             # In that case, we can skip rsync and just bind-mount it
             rc, _, _ = await self._run_linux_command(f"test -d '{linux_workspace}'")
             if rc == 0:
-                # Store for potential bind-mount in bwrap args
-                self._linux_workspace = linux_workspace
-                # Skip sync — the workspace will be bind-mounted read-only
-                # and the sandbox gets its own writable copy via /home/miqi/workspace
-                logger.debug(
-                    "Workspace accessible at {} — will bind-mount instead of rsync",
-                    linux_workspace,
-                )
-            else:
-                self._linux_workspace = None
-        else:
-            self._linux_workspace = None
+                # Don't bind-mount the shared host workspace — sync its content
+                # into the per-sandbox workspace for true isolation
+                await self._sync_workspace(linux_workspace)
+
+        # Force _linux_workspace to None — always use per-sandbox workspace
+        self._linux_workspace = None
 
         self._running = True
         logger.info(

@@ -315,11 +315,15 @@ class SandboxManager:
                 del self._sandboxes[sandbox_key]
 
             # Prevent concurrent creation of the same sandbox (Issue #221)
+            created_here = False
             if sandbox_key in self._creating:
-                raise RuntimeError(
-                    f"Sandbox {sandbox_key} is already being created"
+                logger.warning(
+                    "Sandbox {} is already being created by another thread",
+                    sandbox_key,
                 )
-            self._creating.add(sandbox_key)
+            else:
+                self._creating.add(sandbox_key)
+                created_here = True
 
             need_evict = len(self._sandboxes) >= self.max_sandboxes
 
@@ -364,8 +368,9 @@ class SandboxManager:
                 )
                 return None
         finally:
-            with self._lock:
-                self._creating.discard(sandbox_key)
+            if created_here:
+                with self._lock:
+                    self._creating.discard(sandbox_key)
 
     async def activate(
         self, session_key: str, *, client_id: str | None = None,
