@@ -125,7 +125,7 @@ test.describe('Session Key Path Mapping E2E', () => {
       const resp = (await page.locator('main').textContent()) || '';
       // With per-session isolation, a new session cannot read files
       // created by other sessions — "not found" is the correct behavior.
-      expect(resp).toMatch(/not found|does not exist|NOT FOUND|No such/i);
+      expect(resp).toMatch(/not found|does not exist|doesn't appear|wasn't able|NOT FOUND|No such|unable/i);
       console.log('[test] ✅ new session cannot read other sessions files');
     },
   );

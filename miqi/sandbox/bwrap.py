@@ -644,18 +644,13 @@ class BwrapSandbox:
             # In that case, we can skip rsync and just bind-mount it
             rc, _, _ = await self._run_linux_command(f"test -d '{linux_workspace}'")
             if rc == 0:
-                # Store for potential bind-mount in bwrap args
-                self._linux_workspace = linux_workspace
-                # Skip sync — the workspace will be bind-mounted read-only
-                # and the sandbox gets its own writable copy via /home/miqi/workspace
                 logger.debug(
-                    "Workspace accessible at {} — will bind-mount instead of rsync",
+                    "Workspace accessible at {} — will use per-sandbox workspace instead of shared bind-mount",
                     linux_workspace,
                 )
-            else:
-                self._linux_workspace = None
-        else:
-            self._linux_workspace = None
+
+        # Always use per-sandbox workspace — no shared host workspace bind mount
+        self._linux_workspace = None
 
         self._running = True
         logger.info(
@@ -726,6 +721,28 @@ class BwrapSandbox:
         """
         if not self._running or not self._bwrap_path:
             raise BwrapSandboxError("Sandbox not started")
+
+        # ── Defensive: verify sandbox directories still exist ──────────
+        # In WSL, tmpfs /tmp directories can vanish between calls (e.g.
+        # when multiple sandboxes are created/destroyed in CI).  Recreate
+        # if the source bind-mounts are missing so bwrap doesn't fail with
+        # "Can't find source path".
+        rc, _, _ = await self._run_linux_command(
+            f"test -d '{self.sandbox_home}' && test -d '{self.sandbox_workspace}'"
+        )
+        if rc != 0:
+            logger.warning(
+                "Sandbox directories missing for {} — recreating ({}, {})",
+                self.session_key, self.sandbox_home, self.sandbox_workspace,
+            )
+            rc2, _, err2 = await self._run_linux_command(
+                f"mkdir -p '{self._linux_base_dir}' '{self.sandbox_home}' '{self.sandbox_workspace}'"
+            )
+            if rc2 != 0:
+                raise BwrapSandboxError(
+                    f"Sandbox directories vanished and could not be recreated: {err2}"
+                )
+            logger.info("Sandbox directories recreated for {}", self.session_key)
 
         bwrap_args = self._build_bwrap_args(command, env=env, cwd=cwd)
 
@@ -905,7 +922,19 @@ class BwrapSandbox:
         escaped_args = " ".join(
             _shell_quote(a) for a in bwrap_args
         )
-        script_content = f"#!/bin/bash\n{escaped_args}\n"
+        script_content = (
+            f"#!/bin/bash\n"
+            f"# Diagnostic: log whether sandbox dirs needed recreation\n"
+            f"for d in '{self.sandbox_home}' '{self.sandbox_workspace}'; do\n"
+            f"  if test -d \"$d\"; then\n"
+            f"    echo \"[sandbox] dir OK: $d\" >&2\n"
+            f"  else\n"
+            f"    echo \"[sandbox] dir MISSING — recreating: $d\" >&2\n"
+            f"    mkdir -p \"$d\" || {{ echo \"[sandbox] FATAL: cannot create $d\" >&2; exit 1; }}\n"
+            f"  fi\n"
+            f"done\n"
+            f"{escaped_args}\n"
+        )
 
         write_rc, _, write_err = await self._write_wsl_file_via_stdin(
             script_path, script_content,
@@ -957,7 +986,19 @@ class BwrapSandbox:
         escaped_args = " ".join(
             _shell_quote(a) for a in bwrap_args
         )
-        script_content = f"#!/bin/bash\n{escaped_args}\n"
+        script_content = (
+            f"#!/bin/bash\n"
+            f"# Diagnostic: log whether sandbox dirs needed recreation\n"
+            f"for d in '{self.sandbox_home}' '{self.sandbox_workspace}'; do\n"
+            f"  if test -d \"$d\"; then\n"
+            f"    echo \"[sandbox] dir OK: $d\" >&2\n"
+            f"  else\n"
+            f"    echo \"[sandbox] dir MISSING — recreating: $d\" >&2\n"
+            f"    mkdir -p \"$d\" || {{ echo \"[sandbox] FATAL: cannot create $d\" >&2; exit 1; }}\n"
+            f"  fi\n"
+            f"done\n"
+            f"{escaped_args}\n"
+        )
 
         # Write script into WSL via stdin pipe (avoids cmd-line length limit)
         write_rc, _, write_err = await self._write_wsl_file_via_stdin(
@@ -1068,14 +1109,11 @@ class BwrapSandbox:
         args.extend(["--bind", self.sandbox_home, "/home/miqi"])
 
         # ── Workspace mount ────────────────────────────────────────
-        # If we have a Linux workspace path accessible from WSL,
-        # bind-mount it directly as the sandbox workspace.
-        # Otherwise, use the per-session directory (which may have
-        # been synced via rsync on native Linux).
-        if self._linux_workspace:
-            args.extend(["--bind", self._linux_workspace, "/home/miqi/workspace"])
-        else:
-            args.extend(["--bind", self.sandbox_workspace, "/home/miqi/workspace"])
+        # Always use the per-sandbox workspace directory for full
+        # session isolation. Do NOT bind-mount the shared host
+        # workspace, which would let any sandbox see all sessions'
+        # files (Issue #221).
+        args.extend(["--bind", self.sandbox_workspace, "/home/miqi/workspace"])
 
         # ── /etc/resolv.conf ─────────────────────────────────────────
         # /etc is already ro-bind-mounted from host (share_net=True),
