@@ -554,16 +554,18 @@ function AppearanceTab() {
       <h3 className="text-sm font-semibold text-[var(--text)]">外观</h3>
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-medium text-[var(--text-muted)]">主题</label>
-        <div className="flex gap-2">
+        <div className="inline-flex w-fit items-center gap-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-muted)] p-1">
           {(['light', 'dark', 'system'] as ThemeMode[]).map((m) => (
             <button
               key={m}
               onClick={() => applyTheme(m)}
+              aria-pressed={theme === m}
               className={cn(
-                'settings-hover-tab px-4 py-2 rounded-lg text-xs border',
+                'settings-hover-tab rounded-md px-3.5 py-1.5 text-xs font-medium',
+                'focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30',
                 theme === m
-                  ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
-                  : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--text)]'
+                  ? 'bg-[var(--accent)] text-[var(--accent-text)] shadow-sm'
+                  : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'
               )}
             >
               {m === 'light' ? '浅色' : m === 'dark' ? '深色' : '跟随系统'}
