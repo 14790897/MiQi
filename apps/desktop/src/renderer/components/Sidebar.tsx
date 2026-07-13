@@ -297,7 +297,7 @@ export function Sidebar({
           className="text-[10px] font-mono"
           style={{ color: 'var(--text-faint)' }}
         >
-          PRO v{__APP_VERSION__}
+          PRO v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'}
         </span>
       </div>
     </div>

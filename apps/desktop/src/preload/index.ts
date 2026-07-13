@@ -59,6 +59,7 @@ import type {
   ThreadStartedEvent,
   TurnStartResult,
   TurnInterruptResult,
+  SandboxSetEnabledResult,
 } from '../shared/ipc';
 
 // ---------------------------------------------------------------------------
@@ -327,6 +328,12 @@ const api = {
     }): Promise<WslImportDistroResult> => ipcRenderer.invoke(IPC.WSL_IMPORT_DISTRO, options),
     getStats: (distroName?: string): Promise<WslStatsResult> =>
       ipcRenderer.invoke(IPC.WSL_GET_STATS, distroName ?? undefined),
+  },
+
+  // -- Sandbox runtime toggle -----------------------------------------------
+  sandbox: {
+    setEnabled: (enabled: boolean): Promise<SandboxSetEnabledResult> =>
+      ipcRenderer.invoke(IPC.SANDBOX_SET_ENABLED, enabled),
   },
 
   // -- Initial config write (no bridge needed) --------------------------------
