@@ -137,6 +137,7 @@ function SandboxToggle() {
       <button
         onClick={handleToggle}
         disabled={toggling || enabled === null}
+        data-testid="sandbox-toggle-btn"
         className={cn(
           'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
           'disabled:opacity-50',
@@ -163,7 +164,9 @@ function SandboxToggle() {
           enabled
             ? (ready ? 'text-[var(--accent)]' : 'text-amber-400')
             : 'text-[var(--warning)]',
-        )}>
+        )}
+        data-testid="sandbox-toggle-label"
+        >
           {toggling
             ? (enabled ? '正在关闭…' : '正在开启…')
             : enabled
