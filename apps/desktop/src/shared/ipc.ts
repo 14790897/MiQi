@@ -101,7 +101,10 @@ export const IPC = {
   WSL_IMPORT_DISTRO: 'wsl:import_distro',
   WSL_GET_STATS: 'wsl:getStats',
 
-  // Write initial config (no bridge needed â€” used by Setup Wizard)
+  // Sandbox runtime toggle
+  SANDBOX_SET_ENABLED: 'sandbox:setEnabled',
+
+  // Write initial config (no bridge needed â€? used by Setup Wizard)
   CONFIG_WRITE_INITIAL: 'config:write_initial',
 
   // Dialog
@@ -129,7 +132,7 @@ export const IPC = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// IPC event channels (main â†’ renderer)
+// IPC event channels (main â†? renderer)
 // ---------------------------------------------------------------------------
 
 export const IPC_EVENTS = {
@@ -691,20 +694,37 @@ export interface TrackedFileInfo {
 export interface ChatProgress {
   text: string;
   tool_hint: boolean;
+  stream?: 'stdout' | 'stderr';
+  delta?: string;
+  tool_call_id?: string;
+  /** Session key for frontend-side event filtering (fix #212).
+   *  Optional for backward compatibility with backends that don't yet
+   *  emit this field.  Should become required once all backends are
+   *  updated. */
+  session_key?: string;
 }
 
 export interface ChatFinal {
   content: string;
   aborted?: boolean;
   tool_calls?: unknown[];
+  /** Session key for frontend-side event filtering (fix #212).  Optional
+   *  for backward compatibility; see ChatProgress.session_key. */
+  session_key?: string;
 }
 
 export interface ChatError {
   message: string;
+  /** Session key for frontend-side event filtering (fix #212).  Optional
+   *  for backward compatibility; see ChatProgress.session_key. */
+  session_key?: string;
 }
 
 export interface ChatAborted {
   message: string;
+  /** Session key for frontend-side event filtering (fix #212).  Optional
+   *  for backward compatibility; see ChatProgress.session_key. */
+  session_key?: string;
 }
 
 export interface ChatSubagentResult {
@@ -914,4 +934,11 @@ export interface TurnInterruptResult {
 
 export interface ThreadStartedEvent {
   thread: Record<string, unknown>;
+}
+
+export interface SandboxSetEnabledResult {
+  enabled: boolean;
+  destroyed?: number;
+  already?: boolean;
+  initializing?: boolean;
 }

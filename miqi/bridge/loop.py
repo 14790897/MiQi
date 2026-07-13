@@ -131,11 +131,85 @@ class BridgeRuntimeLoop:
         # 5. Signal ready to Desktop (Electron bridge.ts waits for this)
         self._send({"type": "ready"})
 
+        # 5.5. Start sandbox manager initialization in background.
+        # First-run auto-install of WSL deps (apt-get) can take 60-120 s,
+        # so we fire-and-forget it here after the ready signal to avoid
+        # blocking the bridge handshake timeout.
+        asyncio.create_task(self._init_sandbox_manager())
+
         # 6. Drain request queue
         await self._drain_loop()
 
         # 7. Shutdown
         await self._shutdown()
+
+    # ── Sandbox manager initialization (background) ─────────────────────────
+
+    async def _init_sandbox_manager(self) -> None:
+        """Initialize the sandbox manager as a background task.
+
+        Runs after the "ready" handshake so that first-run WSL dependency
+        auto-install (apt-get install bubblewrap coreutils rsync) does not
+        block the bridge startup timeout.
+
+        On first-time installs the sandbox starts disabled so tools run
+        on the host.  This method re-enables it before initialize() so
+        that deps actually get installed.  get_or_create() still returns
+        None until _initialized is set (by the end of initialize()).
+        """
+        if self._bridge_state is None:
+            return
+        try:
+            self._bridge_state._ensure_sandbox_manager()
+        except Exception:
+            return
+        sandbox_mgr = getattr(self._bridge_state, "_sandbox_manager", None)
+        if sandbox_mgr is None or sandbox_mgr == "disabled":
+            return
+
+        # ── Auto-enable BEFORE initialize() ───────────────────────
+        # The SandboxManager is created with enabled=False so tools
+        # run locally during dep install.  Flip it to True now so
+        # initialize() actually runs is_available() + install deps.
+        # get_or_create() still returns None because _initialized is
+        # still False, so tools keep running locally until the end
+        # of this method.
+        need_auto_enable = not sandbox_mgr.enabled
+        if need_auto_enable:
+            sandbox_mgr.enabled = True
+            try:
+                from miqi.config.loader import save_config
+                config = self._bridge_state.load_config()
+                config.tools.sandbox.enabled = True
+                save_config(config)
+            except Exception as exc:
+                logger.warning(
+                    "sandbox auto-enable: config save failed: {}", exc,
+                )
+
+        log_msg = "Sandbox manager initialized"
+        try:
+            await sandbox_mgr.initialize()
+        except TypeError:
+            pass  # mock in tests — initialize() is not async
+        except Exception as exc:
+            logger.warning("Sandbox manager initialization failed: {}", exc)
+            return
+
+        if need_auto_enable:
+            log_msg += " (auto-enabled after first-time install)"
+
+        logger.info(log_msg)
+
+        # Notify the frontend so the settings toggle updates.
+        if self._app_server is not None:
+            try:
+                await self._app_server.emit_event(
+                    "sandbox.ready",
+                    {"enabled": True, "initialized": True},
+                )
+            except Exception:
+                pass  # best-effort notification
 
     # ── AppServer initialization ───────────────────────────────────────────
 
@@ -175,6 +249,11 @@ class BridgeRuntimeLoop:
         # Register bridge-owned handlers
         self._app_server.register_method("status", self._status_handler, spec=protocol_specs.STATUS)
 
+        # Register sandbox runtime toggle
+        self._app_server.register_method(
+            "sandbox.setEnabled", self._sandbox_set_enabled_handler,
+        )
+
         # Register Phase 27.3: chat.send through AppServer
         self._app_server.register_method("chat.send", self._chat_send_handler)
 
@@ -200,16 +279,10 @@ class BridgeRuntimeLoop:
         from miqi.runtime.thread_app_handlers import register_codex_thread_handlers
         register_codex_thread_handlers(self._app_server)
 
-        # Initialize sandbox manager (shared across all agents)
-        if self._bridge_state is not None:
-            self._bridge_state._ensure_sandbox_manager()
-            sandbox_mgr = getattr(self._bridge_state, "_sandbox_manager", None)
-            if sandbox_mgr is not None and sandbox_mgr != "disabled":
-                try:
-                    await sandbox_mgr.initialize()
-                except TypeError:
-                    pass  # mock in tests — initialize() is not async
-                logger.info("Sandbox manager initialized")
+        # Sandbox manager initialization is deferred to _run() after the
+        # "ready" signal so that slow first-run auto-install of WSL
+        # dependencies (apt-get) does not block the bridge handshake.
+        # See _run() → _init_sandbox_manager().
 
         # Register Phase 37: Codex-style plugin and marketplace handlers
         from miqi.runtime.plugin_app_handlers import register_plugin_app_handlers
@@ -575,6 +648,7 @@ class BridgeRuntimeLoop:
                 runtime=runtime,
                 thread_id=thread_id,
                 session_id=runtime_id,
+                session_key=session_key,
                 client_id=client_id,
             )
         )
@@ -602,6 +676,7 @@ class BridgeRuntimeLoop:
         thread_id: str,
         session_id: str,
         client_id: str,
+        session_key: str = "",
     ) -> None:
         """Background task: drain events from RuntimeSession and forward them.
 
@@ -613,6 +688,10 @@ class BridgeRuntimeLoop:
 
         async def _emit(event_type: str, data: Any) -> None:
             """Emit a non-terminal event through AppServer fanout."""
+            # Inject session_key so the frontend can filter events
+            # by session, preventing cross-session message leaks (#212).
+            if isinstance(data, dict):
+                data["session_key"] = session_key
             await app_server.emit_event(
                 session_id, event_type, data,
                 request_id=request_id,
@@ -629,6 +708,9 @@ class BridgeRuntimeLoop:
             if request_id in self._terminal_sent:
                 return False
             self._terminal_sent.add(request_id)
+            # Inject session_key so the frontend can filter (#212)
+            if isinstance(data, dict):
+                data["session_key"] = session_key
             self._send({
                 "id": request_id,
                 "type": event_type,
@@ -1061,6 +1143,95 @@ class BridgeRuntimeLoop:
         )
 
     # ── shutdown ───────────────────────────────────────────────────────────
+
+    # ── Sandbox runtime toggle ─────────────────────────────────────────────
+    async def _sandbox_set_enabled_handler(
+        self, request_id: str, params: dict, client_id: str,
+        session_id: str | None, registry: Any,
+    ) -> dict:
+        """AppServer handler for sandbox.setEnabled.
+
+        Enables or disables the bwrap sandbox at runtime without restarting.
+        When disabling, active sandboxes are destroyed.  When enabling, a new
+        SandboxManager is created and initialized.  The config is persisted
+        so the setting survives bridge restarts.
+        """
+        enabled = params.get("enabled", True)
+        if not isinstance(enabled, bool):
+            from miqi.runtime.app_server import AppServerError
+            raise AppServerError(
+                "sandbox.setEnabled: 'enabled' must be a boolean",
+                code="INVALID_PARAMS",
+            )
+
+        if self._bridge_state is None:
+            from miqi.runtime.app_server import AppServerError
+            raise AppServerError(
+                "Bridge state not available", code="INTERNAL",
+            )
+
+        # ── Persist to config ─────────────────────────────────────────
+        from miqi.config.loader import save_config
+        config = self._bridge_state.load_config()
+        config.tools.sandbox.enabled = enabled
+        try:
+            save_config(config)
+        except Exception as exc:
+            logger.error("sandbox.setEnabled: config save failed: {}", exc)
+            raise AppServerError(
+                "Failed to save config", code="INTERNAL",
+            ) from exc
+
+        old_mgr = getattr(self._bridge_state, "_sandbox_manager", None)
+
+        if enabled:
+            # ── Enable ────────────────────────────────────────────────
+            if old_mgr is not None and old_mgr != "disabled":
+                return {"result": {"enabled": True, "already": True}}
+
+            from miqi.sandbox.manager import SandboxManager
+
+            sb_cfg = getattr(config.tools, "sandbox", None)
+            new_mgr = SandboxManager(
+                workspace=config.workspace_path,
+                share_net=getattr(sb_cfg, "share_net", False),
+                enabled=True,
+                max_sandboxes=getattr(sb_cfg, "max_sandboxes", 10),
+                auto_cleanup=getattr(sb_cfg, "auto_cleanup", True),
+                auto_install_deps=getattr(sb_cfg, "auto_install_deps", True),
+                wsl_distro=getattr(sb_cfg, "wsl_distro", ""),
+                wsl_base_dir=getattr(sb_cfg, "wsl_base_dir", "/tmp/miqi-sandboxes"),
+            )
+            self._bridge_state._sandbox_manager = new_mgr
+            # Initialize in background (may trigger apt-get)
+            asyncio.create_task(self._init_sandbox_manager())
+            logger.info(
+                "sandbox.setEnabled: enabled (init in background) "
+                "(client={})", client_id,
+            )
+            return {"result": {"enabled": True, "initializing": True}}
+
+        else:
+            # ── Disable ───────────────────────────────────────────────
+            destroyed = 0
+            if old_mgr is not None and old_mgr != "disabled":
+                # Mark disabled BEFORE destroying, so existing sessions
+                # that still hold a reference to this manager will see
+                # get_or_create() return None instead of recreating
+                # sandboxes.
+                old_mgr.enabled = False
+                try:
+                    destroyed = await old_mgr.destroy_all()
+                except Exception as exc:
+                    logger.warning(
+                        "sandbox.setEnabled: destroy_all error: {}", exc,
+                    )
+            self._bridge_state._sandbox_manager = "disabled"
+            logger.info(
+                "sandbox.setEnabled: disabled, destroyed {} sandbox(es) "
+                "(client={})", destroyed, client_id,
+            )
+            return {"result": {"enabled": False, "destroyed": destroyed}}
 
     async def _shutdown(self) -> None:
         """Graceful shutdown sequence.

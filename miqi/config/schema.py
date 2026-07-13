@@ -410,6 +410,7 @@ class SandboxConfig(Base):
     share_net: bool = True  # Allow network access inside sandbox
     max_sandboxes: int = 10  # Maximum concurrent sandboxes
     auto_cleanup: bool = True  # Clean up sandbox on session archive/delete
+    auto_install_deps: bool = True  # Auto-install bwrap/coreutils/rsync in WSL if missing
     wsl_distro: str = "AIShadowSandbox"  # WSL distribution name (e.g. "AIShadowSandbox"). Auto-detected if empty on Windows.
 
     wsl_base_dir: str = "/tmp/miqi-sandboxes"  # Sandbox directory inside WSL filesystem
@@ -437,8 +438,9 @@ class ExecToolConfig(Base):
 class PapersToolConfig(Base):
     """Paper research tools configuration."""
 
-    provider: str = "hybrid"  # hybrid | semantic_scholar | arxiv
+    provider: str = "hybrid"  # hybrid | semantic_scholar | arxiv | core
     semantic_scholar_api_key: str = ""
+    core_api_key: str = ""
     timeout_seconds: int = 20
     default_limit: int = 8
     max_limit: int = 20

@@ -9,6 +9,7 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/python-tests.yml"
+      - "apps/desktop/tests/e2e/**"
   pull_request:
     paths:
       - "miqi/**"
@@ -16,6 +17,7 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/python-tests.yml"
+      - "apps/desktop/tests/e2e/**"
 
 permissions:
   contents: read
@@ -37,7 +39,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
       - name: Run portable and subprocess tests
-        run: uv run pytest -q -m "not sandbox" --tb=short
+        run: uv run pytest -q -m "not sandbox and not wsl" --tb=short
 
   bwrap:
     runs-on: ubuntu-latest
@@ -74,3 +76,131 @@ jobs:
             exit 0
           fi
           exit "$status"
+
+  wsl-sandbox:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install WSL Ubuntu distro
+        shell: pwsh
+        run: |
+          Write-Host "Installing WSL Ubuntu..."
+          wsl --install -d Ubuntu --no-launch
+          Write-Host "Initializing WSL user..."
+          wsl -d Ubuntu -- bash -c "id -u miqi 2>/dev/null || useradd -m miqi"
+          wsl -d Ubuntu -- bash -c "mkdir -p /tmp/miqi-sandboxes && chmod 777 /tmp/miqi-sandboxes"
+          Write-Host "WSL distro list:"
+          wsl -l -v
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run WSL sandbox tests (auto-install)
+        run: uv run pytest -q -m "wsl" --tb=long -v
+
+      - name: Run WSL sandbox tests (bwrap integration)
+        run: uv run pytest -q -m "sandbox and bwrap" --tb=long -v
+
+  wsl-e2e:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install WSL Ubuntu distro
+        shell: pwsh
+        run: |
+          Write-Host "Installing WSL Ubuntu..."
+          wsl --install -d Ubuntu --no-launch
+          Write-Host "Initializing WSL user..."
+          wsl -d Ubuntu -- bash -c "id -u miqi 2>/dev/null || useradd -m miqi"
+          wsl -d Ubuntu -- bash -c "mkdir -p /tmp/miqi-sandboxes && chmod 777 /tmp/miqi-sandboxes"
+          Write-Host "WSL distro list:"
+          wsl -l -v
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install deps
+        run: |
+          npm ci
+          pip install uv
+          cd ../.. && uv sync
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Build renderer
+        run: npm run build
+
+      - name: Generate config.json
+        shell: bash
+        run: |
+          mkdir -p ~/.miqi
+          cat > ~/.miqi/config.json << 'CONFEOF'
+          {
+            "providers": {
+              "siliconflow": {
+                "apiKey": "${{ secrets.DEEPSEEK_API_KEY }}",
+                "apiBase": "${{ secrets.DEEPSEEK_API_BASE }}",
+                "extraHeaders": null
+              }
+            },
+            "agents": {
+              "defaults": {
+                "model": "deepseek-v4-pro",
+                "maxTokens": 8000,
+                "temperature": 0.1,
+                "maxToolIterations": 10,
+                "runtime": "app_server"
+              },
+              "commandApproval": { "enabled": false }
+            },
+            "tools": {
+              "web": {
+                "search": { "provider": "brave", "apiKey": "${{ secrets.BRAVE_API_KEY }}", "maxResults": 3 },
+                "fetch": { "provider": "builtin" }
+              },
+              "exec": { "timeout": 30, "envPassthrough": [] }
+            }
+          }
+          CONFEOF
+
+      - name: Run sandbox E2E tests (WSL)
+        run: |
+          npx playwright test --config=playwright.config.ts --project=electron sandbox-exec.spec.ts session-key-mapping.spec.ts sandbox-toggle.spec.ts --workers=1
+        env:
+          MIQI_RUN_SANDBOX_E2E: '1'
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_API_BASE: ${{ secrets.DEEPSEEK_API_BASE }}
+          BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+        timeout-minutes: 20
+
+      - name: Upload Playwright report (WSL E2E)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-wsl-e2e
+          path: apps/desktop/test-results/
+          retention-days: 7

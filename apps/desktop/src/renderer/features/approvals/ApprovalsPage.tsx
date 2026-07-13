@@ -138,10 +138,10 @@ export function ApprovalsPage() {
   // Category filter for pending tab
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const CATEGORIES = [
-    { key: 'all', label: 'All' },
-    { key: 'exec', label: 'Shell' },
-    { key: 'file_write', label: 'Files' },
-    { key: 'network', label: 'Network' },
+    { key: 'all', label: '全部' },
+    { key: 'exec', label: '命令' },
+    { key: 'file_write', label: '文件' },
+    { key: 'network', label: '网络' },
   ];
 
   // Global bypass settings
@@ -316,7 +316,7 @@ export function ApprovalsPage() {
     {
       key: 'bypassCommandApproval',
       label: '命令审批',
-      description: '危险 shell 命令不再弹窗确认',
+      description: '危险命令不再弹窗确认',
     },
     {
       key: 'bypassFileWriteApproval',
@@ -326,7 +326,7 @@ export function ApprovalsPage() {
     {
       key: 'bypassToolConfirmation',
       label: '工具确认',
-      description: '需要 confirmation 的工具调用直接放行',
+      description: '需要确认的工具调用直接放行',
     },
     {
       key: 'bypassNetworkApproval',
@@ -361,7 +361,7 @@ export function ApprovalsPage() {
         <div>
           <h1 className="text-base font-semibold text-[var(--text)]">命令审批</h1>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
-            Agent 执行危险 shell 命令前需要授权。
+            智能体执行危险命令前需要授权。
           </p>
         </div>
         <button
@@ -380,7 +380,7 @@ export function ApprovalsPage() {
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 -mb-px ${
+              className={`settings-hover-tab flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 -mb-px ${
                 tab === t.key
                   ? 'border-[var(--accent)] text-[var(--accent)]'
                   : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text)]'
@@ -424,7 +424,7 @@ export function ApprovalsPage() {
                 )}
               </div>
               <p className="text-xs text-[var(--text-muted)] mt-1">
-                开启后，Agent 执行对应操作时会跳过审批弹窗。
+                开启后，智能体执行对应操作时会跳过审批弹窗。
               </p>
             </div>
             <button
@@ -504,7 +504,7 @@ export function ApprovalsPage() {
         ) : (
           <>
             {/* Status bar (always shown) */}
-            <div className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl px-5 py-3 flex items-center gap-4 text-sm mb-5">
+            <div className="settings-hover-card bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl px-5 py-3 flex items-center gap-4 text-sm mb-5">
               <div className="flex items-center gap-2">
                 <Shield
                   size={14}
@@ -518,14 +518,14 @@ export function ApprovalsPage() {
                 </span>
               </div>
               <div className="text-[var(--text-faint)]">·</div>
-              <span className="text-[var(--text-muted)]">超时：{data.timeout}秒</span>
+              <span className="text-[var(--text-muted)]">超时：{data.timeout ?? 60}秒</span>
               <div className="text-[var(--text-faint)]">·</div>
               <span className="text-[var(--text-muted)]">{data.pending?.length ?? 0} 个待审批</span>
             </div>
 
             {/* ── TAB: Whitelist ──────────────────────────────────────── */}
             {tab === 'whitelist' && (
-              <div className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
+              <div className="settings-hover-card bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-2 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)]">
                   <span className="text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">
                     永久白名单（{data.permanent_entries?.length ?? 0}）
@@ -542,7 +542,7 @@ export function ApprovalsPage() {
                     )}
                     <button
                       onClick={() => setShowAdd(true)}
-                      className="flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+                      className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)] hover:underline"
                     >
                       <Plus size={12} /> 新增
                     </button>
@@ -653,7 +653,7 @@ export function ApprovalsPage() {
 
             {/* ── TAB: History ────────────────────────────────────────── */}
             {tab === 'history' && (
-              <div className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
+              <div className="settings-hover-card bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
                 <div className="px-5 py-2 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)]">
                   <span className="text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">
                     审批历史（{history.length}）
@@ -736,7 +736,7 @@ export function ApprovalsPage() {
                 return (
                   <div
                     data-tick={tick}
-                    className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden"
+                    className="settings-hover-card bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden"
                   >
                     <div className="px-5 py-2 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)] flex items-center justify-between">
                       <span className="text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">
@@ -768,9 +768,9 @@ export function ApprovalsPage() {
                           const isExpanded = expandedPending.has(p.approval_id);
                           const remaining = Math.max(
                             0,
-                            Math.ceil(data.timeout - (Date.now() / 1000 - p.created_at))
+                            Math.ceil((data.timeout ?? 60) - (Date.now() / 1000 - p.created_at))
                           );
-                          const pct = (remaining / data.timeout) * 100;
+                          const pct = (remaining / (data.timeout || 60)) * 100;
                           const isLow = remaining <= 5;
                           return (
                             <div key={p.approval_id}>
@@ -843,7 +843,7 @@ export function ApprovalsPage() {
                                       {remaining > 0 ? `${remaining}秒` : '已超时'}
                                     </span>
                                     <span className="text-[var(--text-faint)]">
-                                      / {data.timeout}秒
+                                      / {data.timeout ?? 60}秒
                                     </span>
                                   </div>
                                 </div>

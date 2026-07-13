@@ -23,15 +23,6 @@ jobs:
             const hasImage = /!\[.*?\]\(.*?\)/.test(withoutComments) ||
                              /https?:\/\/github\.com\/user-attachments\/assets\/[^\s)]+/.test(body);
 
-            // 判断是否勾选了 Feature（新功能）
-            const isFeature = /\[x\].*✨.*新功能/.test(withoutComments);
-
-            // 判断 PR 是否涉及界面/UI 修改（标题或正文中出现关键词）
-            const title = context.payload.pull_request.title || '';
-            const uiKeywords = /界面|UI|样式|CSS|布局|前端|页面|组件|弹窗|对话框|按钮|图标|菜单|导航|侧边栏|主题|配色|字体|动画|渲染|窗口|桌面|viewport|frontend|styling|component|dialog|modal|button|icon|sidebar|navbar|theme|layout|animation/;
-            const isUIChange = uiKeywords.test(title) || uiKeywords.test(withoutComments);
-            const needsScreenshot = isFeature || isUIChange;
-
             const checks = [
               {
                 label: '类型',
@@ -78,26 +69,19 @@ jobs:
               },
               {
                 label: '截图',
-                // Feature 或界面相关 PR 必须包含截图
                 check: () => {
-                  if (needsScreenshot) {
-                    return hasImage;
-                  }
-                  return true; // 非界面/非 Feature PR 不强制截图
+                  const m = withoutComments.match(/## 截图\s*\n+(.+?)(?=\n##|\n*$)/s);
+                  return m && m[1].trim().length > 0;
                 },
-              }
+              },
             ];
 
             const failures = checks.filter(c => !c.check()).map(c => c.label);
 
             if (failures.length > 0) {
-              const isScreenshotFail = failures.includes('截图');
-              const extraMsg = isScreenshotFail
-                ? '\n\n⚠️ Feature 或界面相关 PR 必须附带截图（Markdown 图片或拖拽上传均可）。'
-                : '';
               core.setFailed(
                 `PR 模板以下必填节为空，请补充：\n${failures.map(f => `  - ${f}`).join('\n')}` +
-                `\n\n不允许空白节，必须有日志/证据。${extraMsg}`
+                '\n\n不允许空白节，必须有日志/证据。'
               );
             } else {
               console.log('✅ PR 模板填写完整');
