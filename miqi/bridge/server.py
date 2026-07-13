@@ -201,7 +201,11 @@ class BridgeState:
         self._sandbox_manager = SandboxManager(
             workspace=config.workspace_path,
             share_net=getattr(sb_cfg, "share_net", False),
-            enabled=getattr(sb_cfg, "enabled", True),
+            # Start with enabled=False so tools run locally during
+            # background install.  _init_sandbox_manager() in loop.py
+            # auto-enables after initialize() succeeds and persists
+            # the change to config without requiring a restart.
+            enabled=False,
             max_sandboxes=getattr(sb_cfg, "max_sandboxes", 10),
             auto_cleanup=getattr(sb_cfg, "auto_cleanup", True),
             auto_install_deps=getattr(sb_cfg, "auto_install_deps", True),

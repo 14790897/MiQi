@@ -57,6 +57,18 @@ class BwrapSandboxError(Exception):
 _auto_install_cache: dict[str, bool] = {}
 """Cache auto-install results per distro to avoid repeated apt-get calls."""
 
+import threading
+_install_lock = threading.Lock()
+"""Serialize _ensure_wsl_deps to prevent concurrent apt-get.
+
+When sandbox init is deferred to background (after the bridge ready
+signal), a file_tool request may also trigger _ensure_wsl_deps via the
+lazy check in SandboxManager.get_or_create().  Without a lock two
+apt-get processes race on the dpkg lock and one fails.  This lock
+makes the second caller wait for the first install, then re-check with
+a quick ``which bwrap`` that succeeds immediately.
+"""
+
 
 class BwrapCommandHandle:
     """Handle to a running command inside the bwrap sandbox.
@@ -497,6 +509,146 @@ class BwrapSandbox:
             return None
         except (asyncio.TimeoutError, OSError, ValueError):
             return None
+    @staticmethod
+    async def _ensure_sandbox_distro(target_name: str = "AIShadowSandbox") -> bool:
+        """Create a dedicated sandbox WSL distro if it does not exist.
+
+        Exports the first available non-docker WSL distro to a temporary
+        tar file, then imports it as a new distro with the given name.
+        This gives the sandbox a root-user distro that can install
+        packages without sudo password prompts.
+
+        Returns True if the distro already exists or was created.
+        """
+        # Check if already exists
+        try:
+            check = await asyncio.create_subprocess_exec(
+                "wsl.exe", "-d", target_name, "--", "bash", "-c",
+                "echo ok",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(check.communicate(), timeout=10.0)
+            if check.returncode == 0:
+                logger.info(
+                    "Sandbox distro '{}' already exists", target_name,
+                )
+                return True
+        except (asyncio.TimeoutError, OSError):
+            pass
+
+        # Find a source distro to export
+        source = await BwrapSandbox._find_any_wsl_distro(preferred="")
+        if source is None:
+            logger.warning("No WSL distro available to create sandbox from")
+            return False
+
+        logger.info(
+            "Creating sandbox distro '{}' from '{}' (this may take "
+            "2-5 minutes)...", target_name, source,
+        )
+
+        tar_path = None
+        try:
+            fd, tar_path = tempfile.mkstemp(
+                suffix=".tar", prefix="miqi-sandbox-",
+            )
+            os.close(fd)
+
+            # Export source distro
+            export_proc = await asyncio.create_subprocess_exec(
+                "wsl.exe", "--export", source, tar_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, export_stderr = await asyncio.wait_for(
+                export_proc.communicate(), timeout=300.0,
+            )
+            if export_proc.returncode != 0:
+                err = (
+                    export_stderr.decode("utf-8", errors="replace")[:200]
+                    if export_stderr else "unknown error"
+                )
+                logger.warning(
+                    "Failed to export distro '{}': {}", source, err,
+                )
+                return False
+
+            # Import as WSL2 sandbox distro in LOCALAPPDATA
+            install_dir = str(
+                Path(
+                    os.environ.get("LOCALAPPDATA", "")
+                    or os.environ.get("APPDATA", "")
+                    or Path.home() / "AppData" / "Local"
+                )
+                / "MiQi Sandbox"
+            )
+
+            import_proc = await asyncio.create_subprocess_exec(
+                "wsl.exe", "--import", target_name,
+                install_dir, tar_path,
+                "--version", "2",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, import_stderr = await asyncio.wait_for(
+                import_proc.communicate(), timeout=120.0,
+            )
+            if import_proc.returncode != 0:
+                err = (
+                    import_stderr.decode("utf-8", errors="replace")[:200]
+                    if import_stderr else "unknown error"
+                )
+                logger.warning(
+                    "Failed to import sandbox distro '{}': {}",
+                    target_name, err,
+                )
+                return False
+
+            # Set default user to root so apt-get never needs a password
+            try:
+                set_root = await asyncio.create_subprocess_exec(
+                    "wsl.exe", "-d", target_name, "-u", "root", "--",
+                    "bash", "-c",
+                    "echo -e '[user]\\ndefault=root' > /etc/wsl.conf",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await asyncio.wait_for(
+                    set_root.communicate(), timeout=10.0,
+                )
+                # Terminate so wsl.conf takes effect on next launch
+                term = await asyncio.create_subprocess_exec(
+                    "wsl.exe", "--terminate", target_name,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await asyncio.wait_for(
+                    term.communicate(), timeout=10.0,
+                )
+            except (asyncio.TimeoutError, OSError):
+                pass  # best-effort, not fatal
+
+            logger.info(
+                "Sandbox distro '{}' created (installed at {})",
+                target_name, install_dir,
+            )
+            return True
+
+        except (asyncio.TimeoutError, OSError) as exc:
+            logger.warning(
+                "Failed to create sandbox distro '{}': {}",
+                target_name, exc,
+            )
+            return False
+        finally:
+            if tar_path and os.path.exists(tar_path):
+                try:
+                    os.remove(tar_path)
+                except OSError:
+                    pass
+
+    @staticmethod
     async def _ensure_wsl_deps(distro: str) -> bool:
         """Install required packages in a WSL distro and verify bwrap.
 
@@ -518,51 +670,123 @@ class BwrapSandbox:
         except (asyncio.TimeoutError, OSError):
             pass
 
-        logger.info(
-            "Auto-installing sandbox dependencies in WSL distro '{}'...", distro
-        )
-
-        # Determine whether sudo is needed
-        try:
-            check_sudo = await asyncio.create_subprocess_exec(
-                "wsl.exe", "-d", distro, "--", "bash", "-c", "command -v sudo",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+        # Serialize installation: if another thread is already running
+        # apt-get (e.g. sandbox manager background init), poll-wait for
+        # bwrap to become available instead of launching a second apt-get.
+        # This avoids concurrent apt-get processes racing on dpkg lock.
+        if not _install_lock.acquire(blocking=False):
+            logger.info(
+                "Concurrent apt-get detected in WSL distro '{}' — waiting...",
+                distro,
             )
-            await asyncio.wait_for(check_sudo.communicate(), timeout=30.0)
-            has_sudo = (check_sudo.returncode == 0)
-        except (asyncio.TimeoutError, OSError):
-            has_sudo = False
-
-        # Build install command
-        install_cmd = (
-            "export DEBIAN_FRONTEND=noninteractive; "
-            "apt-get update -qq 2>/dev/null; "
-            "apt-get install -y -qq bubblewrap coreutils rsync"
-        )
-        if has_sudo:
-            install_cmd = f"sudo bash -c '{install_cmd}'"
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "wsl.exe", "-d", distro, "--", "bash", "-c", install_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180.0)
-
-            if proc.returncode != 0:
-                err_msg = stderr.decode("utf-8", errors="replace")[:300] if stderr else "unknown error"
-                logger.warning(
-                    "Failed to install dependencies in WSL distro '{}': {}",
-                    distro, err_msg,
-                )
-                return False
-        except (asyncio.TimeoutError, OSError) as exc:
+            for i in range(180):
+                await asyncio.sleep(1)
+                try:
+                    recheck = await asyncio.create_subprocess_exec(
+                        "wsl.exe", "-d", distro, "--", "bash", "-c",
+                        "which bwrap",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    await asyncio.wait_for(recheck.communicate(), timeout=5.0)
+                    if recheck.returncode == 0:
+                        logger.info(
+                            "bwrap installed by concurrent thread in WSL "
+                            "distro '{}' after ~{}s", distro, i + 1,
+                        )
+                        return True
+                except (asyncio.TimeoutError, OSError):
+                    pass
             logger.warning(
-                "Failed to run apt install in WSL distro '{}': {}", distro, exc,
+                "Timed out waiting for concurrent apt-get in WSL distro '{}'",
+                distro,
             )
             return False
+
+        try:
+            logger.info(
+                "Auto-installing sandbox dependencies in WSL distro '{}'...",
+                distro,
+            )
+
+            # Determine whether passwordless sudo is available.
+            # Default WSL distros have a non-root user + sudo with
+            # password — running "sudo apt-get ..." non-interactively
+            # would hang waiting for the password prompt until the
+            # 180 s timeout.  Check with sudo -n (non-interactive)
+            # first and fall back to plain apt-get when sudo needs
+            # a password.
+            use_sudo = False
+            try:
+                check_nopass = await asyncio.create_subprocess_exec(
+                    "wsl.exe", "-d", distro, "--", "bash", "-c",
+                    "sudo -n true 2>/dev/null",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await asyncio.wait_for(
+                    check_nopass.communicate(), timeout=10.0,
+                )
+                use_sudo = (check_nopass.returncode == 0)
+            except (asyncio.TimeoutError, OSError):
+                pass
+
+            if use_sudo:
+                logger.info("Using passwordless sudo for install in '{}'", distro)
+            else:
+                logger.info(
+                    "sudo needs password in '{}' — trying without sudo",
+                    distro,
+                )
+
+            # Build install command
+            install_cmd = (
+                "export DEBIAN_FRONTEND=noninteractive; "
+                "apt-get update -qq 2>/dev/null; "
+                "apt-get install -y -qq bubblewrap coreutils rsync"
+            )
+            if use_sudo:
+                install_cmd = f"sudo bash -c '{install_cmd}'"
+
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "wsl.exe", "-d", distro, "--", "bash", "-c",
+                    install_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(), timeout=180.0,
+                )
+
+                if proc.returncode != 0:
+                    err_msg = (
+                        stderr.decode("utf-8", errors="replace")[:300]
+                        if stderr else "unknown error"
+                    )
+                    if not use_sudo and (
+                        "permission denied" in err_msg.lower()
+                        or "are you root" in err_msg.lower()
+                    ):
+                        err_msg += (
+                            " (sudo is required but needs a password. "
+                            "Configure passwordless sudo in the WSL distro "
+                            "or run: wsl -d {0} -- sudo apt-get install "
+                            "bubblewrap coreutils rsync)".format(distro)
+                        )
+                    logger.warning(
+                        "Failed to install dependencies in WSL distro "
+                        "'{}': {}", distro, err_msg,
+                    )
+                    return False
+            except (asyncio.TimeoutError, OSError) as exc:
+                logger.warning(
+                    "Failed to run apt install in WSL distro '{}': {}",
+                    distro, exc,
+                )
+                return False
+        finally:
+            _install_lock.release()
 
         # Verify bwrap is now available
         try:
@@ -1249,22 +1473,34 @@ class BwrapSandbox:
         """Check if bwrap is available (natively or via WSL).
 
         When ``auto_install_deps`` is True and running on Windows, if no
-        WSL distro has bwrap installed, this method will attempt to install
-        the required packages (bubblewrap, coreutils, rsync) automatically.
+        WSL distro has bwrap installed, this method will:
+        1. Auto-create a dedicated sandbox distro (AIShadowSandbox)
+           by exporting the first available distro
+        2. Install bubblewrap, coreutils, rsync into it
         """
         if _is_windows():
             distro = await BwrapSandbox._detect_wsl_distro(wsl_distro)
             if distro is not None:
                 return True
-            # No distro with bwrap — try auto-install
+            # No distro with bwrap — try auto-setup
             if auto_install_deps:
-                install_distro = await BwrapSandbox._find_any_wsl_distro(wsl_distro)
+                # Ensure a dedicated sandbox distro exists
+                target = wsl_distro or "AIShadowSandbox"
+                if await BwrapSandbox._ensure_sandbox_distro(target):
+                    install_distro = target
+                else:
+                    install_distro = await BwrapSandbox._find_any_wsl_distro(
+                        wsl_distro,
+                    )
+
                 if install_distro:
                     cached = _auto_install_cache.get(install_distro)
                     if cached is False:
                         return False  # already tried and failed
                     if await BwrapSandbox._ensure_wsl_deps(install_distro):
-                        distro = await BwrapSandbox._detect_wsl_distro(install_distro)
+                        distro = await BwrapSandbox._detect_wsl_distro(
+                            install_distro,
+                        )
                         result = distro is not None
                     else:
                         result = False

@@ -1045,6 +1045,13 @@ for m in ("pydantic", "httpx", "loguru"):
   );
 
   // -----------------------------------------------------------------------
+  // Sandbox runtime toggle
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.SANDBOX_SET_ENABLED, async (_event, enabled: boolean) => {
+    return bridge.send('sandbox.setEnabled', { enabled });
+  });
+
+  // -----------------------------------------------------------------------
   // Dialog (file open for workspace)
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.DIALOG_OPEN_FILE, async () => {
