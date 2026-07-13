@@ -1342,6 +1342,9 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "ruff" },
 ]
+opensandbox = [
+    { name = "opensandbox" },
+]
 otel = [
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-sdk" },
@@ -1376,6 +1379,7 @@ requires-dist = [
     { name = "numpy", marker = "extra == 'trace'", specifier = ">=1.24.0" },
     { name = "openai", specifier = ">=1.0.0,<2.0.0" },
     { name = "openpyxl", specifier = ">=3.1.5" },
+    { name = "opensandbox", marker = "extra == 'opensandbox'", specifier = ">=0.1.0" },
     { name = "opentelemetry-exporter-otlp", marker = "extra == 'otel'", specifier = ">=1.27.0" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.27.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.50,<4.0.0" },
@@ -1396,7 +1400,7 @@ requires-dist = [
     { name = "websocket-client", specifier = ">=1.9.0,<2.0.0" },
     { name = "websockets", specifier = ">=16.0,<17.0" },
 ]
-provides-extras = ["dev", "trace", "otel"]
+provides-extras = ["dev", "trace", "otel", "opensandbox"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1717,6 +1721,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/3d/f9/88d94a75de065ea32619465d2f77b29a0469500e99012523b91cc4141cd1/openpyxl-3.1.5.tar.gz", hash = "sha256:cf0e3cf56142039133628b5acffe8ef0c12bc902d2aadd3e0fe5878dc08d1050", size = 186464, upload-time = "2024-06-28T14:03:44.161Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c0/da/977ded879c29cbd04de313843e76868e6e13408a94ed6b987245dc7c8506/openpyxl-3.1.5-py2.py3-none-any.whl", hash = "sha256:5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2", size = 250910, upload-time = "2024-06-28T14:03:41.161Z" },
+]
+
+[[package]]
+name = "opensandbox"
+version = "0.1.14"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "python-dateutil" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5f/c7/cfc42df5405752818416f0791fc820b2280159164de4c25bf27d99897f05/opensandbox-0.1.14.tar.gz", hash = "sha256:c030038b168b59526010d66feb1ce3dd7e7b78e23bf263b47cf6cf44f7129fb4", size = 214016, upload-time = "2026-07-13T07:04:30.144Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/15/68/ffe6646bc081421c81d715e2a024ff197ca0512ed57143b9551c070fa917/opensandbox-0.1.14-py3-none-any.whl", hash = "sha256:2362bfbdca15e0c3c226d29fdb7eea6d1ad3e908f5c924683840e7e3b011e4b1", size = 517406, upload-time = "2026-07-13T07:04:28.907Z" },
 ]
 
 [[package]]

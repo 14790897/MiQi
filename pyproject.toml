@@ -60,6 +60,9 @@ otel = [
     "opentelemetry-sdk>=1.27.0",
     "opentelemetry-exporter-otlp>=1.27.0",
 ]
+opensandbox = [
+    "opensandbox>=0.1.0",
+]
 
 [project.scripts]
 miqi = "miqi.cli.commands:app"
