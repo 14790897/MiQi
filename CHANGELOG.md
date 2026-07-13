@@ -1,3 +1,38 @@
+# [0.6.0](https://github.com/14790897/MiQi/compare/v0.5.0...v0.6.0) (2026-07-13)
+
+
+### Bug Fixes
+
+* **bridge:** defer sandbox init to after ready signal to avoid first-install timeout ([#252](https://github.com/14790897/MiQi/issues/252)) ([1ffff20](https://github.com/14790897/MiQi/commit/1ffff20d959a076c1249111bfde31427ac487e49))
+* **ci:** remove char limit on frequency field in issue validator ([#213](https://github.com/14790897/MiQi/issues/213)) ([7ef3832](https://github.com/14790897/MiQi/commit/7ef3832f5fb96c05e9c4bf410591843353428583))
+* **ci:** remove unreliable UI keyword screenshot check from PR validator ([#217](https://github.com/14790897/MiQi/issues/217)) ([dba1dd0](https://github.com/14790897/MiQi/commit/dba1dd0ea8f1c12607b74ba9f0f0197e6028444a))
+* **ci:** restore parallel E2E workers on CI ([#216](https://github.com/14790897/MiQi/issues/216)) ([fac1425](https://github.com/14790897/MiQi/commit/fac1425ae85a9775e9683710e5154937d3832fd9))
+* **ci:** skip issue template validation for enhancement-labeled issues ([#227](https://github.com/14790897/MiQi/issues/227)) ([25d1c5f](https://github.com/14790897/MiQi/commit/25d1c5fdfd79e67707ca69a9fa895f411a2f68cd))
+* **desktop:** address issue 230 ui defects ([#237](https://github.com/14790897/MiQi/issues/237)) ([965e6e6](https://github.com/14790897/MiQi/commit/965e6e6b8617894357e638f841033b4051a3b532))
+* **desktop:** align dark mode surfaces ([#258](https://github.com/14790897/MiQi/issues/258)) ([43ae605](https://github.com/14790897/MiQi/commit/43ae60506aac94db5ff0cf32f7091112def129d5))
+* **desktop:** prevent config.get polling storm that caused false bridge death ([#235](https://github.com/14790897/MiQi/issues/235)) ([f2e3ca5](https://github.com/14790897/MiQi/commit/f2e3ca5f56bce9b4667177d5b5e24b3a7d004afe))
+* **desktop:** prevent streaming messages leaking across sessions ([#212](https://github.com/14790897/MiQi/issues/212)) ([#214](https://github.com/14790897/MiQi/issues/214)) ([797a772](https://github.com/14790897/MiQi/commit/797a77230f21a89f776762a8dcab7048d6fd254b))
+* **runtime:** degrade get_turn on corrupted JSON columns ([#124](https://github.com/14790897/MiQi/issues/124)) ([7c8921c](https://github.com/14790897/MiQi/commit/7c8921c399add3f67ec4a8e07b411410f1b0a1a5))
+* **sandbox:** per-session workspace isolation and race condition fixes ([#221](https://github.com/14790897/MiQi/issues/221)) ([#223](https://github.com/14790897/MiQi/issues/223)) ([4b65b4f](https://github.com/14790897/MiQi/commit/4b65b4f019bd4682dad37478d448f0eaf6e6b2ce))
+* **wsl-e2e:** initialize WSL user + verify sandbox dirs after creation ([#222](https://github.com/14790897/MiQi/issues/222)) ([d03aa61](https://github.com/14790897/MiQi/commit/d03aa61b92c9738e99fe3aa3279e4fd256577dd6))
+
+
+### Features
+
+* **desktop:** add MiQi Logo splash screen on startup ([#220](https://github.com/14790897/MiQi/issues/220)) ([5ea782b](https://github.com/14790897/MiQi/commit/5ea782b2cf212ea528b59ab87e7dcd9c6ce6e204))
+* **desktop:** add sandbox enable/disable toggle in settings UI ([#254](https://github.com/14790897/MiQi/issues/254)) ([fd14bb4](https://github.com/14790897/MiQi/commit/fd14bb469b46a2892ecac0fdee8a09c3493a9148))
+* **desktop:** add settings hover animations ([#255](https://github.com/14790897/MiQi/issues/255)) ([6545af1](https://github.com/14790897/MiQi/commit/6545af122d5eb000178a1c289be25a13fd31bd10))
+* **desktop:** replace app icon with Micro Era (微观纪元) brand logo ([#257](https://github.com/14790897/MiQi/issues/257)) ([5545e40](https://github.com/14790897/MiQi/commit/5545e40afdf44c08b35603db3189b531c3b1a053)), closes [#250](https://github.com/14790897/MiQi/issues/250)
+* **papers:** add CORE API PDF source, download progress, and paper search result cards ([#211](https://github.com/14790897/MiQi/issues/211)) ([88a308d](https://github.com/14790897/MiQi/commit/88a308dad339f00dd8040f53bbe7c73999702600)), closes [#141](https://github.com/14790897/MiQi/issues/141)
+* **providers:** add built-in model unlock flow ([#208](https://github.com/14790897/MiQi/issues/208)) ([c6b2b5b](https://github.com/14790897/MiQi/commit/c6b2b5b028aaf5c293cdff923529a67dc63fb807)), closes [#191](https://github.com/14790897/MiQi/issues/191) [#191](https://github.com/14790897/MiQi/issues/191)
+* **sandbox:** auto-install WSL dependencies on first use ([#210](https://github.com/14790897/MiQi/issues/210)) ([5fc1c4f](https://github.com/14790897/MiQi/commit/5fc1c4fa15bd550226544ad3feb04f1af2b23ccd))
+* **skills:** add mof-synthesis-price-agent skill ([a010fde](https://github.com/14790897/MiQi/commit/a010fde0d6896ca28f2c9ac4ac3a8e23ef166272))
+
+
+### Reverts
+
+* Revert "feat(providers): add built-in model unlock flow ([#208](https://github.com/14790897/MiQi/issues/208))" ([#225](https://github.com/14790897/MiQi/issues/225)) ([a006b8b](https://github.com/14790897/MiQi/commit/a006b8bbed8fca9127510a4819cae428bbb86d64))
+
 # [0.5.0](https://github.com/14790897/MiQi/compare/v0.4.0...v0.5.0) (2026-07-10)
 
 
