@@ -6,7 +6,7 @@ import { ContextMenu } from './ContextMenu';
 import { useSessionStatus, type SessionStatus } from '../hooks/useSessionStatus';
 import type { SessionInfo } from '../../shared/ipc';
 
-type FilterTab = 'ALL' | 'IN-PROGRESS' | 'REVIEW' | 'CC';
+type FilterTab = 'ALL' | 'IN-PROGRESS' | 'REVIEW' | 'COMPLETED';
 
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 480;
@@ -106,14 +106,14 @@ export function Sidebar({
     return () => { unsub(); };
   }, [loadSessions]);
 
-  const FILTER_TABS: FilterTab[] = ['ALL', 'IN-PROGRESS', 'REVIEW', 'CC'];
+  const FILTER_TABS: FilterTab[] = ['ALL', 'IN-PROGRESS', 'REVIEW', 'COMPLETED'];
 
   const filteredSessions = sessions.filter((s) => {
     if (filter === 'ALL') return true;
     const status = getStatus(s.key);
     if (filter === 'IN-PROGRESS') return status === 'IN-PROGRESS';
     if (filter === 'REVIEW') return status === 'REVIEW';
-    if (filter === 'CC') return status === 'CC';
+    if (filter === 'COMPLETED') return status === 'COMPLETED';
     return true;
   });
 
@@ -148,8 +148,8 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* Filter tabs: ALL / IN PROGRESS / REVIEW / CC */}
-      <div className="flex gap-1 px-4 pb-3 shrink-0">
+      {/* Filter tabs */}
+      <div className="flex flex-nowrap gap-0.5 px-3 pb-3 shrink-0 overflow-x-auto">
         {FILTER_TABS.map((tab) => {
           const isActive = filter === tab;
           return (
@@ -157,7 +157,7 @@ export function Sidebar({
               key={tab}
               onClick={() => setFilter(tab)}
               className={cn(
-                'px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors',
+                'shrink-0 whitespace-nowrap px-1.5 py-1 rounded-md text-[10px] font-medium transition-colors',
                 isActive
                   ? 'text-[var(--text)]'
                   : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]',
@@ -246,7 +246,7 @@ export function Sidebar({
                       {/* Top row: pill status label left · time right */}
                       <div className="flex items-center justify-between mb-2">
                         <span
-                          className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full"
+                          className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap shrink-0"
                           style={{ background: status.bg, color: status.color }}
                         >
                           {status.label}
@@ -297,7 +297,7 @@ export function Sidebar({
           className="text-[10px] font-mono"
           style={{ color: 'var(--text-faint)' }}
         >
-          PRO v0.4.29
+          PRO v{__APP_VERSION__}
         </span>
       </div>
     </div>

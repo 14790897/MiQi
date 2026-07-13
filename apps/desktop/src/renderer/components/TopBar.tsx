@@ -24,12 +24,7 @@ function isBypassEnabled(status: ApprovalBypassStatus | null): boolean {
 
 function getBypassLabel(status: ApprovalBypassStatus | null): string {
   if (status?.bypassAll) return 'BYPASS ALL';
-  const labels: string[] = [];
-  if (status?.bypassCommandApproval) labels.push('CMD');
-  if (status?.bypassFileWriteApproval) labels.push('FILE');
-  if (status?.bypassToolConfirmation) labels.push('TOOL');
-  if (status?.bypassNetworkApproval) labels.push('NET');
-  return labels.length > 0 ? `BYPASS: ${labels.join('/')}` : 'BYPASS';
+  return 'BYPASS';
 }
 
 function getBypassTitle(status: ApprovalBypassStatus | null): string {
@@ -96,7 +91,7 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
           MiQi
         </span>
         <span className="text-xs font-light opacity-50" style={{ color: 'var(--topbar-text)' }}>
-          Workbench
+          Desktop
         </span>
       </div>
 
@@ -116,9 +111,10 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
               border: '1px solid var(--approval-warning-border)',
             }}
             title={getBypassTitle(approvalBypass)}
+            aria-label={getBypassTitle(approvalBypass)}
           >
             <AlertTriangle size={11} className="shrink-0" />
-            <span>{getBypassLabel(approvalBypass)}</span>
+            <span className="whitespace-nowrap">{getBypassLabel(approvalBypass)}</span>
           </button>
         )}
         {/* Sync state */}

@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '../../components/ui/Button';
 import { Textarea } from '../../components/ui/Textarea';
+import { Tooltip } from '../../components/ui/Tooltip';
 import { ContextMenu, type ContextMenuAction } from '../../components/ContextMenu';
 import { cn } from '../../lib/utils';
 import {
@@ -855,14 +856,17 @@ export function ChatConsole({
       lastEventAt = Date.now();
       // Handle stream deltas from exec (Phase 7 inline tool progress)
       if (data.stream && data.delta && data.tool_call_id) {
+        const stream = data.stream;
+        const delta = data.delta;
+        const toolCallId = data.tool_call_id;
         setExecOutputs((prev) => {
-          const current = prev[data.tool_call_id] || { stdout: '', stderr: '', running: true };
+          const current = prev[toolCallId] || { stdout: '', stderr: '', running: true };
+          const streamKey = stream === 'stdout' ? 'stdout' : 'stderr';
           return {
             ...prev,
-            [data.tool_call_id]: {
+            [toolCallId]: {
               ...current,
-              [data.stream === 'stdout' ? 'stdout' : 'stderr']:
-                current[data.stream === 'stdout' ? 'stdout' : 'stderr'] + data.delta,
+              [streamKey]: current[streamKey] + delta,
             },
           };
         });
@@ -1289,7 +1293,7 @@ export function ChatConsole({
       >
         {/* Left: Logo */}
         <span className="text-sm font-bold whitespace-nowrap shrink-0" style={{ color: 'var(--text)' }}>
-          MiQi Workbench
+          MiQi Desktop
         </span>
 
         {/* Center: Search */}
@@ -1327,12 +1331,16 @@ export function ChatConsole({
             items={[{ label: 'Delete conversation', danger: true, onSelect: handleDeleteSession }]}
           >
             {({ onContextMenu }) => (
-              <button
-                className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
-                onClick={onContextMenu}
-              >
-                <MoreHorizontal size={14} style={{ color: 'var(--text-faint)' }} />
-              </button>
+              <Tooltip content="More conversation actions">
+                <button
+                  className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
+                  onClick={onContextMenu}
+                  aria-label="More conversation actions"
+                  title="More conversation actions"
+                >
+                  <MoreHorizontal size={14} style={{ color: 'var(--text-faint)' }} />
+                </button>
+              </Tooltip>
             )}
           </ContextMenu>
 
@@ -1358,13 +1366,19 @@ export function ChatConsole({
               {sessionTitle}
             </h2>
             <span className="tag-inprogress shrink-0">IN PROGRESS</span>
-            <span className="text-[11px] shrink-0" style={{ color: 'var(--text-faint)' }}>
+            <span className="text-[13px] shrink-0" style={{ color: '#4B5563' }}>
               Updated 2 mins ago · 2 linked files · 2 Active Plugins
             </span>
             <button
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ml-auto opacity-50"
-              style={{ background: 'var(--accent)', color: '#121212', cursor: 'not-allowed' }}
+              style={{
+                background: 'var(--surface-muted)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-muted)',
+                cursor: 'not-allowed',
+              }}
               title="Coming soon"
+              aria-label="Share task, coming soon"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
@@ -1373,13 +1387,16 @@ export function ChatConsole({
               </svg>
               Share Task
             </button>
-            <button
-              onClick={() => setPanelOpen((v) => !v)}
-              className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors shrink-0 ml-1"
-              title="Toggle assets panel"
-            >
-              <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
-            </button>
+            <Tooltip content="Toggle assets panel">
+              <button
+                onClick={() => setPanelOpen((v) => !v)}
+                className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors shrink-0 ml-1"
+                title="Toggle assets panel"
+                aria-label="Toggle assets panel"
+              >
+                <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
+              </button>
+            </Tooltip>
           </div>
           {/* Messages */}
           <div
@@ -1406,7 +1423,7 @@ export function ChatConsole({
                   </div>
                   <div className="flex flex-col items-center gap-1">
                     <p className="text-[15px] font-medium" style={{ color: 'var(--text-muted)' }}>
-                      Ask Agent to analyze or edit files...
+                      Start with a file, issue, or edit request
                     </p>
                     <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
                       Start a conversation to begin
@@ -1493,6 +1510,7 @@ export function ChatConsole({
                   onClick={handleAttachClick}
                   className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
                   title="Attach file or image"
+                  aria-label="Attach file or image"
                 >
                   <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
                 </button>
@@ -1746,6 +1764,12 @@ export function ChatConsole({
               <button
                 onClick={handleMergeAll}
                 disabled={merging || trackedFiles.length === 0}
+                aria-describedby={trackedFiles.length === 0 ? 'merge-all-disabled-reason' : undefined}
+                title={
+                  trackedFiles.length === 0
+                    ? 'No changed files are available to merge'
+                    : 'Merge all tracked changes'
+                }
                 className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
                 style={{
                   background:
@@ -1759,6 +1783,15 @@ export function ChatConsole({
                 {merging ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
                 {merging ? 'MERGING...' : 'MERGE ALL CHANGES'}
               </button>
+              {trackedFiles.length === 0 && (
+                <p
+                  id="merge-all-disabled-reason"
+                  className="mt-1.5 text-[11px] text-center"
+                  style={{ color: '#4B5563' }}
+                >
+                  No changed files are available to merge.
+                </p>
+              )}
             </div>
           </div>
         )}
