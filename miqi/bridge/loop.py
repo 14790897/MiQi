@@ -1175,6 +1175,11 @@ class BridgeRuntimeLoop:
             # ── Disable ───────────────────────────────────────────────
             destroyed = 0
             if old_mgr is not None and old_mgr != "disabled":
+                # Mark disabled BEFORE destroying, so existing sessions
+                # that still hold a reference to this manager will see
+                # get_or_create() return None instead of recreating
+                # sandboxes.
+                old_mgr.enabled = False
                 try:
                     destroyed = await old_mgr.destroy_all()
                 except Exception as exc:
