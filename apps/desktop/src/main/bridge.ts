@@ -186,10 +186,10 @@ export class BridgeManager extends EventEmitter {
     super();
     // In dev: __dirname = apps/desktop/out/main → projectRoot is 4 levels up
     this.projectRoot = projectRoot || join(__dirname, '..', '..', '..', '..');
-    // Enable hot reload in development mode
-    this.hotReloadEnabled =
-      process.env['NODE_ENV'] === 'development' ||
-      process.env['ELECTRON_RENDERER_URL'] !== undefined;
+    // Hot reload is opt-in because restarting the Python bridge drops runtime
+    // state and cancels pending requests. Enable only when actively editing
+    // backend code.
+    this.hotReloadEnabled = process.env['MIQI_BRIDGE_HOT_RELOAD'] === '1';
   }
 
   /** Whether the bridge has completed the initialize/initialized handshake. */
