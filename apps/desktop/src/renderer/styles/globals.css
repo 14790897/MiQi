@@ -242,6 +242,51 @@ code {
   text-transform: uppercase;
 }
 
+.settings-hover-tab {
+  transition:
+    color 160ms ease-out,
+    border-color 160ms ease-out,
+    background-color 160ms ease-out,
+    transform 160ms ease-out;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.settings-hover-tab:hover {
+  transform: translateZ(0) scale(1.08);
+}
+
+.settings-hover-card {
+  transition:
+    background-color 180ms ease-out,
+    border-color 180ms ease-out,
+    box-shadow 180ms ease-out,
+    transform 180ms ease-out;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.settings-hover-card:hover {
+  background-color: color-mix(in srgb, var(--surface) 94%, var(--accent-soft));
+  border-color: var(--accent);
+  transform: translate3d(0, -6px, 0);
+  box-shadow:
+    0 18px 42px rgba(42, 42, 72, 0.2),
+    0 6px 14px rgba(42, 42, 72, 0.12),
+    0 0 0 1px rgba(255, 193, 7, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-hover-tab,
+  .settings-hover-tab:hover,
+  .settings-hover-card,
+  .settings-hover-card:hover {
+    transition: none;
+    transform: none;
+    will-change: auto;
+  }
+}
+
 @keyframes approval-bypass-island-in {
   from {
     opacity: 0;
