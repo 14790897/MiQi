@@ -388,8 +388,10 @@ function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[
   }, [] as Message[]);
 }
 
-/** File-operation tool names — mirrors the lists in onFinal handler. */
-const _FILE_WRITE_TOOLS_EXTRACT = [
+/** File-operation tool names shared between progress-hint parsing and
+ *  onFinal tool_call tracking. Keep in sync with the backends that
+ *  produce file paths. */
+const _FILE_WRITE_TOOLS = [
   'write_file',
   'edit_file',
   'delete_file',
@@ -403,7 +405,18 @@ const _FILE_WRITE_TOOLS_EXTRACT = [
   'edit_docx',
   'append_xlsx',
 ];
-const _FILE_READ_TOOLS_EXTRACT = ['read_file'];
+const _FILE_READ_TOOLS = ['read_file'];
+
+/** Extract a file path from a JSON-stringified tool args object.
+ *  Checks common keys: path, file_path, filename. */
+function _extractPathFromArgs(argsStr: string): string | null {
+  try {
+    const args = JSON.parse(argsStr);
+    return (args.path as string) || (args.file_path as string) || (args.filename as string) || null;
+  } catch {
+    return null;
+  }
+}
 
 /** Parse tracked files from raw session messages.
  *  Handles three formats:
@@ -429,17 +442,6 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
     }
   };
 
-  const extractPathFromArgs = (argsStr: string): string | null => {
-    try {
-      const args = JSON.parse(argsStr);
-      return (
-        (args.path as string) || (args.file_path as string) || (args.filename as string) || null
-      );
-    } catch {
-      return null;
-    }
-  };
-
   for (const msg of rawMsgs) {
     // Format 1: _tool_hint metadata (persisted progress events)
     const hintText = msg._tool_hint_text || msg.content;
@@ -457,11 +459,11 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
         const toolName: string = fn?.name || '';
         if (!toolName) continue;
         const argsStr: string = fn?.arguments || '{}';
-        const filePath = extractPathFromArgs(argsStr);
+        const filePath = _extractPathFromArgs(argsStr);
         if (!filePath) continue;
-        if (_FILE_WRITE_TOOLS_EXTRACT.includes(toolName)) {
+        if (_FILE_WRITE_TOOLS.includes(toolName)) {
           upsert(filePath, toolName === 'delete_file' ? 'delete' : 'write', msg.timestamp);
-        } else if (_FILE_READ_TOOLS_EXTRACT.includes(toolName)) {
+        } else if (_FILE_READ_TOOLS.includes(toolName)) {
           upsert(filePath, 'read', msg.timestamp);
         }
       }
@@ -474,7 +476,7 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
       const contentPath = parseToolHint(String(msg.content || ''));
       if (contentPath) {
         upsert(contentPath.path, contentPath.op, msg.timestamp);
-      } else if (_FILE_WRITE_TOOLS_EXTRACT.includes(toolName)) {
+      } else if (_FILE_WRITE_TOOLS.includes(toolName)) {
         // Tool result without parsable content — try to infer from tool name
         // (best-effort; actual path is in the paired assistant tool_calls message)
       }
@@ -1071,33 +1073,11 @@ export function ChatConsole({
         // Office tools (create_docx, etc.) don't always produce progress
         // hints that match parseToolHint patterns, so we extract file
         // paths directly from the final tool call list.
-        const _FILE_WRITE_TOOLS = [
-          'write_file',
-          'edit_file',
-          'delete_file',
-          'apply_patch',
-          'create_docx',
-          'create_xlsx',
-          'create_pptx',
-          'docx_write',
-          'xlsx_write',
-          'pptx_write',
-          'edit_docx',
-          'append_xlsx',
-        ];
-        const _FILE_READ_TOOLS = ['read_file'];
         for (const tc of (data.tool_calls ?? []) as any[]) {
           const fn = tc?.function || tc?.tool?.function || {};
           const toolName: string = fn?.name || '';
           if (!toolName) continue;
-          let args: Record<string, unknown> = {};
-          try {
-            args = JSON.parse(fn?.arguments || '{}');
-          } catch {
-            continue;
-          }
-          const filePath: string =
-            (args.path as string) || (args.file_path as string) || (args.filename as string) || '';
+          const filePath: string = _extractPathFromArgs(fn?.arguments || '{}') || '';
           if (!filePath) continue;
           if (_FILE_WRITE_TOOLS.includes(toolName)) {
             trackFile(filePath, 'write', false);
