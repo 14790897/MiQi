@@ -287,7 +287,7 @@ export function Sidebar({
         style={{ borderColor: 'var(--sidebar-border)' }}
       >
         <span
-          className="text-[11px] cursor-pointer hover:text-[var(--text)] transition-colors"
+          className="text-[11px] cursor-pointer hover:text-[var(--text)] settings-hover-sidebar"
           style={{ color: 'var(--text-faint)' }}
           onClick={() => onNavChange?.('settings')}
         >

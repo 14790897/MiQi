@@ -280,11 +280,25 @@ code {
   .settings-hover-tab,
   .settings-hover-tab:hover,
   .settings-hover-card,
-  .settings-hover-card:hover {
+  .settings-hover-card:hover,
+  .settings-hover-sidebar,
+  .settings-hover-sidebar:hover {
     transition: none;
     transform: none;
     will-change: auto;
   }
+}
+
+.settings-hover-sidebar {
+  transition:
+    color 160ms ease-out,
+    transform 160ms ease-out;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.settings-hover-sidebar:hover {
+  transform: translateZ(0) scale(1.1);
 }
 
 @keyframes approval-bypass-island-in {
