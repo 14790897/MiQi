@@ -51,7 +51,18 @@ export async function sendMessage(page: Page, text: string) {
 /** Wait for streaming to finish (no "Thinking…" indicator) */
 export async function waitForResponseComplete(page: Page, timeout = 120_000) {
   // Phase 1: model stops generating → "Thinking…" hidden.
-  await expect(page.getByText('Thinking…')).toBeHidden({ timeout });
+  try {
+    await expect(page.getByText('Thinking…')).toBeHidden({ timeout });
+  } catch (err) {
+    // Dump page state before re-throwing — so CI logs show what the AI
+    // was doing when it got stuck (tool calls, errors, etc.)
+    const mainText = await page.locator('main').textContent();
+    const inProgress = await page.locator('.tag-inprogress').count();
+    console.log('[diagnostic] waitForResponseComplete TIMEOUT — Thinking… still visible after 120s');
+    console.log('[diagnostic] IN PROGRESS tags visible:', inProgress);
+    console.log('[diagnostic] main textContent (last 1500 chars):', (mainText || '').slice(-1500));
+    throw err;
+  }
 
   // Phase 2: if the AI used tools, "IN PROGRESS" stays visible while
   // the tool runs.  Wait for it to hide (tool result rendered).
