@@ -150,9 +150,13 @@ class BridgeRuntimeLoop:
 
         Runs after the "ready" handshake so that first-run WSL dependency
         auto-install (apt-get install bubblewrap coreutils rsync) does not
-        block the bridge startup timeout.  SandboxManager.get_or_create()
-        handles the not-yet-initialized state gracefully by checking
-        availability on demand.
+        block the bridge startup timeout.
+
+        On new installs where deps are auto-installed, sandbox is initially
+        disabled (enabled=False) so tools run on the host.  After the
+        background install completes, this method auto-enables sandbox and
+        persists the config so the setting takes effect immediately without
+        a restart.
         """
         if self._bridge_state is None:
             return
@@ -165,11 +169,42 @@ class BridgeRuntimeLoop:
             return
         try:
             await sandbox_mgr.initialize()
-            logger.info("Sandbox manager initialized")
+            log_msg = "Sandbox manager initialized"
         except TypeError:
             pass  # mock in tests — initialize() is not async
         except Exception as exc:
             logger.warning("Sandbox manager initialization failed: {}", exc)
+            return
+
+        # ── Auto-enable after successful first-time install ──────────
+        # If the manager was created with enabled=False (first-time
+        # scenario where deps needed installing), flip it to True now
+        # that everything is ready.  Persist to config so the toggle
+        # reflects the new state without a restart.
+        if not sandbox_mgr.enabled:
+            sandbox_mgr.enabled = True
+            try:
+                from miqi.config.loader import save_config
+                config = self._bridge_state.load_config()
+                config.tools.sandbox.enabled = True
+                save_config(config)
+                log_msg += " (auto-enabled after first-time install)"
+            except Exception as exc:
+                logger.warning(
+                    "sandbox auto-enable: config save failed: {}", exc,
+                )
+
+        logger.info(log_msg)
+
+        # Notify the frontend so the settings toggle updates.
+        if self._app_server is not None:
+            try:
+                await self._app_server.emit_event(
+                    "sandbox.ready",
+                    {"enabled": True, "initialized": True},
+                )
+            except Exception:
+                pass  # best-effort notification
 
     # ── AppServer initialization ───────────────────────────────────────────
 
