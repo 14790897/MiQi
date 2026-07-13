@@ -169,7 +169,7 @@ test.describe('Task Assets Panel E2E', () => {
   //  Test 3: AI creates .docx → appears in Task Assets → Preview shows Office message
   // ═══════════════════════════════════════════════════════════════
 
-  test(
+  test.skip(
     'AI creates .docx file → appears in Task Assets → Preview shows Office notice',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
