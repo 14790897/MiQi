@@ -116,12 +116,12 @@ interface TrackedFile {
 
 const OFFICE_FILE_RE = /\.(docx|xlsx|pptx)$/i;
 
-function relativeTimeLabel(timestamp?: number | string | null): string {
+function relativeTimeLabel(timestamp?: number | string | null, now = Date.now()): string {
   if (timestamp === undefined || timestamp === null) return '尚未更新';
   const value = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp);
   if (!Number.isFinite(value)) return '尚未更新';
 
-  const diff = Date.now() - value;
+  const diff = now - value;
   if (diff < 60_000) return '刚刚更新';
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前更新`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前更新`;
@@ -130,10 +130,11 @@ function relativeTimeLabel(timestamp?: number | string | null): string {
 
 export function buildTaskHeaderMeta(
   updatedAt: number | string | null | undefined,
-  fileCount: number
+  fileCount: number,
+  now = Date.now()
 ): string {
   const fileLabel = `${fileCount} 个文件`;
-  return `${relativeTimeLabel(updatedAt)} · ${fileLabel}`;
+  return `${relativeTimeLabel(updatedAt, now)} · ${fileLabel}`;
 }
 
 /** Extract file path + operation from a tool-hint progress text.
@@ -453,6 +454,7 @@ export function ChatConsole({
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionUpdatedAt, setSessionUpdatedAt] = useState<string | null>(null);
+  const [clockTick, setClockTick] = useState(() => Date.now());
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
@@ -462,6 +464,11 @@ export function ChatConsole({
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(280);
   const panelResizing = useRef(false);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockTick(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // Task Assets panel resize
   const handlePanelResizeStart = useCallback((e: React.MouseEvent) => {
@@ -1371,13 +1378,18 @@ export function ChatConsole({
     return raw.replace(/_/g, ' ') || 'New Task';
   }, [messages, sessionKey]);
 
-  const taskHeaderMeta = useMemo(() => {
+  const taskHeaderInfo = useMemo(() => {
     const latestMessageAt = messages.reduce<number | null>((latest, message) => {
       if (!Number.isFinite(message.timestamp)) return latest;
       return latest === null || message.timestamp > latest ? message.timestamp : latest;
     }, null);
-    return buildTaskHeaderMeta(latestMessageAt ?? sessionUpdatedAt, trackedFiles.length);
-  }, [messages, sessionUpdatedAt, trackedFiles.length]);
+    const updatedAt = latestMessageAt ?? sessionUpdatedAt;
+    return {
+      updatedLabel: relativeTimeLabel(updatedAt, clockTick),
+      fileLabel: `${trackedFiles.length} 个文件`,
+      meta: buildTaskHeaderMeta(updatedAt, trackedFiles.length, clockTick),
+    };
+  }, [clockTick, messages, sessionUpdatedAt, trackedFiles.length]);
 
   return (
     <div
@@ -1510,27 +1522,48 @@ export function ChatConsole({
         <div className="flex flex-col flex-1 overflow-hidden">
           {/* ── Sub header: task title + status (inside chat area) ── */}
           <div
-            className="flex items-center gap-2 px-5 h-9 border-b shrink-0"
+            className="flex items-center gap-3 px-5 min-h-12 border-b shrink-0"
             style={{
               background: 'var(--surface)',
               borderColor: 'var(--border-subtle)',
             }}
           >
-            <h2
-              className="text-[17px] font-semibold truncate leading-[1.35]"
-              style={{ color: 'var(--text)' }}
-            >
-              {sessionTitle}
-            </h2>
-            <span className="tag-inprogress shrink-0">{'\u8fdb\u884c\u4e2d'}</span>
-            <span
-              className="text-[12px] shrink-0 whitespace-nowrap"
-              style={{ color: 'var(--text-muted)' }}
-            >
-              {taskHeaderMeta}
-            </span>
+            <div className="min-w-0 flex-1 flex items-center gap-2.5">
+              <h2
+                className="text-[16px] font-semibold truncate leading-[1.35]"
+                style={{ color: 'var(--text)' }}
+              >
+                {sessionTitle}
+              </h2>
+              <span className="tag-inprogress shrink-0">{'\u8fdb\u884c\u4e2d'}</span>
+              <div
+                className="flex items-center gap-1.5 shrink-0"
+                aria-label={taskHeaderInfo.meta}
+              >
+                <span
+                  className="text-[11px] leading-none rounded-full px-2 py-1 whitespace-nowrap"
+                  style={{
+                    color: 'var(--text-muted)',
+                    background: 'var(--surface-muted)',
+                    border: '1px solid var(--border-subtle)',
+                  }}
+                >
+                  {taskHeaderInfo.updatedLabel}
+                </span>
+                <span
+                  className="text-[11px] leading-none rounded-full px-2 py-1 whitespace-nowrap"
+                  style={{
+                    color: 'var(--text-muted)',
+                    background: 'var(--surface-muted)',
+                    border: '1px solid var(--border-subtle)',
+                  }}
+                >
+                  {taskHeaderInfo.fileLabel}
+                </span>
+              </div>
+            </div>
             <button
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ml-auto opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap opacity-50 shrink-0"
               style={{
                 background: 'var(--surface-muted)',
                 border: '1px solid var(--border-subtle)',
@@ -1592,10 +1625,10 @@ export function ChatConsole({
                   </div>
                   <div className="flex flex-col items-center gap-1">
                     <p className="text-[15px] font-medium" style={{ color: 'var(--text-muted)' }}>
-                      Start with a file, issue, or edit request
+                      从文件、问题或修改请求开始
                     </p>
                     <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
-                      Start a conversation to begin
+                      发起一段对话即可开始
                     </p>
                   </div>
                 </div>

@@ -64,8 +64,8 @@ test.describe('Native Electron E2E', () => {
     ).toBeVisible({ timeout: 10_000 });
 
     // Core UI landmarks — use stable text selectors that exist in BOTH old and new UI
-    await expect(page.getByText('Tasks').first()).toBeVisible();
-    await expect(page.locator('button[title="New Session"]')).toBeVisible();
+    await expect(page.getByText('任务').first()).toBeVisible();
+    await expect(page.locator('button[title="新建会话"]')).toBeVisible();
   });
 
   test('right panel shows Task Assets', async () => {
