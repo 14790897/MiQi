@@ -295,15 +295,21 @@ class SandboxManager:
         Thread-safe: uses threading.Lock for dict access, releases it during
         the slow sandbox.start() call so other threads are not blocked.
         """
-        if not self.enabled or not self._initialized:
+        if not self.enabled:
             return None
 
-        # Check bwrap availability on first create
-        if not await BwrapSandbox.is_available(
-            wsl_distro=self.wsl_distro,
-            auto_install_deps=self.auto_install_deps,
-        ):
-            return None
+        # Allow lazy initialization: if initialize() hasn't completed yet
+        # (it runs in background after the bridge ready signal), check
+        # availability on demand.  The _ensure_wsl_deps auto-install has
+        # its own cache so repeated calls are cheap after the first.
+        if not self._initialized:
+            if not await BwrapSandbox.is_available(
+                wsl_distro=self.wsl_distro,
+                auto_install_deps=self.auto_install_deps,
+            ):
+                return None
+            # Do NOT set _initialized here — let the background
+            # initialize() task handle that along with stale cleanup.
 
         sandbox_key = self._sandbox_key(session_key, client_id=client_id)
 
