@@ -31,6 +31,7 @@ import {
   Undo2,
   ListChecks,
   Settings,
+  ExternalLink,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -1199,19 +1200,24 @@ export function ChatConsole({
 
   const handlePreview = useCallback(async (path: string) => {
     if (OFFICE_FILE_RE.test(path)) {
-      setPreviewFile({
-        path,
-        content:
-          'Office document created. Text preview is not available for .docx/.xlsx/.pptx files; open it from the workspace or Task Assets file entry.',
-      });
+      // Open directly with system default app (Word, Excel, PowerPoint) — no modal
+      window.miqi.files.openExternal(path).catch(() => {});
       return;
     }
     try {
       const result = await window.miqi.files.read(path);
-      setPreviewFile({
-        path,
-        content: result.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
-      });
+      if (result.is_binary) {
+        setPreviewFile({
+          path,
+          content:
+            'Binary file. Text preview is not available for this file type.\n\nUse the button below to open it with your system default application.',
+        });
+      } else {
+        setPreviewFile({
+          path,
+          content: result.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
+        });
+      }
     } catch {
       setPreviewFile({ path, content: `(Could not read file: ${path})` });
     }
@@ -1398,7 +1404,10 @@ export function ChatConsole({
         }}
       >
         {/* Left: Logo */}
-        <span className="text-sm font-bold whitespace-nowrap shrink-0" style={{ color: 'var(--text)' }}>
+        <span
+          className="text-sm font-bold whitespace-nowrap shrink-0"
+          style={{ color: 'var(--text)' }}
+        >
           MiQi Desktop
         </span>
 
@@ -1892,7 +1901,9 @@ export function ChatConsole({
               <button
                 onClick={handleMergeAll}
                 disabled={merging || trackedFiles.length === 0}
-                aria-describedby={trackedFiles.length === 0 ? 'merge-all-disabled-reason' : undefined}
+                aria-describedby={
+                  trackedFiles.length === 0 ? 'merge-all-disabled-reason' : undefined
+                }
                 title={
                   trackedFiles.length === 0
                     ? 'No changed files are available to merge'
@@ -1953,12 +1964,22 @@ export function ChatConsole({
                   {previewFile.path}
                 </span>
               </div>
-              <button
-                onClick={closePreview}
-                className="p-1 rounded hover:bg-[var(--surface-muted)] transition-colors shrink-0"
-              >
-                <X size={14} style={{ color: 'var(--text-faint)' }} />
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={() => window.miqi.files.openExternal(previewFile.path)}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors"
+                  title="Open with system default application"
+                >
+                  <ExternalLink size={12} />
+                  <span>系统应用打开</span>
+                </button>
+                <button
+                  onClick={closePreview}
+                  className="p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
+                >
+                  <X size={14} style={{ color: 'var(--text-faint)' }} />
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-auto p-4">
               <pre

@@ -16,6 +16,8 @@ import {
   Copy,
   Check,
   RefreshCw,
+  ExternalLink,
+  FolderSearch,
 } from 'lucide-react';
 import { ContextMenu } from '../../components/ContextMenu';
 import type { FileNode } from '../../../shared/ipc';
@@ -193,43 +195,46 @@ export function WorkspacePage() {
     [isUnsaved, currentPath]
   );
 
-  const loadFile = useCallback((path: string) => {
-    // Revoke previous blob URL to prevent memory leaks
-    if (binaryUrl) {
-      URL.revokeObjectURL(binaryUrl);
-      setBinaryUrl(null);
-    }
+  const loadFile = useCallback(
+    (path: string) => {
+      // Revoke previous blob URL to prevent memory leaks
+      if (binaryUrl) {
+        URL.revokeObjectURL(binaryUrl);
+        setBinaryUrl(null);
+      }
 
-    setFileLoading(true);
-    setError(null);
-    setCurrentPath(path);
-    window.miqi.files
-      .read(path)
-      .then((res) => {
-        if (res.is_binary && res.data_base64) {
-          // Binary file: decode base64 → blob URL for iframe rendering
-          const binary = atob(res.data_base64);
-          const bytes = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
+      setFileLoading(true);
+      setError(null);
+      setCurrentPath(path);
+      window.miqi.files
+        .read(path)
+        .then((res) => {
+          if (res.is_binary && res.data_base64) {
+            // Binary file: decode base64 → blob URL for iframe rendering
+            const binary = atob(res.data_base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+              bytes[i] = binary.charCodeAt(i);
+            }
+            const blob = new Blob([bytes], { type: res.mime_type || 'application/pdf' });
+            setBinaryUrl(URL.createObjectURL(blob));
+            setContent('');
+            setSavedContent('');
+          } else {
+            setContent(res.content || '');
+            setSavedContent(res.content || '');
           }
-          const blob = new Blob([bytes], { type: res.mime_type || 'application/pdf' });
-          setBinaryUrl(URL.createObjectURL(blob));
+          setFileLoading(false);
+        })
+        .catch((err) => {
+          setError(String(err?.message ?? err));
           setContent('');
           setSavedContent('');
-        } else {
-          setContent(res.content || '');
-          setSavedContent(res.content || '');
-        }
-        setFileLoading(false);
-      })
-      .catch((err) => {
-        setError(String(err?.message ?? err));
-        setContent('');
-        setSavedContent('');
-        setFileLoading(false);
-      });
-  }, [binaryUrl]);
+          setFileLoading(false);
+        });
+    },
+    [binaryUrl]
+  );
 
   const confirmSwitch = useCallback(
     (ok: boolean) => {
@@ -411,46 +416,66 @@ export function WorkspacePage() {
                   </span>
                 )}
               </div>
-              {!isPdfFile && (
               <div className="flex items-center gap-1">
-                {/* Copy all button */}
+                {/* Open with system app */}
                 <button
-                  onClick={handleCopyAll}
+                  onClick={() => window.miqi.files.openExternal(currentPath)}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors"
+                  title="用系统默认应用打开"
+                >
+                  <ExternalLink size={12} />
+                  <span>系统应用打开</span>
+                </button>
+                {/* Open containing folder */}
+                <button
+                  onClick={() => window.miqi.files.openContainingFolder(currentPath)}
                   className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                  title="打开所在文件夹"
                 >
-                  {copiedAll ? <Check size={12} /> : <Copy size={12} />}
-                  <span>{copiedAll ? '已复制' : '复制全部'}</span>
+                  <FolderSearch size={12} />
+                  <span>打开文件夹</span>
                 </button>
-                <button
-                  onClick={handleSave}
-                  disabled={!isUnsaved || saving}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                    isUnsaved
-                      ? 'bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)]'
-                      : 'bg-[var(--surface-muted)] text-[var(--text-muted)] cursor-not-allowed'
-                  }`}
-                >
-                  <Save size={12} />
-                  {saving ? '保存中…' : '保存'}
-                </button>
-                {isMdFile && (
-                  <div className="flex items-center gap-1 rounded-md border border-[var(--border-subtle)] overflow-hidden">
+                {!isPdfFile && (
+                  <>
+                    {/* Copy all button */}
                     <button
-                      onClick={() => setPreviewMode(false)}
-                      className={`px-2 py-0.5 text-xs ${!previewMode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'}`}
+                      onClick={handleCopyAll}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
                     >
-                      编辑
+                      {copiedAll ? <Check size={12} /> : <Copy size={12} />}
+                      <span>{copiedAll ? '已复制' : '复制全部'}</span>
                     </button>
                     <button
-                      onClick={() => setPreviewMode(true)}
-                      className={`px-2 py-0.5 text-xs ${previewMode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'}`}
+                      onClick={handleSave}
+                      disabled={!isUnsaved || saving}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        isUnsaved
+                          ? 'bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)]'
+                          : 'bg-[var(--surface-muted)] text-[var(--text-muted)] cursor-not-allowed'
+                      }`}
                     >
-                      预览
+                      <Save size={12} />
+                      {saving ? '保存中…' : '保存'}
                     </button>
-                  </div>
+                    {isMdFile && (
+                      <div className="flex items-center gap-1 rounded-md border border-[var(--border-subtle)] overflow-hidden">
+                        <button
+                          onClick={() => setPreviewMode(false)}
+                          className={`px-2 py-0.5 text-xs ${!previewMode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'}`}
+                        >
+                          编辑
+                        </button>
+                        <button
+                          onClick={() => setPreviewMode(true)}
+                          className={`px-2 py-0.5 text-xs ${previewMode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'}`}
+                        >
+                          预览
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
-              )}
             </div>
             {error && (
               <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-900/30 text-xs text-[var(--danger)]">
@@ -591,6 +616,11 @@ function FileTree({
             { label: '重命名', divider: true, onSelect: () => onRename(node.path, node.name) },
             { label: '复制路径', onSelect: () => navigator.clipboard.writeText(node.path) },
             {
+              label: '打开所在文件夹',
+              divider: true,
+              onSelect: () => window.miqi.files.openContainingFolder(node.path),
+            },
+            {
               label: '删除',
               danger: true,
               divider: true,
@@ -683,8 +713,13 @@ function FileTree({
     <ContextMenu
       items={[
         { label: '打开文件', onSelect: () => onSelect(node.path) },
+        { label: '在系统应用中打开', onSelect: () => window.miqi.files.openExternal(node.path) },
         { label: '重命名', divider: true, onSelect: () => onRename(node.path, node.name) },
         { label: '复制路径', onSelect: () => navigator.clipboard.writeText(node.path) },
+        {
+          label: '打开所在文件夹',
+          onSelect: () => window.miqi.files.openContainingFolder(node.path),
+        },
         { label: '删除', danger: true, divider: true, onSelect: () => onDelete(node.path, false) },
       ]}
     >
