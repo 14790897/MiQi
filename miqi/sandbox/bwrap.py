@@ -605,6 +605,21 @@ class BwrapSandbox:
                 )
                 return False
 
+            # Set default user to root so apt-get never needs a password
+            try:
+                set_root = await asyncio.create_subprocess_exec(
+                    "wsl.exe", "-d", target_name, "-u", "root", "--",
+                    "bash", "-c",
+                    "echo -e '[user]\\ndefault=root' > /etc/wsl.conf",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await asyncio.wait_for(
+                    set_root.communicate(), timeout=10.0,
+                )
+            except (asyncio.TimeoutError, OSError):
+                pass  # best-effort, not fatal
+
             logger.info(
                 "Sandbox distro '{}' created (installed at {})",
                 target_name, install_dir,
