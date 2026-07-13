@@ -132,6 +132,16 @@ jobs:
           Write-Host "WSL distro list:"
           wsl -l -v
 
+      - name: Clean sandbox state (force auto-export)
+        shell: pwsh
+        run: |
+          Write-Host "Removing bubblewrap from Ubuntu..."
+          wsl -d Ubuntu -u root -- bash -c "apt-get remove -y -qq bubblewrap 2>/dev/null; echo done"
+          Write-Host "Unregistering AIShadowSandbox if exists..."
+          wsl --unregister AIShadowSandbox 2>$null; echo "cleaned"
+          Write-Host "WSL after cleanup:"
+          wsl -l -v
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
