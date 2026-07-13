@@ -9,6 +9,8 @@ files:
 extraResources:
   - from: ../../dist/miqi-bridge.exe
     to: miqi-bridge.exe
+  - from: src/renderer/assets/icon.ico
+    to: icon.ico
 win:
   target:
     - target: portable
