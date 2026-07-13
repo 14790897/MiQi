@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sessionMsgsToUi } from '../src/renderer/features/chat/ChatConsole';
+import { buildTaskHeaderMeta, sessionMsgsToUi } from '../src/renderer/features/chat/ChatConsole';
 
 describe('sessionMsgsToUi', () => {
   it('shows only the final assistant text within a tool-heavy turn', () => {
@@ -50,5 +50,15 @@ describe('sessionMsgsToUi', () => {
     expect(
       messages.filter((message) => message.role === 'assistant').map((message) => message.content)
     ).toEqual(['first final', 'second final']);
+  });
+});
+
+describe('buildTaskHeaderMeta', () => {
+  it('uses real file count and omits fake plugin/link placeholders', () => {
+    const label = buildTaskHeaderMeta(Date.now(), 2);
+
+    expect(label).toContain('2 个文件');
+    expect(label).not.toContain('linked files');
+    expect(label).not.toContain('Active Plugins');
   });
 });

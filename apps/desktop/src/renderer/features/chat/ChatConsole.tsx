@@ -116,6 +116,26 @@ interface TrackedFile {
 
 const OFFICE_FILE_RE = /\.(docx|xlsx|pptx)$/i;
 
+function relativeTimeLabel(timestamp?: number | string | null): string {
+  if (timestamp === undefined || timestamp === null) return '尚未更新';
+  const value = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp);
+  if (!Number.isFinite(value)) return '尚未更新';
+
+  const diff = Date.now() - value;
+  if (diff < 60_000) return '刚刚更新';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前更新`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前更新`;
+  return `${Math.floor(diff / 86_400_000)} 天前更新`;
+}
+
+export function buildTaskHeaderMeta(
+  updatedAt: number | string | null | undefined,
+  fileCount: number
+): string {
+  const fileLabel = `${fileCount} 个文件`;
+  return `${relativeTimeLabel(updatedAt)} · ${fileLabel}`;
+}
+
 /** Extract file path + operation from a tool-hint progress text.
  *  Nanobot tool hints look like:
  *    "Read: /abs/path/to/file.ts"
@@ -432,6 +452,7 @@ export function ChatConsole({
   onOpenProviderSettings?: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [sessionUpdatedAt, setSessionUpdatedAt] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
@@ -600,6 +621,7 @@ export function ChatConsole({
     currentThreadIdRef.current = null; // Reset on session change
     setHistoryLoaded(false);
     setMessages([]);
+    setSessionUpdatedAt(null);
     setTrackedFiles([]);
     justOpened.current = true;
     userScrolledUp.current = false; // reset for new session
@@ -610,6 +632,7 @@ export function ChatConsole({
         const rawMsgs: any[] = (detail as any)?.messages ?? [];
         const uiMsgs = sessionMsgsToUi(rawMsgs);
         setMessages(uiMsgs);
+        setSessionUpdatedAt((detail as any)?.updated_at ?? null);
         // Restore tracked files from dedicated tracked_files.json
         const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
         if (currentSessionRef.current !== sessionKey) return;
@@ -1348,6 +1371,14 @@ export function ChatConsole({
     return raw.replace(/_/g, ' ') || 'New Task';
   }, [messages, sessionKey]);
 
+  const taskHeaderMeta = useMemo(() => {
+    const latestMessageAt = messages.reduce<number | null>((latest, message) => {
+      if (!Number.isFinite(message.timestamp)) return latest;
+      return latest === null || message.timestamp > latest ? message.timestamp : latest;
+    }, null);
+    return buildTaskHeaderMeta(latestMessageAt ?? sessionUpdatedAt, trackedFiles.length);
+  }, [messages, sessionUpdatedAt, trackedFiles.length]);
+
   return (
     <div
       className="flex flex-col h-full"
@@ -1479,21 +1510,24 @@ export function ChatConsole({
         <div className="flex flex-col flex-1 overflow-hidden">
           {/* ── Sub header: task title + status (inside chat area) ── */}
           <div
-            className="flex items-center gap-3 px-5 h-8 border-b shrink-0"
+            className="flex items-center gap-2 px-5 h-9 border-b shrink-0"
             style={{
               background: 'var(--surface)',
               borderColor: 'var(--border-subtle)',
             }}
           >
             <h2
-              className="text-[18px] font-semibold truncate leading-tight"
+              className="text-[17px] font-semibold truncate leading-[1.35]"
               style={{ color: 'var(--text)' }}
             >
               {sessionTitle}
             </h2>
-            <span className="tag-inprogress shrink-0">IN PROGRESS</span>
-            <span className="text-[13px] shrink-0" style={{ color: 'var(--text-muted)' }}>
-              Updated 2 mins ago · 2 linked files · 2 Active Plugins
+            <span className="tag-inprogress shrink-0">{'\u8fdb\u884c\u4e2d'}</span>
+            <span
+              className="text-[12px] shrink-0 whitespace-nowrap"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              {taskHeaderMeta}
             </span>
             <button
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ml-auto opacity-50"
@@ -1503,8 +1537,8 @@ export function ChatConsole({
                 color: 'var(--text-muted)',
                 cursor: 'not-allowed',
               }}
-              title="Coming soon"
-              aria-label="Share task, coming soon"
+              title="即将支持"
+              aria-label="分享任务，即将支持"
             >
               <svg
                 width="12"
@@ -1520,7 +1554,7 @@ export function ChatConsole({
                 <polyline points="16 6 12 2 8 6" />
                 <line x1="12" y1="2" x2="12" y2="15" />
               </svg>
-              Share Task
+              分享任务
             </button>
             <Tooltip content="Toggle assets panel">
               <button
