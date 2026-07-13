@@ -101,7 +101,10 @@ export const IPC = {
   WSL_IMPORT_DISTRO: 'wsl:import_distro',
   WSL_GET_STATS: 'wsl:getStats',
 
-  // Write initial config (no bridge needed â€” used by Setup Wizard)
+  // Sandbox runtime toggle
+  SANDBOX_SET_ENABLED: 'sandbox:setEnabled',
+
+  // Write initial config (no bridge needed â€? used by Setup Wizard)
   CONFIG_WRITE_INITIAL: 'config:write_initial',
 
   // Dialog
@@ -129,7 +132,7 @@ export const IPC = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// IPC event channels (main â†’ renderer)
+// IPC event channels (main â†? renderer)
 // ---------------------------------------------------------------------------
 
 export const IPC_EVENTS = {
@@ -928,4 +931,11 @@ export interface TurnInterruptResult {
 
 export interface ThreadStartedEvent {
   thread: Record<string, unknown>;
+}
+
+export interface SandboxSetEnabledResult {
+  enabled: boolean;
+  destroyed?: number;
+  already?: boolean;
+  initializing?: boolean;
 }

@@ -36,6 +36,7 @@ import {
   ThreadNameSetInput,
   TurnStartInput,
   TurnInterruptInput,
+  SandboxSetEnabledResult,
 } from '../../shared/ipc';
 import type { WslCheckResult, WslStatsResult } from '../../shared/ipc';
 
@@ -1043,6 +1044,38 @@ for m in ("pydantic", "httpx", "loguru"):
       }
     }
   );
+
+  // -----------------------------------------------------------------------
+  // Sandbox runtime toggle
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.SANDBOX_SET_ENABLED, async (_event, enabled: boolean) => {
+    const bp = bridgeProcessRef.current;
+    if (!bp || !bp.writable) {
+      return { error: 'Bridge not ready' };
+    }
+    try {
+      return await new Promise<SandboxSetEnabledResult>((resolve) => {
+        const rid = 'sandbox-setEnabled-' + Date.now();
+        const p = bridgeProcessRef;
+        if (!p.current || p.current.destroyed || !p.current.stdin?.writable) {
+          resolve({ enabled: false, destroyed: 0 });
+          return;
+        }
+        pendingBridgeRequests.current.set(rid, (payload: any) => {
+          resolve(payload?.result ?? payload);
+        });
+        p.current.stdin.write(
+          JSON.stringify({
+            request_id: rid,
+            method: 'sandbox.setEnabled',
+            params: { enabled },
+          }) + '\n',
+        );
+      });
+    } catch (e: any) {
+      return { error: e?.message ?? String(e) };
+    }
+  });
 
   // -----------------------------------------------------------------------
   // Dialog (file open for workspace)

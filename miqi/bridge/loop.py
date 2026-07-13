@@ -209,6 +209,11 @@ class BridgeRuntimeLoop:
         # Register bridge-owned handlers
         self._app_server.register_method("status", self._status_handler, spec=protocol_specs.STATUS)
 
+        # Register sandbox runtime toggle
+        self._app_server.register_method(
+            "sandbox.setEnabled", self._sandbox_set_enabled_handler,
+        )
+
         # Register Phase 27.3: chat.send through AppServer
         self._app_server.register_method("chat.send", self._chat_send_handler)
 
@@ -1098,6 +1103,90 @@ class BridgeRuntimeLoop:
         )
 
     # ── shutdown ───────────────────────────────────────────────────────────
+
+    # ── Sandbox runtime toggle ─────────────────────────────────────────────
+    async def _sandbox_set_enabled_handler(
+        self, request_id: str, params: dict, client_id: str,
+        session_id: str | None, registry: Any,
+    ) -> dict:
+        """AppServer handler for sandbox.setEnabled.
+
+        Enables or disables the bwrap sandbox at runtime without restarting.
+        When disabling, active sandboxes are destroyed.  When enabling, a new
+        SandboxManager is created and initialized.  The config is persisted
+        so the setting survives bridge restarts.
+        """
+        enabled = params.get("enabled", True)
+        if not isinstance(enabled, bool):
+            from miqi.runtime.app_server import AppServerError
+            raise AppServerError(
+                "sandbox.setEnabled: 'enabled' must be a boolean",
+                code="INVALID_PARAMS",
+            )
+
+        if self._bridge_state is None:
+            from miqi.runtime.app_server import AppServerError
+            raise AppServerError(
+                "Bridge state not available", code="INTERNAL",
+            )
+
+        # ── Persist to config ─────────────────────────────────────────
+        from miqi.config.loader import save_config
+        config = self._bridge_state.load_config()
+        config.tools.sandbox.enabled = enabled
+        try:
+            save_config(config)
+        except Exception as exc:
+            logger.error("sandbox.setEnabled: config save failed: {}", exc)
+            raise AppServerError(
+                "Failed to save config", code="INTERNAL",
+            ) from exc
+
+        old_mgr = getattr(self._bridge_state, "_sandbox_manager", None)
+
+        if enabled:
+            # ── Enable ────────────────────────────────────────────────
+            if old_mgr is not None and old_mgr != "disabled":
+                return {"result": {"enabled": True, "already": True}}
+
+            from miqi.sandbox.manager import SandboxManager
+
+            sb_cfg = getattr(config.tools, "sandbox", None)
+            new_mgr = SandboxManager(
+                workspace=config.workspace_path,
+                share_net=getattr(sb_cfg, "share_net", False),
+                enabled=True,
+                max_sandboxes=getattr(sb_cfg, "max_sandboxes", 10),
+                auto_cleanup=getattr(sb_cfg, "auto_cleanup", True),
+                auto_install_deps=getattr(sb_cfg, "auto_install_deps", True),
+                wsl_distro=getattr(sb_cfg, "wsl_distro", ""),
+                wsl_base_dir=getattr(sb_cfg, "wsl_base_dir", "/tmp/miqi-sandboxes"),
+            )
+            self._bridge_state._sandbox_manager = new_mgr
+            # Initialize in background (may trigger apt-get)
+            asyncio.create_task(self._init_sandbox_manager())
+            logger.info(
+                "sandbox.setEnabled: enabled (init in background) "
+                "(client={})", client_id,
+            )
+            return {"result": {"enabled": True, "initializing": True}}
+
+        else:
+            # ── Disable ───────────────────────────────────────────────
+            destroyed = 0
+            if old_mgr is not None and old_mgr != "disabled":
+                try:
+                    destroyed = await old_mgr.destroy_all()
+                except Exception as exc:
+                    logger.warning(
+                        "sandbox.setEnabled: destroy_all error: {}", exc,
+                    )
+            self._bridge_state._sandbox_manager = "disabled"
+            logger.info(
+                "sandbox.setEnabled: disabled, destroyed {} sandbox(es) "
+                "(client={})", destroyed, client_id,
+            )
+            return {"result": {"enabled": False, "destroyed": destroyed}}
 
     async def _shutdown(self) -> None:
         """Graceful shutdown sequence.

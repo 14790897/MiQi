@@ -15,6 +15,8 @@ import {
   RotateCcw as Unarchive,
   ExternalLink,
   Copy,
+  Shield,
+  ShieldOff,
 } from 'lucide-react';
 import { useRuntime } from '../../contexts/RuntimeContext';
 import * as Tabs from '@radix-ui/react-tabs';
@@ -60,6 +62,74 @@ function getNestedStr(obj: Record<string, unknown>, ...keys: string[]): string {
     cur = (cur as Record<string, unknown>)[k];
   }
   return cur == null ? '' : String(cur);
+}
+
+// ---- Sandbox Toggle ----
+function SandboxToggle() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [toggling, setToggling] = useState(false);
+
+  useEffect(() => {
+    window.miqi.config
+      .get()
+      .then((cfg: any) => {
+        setEnabled(cfg?.tools?.sandbox?.enabled ?? true);
+      })
+      .catch(() => setEnabled(false));
+  }, []);
+
+  const handleToggle = async () => {
+    if (enabled === null) return;
+    const next = !enabled;
+    setToggling(true);
+    try {
+      const result = await window.miqi.sandbox.setEnabled(next);
+      if (!('error' in result)) {
+        setEnabled(next);
+      }
+    } catch {
+      /* ignore */
+    }
+    setToggling(false);
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={handleToggle}
+        disabled={toggling || enabled === null}
+        className={cn(
+          'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+          'disabled:opacity-50',
+          enabled
+            ? 'bg-[var(--accent)]'
+            : 'bg-[var(--border)]',
+        )}
+      >
+        <span
+          className={cn(
+            'inline-block h-4 w-4 rounded-full bg-white transition-transform',
+            enabled ? 'translate-x-6' : 'translate-x-1',
+          )}
+        />
+      </button>
+      <div className="flex items-center gap-1.5">
+        {enabled ? (
+          <Shield size={14} className="text-[var(--accent)]" />
+        ) : (
+          <ShieldOff size={14} className="text-[var(--warning)]" />
+        )}
+        <span className={cn(
+          'text-xs font-medium',
+          enabled ? 'text-[var(--accent)]' : 'text-[var(--warning)]',
+        )}>
+          {toggling
+            ? (enabled ? '正在关闭…' : '正在开启…')
+            : (enabled ? '已开启（推荐）' : '已关闭')}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 // ---- General Config Tab ----
@@ -180,6 +250,16 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
         {saved ? <Check size={14} /> : <Save size={14} />}
         {saved ? '已保存' : '保存'}
       </Button>
+
+      {/* ---- Sandbox ---- */}
+      <div className="pt-4 border-t border-[var(--border-subtle)]">
+        <h3 className="text-sm font-semibold text-[var(--text)] mb-1">沙箱隔离</h3>
+        <p className="text-xs text-[var(--text-faint)] mb-3">
+          开启后 AI 的文件操作和命令执行在 WSL2 bwrap 沙箱中运行，保护主机安全。
+          关闭后直接操作主机文件系统（无隔离，性能更好但风险更高）。
+        </p>
+        <SandboxToggle />
+      </div>
 
       {/* ---- Danger Zone ---- */}
       <div className="mt-6 pt-4 border-t border-[var(--border-subtle)]">
