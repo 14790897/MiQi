@@ -329,7 +329,9 @@ class SandboxManager:
                     sandbox_key,
                 )
                 # Wait for the other thread to finish, then return the sandbox
-                for _ in range(30):  # 30 × 100ms = 3s max
+                # During first-time auto-install (export distro + apt-get), sandbox
+                # creation can take 2-5 minutes.  Use a generous timeout.
+                for _ in range(1800):  # 1800 × 100ms = 3 min max
                     with self._lock:
                         if sandbox_key in self._sandboxes:
                             sandbox = self._sandboxes[sandbox_key]
