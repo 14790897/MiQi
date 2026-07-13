@@ -43,7 +43,7 @@ export function useSessionStatus() {
     switch (status) {
       case 'IN-PROGRESS':
         return {
-          label: 'IN-PROGRESS',
+          label: '进行中',
           bg: 'var(--tag-inprogress-bg)',
           color: 'var(--tag-inprogress-text)',
           cardBg: 'color-mix(in srgb, var(--surface) 88%, var(--tag-inprogress-bg))',
@@ -51,7 +51,7 @@ export function useSessionStatus() {
         };
       case 'REVIEW':
         return {
-          label: 'REVIEW',
+          label: '审阅',
           bg: 'var(--tag-review-bg)',
           color: 'var(--tag-review-text)',
           cardBg: 'color-mix(in srgb, var(--surface) 88%, var(--tag-review-bg))',
@@ -59,7 +59,7 @@ export function useSessionStatus() {
         };
       case 'COMPLETED':
         return {
-          label: 'COMPLETED',
+          label: '已完成',
           bg: 'var(--tag-completed-bg)',
           color: 'var(--tag-completed-text)',
           cardBg: 'color-mix(in srgb, var(--surface) 88%, var(--tag-completed-bg))',
@@ -67,7 +67,7 @@ export function useSessionStatus() {
         };
       case 'CC':
         return {
-          label: 'CC',
+          label: '旧标签',
           bg: 'var(--tag-cc-bg)',
           color: 'var(--tag-cc-text)',
           cardBg: 'color-mix(in srgb, var(--surface) 88%, var(--tag-cc-bg))',
@@ -76,7 +76,7 @@ export function useSessionStatus() {
       case 'PENDING':
       default:
         return {
-          label: 'PENDING',
+          label: '待处理',
           bg: 'var(--surface-muted)',
           color: 'var(--text-faint)',
           cardBg: 'var(--surface)',
