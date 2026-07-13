@@ -196,11 +196,9 @@ test.describe.serial('Sandbox Toggle E2E', () => {
       const before = await getToggleLabel(page);
       console.log('[test] Toggle before disable:', before);
 
-      // If toggle looks enabled, disable it; otherwise already off
-      const looksEnabled =
-        before.includes('已开启') || before.includes('开启') ||
-        before.includes('Enabled') || before.includes('ON');
-      if (looksEnabled) {
+      // "已关闭" = explicitly disabled. Everything else ("已开启（推荐）",
+      // "正在安装依赖…") means sandbox is ON and we should toggle it off.
+      if (!before.includes('已关闭')) {
         await toggleSandbox(page);
         const sandboxResult = await page.evaluate(async () => {
           try {
