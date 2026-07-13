@@ -440,7 +440,7 @@ export function MCPsPage() {
             {servers.map((srv) => (
               <div
                 key={srv.name}
-                className="rounded-xl border p-4 transition-colors"
+                className="settings-hover-card rounded-xl border p-4 transition-colors"
                 style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}
               >
                 <div className="flex items-start justify-between gap-3">

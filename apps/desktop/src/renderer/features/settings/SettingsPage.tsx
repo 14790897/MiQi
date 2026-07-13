@@ -407,7 +407,7 @@ function WebToolsTab() {
     <button
       onClick={() => set(value)}
       className={cn(
-        'px-3 py-1.5 rounded-lg text-xs border transition-colors',
+        'settings-hover-tab px-3 py-1.5 rounded-lg text-xs border',
         current === value
           ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
           : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)] hover:border-[var(--accent)]'
@@ -560,7 +560,7 @@ function AppearanceTab() {
               key={m}
               onClick={() => applyTheme(m)}
               className={cn(
-                'px-4 py-2 rounded-lg text-xs border transition-colors',
+                'settings-hover-tab px-4 py-2 rounded-lg text-xs border',
                 theme === m
                   ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
                   : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--text)]'
@@ -699,7 +699,7 @@ function LogsTab() {
             key={tab.value}
             onClick={() => setLogTab(tab.value)}
             className={cn(
-              'px-3 py-1 rounded-lg text-xs border transition-colors',
+              'settings-hover-tab px-3 py-1 rounded-lg text-xs border',
               logTab === tab.value
                 ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
                 : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)] hover:border-[var(--accent)]'
@@ -870,7 +870,7 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
       {sessions.length === 0 ? (
         <div className="text-xs text-[var(--text-faint)] text-center py-12">暂无已归档的对话</div>
       ) : (
-        <div className="flex flex-col border border-[var(--border-subtle)] rounded-lg overflow-hidden">
+        <div className="settings-hover-card flex flex-col border border-[var(--border-subtle)] rounded-lg overflow-hidden">
           {sessions.map((s) => (
             <div
               key={s.key}
@@ -991,7 +991,7 @@ function DocsTab() {
         {DOCS_TREE.map((section) => (
           <div
             key={section.href}
-            className="border border-[var(--border-subtle)] rounded-lg overflow-hidden"
+            className="settings-hover-card border border-[var(--border-subtle)] rounded-lg overflow-hidden"
           >
             <a
               href={DOCS_BASE + section.href}
@@ -1078,7 +1078,7 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
               key={tab.value}
               value={tab.value}
               className={cn(
-                'px-4 py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap',
+                'settings-hover-tab px-4 py-2.5 text-xs font-medium border-b-2 -mb-px whitespace-nowrap',
                 'text-[var(--text-muted)] border-transparent',
                 'hover:text-[var(--text)]',
                 'data-[state=active]:text-[var(--accent)] data-[state=active]:border-[var(--accent)]'

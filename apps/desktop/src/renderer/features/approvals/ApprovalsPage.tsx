@@ -380,7 +380,7 @@ export function ApprovalsPage() {
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 -mb-px ${
+              className={`settings-hover-tab flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 -mb-px ${
                 tab === t.key
                   ? 'border-[var(--accent)] text-[var(--accent)]'
                   : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text)]'
@@ -504,7 +504,7 @@ export function ApprovalsPage() {
         ) : (
           <>
             {/* Status bar (always shown) */}
-            <div className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl px-5 py-3 flex items-center gap-4 text-sm mb-5">
+            <div className="settings-hover-card bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl px-5 py-3 flex items-center gap-4 text-sm mb-5">
               <div className="flex items-center gap-2">
                 <Shield
                   size={14}
@@ -525,7 +525,7 @@ export function ApprovalsPage() {
 
             {/* ── TAB: Whitelist ──────────────────────────────────────── */}
             {tab === 'whitelist' && (
-              <div className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
+              <div className="settings-hover-card bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-2 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)]">
                   <span className="text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">
                     永久白名单（{data.permanent_entries?.length ?? 0}）
@@ -653,7 +653,7 @@ export function ApprovalsPage() {
 
             {/* ── TAB: History ────────────────────────────────────────── */}
             {tab === 'history' && (
-              <div className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
+              <div className="settings-hover-card bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
                 <div className="px-5 py-2 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)]">
                   <span className="text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">
                     审批历史（{history.length}）
@@ -736,7 +736,7 @@ export function ApprovalsPage() {
                 return (
                   <div
                     data-tick={tick}
-                    className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden"
+                    className="settings-hover-card bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden"
                   >
                     <div className="px-5 py-2 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)] flex items-center justify-between">
                       <span className="text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">

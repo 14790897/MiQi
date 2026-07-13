@@ -457,7 +457,7 @@ export function SkillsPage() {
 
                 {/* Content */}
                 <div className="flex-1 overflow-auto p-6">
-                  <div className="text-sm text-[var(--text)] leading-relaxed bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg p-4 prose prose-sm max-w-none">
+                  <div className="settings-hover-card text-sm text-[var(--text)] leading-relaxed bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg p-4 prose prose-sm max-w-none">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{detail.content}</ReactMarkdown>
                   </div>
                 </div>
