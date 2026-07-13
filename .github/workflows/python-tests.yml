@@ -88,6 +88,9 @@ jobs:
         run: |
           Write-Host "Installing WSL Ubuntu..."
           wsl --install -d Ubuntu --no-launch
+          Write-Host "Initializing WSL user..."
+          wsl -d Ubuntu -- bash -c "id -u miqi 2>/dev/null || useradd -m miqi"
+          wsl -d Ubuntu -- bash -c "mkdir -p /tmp/miqi-sandboxes && chmod 777 /tmp/miqi-sandboxes"
           Write-Host "WSL distro list:"
           wsl -l -v
 
@@ -123,6 +126,9 @@ jobs:
         run: |
           Write-Host "Installing WSL Ubuntu..."
           wsl --install -d Ubuntu --no-launch
+          Write-Host "Initializing WSL user..."
+          wsl -d Ubuntu -- bash -c "id -u miqi 2>/dev/null || useradd -m miqi"
+          wsl -d Ubuntu -- bash -c "mkdir -p /tmp/miqi-sandboxes && chmod 777 /tmp/miqi-sandboxes"
           Write-Host "WSL distro list:"
           wsl -l -v
 
