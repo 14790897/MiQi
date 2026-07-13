@@ -324,25 +324,11 @@ class SandboxManager:
             # Prevent concurrent creation of the same sandbox (Issue #221)
             created_here = False
             if sandbox_key in self._creating:
-                logger.warning(
-                    "Sandbox {} is already being created by another thread",
+                logger.info(
+                    "Sandbox {} is already being created — using local fallback",
                     sandbox_key,
                 )
-                # Wait for the other thread to finish, then return the sandbox
-                # During first-time auto-install (export distro + apt-get), sandbox
-                # creation can take 2-5 minutes.  Use a generous timeout.
-                for _ in range(1800):  # 1800 × 100ms = 3 min max
-                    with self._lock:
-                        if sandbox_key in self._sandboxes:
-                            sandbox = self._sandboxes[sandbox_key]
-                            if sandbox.is_running:
-                                return sandbox
-                    time.sleep(0.1)
-                # Timed out — log and fall through
-                logger.error(
-                    "Timed out waiting for sandbox {} creation, falling through",
-                    sandbox_key,
-                )
+                return None
             else:
                 self._creating.add(sandbox_key)
                 created_here = True

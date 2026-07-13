@@ -757,11 +757,7 @@ export class BridgeManager extends EventEmitter {
 
     const id = randomUUID();
     const request: BridgeRequest = { id, method, params };
-    const timeoutMs = options.timeoutMs ?? (
-      method === 'chat.send' || method === 'thread/start'
-        ? CHAT_SEND_TIMEOUT_MS
-        : 30_000
-    );
+    const timeoutMs = options.timeoutMs ?? (method === 'chat.send' ? CHAT_SEND_TIMEOUT_MS : 30_000);
     const startMs = Date.now();
 
     const logSlow = () => {
