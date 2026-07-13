@@ -569,18 +569,35 @@ class BwrapSandbox:
                 distro,
             )
 
-            # Determine whether sudo is needed
+            # Determine whether passwordless sudo is available.
+            # Default WSL distros have a non-root user + sudo with
+            # password — running "sudo apt-get ..." non-interactively
+            # would hang waiting for the password prompt until the
+            # 180 s timeout.  Check with sudo -n (non-interactive)
+            # first and fall back to plain apt-get when sudo needs
+            # a password.
+            use_sudo = False
             try:
-                check_sudo = await asyncio.create_subprocess_exec(
+                check_nopass = await asyncio.create_subprocess_exec(
                     "wsl.exe", "-d", distro, "--", "bash", "-c",
-                    "command -v sudo",
+                    "sudo -n true 2>/dev/null",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                await asyncio.wait_for(check_sudo.communicate(), timeout=30.0)
-                has_sudo = (check_sudo.returncode == 0)
+                await asyncio.wait_for(
+                    check_nopass.communicate(), timeout=10.0,
+                )
+                use_sudo = (check_nopass.returncode == 0)
             except (asyncio.TimeoutError, OSError):
-                has_sudo = False
+                pass
+
+            if use_sudo:
+                logger.info("Using passwordless sudo for install in '{}'", distro)
+            else:
+                logger.info(
+                    "sudo needs password in '{}' — trying without sudo",
+                    distro,
+                )
 
             # Build install command
             install_cmd = (
@@ -588,7 +605,7 @@ class BwrapSandbox:
                 "apt-get update -qq 2>/dev/null; "
                 "apt-get install -y -qq bubblewrap coreutils rsync"
             )
-            if has_sudo:
+            if use_sudo:
                 install_cmd = f"sudo bash -c '{install_cmd}'"
 
             try:
@@ -607,6 +624,16 @@ class BwrapSandbox:
                         stderr.decode("utf-8", errors="replace")[:300]
                         if stderr else "unknown error"
                     )
+                    if not use_sudo and (
+                        "permission denied" in err_msg.lower()
+                        or "are you root" in err_msg.lower()
+                    ):
+                        err_msg += (
+                            " (sudo is required but needs a password. "
+                            "Configure passwordless sudo in the WSL distro "
+                            "or run: wsl -d {0} -- sudo apt-get install "
+                            "bubblewrap coreutils rsync)".format(distro)
+                        )
                     logger.warning(
                         "Failed to install dependencies in WSL distro "
                         "'{}': {}", distro, err_msg,
