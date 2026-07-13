@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRuntime } from '../contexts/RuntimeContext';
 import { AlertTriangle, RefreshCw, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { MiQiLogo } from './MiQiLogo';
 
 interface ApprovalBypassStatus {
   bypassAll?: boolean;
@@ -15,10 +16,10 @@ function isBypassEnabled(status: ApprovalBypassStatus | null): boolean {
   if (!status) return false;
   return Boolean(
     status.bypassAll ||
-      status.bypassCommandApproval ||
-      status.bypassFileWriteApproval ||
-      status.bypassToolConfirmation ||
-      status.bypassNetworkApproval
+    status.bypassCommandApproval ||
+    status.bypassFileWriteApproval ||
+    status.bypassToolConfirmation ||
+    status.bypassNetworkApproval
   );
 }
 
@@ -148,15 +149,7 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
             Core Agent
           </div>
         </div>
-        <div
-          className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold"
-          style={{
-            background: 'var(--avatar-dark)',
-            color: '#fff',
-          }}
-        >
-          M
-        </div>
+        <MiQiLogo size={28} />
       </div>
     </div>
   );

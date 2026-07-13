@@ -15,6 +15,14 @@ const { app, BrowserWindow, shell, Menu } = electron;
 let mainWindow: typeof BrowserWindow.prototype | null = null;
 let bridgeManager: BridgeManager | null = null;
 
+/** Resolve the app icon path for both dev (source) and packaged (resources) modes. */
+function getIconPath(): string {
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'icon.ico');
+  }
+  return join(__dirname, '../../src/renderer/assets/icon.ico');
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -22,6 +30,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 760,
     title: 'MiQi Desktop',
+    icon: getIconPath(),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
