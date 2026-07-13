@@ -617,6 +617,15 @@ class BwrapSandbox:
                 await asyncio.wait_for(
                     set_root.communicate(), timeout=10.0,
                 )
+                # Terminate so wsl.conf takes effect on next launch
+                term = await asyncio.create_subprocess_exec(
+                    "wsl.exe", "--terminate", target_name,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await asyncio.wait_for(
+                    term.communicate(), timeout=10.0,
+                )
             except (asyncio.TimeoutError, OSError):
                 pass  # best-effort, not fatal
 
