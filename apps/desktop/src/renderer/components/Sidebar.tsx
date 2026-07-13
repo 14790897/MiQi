@@ -106,7 +106,12 @@ export function Sidebar({
     return () => { unsub(); };
   }, [loadSessions]);
 
-  const FILTER_TABS: FilterTab[] = ['ALL', 'IN-PROGRESS', 'REVIEW', 'COMPLETED'];
+  const FILTER_TABS: Array<{ value: FilterTab; label: string }> = [
+    { value: 'ALL', label: '全部' },
+    { value: 'IN-PROGRESS', label: '进行中' },
+    { value: 'REVIEW', label: '审阅' },
+    { value: 'COMPLETED', label: '已完成' },
+  ];
 
   const filteredSessions = sessions.filter((s) => {
     if (filter === 'ALL') return true;
@@ -149,27 +154,26 @@ export function Sidebar({
       </div>
 
       {/* Filter tabs */}
-      <div className="flex flex-nowrap gap-0.5 px-3 pb-3 shrink-0 overflow-x-auto">
+      <div className="min-w-0 max-w-full shrink-0 overflow-x-auto overflow-y-hidden px-3 pb-3">
+        <div className="inline-flex w-max flex-nowrap items-center gap-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-muted)] p-1">
         {FILTER_TABS.map((tab) => {
-          const isActive = filter === tab;
+          const isActive = filter === tab.value;
           return (
             <button
-              key={tab}
-              onClick={() => setFilter(tab)}
+              key={tab.value}
+              onClick={() => setFilter(tab.value)}
               className={cn(
-                'shrink-0 whitespace-nowrap px-1.5 py-1 rounded-md text-[10px] font-medium transition-colors',
+                'shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[11px] font-medium leading-none transition-colors',
                 isActive
-                  ? 'text-[var(--text)]'
-                  : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]',
+                  ? 'bg-[var(--surface)] text-[var(--text)] shadow-sm'
+                  : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]',
               )}
-              style={{
-                background: isActive ? 'var(--surface-muted)' : 'transparent',
-              }}
             >
-              {tab}
+              {tab.label}
             </button>
           );
         })}
+        </div>
       </div>
 
       {/* Session list — card style with left border + description */}
@@ -182,7 +186,7 @@ export function Sidebar({
           <div className="flex flex-col items-center gap-2 py-8 text-center">
             <ListChecks size={20} style={{ color: 'var(--text-faint)', opacity: 0.4 }} />
             <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
-              No active tasks
+              暂无任务
             </p>
           </div>
         ) : (
@@ -196,33 +200,29 @@ export function Sidebar({
                   key={s.key}
                   items={[
                     {
-                      label: 'Mark as In Progress',
+                      label: '标记为进行中',
                       onSelect: () => setStatus(s.key, 'IN-PROGRESS'),
                     },
                     {
-                      label: 'Mark as Pending',
+                      label: '标记为待处理',
                       onSelect: () => setStatus(s.key, 'PENDING'),
                     },
                     {
-                      label: 'Mark as Review',
+                      label: '标记为审阅',
                       onSelect: () => setStatus(s.key, 'REVIEW'),
                     },
                     {
-                      label: 'Mark as Completed',
+                      label: '标记为已完成',
                       divider: true,
                       onSelect: () => setStatus(s.key, 'COMPLETED'),
                     },
                     {
-                      label: 'Mark as CC',
-                      onSelect: () => setStatus(s.key, 'CC'),
-                    },
-                    {
-                      label: 'Reset to Default',
+                      label: '重置状态',
                       danger: true,
                       onSelect: () => clearStatus(s.key),
                     },
                     {
-                      label: 'Archive',
+                      label: '归档',
                       divider: true,
                       onSelect: async () => {
                         try {
@@ -246,7 +246,7 @@ export function Sidebar({
                       {/* Top row: pill status label left · time right */}
                       <div className="flex items-center justify-between mb-2">
                         <span
-                          className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap shrink-0"
+                          className="shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-semibold leading-none"
                           style={{ background: status.bg, color: status.color }}
                         >
                           {status.label}
@@ -269,8 +269,8 @@ export function Sidebar({
                         style={{ color: 'var(--text-muted)' }}
                       >
                         {s.message_count != null
-                          ? `${s.message_count} messages`
-                          : 'No description'}
+                          ? `${s.message_count} 条消息`
+                          : '暂无描述'}
                       </p>
                     </button>
                   )}
