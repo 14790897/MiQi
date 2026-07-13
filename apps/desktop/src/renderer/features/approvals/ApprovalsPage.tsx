@@ -19,6 +19,81 @@ import type { ApprovalsListResult, ApprovalHistoryEntry } from '../../../shared/
 // Helpers
 // ---------------------------------------------------------------------------
 
+type ApprovalBypassKey =
+  | 'bypassAll'
+  | 'bypassCommandApproval'
+  | 'bypassFileWriteApproval'
+  | 'bypassToolConfirmation'
+  | 'bypassNetworkApproval';
+
+interface ApprovalBypassConfig {
+  bypassAll: boolean;
+  bypassCommandApproval: boolean;
+  bypassFileWriteApproval: boolean;
+  bypassToolConfirmation: boolean;
+  bypassNetworkApproval: boolean;
+}
+
+const DEFAULT_APPROVAL_BYPASS: ApprovalBypassConfig = {
+  bypassAll: false,
+  bypassCommandApproval: false,
+  bypassFileWriteApproval: false,
+  bypassToolConfirmation: false,
+  bypassNetworkApproval: false,
+};
+
+function normalizeApprovalBypass(config: Record<string, unknown>): ApprovalBypassConfig {
+  const approvals = (config.approvals ?? {}) as Partial<ApprovalBypassConfig>;
+
+  return {
+    bypassAll: Boolean(approvals.bypassAll),
+    bypassCommandApproval: Boolean(approvals.bypassCommandApproval),
+    bypassFileWriteApproval: Boolean(approvals.bypassFileWriteApproval),
+    bypassToolConfirmation: Boolean(approvals.bypassToolConfirmation),
+    bypassNetworkApproval: Boolean(approvals.bypassNetworkApproval),
+  };
+}
+
+function ToggleSwitch({
+  checked,
+  disabled,
+  testId,
+  tone = 'accent',
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  testId: string;
+  tone?: 'accent' | 'warning';
+}) {
+  return (
+    <span
+      role="switch"
+      aria-checked={checked}
+      aria-disabled={disabled ? 'true' : 'false'}
+      data-testid={testId}
+      className="relative shrink-0 rounded-full transition-colors"
+      style={{
+        width: 42,
+        height: 24,
+        background:
+          checked && tone === 'warning'
+            ? 'var(--approval-warning-strong)'
+            : checked
+              ? `var(--${tone})`
+              : 'var(--border)',
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      <span
+        className="absolute top-1 h-4 w-4 rounded-full bg-white transition-transform"
+        style={{
+          left: checked ? 22 : 4,
+        }}
+      />
+    </span>
+  );
+}
+
 function formatTime(ts: number): string {
   if (!ts) return '-';
   return new Date(ts * 1000).toLocaleString('zh-CN');
@@ -63,11 +138,19 @@ export function ApprovalsPage() {
   // Category filter for pending tab
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const CATEGORIES = [
-    { key: 'all', label: 'All' },
-    { key: 'exec', label: 'Shell' },
-    { key: 'file_write', label: 'Files' },
-    { key: 'network', label: 'Network' },
+    { key: 'all', label: '全部' },
+    { key: 'exec', label: '命令' },
+    { key: 'file_write', label: '文件' },
+    { key: 'network', label: '网络' },
   ];
+
+  // Global bypass settings
+  const [bypassConfig, setBypassConfig] =
+    useState<ApprovalBypassConfig>(DEFAULT_APPROVAL_BYPASS);
+  const [bypassLoading, setBypassLoading] = useState(true);
+  const [bypassSaving, setBypassSaving] = useState<ApprovalBypassKey | null>(null);
+  const [bypassSaved, setBypassSaved] = useState<ApprovalBypassKey | null>(null);
+  const [bypassError, setBypassError] = useState<string | null>(null);
 
   // Expand
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -90,6 +173,19 @@ export function ApprovalsPage() {
     }
   }, []);
 
+  const loadBypassConfig = useCallback(async () => {
+    setBypassLoading(true);
+    try {
+      const config = await window.miqi.config.get();
+      const normalized = normalizeApprovalBypass(config);
+      setBypassConfig(normalized);
+    } catch {
+      setBypassConfig(DEFAULT_APPROVAL_BYPASS);
+    } finally {
+      setBypassLoading(false);
+    }
+  }, []);
+
   const loadHistory = useCallback(async () => {
     try {
       const r = await window.miqi.approvals.history(200);
@@ -102,6 +198,9 @@ export function ApprovalsPage() {
   useEffect(() => {
     load();
   }, [load]);
+  useEffect(() => {
+    loadBypassConfig();
+  }, [loadBypassConfig]);
   useEffect(() => {
     if (tab === 'history') loadHistory();
   }, [tab, loadHistory]);
@@ -178,6 +277,70 @@ export function ApprovalsPage() {
     }
   };
 
+  const updateBypassConfig = async (key: ApprovalBypassKey, enabled: boolean) => {
+    if (bypassSaving !== null) return;
+    const previous = bypassConfig;
+    const next =
+      key === 'bypassAll'
+        ? { ...DEFAULT_APPROVAL_BYPASS, bypassAll: enabled }
+        : { ...bypassConfig, bypassAll: false, [key]: enabled };
+    setBypassSaving(key);
+    setBypassError(null);
+    setBypassConfig(next);
+    try {
+      const update: Record<string, unknown> = { approvals: next };
+      if ((key === 'bypassAll' && !enabled) || (key === 'bypassCommandApproval' && !enabled)) {
+        update.agents = { commandApproval: { enabled: true } };
+      }
+      await window.miqi.config.update(update);
+      setBypassSaved(key);
+      window.dispatchEvent(new Event('miqi:approval-bypass-updated'));
+      window.setTimeout(
+        () => setBypassSaved((current) => (current === key ? null : current)),
+        1800
+      );
+    } catch (e) {
+      console.error('Failed to save approval bypass config:', e);
+      setBypassConfig(previous);
+      setBypassError(e instanceof Error ? e.message : '保存失败');
+    } finally {
+      setBypassSaving(null);
+    }
+  };
+
+  const bypassRows: Array<{
+    key: ApprovalBypassKey;
+    label: string;
+    description: string;
+  }> = [
+    {
+      key: 'bypassCommandApproval',
+      label: '命令审批',
+      description: '危险命令不再弹窗确认',
+    },
+    {
+      key: 'bypassFileWriteApproval',
+      label: '文件写入审批',
+      description: '敏感路径写入不再弹窗确认',
+    },
+    {
+      key: 'bypassToolConfirmation',
+      label: '工具确认',
+      description: '需要确认的工具调用直接放行',
+    },
+    {
+      key: 'bypassNetworkApproval',
+      label: '网络审批',
+      description: '网络类风险操作不再弹窗确认',
+    },
+  ];
+
+  const isBypassOn = (key: ApprovalBypassKey): boolean => {
+    if (key === 'bypassAll') return bypassConfig.bypassAll;
+    if (bypassConfig.bypassAll) return true;
+    return bypassConfig[key];
+  };
+
   const toggleExpand = (set: Set<string>, key: string, setFn: (s: Set<string>) => void) => {
     const next = new Set(set);
     if (next.has(key)) next.delete(key);
@@ -198,7 +361,7 @@ export function ApprovalsPage() {
         <div>
           <h1 className="text-base font-semibold text-[var(--text)]">命令审批</h1>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
-            Agent 执行危险 shell 命令前需要授权。
+            智能体执行危险命令前需要授权。
           </p>
         </div>
         <button
@@ -237,6 +400,98 @@ export function ApprovalsPage() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div
+          className={`border rounded-lg mb-5 overflow-hidden ${
+            bypassConfig.bypassAll
+              ? 'border-[var(--approval-warning-border)] bg-[var(--approval-warning-bg)]'
+              : 'border-[var(--border-subtle)] bg-[var(--surface)]'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-[var(--border-subtle)]">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <AlertTriangle
+                  size={15}
+                  className={
+                    bypassConfig.bypassAll
+                      ? 'text-[var(--approval-warning)]'
+                      : 'text-[var(--text-faint)]'
+                  }
+                />
+                <h2 className="text-sm font-semibold text-[var(--text)]">审批绕过模式</h2>
+                {bypassSaved === 'bypassAll' && (
+                  <span className="text-[11px] text-[var(--success)]">已保存</span>
+                )}
+              </div>
+              <p className="text-xs text-[var(--text-muted)] mt-1">
+                开启后，智能体执行对应操作时会跳过审批弹窗。
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => updateBypassConfig('bypassAll', !bypassConfig.bypassAll)}
+              disabled={bypassLoading}
+              className="flex items-center gap-3 shrink-0 cursor-pointer disabled:cursor-not-allowed"
+            >
+              <span className="text-xs font-medium text-[var(--text-muted)]">全部绕过</span>
+              <ToggleSwitch
+                checked={bypassConfig.bypassAll}
+                disabled={bypassLoading}
+                testId="approval-bypass-all-toggle"
+                tone="warning"
+              />
+            </button>
+          </div>
+          {bypassError && (
+            <div className="px-5 py-2 text-xs text-[var(--danger)] border-b border-[var(--border-subtle)]">
+              {bypassError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-[var(--border-subtle)]">
+            {bypassRows.map((row) => {
+              const disabled = bypassLoading || bypassConfig.bypassAll;
+              const checked = isBypassOn(row.key);
+              const storedChecked = bypassConfig[row.key];
+              const nextStored = !storedChecked;
+              return (
+                <button
+                  type="button"
+                  key={row.key}
+                  onClick={() => updateBypassConfig(row.key, nextStored)}
+                  disabled={disabled}
+                  className={`flex items-center justify-between gap-3 px-5 py-3 ${
+                    disabled && !bypassLoading
+                      ? 'opacity-75 cursor-not-allowed'
+                      : 'cursor-pointer hover:bg-[rgba(194,65,12,0.08)]'
+                  }`}
+                >
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-2 text-xs font-medium text-[var(--text)]">
+                      {row.label}
+                      {bypassSaved === row.key && (
+                        <span className="text-[11px] text-[var(--success)]">已保存</span>
+                      )}
+                    </span>
+                    <span className="block text-[11px] text-[var(--text-muted)] mt-0.5">
+                      {row.description}
+                      {bypassConfig.bypassAll
+                        ? '。当前由“全部绕过”统一控制'
+                        : ''}
+                    </span>
+                  </span>
+                  <ToggleSwitch
+                    checked={checked}
+                    disabled={disabled}
+                    testId={`approval-${row.key}-toggle`}
+                    tone="warning"
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {loading ? (
           <div className="flex items-center justify-center h-40 text-sm text-[var(--text-faint)]">
             <Loader2 size={16} className="animate-spin mr-2" /> 加载中…
@@ -263,7 +518,7 @@ export function ApprovalsPage() {
                 </span>
               </div>
               <div className="text-[var(--text-faint)]">·</div>
-              <span className="text-[var(--text-muted)]">超时：{data.timeout}秒</span>
+              <span className="text-[var(--text-muted)]">超时：{data.timeout ?? 60}秒</span>
               <div className="text-[var(--text-faint)]">·</div>
               <span className="text-[var(--text-muted)]">{data.pending?.length ?? 0} 个待审批</span>
             </div>
@@ -287,7 +542,7 @@ export function ApprovalsPage() {
                     )}
                     <button
                       onClick={() => setShowAdd(true)}
-                      className="flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+                      className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)] hover:underline"
                     >
                       <Plus size={12} /> 新增
                     </button>
@@ -513,9 +768,9 @@ export function ApprovalsPage() {
                           const isExpanded = expandedPending.has(p.approval_id);
                           const remaining = Math.max(
                             0,
-                            Math.ceil(data.timeout - (Date.now() / 1000 - p.created_at))
+                            Math.ceil((data.timeout ?? 60) - (Date.now() / 1000 - p.created_at))
                           );
-                          const pct = (remaining / data.timeout) * 100;
+                          const pct = (remaining / (data.timeout || 60)) * 100;
                           const isLow = remaining <= 5;
                           return (
                             <div key={p.approval_id}>
@@ -588,7 +843,7 @@ export function ApprovalsPage() {
                                       {remaining > 0 ? `${remaining}秒` : '已超时'}
                                     </span>
                                     <span className="text-[var(--text-faint)]">
-                                      / {data.timeout}秒
+                                      / {data.timeout ?? 60}秒
                                     </span>
                                   </div>
                                 </div>

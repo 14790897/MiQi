@@ -80,11 +80,37 @@ class PermissionEngine:
     Explicit deny patterns take precedence over everything else.
     """
 
-    # Read-only tools: auto-allow (but deny patterns still checked first)
+    # Read-only tools: auto-allow (but deny patterns still checked first).
+    # Network-backed tools route through the "network" approval category so
+    # bypassNetworkApproval has a real permission path.
     READ_ONLY_TOOLS: frozenset[str] = frozenset({
-        "read_file", "list_dir", "web_search", "web_fetch",
-        "session_search", "trace_search", "paper_search", "paper_get",
-        "docx_read", "pptx_read", "xlsx_read", "memory",
+        "read_file", "list_dir",
+        "session_search", "trace_search",
+        "docx_read", "pptx_read", "xlsx_read",
+    })
+
+    NETWORK_TOOLS: frozenset[str] = frozenset({
+        "web_search", "web_fetch",
+        "paper_search", "paper_get", "paper_download",
+    })
+
+    FILE_WRITE_TOOLS: frozenset[str] = frozenset({
+        "write_file", "edit_file", "delete_file", "apply_patch",
+        "docx_write", "pptx_write", "xlsx_write",
+        "create_docx", "create_pptx", "create_xlsx",
+        "edit_docx", "append_xlsx",
+    })
+
+    TOOL_CONFIRMATION_TOOLS: frozenset[str] = frozenset({
+        "memory",
+        "message",
+        "skill_manage",
+        "plan_create",
+        "plan_update",
+        "spawn",
+        "task_begin",
+        "task_end",
+        "cron",
     })
 
     # Safe shell commands: auto-allow (metacharacter-free commands only)
@@ -104,11 +130,13 @@ class PermissionEngine:
         permanent_allowlist: set[str] | None = None,
         deny_patterns: set[str] | None = None,
         session_allowlist: set[str] | None = None,
+        approval_bypass: Any | None = None,
     ):
         self.permanent_allowlist = permanent_allowlist or set()
         self.deny_patterns = deny_patterns or set()
         # Phase 31.6: session-scoped allowlist (cleared when session ends)
         self.session_allowlist = session_allowlist or set()
+        self.approval_bypass = approval_bypass
 
     async def check(self, ctx: Any) -> PermissionDecision:
         """Check whether a tool call is permitted.
@@ -130,28 +158,32 @@ class PermissionEngine:
                     reason=f"Matches deny pattern: {pattern}",
                 )
 
-        # 2. Read-only tools: auto-allow (unless blocked above)
-        if tool_name in self.READ_ONLY_TOOLS:
-            return PermissionDecision(verdict=PermissionVerdict.ALLOW)
-
         # 3. Session-scoped allowlist (keyed by tool + arguments)
         cmd_key = self._make_key(ctx)
         if cmd_key in self.session_allowlist:
             return PermissionDecision(verdict=PermissionVerdict.ALLOW)
 
         # 4. Permanent allowlist (keyed by tool + arguments)
+        #    Supports wildcard: "*:*" bypasses all approvals
+        if "*:*" in self.permanent_allowlist:
+            return PermissionDecision(verdict=PermissionVerdict.ALLOW)
         if cmd_key in self.permanent_allowlist:
             return PermissionDecision(verdict=PermissionVerdict.ALLOW)
 
         # 4b. Global permanent allowlist (cross-session, persisted to disk)
-        #     The orchestrator syncs patterns here via command_approval;
-        #     checking it here ensures new sessions pick up persisted approvals.
         try:
             from miqi.agent.command_approval import get_permanent_allowlist as _get_gpa
-            if cmd_key and cmd_key in _get_gpa():
+            gpa = _get_gpa()
+            if "*:*" in gpa:
+                return PermissionDecision(verdict=PermissionVerdict.ALLOW)
+            if cmd_key and cmd_key in gpa:
                 return PermissionDecision(verdict=PermissionVerdict.ALLOW)
         except Exception:
             pass
+
+        # 4c. Read-only tools: auto-allow (unless blocked above)
+        if tool_name in self.READ_ONLY_TOOLS:
+            return PermissionDecision(verdict=PermissionVerdict.ALLOW)
 
         # 5. Exec tool branch
         if tool_name == "exec":
@@ -241,13 +273,7 @@ class PermissionEngine:
         # Phase 31.7: includes office document write tools so they are
         # explicitly categorized (not falling through to "unknown_tool")
         # and support permanent allowlisting.
-        _FILE_WRITE_TOOLS = frozenset({
-            "write_file", "edit_file", "delete_file", "apply_patch",
-            "docx_write", "pptx_write", "xlsx_write",
-            "create_docx", "create_pptx", "create_xlsx",
-            "edit_docx", "append_xlsx",
-        })
-        if tool_name in _FILE_WRITE_TOOLS:
+        if tool_name in self.FILE_WRITE_TOOLS:
             path = _office_target_path(tool_name, ctx.arguments)
             return self._apply_approval_policy(
                 PermissionDecision(
@@ -260,11 +286,44 @@ class PermissionEngine:
                 profile,
             )
 
-        # 7. Default: deny-by-default — unknown tools require approval
+        # 8. Network-backed tools require approval unless bypassed.
+        if tool_name in self.NETWORK_TOOLS:
+            target = self._network_target(ctx.arguments)
+            return self._apply_approval_policy(
+                PermissionDecision(
+                    verdict=PermissionVerdict.APPROVAL_REQUIRED,
+                    category="network",
+                    description=f"{tool_name}: {target}"[:200],
+                    details={
+                        "tool_name": tool_name,
+                        "target": target,
+                    },
+                    allow_permanent=True,
+                ),
+                profile,
+            )
+
+        # 9. Known stateful/non-read-only tools require generic confirmation.
+        if tool_name in self.TOOL_CONFIRMATION_TOOLS:
+            return self._apply_approval_policy(
+                PermissionDecision(
+                    verdict=PermissionVerdict.APPROVAL_REQUIRED,
+                    category="tool_confirmation",
+                    description=f"{tool_name}: {self._tool_target(ctx.arguments)}"[:200],
+                    details={
+                        "tool_name": tool_name,
+                        "arguments": ctx.arguments,
+                    },
+                    allow_permanent=True,
+                ),
+                profile,
+            )
+
+        # 10. Default: deny-by-default - unknown tools require approval.
         return self._apply_approval_policy(
             PermissionDecision(
                 verdict=PermissionVerdict.APPROVAL_REQUIRED,
-                category="unknown_tool",
+                category="tool_confirmation",
                 description=f"Unknown tool: {tool_name}",
                 details={"tool_name": tool_name},
             ),
@@ -295,7 +354,11 @@ class PermissionEngine:
             return decision
         policy = getattr(profile, "approval_policy", None)
         if policy is None:
+            if self._bypasses_approval(decision.category):
+                return self._bypassed_decision(decision)
             return decision
+        if self._bypasses_approval(decision.category):
+            return self._bypassed_decision(decision)
         if not policy.requires_prompt(category=decision.category, failed=failed):
             return PermissionDecision(
                 verdict=PermissionVerdict.ALLOW,
@@ -307,15 +370,56 @@ class PermissionEngine:
             )
         return decision
 
+    def _bypasses_approval(self, category: str) -> bool:
+        bypass = self.approval_bypass
+        if bypass is None:
+            return False
+        bypasses_category = getattr(bypass, "bypasses_category", None)
+        if callable(bypasses_category):
+            return bool(bypasses_category(category))
+        if getattr(bypass, "bypass_all", False):
+            return True
+        if category == "exec":
+            return bool(getattr(bypass, "bypass_command_approval", False))
+        if category == "file_write":
+            return bool(getattr(bypass, "bypass_file_write_approval", False))
+        if category == "network":
+            return bool(getattr(bypass, "bypass_network_approval", False))
+        return bool(getattr(bypass, "bypass_tool_confirmation", False))
+
+    @staticmethod
+    def _bypassed_decision(decision: PermissionDecision) -> PermissionDecision:
+        return PermissionDecision(
+            verdict=PermissionVerdict.ALLOW,
+            category=decision.category,
+            reason="Auto-approved by approval bypass",
+            description=decision.description,
+            details=decision.details,
+            allow_permanent=decision.allow_permanent,
+        )
+
+    @staticmethod
+    def _network_target(arguments: dict[str, Any]) -> str:
+        for key in ("url", "query", "paper_id", "doi", "title"):
+            value = arguments.get(key)
+            if value:
+                return str(value)
+        return str(arguments)[:120]
+
+    @staticmethod
+    def _tool_target(arguments: dict[str, Any]) -> str:
+        for key in ("action", "content", "title", "name"):
+            value = arguments.get(key)
+            if value:
+                return str(value)
+        return str(arguments)[:120]
+
     @staticmethod
     def _make_key(ctx: Any) -> str:
         """Create a stable key for permanent allowlisting."""
         tool = ctx.tool_name
         if tool == "exec":
             return f"exec:{ctx.arguments.get('command', '')}"
-        if tool in ("write_file", "edit_file", "delete_file", "apply_patch",
-                      "docx_write", "pptx_write", "xlsx_write",
-                      "create_docx", "create_pptx", "create_xlsx",
-                      "edit_docx", "append_xlsx"):
+        if tool in PermissionEngine.FILE_WRITE_TOOLS:
             return f"{tool}:{_office_target_path(tool, ctx.arguments)}"
         return f"{tool}:{hash(str(ctx.arguments))}"

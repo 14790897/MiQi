@@ -4,6 +4,7 @@ import { electron } from '../shared/electron';
 import { registerIpcHandlers } from './ipc';
 import { BridgeManager } from './bridge';
 import { writeMainProcessLog } from './electron-log';
+import { createSplash, closeSplash } from './splash';
 
 const originalConsoleLog = console.log.bind(console);
 const originalConsoleWarn = console.warn.bind(console);
@@ -20,7 +21,6 @@ function createWindow(): void {
     height: 860,
     minWidth: 900,
     minHeight: 760,
-    show: false,
     title: 'MiQi Desktop',
     webPreferences: {
       contextIsolation: true,
@@ -32,10 +32,6 @@ function createWindow(): void {
 
   // Remove native menu bar — app has its own navigation
   mainWindow.removeMenu();
-
-  mainWindow.on('ready-to-show', () => {
-    mainWindow?.show();
-  });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
@@ -136,6 +132,9 @@ export function main(): void {
     bridgeManager.on('state', onState);
     bridgeManager.on('log', onLog);
 
+    createSplash(() => {
+      closeSplash();
+    });
     createWindow();
 
     app.on('activate', () => {

@@ -97,7 +97,7 @@ class SessionDB:
     """
 
     # Write-contention tuning (matches Hermes values)
-    _WRITE_MAX_RETRIES = 15
+    _WRITE_MAX_RETRIES = 3
     _WRITE_RETRY_MIN_S = 0.020   # 20 ms
     _WRITE_RETRY_MAX_S = 0.150   # 150 ms
     _CHECKPOINT_EVERY_N_WRITES = 50
@@ -114,11 +114,11 @@ class SessionDB:
         self._conn = sqlite3.connect(
             str(self.db_path),
             check_same_thread=False,
-            timeout=1.0,
+            timeout=30.0,
             isolation_level=None,   # autocommit; we manage transactions ourselves
         )
-        self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._init_schema()
 

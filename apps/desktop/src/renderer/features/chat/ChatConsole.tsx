@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '../../components/ui/Button';
 import { Textarea } from '../../components/ui/Textarea';
+import { Tooltip } from '../../components/ui/Tooltip';
 import { ContextMenu, type ContextMenuAction } from '../../components/ContextMenu';
 import { cn } from '../../lib/utils';
 import {
@@ -78,12 +79,25 @@ function isMissingProviderConfigMessage(message: string) {
   return normalized.includes('no api key configured');
 }
 
-function createProviderConfigMessage(): Message {
+function isProviderConfigurationProblem(message: string) {
+  const normalized = message.toLowerCase();
+  return (
+    isMissingProviderConfigMessage(message) ||
+    normalized.includes('模型服务认证失败') ||
+    normalized.includes('authentication') ||
+    normalized.includes('invalid api key') ||
+    normalized.includes('api key') ||
+    normalized.includes('api base') ||
+    normalized.includes('当前模型配置')
+  );
+}
+
+function createProviderConfigMessage(content?: string): Message {
   return {
     role: 'error',
-    content: '尚未配置模型服务。请先配置 Provider/API Key 后再发送消息。',
+    content: content || '尚未配置模型服务。请先配置 Provider/API Key 后再发送消息。',
     action: 'open-provider-settings',
-    actionLabel: '配置 Provider',
+    actionLabel: '去配置模型',
     timestamp: Date.now(),
   };
 }
@@ -577,6 +591,10 @@ export function ChatConsole({
   }, []);
 
   useEffect(() => {
+    // Tear down any in-flight stream listeners from a previous session
+    // before updating the ref.  This makes the per-handler session_key
+    // guard a defence-in-depth measure rather than the sole mechanism.
+    cleanupListeners();
     currentSessionRef.current = sessionKey;
     currentThreadIdRef.current = null; // Reset on session change
     setHistoryLoaded(false);
@@ -711,7 +729,7 @@ export function ChatConsole({
     setCurrentReqId(null);
     setMessages((prev) => [
       ...prev,
-      { role: 'progress', content: 'Aborted.', timestamp: Date.now() },
+      { role: 'progress', content: '已停止。', timestamp: Date.now() },
     ]);
   }, [cleanupListeners, currentReqId]);
 
@@ -797,6 +815,7 @@ export function ChatConsole({
     let displayed = '';
     let animId: number | null = null;
     let finalDone = false;
+    let streamErrorHandled = false;
 
     // Reveal the assistant reply with a typewriter animation. The bubble is
     // created lazily — only once the first chunk of content is available — so
@@ -878,18 +897,22 @@ export function ChatConsole({
       }, 100);
     };
 
-    const unsubProgress = window.miqi.chat.onProgress((data: any) => {
+    const unsubProgress = window.miqi.chat.onProgress((data: ChatProgress) => {
+      if (data.session_key && data.session_key !== currentSessionRef.current) return;
       lastEventAt = Date.now();
       // Handle stream deltas from exec (Phase 7 inline tool progress)
       if (data.stream && data.delta && data.tool_call_id) {
+        const stream = data.stream;
+        const delta = data.delta;
+        const toolCallId = data.tool_call_id;
         setExecOutputs((prev) => {
-          const current = prev[data.tool_call_id] || { stdout: '', stderr: '', running: true };
+          const current = prev[toolCallId] || { stdout: '', stderr: '', running: true };
+          const streamKey = stream === 'stdout' ? 'stdout' : 'stderr';
           return {
             ...prev,
-            [data.tool_call_id]: {
+            [toolCallId]: {
               ...current,
-              [data.stream === 'stdout' ? 'stdout' : 'stderr']:
-                current[data.stream === 'stdout' ? 'stdout' : 'stderr'] + data.delta,
+              [streamKey]: current[streamKey] + delta,
             },
           };
         });
@@ -957,6 +980,7 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
+      if (data.session_key && data.session_key !== currentSessionRef.current) return;
       clearFinalCleanupTimer();
       if (animId !== null) {
         cancelAnimationFrame(animId);
@@ -1039,12 +1063,15 @@ export function ChatConsole({
     });
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
+      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      streamErrorHandled = true;
       if (animId !== null) cancelAnimationFrame(animId);
+      const message = sanitizeUiMessage(data.message);
       setMessages((prev) => [
         ...prev,
-        isMissingProviderConfigMessage(data.message)
-          ? createProviderConfigMessage()
-          : { role: 'error', content: data.message, timestamp: Date.now() },
+        isProviderConfigurationProblem(message)
+          ? createProviderConfigMessage(message)
+          : { role: 'error', content: message, timestamp: Date.now() },
       ]);
       setStreaming(false);
       sendCleanup();
@@ -1052,12 +1079,13 @@ export function ChatConsole({
     });
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
+      if (_data.session_key && _data.session_key !== currentSessionRef.current) return;
       if (animId !== null) cancelAnimationFrame(animId);
       setStreaming(false);
       setCurrentReqId(null);
       setMessages((prev) => [
         ...prev,
-        { role: 'progress', content: 'Aborted.', timestamp: Date.now() },
+        { role: 'progress', content: '已停止。', timestamp: Date.now() },
       ]);
       sendCleanup();
     });
@@ -1101,19 +1129,24 @@ export function ChatConsole({
       await window.miqi.chat.send(content, key, threadId ?? undefined);
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
+      if (streamErrorHandled) {
+        setStreaming(false);
+        sendCleanup();
+        cleanupListeners();
+        return;
+      }
       const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? 'Unknown error'));
-      const detail = `chat.send failed: ${errMsg}`;
-      if (isMissingProviderConfigMessage(errMsg)) {
-        setMessages((prev) => [...prev, createProviderConfigMessage()]);
+      if (isProviderConfigurationProblem(errMsg)) {
+        setMessages((prev) => [...prev, createProviderConfigMessage(errMsg)]);
       } else if (e?.code) {
         setMessages((prev) => [
           ...prev,
-          { role: 'error' as const, content: `${detail} (code: ${e.code})`, timestamp: Date.now() },
+          { role: 'error' as const, content: errMsg, timestamp: Date.now() },
         ]);
       } else {
         setMessages((prev) => [
           ...prev,
-          { role: 'error' as const, content: detail, timestamp: Date.now() },
+          { role: 'error' as const, content: errMsg, timestamp: Date.now() },
         ]);
       }
       setStreaming(false);
@@ -1175,7 +1208,10 @@ export function ChatConsole({
     }
     try {
       const result = await window.miqi.files.read(path);
-      setPreviewFile({ path, content: result.content });
+      setPreviewFile({
+        path,
+        content: result.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
+      });
     } catch {
       setPreviewFile({ path, content: `(Could not read file: ${path})` });
     }
@@ -1223,7 +1259,10 @@ export function ChatConsole({
         // Refresh preview if open
         if (previewFile?.path === diffFile.path) {
           const content = await window.miqi.files.read(diffFile.path);
-          setPreviewFile({ path: diffFile.path, content: content.content });
+          setPreviewFile({
+            path: diffFile.path,
+            content: content.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
+          });
         }
       }
     } catch {
@@ -1359,11 +1398,8 @@ export function ChatConsole({
         }}
       >
         {/* Left: Logo */}
-        <span
-          className="text-sm font-bold whitespace-nowrap shrink-0"
-          style={{ color: 'var(--text)' }}
-        >
-          MiQi Workbench
+        <span className="text-sm font-bold whitespace-nowrap shrink-0" style={{ color: 'var(--text)' }}>
+          MiQi Desktop
         </span>
 
         {/* Center: Search */}
@@ -1413,12 +1449,16 @@ export function ChatConsole({
             items={[{ label: 'Delete conversation', danger: true, onSelect: handleDeleteSession }]}
           >
             {({ onContextMenu }) => (
-              <button
-                className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
-                onClick={onContextMenu}
-              >
-                <MoreHorizontal size={14} style={{ color: 'var(--text-faint)' }} />
-              </button>
+              <Tooltip content="More conversation actions">
+                <button
+                  className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
+                  onClick={onContextMenu}
+                  aria-label="More conversation actions"
+                  title="More conversation actions"
+                >
+                  <MoreHorizontal size={14} style={{ color: 'var(--text-faint)' }} />
+                </button>
+              </Tooltip>
             )}
           </ContextMenu>
         </div>
@@ -1443,13 +1483,19 @@ export function ChatConsole({
               {sessionTitle}
             </h2>
             <span className="tag-inprogress shrink-0">IN PROGRESS</span>
-            <span className="text-[11px] shrink-0" style={{ color: 'var(--text-faint)' }}>
+            <span className="text-[13px] shrink-0" style={{ color: '#4B5563' }}>
               Updated 2 mins ago · 2 linked files · 2 Active Plugins
             </span>
             <button
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ml-auto opacity-50"
-              style={{ background: 'var(--accent)', color: '#121212', cursor: 'not-allowed' }}
+              style={{
+                background: 'var(--surface-muted)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-muted)',
+                cursor: 'not-allowed',
+              }}
               title="Coming soon"
+              aria-label="Share task, coming soon"
             >
               <svg
                 width="12"
@@ -1467,13 +1513,16 @@ export function ChatConsole({
               </svg>
               Share Task
             </button>
-            <button
-              onClick={() => setPanelOpen((v) => !v)}
-              className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors shrink-0 ml-1"
-              title="Toggle assets panel"
-            >
-              <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
-            </button>
+            <Tooltip content="Toggle assets panel">
+              <button
+                onClick={() => setPanelOpen((v) => !v)}
+                className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors shrink-0 ml-1"
+                title="Toggle assets panel"
+                aria-label="Toggle assets panel"
+              >
+                <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
+              </button>
+            </Tooltip>
           </div>
           {/* Messages */}
           <div
@@ -1500,7 +1549,7 @@ export function ChatConsole({
                   </div>
                   <div className="flex flex-col items-center gap-1">
                     <p className="text-[15px] font-medium" style={{ color: 'var(--text-muted)' }}>
-                      Ask Agent to analyze or edit files...
+                      Start with a file, issue, or edit request
                     </p>
                     <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
                       Start a conversation to begin
@@ -1589,6 +1638,7 @@ export function ChatConsole({
                   onClick={handleAttachClick}
                   className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
                   title="Attach file or image"
+                  aria-label="Attach file or image"
                 >
                   <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
                 </button>
@@ -1842,6 +1892,12 @@ export function ChatConsole({
               <button
                 onClick={handleMergeAll}
                 disabled={merging || trackedFiles.length === 0}
+                aria-describedby={trackedFiles.length === 0 ? 'merge-all-disabled-reason' : undefined}
+                title={
+                  trackedFiles.length === 0
+                    ? 'No changed files are available to merge'
+                    : 'Merge all tracked changes'
+                }
                 className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
                 style={{
                   background:
@@ -1852,6 +1908,15 @@ export function ChatConsole({
                 {merging ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
                 {merging ? 'MERGING...' : 'MERGE ALL CHANGES'}
               </button>
+              {trackedFiles.length === 0 && (
+                <p
+                  id="merge-all-disabled-reason"
+                  className="mt-1.5 text-[11px] text-center"
+                  style={{ color: '#4B5563' }}
+                >
+                  No changed files are available to merge.
+                </p>
+              )}
             </div>
           </div>
         )}

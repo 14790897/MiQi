@@ -1,6 +1,6 @@
 import { electron } from '../../shared/electron';
 import { spawnSync } from 'child_process';
-import { existsSync, readFileSync, readdirSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import type { BridgeManager } from '../bridge';
@@ -63,6 +63,94 @@ function readWorkspaceLogLines(
     /* log dir may not exist yet */
   }
   return lines;
+}
+
+function getConfigDir(): string {
+  const miqiHome = process.env['MIQI_HOME']?.trim();
+  return miqiHome ? miqiHome : join(homedir(), '.miqi');
+}
+
+function getConfigPath(): string {
+  return join(getConfigDir(), 'config.json');
+}
+
+function readLocalConfig(): Record<string, unknown> {
+  const configPath = getConfigPath();
+  try {
+    if (!existsSync(configPath)) return {};
+    const raw = readFileSync(configPath, 'utf8');
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function deepMergeConfig(base: Record<string, unknown>, updates: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(updates)) {
+    const current = result[key];
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      current &&
+      typeof current === 'object' &&
+      !Array.isArray(current)
+    ) {
+      result[key] = deepMergeConfig(
+        current as Record<string, unknown>,
+        value as Record<string, unknown>
+      );
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+function writeLocalConfig(updates: Record<string, unknown>): { saved: boolean; path: string; offline: boolean } {
+  const configDir = getConfigDir();
+  const configPath = getConfigPath();
+  const merged = deepMergeConfig(readLocalConfig(), updates);
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(configPath, JSON.stringify(merged, null, 2), 'utf8');
+  return { saved: true, path: configPath, offline: true };
+}
+
+function isApprovalBypassUpdate(updates: Record<string, unknown>): boolean {
+  const allowedTopLevel = new Set(['approvals', 'agents']);
+  if (!Object.keys(updates).every((key) => allowedTopLevel.has(key))) return false;
+
+  if ('approvals' in updates) {
+    const approvals = updates['approvals'];
+    if (!approvals || typeof approvals !== 'object' || Array.isArray(approvals)) return false;
+    const allowedApprovalKeys = new Set([
+      'bypassAll',
+      'bypassCommandApproval',
+      'bypassFileWriteApproval',
+      'bypassToolConfirmation',
+      'bypassNetworkApproval',
+    ]);
+    for (const [key, value] of Object.entries(approvals as Record<string, unknown>)) {
+      if (!allowedApprovalKeys.has(key) || typeof value !== 'boolean') return false;
+    }
+  }
+
+  if ('agents' in updates) {
+    const agents = updates['agents'];
+    if (!agents || typeof agents !== 'object' || Array.isArray(agents)) return false;
+    const agentKeys = Object.keys(agents as Record<string, unknown>);
+    if (agentKeys.length !== 1 || agentKeys[0] !== 'commandApproval') return false;
+    const commandApproval = (agents as Record<string, unknown>)['commandApproval'];
+    if (!commandApproval || typeof commandApproval !== 'object' || Array.isArray(commandApproval)) {
+      return false;
+    }
+    const commandKeys = Object.keys(commandApproval as Record<string, unknown>);
+    if (commandKeys.length !== 1 || commandKeys[0] !== 'enabled') return false;
+    if (typeof (commandApproval as Record<string, unknown>)['enabled'] !== 'boolean') return false;
+  }
+
+  return 'approvals' in updates || 'agents' in updates;
 }
 
 export function registerIpcHandlers(bridge: BridgeManager): void {
@@ -217,12 +305,29 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   // Config
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.CONFIG_GET, async () => {
-    return bridge.sendSafe('config.get');
+    const bridgeConfig = await bridge.sendSafe('config.get');
+    return bridgeConfig ?? readLocalConfig();
   });
 
   ipcMain.handle(IPC.CONFIG_UPDATE, async (_event, payload: unknown) => {
     const input = ConfigUpdateInput.parse(payload);
-    return bridge.send('config.update', { config: input.config });
+    if (!bridge.isRunning()) {
+      if (!isApprovalBypassUpdate(input.config)) {
+        throw new Error('Bridge not running');
+      }
+      return writeLocalConfig(input.config);
+    }
+    try {
+      return await bridge.send('config.update', { config: input.config });
+    } catch (error) {
+      if ((error as Error)?.message?.includes('Bridge not running')) {
+        if (!isApprovalBypassUpdate(input.config)) {
+          throw error;
+        }
+        return writeLocalConfig(input.config);
+      }
+      throw error;
+    }
   });
 
   // -----------------------------------------------------------------------
@@ -1161,13 +1266,12 @@ for m in ("pydantic", "httpx", "loguru"):
       model?: string | null;
       workspace?: string | null;
     };
-    const configDir = join(homedir(), '.miqi');
-    const configPath = join(configDir, 'config.json');
+    const configDir = getConfigDir();
+    const configPath = getConfigPath();
 
     // Load existing config if it exists, so we don't clobber other keys
     let existing: Record<string, unknown> = {};
     try {
-      const { readFileSync } = require('fs') as typeof import('fs');
       if (existsSync(configPath)) {
         existing = JSON.parse(readFileSync(configPath, 'utf8'));
       }
@@ -1197,7 +1301,6 @@ for m in ("pydantic", "httpx", "loguru"):
     }
 
     // Ensure directory exists
-    const { mkdirSync, writeFileSync } = require('fs') as typeof import('fs');
     mkdirSync(configDir, { recursive: true });
     writeFileSync(configPath, JSON.stringify(existing, null, 2), 'utf8');
 

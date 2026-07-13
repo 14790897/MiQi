@@ -190,6 +190,7 @@ export const ProviderTestInput = z.object({
   provider_name: z.string().min(1),
   api_key: z.string().optional(),
   api_base: z.string().nullable().optional(),
+  model: z.string().optional(),
 });
 
 export const ProviderUpdateInput = z.object({
@@ -274,6 +275,15 @@ export interface ProviderInfo {
   api_key_hint?: string | null;
   api_base: string | null;
   configured_model?: string;
+  verification_status?: 'missing' | 'unverified' | 'success' | 'failed';
+  verified_at?: string | null;
+  verification_message?: string | null;
+}
+
+export interface ProvidersListResult {
+  providers: ProviderInfo[];
+  active_model?: string;
+  active_provider?: string | null;
 }
 
 export interface ProviderUpdateResult {
@@ -681,20 +691,37 @@ export interface TrackedFileInfo {
 export interface ChatProgress {
   text: string;
   tool_hint: boolean;
+  stream?: 'stdout' | 'stderr';
+  delta?: string;
+  tool_call_id?: string;
+  /** Session key for frontend-side event filtering (fix #212).
+   *  Optional for backward compatibility with backends that don't yet
+   *  emit this field.  Should become required once all backends are
+   *  updated. */
+  session_key?: string;
 }
 
 export interface ChatFinal {
   content: string;
   aborted?: boolean;
   tool_calls?: unknown[];
+  /** Session key for frontend-side event filtering (fix #212).  Optional
+   *  for backward compatibility; see ChatProgress.session_key. */
+  session_key?: string;
 }
 
 export interface ChatError {
   message: string;
+  /** Session key for frontend-side event filtering (fix #212).  Optional
+   *  for backward compatibility; see ChatProgress.session_key. */
+  session_key?: string;
 }
 
 export interface ChatAborted {
   message: string;
+  /** Session key for frontend-side event filtering (fix #212).  Optional
+   *  for backward compatibility; see ChatProgress.session_key. */
+  session_key?: string;
 }
 
 export interface ChatSubagentResult {

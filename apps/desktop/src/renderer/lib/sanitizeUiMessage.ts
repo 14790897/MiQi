@@ -38,6 +38,22 @@ export function sanitizeUiMessage(raw: string): string {
   if (!raw) return '';
 
   let s = raw;
+  const lower = s.toLowerCase();
+  if (
+    lower.includes('bridge not running') ||
+    lower.includes("error invoking remote method 'chat:send'")
+  ) {
+    return '运行时未启动或正在重启，请稍后再试。';
+  }
+  if (lower.includes('provider test failed')) {
+    return '连接测试失败，请检查 API Key、API Base、模型名称或网络。';
+  }
+  if (lower.includes('connection error')) {
+    return '连接模型服务失败，请检查网络或 API Base。';
+  }
+  if (lower.includes('request') && lower.includes('timed out')) {
+    return '请求超时，请稍后重试。';
+  }
   // 1) Truncate first (same order as Python _sanitize_exc_for_ui)
   if (s.length > MAX_LEN) {
     s = s.slice(0, MAX_LEN) + '…'; // horizontal ellipsis (one char)

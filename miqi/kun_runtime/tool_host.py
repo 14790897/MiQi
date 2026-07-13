@@ -166,6 +166,32 @@ class MiQiToolHost:
             except (json.JSONDecodeError, ValueError):
                 args = {}
 
+        if context.await_approval is not None and _requires_approval(tool_name, context.approval_policy):
+            decision = await context.await_approval({
+                "threadId": context.thread_id,
+                "turnId": context.turn_id,
+                "toolName": tool_name,
+                "toolKind": _classify_tool_kind(tool_name),
+                "summary": f"Run tool '{tool_name}'",
+                "arguments": args,
+            })
+            if decision != "allow":
+                return ToolHostResult(item={
+                    "kind": "tool_result",
+                    "id": f"item_{context.turn_id}_{call.call_id}",
+                    "turnId": context.turn_id,
+                    "threadId": context.thread_id,
+                    "role": "tool",
+                    "status": "failed",
+                    "createdAt": _now_iso(),
+                    "finishedAt": _now_iso(),
+                    "toolName": tool_name,
+                    "callId": call.call_id,
+                    "toolKind": _classify_tool_kind(tool_name),
+                    "output": f"Tool '{tool_name}' was denied by approval policy",
+                    "isError": True,
+                })
+
         # Execute
         try:
             result = await self._registry.execute(tool_name, args)
@@ -316,6 +342,15 @@ def _classify_tool_kind(name: str) -> str:
     ):
         return "file_change"
     return "tool_call"
+
+
+def _requires_approval(name: str, approval_policy: str = "auto") -> bool:
+    """Return whether the KUN tool host should ask its approval gate."""
+    if approval_policy in ("never", "none", "disabled"):
+        return False
+    if approval_policy in ("untrusted", "suggest", "on_request", "always"):
+        return True
+    return name not in _PARALLEL_SAFE_NAMES
 
 
 def _now_iso() -> str:

@@ -50,6 +50,12 @@
   --success-bg: #d4f5e0;
   --warning: #F9D048;
   --warning-bg: #F9E8B0;
+  --approval-warning: #7c2d12;
+  --approval-warning-strong: #c2410c;
+  --approval-warning-bg: #fff7ed;
+  --approval-warning-border: #fb923c;
+  --approval-warning-pill-bg: #9a3412;
+  --approval-warning-pill-text: #ffffff;
   --danger: #c04040;
   --danger-bg: #F8E8E8;          /* ACTIVE FOR EDIT 文件卡片 */
   --info: #2066D0;               /* 链接 / 高亮提示蓝 */
@@ -67,8 +73,8 @@
   --tag-review-text: #a06000;
   --tag-completed-bg: rgba(32,102,208,0.12);   /* COMPLETED 标签（蓝色） */
   --tag-completed-text: #2066D0;
-  --tag-inprogress-bg: #e0ecff;  /* IN-PROGRESS 标签（浅蓝） */
-  --tag-inprogress-text: #2066D0;
+  --tag-inprogress-bg: #1D4ED8;  /* IN-PROGRESS 标签（深蓝，满足对比度） */
+  --tag-inprogress-text: #FFFFFF;
   --tag-cc-bg: rgba(124,58,237,0.12);          /* CC 标签（紫色） */
   --tag-cc-text: #7C3AED;
 
@@ -98,6 +104,12 @@
   --accent-hover: #e0b830;
   --accent-soft: #4a3a10;
   --accent-text: #121212;
+  --approval-warning: #fed7aa;
+  --approval-warning-strong: #f97316;
+  --approval-warning-bg: #3b2418;
+  --approval-warning-border: #c2410c;
+  --approval-warning-pill-bg: #f97316;
+  --approval-warning-pill-text: #1f130b;
   --bubble-user-bg: #3a3a5a;
   --bubble-user-text: #FFFFFF;
   --bubble-ai-bg: #2e2e2e;
@@ -206,10 +218,15 @@ code {
 .tag-inprogress {
   background: var(--tag-inprogress-bg);
   color: var(--tag-inprogress-text);
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  word-break: keep-all;
+  line-height: 1;
   font-size: 10px;
   font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -223,4 +240,22 @@ code {
   border-radius: 4px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+@keyframes approval-bypass-island-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.approval-bypass-island {
+  animation: approval-bypass-island-in 220ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  box-shadow:
+    0 14px 35px rgba(124, 45, 18, 0.14),
+    0 2px 10px rgba(124, 45, 18, 0.08);
 }

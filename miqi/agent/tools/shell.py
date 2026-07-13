@@ -33,6 +33,7 @@ class _ExecResult:
     duration_ms: int = 0
     cancelled: bool = False
     timed_out: bool = False
+    sandbox_type: str = "none"
 
 
 class ExecTool(Tool):
@@ -115,10 +116,8 @@ class ExecTool(Tool):
         thread_id = kwargs.pop("_thread_id", "")
 
         # Phase 31: consume SandboxSelection injected by ToolOrchestrator.
-        # This is the single source of truth for how this command must execute.
-        # ExecTool MUST NOT make an independent sandbox decision that
-        # contradicts this selection.
         _sandbox = kwargs.pop("_sandbox", None)
+        _session_key = kwargs.pop("_session_key", None)
 
         # Resolve sandbox_type for the begin event from the actual selection
         if _sandbox is not None:
@@ -200,6 +199,8 @@ class ExecTool(Tool):
                 # Phase 31.8: ledger runtime and thread_id for replay
                 ledger_runtime=ledger_runtime,
                 thread_id=thread_id,
+                # Session key for per-session sandbox isolation
+                session_key=_session_key,
             )
 
             # Phase 31: if ToolOrchestrator injected a SandboxSelection,
@@ -210,17 +211,14 @@ class ExecTool(Tool):
                     _sandbox, command, cwd, **exec_kwargs,
                 )
 
-            # Legacy path (no orchestrator): backward-compatible behavior.
+            # Legacy path (no orchestrator): session_key preferred, fall back to active sandbox
             if self._sandbox_manager is not None:
-                sandbox = self._sandbox_manager.active_sandbox
-                if not sandbox or not sandbox.is_running:
-                    for sb in self._sandbox_manager.list_sandboxes():
-                        if sb.get("is_running"):
-                            sandbox = self._sandbox_manager.get_sandbox(sb["session_key"])
-                            if sandbox is not None:
-                                break
-                    if sandbox is None:
-                        sandbox = await self._sandbox_manager.get_or_create("_auto_exec")
+                if _session_key:
+                    sandbox = await self._sandbox_manager.get_or_create(_session_key)
+                else:
+                    sandbox = self._sandbox_manager.active_sandbox
+                    if not sandbox or not sandbox.is_running:
+                        sandbox = None
                 if sandbox and sandbox.is_running:
                     return await self._execute_in_sandbox(
                         sandbox, command, cwd, **exec_kwargs,
@@ -272,6 +270,7 @@ class ExecTool(Tool):
         # Phase 31.8: ledger runtime for replay-persistent event recording
         ledger_runtime=None,
         thread_id: str = "",
+        session_key: str | None = None,
     ) -> _ExecResult:
         """Execute a command inside the bwrap sandbox with streaming I/O.
 
@@ -521,9 +520,9 @@ class ExecTool(Tool):
         turn_id: str = "",
         tool_call_id: str = "",
         cancel_event: asyncio.Event | None = None,
-        # Phase 31.8: ledger runtime for replay-persistent event recording
         ledger_runtime=None,
         thread_id: str = "",
+        session_key: str | None = None,
     ) -> _ExecResult:
         """Execute a command according to the ToolOrchestrator's SandboxSelection.
 
@@ -556,22 +555,15 @@ class ExecTool(Tool):
         if st == SandboxType.NONE:
             return await self._execute_direct(command, cwd, **common)
 
-        # ── BWRAP: strongest isolation; must be available ───────────────
+        # ── BWRAP: strongest isolation; session_key preferred ──────────
         if st == SandboxType.BWRAP:
             sandbox = None
             if self._sandbox_manager is not None:
-                # 1. Try active sandbox first
-                sandbox = self._sandbox_manager.active_sandbox
-                # 2. Try any running sandbox
-                if sandbox is None or not sandbox.is_running:
-                    for sb in self._sandbox_manager.list_sandboxes():
-                        if sb.get("is_running"):
-                            sandbox = self._sandbox_manager.get_sandbox(sb["session_key"])
-                            if sandbox is not None:
-                                break
-                # 3. Create a new sandbox with a default key
-                if sandbox is None:
-                    sandbox = await self._sandbox_manager.get_or_create("_auto_exec")
+                # Prefer session_key for per-session isolation, fall back to active sandbox
+                if session_key:
+                    sandbox = await self._sandbox_manager.get_or_create(session_key)
+                else:
+                    sandbox = self._sandbox_manager.active_sandbox
             if sandbox is not None and sandbox.is_running:
                 return await self._execute_in_sandbox(
                     sandbox, command, cwd, **common,
@@ -912,6 +904,7 @@ class ExecTool(Tool):
         # Phase 31.8: ledger runtime for replay-persistent exec event recording
         ledger_runtime=None,
         thread_id: str = "",
+        session_key: str | None = None,
     ) -> _ExecResult:
         """Execute a command directly on the host (no sandbox).
 

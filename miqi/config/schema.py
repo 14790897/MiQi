@@ -242,6 +242,44 @@ class CommandApprovalConfig(Base):
     allowlist: list[str] = Field(default_factory=list)  # pattern descriptions permanently approved
 
 
+class ApprovalBypassConfig(Base):
+    """Approval bypass switches.
+
+    ``bypass_all`` is intentionally separate from the legacy
+    agents.command_approval.enabled flag: it bypasses all approval prompts while
+    leaving explicit deny rules and validation failures in force.
+    """
+
+    bypass_all: bool = False
+    bypass_command_approval: bool = False
+    bypass_file_write_approval: bool = False
+    bypass_tool_confirmation: bool = False
+    bypass_network_approval: bool = False
+
+    @property
+    def enabled(self) -> bool:
+        return any((
+            self.bypass_all,
+            self.bypass_command_approval,
+            self.bypass_file_write_approval,
+            self.bypass_tool_confirmation,
+            self.bypass_network_approval,
+        ))
+
+    def bypasses_category(self, category: str) -> bool:
+        if self.bypass_all:
+            return True
+        if category == "exec":
+            return self.bypass_command_approval
+        if category == "file_write":
+            return self.bypass_file_write_approval
+        if category == "network":
+            return self.bypass_network_approval
+        if category == "tool_confirmation":
+            return self.bypass_tool_confirmation
+        return self.bypass_tool_confirmation
+
+
 class AgentSelfImprovementConfig(Base):
     """Self-improvement lesson configuration."""
 
@@ -372,6 +410,7 @@ class SandboxConfig(Base):
     share_net: bool = True  # Allow network access inside sandbox
     max_sandboxes: int = 10  # Maximum concurrent sandboxes
     auto_cleanup: bool = True  # Clean up sandbox on session archive/delete
+    auto_install_deps: bool = True  # Auto-install bwrap/coreutils/rsync in WSL if missing
     wsl_distro: str = "AIShadowSandbox"  # WSL distribution name (e.g. "AIShadowSandbox"). Auto-detected if empty on Windows.
 
     wsl_base_dir: str = "/tmp/miqi-sandboxes"  # Sandbox directory inside WSL filesystem
@@ -452,6 +491,7 @@ class ToolsConfig(Base):
 class Config(BaseSettings):
     """Root configuration for MiQi runtime."""
 
+    approvals: ApprovalBypassConfig = Field(default_factory=ApprovalBypassConfig)
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
@@ -585,5 +625,13 @@ class Config(BaseSettings):
                 return OpenAIProvider(api_key=api_key, api_base=api_base, extra_headers=headers, provider_name=provider_name, default_model=model)
         except Exception:
             return None
+
+    def effective_approval_bypass(self) -> ApprovalBypassConfig:
+        """Return approval bypass settings including legacy config semantics."""
+        if self.agents.command_approval.enabled:
+            return self.approvals
+        return self.approvals.model_copy(
+            update={"bypass_command_approval": True},
+        )
 
     model_config = ConfigDict(env_prefix="MIQI_", env_nested_delimiter="__")

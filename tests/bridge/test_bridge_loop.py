@@ -304,7 +304,6 @@ async def test_shutdown_cancels_pending_tasks():
 
 # ── Phase 41: Codex turn handler registration ────────────────────────────
 
-
 @pytest.mark.asyncio
 async def test_drain_chat_events_converts_tool_begin_to_tool_hint_progress():
     from miqi.bridge.loop import BridgeRuntimeLoop
@@ -353,6 +352,7 @@ async def test_drain_chat_events_converts_tool_begin_to_tool_hint_progress():
         thread_id="thread-asset",
         session_id="session-asset",
         client_id="client-asset",
+        session_key="session-asset",
     )
 
     progress = loop._app_server.events[0]
@@ -363,10 +363,10 @@ async def test_drain_chat_events_converts_tool_begin_to_tool_hint_progress():
             "text": 'write_file("/tmp/asset.txt")',
             "tool_hint": True,
             "tool_call_id": "tc-asset",
+            "session_key": "session-asset",
         },
         "request_id": "req-asset",
     }
-
 
 @pytest.mark.asyncio
 async def test_drain_chat_events_sends_backend_timeout_error_directly():
@@ -390,6 +390,7 @@ async def test_drain_chat_events_sends_backend_timeout_error_directly():
         thread_id="thread-timeout",
         session_id="session-timeout",
         client_id="client-timeout",
+        session_key="session-timeout",
     )
 
     assert capturer.messages[0] == {
@@ -397,6 +398,7 @@ async def test_drain_chat_events_sends_backend_timeout_error_directly():
         "type": "error",
         "data": {
             "message": "Turn timed out after 300s",
+            "session_key": "session-timeout",
         },
     }
 

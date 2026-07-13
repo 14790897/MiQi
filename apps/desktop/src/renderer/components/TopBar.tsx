@@ -1,12 +1,78 @@
+import { useEffect, useState } from 'react';
 import { useRuntime } from '../contexts/RuntimeContext';
-import { Cloud, ShieldCheck, RefreshCw, Loader2 } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
-export function TopBar() {
+interface ApprovalBypassStatus {
+  bypassAll?: boolean;
+  bypassCommandApproval?: boolean;
+  bypassFileWriteApproval?: boolean;
+  bypassToolConfirmation?: boolean;
+  bypassNetworkApproval?: boolean;
+}
+
+function isBypassEnabled(status: ApprovalBypassStatus | null): boolean {
+  if (!status) return false;
+  return Boolean(
+    status.bypassAll ||
+      status.bypassCommandApproval ||
+      status.bypassFileWriteApproval ||
+      status.bypassToolConfirmation ||
+      status.bypassNetworkApproval
+  );
+}
+
+function getBypassLabel(status: ApprovalBypassStatus | null): string {
+  if (status?.bypassAll) return 'BYPASS ALL';
+  return 'BYPASS';
+}
+
+function getBypassTitle(status: ApprovalBypassStatus | null): string {
+  if (status?.bypassAll) return 'Approval bypass enabled for all approval categories';
+  const labels: string[] = [];
+  if (status?.bypassCommandApproval) labels.push('command approval');
+  if (status?.bypassFileWriteApproval) labels.push('file-write approval');
+  if (status?.bypassToolConfirmation) labels.push('tool confirmation');
+  if (status?.bypassNetworkApproval) labels.push('network approval');
+  return labels.length > 0
+    ? `Approval bypass enabled for: ${labels.join(', ')}`
+    : 'Open approval settings';
+}
+
+export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
   const { status } = useRuntime();
+  const [approvalBypass, setApprovalBypass] = useState<ApprovalBypassStatus | null>(null);
 
   const isRunning = status.state === 'running';
   const isStarting = status.state === 'starting' || status.state === 'stopping';
+  const bypassEnabled = isBypassEnabled(approvalBypass);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadApprovalBypass = async () => {
+      if (!(window as any).miqi?.config?.get) {
+        if (!cancelled) setApprovalBypass(null);
+        return;
+      }
+      try {
+        const cfg = await window.miqi.config.get();
+        const approvals = (cfg.approvals ?? {}) as ApprovalBypassStatus;
+        if (!cancelled) {
+          setApprovalBypass(approvals);
+        }
+      } catch {
+        if (!cancelled) setApprovalBypass(null);
+      }
+    };
+    loadApprovalBypass();
+    window.addEventListener('miqi:approval-bypass-updated', loadApprovalBypass);
+    const timer = window.setInterval(loadApprovalBypass, 5000);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('miqi:approval-bypass-updated', loadApprovalBypass);
+      window.clearInterval(timer);
+    };
+  }, []);
 
   return (
     <div
@@ -25,12 +91,32 @@ export function TopBar() {
           MiQi
         </span>
         <span className="text-xs font-light opacity-50" style={{ color: 'var(--topbar-text)' }}>
-          Workbench
+          Desktop
         </span>
       </div>
 
       {/* Center: status pills */}
       <div className="flex items-center gap-2">
+        {bypassEnabled && (
+          <button
+            type="button"
+            onClick={onOpenApprovals}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold',
+              'transition-transform hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-[var(--approval-warning-border)]'
+            )}
+            style={{
+              background: 'var(--approval-warning-pill-bg)',
+              color: 'var(--approval-warning-pill-text)',
+              border: '1px solid var(--approval-warning-border)',
+            }}
+            title={getBypassTitle(approvalBypass)}
+            aria-label={getBypassTitle(approvalBypass)}
+          >
+            <AlertTriangle size={11} className="shrink-0" />
+            <span className="whitespace-nowrap">{getBypassLabel(approvalBypass)}</span>
+          </button>
+        )}
         {/* Sync state */}
         <div
           className={cn('flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium')}

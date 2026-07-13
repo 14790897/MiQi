@@ -71,7 +71,7 @@ class StoredRuntimeReader:
         Does NOT create a live RuntimeSession.
         """
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(str(self.db_path)) as db:
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS runtime_threads (
                     thread_id TEXT NOT NULL,
@@ -121,7 +121,7 @@ class StoredRuntimeReader:
         if not self.db_path.exists():
             return True
         try:
-            async with aiosqlite.connect(str(self.db_path)) as db:
+            async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
                 cursor = await db.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
                     (table_name,),
@@ -144,7 +144,7 @@ class StoredRuntimeReader:
         if await self._table_missing("runtime_threads"):
             return []
         rows: list[RuntimeThread] = []
-        async with aiosqlite.connect(str(self.db_path)) as db:
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 "SELECT * FROM runtime_threads ORDER BY updated_at ASC"
@@ -191,7 +191,7 @@ class StoredRuntimeReader:
     async def load_ledger_items(self, thread: RuntimeThread) -> list[LedgerItem]:
         if await self._table_missing("runtime_ledger_items"):
             return []
-        async with aiosqlite.connect(str(self.db_path)) as db:
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 """SELECT * FROM runtime_ledger_items
@@ -217,7 +217,7 @@ class StoredRuntimeReader:
         """Load provider-visible history items for a stored thread."""
         if await self._table_missing("runtime_history_items"):
             return []
-        async with aiosqlite.connect(str(self.db_path)) as db:
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 """SELECT * FROM runtime_history_items
@@ -281,7 +281,7 @@ class StoredRuntimeReader:
         if not items:
             return 0
         await self._ensure_schema()
-        async with aiosqlite.connect(str(self.db_path)) as db:
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
             for item in items:
                 await db.execute(
                     """INSERT INTO runtime_history_items
@@ -309,7 +309,7 @@ class StoredRuntimeReader:
         if not turn_ids or await self._table_missing("runtime_history_items"):
             return 0
         placeholders = ",".join("?" for _ in turn_ids)
-        async with aiosqlite.connect(str(self.db_path)) as db:
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
             cursor = await db.execute(
                 f"""DELETE FROM runtime_history_items
                     WHERE session_id = ? AND thread_id = ?
@@ -323,7 +323,7 @@ class StoredRuntimeReader:
         """Delete ALL history items for a thread (used during overwrite import)."""
         if await self._table_missing("runtime_history_items"):
             return 0
-        async with aiosqlite.connect(str(self.db_path)) as db:
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
             cursor = await db.execute(
                 "DELETE FROM runtime_history_items WHERE session_id = ? AND thread_id = ?",
                 (session_id, thread_id),
@@ -424,7 +424,7 @@ class StoredRuntimeReader:
         history_items = await self.load_history_items(source)
 
         await self._ensure_schema()
-        async with aiosqlite.connect(str(self.db_path)) as db:
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
             await db.execute(
                 """INSERT INTO runtime_threads
                    (thread_id, session_id, title, status, parent_thread_id,
@@ -508,7 +508,7 @@ class StoredRuntimeReader:
         removed = ordered[-drop_last_turns:] if drop_last_turns > 0 else []
 
         await self._ensure_schema()
-        async with aiosqlite.connect(str(self.db_path)) as db:
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
             seq_row = await db.execute(
                 """SELECT COALESCE(MAX(seq), 0) + 1
                    FROM runtime_ledger_items
@@ -560,7 +560,7 @@ class StoredRuntimeReader:
         target_thread_id = thread_id or raw_thread["thread_id"]
 
         await self._ensure_schema()
-        async with aiosqlite.connect(str(self.db_path)) as db:
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
             db.row_factory = aiosqlite.Row
             existing = await db.execute(
                 "SELECT 1 FROM runtime_threads WHERE session_id = ? AND thread_id = ?",

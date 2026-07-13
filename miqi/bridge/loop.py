@@ -131,11 +131,45 @@ class BridgeRuntimeLoop:
         # 5. Signal ready to Desktop (Electron bridge.ts waits for this)
         self._send({"type": "ready"})
 
+        # 5.5. Start sandbox manager initialization in background.
+        # First-run auto-install of WSL deps (apt-get) can take 60-120 s,
+        # so we fire-and-forget it here after the ready signal to avoid
+        # blocking the bridge handshake timeout.
+        asyncio.create_task(self._init_sandbox_manager())
+
         # 6. Drain request queue
         await self._drain_loop()
 
         # 7. Shutdown
         await self._shutdown()
+
+    # ── Sandbox manager initialization (background) ─────────────────────────
+
+    async def _init_sandbox_manager(self) -> None:
+        """Initialize the sandbox manager as a background task.
+
+        Runs after the "ready" handshake so that first-run WSL dependency
+        auto-install (apt-get install bubblewrap coreutils rsync) does not
+        block the bridge startup timeout.  SandboxManager.get_or_create()
+        handles the not-yet-initialized state gracefully by checking
+        availability on demand.
+        """
+        if self._bridge_state is None:
+            return
+        try:
+            self._bridge_state._ensure_sandbox_manager()
+        except Exception:
+            return
+        sandbox_mgr = getattr(self._bridge_state, "_sandbox_manager", None)
+        if sandbox_mgr is None or sandbox_mgr == "disabled":
+            return
+        try:
+            await sandbox_mgr.initialize()
+            logger.info("Sandbox manager initialized")
+        except TypeError:
+            pass  # mock in tests — initialize() is not async
+        except Exception as exc:
+            logger.warning("Sandbox manager initialization failed: {}", exc)
 
     # ── AppServer initialization ───────────────────────────────────────────
 
@@ -200,16 +234,10 @@ class BridgeRuntimeLoop:
         from miqi.runtime.thread_app_handlers import register_codex_thread_handlers
         register_codex_thread_handlers(self._app_server)
 
-        # Initialize sandbox manager (shared across all agents)
-        if self._bridge_state is not None:
-            self._bridge_state._ensure_sandbox_manager()
-            sandbox_mgr = getattr(self._bridge_state, "_sandbox_manager", None)
-            if sandbox_mgr is not None and sandbox_mgr != "disabled":
-                try:
-                    await sandbox_mgr.initialize()
-                except TypeError:
-                    pass  # mock in tests — initialize() is not async
-                logger.info("Sandbox manager initialized")
+        # Sandbox manager initialization is deferred to _run() after the
+        # "ready" signal so that slow first-run auto-install of WSL
+        # dependencies (apt-get) does not block the bridge handshake.
+        # See _run() → _init_sandbox_manager().
 
         # Register Phase 37: Codex-style plugin and marketplace handlers
         from miqi.runtime.plugin_app_handlers import register_plugin_app_handlers
@@ -575,6 +603,7 @@ class BridgeRuntimeLoop:
                 runtime=runtime,
                 thread_id=thread_id,
                 session_id=runtime_id,
+                session_key=session_key,
                 client_id=client_id,
             )
         )
@@ -602,6 +631,7 @@ class BridgeRuntimeLoop:
         thread_id: str,
         session_id: str,
         client_id: str,
+        session_key: str = "",
     ) -> None:
         """Background task: drain events from RuntimeSession and forward them.
 
@@ -613,6 +643,10 @@ class BridgeRuntimeLoop:
 
         async def _emit(event_type: str, data: Any) -> None:
             """Emit a non-terminal event through AppServer fanout."""
+            # Inject session_key so the frontend can filter events
+            # by session, preventing cross-session message leaks (#212).
+            if isinstance(data, dict):
+                data["session_key"] = session_key
             await app_server.emit_event(
                 session_id, event_type, data,
                 request_id=request_id,
@@ -629,6 +663,9 @@ class BridgeRuntimeLoop:
             if request_id in self._terminal_sent:
                 return False
             self._terminal_sent.add(request_id)
+            # Inject session_key so the frontend can filter (#212)
+            if isinstance(data, dict):
+                data["session_key"] = session_key
             self._send({
                 "id": request_id,
                 "type": event_type,
