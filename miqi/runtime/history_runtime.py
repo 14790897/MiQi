@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import aiosqlite
+from loguru import logger
 
 
 @dataclass(frozen=True)
@@ -184,14 +185,38 @@ class HistoryRuntime:
         row = await cursor.fetchone()
         if row is None:
             return None
+        # Issue #84: degrade on corrupted JSON columns instead of crashing
+        # the whole turn load (parity with load_items, which already skips
+        # corrupted payload_json with a warning).
+        try:
+            tools_used = json.loads(row["tools_used_json"])
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning(
+                "Corrupted tools_used_json for turn %s, degrading to []: %s",
+                turn_id, exc,
+            )
+            tools_used = []
+        if not isinstance(tools_used, list):
+            tools_used = []
+        try:
+            token_usage = json.loads(row["token_usage_json"])
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning(
+                "Corrupted token_usage_json for turn %s, degrading to {}: %s",
+                turn_id, exc,
+            )
+            token_usage = {}
+        if not isinstance(token_usage, dict):
+            token_usage = {}
+
         return TurnRecord(
             turn_id=row["turn_id"],
             thread_id=row["thread_id"],
             status=row["status"],
             started_at=row["started_at"],
             completed_at=row["completed_at"],
-            tools_used=json.loads(row["tools_used_json"]),
-            token_usage=json.loads(row["token_usage_json"]),
+            tools_used=tools_used,
+            token_usage=token_usage,
         )
 
     # ── history items ──────────────────────────────────────────────────
