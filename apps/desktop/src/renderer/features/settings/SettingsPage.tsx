@@ -68,6 +68,7 @@ function getNestedStr(obj: Record<string, unknown>, ...keys: string[]): string {
 function SandboxToggle() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [toggling, setToggling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     window.miqi.config
@@ -82,13 +83,35 @@ function SandboxToggle() {
     if (enabled === null) return;
     const next = !enabled;
     setToggling(true);
+    setError(null);
     try {
-      const result = await window.miqi.sandbox.setEnabled(next);
-      if (!('error' in result)) {
+      const result: any = await window.miqi.sandbox.setEnabled(next);
+      if (result && !result.error) {
         setEnabled(next);
+      } else {
+        setError(result?.error || '切换失败');
       }
-    } catch {
-      /* ignore */
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      // If bridge doesn't know sandbox.setEnabled yet (old code,
+      // not restarted), fall back to config.update only — it won't
+      // take effect until bridge restart, but at least persists.
+      if (msg.includes('Unknown method') || msg.includes('Bridge not running')) {
+        try {
+          await window.miqi.config.update({
+            tools: { sandbox: { enabled: next } },
+          });
+          setEnabled(next);
+          setError(next
+            ? '已保存，重启后生效'
+            : '已保存，重启后生效');
+          setTimeout(() => setError(null), 4000);
+          return;
+        } catch {
+          /* fall through to error display */
+        }
+      }
+      setError(msg || 'Bridge 通信失败');
     }
     setToggling(false);
   };
@@ -128,6 +151,9 @@ function SandboxToggle() {
             : (enabled ? '已开启（推荐）' : '已关闭')}
         </span>
       </div>
+      {error && (
+        <p className="text-xs text-[var(--warning)] mt-1 ml-1">{error}</p>
+      )}
     </div>
   );
 }
