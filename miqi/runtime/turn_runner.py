@@ -297,12 +297,18 @@ class TurnRunner:
 
             for tc, ctx in zip(response.tool_calls, contexts):
                 result_text = ctx.result or ""
+                # paper_search: keep full result so frontend can render cards
+                # other tools: truncate to 200 chars for preview
+                if tc.name == "paper_search":
+                    output_preview = result_text
+                else:
+                    output_preview = result_text[:200]
                 await self._events.emit(ToolCallEndEvent(
                     turn_id=turn.turn_id,
                     tool_call_id=tc.id,
                     tool_name=tc.name,
                     success=ctx.status == OrchestrationResult.SUCCESS,
-                    output_preview=result_text[:200],
+                    output_preview=output_preview,
                     output_size=len(result_text),
                     duration_ms=getattr(ctx, "duration_ms", 0),
                 ))
