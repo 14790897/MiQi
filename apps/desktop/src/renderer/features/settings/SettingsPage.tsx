@@ -67,8 +67,24 @@ function getNestedStr(obj: Record<string, unknown>, ...keys: string[]): string {
 // ---- Sandbox Toggle ----
 function SandboxToggle() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [ready, setReady] = useState<boolean | null>(null);
   const [toggling, setToggling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Poll runtime status to detect when sandbox becomes available
+  useEffect(() => {
+    const check = () => {
+      window.miqi.runtime
+        .status()
+        .then((s: any) => {
+          setReady(s?.sandbox_available === true);
+        })
+        .catch(() => {});
+    };
+    check();
+    const interval = setInterval(check, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     window.miqi.config
@@ -144,11 +160,15 @@ function SandboxToggle() {
         )}
         <span className={cn(
           'text-xs font-medium',
-          enabled ? 'text-[var(--accent)]' : 'text-[var(--warning)]',
+          enabled
+            ? (ready ? 'text-[var(--accent)]' : 'text-amber-400')
+            : 'text-[var(--warning)]',
         )}>
           {toggling
             ? (enabled ? '正在关闭…' : '正在开启…')
-            : (enabled ? '已开启（推荐）' : '已关闭')}
+            : enabled
+              ? (ready ? '已开启（推荐）' : '正在安装依赖…')
+              : '已关闭'}
         </span>
       </div>
       {error && (
