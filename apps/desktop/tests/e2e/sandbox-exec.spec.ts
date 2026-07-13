@@ -40,6 +40,21 @@ test.describe('Sandbox Exec E2E', () => {
     await closeElectronApp(electronApp, miqiHome);
   });
 
+  // ── Approval loop per e2e-test-workflow skill ─────────────────────
+  async function approveLoop(page: Page, timeout = 180_000) {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      const btn = page.getByRole('button', { name: '持久允许' })
+        .or(page.getByRole('button', { name: '永久允许' }));
+      if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await btn.click();
+      }
+      const thinking = await page.getByText('Thinking…').isVisible().catch(() => false);
+      if (!thinking) break;
+      await page.waitForTimeout(1000);
+    }
+  }
+
   // ── Initialization ──────────────────────────────────────────────
 
   test(
@@ -89,6 +104,11 @@ test.describe('Sandbox Exec E2E', () => {
       });
       console.log(`[debug] runtime.status → ${runtimeState}`);
 
+      // ── Template step 4: *:* wildcard pre-approve per e2e-test-workflow ──
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
+      );
+
       // ── Execute ─────────────────────────────────────────────────
       await createNewConversation(page);
       await sendMessage(
@@ -96,9 +116,13 @@ test.describe('Sandbox Exec E2E', () => {
         '用 exec 工具执行 pwd，只回复 exec 的实际输出，不要加任何解释',
       );
 
+      // ── Template step 5: auto-click approval loop per e2e-test-workflow ──
+      await approveLoop(page, 240_000);
+
+      // ── Template step 6: wait for final response stabilization ───
       await waitForResponseComplete(page, 240_000);
 
-      // ── Template step 4: capture full conversation ──────────────
+      // ── Template step 7: capture full conversation ──────────────
       const fullText = await page.evaluate(() => {
         const el = document.querySelector('main');
         return el?.textContent ?? '';

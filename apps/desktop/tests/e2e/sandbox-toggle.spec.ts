@@ -41,6 +41,21 @@ test.describe.serial('Sandbox Toggle E2E', () => {
     await closeElectronApp(electronApp, miqiHome);
   });
 
+  // ── Approval loop per e2e-test-workflow skill ─────────────────────
+  async function approveLoop(page: Page, timeout = 180_000) {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      const btn = page.getByRole('button', { name: '持久允许' })
+        .or(page.getByRole('button', { name: '永久允许' }));
+      if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await btn.click();
+      }
+      const thinking = await page.getByText('Thinking…').isVisible().catch(() => false);
+      if (!thinking) break;
+      await page.waitForTimeout(1000);
+    }
+  }
+
   // -- Helper: navigate to Settings General tab --
   async function openSettings(page: Page) {
     const settingsBtn = page.getByText('System Settings');
@@ -89,6 +104,7 @@ test.describe.serial('Sandbox Toggle E2E', () => {
     await createNewConversation(page);
     const prompt = '用 exec 工具执行: echo SANDBOX_ENV_CHECK=${MIQI_SANDBOX:-OFF}。只输出命令结果，不要解释。';
     await sendMessage(page, prompt);
+    await approveLoop(page, 180_000);
     await waitForResponseComplete(page, 180_000);
     const text = await page.locator('main').textContent();
     return text || '';
@@ -109,6 +125,11 @@ test.describe.serial('Sandbox Toggle E2E', () => {
     '1-baseline: ensure sandbox enabled and AI confirms',
     { timeout: LLM_TIMEOUT },
     async () => {
+      // ── *:* wildcard pre-approve per e2e-test-workflow ──────
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
+      );
+
       // Open settings and make sure toggle is ON
       await openSettings(page);
       const label = await getToggleLabel(page);
@@ -163,6 +184,11 @@ test.describe.serial('Sandbox Toggle E2E', () => {
         }
       });
       console.log(`[debug] runtime.status → ${sandboxStatus}`);
+
+      // ── Template step 4: *:* wildcard pre-approve per e2e-test-workflow ──
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
+      );
 
       await openSettings(page);
 
