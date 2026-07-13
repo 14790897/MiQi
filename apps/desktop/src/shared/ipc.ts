@@ -694,6 +694,9 @@ export interface TrackedFileInfo {
 export interface ChatProgress {
   text: string;
   tool_hint: boolean;
+  stream?: 'stdout' | 'stderr';
+  delta?: string;
+  tool_call_id?: string;
   /** Session key for frontend-side event filtering (fix #212).
    *  Optional for backward compatibility with backends that don't yet
    *  emit this field.  Should become required once all backends are

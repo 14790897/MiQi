@@ -56,7 +56,7 @@ test.describe('Native Electron E2E', () => {
   // ═══════════════════════════════════════════════════════════════
 
   test('app launches and renders correctly', async () => {
-    await expect(page.getByText('MiQi Workbench')).toBeVisible({
+    await expect(page.getByText('MiQi Desktop', { exact: true })).toBeVisible({
       timeout: 10_000,
     });
     await expect(
@@ -314,7 +314,7 @@ test.describe('Native Electron E2E', () => {
       });
       const page2 = await app2.firstWindow();
       await page2.waitForLoadState('domcontentloaded');
-      try { await page2.getByText('MiQi Workbench').waitFor({ timeout: 30000 }); } catch {}
+      try { await page2.getByText('MiQi Desktop', { exact: true }).waitFor({ timeout: 30000 }); } catch {}
       await waitForInputReady(page2, 30000);
 
       // Wait for bridge to initialize, then reload so ChatConsole re-fires

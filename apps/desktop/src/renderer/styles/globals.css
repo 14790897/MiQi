@@ -73,8 +73,8 @@
   --tag-review-text: #a06000;
   --tag-completed-bg: rgba(32,102,208,0.12);   /* COMPLETED 标签（蓝色） */
   --tag-completed-text: #2066D0;
-  --tag-inprogress-bg: #e0ecff;  /* IN-PROGRESS 标签（浅蓝） */
-  --tag-inprogress-text: #2066D0;
+  --tag-inprogress-bg: #1D4ED8;  /* IN-PROGRESS 标签（深蓝，满足对比度） */
+  --tag-inprogress-text: #FFFFFF;
   --tag-cc-bg: rgba(124,58,237,0.12);          /* CC 标签（紫色） */
   --tag-cc-text: #7C3AED;
 
@@ -218,10 +218,15 @@ code {
 .tag-inprogress {
   background: var(--tag-inprogress-bg);
   color: var(--tag-inprogress-text);
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  word-break: keep-all;
+  line-height: 1;
   font-size: 10px;
   font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }

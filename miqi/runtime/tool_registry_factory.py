@@ -178,6 +178,7 @@ def create_runtime_tool_registry(
 
     paper_provider = getattr(paper_cfg, "provider", "hybrid") if paper_cfg is not None else "hybrid"
     paper_api_key = getattr(paper_cfg, "semantic_scholar_api_key", None) if paper_cfg is not None else None
+    paper_core_key = getattr(paper_cfg, "core_api_key", None) if paper_cfg is not None else None
     paper_timeout = getattr(paper_cfg, "timeout_seconds", 20) if paper_cfg is not None else 20
     paper_default_limit = getattr(paper_cfg, "default_limit", 8) if paper_cfg is not None else 8
     paper_max_limit = getattr(paper_cfg, "max_limit", 20) if paper_cfg is not None else 20
@@ -203,6 +204,7 @@ def create_runtime_tool_registry(
             workspace=workspace,
             provider=paper_provider,
             semantic_scholar_api_key=paper_api_key,
+            core_api_key=paper_core_key,
             timeout_seconds=paper_timeout,
         )
     )
