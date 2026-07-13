@@ -1472,7 +1472,7 @@ export function ChatConsole({
           <div
             className="flex items-center gap-3 px-5 h-8 border-b shrink-0"
             style={{
-              background: '#FFFFFF',
+              background: 'var(--surface)',
               borderColor: 'var(--border-subtle)',
             }}
           >
@@ -1483,7 +1483,7 @@ export function ChatConsole({
               {sessionTitle}
             </h2>
             <span className="tag-inprogress shrink-0">IN PROGRESS</span>
-            <span className="text-[13px] shrink-0" style={{ color: '#4B5563' }}>
+            <span className="text-[13px] shrink-0" style={{ color: 'var(--text-muted)' }}>
               Updated 2 mins ago · 2 linked files · 2 Active Plugins
             </span>
             <button
@@ -1588,7 +1588,7 @@ export function ChatConsole({
           <div
             className="shrink-0 px-5 pb-4 pt-3"
             style={{
-              background: '#F2F5E8',
+              background: 'var(--background)',
             }}
           >
             <div className="max-w-[760px] mx-auto">
@@ -1628,7 +1628,7 @@ export function ChatConsole({
               <div
                 className="flex items-end gap-2 rounded-xl px-4 py-3.5 focus-within:ring-2 transition-all"
                 style={{
-                  background: '#FFFFFF',
+                  background: 'var(--surface)',
                   border: '1px solid var(--border)',
                   outline: 'none',
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
@@ -1912,7 +1912,7 @@ export function ChatConsole({
                 <p
                   id="merge-all-disabled-reason"
                   className="mt-1.5 text-[11px] text-center"
-                  style={{ color: '#4B5563' }}
+                  style={{ color: 'var(--text-muted)' }}
                 >
                   No changed files are available to merge.
                 </p>
