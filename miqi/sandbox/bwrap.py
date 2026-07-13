@@ -57,6 +57,18 @@ class BwrapSandboxError(Exception):
 _auto_install_cache: dict[str, bool] = {}
 """Cache auto-install results per distro to avoid repeated apt-get calls."""
 
+import threading
+_install_lock = threading.Lock()
+"""Serialize _ensure_wsl_deps to prevent concurrent apt-get.
+
+When sandbox init is deferred to background (after the bridge ready
+signal), a file_tool request may also trigger _ensure_wsl_deps via the
+lazy check in SandboxManager.get_or_create().  Without a lock two
+apt-get processes race on the dpkg lock and one fails.  This lock
+makes the second caller wait for the first install, then re-check with
+a quick ``which bwrap`` that succeeds immediately.
+"""
+
 
 class BwrapCommandHandle:
     """Handle to a running command inside the bwrap sandbox.
@@ -518,51 +530,96 @@ class BwrapSandbox:
         except (asyncio.TimeoutError, OSError):
             pass
 
-        logger.info(
-            "Auto-installing sandbox dependencies in WSL distro '{}'...", distro
-        )
-
-        # Determine whether sudo is needed
-        try:
-            check_sudo = await asyncio.create_subprocess_exec(
-                "wsl.exe", "-d", distro, "--", "bash", "-c", "command -v sudo",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+        # Serialize installation: if another thread is already running
+        # apt-get (e.g. sandbox manager background init), poll-wait for
+        # bwrap to become available instead of launching a second apt-get.
+        # This avoids concurrent apt-get processes racing on dpkg lock.
+        if not _install_lock.acquire(blocking=False):
+            logger.info(
+                "Concurrent apt-get detected in WSL distro '{}' — waiting...",
+                distro,
             )
-            await asyncio.wait_for(check_sudo.communicate(), timeout=30.0)
-            has_sudo = (check_sudo.returncode == 0)
-        except (asyncio.TimeoutError, OSError):
-            has_sudo = False
-
-        # Build install command
-        install_cmd = (
-            "export DEBIAN_FRONTEND=noninteractive; "
-            "apt-get update -qq 2>/dev/null; "
-            "apt-get install -y -qq bubblewrap coreutils rsync"
-        )
-        if has_sudo:
-            install_cmd = f"sudo bash -c '{install_cmd}'"
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "wsl.exe", "-d", distro, "--", "bash", "-c", install_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180.0)
-
-            if proc.returncode != 0:
-                err_msg = stderr.decode("utf-8", errors="replace")[:300] if stderr else "unknown error"
-                logger.warning(
-                    "Failed to install dependencies in WSL distro '{}': {}",
-                    distro, err_msg,
-                )
-                return False
-        except (asyncio.TimeoutError, OSError) as exc:
+            for i in range(180):
+                await asyncio.sleep(1)
+                try:
+                    recheck = await asyncio.create_subprocess_exec(
+                        "wsl.exe", "-d", distro, "--", "bash", "-c",
+                        "which bwrap",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    await asyncio.wait_for(recheck.communicate(), timeout=5.0)
+                    if recheck.returncode == 0:
+                        logger.info(
+                            "bwrap installed by concurrent thread in WSL "
+                            "distro '{}' after ~{}s", distro, i + 1,
+                        )
+                        return True
+                except (asyncio.TimeoutError, OSError):
+                    pass
             logger.warning(
-                "Failed to run apt install in WSL distro '{}': {}", distro, exc,
+                "Timed out waiting for concurrent apt-get in WSL distro '{}'",
+                distro,
             )
             return False
+
+        try:
+            logger.info(
+                "Auto-installing sandbox dependencies in WSL distro '{}'...",
+                distro,
+            )
+
+            # Determine whether sudo is needed
+            try:
+                check_sudo = await asyncio.create_subprocess_exec(
+                    "wsl.exe", "-d", distro, "--", "bash", "-c",
+                    "command -v sudo",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await asyncio.wait_for(check_sudo.communicate(), timeout=30.0)
+                has_sudo = (check_sudo.returncode == 0)
+            except (asyncio.TimeoutError, OSError):
+                has_sudo = False
+
+            # Build install command
+            install_cmd = (
+                "export DEBIAN_FRONTEND=noninteractive; "
+                "apt-get update -qq 2>/dev/null; "
+                "apt-get install -y -qq bubblewrap coreutils rsync"
+            )
+            if has_sudo:
+                install_cmd = f"sudo bash -c '{install_cmd}'"
+
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "wsl.exe", "-d", distro, "--", "bash", "-c",
+                    install_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(), timeout=180.0,
+                )
+
+                if proc.returncode != 0:
+                    err_msg = (
+                        stderr.decode("utf-8", errors="replace")[:300]
+                        if stderr else "unknown error"
+                    )
+                    logger.warning(
+                        "Failed to install dependencies in WSL distro "
+                        "'{}': {}", distro, err_msg,
+                    )
+                    return False
+            except (asyncio.TimeoutError, OSError) as exc:
+                logger.warning(
+                    "Failed to run apt install in WSL distro '{}': {}",
+                    distro, exc,
+                )
+                return False
+        finally:
+            _install_lock.release()
 
         # Verify bwrap is now available
         try:
