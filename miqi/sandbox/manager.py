@@ -298,18 +298,12 @@ class SandboxManager:
         if not self.enabled:
             return None
 
-        # Allow lazy initialization: if initialize() hasn't completed yet
-        # (it runs in background after the bridge ready signal), check
-        # availability on demand.  The _ensure_wsl_deps auto-install has
-        # its own cache so repeated calls are cheap after the first.
+        # Sandbox not yet initialized (background init running).
+        # Return None immediately — callers (file_tool, exec tool) will
+        # fall back to local execution.  Subsequent calls will succeed
+        # once the background init completes and _initialized = True.
         if not self._initialized:
-            if not await BwrapSandbox.is_available(
-                wsl_distro=self.wsl_distro,
-                auto_install_deps=self.auto_install_deps,
-            ):
-                return None
-            # Do NOT set _initialized here — let the background
-            # initialize() task handle that along with stale cleanup.
+            return None
 
         sandbox_key = self._sandbox_key(session_key, client_id=client_id)
 
