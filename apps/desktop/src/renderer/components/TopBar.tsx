@@ -50,11 +50,15 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false; // debounce guard: don't pile up requests when bridge is slow
+
     const loadApprovalBypass = async () => {
+      if (inFlight) return; // skip if previous request still pending
       if (!(window as any).miqi?.config?.get) {
         if (!cancelled) setApprovalBypass(null);
         return;
       }
+      inFlight = true;
       try {
         const cfg = await window.miqi.config.get();
         const approvals = (cfg.approvals ?? {}) as ApprovalBypassStatus;
@@ -62,12 +66,16 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
           setApprovalBypass(approvals);
         }
       } catch {
-        if (!cancelled) setApprovalBypass(null);
+        // Keep the last known good state — bridge may be temporarily busy
+        // Don't clear approvalBypass; a null here cascades into false
+        // "runtime not started" UI.  See PR #xxx.
+      } finally {
+        inFlight = false;
       }
     };
     loadApprovalBypass();
     window.addEventListener('miqi:approval-bypass-updated', loadApprovalBypass);
-    const timer = window.setInterval(loadApprovalBypass, 5000);
+    const timer = window.setInterval(loadApprovalBypass, 30_000);
     return () => {
       cancelled = true;
       window.removeEventListener('miqi:approval-bypass-updated', loadApprovalBypass);
