@@ -107,10 +107,10 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 
   return (
     <div className="p-6 max-w-lg flex flex-col gap-4">
-      <h3 className="text-sm font-semibold text-[var(--text)]">Agent 配置</h3>
+      <h3 className="text-sm font-semibold text-[var(--text)]">智能体配置</h3>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">Agent 名称</label>
+        <label className="text-xs font-medium text-[var(--text-muted)]">智能体名称</label>
         <Input
           value={agentName}
           onChange={(e) => setAgentName(e.target.value)}
@@ -919,7 +919,7 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
     <div className="flex flex-col h-full">
       <div className="px-6 py-4 border-b border-[var(--border-subtle)]">
         <h2 className="text-sm font-semibold text-[var(--text)]">设置</h2>
-        <p className="text-xs text-[var(--text-faint)] mt-0.5">配置 MiQi Agent 和外观</p>
+        <p className="text-xs text-[var(--text-faint)] mt-0.5">配置 MiQi 智能体和外观</p>
       </div>
 
       <Tabs.Root
@@ -932,14 +932,14 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
             { value: 'general', label: '通用' },
             { value: 'providers', label: '模型' },
             { value: 'channels', label: '渠道' },
-            { value: 'agents', label: 'Agents' },
+            { value: 'agents', label: '智能体' },
             { value: 'skills', label: '技能' },
             { value: 'mcps', label: 'MCPs' },
             { value: 'memory', label: '记忆' },
             { value: 'experience', label: '经验' },
             { value: 'approvals', label: '审批' },
             { value: 'workspace', label: '工作区' },
-            { value: 'webtools', label: 'Web 工具' },
+            { value: 'webtools', label: '网页工具' },
             { value: 'permissions', label: '权限' },
             { value: 'plugins', label: '插件' },
             { value: 'wsl', label: 'WSL' },
