@@ -150,9 +150,12 @@ class BridgeRuntimeLoop:
 
         Runs after the "ready" handshake so that first-run WSL dependency
         auto-install (apt-get install bubblewrap coreutils rsync) does not
-        block the bridge startup timeout.  SandboxManager.get_or_create()
-        handles the not-yet-initialized state gracefully by checking
-        availability on demand.
+        block the bridge startup timeout.
+
+        On first-time installs the sandbox starts disabled so tools run
+        on the host.  This method re-enables it before initialize() so
+        that deps actually get installed.  get_or_create() still returns
+        None until _initialized is set (by the end of initialize()).
         """
         if self._bridge_state is None:
             return
@@ -163,13 +166,42 @@ class BridgeRuntimeLoop:
         sandbox_mgr = getattr(self._bridge_state, "_sandbox_manager", None)
         if sandbox_mgr is None or sandbox_mgr == "disabled":
             return
+
+        # ── Auto-enable BEFORE initialize() ───────────────────────
+        need_auto_enable = not sandbox_mgr.enabled
+        if need_auto_enable:
+            sandbox_mgr.enabled = True
+            try:
+                from miqi.config.loader import save_config
+                config = self._bridge_state.load_config()
+                config.tools.sandbox.enabled = True
+                save_config(config)
+            except Exception as exc:
+                logger.warning(
+                    "sandbox auto-enable: config save failed: {}", exc,
+                )
+
+        log_msg = "Sandbox manager initialized"
         try:
             await sandbox_mgr.initialize()
-            logger.info("Sandbox manager initialized")
         except TypeError:
             pass  # mock in tests — initialize() is not async
         except Exception as exc:
             logger.warning("Sandbox manager initialization failed: {}", exc)
+            return
+
+        if need_auto_enable:
+            log_msg += " (auto-enabled after first-time install)"
+
+        logger.info(log_msg)
+
+        if self._app_server is not None:
+            try:
+                await self._app_server.emit_event(
+                    "sandbox.ready", {"enabled": True, "initialized": True},
+                )
+            except Exception:
+                pass
 
     # ── AppServer initialization ───────────────────────────────────────────
 
