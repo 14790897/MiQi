@@ -302,7 +302,7 @@ export default function WslStatusPage() {
             </div>
 
             {/* Detail table */}
-            <div className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-2xl overflow-hidden">
+            <div className="settings-hover-card bg-[var(--surface)] border border-[var(--border-subtle)] rounded-2xl overflow-hidden">
               <div className="px-5 py-3 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)]">
                 <span className="text-xs font-semibold text-[var(--text)]">详细信息</span>
               </div>
