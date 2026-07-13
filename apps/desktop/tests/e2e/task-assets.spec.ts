@@ -91,8 +91,10 @@ test.describe('Task Assets Panel E2E', () => {
       console.log(`[test] ✅ File created: ${filename}`);
 
       // ── Verify Task Assets panel shows the file ──
-      // No more "No files yet" — should have track entries now
-      await expect(page.getByText(/No files yet/)).not.toBeVisible({ timeout: 15_000 });
+      const assetsPanel = page.getByTestId('task-assets-panel');
+      const fileCard = assetsPanel.locator('.rounded-lg.p-2\\.5').filter({ hasText: filename }).first();
+      await expect(fileCard).toBeVisible({ timeout: 30_000 });
+      await expect(assetsPanel.getByText(/No files yet/)).not.toBeVisible({ timeout: 5_000 });
 
       // WRITE category should have the file
       await expect(page.getByText('ACTIVE FOR EDIT')).toBeVisible({ timeout: 10_000 });

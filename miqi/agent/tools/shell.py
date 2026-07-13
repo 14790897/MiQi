@@ -568,15 +568,15 @@ class ExecTool(Tool):
                 return await self._execute_in_sandbox(
                     sandbox, command, cwd, **common,
                 )
-            # FAIL CLOSED — do NOT silently run on the host.
-            return _ExecResult(
-                output=(
-                    "Error: BWRAP sandbox is required by policy but no sandbox "
-                    "is currently active.  The command was NOT executed on the "
-                    "host.  Check that the sandbox is running and retry."
-                ),
-                exit_code=1,
+            # Sandbox not available — fall back to direct execution
+            # (e.g. during first-time install when bwrap isn't ready yet).
+            # Attach a note so the AI knows it's running without isolation.
+            result = await self._execute_direct(command, cwd, **common)
+            result.output = (
+                "[sandbox not available — running on host]\n"
+                + result.output
             )
+            return result
 
         # ── LANDLOCK: not yet implemented ───────────────────────────────
         if st == SandboxType.LANDLOCK:

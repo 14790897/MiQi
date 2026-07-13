@@ -232,13 +232,50 @@ def require_subprocess():
         pytest.skip("subprocess executable is not available")
 
 
+def _has_wsl_bwrap() -> bool:
+    """Check whether bwrap is available inside any WSL distribution."""
+    import shutil
+    import subprocess
+    import sys
+
+    if sys.platform != "win32":
+        return False
+    if shutil.which("wsl.exe") is None:
+        return False
+    try:
+        result = subprocess.run(
+            ["wsl.exe", "-l", "-q"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return False
+        distros = [
+            l.strip().replace("\x00", "")
+            for l in result.stdout.splitlines()
+            if l.strip().replace("\x00", "")
+            and "docker-desktop" not in l.lower()
+        ]
+        for distro in distros:
+            check = subprocess.run(
+                ["wsl.exe", "-d", distro, "--", "bash", "-c", "which bwrap"],
+                capture_output=True, timeout=10,
+            )
+            if check.returncode == 0:
+                return True
+        return False
+    except Exception:
+        return False
+
+
 @pytest.fixture
 def require_bwrap():
-    """Skip the test if bubblewrap is not available."""
+    """Skip the test if bubblewrap is not available (native or via WSL)."""
     import sys
 
     if sys.platform == "win32":
-        pytest.skip("bwrap is not available on Windows (requires WSL)")
+        if not _has_wsl_bwrap():
+            pytest.skip("bwrap is not available on Windows (requires WSL with bwrap installed)")
+        return  # WSL bwrap found — allow test to run
     if not _has_bwrap():
         pytest.skip("bwrap executable is not available")
 

@@ -16,6 +16,7 @@ from miqi.protocol.events import (
     ExecCommandOutputDeltaEvent,
     ToolCallBeginEvent,
     ToolCallEndEvent,
+    ToolCallOutputDeltaEvent,
     TurnAbortedEvent,
     TurnCompleteEvent,
     TurnStartedEvent,
@@ -280,9 +281,46 @@ class CodexTurnEventAdapter:
         item["status"] = "completed"
         if event.output_preview:
             item["result"] = event.output_preview
+
+        notifications: list[dict[str, Any]] = [
+            self._notification(
+                "item/completed",
+                self._with_location({"item": item}),
+            ),
+        ]
+
+        # For paper_search: also emit the raw result as a progress event
+        # so the frontend can render formatted paper cards.
+        if event.tool_name == "paper_search" and event.output_preview:
+            notifications.append(self._notification(
+                "item/toolResult",
+                self._with_location({
+                    "text": event.output_preview,
+                    "tool_hint": True,
+                    "tool_name": "paper_search",
+                }),
+            ))
+
+        return notifications
+
+    # ── ToolCallOutputDeltaEvent ──────────────────────────────────────────
+
+    def _on_ToolCallOutputDeltaEvent(self, event: ToolCallOutputDeltaEvent) -> list[dict[str, Any]]:
+        """Stream incremental progress from a long-running tool (e.g. paper_download)."""
+        tool_item = self._tool_items.get(event.tool_call_id)
+        item_id = (
+            tool_item.get("id")
+            if tool_item
+            else f"{self.turn_id}:tool:{event.tool_call_id}"
+        )
         return [self._notification(
-            "item/completed",
-            self._with_location({"item": item}),
+            "item/toolExecution/outputDelta",
+            self._with_location({
+                "itemId": item_id,
+                "delta": event.delta,
+                "event": "item/toolExecution/outputDelta",
+                "message": event.delta,
+            }),
         )]
 
     # ── ApprovalRequestedEvent ────────────────────────────────────────────

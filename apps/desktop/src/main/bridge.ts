@@ -352,8 +352,9 @@ export class BridgeManager extends EventEmitter {
       // ── Ready handshake ────────────────────────────────────────────
       // Wait for the bridge to send {"type":"ready"} on stdout.
       // PyInstaller onefile exe first-run extraction to %TEMP% can take
-      // 5-15+ seconds — the old 1500 ms blind sleep was not enough.
-      // Fallback: 60 s timeout (generous for slow disks / first run).
+      // 5-15+ seconds.  First-run WSL dependency auto-install (apt-get
+      // install bubblewrap coreutils rsync) can take 60-120+ seconds.
+      // Timeout: 180 s to match the Python-side apt-get timeout.
       // ───────────────────────────────────────────────────────────────
       await new Promise<void>((_resolve, _reject) => {
         let settled = false;
@@ -386,10 +387,10 @@ export class BridgeManager extends EventEmitter {
         const timeout = setTimeout(() => {
           done(
             new Error(
-              'Bridge did not send ready signal within 60 s (PyInstaller extraction may be stuck)'
+              'Bridge did not send ready signal within 180 s (WSL dep install or PyInstaller extraction may be stuck)'
             )
           );
-        }, 60_000);
+        }, 180_000);
 
         lineReader.on('line', onReadyLine);
         bridgeProcess.once('close', onClose);

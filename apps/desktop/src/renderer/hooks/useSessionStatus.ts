@@ -46,41 +46,41 @@ export function useSessionStatus() {
           label: 'IN-PROGRESS',
           bg: 'var(--tag-inprogress-bg)',
           color: 'var(--tag-inprogress-text)',
-          cardBg: '#fffbe6',
-          cardBorder: '#f0e8c0',
+          cardBg: 'color-mix(in srgb, var(--surface) 88%, var(--tag-inprogress-bg))',
+          cardBorder: 'color-mix(in srgb, var(--border-subtle) 70%, var(--tag-inprogress-bg))',
         };
       case 'REVIEW':
         return {
           label: 'REVIEW',
           bg: 'var(--tag-review-bg)',
           color: 'var(--tag-review-text)',
-          cardBg: '#fefdf5',
-          cardBorder: '#f0e8c0',
+          cardBg: 'color-mix(in srgb, var(--surface) 88%, var(--tag-review-bg))',
+          cardBorder: 'color-mix(in srgb, var(--border-subtle) 70%, var(--tag-review-text))',
         };
       case 'COMPLETED':
         return {
           label: 'COMPLETED',
           bg: 'var(--tag-completed-bg)',
           color: 'var(--tag-completed-text)',
-          cardBg: '#f8fcf9',
-          cardBorder: '#d0e8d8',
+          cardBg: 'color-mix(in srgb, var(--surface) 88%, var(--tag-completed-bg))',
+          cardBorder: 'color-mix(in srgb, var(--border-subtle) 70%, var(--tag-completed-text))',
         };
       case 'CC':
         return {
           label: 'CC',
           bg: 'var(--tag-cc-bg)',
           color: 'var(--tag-cc-text)',
-          cardBg: '#f9f5ff',
-          cardBorder: '#d4c5f0',
+          cardBg: 'color-mix(in srgb, var(--surface) 88%, var(--tag-cc-bg))',
+          cardBorder: 'color-mix(in srgb, var(--border-subtle) 70%, var(--tag-cc-text))',
         };
       case 'PENDING':
       default:
         return {
           label: 'PENDING',
-          bg: '#f0f0ec',
-          color: '#888',
-          cardBg: '#fafaf9',
-          cardBorder: '#e8e8e0',
+          bg: 'var(--surface-muted)',
+          color: 'var(--text-faint)',
+          cardBg: 'var(--surface)',
+          cardBorder: 'var(--border-subtle)',
         };
     }
   }, []);

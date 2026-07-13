@@ -15,6 +15,8 @@ import {
   RotateCcw as Unarchive,
   ExternalLink,
   Copy,
+  Shield,
+  ShieldOff,
 } from 'lucide-react';
 import { useRuntime } from '../../contexts/RuntimeContext';
 import * as Tabs from '@radix-ui/react-tabs';
@@ -62,6 +64,120 @@ function getNestedStr(obj: Record<string, unknown>, ...keys: string[]): string {
   return cur == null ? '' : String(cur);
 }
 
+// ---- Sandbox Toggle ----
+function SandboxToggle() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [ready, setReady] = useState<boolean | null>(null);
+  const [toggling, setToggling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Poll runtime status to detect when sandbox becomes available
+  useEffect(() => {
+    const check = () => {
+      window.miqi.runtime
+        .status()
+        .then((s: any) => {
+          setReady(s?.sandbox_available === true);
+        })
+        .catch(() => {});
+    };
+    check();
+    const interval = setInterval(check, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    window.miqi.config
+      .get()
+      .then((cfg: any) => {
+        setEnabled(cfg?.tools?.sandbox?.enabled ?? true);
+      })
+      .catch(() => setEnabled(false));
+  }, []);
+
+  const handleToggle = async () => {
+    if (enabled === null) return;
+    const next = !enabled;
+    setToggling(true);
+    setError(null);
+    try {
+      const result: any = await window.miqi.sandbox.setEnabled(next);
+      if (result && !result.error) {
+        setEnabled(next);
+      } else {
+        setError(result?.error || '切换失败');
+      }
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      // If bridge doesn't know sandbox.setEnabled yet (old code,
+      // not restarted), fall back to config.update only — it won't
+      // take effect until bridge restart, but at least persists.
+      if (msg.includes('Unknown method') || msg.includes('Bridge not running')) {
+        try {
+          await window.miqi.config.update({
+            tools: { sandbox: { enabled: next } },
+          });
+          setEnabled(next);
+          setError(next
+            ? '已保存，重启后生效'
+            : '已保存，重启后生效');
+          setTimeout(() => setError(null), 4000);
+          return;
+        } catch {
+          /* fall through to error display */
+        }
+      }
+      setError(msg || 'Bridge 通信失败');
+    }
+    setToggling(false);
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={handleToggle}
+        disabled={toggling || enabled === null}
+        className={cn(
+          'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+          'disabled:opacity-50',
+          enabled
+            ? 'bg-[var(--accent)]'
+            : 'bg-[var(--border)]',
+        )}
+      >
+        <span
+          className={cn(
+            'inline-block h-4 w-4 rounded-full bg-white transition-transform',
+            enabled ? 'translate-x-6' : 'translate-x-1',
+          )}
+        />
+      </button>
+      <div className="flex items-center gap-1.5">
+        {enabled ? (
+          <Shield size={14} className="text-[var(--accent)]" />
+        ) : (
+          <ShieldOff size={14} className="text-[var(--warning)]" />
+        )}
+        <span className={cn(
+          'text-xs font-medium',
+          enabled
+            ? (ready ? 'text-[var(--accent)]' : 'text-amber-400')
+            : 'text-[var(--warning)]',
+        )}>
+          {toggling
+            ? (enabled ? '正在关闭…' : '正在开启…')
+            : enabled
+              ? (ready ? '已开启（推荐）' : '正在安装依赖…')
+              : '已关闭'}
+        </span>
+      </div>
+      {error && (
+        <p className="text-xs text-[var(--warning)] mt-1 ml-1">{error}</p>
+      )}
+    </div>
+  );
+}
+
 // ---- General Config Tab ----
 function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
   const [agentName, setAgentName] = useState('');
@@ -107,10 +223,10 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 
   return (
     <div className="p-6 max-w-lg flex flex-col gap-4">
-      <h3 className="text-sm font-semibold text-[var(--text)]">Agent 配置</h3>
+      <h3 className="text-sm font-semibold text-[var(--text)]">智能体配置</h3>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">Agent 名称</label>
+        <label className="text-xs font-medium text-[var(--text-muted)]">智能体名称</label>
         <Input
           value={agentName}
           onChange={(e) => setAgentName(e.target.value)}
@@ -180,6 +296,16 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
         {saved ? <Check size={14} /> : <Save size={14} />}
         {saved ? '已保存' : '保存'}
       </Button>
+
+      {/* ---- Sandbox ---- */}
+      <div className="pt-4 border-t border-[var(--border-subtle)]">
+        <h3 className="text-sm font-semibold text-[var(--text)] mb-1">沙箱隔离</h3>
+        <p className="text-xs text-[var(--text-faint)] mb-3">
+          开启后 AI 的文件操作和命令执行在 WSL2 bwrap 沙箱中运行，保护主机安全。
+          关闭后直接操作主机文件系统（无隔离，性能更好但风险更高）。
+        </p>
+        <SandboxToggle />
+      </div>
 
       {/* ---- Danger Zone ---- */}
       <div className="mt-6 pt-4 border-t border-[var(--border-subtle)]">
@@ -281,7 +407,7 @@ function WebToolsTab() {
     <button
       onClick={() => set(value)}
       className={cn(
-        'px-3 py-1.5 rounded-lg text-xs border transition-colors',
+        'settings-hover-tab px-3 py-1.5 rounded-lg text-xs border',
         current === value
           ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
           : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)] hover:border-[var(--accent)]'
@@ -428,16 +554,18 @@ function AppearanceTab() {
       <h3 className="text-sm font-semibold text-[var(--text)]">外观</h3>
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-medium text-[var(--text-muted)]">主题</label>
-        <div className="flex gap-2">
+        <div className="inline-flex w-fit items-center gap-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-muted)] p-1">
           {(['light', 'dark', 'system'] as ThemeMode[]).map((m) => (
             <button
               key={m}
               onClick={() => applyTheme(m)}
+              aria-pressed={theme === m}
               className={cn(
-                'px-4 py-2 rounded-lg text-xs border transition-colors',
+                'settings-hover-tab rounded-md px-3.5 py-1.5 text-xs font-medium',
+                'focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30',
                 theme === m
-                  ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
-                  : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--text)]'
+                  ? 'bg-[var(--accent)] text-[var(--accent-text)] shadow-sm'
+                  : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'
               )}
             >
               {m === 'light' ? '浅色' : m === 'dark' ? '深色' : '跟随系统'}
@@ -573,7 +701,7 @@ function LogsTab() {
             key={tab.value}
             onClick={() => setLogTab(tab.value)}
             className={cn(
-              'px-3 py-1 rounded-lg text-xs border transition-colors',
+              'settings-hover-tab px-3 py-1 rounded-lg text-xs border',
               logTab === tab.value
                 ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
                 : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)] hover:border-[var(--accent)]'
@@ -744,7 +872,7 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
       {sessions.length === 0 ? (
         <div className="text-xs text-[var(--text-faint)] text-center py-12">暂无已归档的对话</div>
       ) : (
-        <div className="flex flex-col border border-[var(--border-subtle)] rounded-lg overflow-hidden">
+        <div className="settings-hover-card flex flex-col border border-[var(--border-subtle)] rounded-lg overflow-hidden">
           {sessions.map((s) => (
             <div
               key={s.key}
@@ -865,7 +993,7 @@ function DocsTab() {
         {DOCS_TREE.map((section) => (
           <div
             key={section.href}
-            className="border border-[var(--border-subtle)] rounded-lg overflow-hidden"
+            className="settings-hover-card border border-[var(--border-subtle)] rounded-lg overflow-hidden"
           >
             <a
               href={DOCS_BASE + section.href}
@@ -919,7 +1047,7 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
     <div className="flex flex-col h-full">
       <div className="px-6 py-4 border-b border-[var(--border-subtle)]">
         <h2 className="text-sm font-semibold text-[var(--text)]">设置</h2>
-        <p className="text-xs text-[var(--text-faint)] mt-0.5">配置 MiQi Agent 和外观</p>
+        <p className="text-xs text-[var(--text-faint)] mt-0.5">配置 MiQi 智能体和外观</p>
       </div>
 
       <Tabs.Root
@@ -932,14 +1060,14 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
             { value: 'general', label: '通用' },
             { value: 'providers', label: '模型' },
             { value: 'channels', label: '渠道' },
-            { value: 'agents', label: 'Agents' },
+            { value: 'agents', label: '智能体' },
             { value: 'skills', label: '技能' },
             { value: 'mcps', label: 'MCPs' },
             { value: 'memory', label: '记忆' },
             { value: 'experience', label: '经验' },
             { value: 'approvals', label: '审批' },
             { value: 'workspace', label: '工作区' },
-            { value: 'webtools', label: 'Web 工具' },
+            { value: 'webtools', label: '网页工具' },
             { value: 'permissions', label: '权限' },
             { value: 'plugins', label: '插件' },
             { value: 'wsl', label: 'WSL' },
@@ -952,7 +1080,7 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
               key={tab.value}
               value={tab.value}
               className={cn(
-                'px-4 py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap',
+                'settings-hover-tab px-4 py-2.5 text-xs font-medium border-b-2 -mb-px whitespace-nowrap',
                 'text-[var(--text-muted)] border-transparent',
                 'hover:text-[var(--text)]',
                 'data-[state=active]:text-[var(--accent)] data-[state=active]:border-[var(--accent)]'
