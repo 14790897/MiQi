@@ -72,14 +72,10 @@ test.describe.serial('Sandbox Toggle E2E', () => {
   }
 
   // -- Helper: ask AI to check MIQI_SANDBOX env var --
-  //  Avoids whoami/pwd (blocked by bwrap seccomp) — only checks env.
   async function askSandboxEnv(page: Page): Promise<string> {
     await createNewConversation(page);
-    await sendMessage(
-      page,
-      '用 exec 工具执行下面这行命令，只输出命令的实际结果，不要加任何解释：\n'
-      + 'echo "SANDBOX_ENV:${MIQI_SANDBOX:-OFF}"',
-    );
+    const prompt = '用 exec 工具执行: echo SANDBOX_ENV_CHECK=${MIQI_SANDBOX:-OFF}。只输出命令结果，不要解释。';
+    await sendMessage(page, prompt);
     await waitForResponseComplete(page, 180_000);
     const text = await page.locator('main').textContent();
     return text || '';
@@ -87,13 +83,12 @@ test.describe.serial('Sandbox Toggle E2E', () => {
 
   // -- Helper: check if sandbox env is present in AI output --
   function sandboxIsOn(output: string): boolean {
-    // MIQI_SANDBOX is set → "SANDBOX_ENV:<key>" (not "SANDBOX_ENV:OFF")
-    return /SANDBOX_ENV:(?!OFF\b)/.test(output);
+    return /ENV_CHECK=(?!OFF\b)/.test(output);
   }
 
   // -- Helper: check if sandbox env is absent --
   function sandboxIsOff(output: string): boolean {
-    return output.includes('SANDBOX_ENV:OFF');
+    return output.includes('ENV_CHECK=OFF');
   }
 
   // ── 1. Ensure sandbox is ON, then verify via AI ─────────────────
