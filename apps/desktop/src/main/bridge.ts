@@ -757,7 +757,12 @@ export class BridgeManager extends EventEmitter {
 
     const id = randomUUID();
     const request: BridgeRequest = { id, method, params };
-    const timeoutMs = options.timeoutMs ?? (method === 'chat.send' ? CHAT_SEND_TIMEOUT_MS : 30_000);
+    // Methods that may be slow during first-time auto-export/install
+    // (2-5 min): chat.send, thread/start, sandbox.setEnabled
+    const SLOW_METHODS = new Set(['chat.send', 'thread/start', 'sandbox.setEnabled']);
+    const timeoutMs = options.timeoutMs ?? (
+      SLOW_METHODS.has(method) ? CHAT_SEND_TIMEOUT_MS : 30_000
+    );
     const startMs = Date.now();
 
     const logSlow = () => {
