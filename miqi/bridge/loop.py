@@ -1286,6 +1286,7 @@ class BridgeRuntimeLoop:
                 auto_install_deps=getattr(sb_cfg, "auto_install_deps", True),
                 wsl_distro=getattr(sb_cfg, "wsl_distro", ""),
                 wsl_base_dir=getattr(sb_cfg, "wsl_base_dir", "/tmp/miqi-sandboxes"),
+                sandbox_provider=getattr(sb_cfg, "sandbox_provider", "bwrap"),
             )
             self._bridge_state._sandbox_manager = new_mgr
             # Initialize in background (may trigger apt-get)

@@ -54,6 +54,7 @@ class SandboxType(str, Enum):
     """Available sandbox isolation levels."""
     NONE = "none"          # No sandbox — direct execution
     BWRAP = "bwrap"        # Linux bubblewrap (strongest isolation)
+    OPEN_SANDBOX = "opensandbox"  # Docker/OpenSandbox container isolation
     LANDLOCK = "landlock"  # Linux Landlock LSM (lighter than bwrap)
     RESTRICTED = "restricted"  # Process-level restrictions only
 
@@ -127,10 +128,12 @@ class SandboxPolicyEngine:
         self,
         bwrap_available: bool = False,
         landlock_available: bool = False,
+        opensandbox_available: bool = False,
         default_timeout_ms: int = 30_000,
         allow_fallback_to_none: bool = True,
     ):
         self.bwrap_available = bwrap_available
+        self.opensandbox_available = opensandbox_available
         # landlock_available reflects host-kernel capability only.
         # landlock_supported reflects whether MiQi has a real adapter.
         # Both must be True for LANDLOCK to ever be selected.
@@ -232,12 +235,15 @@ class SandboxPolicyEngine:
     def _base_sandbox_type(self, tool_name: str) -> SandboxType:
         """Determine the preferred sandbox type for a tool.
 
+        Priority: OPEN_SANDBOX > BWRAP > LANDLOCK > RESTRICTED > NONE.
         LANDLOCK requires BOTH:
           - landlock_available (host kernel supports Landlock LSM)
           - landlock_supported (MiQi has a real Landlock adapter)
         Currently landlock_supported is always False.
         """
         if tool_name in self.STRONG_SANDBOX_TOOLS:
+            if self.opensandbox_available:
+                return SandboxType.OPEN_SANDBOX
             if self.bwrap_available:
                 return SandboxType.BWRAP
             if self.landlock_available and self.landlock_supported:
@@ -246,6 +252,8 @@ class SandboxPolicyEngine:
 
         # File mutation tools: moderate isolation
         if tool_name in self.FILE_MUTATION_TOOLS:
+            if self.opensandbox_available:
+                return SandboxType.OPEN_SANDBOX
             return SandboxType.RESTRICTED
 
         return SandboxType.NONE
@@ -259,6 +267,7 @@ class SandboxPolicyEngine:
         """
         chain: list[SandboxType] = [base]
         all_types = [
+            SandboxType.OPEN_SANDBOX,
             SandboxType.BWRAP,
             SandboxType.LANDLOCK,
             SandboxType.RESTRICTED,
@@ -293,7 +302,8 @@ class SandboxPolicyEngine:
                 "No sandbox available for exec — "
                 "NONE fallback is disabled for exec because it would "
                 "run arbitrary commands directly on the host without "
-                "any isolation. Configure bwrap_available=True or "
+                "any isolation. Ensure Docker is available for "
+                "OPEN_SANDBOX, or bwrap_available=True for BWRAP, or "
                 "set network_allowed=True on the permission profile "
                 "to allow RESTRICTED execution."
             )

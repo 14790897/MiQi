@@ -173,12 +173,21 @@ class RuntimeServices:
             and sandbox_manager != "disabled"
             and getattr(sandbox_manager, "enabled", False)
             and getattr(sandbox_manager, "_initialized", False)
+            and getattr(sandbox_manager, "sandbox_provider", "bwrap") == "bwrap"
+        )
+        opensandbox_available = (
+            sandbox_manager is not None
+            and sandbox_manager != "disabled"
+            and getattr(sandbox_manager, "enabled", False)
+            and getattr(sandbox_manager, "_initialized", False)
+            and getattr(sandbox_manager, "sandbox_provider", "bwrap") == "opensandbox"
         )
 
         orchestrator = create_default_orchestrator(
             tool_registry=tool_registry,
             event_emitter=emitter,
             bwrap_available=bwrap_available,
+            opensandbox_available=opensandbox_available,
             approval_bypass=approval_bypass,
         )
 
