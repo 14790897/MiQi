@@ -509,6 +509,122 @@ class BwrapSandbox:
             return None
         except (asyncio.TimeoutError, OSError, ValueError):
             return None
+    @staticmethod
+    async def _ensure_sandbox_distro(target_name: str = "AIShadowSandbox") -> bool:
+        """Create a dedicated sandbox WSL distro if it does not exist.
+
+        Exports the first available non-docker WSL distro to a temporary
+        tar file, then imports it as a new distro with the given name.
+        This gives the sandbox a root-user distro that can install
+        packages without sudo password prompts.
+
+        Returns True if the distro already exists or was created.
+        """
+        # Check if already exists
+        try:
+            check = await asyncio.create_subprocess_exec(
+                "wsl.exe", "-d", target_name, "--", "bash", "-c",
+                "echo ok",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(check.communicate(), timeout=10.0)
+            if check.returncode == 0:
+                logger.info(
+                    "Sandbox distro '{}' already exists", target_name,
+                )
+                return True
+        except (asyncio.TimeoutError, OSError):
+            pass
+
+        # Find a source distro to export
+        source = await BwrapSandbox._find_any_wsl_distro(preferred="")
+        if source is None:
+            logger.warning("No WSL distro available to create sandbox from")
+            return False
+
+        logger.info(
+            "Creating sandbox distro '{}' from '{}' (this may take "
+            "2-5 minutes)...", target_name, source,
+        )
+
+        tar_path = None
+        try:
+            fd, tar_path = tempfile.mkstemp(
+                suffix=".tar", prefix="miqi-sandbox-",
+            )
+            os.close(fd)
+
+            # Export source distro
+            export_proc = await asyncio.create_subprocess_exec(
+                "wsl.exe", "--export", source, tar_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, export_stderr = await asyncio.wait_for(
+                export_proc.communicate(), timeout=300.0,
+            )
+            if export_proc.returncode != 0:
+                err = (
+                    export_stderr.decode("utf-8", errors="replace")[:200]
+                    if export_stderr else "unknown error"
+                )
+                logger.warning(
+                    "Failed to export distro '{}': {}", source, err,
+                )
+                return False
+
+            # Import as WSL2 sandbox distro in LOCALAPPDATA
+            install_dir = str(
+                Path(
+                    os.environ.get("LOCALAPPDATA", "")
+                    or os.environ.get("APPDATA", "")
+                    or Path.home() / "AppData" / "Local"
+                )
+                / "MiQi Sandbox"
+            )
+
+            import_proc = await asyncio.create_subprocess_exec(
+                "wsl.exe", "--import", target_name,
+                install_dir, tar_path,
+                "--version", "2",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, import_stderr = await asyncio.wait_for(
+                import_proc.communicate(), timeout=120.0,
+            )
+            if import_proc.returncode != 0:
+                err = (
+                    import_stderr.decode("utf-8", errors="replace")[:200]
+                    if import_stderr else "unknown error"
+                )
+                logger.warning(
+                    "Failed to import sandbox distro '{}': {}",
+                    target_name, err,
+                )
+                return False
+
+            logger.info(
+                "Sandbox distro '{}' created (installed at {})",
+                target_name, install_dir,
+            )
+            return True
+
+        except (asyncio.TimeoutError, OSError) as exc:
+            logger.warning(
+                "Failed to create sandbox distro '{}': {}",
+                target_name, exc,
+            )
+            return False
+        finally:
+            if tar_path and os.path.exists(tar_path):
+                try:
+                    os.remove(tar_path)
+                except OSError:
+                    pass
+
+    @staticmethod
     async def _ensure_wsl_deps(distro: str) -> bool:
         """Install required packages in a WSL distro and verify bwrap.
 
@@ -1333,22 +1449,34 @@ class BwrapSandbox:
         """Check if bwrap is available (natively or via WSL).
 
         When ``auto_install_deps`` is True and running on Windows, if no
-        WSL distro has bwrap installed, this method will attempt to install
-        the required packages (bubblewrap, coreutils, rsync) automatically.
+        WSL distro has bwrap installed, this method will:
+        1. Auto-create a dedicated sandbox distro (AIShadowSandbox)
+           by exporting the first available distro
+        2. Install bubblewrap, coreutils, rsync into it
         """
         if _is_windows():
             distro = await BwrapSandbox._detect_wsl_distro(wsl_distro)
             if distro is not None:
                 return True
-            # No distro with bwrap — try auto-install
+            # No distro with bwrap — try auto-setup
             if auto_install_deps:
-                install_distro = await BwrapSandbox._find_any_wsl_distro(wsl_distro)
+                # Ensure a dedicated sandbox distro exists
+                target = wsl_distro or "AIShadowSandbox"
+                if await BwrapSandbox._ensure_sandbox_distro(target):
+                    install_distro = target
+                else:
+                    install_distro = await BwrapSandbox._find_any_wsl_distro(
+                        wsl_distro,
+                    )
+
                 if install_distro:
                     cached = _auto_install_cache.get(install_distro)
                     if cached is False:
                         return False  # already tried and failed
                     if await BwrapSandbox._ensure_wsl_deps(install_distro):
-                        distro = await BwrapSandbox._detect_wsl_distro(install_distro)
+                        distro = await BwrapSandbox._detect_wsl_distro(
+                            install_distro,
+                        )
                         result = distro is not None
                     else:
                         result = False
