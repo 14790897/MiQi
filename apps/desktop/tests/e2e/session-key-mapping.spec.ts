@@ -28,7 +28,11 @@ async function sendAndWait(page: Page, text: string, loopTimeout = 180_000) {
   await inputX.fill('');
   await inputX.type(text);
   await inputX.press('Enter');
-  await page.waitForTimeout(1500);
+  // Wait for AI to start processing before running approval loop
+  // (e2e-test-workflow: two-phase wait — appear first, then disappear)
+  await page.getByText('Thinking…').waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {
+    console.log('[test] Thinking… did not appear within 30s');
+  });
   await approveLoop(page, loopTimeout);
 }
 
