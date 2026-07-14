@@ -233,7 +233,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
       <h3 className="text-sm font-semibold text-[var(--text)]">智能体配置</h3>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">智能体名称</label>
+        <label className="text-[13px] font-medium text-[var(--text-muted)]">智能体名称</label>
         <Input
           value={agentName}
           onChange={(e) => setAgentName(e.target.value)}
@@ -242,7 +242,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">工作目录</label>
+        <label className="text-[13px] font-medium text-[var(--text-muted)]">工作目录</label>
         <div className="flex gap-2">
           <Input
             value={workspace}
@@ -264,7 +264,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">默认模型</label>
+        <label className="text-[13px] font-medium text-[var(--text-muted)]">默认模型</label>
         <Input
           value={model}
           onChange={(e) => setModel(e.target.value)}
@@ -274,7 +274,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-[var(--text-muted)]">Temperature</label>
+          <label className="text-[13px] font-medium text-[var(--text-muted)]">Temperature</label>
           <Input
             type="number"
             min="0"
@@ -286,7 +286,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-[var(--text-muted)]">Max Tokens</label>
+          <label className="text-[13px] font-medium text-[var(--text-muted)]">Max Tokens</label>
           <Input
             type="number"
             min="256"
@@ -436,7 +436,7 @@ function WebToolsTab() {
         </div>
         {(searchProvider === 'brave' || searchProvider === 'hybrid') && (
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[var(--text-muted)]">
+            <label className="text-[13px] font-medium text-[var(--text-muted)]">
               Brave Search API Key
             </label>
             <div className="flex gap-2">
@@ -466,7 +466,7 @@ function WebToolsTab() {
         {(fetchProvider === 'ollama' || fetchProvider === 'hybrid') && (
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)]">
+              <label className="text-[13px] font-medium text-[var(--text-muted)]">
                 Ollama web_fetch Base URL
               </label>
               <Input
@@ -476,7 +476,7 @@ function WebToolsTab() {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)]">
+              <label className="text-[13px] font-medium text-[var(--text-muted)]">
                 Ollama web_fetch API Key
               </label>
               <Input
@@ -511,7 +511,7 @@ function WebToolsTab() {
         </div>
         {(papersProvider === 'hybrid' || papersProvider === 'semantic_scholar') && (
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[var(--text-muted)]">
+            <label className="text-[13px] font-medium text-[var(--text-muted)]">
               Semantic Scholar API Key（可选）
             </label>
             <Input
@@ -565,7 +565,7 @@ function AppearanceTab() {
       <div className="p-6 max-w-lg flex flex-col gap-4">
         <h3 className="text-sm font-semibold text-[var(--text)]">外观</h3>
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-[var(--text-muted)]">主题</label>
+          <label className="text-[13px] font-medium text-[var(--text-muted)]">主题</label>
           <div className="flex items-stretch gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
             {modes.map(({ value, label, icon }) => (
               <button
