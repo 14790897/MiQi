@@ -121,7 +121,7 @@ export async function getSidebarSessionCount(page: Page): Promise<number> {
 /** Create a new conversation via sidebar "+" button and wait for it to be ready.
  *  In the redesigned UI there is no "New Chat" header button — sidebar "+" is the canonical way. */
 export async function createNewConversation(page: Page): Promise<string> {
-  const sidebarPlusBtn = page.locator('button[title="New Session"]');
+  const sidebarPlusBtn = page.locator('button[title="New Session"], button[title="新建会话"]');
   await expect(sidebarPlusBtn).toBeVisible();
   await sidebarPlusBtn.click();
   // Wait for the new session to load — input becomes enabled when ChatConsole mounts
@@ -144,7 +144,7 @@ export async function switchToSessionWithMarker(
   marker: string,
 ): Promise<boolean> {
   // Ensure the Tasks section is scrolled into view
-  const tasksHeader = page.getByText('Tasks').first();
+  const tasksHeader = page.getByText(/^(Tasks|任务)$/).first();
   await tasksHeader.scrollIntoViewIfNeeded().catch(() => {});
 
   const items = getSidebarSessionItems(page);

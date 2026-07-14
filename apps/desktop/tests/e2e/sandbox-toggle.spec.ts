@@ -58,7 +58,7 @@ test.describe.serial('Sandbox Toggle E2E', () => {
 
   // -- Helper: navigate to Settings General tab --
   async function openSettings(page: Page) {
-    const settingsBtn = page.getByText('System Settings');
+    const settingsBtn = page.getByText(/^(System Settings|系统设置)$/);
     await expect(settingsBtn).toBeVisible({ timeout: 10_000 });
     await settingsBtn.click();
     await page.waitForTimeout(1500);

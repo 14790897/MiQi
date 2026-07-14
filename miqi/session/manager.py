@@ -1,9 +1,12 @@
 """Session management for conversation history."""
 
 import json
+import os
 import shutil
+import tempfile
+import threading
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +14,19 @@ from loguru import logger
 
 from miqi.paths import get_legacy_data_dir
 from miqi.utils.helpers import ensure_dir, safe_filename
+
+
+def _normalize_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _parse_iso_datetime(value: str) -> datetime | None:
+    try:
+        return _normalize_datetime(datetime.fromisoformat(value))
+    except ValueError:
+        return None
 
 
 @dataclass
@@ -27,14 +43,25 @@ class Session:
 
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
         """Add a message to the session."""
+        now = datetime.now()
         msg = {
             "role": role,
             "content": content,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now.isoformat(),
             **kwargs,
         }
+        msg_ts = msg.get("timestamp")
+        if isinstance(msg_ts, str):
+            parsed_ts = _parse_iso_datetime(msg_ts)
+            if parsed_ts is None:
+                msg["timestamp"] = now.isoformat()
+                self.updated_at = now
+            else:
+                self.updated_at = parsed_ts
+        else:
+            msg["timestamp"] = now.isoformat()
+            self.updated_at = now
         self.messages.append(msg)
-        self.updated_at = datetime.now()
 
     def get_history(self, max_messages: int = 500) -> list[dict[str, Any]]:
         """Return unconsolidated history, aligned to a user turn."""
@@ -110,6 +137,8 @@ class SessionManager:
         self.compact_threshold_bytes = max(1, compact_threshold_bytes)
         self.compact_keep_messages = max(1, compact_keep_messages)
         self._cache: dict[str, Session] = {}
+        self._session_locks: dict[str, threading.RLock] = {}
+        self._session_locks_guard = threading.Lock()
 
     def get_session_dir(self, key: str) -> Path:
         safe_key = safe_filename(key.replace(":", "_"))
@@ -118,6 +147,14 @@ class SessionManager:
     def _get_session_path(self, key: str) -> Path:
         """Get the file path for a session key."""
         return self.get_session_dir(key) / "conversation.jsonl"
+
+    def _get_session_lock(self, key: str) -> threading.RLock:
+        with self._session_locks_guard:
+            lock = self._session_locks.get(key)
+            if lock is None:
+                lock = threading.RLock()
+                self._session_locks[key] = lock
+            return lock
 
     def _migrate_flat_to_dir(self, key: str) -> None:
         """If old flat .jsonl exists and new dir does not, migrate."""
@@ -258,45 +295,42 @@ class SessionManager:
 
     def save(self, session: Session) -> None:
         """Persist session changes with append-only writes when possible."""
-        self._migrate_flat_to_dir(session.key)
-        path = self._get_session_path(session.key)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        with self._get_session_lock(session.key):
+            self._migrate_flat_to_dir(session.key)
+            path = self._get_session_path(session.key)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._sync_updated_at_from_messages(session)
 
-        should_rewrite = not path.exists() or len(session.messages) < session.saved_count
+            should_rewrite = (
+                not path.exists() or len(session.messages) < session.saved_count
+            )
 
-        # Force rewrite if owner_client_id was set but not yet on disk
-        if not should_rewrite and session.metadata.get("owner_client_id"):
-            owner_on_disk = self._read_owner(session.key)
-            if owner_on_disk is None:
-                should_rewrite = True
+            # Force rewrite if owner_client_id was set but not yet on disk
+            if not should_rewrite and session.metadata.get("owner_client_id"):
+                owner_on_disk = self._read_owner(session.key)
+                if owner_on_disk is None:
+                    should_rewrite = True
 
-        if should_rewrite:
-            with open(path, "w", encoding="utf-8") as f:
-                metadata_line = {
-                    "_type": "metadata",
-                    "key": session.key,
-                    "owner_client_id": session.metadata.get("owner_client_id"),
-                    "created_at": session.created_at.isoformat(),
-                    "updated_at": session.updated_at.isoformat(),
-                    "metadata": session.metadata,
-                    "last_consolidated": session.last_consolidated,
-                }
-                f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
-                for msg in session.messages:
-                    f.write(json.dumps(msg, ensure_ascii=False) + "\n")
-            path.chmod(0o600)  # Restrict to owner only (SEC-07)
-            session.saved_count = len(session.messages)
-        else:
-            new_messages = session.messages[session.saved_count :]
-            if new_messages:
-                with open(path, "a", encoding="utf-8") as f:
-                    for msg in new_messages:
+            if should_rewrite:
+                with open(path, "w", encoding="utf-8") as f:
+                    metadata_line = self._metadata_line_for_session(session)
+                    f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
+                    for msg in session.messages:
                         f.write(json.dumps(msg, ensure_ascii=False) + "\n")
                 path.chmod(0o600)  # Restrict to owner only (SEC-07)
                 session.saved_count = len(session.messages)
+            else:
+                new_messages = session.messages[session.saved_count :]
+                if new_messages:
+                    with open(path, "a", encoding="utf-8") as f:
+                        for msg in new_messages:
+                            f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+                    self._rewrite_metadata_line(path, session)
+                    path.chmod(0o600)  # Restrict to owner only (SEC-07)
+                    session.saved_count = len(session.messages)
 
-        self._cache[session.key] = session
-        self.compact_if_needed(session.key)
+            self._cache[session.key] = session
+            self.compact_if_needed(session.key)
 
     # ── Tracked files (sidebar) ───────────────────────────────────────
 
@@ -604,9 +638,8 @@ class SessionManager:
                         continue
                     msg_ts = obj.get("timestamp")
                     if isinstance(msg_ts, str):
-                        try:
-                            ts = datetime.fromisoformat(msg_ts)
-                        except Exception:
+                        ts = _parse_iso_datetime(msg_ts)
+                        if ts is None:
                             continue
                         if latest_msg_ts is None or ts > latest_msg_ts:
                             latest_msg_ts = ts
@@ -616,15 +649,83 @@ class SessionManager:
                 meta_ts_raw = metadata.get("updated_at")
                 meta_ts: datetime | None = None
                 if isinstance(meta_ts_raw, str):
-                    try:
-                        meta_ts = datetime.fromisoformat(meta_ts_raw)
-                    except Exception:
-                        meta_ts = None
+                    meta_ts = _parse_iso_datetime(meta_ts_raw)
                 if meta_ts is None or latest_msg_ts > meta_ts:
                     metadata["updated_at"] = latest_msg_ts.isoformat()
             return metadata
         except Exception:
             return None
+
+    @staticmethod
+    def _latest_message_timestamp(session: Session) -> datetime | None:
+        latest: datetime | None = None
+        for msg in session.messages:
+            msg_ts = msg.get("timestamp")
+            if not isinstance(msg_ts, str):
+                continue
+            parsed = _parse_iso_datetime(msg_ts)
+            if parsed is None:
+                continue
+            if latest is None or parsed > latest:
+                latest = parsed
+        return latest
+
+    def _sync_updated_at_from_messages(self, session: Session) -> None:
+        latest = self._latest_message_timestamp(session)
+        if latest is not None:
+            session.updated_at = latest
+
+    def _metadata_line_for_session(self, session: Session) -> dict[str, Any]:
+        return {
+            "_type": "metadata",
+            "key": session.key,
+            "owner_client_id": session.metadata.get("owner_client_id"),
+            "created_at": session.created_at.isoformat(),
+            "updated_at": session.updated_at.isoformat(),
+            "metadata": session.metadata,
+            "last_consolidated": session.last_consolidated,
+        }
+
+    def _rewrite_metadata_line(self, path: Path, session: Session) -> None:
+        metadata_line = self._metadata_line_for_session(session)
+        original_lines = path.read_text(encoding="utf-8").splitlines()
+        rewritten_lines: list[str] = []
+        replaced = False
+
+        for line in original_lines:
+            if not replaced:
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    obj = None
+                if isinstance(obj, dict) and obj.get("_type") == "metadata":
+                    rewritten_lines.append(json.dumps(metadata_line, ensure_ascii=False))
+                    replaced = True
+                    continue
+            rewritten_lines.append(line)
+
+        if not replaced:
+            rewritten_lines.insert(0, json.dumps(metadata_line, ensure_ascii=False))
+
+        fd, tmp_name = tempfile.mkstemp(
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            text=True,
+        )
+        tmp_path = Path(tmp_name)
+        try:
+            os.chmod(tmp_path, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write("\n".join(rewritten_lines) + "\n")
+            tmp_path.replace(path)
+        except OSError:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            tmp_path.unlink(missing_ok=True)
+            raise
 
     # ── Ownership ──────────────────────────────────────────────────────
 
@@ -726,37 +827,32 @@ class SessionManager:
 
     def compact(self, key: str) -> bool:
         """Compact a session by rewriting with only recent messages."""
-        path = self._get_session_path(key)
-        if not path.exists():
-            return False
+        with self._get_session_lock(key):
+            path = self._get_session_path(key)
+            if not path.exists():
+                return False
 
-        session = self.get_or_create(key)
-        original_len = len(session.messages)
-        if original_len > self.compact_keep_messages:
-            drop_count = original_len - self.compact_keep_messages
-            session.messages = session.messages[-self.compact_keep_messages :]
-            session.last_consolidated = max(0, session.last_consolidated - drop_count)
-        session.last_consolidated = min(session.last_consolidated, len(session.messages))
+            session = self.get_or_create(key)
+            original_len = len(session.messages)
+            if original_len > self.compact_keep_messages:
+                drop_count = original_len - self.compact_keep_messages
+                session.messages = session.messages[-self.compact_keep_messages :]
+                session.last_consolidated = max(0, session.last_consolidated - drop_count)
+            session.last_consolidated = min(
+                session.last_consolidated, len(session.messages),
+            )
 
-        session.saved_count = len(session.messages)
-        session.updated_at = datetime.now()
+            session.saved_count = len(session.messages)
+            self._sync_updated_at_from_messages(session)
 
-        with open(path, "w", encoding="utf-8") as f:
-            metadata_line = {
-                "_type": "metadata",
-                "key": session.key,
-                "owner_client_id": session.metadata.get("owner_client_id"),
-                "created_at": session.created_at.isoformat(),
-                "updated_at": session.updated_at.isoformat(),
-                "metadata": session.metadata,
-                "last_consolidated": session.last_consolidated,
-            }
-            f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
-            for msg in session.messages:
-                f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+            with open(path, "w", encoding="utf-8") as f:
+                metadata_line = self._metadata_line_for_session(session)
+                f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
+                for msg in session.messages:
+                    f.write(json.dumps(msg, ensure_ascii=False) + "\n")
 
-        self._cache[key] = session
-        return True
+            self._cache[key] = session
+            return True
 
     def compact_all(self) -> int:
         """Compact all existing session files and return compacted count."""
