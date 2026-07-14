@@ -255,7 +255,17 @@ class SandboxManager:
             return False
 
         if self.sandbox_provider == "opensandbox":
-            from miqi.sandbox.docker_sandbox import DockerSandbox
+            from miqi.sandbox.docker_sandbox import DockerSandbox, _auto_install_opensandbox
+
+            # Auto-install the opensandbox SDK if missing
+            if self.auto_install_deps:
+                sdk_ready = await _auto_install_opensandbox()
+                if not sdk_ready:
+                    logger.warning(
+                        "Failed to auto-install opensandbox SDK. "
+                        "Install manually: pip install opensandbox"
+                    )
+
             available = await DockerSandbox.is_available()
             if not available:
                 logger.warning(

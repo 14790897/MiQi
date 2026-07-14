@@ -49,6 +49,36 @@ def _check_opensandbox() -> bool:
     return _OPEN_SANDBOX_AVAILABLE
 
 
+async def _auto_install_opensandbox() -> bool:
+    """Auto-install the opensandbox Python package via pip.
+
+    Returns True if the package is (or becomes) importable.
+    """
+    if _check_opensandbox():
+        return True
+
+    logger.info("OpenSandbox SDK not found — attempting auto-install...")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "pip", "install", "opensandbox",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await asyncio.wait_for(proc.wait(), timeout=120.0)
+        if proc.returncode == 0:
+            global _OPEN_SANDBOX_AVAILABLE
+            _OPEN_SANDBOX_AVAILABLE = None  # force re-check
+            if _check_opensandbox():
+                logger.info("OpenSandbox SDK installed successfully")
+                return True
+        logger.warning("OpenSandbox SDK install failed (pip exit code %s)", proc.returncode)
+    except asyncio.TimeoutError:
+        logger.warning("OpenSandbox SDK install timed out")
+    except Exception as exc:
+        logger.warning("OpenSandbox SDK install error: %s", exc)
+    return False
+
+
 # ── Default Docker image ─────────────────────────────────────────────────
 
 # This image is the MiQi sandbox runtime.  It should contain a basic
