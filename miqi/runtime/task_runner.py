@@ -11,6 +11,8 @@ import asyncio
 import inspect
 from typing import Any
 
+from loguru import logger
+
 from miqi.protocol.commands import (
     AbortTurn,
     ApprovalResponse,
@@ -398,7 +400,6 @@ class TaskRunner:
                 )
             raise
         except Exception:
-            from loguru import logger
             logger.exception("User shell command failed for turn {}", turn_id)
             if cmd.standalone:
                 if ledger is not None:
@@ -528,7 +529,6 @@ class TaskRunner:
                     except Exception as compact_exc:
                         # Compaction failed — log and emit recoverable
                         # ErrorEvent, then proceed with unbounded history.
-                        from loguru import logger
                         logger.exception(
                             "Auto-compact failed for thread {}: {}",
                             thread_id, compact_exc,
@@ -743,7 +743,6 @@ class TaskRunner:
             # invalid_request) are safe + actionable, so surface the provider
             # message; everything else (transient/fatal/unknown) keeps the
             # generic message to avoid leaking internal details.
-            from loguru import logger
             logger.error("Agent processing error in turn {}: {}", turn_id, exc, exc_info=True)
             user_message = "An internal error occurred while processing your message."
             if prov_err is not None and prov_err.kind is ErrorKind.AUTH:
