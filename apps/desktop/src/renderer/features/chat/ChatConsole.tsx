@@ -1754,16 +1754,19 @@ export function ChatConsole({
                 onSelect: async () => {
                   try {
                     await window.miqi.sessions.archive(sessionKey);
-                    handleDeleteSession();
+                    handleNewSession();
                   } catch { /* ignore */ }
                 },
               },
               {
                 label: '删除对话',
                 danger: true,
-                onSelect: () => {
+                onSelect: async () => {
                   if (!window.confirm('删除此对话？操作不可恢复。')) return;
-                  handleDeleteSession();
+                  try {
+                    await window.miqi.sessions.delete(sessionKey);
+                  } catch { /* ignore */ }
+                  handleNewSession();
                 },
               },
             ]}
