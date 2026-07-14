@@ -640,6 +640,15 @@ class TestStartTurnRequest:
         assert parsed.mode == ThreadMode.plan
         assert parsed.attachmentIds == ["att1"]
 
+    def test_mode_ask(self) -> None:
+        req = StartTurnRequest(
+            prompt="analyze e2e report",
+            mode=ThreadMode.ask,
+        )
+        raw = req.model_dump_json()
+        parsed = StartTurnRequest.model_validate_json(raw)
+        assert parsed.mode == ThreadMode.ask
+
     def test_rejects_empty_prompt(self) -> None:
         with pytest.raises(ValueError):
             StartTurnRequest(prompt="")
@@ -725,6 +734,16 @@ class TestCreateThreadRequest:
         parsed = CreateThreadRequest.model_validate_json(raw)
         assert parsed.title == "My Project"
         assert parsed.costBudgetUsd == 1.0
+
+    def test_mode_ask(self) -> None:
+        req = CreateThreadRequest(
+            workspace="/tmp/ws",
+            model="deepseek-chat",
+            mode=ThreadMode.ask,
+        )
+        raw = req.model_dump_json()
+        parsed = CreateThreadRequest.model_validate_json(raw)
+        assert parsed.mode == ThreadMode.ask
 
 
 class TestUpdateThreadRequest:
