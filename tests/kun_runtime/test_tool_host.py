@@ -12,6 +12,7 @@ from miqi.agent.tools.registry import ToolRegistry
 from miqi.kun_runtime.approval_gate import ApprovalGate
 from miqi.kun_runtime.tool_host import (
     _MAX_PARALLEL_TOOL_CALLS,
+    _is_tool_allowed_in_mode,
     FakeToolHost,
     MiQiToolHost,
     ToolCallLike,
@@ -341,6 +342,110 @@ class TestMiQiToolHostConcurrency:
 
     def test_max_parallel(self, host: MiQiToolHost) -> None:
         assert host.max_parallel() == _MAX_PARALLEL_TOOL_CALLS
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Mode-based tool filtering tests
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestModeBasedToolFiltering:
+    """Tests for _is_tool_allowed_in_mode and mode-aware list_tools / execute."""
+
+    def test_read_tools_allowed_in_ask_mode(self) -> None:
+        assert _is_tool_allowed_in_mode("read_file", "ask") is True
+        assert _is_tool_allowed_in_mode("list_dir", "ask") is True
+        assert _is_tool_allowed_in_mode("grep", "ask") is True
+        assert _is_tool_allowed_in_mode("web_search", "ask") is True
+        assert _is_tool_allowed_in_mode("web_fetch", "ask") is True
+        assert _is_tool_allowed_in_mode("paper_search", "ask") is True
+        assert _is_tool_allowed_in_mode("docx_read", "ask") is True
+
+    def test_write_tools_blocked_in_ask_mode(self) -> None:
+        assert _is_tool_allowed_in_mode("write_file", "ask") is False
+        assert _is_tool_allowed_in_mode("edit_file", "ask") is False
+        assert _is_tool_allowed_in_mode("apply_patch", "ask") is False
+        assert _is_tool_allowed_in_mode("create_docx", "ask") is False
+        assert _is_tool_allowed_in_mode("edit_docx", "ask") is False
+        assert _is_tool_allowed_in_mode("create_xlsx", "ask") is False
+
+    def test_exec_blocked_in_ask_mode(self) -> None:
+        assert _is_tool_allowed_in_mode("exec", "ask") is False
+        assert _is_tool_allowed_in_mode("bash", "ask") is False
+
+    def test_side_effect_tools_blocked_in_ask_mode(self) -> None:
+        assert _is_tool_allowed_in_mode("spawn", "ask") is False
+        assert _is_tool_allowed_in_mode("cron", "ask") is False
+        assert _is_tool_allowed_in_mode("skill_manage", "ask") is False
+        assert _is_tool_allowed_in_mode("memory", "ask") is False
+
+    def test_all_tools_allowed_in_agent_mode(self) -> None:
+        for name in ("write_file", "edit_file", "exec", "bash",
+                     "read_file", "grep", "spawn", "cron"):
+            assert _is_tool_allowed_in_mode(name, "agent") is True
+
+    def test_all_tools_allowed_in_plan_mode(self) -> None:
+        for name in ("write_file", "edit_file", "exec", "bash",
+                     "read_file", "grep", "spawn", "cron"):
+            assert _is_tool_allowed_in_mode(name, "plan") is True
+
+    def test_all_tools_allowed_when_mode_is_none(self) -> None:
+        for name in ("write_file", "exec", "spawn", "cron"):
+            assert _is_tool_allowed_in_mode(name, None) is True
+
+    @pytest.mark.asyncio
+    async def test_list_tools_filters_in_ask_mode(self, registry: ToolRegistry) -> None:
+        host = MiQiToolHost(registry)
+        ctx = ToolHostContext(
+            thread_id="th1", turn_id="t1", workspace="/tmp",
+            thread_mode="ask",
+        )
+        tools = await host.list_tools(ctx)
+        names = [t["name"] for t in tools]
+        assert "read_file" in names
+        assert "dummy" in names
+        # Write/exec tools should be absent
+        assert "write_file" not in names
+        assert "exec" not in names
+
+    @pytest.mark.asyncio
+    async def test_list_tools_all_in_agent_mode(self, registry: ToolRegistry) -> None:
+        host = MiQiToolHost(registry)
+        ctx = ToolHostContext(
+            thread_id="th1", turn_id="t1", workspace="/tmp",
+            thread_mode="agent",
+        )
+        tools = await host.list_tools(ctx)
+        names = [t["name"] for t in tools]
+        assert "read_file" in names
+        assert "write_file" in names  # write tools visible in agent mode
+
+    @pytest.mark.asyncio
+    async def test_execute_blocks_write_in_ask_mode(self, registry: ToolRegistry) -> None:
+        host = MiQiToolHost(registry)
+        ctx = ToolHostContext(
+            thread_id="th1", turn_id="t1", workspace="/tmp",
+            thread_mode="ask",
+        )
+        call = ToolCallLike(call_id="c1", tool_name="write_file",
+                           arguments={"path": "a.txt"})
+        result = await host.execute(call, ctx)
+        assert result.item["isError"] is True
+        assert result.item["status"] == "failed"
+        assert "not available" in str(result.item["output"])
+        assert "ask" in str(result.item["output"])
+
+    @pytest.mark.asyncio
+    async def test_execute_allows_read_in_ask_mode(self, registry: ToolRegistry) -> None:
+        host = MiQiToolHost(registry)
+        ctx = ToolHostContext(
+            thread_id="th1", turn_id="t1", workspace="/tmp",
+            thread_mode="ask",
+        )
+        call = ToolCallLike(call_id="c2", tool_name="read_file",
+                           arguments={"path": "test.txt"})
+        result = await host.execute(call, ctx)
+        assert result.item["isError"] is False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

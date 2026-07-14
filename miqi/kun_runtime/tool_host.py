@@ -70,6 +70,38 @@ _PARALLEL_SAFE_NAMES = frozenset({"read", "grep", "find", "ls", "list_dir", "rea
 _NEVER_PARALLEL_NAMES = frozenset({"exec", "bash", "message", "spawn", "cron", "write", "edit", "delete", "move", "apply_patch", "edit_diff"})
 _MAX_PARALLEL_TOOL_CALLS = 3
 
+# ── Mode-based tool restriction sets ───────────────────────────────────
+# Ask mode: read-only — no file writes, no command execution, no side effects.
+_ASK_MODE_DISALLOWED_TOOLS = frozenset({
+    # File mutation
+    "write_file", "edit_file", "apply_patch", "edit_diff",
+    "write", "edit", "delete", "move",
+    # Command execution
+    "exec", "bash", "shell",
+    # Office document write/create
+    "create_docx", "docx_write", "edit_docx",
+    "create_pptx", "pptx_write",
+    "create_xlsx", "xlsx_write", "append_xlsx",
+    # Agent / side-effect tools
+    "spawn", "subagent", "cron",
+    "skill_manage",
+    "memory",
+})
+
+
+def _is_tool_allowed_in_mode(tool_name: str, thread_mode: str | None) -> bool:
+    """Check whether *tool_name* is permitted under the given thread mode.
+
+    - ``ask``: only read-only / search / fetch tools.
+    - ``plan`` / ``agent`` / ``None``: all tools are listed (write tools go
+      through the normal approval flow).
+    """
+    if not thread_mode or thread_mode in ("agent", "plan"):
+        return True
+    if thread_mode == "ask":
+        return tool_name not in _ASK_MODE_DISALLOWED_TOOLS
+    return True
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MiQiToolHost
@@ -101,6 +133,9 @@ class MiQiToolHost:
             if context and context.allowed_tool_names is not None:
                 if name not in context.allowed_tool_names:
                     continue
+            # Mode-based tool filtering: ask mode excludes write/exec tools
+            if context and not _is_tool_allowed_in_mode(name, context.thread_mode):
+                continue
             result.append({
                 "name": name,
                 "description": fn.get("description", ""),
@@ -155,6 +190,27 @@ class MiQiToolHost:
                 "callId": call.call_id,
                 "toolKind": _classify_tool_kind(tool_name),
                 "output": f"Tool '{tool_name}' not found",
+                "isError": True,
+            })
+
+        # Mode-based enforcement: block disallowed tools in restricted modes
+        if not _is_tool_allowed_in_mode(tool_name, context.thread_mode):
+            return ToolHostResult(item={
+                "kind": "tool_result",
+                "id": f"item_{context.turn_id}_{call.call_id}",
+                "turnId": context.turn_id,
+                "threadId": context.thread_id,
+                "role": "tool",
+                "status": "failed",
+                "createdAt": _now_iso(),
+                "toolName": tool_name,
+                "callId": call.call_id,
+                "toolKind": _classify_tool_kind(tool_name),
+                "output": (
+                    f"Tool '{tool_name}' is not available in "
+                    f"'{context.thread_mode}' mode. "
+                    f"This mode restricts write/exec/side-effect operations."
+                ),
                 "isError": True,
             })
 
