@@ -147,10 +147,10 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
       <div className="flex items-center gap-2">
         <div className="text-right hidden sm:block">
           <div className="text-xs font-medium" style={{ color: 'var(--topbar-text)' }}>
-            MiQi Agent
+            MiQi 智能体
           </div>
           <div className="text-[10px]" style={{ color: 'var(--topbar-muted-text)' }}>
-            Core Agent
+            核心智能体
           </div>
         </div>
         <MiQiLogo size={28} />
