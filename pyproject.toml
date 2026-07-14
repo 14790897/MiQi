@@ -80,7 +80,6 @@ include = [
     "miqi/**/*.py",
     "miqi/templates/**/*.md",
     "miqi/skills/**/*",
-    "miqi/resources/**/*",
 ]
 
 [tool.hatch.build.targets.sdist]

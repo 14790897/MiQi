@@ -1,7 +1,7 @@
 import { ChildProcess, spawn, execSync } from 'child_process';
 import { EventEmitter } from 'events';
 import { createInterface, Interface } from 'readline';
-import { existsSync, readFileSync, watch } from 'fs';
+import { existsSync, watch } from 'fs';
 import { join, extname } from 'path';
 import { randomUUID } from 'crypto';
 import { BrowserWindow } from 'electron';
@@ -147,28 +147,6 @@ function findBridgeExecutable(projectRoot: string): {
   return { command: 'python3', args: [bridgeScript] };
 }
 
-function loadDesktopEnv(projectRoot: string): Record<string, string> {
-  const envPath = join(projectRoot, 'apps', 'desktop', '.env');
-  if (!existsSync(envPath)) return {};
-  const values: Record<string, string> = {};
-  for (const rawLine of readFileSync(envPath, 'utf-8').split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    const eq = line.indexOf('=');
-    if (eq <= 0) continue;
-    const key = line.slice(0, eq).trim();
-    let value = line.slice(eq + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (key) values[key] = value;
-  }
-  return values;
-}
-
 export class BridgeManager extends EventEmitter {
   private process: ChildProcess | null = null;
   private rl: Interface | null = null;
@@ -208,8 +186,10 @@ export class BridgeManager extends EventEmitter {
     super();
     // In dev: __dirname = apps/desktop/out/main → projectRoot is 4 levels up
     this.projectRoot = projectRoot || join(__dirname, '..', '..', '..', '..');
-    // Hot reload restarts the Python bridge and drops runtime-only state; keep it opt-in.
-    this.hotReloadEnabled = process.env['MIQI_BRIDGE_HOT_RELOAD'] === '1';
+    // Enable hot reload in development mode
+    this.hotReloadEnabled =
+      process.env['NODE_ENV'] === 'development' ||
+      process.env['ELECTRON_RENDERER_URL'] !== undefined;
   }
 
   /** Whether the bridge has completed the initialize/initialized handshake. */
@@ -253,16 +233,10 @@ export class BridgeManager extends EventEmitter {
     let startedReader: Interface | null = null;
 
     try {
-      const desktopEnv = loadDesktopEnv(this.projectRoot);
       const bridgeProcess = spawn(command, args, {
         cwd: this.projectRoot,
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: {
-          ...desktopEnv,
-          ...process.env,
-          PYTHONUNBUFFERED: '1',
-          PYTHONUTF8: '1',
-        },
+        env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' },
         windowsHide: true,
       });
       this.process = bridgeProcess;
