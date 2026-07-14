@@ -208,15 +208,18 @@ class CodexTurnEventAdapter:
     # ── ExecCommandOutputDeltaEvent ───────────────────────────────────────
 
     def _on_ExecCommandOutputDeltaEvent(self, event: ExecCommandOutputDeltaEvent) -> list[dict[str, Any]]:
+        delta = event.delta
+        if not delta:
+            return []
         output_parts = self._command_output.get(event.tool_call_id, [])
-        output_parts.append(event.delta)
+        output_parts.append(delta)
         self._command_output[event.tool_call_id] = output_parts
         return [self._notification(
             "item/commandExecution/outputDelta",
             self._with_location({
                 "itemId": f"{self.turn_id}:exec:{event.tool_call_id}",
                 "stream": event.stream,
-                "delta": event.delta,
+                "delta": delta,
             }),
         )]
 
