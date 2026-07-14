@@ -1077,7 +1077,15 @@ for m in ("pydantic", "httpx", "loguru"):
   // Sandbox runtime toggle
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.SANDBOX_SET_ENABLED, async (_event, enabled: boolean) => {
-    return bridge.send('sandbox.setEnabled', { enabled });
+    const res = await bridge.send('sandbox.setEnabled', { enabled });
+    const data = res as Record<string, unknown> | undefined;
+    if (data?.enabled === true) {
+      bridge.sandboxAvailable = data?.initializing === true ? false : true;
+    } else if (data?.enabled === false) {
+      bridge.sandboxAvailable = false;
+    }
+    bridge.emitState();
+    return res;
   });
 
   // -----------------------------------------------------------------------
@@ -1532,6 +1540,19 @@ for m in ("pydantic", "httpx", "loguru"):
           type === 'item/completed'
         ) {
           safeSend(`turn:event`, data);
+        } else if (type === 'item/commandExecution/outputDelta') {
+          // Exec real-time delta — stream to chat:progress for inline
+          // terminal output. Drop empty deltas.
+          const d = data as Record<string, unknown> | undefined;
+          if (d && typeof d.delta === 'string' && (d.delta as string).length > 0) {
+            safeSend('chat:progress', {
+              text: '',
+              tool_hint: true,
+              stream: d.stream,
+              delta: d.delta,
+              tool_call_id: d.itemId?.toString().split(':').pop(),
+            });
+          }
         } else if (type === 'approval_request') {
           safeSend('approval:request', data);
         } else if (type === 'approval_cleared') {
