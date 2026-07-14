@@ -83,7 +83,7 @@ class TaskRunner:
             session.add_message(role, content, **extra)
             self._legacy_sm.save(session)
         except Exception:
-            logger.debug("Failed to mirror message to legacy SessionManager", exc_info=True)
+            logger.warning("Failed to mirror message to legacy SessionManager", exc_info=True)
 
     # ── Phase 41: active turn and steering ────────────────────────────────
 
