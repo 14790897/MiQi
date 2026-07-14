@@ -65,7 +65,7 @@ test.describe('Native Electron E2E', () => {
 
     // Core UI landmarks — use stable data-testid selectors
     await expect(page.locator('[data-testid="nav-tasks-title"]')).toBeVisible();
-    await expect(page.locator('button[title="New Session"]')).toBeVisible();
+    await expect(page.locator('[data-testid="nav-new-session"]')).toBeVisible();
   });
 
   test('right panel shows Task Assets', async () => {
@@ -76,7 +76,7 @@ test.describe('Native Electron E2E', () => {
     });
 
     // Toggle button exists
-    const toggleBtn = page.locator('button[title="Toggle assets panel"]');
+    const toggleBtn = page.locator('[data-testid="toggle-assets-panel-btn"]');
     await expect(toggleBtn).toBeVisible();
 
     // Empty state message when no agent operations

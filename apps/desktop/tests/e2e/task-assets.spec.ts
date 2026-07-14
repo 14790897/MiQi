@@ -184,7 +184,7 @@ test.describe('Task Assets Panel E2E', () => {
       });
 
       // Ensure panel is open
-      const toggleBtn = page.locator('button[title="Toggle assets panel"]');
+      const toggleBtn = page.locator('[data-testid="toggle-assets-panel-btn"]');
       const panelVisible = await page.getByTestId('task-assets-panel').isVisible().catch(() => false);
       if (!panelVisible) {
         await toggleBtn.click();

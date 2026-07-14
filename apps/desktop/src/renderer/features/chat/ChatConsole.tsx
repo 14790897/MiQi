@@ -1813,6 +1813,7 @@ export function ChatConsole({
                 className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors shrink-0 ml-1"
                 title="显示或隐藏文件面板"
                 aria-label="显示或隐藏文件面板"
+                data-testid="toggle-assets-panel-btn"
               >
                 <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
               </button>
