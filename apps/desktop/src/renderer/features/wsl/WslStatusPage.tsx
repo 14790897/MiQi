@@ -66,7 +66,7 @@ export default function WslStatusPage() {
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [distros, setDistros] = useState<string[]>([]);
-  const [distrosLoading, setDistrosLoading] = useState(true);
+  const [distrosLoading, setDistrosLoading] = useState(false);
   const [selected, setSelected] = useState('');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const initialFetch = useRef(false);
