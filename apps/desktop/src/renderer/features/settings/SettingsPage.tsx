@@ -1065,7 +1065,7 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
             { value: 'channels', label: '渠道' },
             { value: 'agents', label: '智能体' },
             { value: 'skills', label: '技能' },
-            { value: 'mcps', label: 'MCPs' },
+            { value: 'mcps', label: 'MCP 服务' },
             { value: 'memory', label: '记忆' },
             { value: 'experience', label: '经验' },
             { value: 'approvals', label: '审批' },
