@@ -106,8 +106,18 @@ const api = {
 
   // -- Chat -------------------------------------------------------------------
   chat: {
-    send: (content: string, sessionKey?: string, threadId?: string): Promise<unknown> =>
-      ipcRenderer.invoke(IPC.CHAT_SEND, { content, session_key: sessionKey, thread_id: threadId }),
+    send: (
+      content: string,
+      sessionKey?: string,
+      threadId?: string,
+      mode?: string
+    ): Promise<unknown> =>
+      ipcRenderer.invoke(IPC.CHAT_SEND, {
+        content,
+        session_key: sessionKey,
+        thread_id: threadId,
+        mode,
+      }),
     abort: (sessionKey?: string): Promise<unknown> =>
       ipcRenderer.invoke(IPC.CHAT_ABORT, { session_key: sessionKey }),
     onProgress: (callback: (data: ChatProgress) => void) => {
@@ -446,6 +456,7 @@ const api = {
       title?: string;
       session_key?: string;
       thread_id?: string;
+      mode?: string;
     }): Promise<ThreadStartResult> => ipcRenderer.invoke(IPC.THREAD_START, params),
     list: (params?: { session_key?: string }): Promise<ThreadListResult> =>
       ipcRenderer.invoke(IPC.THREAD_LIST, params ?? {}),
@@ -477,6 +488,7 @@ const api = {
       session_key?: string;
       model?: string;
       effort?: string;
+      mode?: string;
     }): Promise<TurnStartResult> => ipcRenderer.invoke(IPC.TURN_START, params),
     interrupt: (
       threadId: string,

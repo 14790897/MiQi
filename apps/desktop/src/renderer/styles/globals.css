@@ -328,3 +328,38 @@ code {
     0 14px 35px rgba(124, 45, 18, 0.14),
     0 2px 10px rgba(124, 45, 18, 0.08);
 }
+
+/* ── Mode Selector Transitions ────────────────────────────────────────── */
+
+.mode-selector-btn {
+  transition:
+    background-color 0.25s ease,
+    color 0.25s ease,
+    box-shadow 0.25s ease,
+    transform 0.15s ease;
+}
+
+.mode-selector-btn:hover:not(:disabled) {
+  transform: scale(1.04);
+}
+
+.mode-selector-btn[aria-checked="true"] {
+  box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.25);
+  animation: mode-switch-pulse 0.3s ease-out;
+}
+
+@keyframes mode-switch-pulse {
+  0%   { transform: scale(0.96); }
+  60%  { transform: scale(1.04); }
+  100% { transform: scale(1); }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .mode-selector-btn {
+    transition: none;
+  }
+  .mode-selector-btn[aria-checked="true"] {
+    animation: none;
+  }
+}

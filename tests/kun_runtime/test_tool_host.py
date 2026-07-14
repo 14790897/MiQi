@@ -382,7 +382,7 @@ class TestModeBasedToolFiltering:
     def test_all_tools_allowed_in_agent_mode(self) -> None:
         for name in ("write_file", "edit_file", "exec", "bash",
                      "read_file", "grep", "spawn", "cron"):
-            assert _is_tool_allowed_in_mode(name, "agent") is True
+            assert _is_tool_allowed_in_mode(name, "edit") is True
 
     def test_all_tools_allowed_in_plan_mode(self) -> None:
         for name in ("write_file", "edit_file", "exec", "bash",
@@ -413,7 +413,7 @@ class TestModeBasedToolFiltering:
         host = MiQiToolHost(registry)
         ctx = ToolHostContext(
             thread_id="th1", turn_id="t1", workspace="/tmp",
-            thread_mode="agent",
+            thread_mode="edit",
         )
         tools = await host.list_tools(ctx)
         names = [t["name"] for t in tools]

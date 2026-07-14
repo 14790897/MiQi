@@ -627,6 +627,7 @@ class BridgeRuntimeLoop:
 
         session_key = params.get("session_key", "desktop:default")
         thread_id = params.get("thread_id", session_key)
+        mode = params.get("mode", "edit")
 
         # Get or create RuntimeSession
         runtime_id = session_id or f"{client_id}:{session_key}"
@@ -657,7 +658,7 @@ class BridgeRuntimeLoop:
             )
 
         # Submit the user message
-        await runtime.submit(UserMessage(content=content, thread_id=thread_id))
+        await runtime.submit(UserMessage(content=content, thread_id=thread_id, mode=mode))
 
         # Subscribe client to session events so emit_event delivers to the sink
         self._app_server.subscribe(client_id, runtime_id)

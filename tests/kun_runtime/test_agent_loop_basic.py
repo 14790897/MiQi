@@ -118,7 +118,7 @@ async def _setup_thread_and_turn(thread_store: FileThreadStore, turn_svc: TurnSe
         "title": "Test Thread",
         "workspace": "/tmp/test",
         "model": "fake-model",
-        "mode": "agent",
+        "mode": "edit",
         "status": "idle",
         "approvalPolicy": "auto",
         "sandboxMode": "workspace-write",

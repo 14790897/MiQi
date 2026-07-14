@@ -53,7 +53,7 @@ class ThreadStatus(str, Enum):
 
 
 class ThreadMode(str, Enum):
-    agent = "agent"
+    edit = "edit"
     plan = "plan"
     ask = "ask"
 
@@ -479,7 +479,7 @@ class CreateThreadRequest(BaseModel):
     title: str | None = None
     workspace: str = Field(min_length=1)
     model: str = Field(min_length=1)
-    mode: ThreadMode = ThreadMode.agent
+    mode: ThreadMode = ThreadMode.edit
     approvalPolicy: ApprovalPolicy | None = None
     sandboxMode: SandboxMode | None = None
     costBudgetUsd: float | None = None
