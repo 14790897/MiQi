@@ -48,6 +48,13 @@ export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: ()
     if (!enabled) setDismissed(false);
   }, [enabled]);
 
+  // Auto-dismiss after 5 seconds
+  useEffect(() => {
+    if (!enabled || dismissed) return;
+    const t = setTimeout(() => setDismissed(true), 5000);
+    return () => clearTimeout(t);
+  }, [enabled, dismissed]);
+
   if (!enabled || dismissed) return null;
 
   return (
