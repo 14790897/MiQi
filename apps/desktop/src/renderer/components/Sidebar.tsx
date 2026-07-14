@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '../lib/utils';
-import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive } from 'lucide-react';
+import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, MessageSquare } from 'lucide-react';
 import { MiQiLogo } from './MiQiLogo';
 import { ContextMenu } from './ContextMenu';
 import { useSessionStatus, type SessionStatus } from '../hooks/useSessionStatus';
@@ -45,7 +45,7 @@ const STATUS_ICONS: Record<SessionStatus, typeof Play> = {
   'PENDING': Clock,
   'REVIEW': Eye,
   'COMPLETED': CheckCircle2,
-  'CC': Eye,
+  'CC': MessageSquare,
 };
 
 export function Sidebar({
@@ -182,7 +182,7 @@ export function Sidebar({
               aria-selected={isActive}
               onClick={() => setFilter(tab.value)}
               className={cn(
-                'relative flex-1 flex items-center justify-center gap-1 py-2 text-[12px] font-medium transition duration-150 rounded-md',
+                'relative flex-1 flex items-center justify-center gap-0.5 py-1.5 text-xs font-medium transition duration-150 rounded-md',
                 'hover:bg-black/[0.04]',
                 isActive
                   ? 'text-[var(--text)] font-semibold'
@@ -260,7 +260,7 @@ export function Sidebar({
                     },
                     {
                       label: '标记为抄送',
-                      icon: <Eye size={13} />,
+                      icon: <MessageSquare size={13} />,
                       onSelect: () => setStatus(s.key, 'CC'),
                     },
                     {
