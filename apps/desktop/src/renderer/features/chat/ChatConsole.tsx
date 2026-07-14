@@ -414,6 +414,10 @@ const _FILE_READ_TOOLS_EXTRACT = ['read_file'];
 function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
   const fileMap = new Map<string, TrackedFile>();
   const rank: Record<TrackedFile['op'], number> = { read: 0, edit: 1, write: 2, delete: 3 };
+  // Maps a tool_call id → the file op it targets, so tool-result messages
+  // (which carry tool_call_id but no path) can be resolved via the paired
+  // assistant tool_calls message.
+  const toolCallOps = new Map<string, { path: string; op: TrackedFile['op'] }>();
 
   const upsert = (path: string, op: TrackedFile['op'], timestamp?: string) => {
     const key = path.replace(/\\/g, '/');
@@ -459,11 +463,14 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
         const argsStr: string = fn?.arguments || '{}';
         const filePath = extractPathFromArgs(argsStr);
         if (!filePath) continue;
-        if (_FILE_WRITE_TOOLS_EXTRACT.includes(toolName)) {
-          upsert(filePath, toolName === 'delete_file' ? 'delete' : 'write', msg.timestamp);
-        } else if (_FILE_READ_TOOLS_EXTRACT.includes(toolName)) {
-          upsert(filePath, 'read', msg.timestamp);
-        }
+        const op: TrackedFile['op'] = _FILE_READ_TOOLS_EXTRACT.includes(toolName)
+          ? 'read'
+          : toolName === 'delete_file'
+            ? 'delete'
+            : 'write';
+        upsert(filePath, op, msg.timestamp);
+        const callId = tc?.id;
+        if (callId) toolCallOps.set(callId, { path: filePath, op });
       }
     }
 
@@ -474,9 +481,11 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
       const contentPath = parseToolHint(String(msg.content || ''));
       if (contentPath) {
         upsert(contentPath.path, contentPath.op, msg.timestamp);
-      } else if (_FILE_WRITE_TOOLS_EXTRACT.includes(toolName)) {
-        // Tool result without parsable content — try to infer from tool name
-        // (best-effort; actual path is in the paired assistant tool_calls message)
+      } else if (_FILE_WRITE_TOOLS_EXTRACT.includes(toolName) || _FILE_READ_TOOLS_EXTRACT.includes(toolName)) {
+        // Tool result without parsable content — resolve the path via the
+        // paired assistant tool_calls message (matched by tool_call_id).
+        const linked = msg.tool_call_id ? toolCallOps.get(msg.tool_call_id) : undefined;
+        if (linked) upsert(linked.path, linked.op, msg.timestamp);
       }
     }
   }
