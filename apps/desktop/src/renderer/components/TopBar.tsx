@@ -145,14 +145,9 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
 
       {/* Right: user avatar */}
       <div className="flex items-center gap-2">
-        <div className="text-right hidden sm:block">
-          <div className="text-xs font-medium" style={{ color: 'var(--topbar-text)' }}>
-            MiQi 智能体
-          </div>
-          <div className="text-[10px]" style={{ color: 'var(--topbar-muted-text)' }}>
-            核心智能体
-          </div>
-        </div>
+        <span className="text-xs font-medium hidden sm:block" style={{ color: 'var(--topbar-text)' }}>
+          MiQi 智能体
+        </span>
         <MiQiLogo size={28} />
       </div>
     </div>
