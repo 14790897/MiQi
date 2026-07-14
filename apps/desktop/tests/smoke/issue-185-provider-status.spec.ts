@@ -68,7 +68,7 @@ test('Provider settings shows filled, verified, failed, and active provider stat
 
   await page.goto('/');
   await page.waitForSelector('#root', { state: 'visible' });
-  await page.getByText('System Settings').click();
+  await page.getByText(/^(System Settings|系统设置)$/).click();
   await page.getByRole('tab', { name: '模型' }).click();
 
   await expect(page.getByText('模型提供商')).toBeVisible();
