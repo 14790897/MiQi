@@ -137,6 +137,7 @@ function SandboxToggle() {
       <button
         onClick={handleToggle}
         disabled={toggling || enabled === null}
+        data-testid="sandbox-toggle-btn"
         className={cn(
           'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
           'disabled:opacity-50',
@@ -163,7 +164,9 @@ function SandboxToggle() {
           enabled
             ? (ready ? 'text-[var(--accent)]' : 'text-amber-400')
             : 'text-[var(--warning)]',
-        )}>
+        )}
+        data-testid="sandbox-toggle-label"
+        >
           {toggling
             ? (enabled ? '正在关闭…' : '正在开启…')
             : enabled
@@ -299,7 +302,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 
       {/* ---- Sandbox ---- */}
       <div className="pt-4 border-t border-[var(--border-subtle)]">
-        <h3 className="text-sm font-semibold text-[var(--text)] mb-1">沙箱隔离</h3>
+        <h3 className="text-sm font-semibold text-[var(--text)] mb-1" data-testid="settings-sandbox-section-title">沙箱隔离</h3>
         <p className="text-xs text-[var(--text-faint)] mb-3">
           开启后 AI 的文件操作和命令执行在 WSL2 bwrap 沙箱中运行，保护主机安全。
           关闭后直接操作主机文件系统（无隔离，性能更好但风险更高）。

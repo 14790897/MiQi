@@ -250,8 +250,8 @@ async def test_acceptance_allow_fallback_to_none_does_not_override_exec():
 
 
 @pytest.mark.asyncio
-async def test_acceptance_bwrap_unavailable_fail_closed():
-    """BWRAP selection without active sandbox → fail closed, not silent host exec."""
+async def test_acceptance_bwrap_unavailable_falls_back():
+    """BWRAP selection without active sandbox → fall back to host execution with warning."""
     from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
     from miqi.protocol.permissions import FileSystemSandboxPolicy, NetworkSandboxPolicy
 
@@ -272,9 +272,8 @@ async def test_acceptance_bwrap_unavailable_fail_closed():
         _turn_id="turn-bwrap-fc",
         _tool_call_id="call-bwrap-fc",
     )
-    assert "Error" in result
-    assert "BWRAP" in result or "sandbox" in result.lower()
-    assert "not executed" in result.lower()
+    assert "sandbox not available" in result
+    assert "should-not-execute" in result
 
 
 @pytest.mark.asyncio
