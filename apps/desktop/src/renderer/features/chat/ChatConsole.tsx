@@ -2813,7 +2813,7 @@ function MessageBubble({
   const contextItems: ContextMenuAction[] = isUser
     ? [
         { label: '复制文本', onSelect: () => onCopy(msg.content) },
-        { label: 'Retry', onSelect: () => onRetry?.() },
+        { label: '重试', onSelect: () => onRetry?.() },
       ]
     : [
         { label: '复制文本', onSelect: () => onCopy(msg.content) },

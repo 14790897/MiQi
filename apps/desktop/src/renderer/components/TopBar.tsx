@@ -112,7 +112,7 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
             onClick={onOpenApprovals}
             className={cn(
               'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold',
-              'transition-transform hover:scale-[1.02] focus:outline-none'
+              'transition-transform hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]'
             )}
             style={{
               background: 'var(--approval-warning-pill-bg)',

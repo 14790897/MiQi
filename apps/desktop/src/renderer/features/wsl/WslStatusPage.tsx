@@ -66,7 +66,6 @@ export default function WslStatusPage() {
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [distros, setDistros] = useState<string[]>([]);
-  const [distrosLoading, setDistrosLoading] = useState(false);
   const [selected, setSelected] = useState('');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const initialFetch = useRef(false);
@@ -87,7 +86,6 @@ export default function WslStatusPage() {
         }
       }
     } catch { /* ignore */ }
-    setDistrosLoading(false);
   }, []);
 
   const fetchStats = useCallback(async (silent = false) => {
@@ -105,7 +103,12 @@ export default function WslStatusPage() {
   }, [selected]);
 
   useEffect(() => { fetchDistros(); }, [fetchDistros]);
-  useEffect(() => { if (selected) fetchStats(); }, [selected]); // eslint-disable-line
+  useEffect(() => {
+    if (selected) {
+      setStats(null);
+      fetchStats();
+    }
+  }, [selected]); // eslint-disable-line
 
   useEffect(() => {
     if (!selected) return;
@@ -132,7 +135,7 @@ export default function WslStatusPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {distrosLoading ? (
+          {distros.length === 0 ? (
             <span className="text-xs text-[var(--text-faint)]">加载发行版列表...</span>
           ) : distros.length > 1 ? (
             <select
@@ -190,7 +193,7 @@ export default function WslStatusPage() {
               <>
                 <Cpu size={20} style={{ color: 'var(--text-faint)' }} />
                 <p className="text-sm text-[var(--text-muted)]">未检测到 WSL 发行版</p>
-                <p className="text-xs text-[var(--text-faint)]">{distrosLoading ? '正在检测...' : '请确保已安装 WSL2'}</p>
+                <p className="text-xs text-[var(--text-faint)]">请确保已安装 WSL2</p>
               </>
             )}
           </div>
