@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '../lib/utils';
-import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, MessageSquare } from 'lucide-react';
+import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive } from 'lucide-react';
 import { MiQiLogo } from './MiQiLogo';
 import { ContextMenu } from './ContextMenu';
 import { useSessionStatus, type SessionStatus } from '../hooks/useSessionStatus';
 import type { SessionInfo } from '../../shared/ipc';
 
-type FilterTab = 'ALL' | 'IN-PROGRESS' | 'REVIEW' | 'COMPLETED' | 'CC';
+type FilterTab = 'ALL' | 'IN-PROGRESS' | 'REVIEW' | 'COMPLETED';
 
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 480;
@@ -45,7 +45,7 @@ const STATUS_ICONS: Record<SessionStatus, typeof Play> = {
   'PENDING': Clock,
   'REVIEW': Eye,
   'COMPLETED': CheckCircle2,
-  'CC': MessageSquare,
+  'CC': Eye,
 };
 
 export function Sidebar({
@@ -119,12 +119,11 @@ export function Sidebar({
     { value: 'IN-PROGRESS', label: '进行中' },
     { value: 'REVIEW', label: '待审阅' },
     { value: 'COMPLETED', label: '已完成' },
-    { value: 'CC', label: '抄送' },
   ];
 
   // Single-pass: count per filter + compute filtered list (Copilot optimization)
   const { filterCounts, filteredSessions } = useMemo(() => {
-    const counts: Record<FilterTab, number> = { ALL: 0, 'IN-PROGRESS': 0, REVIEW: 0, COMPLETED: 0, CC: 0 };
+    const counts: Record<FilterTab, number> = { ALL: 0, 'IN-PROGRESS': 0, REVIEW: 0, COMPLETED: 0 };
     const filtered: SessionInfo[] = [];
     for (const s of sessions) {
       counts.ALL++;
@@ -132,7 +131,6 @@ export function Sidebar({
       if (status === 'IN-PROGRESS') counts['IN-PROGRESS']++;
       else if (status === 'REVIEW') counts.REVIEW++;
       else if (status === 'COMPLETED') counts.COMPLETED++;
-      else if (status === 'CC') counts.CC++;
       if (filter === 'ALL' || status === filter) filtered.push(s);
     }
     return { filterCounts: counts, filteredSessions: filtered };
@@ -182,7 +180,7 @@ export function Sidebar({
               aria-selected={isActive}
               onClick={() => setFilter(tab.value)}
               className={cn(
-                'relative flex-1 flex items-center justify-center gap-0.5 py-1.5 text-xs font-medium transition duration-150 rounded-md',
+                'relative flex-1 flex items-center justify-center gap-1 py-2 text-xs font-medium transition duration-150 rounded-md',
                 'hover:bg-black/[0.04]',
                 isActive
                   ? 'text-[var(--text)] font-semibold'
@@ -257,11 +255,6 @@ export function Sidebar({
                       icon: <CheckCircle2 size={13} />,
                       divider: true,
                       onSelect: () => setStatus(s.key, 'COMPLETED'),
-                    },
-                    {
-                      label: '标记为抄送',
-                      icon: <MessageSquare size={13} />,
-                      onSelect: () => setStatus(s.key, 'CC'),
                     },
                     {
                       label: '重置状态',
