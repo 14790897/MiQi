@@ -258,12 +258,7 @@ async def sessions_delete_handler(
     try:
         disk_deleted = sm.delete(session_key, client_id=client_id)
     except OwnershipError as exc:
-        if exc.code == "UNAUTHORIZED":
-            # Session might be a legacy session listed under this client
-            # but with a different owner. Try without ownership check.
-            disk_deleted = sm.delete(session_key)
-        else:
-            raise AppServerError(exc.args[0], code=exc.code) from exc
+        raise AppServerError(exc.args[0], code=exc.code) from exc
 
     # Success if runtime was stopped (session may not have been on disk)
     deleted = runtime_was_active or disk_deleted
@@ -349,10 +344,7 @@ async def sessions_unarchive_handler(
     try:
         sm.unarchive(session_key, client_id=client_id)
     except OwnershipError as exc:
-        if exc.code == "UNAUTHORIZED":
-            sm.unarchive(session_key)
-        else:
-            raise AppServerError(exc.args[0], code=exc.code) from exc
+        raise AppServerError(exc.args[0], code=exc.code) from exc
 
     return {"result": {"unarchived": True}}
 
