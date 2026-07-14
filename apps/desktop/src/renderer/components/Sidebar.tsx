@@ -352,7 +352,7 @@ export function Sidebar({
         style={{ borderColor: 'var(--sidebar-border)' }}
       >
         <button
-          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition duration-150 hover:scale-110 hover:text-[#404040] origin-left"
+          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition duration-150 hover:scale-110 hover:text-[var(--text)] origin-left"
           style={{ color: 'var(--text-faint)' }}
           onClick={() => onNavChange?.('settings')}
           data-testid="nav-system-settings"
