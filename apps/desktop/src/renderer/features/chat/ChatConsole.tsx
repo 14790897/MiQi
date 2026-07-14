@@ -1947,7 +1947,7 @@ export function ChatConsole({
                     adjustTextareaHeight();
                   }}
                   onKeyDown={handleKeyDown}
-                  placeholder="Ask Agent to analyze or edit files..."
+                  placeholder="输入消息或拖入文件..."
                   rows={1}
                   allowResize={true}
                   className="flex-1 border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 text-sm"
