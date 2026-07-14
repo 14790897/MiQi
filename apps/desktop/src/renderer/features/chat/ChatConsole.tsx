@@ -1270,7 +1270,7 @@ export function ChatConsole({
       let threadId = currentThreadIdRef.current;
       if (threadId == null) {
         try {
-          const title = (text || 'New conversation').trim().slice(0, 60);
+          const title = (text || '新会话').trim().slice(0, 60);
           // Non-blocking: start thread with a short timeout so chat.send
           // isn't delayed by a slow bridge restart.  Falls through to
           // chat.send without thread_id on failure.
@@ -2612,7 +2612,7 @@ function TrackedFileCard({
               border: '1px solid var(--border)',
               color: 'var(--text-muted)',
             }}
-            title={isOfficeFile ? 'Office binary preview is not available' : 'Preview file'}
+            title={isOfficeFile ? '不支持预览 Office 文件' : '预览文件'}
             data-testid="file-preview-btn"
           >
             <Eye size={10} />
@@ -2760,15 +2760,15 @@ function MessageBubble({
 
   const contextItems: ContextMenuAction[] = isUser
     ? [
-        { label: 'Copy text', onSelect: () => onCopy(msg.content) },
+        { label: '复制文本', onSelect: () => onCopy(msg.content) },
         { label: 'Retry', onSelect: () => onRetry?.() },
       ]
     : [
-        { label: 'Copy text', onSelect: () => onCopy(msg.content) },
+        { label: '复制文本', onSelect: () => onCopy(msg.content) },
         ...(hasCodeBlock
           ? [
               {
-                label: 'Copy code',
+                label: '复制代码',
                 onSelect: () => {
                   const codeMatch = msg.content.match(/```[\s\S]*?```/g);
                   if (codeMatch) {
