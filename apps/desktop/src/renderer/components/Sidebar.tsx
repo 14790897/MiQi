@@ -182,7 +182,7 @@ export function Sidebar({
               aria-selected={isActive}
               onClick={() => setFilter(tab.value)}
               className={cn(
-                'relative flex-1 flex items-center justify-center gap-1 py-2 text-[12px] font-medium transition-all duration-150 rounded-md',
+                'relative flex-1 flex items-center justify-center gap-1 py-2 text-[12px] font-medium transition duration-150 rounded-md',
                 'hover:bg-black/[0.04]',
                 isActive
                   ? 'text-[var(--text)] font-semibold'
@@ -282,7 +282,7 @@ export function Sidebar({
                       onClick={() => onSessionSelect?.(s.key)}
                       onContextMenu={onContextMenu}
                       className={cn(
-                        'w-full text-left rounded-xl px-3 py-3 transition-all duration-200',
+                        'w-full text-left rounded-xl px-3 py-3 transition duration-200',
                         isActive && 'shadow-[0_2px_16px_rgba(0,0,0,0.14)]',
                         !isActive && 'hover:shadow-[0_4px_12px_rgba(0,0,0,0.1)] hover:-translate-y-px',
                       )}
@@ -340,7 +340,7 @@ export function Sidebar({
         style={{ borderColor: 'var(--sidebar-border)' }}
       >
         <button
-          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition-all duration-150 hover:scale-110 origin-left"
+          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition duration-150 hover:scale-110 origin-left"
           style={{ color: 'var(--text-faint)' }}
           onClick={() => onNavChange?.('settings')}
           onMouseEnter={(e) => (e.currentTarget.style.color = '#404040')}
