@@ -24,20 +24,20 @@ function isBypassEnabled(status: ApprovalBypassStatus | null): boolean {
 }
 
 function getBypassLabel(status: ApprovalBypassStatus | null): string {
-  if (status?.bypassAll) return 'BYPASS ALL';
-  return 'BYPASS';
+  if (status?.bypassAll) return '全部绕过';
+  return '绕过';
 }
 
 function getBypassTitle(status: ApprovalBypassStatus | null): string {
-  if (status?.bypassAll) return 'Approval bypass enabled for all approval categories';
+  if (status?.bypassAll) return '所有审批类别已启用绕过';
   const labels: string[] = [];
-  if (status?.bypassCommandApproval) labels.push('command approval');
-  if (status?.bypassFileWriteApproval) labels.push('file-write approval');
-  if (status?.bypassToolConfirmation) labels.push('tool confirmation');
-  if (status?.bypassNetworkApproval) labels.push('network approval');
+  if (status?.bypassCommandApproval) labels.push('命令审批');
+  if (status?.bypassFileWriteApproval) labels.push('文件写入审批');
+  if (status?.bypassToolConfirmation) labels.push('工具确认');
+  if (status?.bypassNetworkApproval) labels.push('网络审批');
   return labels.length > 0
-    ? `Approval bypass enabled for: ${labels.join(', ')}`
-    : 'Open approval settings';
+    ? `已绕过: ${labels.join('、')}`
+    : '打开审批设置';
 }
 
 export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
@@ -139,7 +139,7 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
           }}
         >
           {isStarting ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
-          <span>{isRunning ? 'SYNCED' : isStarting ? 'SYNCING' : 'OFFLINE'}</span>
+          <span>{isRunning ? '已同步' : isStarting ? '同步中' : '离线'}</span>
         </div>
       </div>
 
