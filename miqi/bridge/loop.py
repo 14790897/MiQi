@@ -194,6 +194,15 @@ class BridgeRuntimeLoop:
             pass  # mock in tests — initialize() is not async
         except Exception as exc:
             logger.warning("Sandbox manager initialization failed: {}", exc)
+            if self._app_server is not None:
+                try:
+                    await self._app_server.emit_client_event(
+                        "desktop",
+                        "sandbox.ready",
+                        {"enabled": True, "initialized": False, "error": str(exc)},
+                    )
+                except Exception:
+                    pass
             return
 
         if need_auto_enable:
@@ -204,13 +213,13 @@ class BridgeRuntimeLoop:
         # Notify the frontend so the settings toggle updates.
         if self._app_server is not None:
             try:
-                await self._app_server.emit_event(
+                await self._app_server.emit_client_event(
+                    "desktop",
                     "sandbox.ready",
                     {"enabled": True, "initialized": True},
                 )
             except Exception:
                 pass  # best-effort notification
-
     # ── AppServer initialization ───────────────────────────────────────────
 
     async def _init_app_server(self) -> None:
