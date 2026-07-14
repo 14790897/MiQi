@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '../lib/utils';
-import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive } from 'lucide-react';
+import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, Trash2 } from 'lucide-react';
 import { MiQiLogo } from './MiQiLogo';
 import { ContextMenu } from './ContextMenu';
 import { useSessionStatus, type SessionStatus } from '../hooks/useSessionStatus';
@@ -270,6 +270,18 @@ export function Sidebar({
                       onSelect: async () => {
                         try {
                           await window.miqi.sessions.archive(s.key);
+                          loadSessions();
+                        } catch { /* ignore */ }
+                      },
+                    },
+                    {
+                      label: '删除对话',
+                      icon: <Trash2 size={13} />,
+                      danger: true,
+                      onSelect: async () => {
+                        if (!window.confirm(`删除对话「${s.title || s.key}」？此操作不可撤销。`)) return;
+                        try {
+                          await window.miqi.sessions.delete(s.key);
                           loadSessions();
                         } catch { /* ignore */ }
                       },
