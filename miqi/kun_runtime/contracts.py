@@ -55,6 +55,7 @@ class ThreadStatus(str, Enum):
 class ThreadMode(str, Enum):
     agent = "agent"
     plan = "plan"
+    ask = "ask"
 
 
 class ThreadRelation(str, Enum):
