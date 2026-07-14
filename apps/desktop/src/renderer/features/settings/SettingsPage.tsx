@@ -1126,60 +1126,63 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
           ))}
         </Tabs.List>
 
-        <Tabs.Content value="general" className="flex-1 overflow-y-auto">
-          <GeneralTab onReopenSetup={onReopenSetup} />
-        </Tabs.Content>
-        <Tabs.Content value="providers" className="flex-1 overflow-y-auto">
-          <ProvidersPage />
-        </Tabs.Content>
-        <Tabs.Content value="channels" className="flex-1 overflow-y-auto">
-          <ChannelsPage />
-        </Tabs.Content>
-        <Tabs.Content value="approvals" className="flex-1 overflow-y-auto">
-          <ApprovalsPage />
-        </Tabs.Content>
-        <Tabs.Content value="workspace" className="flex-1 overflow-y-auto">
-          <WorkspacePage />
-        </Tabs.Content>
-        <Tabs.Content value="agents" className="flex-1 overflow-y-auto">
-          <AgentPanel />
-        </Tabs.Content>
-        <Tabs.Content value="skills" className="flex-1 overflow-y-auto">
-          <SkillsPage />
-        </Tabs.Content>
-        <Tabs.Content value="mcps" className="flex-1 overflow-y-auto">
-          <MCPsPage />
-        </Tabs.Content>
-        <Tabs.Content value="memory" className="flex-1 overflow-y-auto">
-          <MemoryPage />
-        </Tabs.Content>
-        <Tabs.Content value="experience" className="flex-1 overflow-y-auto">
-          <ExperiencePage />
-        </Tabs.Content>
-        <Tabs.Content value="permissions" className="flex-1 overflow-y-auto">
-          <PermissionsPage />
-        </Tabs.Content>
-        <Tabs.Content value="plugins" className="flex-1 overflow-y-auto">
-          <PluginMarket />
-        </Tabs.Content>
-        <Tabs.Content value="wsl" className="flex-1 overflow-y-auto">
-          <WslStatusPage />
-        </Tabs.Content>
-        <Tabs.Content value="webtools" className="flex-1 overflow-y-auto">
-          <WebToolsTab />
-        </Tabs.Content>
-        <Tabs.Content value="appearance" className="flex-1 overflow-y-auto">
-          <AppearanceTab />
-        </Tabs.Content>
-        <Tabs.Content value="logs" className="flex-1 min-h-0 flex flex-col">
-          <LogsTab />
-        </Tabs.Content>
-        <Tabs.Content value="archived" className="flex-1 overflow-y-auto">
-          <ArchivedTab />
-        </Tabs.Content>
-        <Tabs.Content value="docs" className="flex-1 min-h-0 flex flex-col">
-          <DocsTab />
-        </Tabs.Content>
+        {/* All tab content always mounted — visibility toggled by activeTab */}
+        <div className="flex-1 overflow-y-auto">
+          <div style={{ display: activeTab === 'general' ? 'block' : 'none' }}>
+            <GeneralTab onReopenSetup={onReopenSetup} />
+          </div>
+          <div style={{ display: activeTab === 'providers' ? 'block' : 'none' }}>
+            <ProvidersPage />
+          </div>
+          <div style={{ display: activeTab === 'channels' ? 'block' : 'none' }}>
+            <ChannelsPage />
+          </div>
+          <div style={{ display: activeTab === 'approvals' ? 'block' : 'none' }}>
+            <ApprovalsPage />
+          </div>
+          <div style={{ display: activeTab === 'workspace' ? 'block' : 'none' }}>
+            <WorkspacePage />
+          </div>
+          <div style={{ display: activeTab === 'agents' ? 'block' : 'none' }}>
+            <AgentPanel />
+          </div>
+          <div style={{ display: activeTab === 'skills' ? 'block' : 'none' }}>
+            <SkillsPage />
+          </div>
+          <div style={{ display: activeTab === 'mcps' ? 'block' : 'none' }}>
+            <MCPsPage />
+          </div>
+          <div style={{ display: activeTab === 'memory' ? 'block' : 'none' }}>
+            <MemoryPage />
+          </div>
+          <div style={{ display: activeTab === 'experience' ? 'block' : 'none' }}>
+            <ExperiencePage />
+          </div>
+          <div style={{ display: activeTab === 'permissions' ? 'block' : 'none' }}>
+            <PermissionsPage />
+          </div>
+          <div style={{ display: activeTab === 'plugins' ? 'block' : 'none' }}>
+            <PluginMarket />
+          </div>
+          <div style={{ display: activeTab === 'wsl' ? 'block' : 'none' }}>
+            <WslStatusPage />
+          </div>
+          <div style={{ display: activeTab === 'webtools' ? 'block' : 'none' }}>
+            <WebToolsTab />
+          </div>
+          <div style={{ display: activeTab === 'appearance' ? 'block' : 'none' }}>
+            <AppearanceTab />
+          </div>
+          <div style={{ display: activeTab === 'logs' ? 'block' : 'none' }}>
+            <LogsTab />
+          </div>
+          <div style={{ display: activeTab === 'archived' ? 'block' : 'none' }}>
+            <ArchivedTab />
+          </div>
+          <div style={{ display: activeTab === 'docs' ? 'block' : 'none' }}>
+            <DocsTab />
+          </div>
+        </div>
       </Tabs.Root>
     </div>
   );
