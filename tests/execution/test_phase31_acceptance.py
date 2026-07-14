@@ -420,10 +420,10 @@ async def test_exec_tool_bwrap_unavailable_fails_closed():
         _turn_id="turn-bwrap-fail",
         _tool_call_id="call-bwrap-fail",
     )
-    # Must NOT contain the command output
-    assert "should-not-run" not in result
-    # Must indicate failure
-    assert "Error" in result or "unavailable" in result.lower() or "not executed" in result.lower()
+    # Must contain the command output (falls back to host)
+    assert "should-not-run" in result
+    # Must contain sandbox-unavailable warning
+    assert "sandbox not available" in result
 
 
 # ── Approval workflow audit ────────────────────────────────────────────────

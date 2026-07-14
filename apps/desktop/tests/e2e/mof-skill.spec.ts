@@ -98,11 +98,11 @@ test.describe('MOF Synthesis Price E2E', () => {
       // Wait for AI to finish
       const _deadline = Date.now() + 300_000;
       while (Date.now() < _deadline) {
-        const thinking = await page.getByText('Thinking…').isVisible().catch(() => false);
+        const thinking = await page.getByTestId('thinking-indicator').isVisible().catch(() => false);
         if (!thinking) break;
         await page.waitForTimeout(8000);
       }
-      await expect(page.getByText('Thinking…')).toBeHidden({ timeout: 300_000 });
+      await expect(page.getByTestId('thinking-indicator')).toBeHidden({ timeout: 300_000 });
       await shot();
       await page.waitForTimeout(3000);
 

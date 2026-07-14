@@ -31,7 +31,7 @@ dependencies = [
     "croniter>=6.0.0,<7.0.0",
     "prompt-toolkit>=3.0.50,<4.0.0",
     "mcp>=1.26.0,<2.0.0",
-    "json-repair>=0.57.0,<1.0.0",
+    "json-repair>=0.60.1,<1.0.0",
     "lark-oapi>=1.5.0,<2.0.0",
     "tzdata>=2024.1 ; sys_platform == 'win32'",
     "pyinstaller>=6.20.0",
