@@ -191,6 +191,14 @@ const api = {
       ipcRenderer.invoke(IPC.BUILTIN_MODEL_UNLOCK, {
         activation_code: activationCode,
       }),
+    activate: (
+      providerName: string,
+      activationCode: string
+    ): Promise<{ activated: boolean; provider_name: string; error?: string }> =>
+      ipcRenderer.invoke(IPC.PROVIDERS_ACTIVATE, {
+        provider_name: providerName,
+        activation_code: activationCode,
+      }),
   },
 
   // -- Channels ---------------------------------------------------------------
