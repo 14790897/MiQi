@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Package, ToggleLeft, ToggleRight, Trash2, Loader2 } from 'lucide-react';
+import { Package, ToggleLeft, ToggleRight, Trash2, Puzzle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 interface PluginInfo {
@@ -38,7 +38,7 @@ export function PluginMarket() {
   };
 
   const handleUninstall = async (name: string) => {
-    if (!confirm(`Uninstall ${name}?`)) return;
+    if (!confirm(`确定卸载 ${name}？`)) return;
     try {
       await window.miqi.plugins.uninstall(name);
       await load();
@@ -47,63 +47,85 @@ export function PluginMarket() {
     }
   };
 
+  const statusLabel = (s: string) => {
+    switch (s) { case 'active': return '已启用'; case 'error': return '错误'; default: return '已禁用'; }
+  };
+
   if (loading)
     return (
       <div className="p-4 flex items-center gap-2">
-        <Loader2 className="animate-spin" size={16} /> Loading...
+        <div className="w-4 h-4 border-2 border-[var(--border)] border-t-[var(--accent)] rounded-full animate-spin" />
+        <span className="text-xs text-[var(--text-faint)]">加载中...</span>
       </div>
     );
 
   return (
     <div className="p-4 max-w-2xl">
-      <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-        <Package size={20} /> 插件市场
+      <h2 className="text-sm font-semibold text-[var(--text)] mb-4 flex items-center gap-2">
+        <Package size={16} />
+        插件市场
       </h2>
       {plugins.length === 0 ? (
-        <p className="text-gray-400">
-          暂无已安装插件。将插件添加到 ~/.miqi/plugins/ 或 &lt;workspace&gt;/.miqi/plugins/。
-        </p>
+        <div className="flex flex-col items-center justify-center py-10 px-4 rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-muted)]/30">
+          <div className="w-10 h-10 rounded-full bg-[var(--surface-muted)] flex items-center justify-center mb-3">
+            <Puzzle size={18} style={{ color: 'var(--text-faint)' }} />
+          </div>
+          <p className="text-[13px] font-medium text-[var(--text-muted)] mb-1">暂无已安装插件</p>
+          <p className="text-[11px] text-[var(--text-faint)] text-center leading-relaxed">
+            将插件添加到 ~/.miqi/plugins/ 或 &lt;workspace&gt;/.miqi/plugins/
+          </p>
+        </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {plugins.map((p) => (
-            <div key={p.name} className="border rounded p-3 bg-white dark:bg-gray-800">
+            <div
+              key={p.name}
+              className="rounded-lg px-3 py-2.5 transition-colors"
+              style={{
+                background: 'var(--surface-muted)',
+                border: '1px solid var(--border-subtle)',
+              }}
+            >
               <div className="flex items-center justify-between">
-                <div>
-                  <span className="font-medium">{p.name}</span>
-                  <span className="text-xs text-gray-400 ml-2">v{p.version}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium" style={{ color: 'var(--text)' }}>
+                    {p.name}
+                  </span>
+                  <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
+                    v{p.version}
+                  </span>
                   <span
                     className={cn(
-                      'ml-2 text-xs px-1.5 py-0.5 rounded',
-                      p.status === 'active'
-                        ? 'bg-green-100 text-green-700'
-                        : p.status === 'error'
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-gray-100 text-gray-600'
+                      'text-[10px] px-1.5 py-0.5 rounded',
+                      p.status === 'active' && 'bg-[var(--success-bg)] text-[var(--success)]',
+                      p.status === 'error' && 'bg-[var(--danger-bg)] text-[var(--danger)]',
+                      p.status === 'disabled' && 'bg-[var(--surface-muted)] text-[var(--text-faint)]',
                     )}
                   >
-                    {p.status}
+                    {statusLabel(p.status)}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => handleToggle(p.name, p.status)}
-                    className="text-[var(--text-muted)] hover:text-[var(--text)]"
+                    style={{ color: p.status === 'active' ? 'var(--success)' : 'var(--text-faint)' }}
+                    className="hover:opacity-80 transition-opacity"
                   >
-                    {p.status === 'active' ? (
-                      <ToggleRight size={18} className="text-green-500" />
-                    ) : (
-                      <ToggleLeft size={18} />
-                    )}
+                    {p.status === 'active' ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
                   </button>
                   <button
                     onClick={() => handleUninstall(p.name)}
-                    className="text-red-400 hover:text-red-600"
+                    className="text-[var(--danger)] hover:opacity-70 transition-opacity"
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={13} />
                   </button>
                 </div>
               </div>
-              {p.description && <p className="text-xs text-gray-500 mt-1">{p.description}</p>}
+              {p.description && (
+                <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                  {p.description}
+                </p>
+              )}
             </div>
           ))}
         </div>
