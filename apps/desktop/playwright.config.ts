@@ -38,8 +38,8 @@ export default defineConfig({
       testMatch: ['*.spec.ts'],
       timeout: 600_000,  // 10 min — pptx-generator + LLM can be slow
       use: {
-        video: 'on',
-        screenshot: 'on',
+        video: 'retain-on-failure',
+        screenshot: 'only-on-failure',
       },
     },
   ],
