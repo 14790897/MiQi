@@ -23,7 +23,7 @@ async function sendMessage(page: Page, text: string) {
 }
 
 async function waitForResponseComplete(page: Page, timeout = 120_000) {
-  await expect(page.getByText('Thinking…')).toBeHidden({ timeout });
+  await expect(page.locator('[data-testid="thinking-indicator"]')).toBeHidden({ timeout });
 }
 
 // ─── Test Suite ───────────────────────────────────────────────────
@@ -73,7 +73,7 @@ test.describe('Task Assets Panel E2E', () => {
 
       // Panel should show empty state initially
       await expect(page.getByTestId('task-assets-panel')).toBeVisible({ timeout: 10_000 });
-      await expect(page.getByText(/No files yet/)).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator('[data-testid="task-assets-empty"]')).toBeVisible({ timeout: 10_000 });
 
       // Have AI create a file (will trigger approval)
       await sendMessage(
@@ -94,10 +94,10 @@ test.describe('Task Assets Panel E2E', () => {
       const assetsPanel = page.getByTestId('task-assets-panel');
       const fileCard = assetsPanel.locator('.rounded-lg.p-2\\.5').filter({ hasText: filename }).first();
       await expect(fileCard).toBeVisible({ timeout: 30_000 });
-      await expect(assetsPanel.getByText(/No files yet/)).not.toBeVisible({ timeout: 5_000 });
+      await expect(assetsPanel.locator('[data-testid="task-assets-empty"]')).not.toBeVisible({ timeout: 5_000 });
 
       // WRITE category should have the file
-      await expect(page.getByText('ACTIVE FOR EDIT')).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator('[data-testid="section-label-active-for-edit"]')).toBeVisible({ timeout: 10_000 });
 
       // Should show a WRITE op badge on the file
       await expect(page.getByText('WRITE').first()).toBeVisible({ timeout: 10_000 });
@@ -141,7 +141,7 @@ test.describe('Task Assets Panel E2E', () => {
       // Use precise class selector to avoid matching Proposed Changes items
       const fileCard = assetsPanel.locator('.rounded-lg.p-2\\.5').filter({ hasText: filename });
       await expect(fileCard).toBeVisible({ timeout: 10_000 });
-      await fileCard.getByRole('button', { name: 'Preview', exact: true }).click();
+      await fileCard.locator('[data-testid="file-preview-btn"]').click();
       console.log('[test] Clicked Preview on file card');
 
       // Preview modal should appear with file content
@@ -184,7 +184,7 @@ test.describe('Task Assets Panel E2E', () => {
       });
 
       // Ensure panel is open
-      const toggleBtn = page.locator('button[title="Toggle assets panel"], button[title="显示或隐藏文件面板"]');
+      const toggleBtn = page.locator('[data-testid="toggle-assets-panel-btn"]');
       const panelVisible = await page.getByTestId('task-assets-panel').isVisible().catch(() => false);
       if (!panelVisible) {
         await toggleBtn.click();
@@ -216,7 +216,7 @@ test.describe('Task Assets Panel E2E', () => {
       const shortName = filename.slice(0, 20); // visible portion (truncated to 28)
 
       // Panel must no longer be empty
-      await expect(page.getByText(/No files yet/)).not.toBeVisible({ timeout: 15_000 });
+      await expect(page.locator('[data-testid="task-assets-empty"]')).not.toBeVisible({ timeout: 15_000 });
 
       // Scope to the assets panel only to avoid matching the same file card
       // that also appears in the main chat "Proposed Changes" area.
@@ -225,14 +225,14 @@ test.describe('Task Assets Panel E2E', () => {
       await expect(docxCard).toBeVisible({ timeout: 10_000 });
 
       // Should show ACTIVE FOR EDIT + WRITE + OFFICE badges
-      await expect(page.getByText('ACTIVE FOR EDIT')).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator('[data-testid="section-label-active-for-edit"]')).toBeVisible({ timeout: 10_000 });
       await expect(docxCard.getByText('WRITE')).toBeVisible({ timeout: 10_000 });
       await expect(docxCard.getByText('OFFICE')).toBeVisible({ timeout: 10_000 });
       console.log('[test] ✅ Docx appears in Task Assets panel');
       await page.screenshot({ path: 'test-results/docx-in-panel.png' });
 
       // ── Click Preview → opens directly with system app, no modal ──
-      await docxCard.getByRole('button', { name: 'Preview', exact: true }).click();
+      await docxCard.locator('[data-testid="file-preview-btn"]').click();
       // Office files are dispatched to the system default application via shell.openPath;
       // no preview modal is shown. Just verify the click does not throw.
       await page.waitForTimeout(500);
