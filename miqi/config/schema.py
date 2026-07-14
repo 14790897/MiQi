@@ -522,41 +522,6 @@ class Config(BaseSettings):
             return get_miqi_home() / "workspace"
         return Path(raw).expanduser().resolve()
 
-    def _builtin_available(self, name: str | None) -> bool:
-        """Return whether an unlocked built-in credential can satisfy provider ``name``."""
-        if not name:
-            return False
-        from miqi.providers.builtin_credentials import BUILTIN_KEY_PROVIDER
-
-        builtin_state = self.desktop.get("builtinModel") if isinstance(self.desktop, dict) else None
-        if not isinstance(builtin_state, dict) or not builtin_state.get("enabled"):
-            return False
-        if not BUILTIN_KEY_PROVIDER.is_unlocked(name):
-            BUILTIN_KEY_PROVIDER.restore(builtin_state.get("sealedCredential"))
-        if not BUILTIN_KEY_PROVIDER.is_unlocked(name):
-            return False
-        providers = builtin_state.get("providers")
-        if isinstance(providers, list):
-            for item in providers:
-                if isinstance(item, dict) and item.get("provider") == name:
-                    return True
-                if item == name:
-                    return True
-        return builtin_state.get("provider") == name
-
-    def _active_credential_source(self, name: str | None) -> str | None:
-        """Return the selected credential source for a provider: user or builtin."""
-        if not name or not isinstance(self.desktop, dict):
-            return None
-        credential_state = self.desktop.get("providerCredentials")
-        if not isinstance(credential_state, dict):
-            return None
-        active = credential_state.get("active")
-        if not isinstance(active, dict):
-            return None
-        source = active.get(name)
-        return source if source in {"user", "builtin"} else None
-
     def _match_provider(self, model: str | None = None) -> tuple["ProviderConfig | None", str | None]:
         """Match provider config and its registry name. Returns (config, spec_name)."""
         from miqi.providers.registry import PROVIDERS
@@ -571,11 +536,6 @@ class Config(BaseSettings):
             return kw in model_lower or kw.replace("-", "_") in model_normalized
 
         def _is_configured(spec, provider) -> bool:
-            if spec.is_local:
-                return bool(provider.api_base)
-            return bool(provider.api_key) or self._builtin_available(spec.name)
-
-        def _is_user_configured(spec, provider) -> bool:
             if spec.is_local:
                 return bool(provider.api_base)
             return bool(provider.api_key)
@@ -594,12 +554,10 @@ class Config(BaseSettings):
                 if _is_configured(spec, p):
                     return p, spec.name
 
-        # Fallback: gateways first, then others (follows registry order).
-        # Built-in credentials are intentionally excluded here so an unlocked
-        # DeepSeek trial key cannot satisfy an unrelated provider/model lookup.
+        # Fallback: gateways first, then others (follows registry order)
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
-            if p and _is_user_configured(spec, p):
+            if p and _is_configured(spec, p):
                 return p, spec.name
         return None, None
 
@@ -614,37 +572,15 @@ class Config(BaseSettings):
         return name
 
     def get_api_key(self, model: str | None = None) -> str | None:
-        """Get API key for the given model using the selected credential."""
-        p, name = self._match_provider(model)
-        active_source = self._active_credential_source(name)
-        if active_source == "builtin":
-            if name and self._builtin_available(name):
-                from miqi.providers.builtin_credentials import BUILTIN_KEY_PROVIDER
-
-                return BUILTIN_KEY_PROVIDER.get_key(name)
-            return None
-        if active_source == "user":
-            return p.api_key if p and p.api_key else None
-        if p and p.api_key:
-            return p.api_key
-        if name and self._builtin_available(name):
-            from miqi.providers.builtin_credentials import BUILTIN_KEY_PROVIDER
-
-            return BUILTIN_KEY_PROVIDER.get_key(name)
-        return None
+        """Get API key for the given model. Falls back to first available key."""
+        p = self.get_provider(model)
+        return p.api_key if p else None
 
     def get_api_base(self, model: str | None = None) -> str | None:
         """Get API base URL for the given model. Applies default URLs for known gateways."""
         from miqi.providers.registry import find_by_name
 
         p, name = self._match_provider(model)
-        active_source = self._active_credential_source(name)
-        if active_source == "builtin":
-            if name and self._builtin_available(name):
-                spec = find_by_name(name)
-                if spec and spec.is_gateway and spec.default_api_base:
-                    return spec.default_api_base
-            return None
         if p and p.api_base:
             return p.api_base
         # Only gateways get a default api_base here. Standard providers
