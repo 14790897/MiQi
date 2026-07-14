@@ -57,11 +57,11 @@ export function PluginMarket() {
   return (
     <div className="p-4 max-w-2xl">
       <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-        <Package size={20} /> Plugin Market
+        <Package size={20} /> 插件市场
       </h2>
       {plugins.length === 0 ? (
         <p className="text-gray-400">
-          No plugins installed. Add plugins to ~/.miqi/plugins/ or &lt;workspace&gt;/.miqi/plugins/.
+          暂无已安装插件。将插件添加到 ~/.miqi/plugins/ 或 <workspace>/.miqi/plugins/。
         </p>
       ) : (
         <div className="space-y-3">

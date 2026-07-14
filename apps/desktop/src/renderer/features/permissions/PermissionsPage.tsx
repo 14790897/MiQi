@@ -96,7 +96,7 @@ export function PermissionsPage() {
 
       {/* Filesystem Rules */}
       <section className="mb-6">
-        <h3 className="text-sm font-semibold mb-2">Filesystem Rules</h3>
+        <h3 className="text-sm font-semibold mb-2">文件系统规则</h3>
         <div className="space-y-2 mb-2">
           {config.filesystem.rules.map((rule, i) => (
             <div key={i} className="flex items-center gap-2">
@@ -134,13 +134,13 @@ export function PermissionsPage() {
           onClick={addRule}
           className="flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
         >
-          <Plus size={12} /> Add Rule
+          <Plus size={12} /> 添加规则
         </button>
       </section>
 
       {/* Network Policy */}
       <section className="mb-6">
-        <h3 className="text-sm font-semibold mb-2">Network Policy</h3>
+        <h3 className="text-sm font-semibold mb-2">网络策略</h3>
         <select
           value={config.network}
           onChange={(e) =>
@@ -151,7 +151,7 @@ export function PermissionsPage() {
           }
           className="px-2 py-1 text-sm border rounded bg-[var(--surface)]"
         >
-          <option value="allow_all">Allow All</option>
+          <option value="allow_all">允许所有</option>
           <option value="block_all">Block All</option>
           <option value="allow_list">Allow List</option>
         </select>
@@ -159,7 +159,7 @@ export function PermissionsPage() {
 
       {/* Exec Approval */}
       <section className="mb-6">
-        <h3 className="text-sm font-semibold mb-2">Shell Command Approval</h3>
+        <h3 className="text-sm font-semibold mb-2">Shell 命令审批</h3>
         <select
           value={config.exec_approval}
           onChange={(e) =>
@@ -171,7 +171,7 @@ export function PermissionsPage() {
           className="px-2 py-1 text-sm border rounded bg-[var(--surface)]"
         >
           <option value="never">Never (no approval)</option>
-          <option value="dangerous">Dangerous only (default)</option>
+          <option value="dangerous">仅危险命令（默认）</option>
           <option value="always">Always require approval</option>
         </select>
       </section>
@@ -186,7 +186,7 @@ export function PermissionsPage() {
         )}
       >
         {saving ? <Loader2 className="animate-spin" size={14} /> : saved ? '✓' : <Save size={14} />}
-        {saved ? 'Saved!' : 'Save'}
+        {saved ? '已保存' : '保存'}
       </button>
     </div>
   );
