@@ -40,6 +40,14 @@ interface SidebarProps {
   onNewSession?: () => void;
 }
 
+const STATUS_ICONS: Record<SessionStatus, typeof Play> = {
+  'IN-PROGRESS': Play,
+  'PENDING': Clock,
+  'REVIEW': Eye,
+  'COMPLETED': CheckCircle2,
+  'CC': Eye,
+};
+
 export function Sidebar({
   currentSession,
   onSessionSelect,
@@ -113,6 +121,14 @@ export function Sidebar({
     { value: 'COMPLETED', label: '已完成' },
   ];
 
+  // Count per filter
+  const filterCounts: Record<FilterTab, number> = {
+    ALL: sessions.length,
+    'IN-PROGRESS': sessions.filter((s) => getStatus(s.key) === 'IN-PROGRESS').length,
+    REVIEW: sessions.filter((s) => getStatus(s.key) === 'REVIEW').length,
+    COMPLETED: sessions.filter((s) => getStatus(s.key) === 'COMPLETED').length,
+  };
+
   const filteredSessions = sessions.filter((s) => {
     if (filter === 'ALL') return true;
     const status = getStatus(s.key);
@@ -153,23 +169,43 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* Filter tabs */}
-      <div className="min-w-0 max-w-full shrink-0 overflow-x-auto overflow-y-hidden px-3 pb-3">
-        <div className="inline-flex w-max flex-nowrap items-center gap-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-muted)] p-1">
+      {/* Filter tabs — underline style */}
+      <div className="shrink-0 px-3 pb-2">
+        <div className="flex items-stretch justify-between" role="tablist">
         {FILTER_TABS.map((tab) => {
           const isActive = filter === tab.value;
+          const count = filterCounts[tab.value];
           return (
             <button
               key={tab.value}
+              role="tab"
+              aria-selected={isActive}
               onClick={() => setFilter(tab.value)}
               className={cn(
-                'shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[11px] font-medium leading-none transition-colors',
+                'relative flex-1 flex items-center justify-center gap-1 py-2 text-[12px] font-medium transition-all duration-150 rounded-md',
+                'hover:bg-black/[0.04]',
                 isActive
-                  ? 'bg-[var(--surface)] text-[var(--text)] shadow-sm'
-                  : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]',
+                  ? 'text-[var(--text)] font-semibold'
+                  : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]',
               )}
             >
               {tab.label}
+              {count > 0 && (
+                <span
+                  className={cn(
+                    'inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full text-[10px] font-medium leading-none',
+                    isActive
+                      ? 'text-[var(--accent)]'
+                      : 'text-[var(--text-faint)]',
+                  )}
+                  style={isActive ? { background: 'color-mix(in srgb, var(--accent) 18%, transparent)' } : { background: 'var(--surface-muted)' }}
+                >
+                  {count}
+                </span>
+              )}
+              {isActive && (
+                <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-[var(--accent)]/70" />
+              )}
             </button>
           );
         })}
@@ -177,7 +213,7 @@ export function Sidebar({
       </div>
 
       {/* Session list — card style with left border + description */}
-      <div className="flex-1 overflow-y-auto px-3 pb-2">
+      <div className="flex-1 overflow-y-auto px-3 pt-1 pb-2">
         {initialLoading && sessions.length === 0 ? (
           <div className="flex items-center justify-center py-6">
             <div className="w-4 h-4 border-2 border-[var(--border)] border-t-[var(--accent)] rounded-full animate-spin" />
@@ -194,7 +230,9 @@ export function Sidebar({
             {filteredSessions.slice(0, 20).map((s) => {
               const isActive = currentSession === s.key;
               const displayName = s.title || formatTimestampKey(s.key);
-              const status = getStatusDisplay(getStatus(s.key));
+              const sessionStatus = getStatus(s.key);
+              const status = getStatusDisplay(sessionStatus);
+              const StatusIcon = STATUS_ICONS[sessionStatus];
               return (
                 <ContextMenu
                   key={s.key}
@@ -243,20 +281,29 @@ export function Sidebar({
                     <button
                       onClick={() => onSessionSelect?.(s.key)}
                       onContextMenu={onContextMenu}
-                      className="w-full text-left rounded-xl px-3 py-3 transition-colors"
+                      className={cn(
+                        'w-full text-left rounded-xl px-3 py-3 transition-all duration-200',
+                        isActive && 'shadow-[0_2px_16px_rgba(0,0,0,0.14)]',
+                        !isActive && 'hover:shadow-[0_4px_12px_rgba(0,0,0,0.1)] hover:-translate-y-px',
+                      )}
                       style={{
                         background: status.cardBg,
-                        border: `1px solid ${isActive ? status.color : status.cardBorder}`,
+                        border: `1px solid ${isActive ? (sessionStatus === 'IN-PROGRESS' ? status.bg : status.color) : status.cardBorder}`,
                       }}
                     >
-                      {/* Top row: pill status label left · time right */}
+                      {/* Top row: status icon + label left · time right */}
                       <div className="flex items-center justify-between mb-2">
-                        <span
-                          className="shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-semibold leading-none"
-                          style={{ background: status.bg, color: status.color }}
-                        >
-                          {status.label}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className="shrink-0 flex items-center justify-center w-[18px] h-[18px] rounded"
+                            style={{ background: status.bg, color: status.color }}
+                          >
+                            <StatusIcon size={11} strokeWidth={2.5} />
+                          </span>
+                          <span className="text-[10px] font-medium" style={{ color: sessionStatus === 'IN-PROGRESS' ? status.bg : status.color }}>
+                            {status.label}
+                          </span>
+                        </div>
                         <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
                           {relativeTime(s.updated_at)}
                         </span>
@@ -293,9 +340,11 @@ export function Sidebar({
         style={{ borderColor: 'var(--sidebar-border)' }}
       >
         <button
-          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition-all duration-150 hover:text-[var(--text)]"
+          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition-all duration-150 hover:scale-110 origin-left"
           style={{ color: 'var(--text-faint)' }}
           onClick={() => onNavChange?.('settings')}
+          onMouseEnter={(e) => (e.currentTarget.style.color = '#404040')}
+          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-faint)')}
         >
           <Settings size={13} />
           <span>系统设置</span>
