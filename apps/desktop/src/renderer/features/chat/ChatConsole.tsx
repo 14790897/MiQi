@@ -1765,8 +1765,10 @@ export function ChatConsole({
                   if (!window.confirm('删除此对话？操作不可恢复。')) return;
                   try {
                     await window.miqi.sessions.delete(sessionKey);
-                  } catch { /* ignore */ }
-                  handleNewSession();
+                    handleNewSession();
+                  } catch (e) {
+                    console.error('Delete failed:', e);
+                  }
                 },
               },
             ]}
