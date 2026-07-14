@@ -67,7 +67,7 @@ export function useSessionStatus() {
         };
       case 'CC':
         return {
-          label: '旧标签',
+          label: '抄送 (旧)',
           bg: 'var(--tag-cc-bg)',
           color: 'var(--tag-cc-text)',
           cardBg: 'color-mix(in srgb, var(--surface) 75%, var(--tag-cc-bg))',
