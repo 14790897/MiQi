@@ -45,12 +45,11 @@ test.describe.serial('Sandbox Toggle E2E', () => {
   async function approveLoop(page: Page, timeout = 180_000) {
     const deadline = Date.now() + timeout;
     while (Date.now() < deadline) {
-      const btn = page.getByRole('button', { name: '持久允许' })
-        .or(page.getByRole('button', { name: '永久允许' }));
+      const btn = page.locator('[data-testid="approval-allow-permanent"]');
       if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await btn.click();
       }
-      const thinking = await page.getByText('Thinking…').isVisible().catch(() => false);
+      const thinking = await page.locator('[data-testid="thinking-indicator"]').isVisible().catch(() => false);
       if (!thinking) break;
       await page.waitForTimeout(1000);
     }
@@ -58,12 +57,12 @@ test.describe.serial('Sandbox Toggle E2E', () => {
 
   // -- Helper: navigate to Settings General tab --
   async function openSettings(page: Page) {
-    const settingsBtn = page.getByText('System Settings');
+    const settingsBtn = page.locator('[data-testid="nav-system-settings"]');
     await expect(settingsBtn).toBeVisible({ timeout: 10_000 });
     await settingsBtn.click();
     await page.waitForTimeout(1500);
     await expect(
-      page.getByText('沙箱隔离')
+      page.locator('[data-testid="settings-sandbox-section-title"]')
     ).toBeVisible({ timeout: 5_000 });
   }
 

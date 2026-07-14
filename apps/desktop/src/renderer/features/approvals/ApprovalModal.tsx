@@ -108,6 +108,7 @@ export function ApprovalModal() {
             <button
               onClick={() => resolve('always')}
               className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition-colors"
+              data-testid="approval-allow-permanent"
             >
               永久允许
             </button>

@@ -44,12 +44,11 @@ test.describe('Sandbox Exec E2E', () => {
   async function approveLoop(page: Page, timeout = 180_000) {
     const deadline = Date.now() + timeout;
     while (Date.now() < deadline) {
-      const btn = page.getByRole('button', { name: '持久允许' })
-        .or(page.getByRole('button', { name: '永久允许' }));
+      const btn = page.locator('[data-testid="approval-allow-permanent"]');
       if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await btn.click();
       }
-      const thinking = await page.getByText('Thinking…').isVisible().catch(() => false);
+      const thinking = await page.locator('[data-testid="thinking-indicator"]').isVisible().catch(() => false);
       if (!thinking) break;
       await page.waitForTimeout(1000);
     }

@@ -136,7 +136,7 @@ export function Sidebar({
       {/* Header: glitch M logo + Tasks title */}
       <div className="flex items-center gap-2.5 px-4 py-3 shrink-0">
         <MiQiLogo size={28} />
-        <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
+        <span className="text-sm font-semibold" style={{ color: 'var(--text)' }} data-testid="nav-tasks-title">
           Tasks
         </span>
         <button
@@ -290,6 +290,7 @@ export function Sidebar({
           className="text-[11px] cursor-pointer hover:text-[var(--text)] settings-hover-sidebar"
           style={{ color: 'var(--text-faint)' }}
           onClick={() => onNavChange?.('settings')}
+          data-testid="nav-system-settings"
         >
           System Settings
         </span>

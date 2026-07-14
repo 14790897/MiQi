@@ -32,9 +32,7 @@ export function getMiqiSessionsDir(miqiHome: string): string {
 
 /** Wait for the chat input textarea to be present and enabled */
 export async function waitForInputReady(page: Page, timeout = 60_000) {
-  const textarea = page.getByPlaceholder(
-    'Ask Agent to analyze or edit files...',
-  );
+  const textarea = page.locator('[data-testid="chat-input-container"] textarea');
   await expect(textarea).toBeEnabled({ timeout });
   return textarea;
 }
@@ -52,7 +50,7 @@ export async function sendMessage(page: Page, text: string) {
 export async function waitForResponseComplete(page: Page, timeout = 120_000) {
   // Phase 1: model stops generating → "Thinking…" hidden.
   try {
-    await expect(page.getByText('Thinking…')).toBeHidden({ timeout });
+    await expect(page.locator('[data-testid="thinking-indicator"]')).toBeHidden({ timeout });
   } catch (err) {
     // Dump page state before re-throwing — so CI logs show what the AI
     // was doing when it got stuck (tool calls, errors, etc.)
@@ -144,7 +142,7 @@ export async function switchToSessionWithMarker(
   marker: string,
 ): Promise<boolean> {
   // Ensure the Tasks section is scrolled into view
-  const tasksHeader = page.getByText('Tasks').first();
+  const tasksHeader = page.locator('[data-testid="nav-tasks-title"]');
   await tasksHeader.scrollIntoViewIfNeeded().catch(() => {});
 
   const items = getSidebarSessionItems(page);

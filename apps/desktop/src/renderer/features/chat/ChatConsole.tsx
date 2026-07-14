@@ -1407,6 +1407,7 @@ export function ChatConsole({
         <span
           className="text-sm font-bold whitespace-nowrap shrink-0"
           style={{ color: 'var(--text)' }}
+          data-testid="app-title"
         >
           MiQi Desktop
         </span>
@@ -1585,6 +1586,7 @@ export function ChatConsole({
                 <div
                   className="flex items-center gap-2 text-xs px-1"
                   style={{ color: 'var(--text-muted)' }}
+                  data-testid="thinking-indicator"
                 >
                   <Loader2 size={12} className="animate-spin" />
                   Thinking…
@@ -1636,6 +1638,7 @@ export function ChatConsole({
 
               <div
                 className="flex items-end gap-2 rounded-xl px-4 py-3.5 focus-within:ring-2 transition-all"
+                data-testid="chat-input-container"
                 style={{
                   background: 'var(--surface)',
                   border: '1px solid var(--border)',
@@ -1751,7 +1754,7 @@ export function ChatConsole({
             >
               <div className="flex items-center gap-1.5">
                 <LayoutGrid size={13} style={{ color: 'var(--text-muted)' }} />
-                <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
+                <span className="text-xs font-semibold" style={{ color: 'var(--text)' }} data-testid="task-assets-title">
                   Task Assets
                 </span>
               </div>
@@ -1764,7 +1767,7 @@ export function ChatConsole({
               <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center gap-4">
                 <FileText size={28} style={{ color: 'var(--text-faint)', opacity: 0.35 }} />
                 <div className="flex flex-col items-center gap-1">
-                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }}>
+                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }} data-testid="task-assets-empty">
                     No files yet.
                   </p>
                   <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
@@ -2212,10 +2215,12 @@ function DiffView({ diff }: { diff: string }) {
 }
 
 function SectionLabel({ label }: { label: string }) {
+  const testId = `section-label-${label.toLowerCase().replace(/\s+/g, '-')}`;
   return (
     <div
       className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest"
       style={{ color: 'var(--text-faint)' }}
+      data-testid={testId}
     >
       {label}
     </div>
@@ -2323,6 +2328,7 @@ function TrackedFileCard({
               color: 'var(--text-muted)',
             }}
             title={isOfficeFile ? 'Office binary preview is not available' : 'Preview file'}
+            data-testid="file-preview-btn"
           >
             <Eye size={10} />
             Preview
