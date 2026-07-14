@@ -167,6 +167,7 @@ export const ChatSendInput = z.object({
   content: z.string().min(1),
   session_key: z.string().optional(),
   thread_id: z.string().optional(),
+  mode: z.enum(['edit', 'plan', 'ask']).optional(),
 });
 
 export const SessionGetInput = z.object({
@@ -896,6 +897,7 @@ export const ThreadStartInput = z.object({
   title: z.string().optional(),
   session_key: z.string().optional(),
   thread_id: z.string().optional(),
+  mode: z.enum(['edit', 'plan', 'ask']).optional(),
 });
 
 export const ThreadReadInput = z.object({
@@ -915,6 +917,7 @@ export const TurnStartInput = z.object({
   session_key: z.string().optional(),
   model: z.string().optional(),
   effort: z.string().optional(),
+  mode: z.enum(['edit', 'plan', 'ask']).optional(),
 });
 
 export const TurnInterruptInput = z.object({

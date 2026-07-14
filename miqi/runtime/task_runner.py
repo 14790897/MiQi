@@ -458,6 +458,7 @@ class TaskRunner:
         # RuntimeServices would be a future improvement.
         session_id = getattr(self.services, "session_id", "")
         client_id = session_id.split(":")[0] if ":" in session_id else ""
+        turn_mode = msg.mode or "edit"
         turn = TurnContext(
             turn_id=turn_id,
             agent_metadata=metadata,
@@ -469,6 +470,7 @@ class TaskRunner:
             max_tokens=self.services.model_settings.max_tokens,
             client_id=client_id,
             session_id=session_id,
+            mode=turn_mode,
         )
 
         # Phase 13: resolve capabilities and permission profile
@@ -480,6 +482,11 @@ class TaskRunner:
             tools = capabilities.tool_definitions
         else:
             tools = self.services.tool_registry.get_definitions()
+
+        # Mode-based tool filtering: in ask mode, remove write/exec/side-effect tools
+        if turn_mode == "ask":
+            from miqi.kun_runtime.tool_host import _is_tool_allowed_in_mode  # noqa: F811
+            tools = [t for t in tools if _is_tool_allowed_in_mode(t.get("name", ""), "ask")]
 
         # Phase 13: attach permission profile for orchestrator
         from miqi.runtime.permission_profile import PermissionProfile
@@ -602,10 +609,32 @@ class TaskRunner:
                 ))
                 return
 
+            # Mode-specific system prompt override
+            mode_prompts = {
+                "ask": (
+                    "You are Kun, a careful and helpful AI assistant in READ-ONLY mode. "
+                    "You can read files, search code, and fetch information, but you CANNOT "
+                    "write, edit, delete files, or execute commands. "
+                    "Provide thorough analysis, answer questions, and suggest approaches "
+                    "without making any changes. If you need to make changes, explain what "
+                    "you would do and ask the user to switch to Edit mode."
+                ),
+                "plan": (
+                    "You are Kun, a careful and helpful AI assistant in PLAN mode. "
+                    "Before making any changes, analyze the user's request thoroughly and "
+                    "present a structured plan. The plan should include: "
+                    "1) What you will do, 2) Files you will modify or create, "
+                    "3) The order of operations. Use read-only tools to gather context. "
+                    "Wait for user confirmation before executing any write/exec actions. "
+                    "Present the plan clearly using numbered steps."
+                ),
+            }
+            system_prompt = mode_prompts.get(turn_mode, metadata.system_prompt)
+
             result = await self.services.turn_runner.run(
                 turn=turn,
                 user_content=msg.content,
-                system_prompt=metadata.system_prompt,
+                system_prompt=system_prompt,
                 tools=tools,
                 history=history,
                 cancel_event=cancel_evt,

@@ -52,7 +52,7 @@ class ThreadService:
             "title": fields.get("title", "New Thread"),
             "workspace": fields["workspace"],
             "model": fields["model"],
-            "mode": fields.get("mode", "agent"),
+            "mode": fields.get("mode", "edit"),
             "status": fields.get("status", "idle"),
             "approvalPolicy": fields.get("approvalPolicy", "auto"),
             "sandboxMode": fields.get("sandboxMode", "workspace-write"),

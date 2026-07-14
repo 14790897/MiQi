@@ -44,7 +44,11 @@ class FileThreadStore:
         if not path.exists():
             return None
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            record = json.loads(path.read_text(encoding="utf-8"))
+            # Backward compatibility: normalize legacy "agent" mode → "edit"
+            if record.get("mode") == "agent":
+                record["mode"] = "edit"
+            return record
         except (json.JSONDecodeError, OSError):
             return None
 

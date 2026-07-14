@@ -96,7 +96,7 @@ def _is_tool_allowed_in_mode(tool_name: str, thread_mode: str | None) -> bool:
     - ``plan`` / ``agent`` / ``None``: all tools are listed (write tools go
       through the normal approval flow).
     """
-    if not thread_mode or thread_mode in ("agent", "plan"):
+    if not thread_mode or thread_mode in ("edit", "plan"):
         return True
     if thread_mode == "ask":
         return tool_name not in _ASK_MODE_DISALLOWED_TOOLS
