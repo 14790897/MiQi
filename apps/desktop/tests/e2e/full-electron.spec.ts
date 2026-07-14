@@ -56,43 +56,43 @@ test.describe('Native Electron E2E', () => {
   // ═══════════════════════════════════════════════════════════════
 
   test('app launches and renders correctly', async () => {
-    await expect(page.getByText('MiQi Workbench')).toBeVisible({
+    await expect(page.locator('[data-testid="app-title"]')).toBeVisible({
       timeout: 10_000,
     });
     await expect(
-      page.getByPlaceholder('Ask Agent to analyze or edit files...'),
+      page.locator('[data-testid="chat-input-container"] textarea'),
     ).toBeVisible({ timeout: 10_000 });
 
-    // Core UI landmarks — use stable text selectors that exist in BOTH old and new UI
-    await expect(page.getByText('Tasks').first()).toBeVisible();
-    await expect(page.locator('button[title="New Session"]')).toBeVisible();
+    // Core UI landmarks — use stable data-testid selectors
+    await expect(page.locator('[data-testid="nav-tasks-title"]')).toBeVisible();
+    await expect(page.locator('[data-testid="nav-new-session"]')).toBeVisible();
   });
 
   test('right panel shows Task Assets', async () => {
     // The right panel should show "Task Assets" header with LayoutGrid icon.
     // Default state is panelOpen=true, showing the empty-state message.
-    await expect(page.getByText('Task Assets')).toBeVisible({
+    await expect(page.locator('[data-testid="task-assets-title"]')).toBeVisible({
       timeout: 10_000,
     });
 
     // Toggle button exists
-    const toggleBtn = page.locator('button[title="Toggle assets panel"]');
+    const toggleBtn = page.locator('[data-testid="toggle-assets-panel-btn"]');
     await expect(toggleBtn).toBeVisible();
 
     // Empty state message when no agent operations
-    await expect(page.getByText(/No files yet/)).toBeVisible({
+    await expect(page.locator('[data-testid="task-assets-empty"]')).toBeVisible({
       timeout: 5_000,
     });
 
     // Toggle panel closed and verify it hides
     await toggleBtn.click();
-    await expect(page.getByText('Task Assets')).not.toBeVisible({
+    await expect(page.locator('[data-testid="task-assets-title"]')).not.toBeVisible({
       timeout: 5_000,
     });
 
     // Toggle panel back open
     await toggleBtn.click();
-    await expect(page.getByText('Task Assets')).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('[data-testid="task-assets-title"]')).toBeVisible({ timeout: 5_000 });
   });
 
   test(
@@ -314,7 +314,7 @@ test.describe('Native Electron E2E', () => {
       });
       const page2 = await app2.firstWindow();
       await page2.waitForLoadState('domcontentloaded');
-      try { await page2.getByText('MiQi Workbench').waitFor({ timeout: 30000 }); } catch {}
+      try { await page2.locator('[data-testid="app-title"]').waitFor({ timeout: 30000 }); } catch {}
       await waitForInputReady(page2, 30000);
 
       // Wait for bridge to initialize, then reload so ChatConsole re-fires

@@ -1126,9 +1126,9 @@ async def test_bwrap_end_event_output_size_accurate(require_subprocess):
 
 
 @pytest.mark.asyncio
-async def test_regression_bwrap_unavailable_fail_closed_unchanged():
+async def test_regression_bwrap_unavailable_falls_back():
     """Phase 33.2 regression: BWRAP selection with no sandbox_manager
-    still fails closed (Phase 31 behaviour preserved)."""
+    falls back to host execution with warning."""
     tool = ExecTool(timeout=5, sandbox_manager=None)
     sel = _make_bwrap_selection()
 
@@ -1137,8 +1137,8 @@ async def test_regression_bwrap_unavailable_fail_closed_unchanged():
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "BWRAP sandbox" in result
+    assert "sandbox not available" in result
+    assert "should-not-run" in result
 
 
 @pytest.mark.subprocess
@@ -1334,3 +1334,86 @@ async def test_exec_started_ledger_includes_user_shell_source(require_subprocess
         assert exec_started[0].payload["source"] == "userShell"
     finally:
         await ledger.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 42: empty delta suppression (issue #236)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_turn_event_adapter_drops_empty_delta():
+    """CodexTurnEventAdapter must not emit outputDelta notifications
+    when ExecCommandOutputDeltaEvent.delta is empty."""
+    from miqi.runtime.turn_event_adapter import CodexTurnEventAdapter
+    from miqi.protocol.events import ExecCommandOutputDeltaEvent
+
+    adapter = CodexTurnEventAdapter(
+        thread_id="thread-1",
+        turn_id="turn-1",
+        input_items=[],
+        client_user_message_id="msg-1",
+        emit_user_message_item=False,
+    )
+
+    # Empty delta → no notifications emitted
+    empty = ExecCommandOutputDeltaEvent(
+        turn_id="turn-1",
+        tool_call_id="tc-1",
+        stream="stdout",
+        delta="",
+    )
+    result = adapter.project(empty)
+    assert result == [], (
+        f"Expected no notifications for empty delta, got {result}"
+    )
+
+
+def test_turn_event_adapter_passes_non_empty_delta():
+    """CodexTurnEventAdapter must emit outputDelta for non-empty deltas."""
+    from miqi.runtime.turn_event_adapter import CodexTurnEventAdapter
+    from miqi.protocol.events import ExecCommandOutputDeltaEvent
+
+    adapter = CodexTurnEventAdapter(
+        thread_id="thread-1",
+        turn_id="turn-1",
+        input_items=[],
+        client_user_message_id="msg-1",
+        emit_user_message_item=False,
+    )
+
+    event = ExecCommandOutputDeltaEvent(
+        turn_id="turn-1",
+        tool_call_id="tc-1",
+        stream="stdout",
+        delta="hello\n",
+    )
+    result = adapter.project(event)
+    assert len(result) == 1
+    assert result[0]["event"] == "item/commandExecution/outputDelta"
+    assert result[0]["data"]["delta"] == "hello\n"
+    assert result[0]["data"]["stream"] == "stdout"
+
+
+def test_turn_event_adapter_allows_stderr_delta():
+    """CodexTurnEventAdapter must pass stderr deltas through."""
+    from miqi.runtime.turn_event_adapter import CodexTurnEventAdapter
+    from miqi.protocol.events import ExecCommandOutputDeltaEvent
+
+    adapter = CodexTurnEventAdapter(
+        thread_id="thread-1",
+        turn_id="turn-1",
+        input_items=[],
+        client_user_message_id="msg-1",
+        emit_user_message_item=False,
+    )
+
+    event = ExecCommandOutputDeltaEvent(
+        turn_id="turn-1",
+        tool_call_id="tc-1",
+        stream="stderr",
+        delta="error output\n",
+    )
+    result = adapter.project(event)
+    assert len(result) == 1
+    assert result[0]["event"] == "item/commandExecution/outputDelta"
+    assert result[0]["data"]["stream"] == "stderr"

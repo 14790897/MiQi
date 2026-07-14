@@ -6,7 +6,14 @@ import { ContextMenu } from './ContextMenu';
 import { useSessionStatus, type SessionStatus } from '../hooks/useSessionStatus';
 import type { SessionInfo } from '../../shared/ipc';
 
-type FilterTab = 'ALL' | 'IN-PROGRESS' | 'REVIEW' | 'CC';
+type FilterTab = 'ALL' | 'IN-PROGRESS' | 'REVIEW' | 'COMPLETED';
+
+const FILTER_TAB_LABELS: Record<FilterTab, string> = {
+  ALL: '全部',
+  'IN-PROGRESS': '进行中',
+  REVIEW: '待审阅',
+  COMPLETED: '已完成',
+};
 
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 480;
@@ -25,11 +32,11 @@ function relativeTime(iso?: string): string {
   const d = new Date(iso);
   const now = new Date();
   const diff = now.getTime() - d.getTime();
-  if (diff < 60_000) return 'Just now';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} mins ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} hours ago`;
-  if (diff < 2 * 86_400_000) return 'Yesterday';
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (diff < 60_000) return '刚刚';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  if (diff < 2 * 86_400_000) return '昨天';
+  return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
 }
 
 interface SidebarProps {
@@ -106,14 +113,14 @@ export function Sidebar({
     return () => { unsub(); };
   }, [loadSessions]);
 
-  const FILTER_TABS: FilterTab[] = ['ALL', 'IN-PROGRESS', 'REVIEW', 'CC'];
+  const FILTER_TABS: FilterTab[] = ['ALL', 'IN-PROGRESS', 'REVIEW', 'COMPLETED'];
 
   const filteredSessions = sessions.filter((s) => {
     if (filter === 'ALL') return true;
     const status = getStatus(s.key);
     if (filter === 'IN-PROGRESS') return status === 'IN-PROGRESS';
     if (filter === 'REVIEW') return status === 'REVIEW';
-    if (filter === 'CC') return status === 'CC';
+    if (filter === 'COMPLETED') return status === 'COMPLETED';
     return true;
   });
 
@@ -133,23 +140,24 @@ export function Sidebar({
         className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-[var(--accent)]/30 transition-colors z-10"
         style={{ marginRight: -2 }}
       />
-      {/* Header: glitch M logo + Tasks title */}
+      {/* Header: glitch M logo + tasks title */}
       <div className="flex items-center gap-2.5 px-4 py-3 shrink-0">
         <MiQiLogo size={28} />
-        <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
-          Tasks
+        <span className="text-sm font-semibold" style={{ color: 'var(--text)' }} data-testid="nav-tasks-title">
+          任务
         </span>
         <button
           onClick={onNewSession}
           className="ml-auto w-6 h-6 rounded flex items-center justify-center transition-colors hover:bg-[var(--surface-muted)]"
-          title="New Session"
+          title="新建会话"
+          data-testid="nav-new-session"
         >
           <Plus size={14} style={{ color: 'var(--text-faint)' }} />
         </button>
       </div>
 
-      {/* Filter tabs: ALL / IN PROGRESS / REVIEW / CC */}
-      <div className="flex gap-1 px-4 pb-3 shrink-0">
+      {/* Filter tabs */}
+      <div className="flex flex-nowrap gap-0.5 px-3 pb-3 shrink-0 overflow-x-auto">
         {FILTER_TABS.map((tab) => {
           const isActive = filter === tab;
           return (
@@ -157,7 +165,7 @@ export function Sidebar({
               key={tab}
               onClick={() => setFilter(tab)}
               className={cn(
-                'px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors',
+                'shrink-0 whitespace-nowrap px-1.5 py-1 rounded-md text-[10px] font-medium transition-colors',
                 isActive
                   ? 'text-[var(--text)]'
                   : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]',
@@ -166,7 +174,7 @@ export function Sidebar({
                 background: isActive ? 'var(--surface-muted)' : 'transparent',
               }}
             >
-              {tab}
+              {FILTER_TAB_LABELS[tab]}
             </button>
           );
         })}
@@ -182,7 +190,7 @@ export function Sidebar({
           <div className="flex flex-col items-center gap-2 py-8 text-center">
             <ListChecks size={20} style={{ color: 'var(--text-faint)', opacity: 0.4 }} />
             <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
-              No active tasks
+              暂无任务
             </p>
           </div>
         ) : (
@@ -196,33 +204,33 @@ export function Sidebar({
                   key={s.key}
                   items={[
                     {
-                      label: 'Mark as In Progress',
+                      label: '标记为进行中',
                       onSelect: () => setStatus(s.key, 'IN-PROGRESS'),
                     },
                     {
-                      label: 'Mark as Pending',
+                      label: '标记为待处理',
                       onSelect: () => setStatus(s.key, 'PENDING'),
                     },
                     {
-                      label: 'Mark as Review',
+                      label: '标记为待审阅',
                       onSelect: () => setStatus(s.key, 'REVIEW'),
                     },
                     {
-                      label: 'Mark as Completed',
+                      label: '标记为已完成',
                       divider: true,
                       onSelect: () => setStatus(s.key, 'COMPLETED'),
                     },
                     {
-                      label: 'Mark as CC',
+                      label: '标记为 CC',
                       onSelect: () => setStatus(s.key, 'CC'),
                     },
                     {
-                      label: 'Reset to Default',
+                      label: '重置状态',
                       danger: true,
                       onSelect: () => clearStatus(s.key),
                     },
                     {
-                      label: 'Archive',
+                      label: '归档',
                       divider: true,
                       onSelect: async () => {
                         try {
@@ -246,7 +254,7 @@ export function Sidebar({
                       {/* Top row: pill status label left · time right */}
                       <div className="flex items-center justify-between mb-2">
                         <span
-                          className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full"
+                          className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap shrink-0"
                           style={{ background: status.bg, color: status.color }}
                         >
                           {status.label}
@@ -269,8 +277,8 @@ export function Sidebar({
                         style={{ color: 'var(--text-muted)' }}
                       >
                         {s.message_count != null
-                          ? `${s.message_count} messages`
-                          : 'No description'}
+                          ? `${s.message_count} 条消息`
+                          : '暂无描述'}
                       </p>
                     </button>
                   )}
@@ -287,17 +295,18 @@ export function Sidebar({
         style={{ borderColor: 'var(--sidebar-border)' }}
       >
         <span
-          className="text-[11px] cursor-pointer hover:text-[var(--text)] transition-colors"
+          className="text-[11px] cursor-pointer hover:text-[var(--text)] settings-hover-sidebar"
           style={{ color: 'var(--text-faint)' }}
           onClick={() => onNavChange?.('settings')}
+          data-testid="nav-system-settings"
         >
-          System Settings
+          系统设置
         </span>
         <span
           className="text-[10px] font-mono"
           style={{ color: 'var(--text-faint)' }}
         >
-          PRO v0.4.29
+          PRO v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'}
         </span>
       </div>
     </div>

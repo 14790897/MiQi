@@ -232,7 +232,6 @@ beforeEach(() => {
 afterEach(() => {
   // Restore env set by cleanup/hot-reload tests to avoid cross-test leakage
   delete process.env['ELECTRON_RENDERER_URL'];
-  delete process.env['MIQI_BRIDGE_HOT_RELOAD'];
 });
 
 describe('BridgeManager lifecycle', () => {
@@ -276,7 +275,7 @@ describe('BridgeManager lifecycle', () => {
 
   it('cleans up all resources on initialize failure', async () => {
     // Enable hot reload so the file watcher is started
-    process.env['MIQI_BRIDGE_HOT_RELOAD'] = '1';
+    process.env['ELECTRON_RENDERER_URL'] = 'test';
     const BridgeManager = await importBridgeManager();
     const proc = createMockProcess();
     const bridge = new BridgeManager('/fake/root');
@@ -610,7 +609,7 @@ describe('BridgeManager lifecycle', () => {
   }, 10_000);
 
   it('hot reload waits for old bridge close before spawning replacement', async () => {
-    process.env['MIQI_BRIDGE_HOT_RELOAD'] = '1';
+    process.env['ELECTRON_RENDERER_URL'] = 'test';
     const BridgeManager = await importBridgeManager();
     const firstProc = createMockProcess();
     const bridge = new BridgeManager('/fake/root');
@@ -652,15 +651,58 @@ describe('BridgeManager lifecycle', () => {
     expect(watchCallbacks.length).toBe(2);
   }, 10_000);
 
-  it('does not start hot reload watcher by default in dev renderer mode', async () => {
-    process.env['ELECTRON_RENDERER_URL'] = 'test';
+  it('tracks sandboxAvailable from sandbox.ready bridge event', async () => {
     const BridgeManager = await importBridgeManager();
     const proc = createMockProcess();
     const bridge = new BridgeManager('/fake/root');
 
-    await startBridge(proc, bridge);
+    await startBridge(proc, bridge, { clientId: 'sandbox-ready', serverInfo: { version: '1' } });
 
-    expect(watchCallbacks.length).toBe(0);
-    expect((bridge as any).fileWatcher).toBeNull();
+    expect(bridge.sandboxAvailable).toBe(false);
+
+    feedLine(proc, { request_id: 'ev-sr-1', event: 'sandbox.ready', data: { initialized: true } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(bridge.sandboxAvailable).toBe(true);
+  }, 10_000);
+
+  it('sandbox.ready with initialized=false keeps sandboxAvailable false', async () => {
+    const BridgeManager = await importBridgeManager();
+    const proc = createMockProcess();
+    const bridge = new BridgeManager('/fake/root');
+
+    await startBridge(proc, bridge, { clientId: 'sandbox-fail', serverInfo: { version: '1' } });
+
+    bridge.sandboxAvailable = true;
+
+    feedLine(proc, { request_id: 'ev-sr-2', event: 'sandbox.ready', data: { initialized: false, error: 'bwrap not found' } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(bridge.sandboxAvailable).toBe(false);
+  }, 10_000);
+});
+
+describe('BridgeManager sandbox tracking', () => {
+  it('defaults sandboxAvailable to false', async () => {
+    const BridgeManager = await importBridgeManager();
+    const bridge = new BridgeManager('/fake/root');
+    expect(bridge.sandboxAvailable).toBe(false);
+  });
+
+  it('getStatus reflects sandboxAvailable', async () => {
+    const BridgeManager = await importBridgeManager();
+    const bridge = new BridgeManager('/fake/root');
+    bridge.sandboxAvailable = true;
+    expect(bridge.getStatus().sandbox_available).toBe(true);
+
+    bridge.sandboxAvailable = false;
+    expect(bridge.getStatus().sandbox_available).toBe(false);
+  });
+
+  it('emitState is callable so ipc layer can notify renderer', async () => {
+    const BridgeManager = await importBridgeManager();
+    const bridge = new BridgeManager('/fake/root');
+    expect(typeof bridge.emitState).toBe('function');
+    expect(() => bridge.emitState()).not.toThrow();
   });
 });

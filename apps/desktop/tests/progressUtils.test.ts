@@ -169,4 +169,23 @@ describe('extractProgressMessage', () => {
       role: 'progress',
     })
   })
+
+  // ── Exec event filtering (issue #236) ──────────────────────────────────
+
+  it('skips outputDelta events to prevent flooding workbench', () => {
+    const result = extractProgressMessage({
+      event: 'item/commandExecution/outputDelta',
+      stream: 'stdout',
+      delta: 'some output',
+    })
+    expect(result).toBeNull()
+  })
+
+  it('skips generic commandExecution events', () => {
+    const result = extractProgressMessage({
+      event: 'commandExecution/completed',
+      data: { command: 'echo hello', exitCode: 0 },
+    })
+    expect(result).toBeNull()
+  })
 })

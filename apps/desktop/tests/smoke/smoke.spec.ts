@@ -73,10 +73,10 @@ test.describe('Sidebar Navigation', () => {
     await injectMockAndGoto(page);
 
     // Tasks section header — stable text across redesigns
-    await expect(page.getByText('Tasks')).toBeVisible({ timeout: 3000 });
+    await expect(page.getByText(/^(Tasks|任务)$/)).toBeVisible({ timeout: 3000 });
 
     // Plus button for new session — stable title attribute
-    await expect(page.locator('[title="New Session"]')).toBeVisible();
+    await expect(page.locator('[title="New Session"], [title="新建会话"]')).toBeVisible();
 
     // At least one session card should render
     const session1 = page.getByText('Test conversation 1');
@@ -98,7 +98,7 @@ test.describe('Sidebar Navigation', () => {
   test('new session button is present', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    const newSessionBtn = page.locator('[title="New Session"]');
+    const newSessionBtn = page.locator('[title="New Session"], [title="新建会话"]');
     await expect(newSessionBtn).toBeVisible();
   });
 
@@ -106,7 +106,7 @@ test.describe('Sidebar Navigation', () => {
     await injectMockAndGoto(page);
 
     // The sessions section header should say "Tasks"
-    await expect(page.getByText('Tasks')).toBeVisible({ timeout: 3000 });
+    await expect(page.getByText(/^(Tasks|任务)$/)).toBeVisible({ timeout: 3000 });
   });
 
 });

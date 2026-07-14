@@ -17,6 +17,7 @@ import {
   sendMessage,
   waitForResponseComplete,
   createNewConversation,
+  approveLoop,
   launchElectronApp,
   closeElectronApp,
 } from './helpers/electron-setup';
@@ -61,19 +62,62 @@ test.describe('Sandbox Exec E2E', () => {
     { timeout: LLM_TIMEOUT },
     async () => {
       test.skip(SKIP_SANDBOX_ON_CI, 'CI runner lacks bwrap');
+
+      // ── Template step 1: capture bridge stderr ──────────────────
+      page.on('console', (msg) => {
+        const t = msg.text();
+        if (t.includes('error') || t.includes('BRIDGE') || t.includes('miqi'))
+          console.log(`[debug] ${t}`);
+      });
+
+      // ── Template step 2: wait for bridge ready (NOT_INITIALIZED guard) ──
+      await page.evaluate(async () => {
+        for (let i = 0; i < 60; i++) {
+          const s = await (window as any).miqi.runtime.status();
+          if (s?.state === 'running' && s?.initialized) return;
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      });
+
+      // ── Template step 3: capture actual runtime state ────────────
+      const runtimeState = await page.evaluate(async () => {
+        try {
+          const s = await (window as any).miqi.runtime.status();
+          return `status:${JSON.stringify(s)}`;
+        } catch (e: any) {
+          return `reject:${e?.message ?? String(e)}`;
+        }
+      });
+      console.log(`[debug] runtime.status → ${runtimeState}`);
+
+      // ── Template step 4: *:* wildcard pre-approve per e2e-test-workflow ──
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
+      );
+
+      // ── Execute ─────────────────────────────────────────────────
       await createNewConversation(page);
       await sendMessage(
         page,
         '用 exec 工具执行 pwd，只回复 exec 的实际输出，不要加任何解释',
       );
 
+      // ── Template step 5: auto-click approval loop per e2e-test-workflow ──
+      await approveLoop(page, 240_000);
+
+      // ── Template step 6: wait for final response stabilization ───
       await waitForResponseComplete(page, 240_000);
 
-      const fullText = await page.locator('main').textContent();
+      // ── Template step 7: capture full conversation ──────────────
+      const fullText = await page.evaluate(() => {
+        const el = document.querySelector('main');
+        return el?.textContent ?? '';
+      });
       console.log('[test] === Full AI conversation ===');
       console.log(fullText);
       console.log('[test] ===========================');
 
+      // ── Assert: use semantic selector per template ──────────────
       await expect(
         page.locator('main').getByText('/home/miqi/workspace', { exact: false }).first(),
       ).toBeVisible({ timeout: 30_000 });

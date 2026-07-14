@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRuntime } from '../contexts/RuntimeContext';
 import { AlertTriangle, RefreshCw, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { MiQiLogo } from './MiQiLogo';
 
 interface ApprovalBypassStatus {
   bypassAll?: boolean;
@@ -15,21 +16,16 @@ function isBypassEnabled(status: ApprovalBypassStatus | null): boolean {
   if (!status) return false;
   return Boolean(
     status.bypassAll ||
-      status.bypassCommandApproval ||
-      status.bypassFileWriteApproval ||
-      status.bypassToolConfirmation ||
-      status.bypassNetworkApproval
+    status.bypassCommandApproval ||
+    status.bypassFileWriteApproval ||
+    status.bypassToolConfirmation ||
+    status.bypassNetworkApproval
   );
 }
 
 function getBypassLabel(status: ApprovalBypassStatus | null): string {
   if (status?.bypassAll) return 'BYPASS ALL';
-  const labels: string[] = [];
-  if (status?.bypassCommandApproval) labels.push('CMD');
-  if (status?.bypassFileWriteApproval) labels.push('FILE');
-  if (status?.bypassToolConfirmation) labels.push('TOOL');
-  if (status?.bypassNetworkApproval) labels.push('NET');
-  return labels.length > 0 ? `BYPASS: ${labels.join('/')}` : 'BYPASS';
+  return 'BYPASS';
 }
 
 function getBypassTitle(status: ApprovalBypassStatus | null): string {
@@ -54,11 +50,15 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false; // debounce guard: don't pile up requests when bridge is slow
+
     const loadApprovalBypass = async () => {
+      if (inFlight) return; // skip if previous request still pending
       if (!(window as any).miqi?.config?.get) {
         if (!cancelled) setApprovalBypass(null);
         return;
       }
+      inFlight = true;
       try {
         const cfg = await window.miqi.config.get();
         const approvals = (cfg.approvals ?? {}) as ApprovalBypassStatus;
@@ -66,12 +66,16 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
           setApprovalBypass(approvals);
         }
       } catch {
-        if (!cancelled) setApprovalBypass(null);
+        // Keep the last known good state — bridge may be temporarily busy
+        // Don't clear approvalBypass; a null here cascades into false
+        // "runtime not started" UI.  See PR #xxx.
+      } finally {
+        inFlight = false;
       }
     };
     loadApprovalBypass();
     window.addEventListener('miqi:approval-bypass-updated', loadApprovalBypass);
-    const timer = window.setInterval(loadApprovalBypass, 5000);
+    const timer = window.setInterval(loadApprovalBypass, 30_000);
     return () => {
       cancelled = true;
       window.removeEventListener('miqi:approval-bypass-updated', loadApprovalBypass);
@@ -96,7 +100,7 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
           MiQi
         </span>
         <span className="text-xs font-light opacity-50" style={{ color: 'var(--topbar-text)' }}>
-          Workbench
+          Desktop
         </span>
       </div>
 
@@ -116,9 +120,10 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
               border: '1px solid var(--approval-warning-border)',
             }}
             title={getBypassTitle(approvalBypass)}
+            aria-label={getBypassTitle(approvalBypass)}
           >
             <AlertTriangle size={11} className="shrink-0" />
-            <span>{getBypassLabel(approvalBypass)}</span>
+            <span className="whitespace-nowrap">{getBypassLabel(approvalBypass)}</span>
           </button>
         )}
         {/* Sync state */}
@@ -148,15 +153,7 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
             Core Agent
           </div>
         </div>
-        <div
-          className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold"
-          style={{
-            background: 'var(--avatar-dark)',
-            color: '#fff',
-          }}
-        >
-          M
-        </div>
+        <MiQiLogo size={28} />
       </div>
     </div>
   );

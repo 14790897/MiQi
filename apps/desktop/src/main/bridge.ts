@@ -194,6 +194,15 @@ export class BridgeManager extends EventEmitter {
   private initialized: boolean = false;
   private clientId: string = 'miqi-desktop';
   private stoppingPromise: Promise<void> | null = null;
+  private _sandboxAvailable: boolean = false;
+
+  get sandboxAvailable(): boolean {
+    return this._sandboxAvailable;
+  }
+
+  set sandboxAvailable(v: boolean) {
+    this._sandboxAvailable = v;
+  }
 
   constructor(projectRoot?: string) {
     super();
@@ -212,6 +221,7 @@ export class BridgeManager extends EventEmitter {
     return {
       state: this.state,
       configured: this.state === 'running',
+      sandbox_available: this.sandboxAvailable,
       error: this.state === 'error' ? 'Bridge process exited unexpectedly' : undefined,
     };
   }
@@ -314,6 +324,14 @@ export class BridgeManager extends EventEmitter {
               type: resp.eventType,
               data: resp.data,
             });
+
+            // Track sandbox availability from the Python bridge.
+            // sandbox.ready fires when _init_sandbox_manager() completes.
+            if (resp.eventType === 'sandbox.ready') {
+              const d = resp.data as Record<string, unknown> | undefined;
+              this.sandboxAvailable = d?.initialized === true;
+              this.emitState();
+            }
             return;
           }
 
@@ -378,8 +396,9 @@ export class BridgeManager extends EventEmitter {
       // ── Ready handshake ────────────────────────────────────────────
       // Wait for the bridge to send {"type":"ready"} on stdout.
       // PyInstaller onefile exe first-run extraction to %TEMP% can take
-      // 5-15+ seconds — the old 1500 ms blind sleep was not enough.
-      // Fallback: 60 s timeout (generous for slow disks / first run).
+      // 5-15+ seconds.  First-run WSL dependency auto-install (apt-get
+      // install bubblewrap coreutils rsync) can take 60-120+ seconds.
+      // Timeout: 180 s to match the Python-side apt-get timeout.
       // ───────────────────────────────────────────────────────────────
       await new Promise<void>((_resolve, _reject) => {
         let settled = false;
@@ -412,10 +431,10 @@ export class BridgeManager extends EventEmitter {
         const timeout = setTimeout(() => {
           done(
             new Error(
-              'Bridge did not send ready signal within 60 s (PyInstaller extraction may be stuck)'
+              'Bridge did not send ready signal within 180 s (WSL dep install or PyInstaller extraction may be stuck)'
             )
           );
-        }, 60_000);
+        }, 180_000);
 
         lineReader.on('line', onReadyLine);
         bridgeProcess.once('close', onClose);
@@ -642,9 +661,7 @@ export class BridgeManager extends EventEmitter {
     this.addLog(`[Hot Reload] Detected change in: ${filename}`);
 
     if (this.state !== 'running' || !this.initialized || this.restartInProgress) {
-      this.addLog(
-        `[Hot Reload] Ignoring change while bridge is ${this.state}`
-      );
+      this.addLog(`[Hot Reload] Ignoring change while bridge is ${this.state}`);
       return;
     }
 
@@ -782,7 +799,12 @@ export class BridgeManager extends EventEmitter {
 
     const id = randomUUID();
     const request: BridgeRequest = { id, method, params };
-    const timeoutMs = options.timeoutMs ?? (method === 'chat.send' ? CHAT_SEND_TIMEOUT_MS : 30_000);
+    // Methods that may be slow during first-time auto-export/install
+    // (2-5 min): chat.send, thread/start, sandbox.setEnabled
+    const SLOW_METHODS = new Set(['chat.send', 'thread/start', 'sandbox.setEnabled']);
+    const timeoutMs = options.timeoutMs ?? (
+      SLOW_METHODS.has(method) ? CHAT_SEND_TIMEOUT_MS : 30_000
+    );
     const startMs = Date.now();
 
     const logSlow = () => {
@@ -873,7 +895,7 @@ export class BridgeManager extends EventEmitter {
     writeMainProcessLog(level, message, this.projectRoot, source);
   }
 
-  private emitState(): void {
+  emitState(): void {
     this.emit('state', this.getStatus());
   }
 }

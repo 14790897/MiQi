@@ -11,6 +11,8 @@ import asyncio
 import inspect
 from typing import Any
 
+from loguru import logger
+
 from miqi.protocol.commands import (
     AbortTurn,
     ApprovalResponse,
@@ -53,12 +55,16 @@ class TaskRunner:
         # Lazily initialised SessionManager for dual-write compatibility
         self._legacy_sm: Any = None
 
-    async def _save_to_session_manager(self, *, role: str, content: str) -> None:
+    async def _save_to_session_manager(self, *, role: str, content: str, **extra: Any) -> None:
         """Dual-write a message to the legacy SessionManager JSONL store.
 
         AppServer-managed sessions use HistoryRuntime (SQLite), but the
         sessions.get handler reads from SessionManager (JSONL).  This mirror
         write keeps both stores in sync so sidebar switching works.
+
+        Extra keyword arguments (e.g. tool_calls, name, tool_call_id) are
+        forwarded to ``add_message`` so the frontend can reconstruct file
+        operations from stored messages when tracked_files.json is empty.
         """
         try:
             session_id: str = self.services.session_id
@@ -76,10 +82,10 @@ class TaskRunner:
             # The sessions_get_handler calls get_or_create with client_id and
             # raises REQUIRES_CLAIM for unowned sessions.
             session = self._legacy_sm.get_or_create(session_key, client_id=client_id)
-            session.add_message(role, content)
+            session.add_message(role, content, **extra)
             self._legacy_sm.save(session)
         except Exception:
-            logger.debug("Failed to mirror message to legacy SessionManager", exc_info=True)
+            logger.warning("Failed to mirror message to legacy SessionManager", exc_info=True)
 
     # ── Phase 41: active turn and steering ────────────────────────────────
 
@@ -394,7 +400,6 @@ class TaskRunner:
                 )
             raise
         except Exception:
-            from loguru import logger
             logger.exception("User shell command failed for turn {}", turn_id)
             if cmd.standalone:
                 if ledger is not None:
@@ -524,7 +529,6 @@ class TaskRunner:
                     except Exception as compact_exc:
                         # Compaction failed — log and emit recoverable
                         # ErrorEvent, then proceed with unbounded history.
-                        from loguru import logger
                         logger.exception(
                             "Auto-compact failed for thread {}: {}",
                             thread_id, compact_exc,
@@ -608,49 +612,50 @@ class TaskRunner:
                 steer_queue=steer_queue,
             )
 
-            # Phase 17: persist assistant messages and complete turn
-            if history_runtime is not None:
-                for message in result.messages_delta:
+            # Persist assistant messages to all stores in a single pass.
+            # Build the extra-fields mapping once per message so every
+            # persistence destination receives the same metadata.
+            for message in result.messages_delta:
+                role = message["role"]
+                content = message.get("content") or ""
+                extra_fields = {k: v for k, v in message.items() if k not in ("role", "content")}
+
+                if history_runtime is not None:
                     await history_runtime.append_message(
                         thread_id=thread_id,
                         turn_id=turn_id,
-                        role=message["role"],
-                        content=message.get("content") or "",
-                        payload={
-                            "message_fields": {
-                                k: v for k, v in message.items()
-                                if k not in {"role", "content"}
-                            },
-                        },
+                        role=role,
+                        content=content,
+                        payload={"message_fields": extra_fields},
                     )
+
+                # Dual-write to legacy SessionManager (independent of history_runtime
+                # so fallback JSONL is always populated). Forward all extra fields
+                # (tool_calls, name, tool_call_id, etc.) so get_history() preserves
+                # them and the frontend can reconstruct file operations.
+                await self._save_to_session_manager(
+                    role=role, content=content, **extra_fields,
+                )
+
+                if ledger is not None:
+                    await ledger.append_item(
+                        thread_id=thread_id,
+                        turn_id=turn_id,
+                        item_type="message",
+                        role=role,
+                        content=content,
+                        payload={"message_fields": extra_fields},
+                    )
+
+            if history_runtime is not None:
                 await history_runtime.complete_turn(
                     turn_id,
                     status="completed",
                     tools_used=result.tools_used,
                     token_usage=result.token_usage,
                 )
-            # Dual-write assistant messages to legacy SessionManager (runs
-            # independently of history_runtime so fallback JSONL is always populated).
-            for message in result.messages_delta:
-                await self._save_to_session_manager(
-                    role=message["role"],
-                    content=message.get("content") or "")
-            # Phase 24: record assistant messages and turn completion in ledger
+            # Phase 24: complete turn in ledger
             if ledger is not None:
-                for message in result.messages_delta:
-                    await ledger.append_item(
-                        thread_id=thread_id,
-                        turn_id=turn_id,
-                        item_type="message",
-                        role=message.get("role"),
-                        content=message.get("content") or "",
-                        payload={
-                            "message_fields": {
-                                k: v for k, v in message.items()
-                                if k not in {"role", "content"}
-                            },
-                        },
-                    )
                 await ledger.append_item(
                     thread_id=thread_id,
                     turn_id=turn_id,
@@ -733,7 +738,6 @@ class TaskRunner:
             # invalid_request) are safe + actionable, so surface the provider
             # message; everything else (transient/fatal/unknown) keeps the
             # generic message to avoid leaking internal details.
-            from loguru import logger
             logger.error("Agent processing error in turn {}: {}", turn_id, exc, exc_info=True)
             user_message = "An internal error occurred while processing your message."
             if prov_err is not None and prov_err.kind is ErrorKind.AUTH:
