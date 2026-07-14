@@ -757,9 +757,23 @@ export class BridgeManager extends EventEmitter {
 
     const id = randomUUID();
     const request: BridgeRequest = { id, method, params };
-    // Methods that may be slow during first-time auto-export/install
-    // (2-5 min): chat.send, thread/start, sandbox.setEnabled
-    const SLOW_METHODS = new Set(['chat.send', 'thread/start', 'sandbox.setEnabled']);
+    // Methods that may be slow during first-time auto-export/install (2-5 minutes)
+    // or while the sandbox is initializing in the background.
+    // When a request hits SLOW_METHODS, it gets the extended CHAT_SEND_TIMEOUT_MS
+    // (360s) instead of the default 30s IPC timeout to avoid sendSafe swallowing
+    // failures.  The Python side (#266) already dispatches these concurrently,
+    // so a slow method no longer blocks fast ones.
+    const SLOW_METHODS = new Set([
+      'chat.send',
+      'sandbox.setEnabled',
+      'sessions.archive',
+      'sessions.get',
+      'sessions.get_tracked_files',
+      'sessions.list',
+      'sessions.list_archived',
+      'sessions.unarchive',
+      'thread/start',
+    ]);
     const timeoutMs = options.timeoutMs ?? (
       SLOW_METHODS.has(method) ? CHAT_SEND_TIMEOUT_MS : 30_000
     );
