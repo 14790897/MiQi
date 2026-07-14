@@ -218,9 +218,19 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
 
   // Copy user's provider config into the temp home so the LLM backend is reachable.
   const userConfigPath = join(homedir(), '.miqi', 'config.json');
+  const destConfigPath = join(miqiHome, 'config.json');
   if (existsSync(userConfigPath)) {
-    cpSync(userConfigPath, join(miqiHome, 'config.json'));
+    cpSync(userConfigPath, destConfigPath);
   }
+
+  // ── E2E: always enable approval bypass so tests don't hang on dialogs ──
+  // This is safer than *:* wildcard pre-approve because it takes effect
+  // before the bridge starts — no race with NOT_INITIALIZED or approval popups.
+  const config = existsSync(destConfigPath)
+    ? JSON.parse(readFileSync(destConfigPath, 'utf-8'))
+    : {};
+  config.approvals = { ...config.approvals, bypass_all: true };
+  writeFileSync(destConfigPath, JSON.stringify(config, null, 2));
 
   // Delete ELECTRON_RUN_AS_NODE inherited from Electron-based IDEs
   // (WorkBuddy / VSCode).  Otherwise Electron runs as plain Node.js.
