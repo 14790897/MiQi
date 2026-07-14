@@ -177,7 +177,7 @@ cd apps/desktop && npx playwright test --config=playwright.config.ts --project=e
 **Step 2 — 读取与分析**
 1. 读取测试报告、日志文件、spec 文件、源代码
 2. 分析失败原因或回答用户的具体问题
-3. 可以搜索代码库、查看 git 历史
+3. 可以搜索代码库、查看文件变更历史（通过 `grep`、`read_file` 等只读工具）
 
 **Step 3 — 回答**
 以清晰的结构化格式回答用户问题：
