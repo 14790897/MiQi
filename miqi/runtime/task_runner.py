@@ -13,6 +13,18 @@ from typing import Any
 
 from loguru import logger
 
+
+def _extract_tool_name(tool_def: dict[str, Any]) -> str:
+    """Extract the tool name from a definition dict in either format.
+
+    Handles both flat (``{"name": "read_file", ...}``) and OpenAI-style
+    (``{"type": "function", "function": {"name": "read_file", ...}}``).
+    """
+    if not isinstance(tool_def, dict):
+        return ""
+    fn = tool_def.get("function", tool_def) if isinstance(tool_def, dict) else {}
+    return str(fn.get("name", ""))
+
 from miqi.protocol.commands import (
     AbortTurn,
     ApprovalResponse,
@@ -486,7 +498,12 @@ class TaskRunner:
         # Mode-based tool filtering: in ask mode, remove write/exec/side-effect tools
         if turn_mode == "ask":
             from miqi.kun_runtime.tool_host import _is_tool_allowed_in_mode  # noqa: F811
-            tools = [t for t in tools if _is_tool_allowed_in_mode(t.get("name", ""), "ask")]
+            tools = [
+                t for t in tools
+                if _is_tool_allowed_in_mode(
+                    _extract_tool_name(t), "ask"
+                )
+            ]
 
         # Phase 13: attach permission profile for orchestrator
         from miqi.runtime.permission_profile import PermissionProfile
