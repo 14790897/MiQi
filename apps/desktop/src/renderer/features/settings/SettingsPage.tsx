@@ -1072,18 +1072,18 @@ function DocsTab() {
   );
 }
 
+function KeepAlive({ active, children }: { active: boolean; children: ReactNode }) {
+  const mounted = useRef(false);
+  if (active) mounted.current = true;
+  if (!mounted.current) return null;
+  return <div style={{ display: active ? undefined : 'none' }}>{children}</div>;
+}
+
 // ---- Main ----
 export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup?: () => void; tab?: SettingsTab }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(tab);
-  const [mountedTabs, setMountedTabs] = useState<Set<string>>(new Set(['general']));
 
   useEffect(() => { setActiveTab(tab); }, [tab]);
-
-  const onTabChange = (v: string) => {
-    const t = v as SettingsTab;
-    setActiveTab(t);
-    setMountedTabs((prev) => { const next = new Set(prev); next.add(t); return next; });
-  };
 
   return (
     <div className="flex flex-col h-full">
@@ -1094,7 +1094,7 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
 
       <Tabs.Root
         value={activeTab}
-        onValueChange={onTabChange}
+        onValueChange={(v) => setActiveTab(v as SettingsTab)}
         className="flex flex-col flex-1 min-h-0"
       >
         <Tabs.List className="flex gap-0 px-4 border-b border-[var(--border-subtle)] shrink-0 overflow-x-auto">
@@ -1133,59 +1133,59 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
           ))}
         </Tabs.List>
 
-        <Tabs.Content value="general" forceMount style={{ display: activeTab === "general" ? undefined : "none" }} className="flex-1 overflow-y-auto">
-          <GeneralTab onReopenSetup={onReopenSetup} />
+        <Tabs.Content value="general" forceMount className="flex-1 overflow-y-auto">
+          <KeepAlive active={activeTab === "general"}><GeneralTab onReopenSetup={onReopenSetup} /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="providers" forceMount style={{ display: activeTab === "providers" ? undefined : "none" }} className="flex-1 overflow-y-auto">
-          <ProvidersPage />
+        <Tabs.Content value="providers" forceMount className="flex-1 overflow-y-auto">
+          <KeepAlive active={activeTab === "providers"}><ProvidersPage /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="channels" forceMount style={{ display: activeTab === "channels" ? undefined : "none" }} className="flex-1 overflow-y-auto">
-          <ChannelsPage />
+        <Tabs.Content value="channels" forceMount className="flex-1 overflow-y-auto">
+          <KeepAlive active={activeTab === "channels"}><ChannelsPage /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="approvals" forceMount style={{ display: activeTab === "approvals" ? undefined : "none" }} className="flex-1 overflow-y-auto">
-          <ApprovalsPage />
+        <Tabs.Content value="approvals" forceMount className="flex-1 overflow-y-auto">
+          <KeepAlive active={activeTab === "approvals"}><ApprovalsPage /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="workspace" forceMount style={{ display: activeTab === "workspace" ? undefined : "none" }} className="flex-1 overflow-y-auto">
-          <WorkspacePage />
+        <Tabs.Content value="workspace" forceMount className="flex-1 overflow-y-auto">
+          <KeepAlive active={activeTab === "workspace"}><WorkspacePage /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="agents" forceMount style={{ display: activeTab === "agents" ? undefined : "none" }} className="flex-1 overflow-y-auto">
-          <AgentPanel />
+        <Tabs.Content value="agents" forceMount className="flex-1 overflow-y-auto">
+          <KeepAlive active={activeTab === "agents"}><AgentPanel /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="skills" forceMount style={{ display: activeTab === "skills" ? undefined : "none" }} className="flex-1 overflow-y-auto">
-          <SkillsPage />
+        <Tabs.Content value="skills" forceMount className="flex-1 overflow-y-auto">
+          <KeepAlive active={activeTab === "skills"}><SkillsPage /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="mcps" forceMount style={{ display: activeTab === "mcps" ? undefined : "none" }} className="flex-1 overflow-y-auto">
-          <MCPsPage />
+        <Tabs.Content value="mcps" forceMount className="flex-1 overflow-y-auto">
+          <KeepAlive active={activeTab === "mcps"}><MCPsPage /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="memory" forceMount style={{ display: activeTab === "memory" ? undefined : "none" }} className="flex-1 overflow-y-auto">
-          <MemoryPage />
+        <Tabs.Content value="memory" forceMount className="flex-1 overflow-y-auto">
+          <KeepAlive active={activeTab === "memory"}><MemoryPage /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="experience" forceMount style={{ display: activeTab === "experience" ? undefined : "none" }} className="flex-1 overflow-y-auto">
-          <ExperiencePage />
+        <Tabs.Content value="experience" forceMount className="flex-1 overflow-y-auto">
+          <KeepAlive active={activeTab === "experience"}><ExperiencePage /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="permissions" forceMount style={{ display: activeTab === "permissions" ? undefined : "none" }} className="flex-1 overflow-y-auto">
-          <PermissionsPage />
+        <Tabs.Content value="permissions" forceMount className="flex-1 overflow-y-auto">
+          <KeepAlive active={activeTab === "permissions"}><PermissionsPage /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="plugins" forceMount style={{ display: activeTab === "plugins" ? undefined : "none" }} className="flex-1 overflow-y-auto">
-          <PluginMarket />
+        <Tabs.Content value="plugins" forceMount className="flex-1 overflow-y-auto">
+          <KeepAlive active={activeTab === "plugins"}><PluginMarket /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="wsl" forceMount style={{ display: activeTab === "wsl" ? undefined : "none" }} className="flex-1 overflow-y-auto">
-          <WslStatusPage />
+        <Tabs.Content value="wsl" forceMount className="flex-1 overflow-y-auto">
+          <KeepAlive active={activeTab === "wsl"}><WslStatusPage /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="webtools" forceMount style={{ display: activeTab === "webtools" ? undefined : "none" }} className="flex-1 overflow-y-auto">
-          <WebToolsTab />
+        <Tabs.Content value="webtools" forceMount className="flex-1 overflow-y-auto">
+          <KeepAlive active={activeTab === "webtools"}><WebToolsTab /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="appearance" forceMount style={{ display: activeTab === "appearance" ? undefined : "none" }} className="flex-1 overflow-y-auto">
-          <AppearanceTab />
+        <Tabs.Content value="appearance" forceMount className="flex-1 overflow-y-auto">
+          <KeepAlive active={activeTab === "appearance"}><AppearanceTab /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="logs" forceMount style={{ display: activeTab === "logs" ? undefined : "none" }} className="flex-1 min-h-0 flex flex-col">
-          <LogsTab />
+        <Tabs.Content value="logs" forceMount className="flex-1 min-h-0 flex flex-col">
+          <KeepAlive active={activeTab === "logs"}><LogsTab /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="archived" forceMount style={{ display: activeTab === "archived" ? undefined : "none" }} className="flex-1 overflow-y-auto">
-          <ArchivedTab />
+        <Tabs.Content value="archived" forceMount className="flex-1 overflow-y-auto">
+          <KeepAlive active={activeTab === "archived"}><ArchivedTab /></KeepAlive>
         </Tabs.Content>
-        <Tabs.Content value="docs" forceMount style={{ display: activeTab === "docs" ? undefined : "none" }}} className="flex-1 min-h-0 flex flex-col">
-          <DocsTab />
+        <Tabs.Content value="docs" forceMount className="flex-1 min-h-0 flex flex-col">
+          <KeepAlive active={activeTab === "docs"}><DocsTab /></KeepAlive>
         </Tabs.Content>
       </Tabs.Root>
     </div>
