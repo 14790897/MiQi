@@ -63,7 +63,7 @@ test.describe('Native Electron E2E', () => {
       page.locator('[data-testid="chat-input-container"] textarea'),
     ).toBeVisible({ timeout: 10_000 });
 
-    // Core UI landmarks — use stable text selectors that exist in BOTH old and new UI
+    // Core UI landmarks — use stable data-testid selectors
     await expect(page.locator('[data-testid="nav-tasks-title"]')).toBeVisible();
     await expect(page.locator('button[title="New Session"]')).toBeVisible();
   });

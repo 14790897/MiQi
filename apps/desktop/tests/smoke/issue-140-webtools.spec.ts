@@ -7,7 +7,7 @@ test.describe('Issue #140 Web search settings', () => {
     await page.goto('/');
     await page.waitForSelector('#root', { state: 'visible' });
 
-    await page.getByText('System Settings').click();
+    await page.getByText(/^(System Settings|系统设置)$/).click();
     await page.getByRole('tab').filter({ hasText: /Web/ }).click();
 
     const webSearch = page
