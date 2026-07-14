@@ -91,7 +91,7 @@ export function PermissionsPage() {
   return (
     <div className="p-4 max-w-2xl">
       <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-        <Shield size={20} /> Permissions
+        <Shield size={20} /> 权限
       </h2>
 
       {/* Filesystem Rules */}
