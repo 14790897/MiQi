@@ -196,7 +196,8 @@ class BridgeRuntimeLoop:
             logger.warning("Sandbox manager initialization failed: {}", exc)
             if self._app_server is not None:
                 try:
-                    await self._app_server.emit_event(
+                    await self._app_server.emit_client_event(
+                        "desktop",
                         "sandbox.ready",
                         {"enabled": True, "initialized": False, "error": str(exc)},
                     )
@@ -212,7 +213,8 @@ class BridgeRuntimeLoop:
         # Notify the frontend so the settings toggle updates.
         if self._app_server is not None:
             try:
-                await self._app_server.emit_event(
+                await self._app_server.emit_client_event(
+                    "desktop",
                     "sandbox.ready",
                     {"enabled": True, "initialized": True},
                 )
