@@ -1,3 +1,22 @@
+## [0.6.1](https://github.com/14790897/MiQi/compare/v0.6.0...v0.6.1) (2026-07-14)
+
+
+### Bug Fixes
+
+* **agents:** handle undefined list result ([ed882a5](https://github.com/14790897/MiQi/commit/ed882a522877df92f5e81e207abb060ebf9b05b5))
+* **bridge:** concurrent dispatch to prevent slow requests from blocking ([#266](https://github.com/14790897/MiQi/issues/266)) ([788b152](https://github.com/14790897/MiQi/commit/788b1528637347999ad4fb4630eda7984cc688fd))
+* **bridge:** extend thread/start and sandbox.setEnabled timeouts ([29dfad5](https://github.com/14790897/MiQi/commit/29dfad50a055ac468bd59e36f67332c53fc67102))
+* **bridge:** extend timeout for slow methods during auto-export ([e58a2f1](https://github.com/14790897/MiQi/commit/e58a2f1d0a20df4bd22c4cbd33417010e860ecf0))
+* **desktop:** open Office files with system default app, add open containing folder ([#244](https://github.com/14790897/MiQi/issues/244)) ([d8d3a9a](https://github.com/14790897/MiQi/commit/d8d3a9a6efacd318c44e1a6132f764ae7632caec))
+* **desktop:** persist tracked files across session switches ([#241](https://github.com/14790897/MiQi/issues/241)) ([#273](https://github.com/14790897/MiQi/issues/273)) ([6ecccd2](https://github.com/14790897/MiQi/commit/6ecccd21198dc320cffde81bea9bd852d8d1e2c6))
+* **exec:** suppress empty delta events and prevent exec outputDelta from flooding workbench ([a434bf9](https://github.com/14790897/MiQi/commit/a434bf9a2ddfb015162afe1458706665f175f06c)), closes [#236](https://github.com/14790897/MiQi/issues/236)
+* **exec:** suppress empty delta events to prevent exec outputDelta from flooding workbench ([#287](https://github.com/14790897/MiQi/issues/287)) ([1649fae](https://github.com/14790897/MiQi/commit/1649fae7d711779cbb5519fd548cdf2124df5c53)), closes [#236](https://github.com/14790897/MiQi/issues/236)
+* resolve sandbox stuck state ([#282](https://github.com/14790897/MiQi/issues/282)) ([5012653](https://github.com/14790897/MiQi/commit/5012653e18d584845f11cc9e9253ed846f4a3ad4))
+* **sandbox:** prevent thread/start timeout during auto-export ([8956aa4](https://github.com/14790897/MiQi/commit/8956aa4746a1c9e7ed36d8564e22e66e09d801f2))
+* **sandbox:** return None immediately when sandbox already being created ([070a51a](https://github.com/14790897/MiQi/commit/070a51a8b9f776074b841bc6ec4a216fc368b313))
+* **session:** sync metadata updated_at with latest message ([#256](https://github.com/14790897/MiQi/issues/256)) ([a1eaacf](https://github.com/14790897/MiQi/commit/a1eaacf931e22085c805de4d5331269be0287f7b))
+* **test:** update protocol snapshot and sandbox tests for fallback behavior ([4df3fd7](https://github.com/14790897/MiQi/commit/4df3fd7ab9dbcfddfa74630fafb1b5cc6617757c))
+
 # [0.6.0](https://github.com/14790897/MiQi/compare/v0.5.0...v0.6.0) (2026-07-13)
 
 
