@@ -170,8 +170,8 @@ export function Sidebar({
       </div>
 
       {/* Filter tabs — underline style */}
-      <div className="shrink-0 px-3 pb-2">
-        <div className="flex items-stretch justify-between" role="tablist">
+      <div className="shrink-0 overflow-x-auto px-3 pb-2">
+        <div className="flex items-stretch justify-between min-w-max" role="tablist">
         {FILTER_TABS.map((tab) => {
           const isActive = filter === tab.value;
           const count = filterCounts[tab.value];
@@ -340,12 +340,10 @@ export function Sidebar({
         style={{ borderColor: 'var(--sidebar-border)' }}
       >
         <button
-          className="flex items-center gap-1.5 text-xs cursor-pointer transition duration-150 hover:scale-110 origin-left"
+          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition duration-150 hover:scale-110 hover:text-[#404040] origin-left"
           style={{ color: 'var(--text-faint)' }}
           onClick={() => onNavChange?.('settings')}
-          onMouseEnter={(e) => (e.currentTarget.style.color = '#404040')}
-          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-faint)')}
-        >
+          data-testid="nav-system-settings"
           <Settings size={13} />
           <span>系统设置</span>
         </button>
