@@ -541,6 +541,20 @@ function AppearanceTab() {
     return (localStorage.getItem('miqi-theme') as ThemeMode) ?? 'system';
   });
 
+    // Apply persisted theme on mount
+    useEffect(() => {
+      const saved = (localStorage.getItem('miqi-theme') as ThemeMode) ?? 'system';
+      const root = document.documentElement;
+      if (saved === 'dark') {
+        root.classList.add('dark');
+      } else if (saved === 'light') {
+        root.classList.remove('dark');
+      } else {
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        root.classList.toggle('dark', prefersDark);
+      }
+    }, []);
+
     const applyTheme = (mode: ThemeMode) => {
       setTheme(mode);
       localStorage.setItem('miqi-theme', mode);

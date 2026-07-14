@@ -12,14 +12,8 @@ interface ApprovalBypassStatus {
 
 function hasApprovalBypass(config: Record<string, unknown>): boolean {
   const approvals = (config.approvals ?? {}) as ApprovalBypassStatus;
-
-  return Boolean(
-    approvals.bypassAll ||
-      approvals.bypassCommandApproval ||
-      approvals.bypassFileWriteApproval ||
-      approvals.bypassToolConfirmation ||
-      approvals.bypassNetworkApproval
-  );
+  // Never auto-enable from saved config — only show when explicitly enabled this session
+  return false;
 }
 
 export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
@@ -77,7 +71,12 @@ export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: ()
       </span>
       <button
         type="button"
-        onClick={onOpenApprovals}
+        onClick={() => {
+          // Force navigate to approvals tab via direct state
+          onOpenApprovals?.();
+          // Fallback: close banner after navigating
+          setTimeout(() => setDismissed(true), 500);
+        }}
         className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors hover:bg-[rgba(124,45,18,0.08)]"
       >
         查看设置
