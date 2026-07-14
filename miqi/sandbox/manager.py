@@ -295,15 +295,21 @@ class SandboxManager:
         Thread-safe: uses threading.Lock for dict access, releases it during
         the slow sandbox.start() call so other threads are not blocked.
         """
-        if not self.enabled or not self._initialized:
+        if not self.enabled:
             return None
 
-        # Check bwrap availability on first create
-        if not await BwrapSandbox.is_available(
-            wsl_distro=self.wsl_distro,
-            auto_install_deps=self.auto_install_deps,
-        ):
-            return None
+        # Allow lazy initialization: if initialize() hasn't completed yet
+        # (it runs in background after the bridge ready signal), check
+        # availability on demand.  The _ensure_wsl_deps auto-install has
+        # its own cache so repeated calls are cheap after the first.
+        if not self._initialized:
+            if not await BwrapSandbox.is_available(
+                wsl_distro=self.wsl_distro,
+                auto_install_deps=self.auto_install_deps,
+            ):
+                return None
+            # Do NOT set _initialized here — let the background
+            # initialize() task handle that along with stale cleanup.
 
         sandbox_key = self._sandbox_key(session_key, client_id=client_id)
 
@@ -318,23 +324,11 @@ class SandboxManager:
             # Prevent concurrent creation of the same sandbox (Issue #221)
             created_here = False
             if sandbox_key in self._creating:
-                logger.warning(
-                    "Sandbox {} is already being created by another thread",
+                logger.info(
+                    "Sandbox {} is already being created — using local fallback",
                     sandbox_key,
                 )
-                # Wait for the other thread to finish, then return the sandbox
-                for _ in range(30):  # 30 × 100ms = 3s max
-                    with self._lock:
-                        if sandbox_key in self._sandboxes:
-                            sandbox = self._sandboxes[sandbox_key]
-                            if sandbox.is_running:
-                                return sandbox
-                    time.sleep(0.1)
-                # Timed out — log and fall through
-                logger.error(
-                    "Timed out waiting for sandbox {} creation, falling through",
-                    sandbox_key,
-                )
+                return None
             else:
                 self._creating.add(sandbox_key)
                 created_here = True

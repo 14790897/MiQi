@@ -219,6 +219,10 @@ class PaperSearchTool(Tool):
         min_citation_count = kwargs.get("minCitationCount", min_citation_count)
         open_access_only = kwargs.get("openAccessOnly", open_access_only)
 
+        _event_emitter = kwargs.get("_event_emitter", None)
+        _turn_id = kwargs.get("_turn_id", "")
+        _tool_call_id = kwargs.get("_tool_call_id", "")
+
         q = _normalize_text(query)
         if not q:
             return json.dumps({"error": "query is required"}, ensure_ascii=False)
@@ -229,33 +233,46 @@ class PaperSearchTool(Tool):
         resolved_source = (source or self.provider or "hybrid").strip().lower()
 
         if resolved_source == "semantic_scholar":
-            return await self._search_semantic_scholar(
-                q,
-                n,
-                year_from=year_from,
-                year_to=year_to,
+            result = await self._search_semantic_scholar(
+                q, n,
+                year_from=year_from, year_to=year_to,
                 fields_of_study=fields_of_study,
                 min_citation_count=min_citation_count,
                 open_access_only=open_access_only,
             )
+        elif resolved_source == "arxiv":
+            result = await self._search_arxiv(q, n, sort=sort)
+        else:
+            # hybrid
+            result = await self._search_semantic_scholar(
+                q, n,
+                year_from=year_from, year_to=year_to,
+                fields_of_study=fields_of_study,
+                min_citation_count=min_citation_count,
+                open_access_only=open_access_only,
+            )
+            semantic_payload = _try_json(result)
+            if not (isinstance(semantic_payload, dict) and semantic_payload.get("items")):
+                result = await self._search_arxiv(q, n, sort=sort)
 
-        if resolved_source == "arxiv":
-            return await self._search_arxiv(q, n, sort=sort)
+        # Emit paper card event for frontend rendering
+        if _event_emitter and _turn_id and _tool_call_id:
+            payload = _try_json(result)
+            if isinstance(payload, dict) and payload.get("items"):
+                from miqi.protocol.events import ToolCallOutputDeltaEvent
+                try:
+                    await _event_emitter.emit(ToolCallOutputDeltaEvent(
+                        turn_id=_turn_id,
+                        tool_call_id=_tool_call_id,
+                        delta=json.dumps({
+                            "type": "paper_search_result",
+                            "payload": payload,
+                        }, ensure_ascii=False),
+                    ))
+                except Exception:
+                    pass  # never let card emission break the tool
 
-        semantic_result = await self._search_semantic_scholar(
-            q,
-            n,
-            year_from=year_from,
-            year_to=year_to,
-            fields_of_study=fields_of_study,
-            min_citation_count=min_citation_count,
-            open_access_only=open_access_only,
-        )
-        semantic_payload = _try_json(semantic_result)
-        if isinstance(semantic_payload, dict) and semantic_payload.get("items"):
-            return semantic_result
-
-        return await self._search_arxiv(q, n, sort=sort)
+        return result
 
     async def _search_semantic_scholar(
         self,
@@ -679,7 +696,7 @@ class PaperDownloadTool(Tool):
             },
             "source": {
                 "type": "string",
-                "enum": ["hybrid", "semantic_scholar", "arxiv"],
+                "enum": ["hybrid", "semantic_scholar", "arxiv", "core"],
                 "default": "hybrid",
             },
             "outPath": {
@@ -701,12 +718,14 @@ class PaperDownloadTool(Tool):
         workspace: Path,
         provider: str = "hybrid",
         semantic_scholar_api_key: str | None = None,
+        core_api_key: str | None = None,
         timeout_seconds: int = 30,
         max_size_mb: int = 80,
     ):
         self.workspace = workspace.resolve()
         self.provider = provider
         self.semantic_scholar_api_key = (semantic_scholar_api_key or "").strip()
+        self.core_api_key = (core_api_key or "").strip()
         self.timeout_seconds = max(5, timeout_seconds)
         self.max_size_mb = max(1, max_size_mb)
 
@@ -723,6 +742,11 @@ class PaperDownloadTool(Tool):
         paper_id = kwargs.get("paperId", paper_id)
         out_path = kwargs.get("outPath", out_path)
         max_size_mb = kwargs.get("maxSizeMB", max_size_mb)
+
+        # Runtime event emitter for streaming progress (injected by orchestrator)
+        _event_emitter = kwargs.get("_event_emitter", None)
+        _turn_id = kwargs.get("_turn_id", "")
+        _tool_call_id = kwargs.get("_tool_call_id", "")
 
         resolved_source = (source or self.provider or "hybrid").strip().lower()
         max_size_bytes = max(1, (max_size_mb or self.max_size_mb)) * 1024 * 1024
@@ -857,6 +881,35 @@ class PaperDownloadTool(Tool):
                                 )
                             digest.update(chunk)
                             f.write(chunk)
+
+                            # Emit progress event for real-time UI updates
+                            if _event_emitter:
+                                if expected_size:
+                                    pct = int(total / expected_size * 100)
+                                    if pct - last_progress_pct >= 10:
+                                        last_progress_pct = pct
+                                        await self._emit_download_progress(
+                                            emitter=_event_emitter,
+                                            turn_id=_turn_id,
+                                            tool_call_id=_tool_call_id,
+                                            downloaded=total,
+                                            total_size=expected_size,
+                                            pct=pct,
+                                        )
+                                else:
+                                    # No Content-Length: report every 1 MB
+                                    mb_mark = total // (1024 * 1024)
+                                    prev_mark = -(1024 * 1024) if last_progress_pct == -1 else last_progress_pct // (1024 * 1024)
+                                    if mb_mark > prev_mark:
+                                        last_progress_pct = total
+                                        await self._emit_download_progress(
+                                            emitter=_event_emitter,
+                                            turn_id=_turn_id,
+                                            tool_call_id=_tool_call_id,
+                                            downloaded=total,
+                                            total_size=0,
+                                            pct=-1,
+                                        )
         except httpx.TimeoutException:
             tmp_path.unlink(missing_ok=True)
             return json.dumps(
@@ -926,8 +979,13 @@ class PaperDownloadTool(Tool):
         return json.dumps(payload, ensure_ascii=False)
 
     async def _resolve_paper_pdf_url(self, paper_id: str, source: str) -> dict[str, Any]:
+        # If source is explicitly "core", go directly to CORE
+        if source == "core":
+            return await self._resolve_core_pdf_url(paper_id)
+
+        # Try existing flow: Semantic Scholar / arXiv / hybrid
         getter = PaperGetTool(
-            provider=source,
+            provider=source if source != "core" else "hybrid",
             semantic_scholar_api_key=self.semantic_scholar_api_key,
             timeout_seconds=self.timeout_seconds,
         )
@@ -938,6 +996,12 @@ class PaperDownloadTool(Tool):
         if pdf_url:
             return {"pdf_url": pdf_url, "item": item}
 
+        # Fallback: try CORE API if configured (third download source)
+        if self.core_api_key:
+            core_result = await self._resolve_core_pdf_url(paper_id)
+            if core_result.get("pdf_url"):
+                return core_result
+
         reason = payload.get("error") or "No open-access PDF URL found in metadata."
         return {
             "error": str(reason),
@@ -945,10 +1009,132 @@ class PaperDownloadTool(Tool):
             "item": item,
         }
 
+    async def _resolve_core_pdf_url(self, paper_id: str) -> dict[str, Any]:
+        """Search CORE API for a full-text PDF by paper title/ID.
+
+        CORE aggregates 260M+ metadata records from 10,000+ repositories
+        and provides direct download URLs for ~36M open-access full-text PDFs.
+
+        Two-stage lookup:
+          1. Search /v3/search/works → get candidate papers with full_text
+          2. Fetch /v3/outputs/{id} → get the actual downloadUrl
+
+        Rate limit: 5–10 requests per 10 seconds (free tier, 100k req/day).
+        """
+        if not self.core_api_key:
+            return {"error": "CORE API key not configured", "paywall_suspected": False}
+
+        params: dict[str, Any] = {
+            "q": paper_id,
+            "limit": 5,
+            "has_full_text": "true",
+        }
+        headers = {"Authorization": f"Bearer {self.core_api_key}"}
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout_seconds,
+                follow_redirects=True,
+            ) as client:
+                resp = await client.get(
+                    "https://api.core.ac.uk/v3/search/works",
+                    params=params,
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                payload = resp.json()
+        except Exception as e:
+            return {"error": f"CORE search error: {e}", "paywall_suspected": False}
+
+        results = payload.get("results", [])
+        if not results:
+            return {"error": "CORE: no full-text results found", "paywall_suspected": False}
+
+        # Resolve download URL for each candidate via outputs endpoint
+        async with httpx.AsyncClient(
+            timeout=self.timeout_seconds,
+            follow_redirects=True,
+        ) as client:
+            for paper in results:
+                # Prefer sourceFulltextUrls from search result (zero extra requests)
+                source_urls = paper.get("sourceFulltextUrls") or []
+                direct_pdf = _normalize_text(source_urls[0]) if source_urls else ""
+                if direct_pdf and direct_pdf.lower().endswith(".pdf"):
+                    return self._build_core_item(paper, direct_pdf)
+
+                # Otherwise query the outputs endpoint for downloadUrl
+                outputs = paper.get("outputs") or []
+                for output_url in outputs:
+                    try:
+                        out_resp = await client.get(output_url, headers=headers)
+                        out_resp.raise_for_status()
+                        out_data = out_resp.json()
+                        download_url = _normalize_text(out_data.get("downloadUrl", ""))
+                        if download_url:
+                            return self._build_core_item(
+                                {**paper, **out_data}, download_url
+                            )
+                    except Exception:
+                        continue
+
+        return {
+            "error": "CORE: results found but no download URL available",
+            "paywall_suspected": False,
+        }
+
+    def _build_core_item(self, paper: dict[str, Any], pdf_url: str) -> dict[str, Any]:
+        title = _normalize_text(paper.get("title", ""))
+        authors = [
+            _normalize_text(a.get("name", ""))
+            for a in paper.get("authors", [])
+            if a.get("name")
+        ]
+        return {
+            "pdf_url": pdf_url,
+            "item": {
+                "id": _normalize_text(paper.get("id", "")),
+                "title": title,
+                "abstract": _normalize_text(paper.get("abstract", "")),
+                "authors": authors,
+                "year": _safe_int(paper.get("yearPublished")),
+                "source": "core",
+                "source_url": pdf_url,
+            },
+        }
+
+    @staticmethod
+    async def _emit_download_progress(
+        emitter: Any,
+        turn_id: str,
+        tool_call_id: str,
+        downloaded: int,
+        total_size: int,
+        pct: int,
+    ) -> None:
+        """Emit a ToolCallOutputDeltaEvent for real-time download progress."""
+        from miqi.protocol.events import ToolCallOutputDeltaEvent
+
+        size_mb = downloaded / (1024 * 1024)
+        if total_size > 0:
+            total_mb = total_size / (1024 * 1024)
+            delta = f"📥 Downloading PDF... {pct}% ({size_mb:.1f} / {total_mb:.1f} MB)"
+        else:
+            delta = f"📥 Downloading PDF... {size_mb:.1f} MB downloaded"
+
+        await emitter.emit(ToolCallOutputDeltaEvent(
+            turn_id=turn_id,
+            tool_call_id=tool_call_id,
+            delta=delta,
+        ))
+
     def _resolve_save_path(self, out_path: str | None, paper_id: str, download_url: str) -> Path:
         if out_path:
             p = Path(out_path).expanduser()
-            target = p if p.is_absolute() else (self.workspace / p)
+            if p.is_absolute():
+                target = p
+            else:
+                # All paper downloads go under workspace/papers/
+                target = self.workspace / "papers" / p
         else:
             parsed = urlparse(download_url)
             name_from_url = Path(parsed.path).name

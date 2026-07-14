@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '../../components/ui/Button';
 import { Textarea } from '../../components/ui/Textarea';
+import { Tooltip } from '../../components/ui/Tooltip';
 import { ContextMenu, type ContextMenuAction } from '../../components/ContextMenu';
 import { cn } from '../../lib/utils';
 import {
@@ -30,6 +31,7 @@ import {
   Undo2,
   ListChecks,
   Settings,
+  ExternalLink,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -40,6 +42,11 @@ import type {
 } from '../../../shared/ipc';
 import { extractProgressMessage, type ProgressPayload } from './progressUtils';
 import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
+import PaperSearchResult, {
+  tryParsePaperSearchResult,
+  type PaperSearchPayload,
+  type PaperItem,
+} from './PaperSearchResult';
 
 interface Attachment {
   name: string;
@@ -55,6 +62,10 @@ interface Message {
   attachments?: Attachment[];
   toolHint?: boolean;
   toolCallId?: string;
+  /** Tool name for specialized rendering (e.g. 'paper_search') */
+  toolName?: string;
+  /** Parsed tool data for card rendering */
+  toolData?: unknown;
   action?: 'open-provider-settings';
   actionLabel?: string;
   /** When true the message is collapsed by default (user can click to expand) */
@@ -105,6 +116,126 @@ interface TrackedFile {
 
 const OFFICE_FILE_RE = /\.(docx|xlsx|pptx)$/i;
 
+function relativeTimeLabel(timestamp?: number | string | null, now = Date.now()): string {
+  if (timestamp === undefined || timestamp === null) return '尚未更新';
+  const value = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp);
+  if (!Number.isFinite(value)) return '尚未更新';
+
+  const diff = now - value;
+  if (diff < 60_000) return '刚刚更新';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前更新`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前更新`;
+  return `${Math.floor(diff / 86_400_000)} 天前更新`;
+}
+
+export function buildTaskHeaderMeta(
+  updatedAt: number | string | null | undefined,
+  fileCount: number,
+  activePluginCount: number,
+  now = Date.now()
+): string {
+  const fileLabel = `${fileCount} 个文件`;
+  const pluginLabel = `${activePluginCount} 个启用插件`;
+  return `${relativeTimeLabel(updatedAt, now)} · ${fileLabel} · ${pluginLabel}`;
+}
+
+export function buildTaskShareText({
+  title,
+  meta,
+  messages,
+  files,
+}: {
+  title: string;
+  meta: string;
+  messages: Message[];
+  files: TrackedFile[];
+}): string {
+  const visibleMessages = messages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .slice(-8);
+  const messageLines =
+    visibleMessages.length > 0
+      ? visibleMessages.map((message) => {
+          const role = message.role === 'user' ? '用户' : 'MiQi';
+          const content = message.content.trim().replace(/\s+/g, ' ');
+          return `- ${role}: ${content || '(空消息)'}`;
+        })
+      : ['- 暂无对话内容'];
+  const fileLines =
+    files.length > 0
+      ? files.map((file) => `- ${file.name} (${file.op})`)
+      : ['- 暂无文件'];
+
+  return [
+    `# ${title}`,
+    '',
+    meta,
+    '',
+    '## 最近对话',
+    ...messageLines,
+    '',
+    '## 相关文件',
+    ...fileLines,
+  ].join('\n');
+}
+
+export function buildTaskReproContext({
+  sessionKey,
+  title,
+  meta,
+  messages,
+  files,
+}: {
+  sessionKey: string;
+  title: string;
+  meta: string;
+  messages: Message[];
+  files: TrackedFile[];
+}): string {
+  const visibleMessages = messages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .slice(-12);
+  const messageLines =
+    visibleMessages.length > 0
+      ? visibleMessages.map((message) => {
+          const role = message.role === 'user' ? '用户' : 'MiQi';
+          const content = message.content.trim().replace(/\s+/g, ' ');
+          return `- ${role}: ${content || '(空消息)'}`;
+        })
+      : ['- 暂无对话内容'];
+  const fileLines =
+    files.length > 0
+      ? files.map((file) => `- [${file.op}] ${file.path || file.name}`)
+      : ['- 暂无文件'];
+
+  return [
+    '# MiQi 任务复现上下文',
+    '',
+    `- 会话: ${sessionKey}`,
+    `- 标题: ${title}`,
+    `- 状态: ${meta}`,
+    '',
+    '## 最近对话',
+    ...messageLines,
+    '',
+    '## 相关文件',
+    ...fileLines,
+  ].join('\n');
+}
+
+export function getTaskShareDownloadName(title: string, timestamp = Date.now()): string {
+  const safeTitle =
+    title
+      .trim()
+      .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 48) || 'miqi-task';
+  const stamp = new Date(timestamp).toISOString().replace(/[:.]/g, '-');
+  return `${safeTitle}-${stamp}.md`;
+}
+
 /** Extract file path + operation from a tool-hint progress text.
  *  Nanobot tool hints look like:
  *    "Read: /abs/path/to/file.ts"
@@ -126,7 +257,10 @@ function parseToolHint(
     // nanobot / miqi style: write_file("path"), read_file("path"), edit_file("path")
     [/(?:write|edit|delete|read)_file\s*\(\s*["'](.+?)["']\s*\)/i, 'write'],
     // Office creation tools create files in the workspace.
-    [/(?:create_docx|create_xlsx|create_pptx|docx_write|xlsx_write|pptx_write)\s*\(\s*["'](.+?)["']\s*\)/i, 'write'],
+    [
+      /(?:create_docx|create_xlsx|create_pptx|docx_write|xlsx_write|pptx_write)\s*\(\s*["'](.+?)["']\s*\)/i,
+      'write',
+    ],
     [/(?:edit_docx|append_xlsx)\s*\(\s*["'](.+?)["']\s*\)/i, 'edit'],
     // Generic fallback: any mention of a path-like string after a colon
     [/(?:file|path)[:\s]+([^\s,]+\.[a-zA-Z]{1,6})/i, 'read'],
@@ -150,7 +284,8 @@ function parseToolHint(
         else if (re.source.includes('edit')) inferredOp = 'edit';
         else if (re.source.includes('delete')) inferredOp = 'delete';
         else if (re.source.includes('read')) inferredOp = 'read';
-        else if (re.source.includes('create_') || re.source.includes('_write')) inferredOp = 'write';
+        else if (re.source.includes('create_') || re.source.includes('_write'))
+          inferredOp = 'write';
         return { path: raw, op: inferredOp, truncated };
       }
     }
@@ -275,15 +410,44 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
       // Tool result messages → show as collapsed progress with toolHint
       const toolName = m.name || 'tool';
       const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-      const preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
-      result.push({
-        role: 'progress',
-        content: `${toolName}: ${preview}`,
-        summary: toolName,
-        toolHint: true,
-        collapsed: true,
-        timestamp: ts,
-      });
+
+      // Detect paper_search results → render as cards (not collapsed)
+      if (toolName === 'paper_search') {
+        const paperData = tryParsePaperSearchResult(content);
+        if (paperData && paperData.items?.length) {
+          result.push({
+            role: 'progress',
+            content: content,
+            summary: `📄 Found ${paperData.items.length} papers${paperData.query ? ` for "${paperData.query}"` : ''}`,
+            toolHint: true,
+            toolName: 'paper_search',
+            toolData: paperData,
+            collapsed: false,
+            timestamp: ts,
+          });
+        } else {
+          // Search returned empty or errored — still show normally
+          const preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
+          result.push({
+            role: 'progress',
+            content: `paper_search: ${preview}`,
+            summary: 'paper_search',
+            toolHint: true,
+            collapsed: true,
+            timestamp: ts,
+          });
+        }
+      } else {
+        const preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
+        result.push({
+          role: 'progress',
+          content: `${toolName}: ${preview}`,
+          summary: toolName,
+          toolHint: true,
+          collapsed: true,
+          timestamp: ts,
+        });
+      }
     }
     // Ignore other roles (system, etc.)
   }
@@ -327,7 +491,10 @@ function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[
   })();
 
   return messages.reduce((acc, message, index) => {
-    if (index <= lastUserIndex) { acc.push(message); return acc; }
+    if (index <= lastUserIndex) {
+      acc.push(message);
+      return acc;
+    }
     if (message.role === 'assistant') return acc;
     if (message.role !== 'progress' || message.toolHint) {
       // Retained toolHint progress should render collapsed after final
@@ -341,28 +508,97 @@ function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[
   }, [] as Message[]);
 }
 
-/** Parse tracked files from raw session messages (includes progress entries with _tool_hint). */
+/** File-operation tool names shared between progress-hint parsing and
+ *  onFinal tool_call tracking. Keep in sync with the backends that
+ *  produce file paths. */
+const _FILE_WRITE_TOOLS = [
+  'write_file',
+  'edit_file',
+  'delete_file',
+  'apply_patch',
+  'create_docx',
+  'create_xlsx',
+  'create_pptx',
+  'docx_write',
+  'xlsx_write',
+  'pptx_write',
+  'edit_docx',
+  'append_xlsx',
+];
+const _FILE_READ_TOOLS = ['read_file'];
+
+/** Extract a file path from a JSON-stringified tool args object.
+ *  Checks common keys: path, file_path, filename. */
+function _extractPathFromArgs(argsStr: string): string | null {
+  try {
+    const args = JSON.parse(argsStr);
+    return (args.path as string) || (args.file_path as string) || (args.filename as string) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Parse tracked files from raw session messages.
+ *  Handles three formats:
+ *  1. _tool_hint metadata (from progress events, persisted by some backends)
+ *  2. tool_calls array on assistant messages (raw provider format)
+ *  3. name field on tool result messages (raw provider format)
+ */
 function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
   const fileMap = new Map<string, TrackedFile>();
   const rank: Record<TrackedFile['op'], number> = { read: 0, edit: 1, write: 2, delete: 3 };
 
+  const upsert = (path: string, op: TrackedFile['op'], timestamp?: string) => {
+    const key = path.replace(/\\/g, '/');
+    const existing = fileMap.get(key);
+    if (!existing || rank[op] > rank[existing.op]) {
+      fileMap.set(key, {
+        path: key,
+        name: basename(key),
+        op,
+        lastSeen: timestamp ? new Date(timestamp).getTime() : Date.now(),
+        truncated: false,
+      });
+    }
+  };
+
   for (const msg of rawMsgs) {
-    // Prefer _tool_hint_text (full path, from persisted session) over content (may be truncated)
+    // Format 1: _tool_hint metadata (persisted progress events)
     const hintText = msg._tool_hint_text || msg.content;
     if (msg._tool_hint && hintText) {
       const parsed = parseToolHint(hintText);
       if (parsed) {
-        const key = parsed.path;
-        const existing = fileMap.get(key);
-        if (!existing || rank[parsed.op] > rank[existing.op]) {
-          fileMap.set(key, {
-            path: key,
-            name: basename(key),
-            op: parsed.op,
-            lastSeen: msg.timestamp ? new Date(msg.timestamp).getTime() : Date.now(),
-            truncated: parsed.truncated,
-          });
+        upsert(parsed.path, parsed.op, msg.timestamp);
+      }
+    }
+
+    // Format 2: assistant messages with tool_calls array
+    if (Array.isArray(msg.tool_calls)) {
+      for (const tc of msg.tool_calls) {
+        const fn = tc?.function || tc?.tool?.function || {};
+        const toolName: string = fn?.name || '';
+        if (!toolName) continue;
+        const argsStr: string = fn?.arguments || '{}';
+        const filePath = _extractPathFromArgs(argsStr);
+        if (!filePath) continue;
+        if (_FILE_WRITE_TOOLS.includes(toolName)) {
+          upsert(filePath, toolName === 'delete_file' ? 'delete' : 'write', msg.timestamp);
+        } else if (_FILE_READ_TOOLS.includes(toolName)) {
+          upsert(filePath, 'read', msg.timestamp);
         }
+      }
+    }
+
+    // Format 3: tool result messages with name field
+    if (msg.role === 'tool' && msg.name) {
+      const toolName: string = msg.name;
+      // Try to extract path from content (often contains the file path)
+      const contentPath = parseToolHint(String(msg.content || ''));
+      if (contentPath) {
+        upsert(contentPath.path, contentPath.op, msg.timestamp);
+      } else if (_FILE_WRITE_TOOLS.includes(toolName)) {
+        // Tool result without parsable content — try to infer from tool name
+        // (best-effort; actual path is in the paired assistant tool_calls message)
       }
     }
   }
@@ -385,14 +621,44 @@ export function ChatConsole({
   onOpenProviderSettings?: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [sessionUpdatedAt, setSessionUpdatedAt] = useState<string | null>(null);
+  const [clockTick, setClockTick] = useState(() => Date.now());
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [downloadingPaperId, setDownloadingPaperId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(280);
   const panelResizing = useRef(false);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockTick(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadActivePlugins = async () => {
+      try {
+        const result = await window.miqi.plugins.list();
+        const plugins = (result as unknown as { plugins?: Array<{ status?: string }> })?.plugins;
+        if (!cancelled) {
+          setActivePluginCount((plugins ?? []).filter((plugin) => plugin.status === 'active').length);
+        }
+      } catch {
+        if (!cancelled) setActivePluginCount(0);
+      }
+    };
+
+    loadActivePlugins();
+    const timer = window.setInterval(loadActivePlugins, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   // Task Assets panel resize
   const handlePanelResizeStart = useCallback((e: React.MouseEvent) => {
@@ -449,6 +715,10 @@ export function ChatConsole({
     Record<string, { stdout: string; stderr: string; running: boolean }>
   >({});
   const [merging, setMerging] = useState(false);
+  const [activePluginCount, setActivePluginCount] = useState(0);
+  const [shareStatus, setShareStatus] = useState<'idle' | 'copied' | 'exported' | 'context'>(
+    'idle'
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
   const justOpened = useRef(false);
@@ -456,6 +726,7 @@ export function ChatConsole({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const unsubsRef = useRef<Array<() => void>>([]);
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shareFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef(sessionKey);
   // Track the active thread ID for new-protocol thread-aware conversations
   const currentThreadIdRef = useRef<string | null>(null);
@@ -552,6 +823,7 @@ export function ChatConsole({
     currentThreadIdRef.current = null; // Reset on session change
     setHistoryLoaded(false);
     setMessages([]);
+    setSessionUpdatedAt(null);
     setTrackedFiles([]);
     justOpened.current = true;
     userScrolledUp.current = false; // reset for new session
@@ -562,20 +834,34 @@ export function ChatConsole({
         const rawMsgs: any[] = (detail as any)?.messages ?? [];
         const uiMsgs = sessionMsgsToUi(rawMsgs);
         setMessages(uiMsgs);
+        setSessionUpdatedAt((detail as any)?.updated_at ?? null);
         // Restore tracked files from dedicated tracked_files.json
-        const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
-        if (currentSessionRef.current !== sessionKey) return;
-        const tfList = (tfResult as any)?.tracked_files ?? [];
-        setTrackedFiles(
-          tfList.map((f: any) => ({
-            path: f.path,
+        let tfList: any[] = [];
+        try {
+          const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
+          if (currentSessionRef.current !== sessionKey) return;
+          tfList = (tfResult as any)?.tracked_files ?? [];
+        } catch {
+          // backend failure is non-fatal — fall through to message extraction
+        }
+        // Also extract tracked files from session messages (fallback when
+        // tracked_files.json is empty — agent tools don't persist there).
+        const fromMessages = extractTrackedFilesFromMessages(rawMsgs);
+        // Merge: backend data takes priority, messages fill gaps
+        const mergedMap = new Map<string, TrackedFile>();
+        for (const f of fromMessages) mergedMap.set(f.path, f);
+        for (const f of tfList as any[]) {
+          const normPath = (f.path as string).replace(/\\/g, '/');
+          mergedMap.set(normPath, {
+            path: normPath,
             name: f.name,
             op: f.op,
             lastSeen: f.lastSeen,
-          }))
-        );
-      } catch {
-        /* session doesn't exist yet */
+          });
+        }
+        setTrackedFiles(Array.from(mergedMap.values()));
+      } catch (err) {
+        console.warn('[ChatConsole] Failed to load session data:', err);
       }
       setHistoryLoaded(true);
     };
@@ -637,8 +923,23 @@ export function ChatConsole({
     }
   }, []);
 
+  const showShareFeedback = useCallback((status: 'copied' | 'exported' | 'context') => {
+    if (shareFeedbackTimerRef.current) {
+      clearTimeout(shareFeedbackTimerRef.current);
+    }
+    setShareStatus(status);
+    shareFeedbackTimerRef.current = setTimeout(() => {
+      setShareStatus('idle');
+      shareFeedbackTimerRef.current = null;
+    }, 2000);
+  }, []);
+
   const cleanupListeners = useCallback(() => {
     clearFinalCleanupTimer();
+    if (shareFeedbackTimerRef.current) {
+      clearTimeout(shareFeedbackTimerRef.current);
+      shareFeedbackTimerRef.current = null;
+    }
     for (const unsub of unsubsRef.current) unsub();
     unsubsRef.current = [];
   }, [clearFinalCleanupTimer]);
@@ -855,15 +1156,17 @@ export function ChatConsole({
       lastEventAt = Date.now();
       // Handle stream deltas from exec (Phase 7 inline tool progress)
       if (data.stream && data.delta && data.tool_call_id) {
+        const stream = data.stream;
+        const delta = data.delta;
         const toolCallId = data.tool_call_id;
-        const stream = data.stream === 'stdout' ? 'stdout' : 'stderr';
         setExecOutputs((prev) => {
           const current = prev[toolCallId] || { stdout: '', stderr: '', running: true };
+          const streamKey = stream === 'stdout' ? 'stdout' : 'stderr';
           return {
             ...prev,
             [toolCallId]: {
               ...current,
-              [stream]: current[stream] + data.delta,
+              [streamKey]: current[streamKey] + delta,
             },
           };
         });
@@ -880,13 +1183,39 @@ export function ChatConsole({
             : extracted.role === 'warning'
               ? ('progress' as const) // warnings render as progress with warning style
               : ('progress' as const);
+        // Detect paper_search result from backend events
+        let toolName: string | undefined;
+        let toolData: unknown;
+        // Path A: item/toolResult notification (from turn_event_adapter)
+        if (!toolData && data.tool_hint && data.text && !data.stream) {
+          const parsed = tryParsePaperSearchResult(data.text);
+          if (parsed?.items?.length) {
+            toolName = 'paper_search';
+            toolData = parsed;
+          }
+        }
+        // Path B: toolExecution/outputDelta from PaperSearchTool itself
+        if (!toolData && data.delta && typeof data.delta === 'string') {
+          try {
+            const inner = JSON.parse(data.delta);
+            if (inner?.type === 'paper_search_result' && inner.payload) {
+              toolName = 'paper_search';
+              toolData = inner.payload;
+            }
+          } catch {
+            /* not JSON, ignore */
+          }
+        }
+
         setMessages((prev) => [
           ...prev,
           {
             role: msgRole,
             content: extracted.role === 'warning' ? `⚠️ ${extracted.message}` : extracted.message,
-            toolHint: data.tool_hint,
+            toolHint: data.tool_hint || toolName === 'paper_search',
             toolCallId: data.tool_call_id,
+            toolName,
+            toolData,
             timestamp: Date.now(),
           },
         ]);
@@ -920,24 +1249,11 @@ export function ChatConsole({
         // Office tools (create_docx, etc.) don't always produce progress
         // hints that match parseToolHint patterns, so we extract file
         // paths directly from the final tool call list.
-        const _FILE_WRITE_TOOLS = [
-          'write_file', 'edit_file', 'delete_file', 'apply_patch',
-          'create_docx', 'create_xlsx', 'create_pptx',
-          'docx_write', 'xlsx_write', 'pptx_write',
-          'edit_docx', 'append_xlsx',
-        ];
-        const _FILE_READ_TOOLS = ['read_file'];
         for (const tc of (data.tool_calls ?? []) as any[]) {
           const fn = tc?.function || tc?.tool?.function || {};
           const toolName: string = fn?.name || '';
           if (!toolName) continue;
-          let args: Record<string, unknown> = {};
-          try { args = JSON.parse(fn?.arguments || '{}'); } catch { continue; }
-          const filePath: string =
-            (args.path as string) ||
-            (args.file_path as string) ||
-            (args.filename as string) ||
-            '';
+          const filePath: string = _extractPathFromArgs(fn?.arguments || '{}') || '';
           if (!filePath) continue;
           if (_FILE_WRITE_TOOLS.includes(toolName)) {
             trackFile(filePath, 'write', false);
@@ -950,9 +1266,7 @@ export function ChatConsole({
           const cleaned = removeTransientTurnMessagesSinceLastUser(prev);
           // Only append collapsed tool-call group if streaming didn't
           // already render toolHint progress for this turn (avoids dupes).
-          const hasToolHints = cleaned.some(
-            (m) => m.role === 'progress' && m.toolHint,
-          );
+          const hasToolHints = cleaned.some((m) => m.role === 'progress' && m.toolHint);
           if (hasToolHints) return cleaned;
           const toolMessages = sessionMsgsToUi([
             {
@@ -1073,6 +1387,33 @@ export function ChatConsole({
     }
   }, [input, attachments, streaming, cleanupListeners, onChatFinished]);
 
+  // ── Download paper via chat ─────────────────────────────────────
+  const handleDownloadPaper = useCallback(
+    (paper: PaperItem) => {
+      const title = (paper.title || 'this paper').trim();
+      const pid = paper.arxiv_id || paper.id || paper.doi || title;
+      const instruction = `请下载论文《${title}》的 PDF 文件。paperId: ${pid}`;
+      setDownloadingPaperId(paper.id || null);
+      // Set input and trigger send on next tick so React state propagates
+      setInput(instruction);
+      setTimeout(() => {
+        const text = instruction.trim();
+        if (!text) return;
+        // Direct send: bypasses the input-state read in handleSend since
+        // we just set it. We inline the send logic here for simplicity.
+        window.miqi.chat
+          .send(text, sessionKey)
+          .then(() => {
+            setDownloadingPaperId(null);
+          })
+          .catch(() => {
+            setDownloadingPaperId(null);
+          });
+      }, 0);
+    },
+    [sessionKey]
+  );
+
   /** Auto-resize textarea to fit content */
   const adjustTextareaHeight = useCallback(() => {
     const el = textareaRef.current;
@@ -1090,19 +1431,24 @@ export function ChatConsole({
 
   const handlePreview = useCallback(async (path: string) => {
     if (OFFICE_FILE_RE.test(path)) {
-      setPreviewFile({
-        path,
-        content:
-          'Office document created. Text preview is not available for .docx/.xlsx/.pptx files; open it from the workspace or Task Assets file entry.',
-      });
+      // Open directly with system default app (Word, Excel, PowerPoint) — no modal
+      window.miqi.files.openExternal(path).catch(() => {});
       return;
     }
     try {
       const result = await window.miqi.files.read(path);
-      setPreviewFile({
-        path,
-        content: result.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
-      });
+      if (result.is_binary) {
+        setPreviewFile({
+          path,
+          content:
+            'Binary file. Text preview is not available for this file type.\n\nUse the button below to open it with your system default application.',
+        });
+      } else {
+        setPreviewFile({
+          path,
+          content: result.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
+        });
+      }
     } catch {
       setPreviewFile({ path, content: `(Could not read file: ${path})` });
     }
@@ -1223,15 +1569,105 @@ export function ChatConsole({
     const raw = sessionKey.replace(/^desktop:/, '');
     const ts = parseInt(raw, 10);
     if (!isNaN(ts) && raw.length >= 13) {
-      return new Intl.DateTimeFormat('en-US', {
-        month: 'short',
+      return new Intl.DateTimeFormat('zh-CN', {
+        month: 'long',
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
+        hour12: false,
       }).format(new Date(ts));
     }
-    return raw.replace(/_/g, ' ') || 'New Task';
+    return raw.replace(/_/g, ' ') || '新任务';
   }, [messages, sessionKey]);
+
+  const taskHeaderInfo = useMemo(() => {
+    const latestMessageAt = messages.reduce<number | null>((latest, message) => {
+      if (!Number.isFinite(message.timestamp)) return latest;
+      return latest === null || message.timestamp > latest ? message.timestamp : latest;
+    }, null);
+    const updatedAt = latestMessageAt ?? sessionUpdatedAt;
+    return {
+      updatedLabel: relativeTimeLabel(updatedAt, clockTick),
+      fileLabel: `${trackedFiles.length} 个文件`,
+      pluginLabel: `${activePluginCount} 个启用插件`,
+      meta: buildTaskHeaderMeta(updatedAt, trackedFiles.length, activePluginCount, clockTick),
+    };
+  }, [activePluginCount, clockTick, messages, sessionUpdatedAt, trackedFiles.length]);
+
+  const getTaskShareSummary = useCallback(
+    () =>
+      buildTaskShareText({
+        title: sessionTitle,
+        meta: taskHeaderInfo.meta,
+        messages,
+        files: trackedFiles,
+      }),
+    [messages, sessionTitle, taskHeaderInfo.meta, trackedFiles]
+  );
+
+  const handleCopyTaskSummary = useCallback(async () => {
+    await navigator.clipboard.writeText(getTaskShareSummary());
+    showShareFeedback('copied');
+  }, [getTaskShareSummary, showShareFeedback]);
+
+  const handleExportTaskMarkdown = useCallback(() => {
+    const text = getTaskShareSummary();
+    const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = getTaskShareDownloadName(sessionTitle);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    showShareFeedback('exported');
+  }, [getTaskShareSummary, sessionTitle, showShareFeedback]);
+
+  const handleCopyReproContext = useCallback(async () => {
+    const text = buildTaskShareText({
+      title: sessionTitle,
+      meta: taskHeaderInfo.meta,
+      messages,
+      files: trackedFiles,
+    });
+    const context = buildTaskReproContext({
+      sessionKey,
+      title: sessionTitle,
+      meta: taskHeaderInfo.meta,
+      messages,
+      files: trackedFiles,
+    });
+    await navigator.clipboard.writeText(context || text);
+    showShareFeedback('context');
+  }, [messages, sessionKey, sessionTitle, showShareFeedback, taskHeaderInfo.meta, trackedFiles]);
+
+  const shareMenuItems = useMemo<ContextMenuAction[]>(
+    () => [
+      { label: '复制摘要', shortcut: '推荐', onSelect: handleCopyTaskSummary },
+      { label: '导出 Markdown', onSelect: handleExportTaskMarkdown },
+      {
+        label: '复制上下文',
+        shortcut: `${messages.filter((message) => message.role === 'user' || message.role === 'assistant').length} 条`,
+        divider: true,
+        onSelect: handleCopyReproContext,
+      },
+    ],
+    [handleCopyReproContext, handleCopyTaskSummary, handleExportTaskMarkdown, messages]
+  );
+
+  const shareButtonLabel =
+    shareStatus === 'copied'
+      ? '已复制摘要'
+      : shareStatus === 'exported'
+        ? '已导出'
+        : shareStatus === 'context'
+          ? '已复制上下文'
+          : '分享任务';
+
+  const shareButtonTone = shareStatus === 'idle' ? 'var(--text)' : 'var(--success)';
+  const shareButtonBackground = 'var(--surface-muted)';
+  const shareButtonBorder = 'var(--border-subtle)';
 
   return (
     <div
@@ -1289,8 +1725,12 @@ export function ChatConsole({
         }}
       >
         {/* Left: Logo */}
-        <span className="text-sm font-bold whitespace-nowrap shrink-0" style={{ color: 'var(--text)' }}>
-          MiQi Workbench
+        <span
+          className="text-sm font-bold whitespace-nowrap shrink-0"
+          style={{ color: 'var(--text)' }}
+          data-testid="app-title"
+        >
+          MiQi Desktop
         </span>
 
         {/* Center: Search */}
@@ -1302,16 +1742,28 @@ export function ChatConsole({
             color: 'var(--text-faint)',
           }}
         >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.3-4.3" />
           </svg>
-          <span className="select-none">Search or use commands...</span>
+          <span className="select-none">搜索或输入命令...</span>
         </div>
 
         {/* Right: Badges + user + actions */}
         <div className="flex items-center gap-2 shrink-0">
           {/* User avatar + name */}
-          <div className="flex items-center gap-1.5 pl-2 ml-1 border-l" style={{ borderColor: 'var(--border-subtle)' }}>
+          <div
+            className="flex items-center gap-1.5 pl-2 ml-1 border-l"
+            style={{ borderColor: 'var(--border-subtle)' }}
+          >
             <div
               className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
               style={{ background: 'var(--avatar-dark)' }}
@@ -1325,18 +1777,21 @@ export function ChatConsole({
 
           {/* More menu */}
           <ContextMenu
-            items={[{ label: 'Delete conversation', danger: true, onSelect: handleDeleteSession }]}
+            items={[{ label: '删除对话', danger: true, onSelect: handleDeleteSession }]}
           >
             {({ onContextMenu }) => (
-              <button
-                className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
-                onClick={onContextMenu}
-              >
-                <MoreHorizontal size={14} style={{ color: 'var(--text-faint)' }} />
-              </button>
+              <Tooltip content="更多对话操作">
+                <button
+                  className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
+                  onClick={onContextMenu}
+                  aria-label="更多对话操作"
+                  title="更多对话操作"
+                >
+                  <MoreHorizontal size={14} style={{ color: 'var(--text-faint)' }} />
+                </button>
+              </Tooltip>
             )}
           </ContextMenu>
-
         </div>
       </div>
 
@@ -1346,41 +1801,83 @@ export function ChatConsole({
         <div className="flex flex-col flex-1 overflow-hidden">
           {/* ── Sub header: task title + status (inside chat area) ── */}
           <div
-            className="flex items-center gap-3 px-5 h-8 border-b shrink-0"
+            className="flex items-center gap-3 px-5 min-h-12 border-b shrink-0"
             style={{
-              background: '#FFFFFF',
+              background: 'var(--surface)',
               borderColor: 'var(--border-subtle)',
             }}
           >
-            <h2
-              className="text-[18px] font-semibold truncate leading-tight"
-              style={{ color: 'var(--text)' }}
+            <div className="min-w-0 flex-1 flex items-center gap-2.5">
+              <h2
+                className="text-[16px] font-semibold truncate leading-[1.35]"
+                style={{ color: 'var(--text)' }}
+              >
+                {sessionTitle}
+              </h2>
+              <span className="tag-inprogress shrink-0">{'\u8fdb\u884c\u4e2d'}</span>
+              <div
+                className="flex min-w-0 items-center gap-1.5 shrink-0 text-[12px] leading-none whitespace-nowrap"
+                aria-label={taskHeaderInfo.meta}
+                style={{ color: 'var(--text-faint)' }}
+              >
+                <span>{taskHeaderInfo.updatedLabel}</span>
+                <span aria-hidden="true">·</span>
+                <span>{taskHeaderInfo.fileLabel}</span>
+                <span aria-hidden="true">·</span>
+                <span>{taskHeaderInfo.pluginLabel}</span>
+              </div>
+            </div>
+            <div
+              className="flex shrink-0 items-stretch overflow-hidden rounded-md shadow-[0_1px_0_rgba(18,18,18,0.05)]"
+              style={{
+                background: shareButtonBackground,
+                border: `1px solid ${shareButtonBorder}`,
+              }}
             >
-              {sessionTitle}
-            </h2>
-            <span className="tag-inprogress shrink-0">IN PROGRESS</span>
-            <span className="text-[11px] shrink-0" style={{ color: 'var(--text-faint)' }}>
-              Updated 2 mins ago · 2 linked files · 2 Active Plugins
-            </span>
-            <button
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ml-auto opacity-50"
-              style={{ background: 'var(--accent)', color: '#121212', cursor: 'not-allowed' }}
-              title="Coming soon"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
-                <polyline points="16 6 12 2 8 6"/>
-                <line x1="12" y1="2" x2="12" y2="15"/>
-              </svg>
-              Share Task
-            </button>
-            <button
-              onClick={() => setPanelOpen((v) => !v)}
-              className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors shrink-0 ml-1"
-              title="Toggle assets panel"
-            >
-              <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
-            </button>
+              <button
+                onClick={handleCopyTaskSummary}
+                className="flex h-7 min-w-[96px] items-center justify-center gap-1.5 px-3 text-xs font-semibold transition-colors whitespace-nowrap hover:brightness-95"
+                style={{
+                  color: shareButtonTone,
+                  cursor: 'pointer',
+                }}
+                title="复制任务摘要"
+                aria-label="复制任务摘要"
+              >
+                {shareStatus === 'idle' ? <Send size={12} /> : <Check size={12} />}
+                {shareButtonLabel}
+              </button>
+              <ContextMenu items={shareMenuItems} minWidth={180}>
+                {({ onContextMenu }) => (
+                  <Tooltip content="复制摘要、导出 Markdown 或复制上下文">
+                    <button
+                      onClick={onContextMenu}
+                      className="flex h-7 w-7 items-center justify-center transition-colors hover:brightness-95"
+                      style={{
+                        borderLeft: `1px solid ${shareButtonBorder}`,
+                        color: shareStatus === 'idle' ? 'var(--text-muted)' : 'var(--success)',
+                      }}
+                      title="更多分享方式"
+                      aria-label="更多分享方式"
+                      aria-haspopup="menu"
+                    >
+                      <ChevronDown size={12} />
+                    </button>
+                  </Tooltip>
+                )}
+              </ContextMenu>
+            </div>
+            <Tooltip content="显示或隐藏文件面板">
+              <button
+                onClick={() => setPanelOpen((v) => !v)}
+                className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors shrink-0 ml-1"
+                title="显示或隐藏文件面板"
+                aria-label="显示或隐藏文件面板"
+                data-testid="toggle-assets-panel-btn"
+              >
+                <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
+              </button>
+            </Tooltip>
           </div>
           {/* Messages */}
           <div
@@ -1407,10 +1904,10 @@ export function ChatConsole({
                   </div>
                   <div className="flex flex-col items-center gap-1">
                     <p className="text-[15px] font-medium" style={{ color: 'var(--text-muted)' }}>
-                      Ask Agent to analyze or edit files...
+                      从文件、问题或修改请求开始
                     </p>
                     <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
-                      Start a conversation to begin
+                      发起一段对话即可开始
                     </p>
                   </div>
                 </div>
@@ -1425,6 +1922,8 @@ export function ChatConsole({
                     isCopied={copiedIdx === i}
                     onRetry={() => handleRetry(msg)}
                     onOpenProviderSettings={onOpenProviderSettings}
+                    onDownloadPaper={handleDownloadPaper}
+                    downloadingPaperId={downloadingPaperId}
                   />
                 ))
               )}
@@ -1432,6 +1931,7 @@ export function ChatConsole({
                 <div
                   className="flex items-center gap-2 text-xs px-1"
                   style={{ color: 'var(--text-muted)' }}
+                  data-testid="thinking-indicator"
                 >
                   <Loader2 size={12} className="animate-spin" />
                   Thinking…
@@ -1444,7 +1944,7 @@ export function ChatConsole({
           <div
             className="shrink-0 px-5 pb-4 pt-3"
             style={{
-              background: '#F2F5E8',
+              background: 'var(--background)',
             }}
           >
             <div className="max-w-[760px] mx-auto">
@@ -1483,8 +1983,9 @@ export function ChatConsole({
 
               <div
                 className="flex items-end gap-2 rounded-xl px-4 py-3.5 focus-within:ring-2 transition-all"
+                data-testid="chat-input-container"
                 style={{
-                  background: '#FFFFFF',
+                  background: 'var(--surface)',
                   border: '1px solid var(--border)',
                   outline: 'none',
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
@@ -1494,6 +1995,7 @@ export function ChatConsole({
                   onClick={handleAttachClick}
                   className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
                   title="Attach file or image"
+                  aria-label="Attach file or image"
                 >
                   <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
                 </button>
@@ -1597,7 +2099,7 @@ export function ChatConsole({
             >
               <div className="flex items-center gap-1.5">
                 <LayoutGrid size={13} style={{ color: 'var(--text-muted)' }} />
-                <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
+                <span className="text-xs font-semibold" style={{ color: 'var(--text)' }} data-testid="task-assets-title">
                   Task Assets
                 </span>
               </div>
@@ -1610,7 +2112,7 @@ export function ChatConsole({
               <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center gap-4">
                 <FileText size={28} style={{ color: 'var(--text-faint)', opacity: 0.35 }} />
                 <div className="flex flex-col items-center gap-1">
-                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }}>
+                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }} data-testid="task-assets-empty">
                     No files yet.
                   </p>
                   <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
@@ -1747,19 +2249,33 @@ export function ChatConsole({
               <button
                 onClick={handleMergeAll}
                 disabled={merging || trackedFiles.length === 0}
+                aria-describedby={
+                  trackedFiles.length === 0 ? 'merge-all-disabled-reason' : undefined
+                }
+                title={
+                  trackedFiles.length === 0
+                    ? 'No changed files are available to merge'
+                    : 'Merge all tracked changes'
+                }
                 className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
                 style={{
                   background:
                     merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'var(--accent)',
-                  color:
-                    merging || trackedFiles.length === 0
-                      ? 'var(--text-faint)'
-                      : '#121212',
+                  color: merging || trackedFiles.length === 0 ? 'var(--text-faint)' : '#121212',
                 }}
               >
                 {merging ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
                 {merging ? 'MERGING...' : 'MERGE ALL CHANGES'}
               </button>
+              {trackedFiles.length === 0 && (
+                <p
+                  id="merge-all-disabled-reason"
+                  className="mt-1.5 text-[11px] text-center"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  No changed files are available to merge.
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -1796,12 +2312,22 @@ export function ChatConsole({
                   {previewFile.path}
                 </span>
               </div>
-              <button
-                onClick={closePreview}
-                className="p-1 rounded hover:bg-[var(--surface-muted)] transition-colors shrink-0"
-              >
-                <X size={14} style={{ color: 'var(--text-faint)' }} />
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={() => window.miqi.files.openExternal(previewFile.path)}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors"
+                  title="Open with system default application"
+                >
+                  <ExternalLink size={12} />
+                  <span>系统应用打开</span>
+                </button>
+                <button
+                  onClick={closePreview}
+                  className="p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
+                >
+                  <X size={14} style={{ color: 'var(--text-faint)' }} />
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-auto p-4">
               <pre
@@ -2034,10 +2560,12 @@ function DiffView({ diff }: { diff: string }) {
 }
 
 function SectionLabel({ label }: { label: string }) {
+  const testId = `section-label-${label.toLowerCase().replace(/\s+/g, '-')}`;
   return (
     <div
       className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest"
       style={{ color: 'var(--text-faint)' }}
+      data-testid={testId}
     >
       {label}
     </div>
@@ -2129,7 +2657,9 @@ function TrackedFileCard({
                 color: isOfficeFile ? 'var(--text-faint)' : 'var(--warning)',
                 opacity: isOfficeFile ? 0.55 : 1,
               }}
-              title={isOfficeFile ? 'Diff is not available for Office binary files' : 'Compare diff'}
+              title={
+                isOfficeFile ? 'Diff is not available for Office binary files' : 'Compare diff'
+              }
             >
               <GitCompare size={10} />
               Diff
@@ -2143,6 +2673,7 @@ function TrackedFileCard({
               color: 'var(--text-muted)',
             }}
             title={isOfficeFile ? 'Office binary preview is not available' : 'Preview file'}
+            data-testid="file-preview-btn"
           >
             <Eye size={10} />
             Preview
@@ -2161,6 +2692,8 @@ function MessageBubble({
   isCopied,
   onRetry,
   onOpenProviderSettings,
+  onDownloadPaper,
+  downloadingPaperId,
 }: {
   msg: Message;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
@@ -2169,10 +2702,23 @@ function MessageBubble({
   isCopied: boolean;
   onRetry?: () => void;
   onOpenProviderSettings?: () => void;
+  onDownloadPaper?: (paper: PaperItem) => void;
+  downloadingPaperId?: string | null;
 }) {
   const [expanded, setExpanded] = useState(false);
 
   if (msg.role === 'progress') {
+    // ── Paper search result: render formatted cards ──────────────
+    if (msg.toolName === 'paper_search' && msg.toolData) {
+      return (
+        <PaperSearchResult
+          data={msg.toolData as PaperSearchPayload}
+          onDownloadPaper={onDownloadPaper || (() => {})}
+          downloadingId={downloadingPaperId || null}
+        />
+      );
+    }
+
     const isCollapsed = msg.collapsed && !expanded;
     return (
       <div

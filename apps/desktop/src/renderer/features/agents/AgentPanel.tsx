@@ -9,7 +9,7 @@ export default function AgentPanel() {
     const load = async () => {
       try {
         const result = await window.miqi.agents.list();
-        setAgents(result.agents || []);
+        setAgents(result?.agents || []);
       } catch (e) {
         console.error('Failed to load agents:', e);
       } finally {

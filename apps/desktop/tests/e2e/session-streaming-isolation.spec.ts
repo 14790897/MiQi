@@ -12,6 +12,7 @@ import {
   LLM_TIMEOUT,
   waitForInputReady,
   createNewConversation,
+  approveLoop,
   launchElectronApp,
   closeElectronApp,
 } from './helpers/electron-setup';
@@ -26,20 +27,6 @@ async function sendWithoutWaiting(page: Page, text: string) {
   await inputX.type(text);
   await inputX.press('Enter');
   // DO NOT wait for response
-}
-
-async function approveLoop(page: Page, timeout = 180_000) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    const btn = page.getByRole('button', { name: '持久允许' }).or(page.getByRole('button', { name: '永久允许' }));
-    if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await btn.click();
-      console.log('[test] Auto-approved tool');
-    }
-    const thinking = await page.getByText('Thinking…').isVisible().catch(() => false);
-    if (!thinking) break;
-    await page.waitForTimeout(1000);
-  }
 }
 
 async function sendAndWait(page: Page, text: string, loopTimeout = 180_000) {
@@ -83,7 +70,7 @@ test.describe('Streaming Isolation E2E', () => {
       // Wait for the "Thinking…" indicator to confirm the stream has
       // actually started before switching sessions mid-stream. This is
       // deterministic regardless of CI speed (unlike a fixed timeout).
-      await expect(page.getByText('Thinking…')).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId('thinking-indicator')).toBeVisible({ timeout: 15_000 });
 
       // ── Session B: create and send ──
       await createNewConversation(page);

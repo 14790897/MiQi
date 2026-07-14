@@ -15,9 +15,12 @@ const { app, BrowserWindow, shell, Menu } = electron;
 let mainWindow: typeof BrowserWindow.prototype | null = null;
 let bridgeManager: BridgeManager | null = null;
 
-const userDataOverride = process.env['ELECTRON_USER_DATA_DIR']?.trim();
-if (userDataOverride) {
-  app.setPath('userData', userDataOverride);
+/** Resolve the app icon path for both dev (source) and packaged (resources) modes. */
+function getIconPath(): string {
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'icon.ico');
+  }
+  return join(__dirname, '../../src/renderer/assets/icon.ico');
 }
 
 function createWindow(): void {
@@ -27,6 +30,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 760,
     title: 'MiQi Desktop',
+    icon: getIconPath(),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

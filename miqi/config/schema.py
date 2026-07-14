@@ -438,8 +438,9 @@ class ExecToolConfig(Base):
 class PapersToolConfig(Base):
     """Paper research tools configuration."""
 
-    provider: str = "hybrid"  # hybrid | semantic_scholar | arxiv
+    provider: str = "hybrid"  # hybrid | semantic_scholar | arxiv | core
     semantic_scholar_api_key: str = ""
+    core_api_key: str = ""
     timeout_seconds: int = 20
     default_limit: int = 8
     max_limit: int = 20

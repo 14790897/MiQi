@@ -107,7 +107,7 @@ function FeishuSection({ config, onChange }: FeishuSectionProps) {
   ) => onChange({ ...config, [key]: val });
 
   return (
-    <div className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
+    <div className="settings-hover-card bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
       {/* Channel header */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)]">
         <div className="flex items-center gap-2">
@@ -282,7 +282,7 @@ export function ChannelsPage() {
         ) : (
           <>
             {/* Global switches */}
-            <div className="bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl px-5 divide-y divide-[var(--border-subtle)]">
+            <div className="settings-hover-card bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl px-5 divide-y divide-[var(--border-subtle)]">
               <div className="py-2 text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">
                 全局行为
               </div>

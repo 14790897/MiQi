@@ -41,6 +41,8 @@ import type {
   FilesWriteResult,
   FilesDiffResult,
   FilesRevertResult,
+  FilesOpenExternalResult,
+  FilesOpenContainingFolderResult,
   TrackedFileInfo,
   ChatProgress,
   ChatFinal,
@@ -60,6 +62,7 @@ import type {
   ThreadStartedEvent,
   TurnStartResult,
   TurnInterruptResult,
+  SandboxSetEnabledResult,
 } from '../shared/ipc';
 
 // ---------------------------------------------------------------------------
@@ -86,7 +89,12 @@ const api = {
       ipcRenderer.on(IPC_EVENTS.RUNTIME_LOG, handler);
       return () => ipcRenderer.removeListener(IPC_EVENTS.RUNTIME_LOG, handler);
     },
-    reportRendererLog: (entry: { level: string; message: string; source?: string; sessionKey?: string }) => {
+    reportRendererLog: (entry: {
+      level: string;
+      message: string;
+      source?: string;
+      sessionKey?: string;
+    }) => {
       ipcRenderer.send('runtime:renderer-log', entry);
     },
   },
@@ -315,8 +323,18 @@ const api = {
   files: {
     tree: (): Promise<FilesTreeResult> => ipcRenderer.invoke(IPC.FILES_TREE),
     read: (path: string): Promise<FilesReadResult> => ipcRenderer.invoke(IPC.FILES_READ, { path }),
-    write: (path: string, content: string, sessionKey?: string, dataBase64?: string): Promise<FilesWriteResult> =>
-      ipcRenderer.invoke(IPC.FILES_WRITE, { path, content, session_key: sessionKey, data_base64: dataBase64 }),
+    write: (
+      path: string,
+      content: string,
+      sessionKey?: string,
+      dataBase64?: string
+    ): Promise<FilesWriteResult> =>
+      ipcRenderer.invoke(IPC.FILES_WRITE, {
+        path,
+        content,
+        session_key: sessionKey,
+        data_base64: dataBase64,
+      }),
     delete: (path: string): Promise<{ deleted: boolean; path: string }> =>
       ipcRenderer.invoke(IPC.FILES_DELETE, { path }),
     diff: (path: string, sessionKey?: string): Promise<FilesDiffResult> =>
@@ -325,6 +343,10 @@ const api = {
       ipcRenderer.invoke(IPC.FILES_REVERT, { path, session_key: sessionKey }),
     accept: (path: string, sessionKey?: string): Promise<{ accepted: boolean; path: string }> =>
       ipcRenderer.invoke(IPC.FILES_ACCEPT, { path, session_key: sessionKey }),
+    openExternal: (path: string): Promise<FilesOpenExternalResult> =>
+      ipcRenderer.invoke(IPC.FILES_OPEN_EXTERNAL, { path }),
+    openContainingFolder: (path: string): Promise<FilesOpenContainingFolderResult> =>
+      ipcRenderer.invoke(IPC.FILES_OPEN_CONTAINING_FOLDER, { path }),
   },
 
   // -- Python check -----------------------------------------------------------
@@ -345,6 +367,12 @@ const api = {
     }): Promise<WslImportDistroResult> => ipcRenderer.invoke(IPC.WSL_IMPORT_DISTRO, options),
     getStats: (distroName?: string): Promise<WslStatsResult> =>
       ipcRenderer.invoke(IPC.WSL_GET_STATS, distroName ?? undefined),
+  },
+
+  // -- Sandbox runtime toggle -----------------------------------------------
+  sandbox: {
+    setEnabled: (enabled: boolean): Promise<SandboxSetEnabledResult> =>
+      ipcRenderer.invoke(IPC.SANDBOX_SET_ENABLED, enabled),
   },
 
   // -- Initial config write (no bridge needed) --------------------------------

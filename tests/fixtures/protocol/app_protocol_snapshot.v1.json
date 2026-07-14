@@ -141,21 +141,6 @@
         "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
         "emits": [],
         "eventSchemas": {},
-        "method": "builtin_model.unlock",
-        "paramsSchema": {
-          "type": "object"
-        },
-        "resultSchema": {
-          "type": "object"
-        },
-        "scope": "session",
-        "stability": "legacy"
-      },
-      {
-        "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
-        "emits": [],
-        "eventSchemas": {},
         "method": "channels.list",
         "paramsSchema": {
           "type": "object"
@@ -3368,6 +3353,21 @@
         },
         "scope": "debug",
         "stability": "stable"
+      },
+      {
+        "deprecatedBy": null,
+        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "emits": [],
+        "eventSchemas": {},
+        "method": "sandbox.setEnabled",
+        "paramsSchema": {
+          "type": "object"
+        },
+        "resultSchema": {
+          "type": "object"
+        },
+        "scope": "session",
+        "stability": "legacy"
       },
       {
         "deprecatedBy": null,

@@ -426,3 +426,96 @@ async def test_phase41_turn_handlers_registered_on_bridge_app_server():
 
     await loop._shutdown()
 
+
+# ── Concurrent dispatch (regression test) ───────────────────────────────
+# Issue: when chat.send took long during first-time sandbox install
+# (~minutes), _drain_loop used to block every subsequent stdin request
+# on the same serial await.  The user's first thread/start (and any other
+# IPC call) would time out at 30s in the Electron layer even though the
+# bridge handler itself was fast.  _drain_loop now dispatches each line
+# as an independent task.  See _dispatch_one_line in miqi/bridge/loop.py.
+
+
+async def test_drain_loop_dispatches_concurrently() -> None:
+    """A slow chat.send must not block a fast thread/start on the same
+    stdin queue.  Regression test for the 30s timeouts seen on the
+    user's first conversation message."""
+    import json as _json
+
+    from miqi.bridge.loop import BridgeRuntimeLoop
+    from miqi.runtime.initialize_protocol import ConnectionState
+
+    capturer = _CaptureSend()
+    loop = BridgeRuntimeLoop(send_func=capturer.send, dispatch_legacy_func=None)
+    await loop._init_app_server()
+
+    # Configure the connection as already initialized (skip the handshake)
+    cs = ConnectionState()
+    cs.client_id = "miqi-desktop"
+    cs.initialized = True
+    loop._connection_state = cs
+    loop._stdin_queue = asyncio.Queue()
+
+    # Replace chat.send with a slow handler (25s) and thread/start with a
+    # fast one.  We need an actual registered slot for chat.send so the
+    # dispatch path matches production — but since we want full control
+    # we just register a test method alongside.
+    async def slow_handler(request_id, params, client_id, session_id, registry):
+        await asyncio.sleep(25)
+        return {"result": {"slow": True}}
+
+    async def fast_handler(request_id, params, client_id, session_id, registry):
+        return {"result": {"fast": True}}
+
+    loop.app_server._methods["test.slow"] = slow_handler
+    loop.app_server._methods["test.fast"] = fast_handler
+
+    # Push slow first
+    t0 = asyncio.get_event_loop().time()
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-slow", "method": "test.slow", "params": {},
+    }))
+    # Push fast 0.5s later
+    await asyncio.sleep(0.5)
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-fast", "method": "test.fast", "params": {},
+    }))
+
+    # Start _drain_loop as a background task (do NOT await it — that
+    # would re-introduce the bug we are fixing because the gather on EOF
+    # would wait for the slow handler).
+    drain_task = asyncio.create_task(loop._drain_loop())
+
+    # Give the fast handler a moment to complete while the slow one
+    # is still sleeping.
+    deadline = t0 + 2.0
+    while asyncio.get_event_loop().time() < deadline:
+        by_id = {m.get("id") or m.get("request_id"): m for m in capturer.messages}
+        if "req-fast" in by_id:
+            break
+        await asyncio.sleep(0.05)
+
+    elapsed = asyncio.get_event_loop().time() - t0
+    by_id = {m.get("id") or m.get("request_id"): m for m in capturer.messages}
+    assert "req-fast" in by_id, (
+        f"fast request must complete while slow is still in flight "
+        f"(after {elapsed:.2f}s). Captured: {capturer.messages}"
+    )
+    assert "req-slow" not in by_id, (
+        f"slow request should still be in flight after {elapsed:.2f}s. "
+        f"Captured: {capturer.messages}"
+    )
+    assert elapsed < 2.0, (
+        f"fast request took {elapsed:.2f}s — slow handler blocked the loop. "
+        f"Captured: {capturer.messages}"
+    )
+
+    # Cleanup: cancel the drain task and the still-sleeping slow handler.
+    drain_task.cancel()
+    try:
+        await drain_task
+    except asyncio.CancelledError:
+        pass
+    if loop._shutdown_event is not None:
+        loop._shutdown_event.set()
+
