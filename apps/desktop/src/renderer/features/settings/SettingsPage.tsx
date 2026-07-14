@@ -17,6 +17,9 @@ import {
   Copy,
   Shield,
   ShieldOff,
+  Sun,
+  Moon,
+  Monitor,
 } from 'lucide-react';
 import { useRuntime } from '../../contexts/RuntimeContext';
 import * as Tabs from '@radix-ui/react-tabs';
@@ -537,48 +540,53 @@ function AppearanceTab() {
     return (localStorage.getItem('miqi-theme') as ThemeMode) ?? 'system';
   });
 
-  const applyTheme = (mode: ThemeMode) => {
-    setTheme(mode);
-    localStorage.setItem('miqi-theme', mode);
-    const root = document.documentElement;
-    if (mode === 'dark') {
-      root.classList.add('dark');
-    } else if (mode === 'light') {
-      root.classList.remove('dark');
-    } else {
-      // system
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      root.classList.toggle('dark', prefersDark);
-    }
-  };
+    const applyTheme = (mode: ThemeMode) => {
+      setTheme(mode);
+      localStorage.setItem('miqi-theme', mode);
+      const root = document.documentElement;
+      if (mode === 'dark') {
+        root.classList.add('dark');
+      } else if (mode === 'light') {
+        root.classList.remove('dark');
+      } else {
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        root.classList.toggle('dark', prefersDark);
+      }
+    };
 
-  return (
-    <div className="p-6 max-w-lg flex flex-col gap-4">
-      <h3 className="text-sm font-semibold text-[var(--text)]">外观</h3>
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">主题</label>
-        <div className="inline-flex w-fit items-center gap-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-muted)] p-1">
-          {(['light', 'dark', 'system'] as ThemeMode[]).map((m) => (
-            <button
-              key={m}
-              onClick={() => applyTheme(m)}
-              aria-pressed={theme === m}
-              className={cn(
-                'settings-hover-tab rounded-md px-3.5 py-1.5 text-xs font-medium',
-                'focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30',
-                theme === m
-                  ? 'bg-[var(--accent)] text-[var(--accent-text)] shadow-sm'
-                  : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'
-              )}
-            >
-              {m === 'light' ? '浅色' : m === 'dark' ? '深色' : '跟随系统'}
-            </button>
-          ))}
+    const modes: Array<{ value: ThemeMode; label: string; icon: ReactNode }> = [
+      { value: 'light', label: '浅色', icon: <Sun size={16} /> },
+      { value: 'dark', label: '深色', icon: <Moon size={16} /> },
+      { value: 'system', label: '跟随系统', icon: <Monitor size={16} /> },
+    ];
+
+    return (
+      <div className="p-6 max-w-lg flex flex-col gap-4">
+        <h3 className="text-sm font-semibold text-[var(--text)]">外观</h3>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-[var(--text-muted)]">主题</label>
+          <div className="flex items-stretch gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
+            {modes.map(({ value, label, icon }) => (
+              <button
+                key={value}
+                onClick={() => applyTheme(value)}
+                aria-pressed={theme === value}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition-all duration-200',
+                  theme === value
+                    ? 'bg-[var(--surface)] text-[var(--text)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]/50',
+                )}
+              >
+                {icon}
+                <span className="hidden sm:inline">{label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
 // ---- Logs Tab (existing) ----
 function LogsTab() {
