@@ -184,7 +184,7 @@ test.describe('Task Assets Panel E2E', () => {
       });
 
       // Ensure panel is open
-      const toggleBtn = page.locator('button[title="Toggle assets panel"]');
+      const toggleBtn = page.locator('button[title="Toggle assets panel"], button[title="显示或隐藏文件面板"]');
       const panelVisible = await page.getByTestId('task-assets-panel').isVisible().catch(() => false);
       if (!panelVisible) {
         await toggleBtn.click();
