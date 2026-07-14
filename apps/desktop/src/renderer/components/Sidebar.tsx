@@ -155,13 +155,14 @@ export function Sidebar({
       {/* Header: glitch M logo + Tasks title */}
       <div className="flex items-center gap-2.5 px-4 py-3 shrink-0">
         <MiQiLogo size={28} />
-        <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
+        <span className="text-sm font-semibold" style={{ color: 'var(--text)' }} data-testid="nav-tasks-title">
           任务
         </span>
         <button
           onClick={onNewSession}
           className="ml-auto w-6 h-6 rounded flex items-center justify-center transition-colors hover:bg-[var(--surface-muted)]"
           title="新建会话"
+          data-testid="nav-new-session"
         >
           <Plus size={14} style={{ color: 'var(--text-faint)' }} />
         </button>
