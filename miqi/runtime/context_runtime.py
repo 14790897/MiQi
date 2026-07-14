@@ -126,7 +126,7 @@ class ContextRuntime:
     # ── Phase 19: context compaction ────────────────────────────────────
 
     def estimate_tokens(self, messages: list[dict[str, Any]]) -> int:
-        """Estimate token count from messages (chars / 4 heuristic).
+        """Estimate token count from messages (chars / 2.5 heuristic).
 
         Counts content and tool_calls for each message.
         Returns at least 1.
@@ -136,7 +136,7 @@ class ContextRuntime:
             chars += len(str(message.get("content") or ""))
             if message.get("tool_calls"):
                 chars += len(str(message["tool_calls"]))
-        return max(1, chars // 4)
+        return max(1, int(chars / 2.5))
 
     async def compress_messages(
         self,
@@ -256,3 +256,116 @@ class ContextRuntime:
     ) -> bool:
         """Return True when estimated tokens exceed the configured limit."""
         return self.estimate_tokens(messages) >= token_limit
+
+    # ── Phase 56: pre-send context guard ───────────────────────────────
+
+    # Per-model maximum input tokens. Conservative defaults for models that
+    # don't explicitly advertise their limit. When the model isn't listed,
+    # we fall back to 128K — safe for most modern models.
+    _MODEL_MAX_INPUT_TOKENS: dict[str, int] = {
+        "gpt-4o": 128_000,
+        "gpt-4o-mini": 128_000,
+        "gpt-4-turbo": 128_000,
+        "gpt-4": 8_192,
+        "gpt-3.5-turbo": 16_385,
+        "o1": 200_000,
+        "o1-mini": 128_000,
+        "o3": 200_000,
+        "o3-mini": 200_000,
+        "o4-mini": 200_000,
+        "claude-3.5-sonnet": 200_000,
+        "claude-3.5-haiku": 200_000,
+        "claude-3-opus": 200_000,
+        "claude-3-haiku": 200_000,
+        "claude-3-sonnet": 200_000,
+        "claude-opus-4": 200_000,
+        "claude-opus-4-5": 200_000,
+        "claude-sonnet-4": 200_000,
+        "claude-sonnet-4-5": 200_000,
+        "claude-haiku-4-5": 200_000,
+        "deepseek-chat": 128_000,
+        "deepseek-reasoner": 128_000,
+        "gemini-2.5-flash": 1_048_576,
+        "gemini-2.5-pro": 1_048_576,
+        "gemini-2.0-flash": 1_048_576,
+        "qwen-max": 131_072,
+        "qwen-plus": 131_072,
+        "qwen-turbo": 1_000_000,
+        "kimi-k2.5": 128_000,
+        "kimi-k2": 128_000,
+        "glm-4": 128_000,
+        "minimax-m1": 1_000_000,
+    }
+
+    # Fraction of model max to use as hard limit (80% leaves headroom for
+    # the response tokens, tool definitions, and estimation error).
+    _CONTEXT_SAFETY_FACTOR = 0.80
+
+    def trim_for_model(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+    ) -> list[dict[str, Any]]:
+        """Hard-trim messages to fit within the model's input token limit.
+
+        This is the LAST-RESORT safety net — it runs right before the
+        provider call and discards the oldest assistant+tool pairs until
+        the estimated token count is under 80% of the model's maximum.
+
+        Always keeps the system prompt (index 0 if role=='system') and at
+        least the last user message. Returns messages unchanged when they
+        already fit.
+        """
+        max_input = self._resolve_model_max_input(model)
+        hard_limit = int(max_input * self._CONTEXT_SAFETY_FACTOR)
+        est = self.estimate_tokens(messages)
+
+        if est <= hard_limit:
+            return messages
+
+        logger.warning(
+            "Pre-send guard: estimated {} tokens exceeds {} limit for {} "
+            "(model max={}); trimming oldest pairs",
+            est, hard_limit, model, max_input,
+        )
+
+        work = list(messages)
+        system_idx = 0 if work and work[0].get("role") == "system" else -1
+        head_protect = max(system_idx + 1, 0) + 1  # system prompt + 1 extra
+
+        while len(work) > head_protect + 1:
+            est = self.estimate_tokens(work)
+            if est <= hard_limit:
+                break
+
+            # Find the oldest cuttable message pair: assistant [+ tool(s)]
+            cut_start = None
+            for i in range(head_protect, len(work) - 1):
+                role = work[i].get("role")
+                if role in ("assistant", "tool"):
+                    cut_start = i
+                    break
+            if cut_start is None:
+                break
+
+            # Collect a single message to drop
+            removed = work.pop(cut_start)
+
+        est_after = self.estimate_tokens(work)
+        logger.info(
+            "Pre-send guard: messages {} -> {} (est tokens {} -> {})",
+            len(messages), len(work), est, est_after,
+        )
+        return work
+
+    def _resolve_model_max_input(self, model: str) -> int:
+        """Return the maximum input tokens for a model name.
+
+        Matches by substring against the known model table, falling back
+        to 128K for models not in the table.
+        """
+        model_lower = model.lower()
+        for key, limit in self._MODEL_MAX_INPUT_TOKENS.items():
+            if key in model_lower:
+                return limit
+        return 128_000

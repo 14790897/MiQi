@@ -80,6 +80,9 @@ class _FakeContextRuntime:
     ) -> list[dict[str, Any]]:
         return [*messages, {"role": "assistant", "content": content}]
 
+    def trim_for_model(self, messages, model):
+        return messages
+
 
 class _FakeToolRuntime:
     async def execute_many(self, turn: Any, tool_calls: list[Any]) -> list[Any]:
