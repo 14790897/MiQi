@@ -11,7 +11,7 @@ Constants tuned to match Hermes defaults:
   _MIN_SUMMARY_TOKENS   = 2000
   _SUMMARY_RATIO        = 0.20  (keep 20% of context as tail)
   _SUMMARY_TOKENS_CEILING = 12_000
-  _CHARS_PER_TOKEN      = 4
+  _CHARS_PER_TOKEN      = 2.5
   _CONTENT_MAX          = 6000  (truncate individual messages before summarising)
   _CONTENT_HEAD         = 4000
   _CONTENT_TAIL         = 1500
@@ -33,7 +33,7 @@ from miqi.agent.context_engine import ContextEngine
 _MIN_SUMMARY_TOKENS = 2000
 _SUMMARY_RATIO = 0.20
 _SUMMARY_TOKENS_CEILING = 12_000
-_CHARS_PER_TOKEN = 4
+_CHARS_PER_TOKEN = 2.5
 _CONTENT_MAX = 6_000
 _CONTENT_HEAD = 4_000
 _CONTENT_TAIL = 1_500
@@ -193,11 +193,11 @@ class ContextCompressor(ContextEngine):
         # Total budget for "tail" (recent messages we keep verbatim)
         # _SUMMARY_RATIO of (context_limit_chars / _CHARS_PER_TOKEN) — or use message count heuristic
         if self.context_limit_chars > 0:
-            total_tokens = self.context_limit_chars // _CHARS_PER_TOKEN
+            total_tokens = int(self.context_limit_chars / _CHARS_PER_TOKEN)
         else:
             # estimate from current message count
             total_chars = sum(self._msg_chars(m) for m in non_system)
-            total_tokens = total_chars // _CHARS_PER_TOKEN
+            total_tokens = int(total_chars / _CHARS_PER_TOKEN)
 
         tail_token_budget = min(
             int(total_tokens * _SUMMARY_RATIO),
@@ -252,7 +252,7 @@ class ContextCompressor(ContextEngine):
         for i in range(len(result) - 1, -1, -1):
             msg = result[i]
             chars = self._msg_chars(msg)
-            tokens_so_far += chars // _CHARS_PER_TOKEN
+            tokens_so_far += int(chars / _CHARS_PER_TOKEN)
 
             if tokens_so_far > token_budget and msg.get("role") == "tool":
                 result[i] = {
@@ -281,7 +281,7 @@ class ContextCompressor(ContextEngine):
         # Walk from the end, accumulate until budget exceeded
         split = len(messages)  # default: all goes to tail (nothing to middle)
         for i in range(len(messages) - 1, -1, -1):
-            msg_tokens = self._msg_chars(messages[i]) // _CHARS_PER_TOKEN
+            msg_tokens = int(self._msg_chars(messages[i]) / _CHARS_PER_TOKEN)
             if tokens + msg_tokens > soft_ceiling and split < len(messages):
                 break
             tokens += msg_tokens
