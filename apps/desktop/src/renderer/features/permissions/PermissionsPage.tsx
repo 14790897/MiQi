@@ -124,7 +124,7 @@ export function PermissionsPage() {
                 <option value="write">写入</option>
                 <option value="none">禁止</option>
               </select>
-              <label className="flex items-center gap-1.5 text-[11px] cursor-pointer" style={{ color: 'var(--text-muted)' }}>
+              <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: 'var(--text-muted)' }}>
                 <input
                   type="checkbox"
                   checked={rule.recursive}
@@ -141,7 +141,7 @@ export function PermissionsPage() {
         </div>
         <button
           onClick={addRule}
-          className="flex items-center gap-1 text-[11px] font-medium transition-colors hover:opacity-80"
+          className="flex items-center gap-1 text-xs font-medium transition-colors hover:opacity-80"
           style={{ color: 'var(--accent)' }}
         >
           <Plus size={12} /> 添加规则

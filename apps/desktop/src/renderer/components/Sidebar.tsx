@@ -310,7 +310,7 @@ export function Sidebar({
                       </div>
                       {/* Title — large bold, one line */}
                       <p
-                        className="text-[13px] font-bold truncate mb-1"
+                        className="text-sm font-bold truncate mb-1"
                         style={{ color: 'var(--text)' }}
                         title={displayName}
                       >
@@ -318,7 +318,7 @@ export function Sidebar({
                       </p>
                       {/* Description — small gray, multi-line */}
                       <p
-                        className="text-[11px] leading-relaxed"
+                        className="text-xs leading-relaxed"
                         style={{ color: 'var(--text-muted)' }}
                       >
                         {s.message_count != null
@@ -340,7 +340,7 @@ export function Sidebar({
         style={{ borderColor: 'var(--sidebar-border)' }}
       >
         <button
-          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition duration-150 hover:scale-110 origin-left"
+          className="flex items-center gap-1.5 text-xs cursor-pointer transition duration-150 hover:scale-110 origin-left"
           style={{ color: 'var(--text-faint)' }}
           onClick={() => onNavChange?.('settings')}
           onMouseEnter={(e) => (e.currentTarget.style.color = '#404040')}
