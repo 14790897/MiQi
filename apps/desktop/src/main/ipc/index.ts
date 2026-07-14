@@ -253,6 +253,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         content: input.content,
         session_key: input.session_key ?? 'desktop:default',
         thread_id: (input as any).thread_id ?? undefined,
+        mode: (input as any).mode ?? 'edit',
       },
       (type: string, data: unknown) => {
         if (type === 'progress') {
@@ -1490,6 +1491,7 @@ for m in ("pydantic", "httpx", "loguru"):
         title: input.title,
         sessionKey: input.session_key,
         threadId: input.thread_id,
+        mode: (input as any).mode ?? 'edit',
       },
       (type: string, data: unknown) => {
         if (type === 'thread/started') {

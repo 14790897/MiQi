@@ -481,12 +481,12 @@ class TestThreadRecord:
             title="Test Thread",
             workspace="/tmp/ws",
             model="deepseek-chat",
-            mode=ThreadMode.agent,
+            mode=ThreadMode.edit,
             status=ThreadStatus.idle,
             createdAt="2026-01-01T00:00:00Z",
             updatedAt="2026-01-01T00:00:00Z",
         )
-        assert th.mode == ThreadMode.agent
+        assert th.mode == ThreadMode.edit
         assert th.status == ThreadStatus.idle
         assert th.approvalPolicy == ApprovalPolicy.auto
         assert th.sandboxMode == SandboxMode.workspace_write
@@ -500,7 +500,7 @@ class TestThreadRecord:
             title="My Thread",
             workspace="/tmp/ws",
             model="deepseek-chat",
-            mode=ThreadMode.agent,
+            mode=ThreadMode.edit,
             status=ThreadStatus.idle,
             createdAt="2026-01-01T00:00:00Z",
             updatedAt="2026-01-01T00:00:00Z",
@@ -516,7 +516,7 @@ class TestThreadRecord:
             title="Goal Thread",
             workspace="/tmp/ws",
             model="deepseek-chat",
-            mode=ThreadMode.agent,
+            mode=ThreadMode.edit,
             status=ThreadStatus.idle,
             createdAt="2026-01-01T00:00:00Z",
             updatedAt="2026-01-01T00:00:00Z",
@@ -640,6 +640,16 @@ class TestStartTurnRequest:
         assert parsed.mode == ThreadMode.plan
         assert parsed.attachmentIds == ["att1"]
 
+    def test_mode_edit(self) -> None:
+        req = StartTurnRequest(
+            prompt="fix the bug",
+            mode=ThreadMode.edit,
+        )
+        raw = req.model_dump_json()
+        parsed = StartTurnRequest.model_validate_json(raw)
+        assert parsed.mode == ThreadMode.edit
+        assert parsed.model_dump()["mode"] == "edit"
+
     def test_mode_ask(self) -> None:
         req = StartTurnRequest(
             prompt="analyze e2e report",
@@ -719,7 +729,7 @@ class TestCompactResponse:
 class TestCreateThreadRequest:
     def test_minimal(self) -> None:
         req = CreateThreadRequest(workspace="/tmp/ws", model="deepseek-chat")
-        assert req.mode == ThreadMode.agent
+        assert req.mode == ThreadMode.edit
 
     def test_round_trip(self) -> None:
         req = CreateThreadRequest(
@@ -860,6 +870,23 @@ class TestModelCapabilityMetadata:
         raw = cap.model_dump_json()
         parsed = ModelCapabilityMetadata.model_validate_json(raw)
         assert parsed.maxInputTokens == 96000
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ThreadMode enum tests
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestThreadModeEnum:
+    def test_enum_values(self) -> None:
+        assert ThreadMode.edit == "edit"
+        assert ThreadMode.plan == "plan"
+        assert ThreadMode.ask == "ask"
+        assert set(ThreadMode.__members__.keys()) == {"edit", "plan", "ask"}
+
+    def test_default_create_thread_is_edit(self) -> None:
+        req = CreateThreadRequest(workspace="/tmp", model="test-model")
+        assert req.mode == ThreadMode.edit
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

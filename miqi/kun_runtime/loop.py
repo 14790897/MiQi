@@ -196,12 +196,29 @@ class AgentLoop:
             return "aborted"
         await self._record_pipeline(thread_id, turn_id, "input_compressed", {"historyItems": len(history)})
 
-        # Build model request
+        # Build model request with mode-specific system prompt
+        _MODE_SYSTEM_PROMPTS = {
+            "edit": "You are Kun, a careful and helpful AI assistant. Diagnose issues and make changes directly.",
+            "plan": (
+                "You are Kun, a careful and helpful AI assistant in PLAN mode. "
+                "Before making any changes, analyze the user's request and present "
+                "a structured plan (file changes + steps). Wait for user confirmation "
+                "before executing any write/exec actions."
+            ),
+            "ask": (
+                "You are Kun, a careful and helpful AI assistant in READ-ONLY mode. "
+                "You may read files, search code, and analyze — but you MUST NOT "
+                "request any tool that writes files, executes commands, or has side effects. "
+                "Answer questions thoroughly using only read/search/fetch tools."
+            ),
+        }
+        system_prompt = _MODE_SYSTEM_PROMPTS.get(thread_mode, _MODE_SYSTEM_PROMPTS["edit"])
+
         request = ModelRequest(
             thread_id=thread_id,
             turn_id=turn_id,
             model=model,
-            system_prompt="You are Kun, a careful and helpful AI assistant.",
+            system_prompt=system_prompt,
             history=history,
             tools=tool_specs,
             temperature=0.1,

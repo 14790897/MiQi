@@ -47,6 +47,7 @@ import PaperSearchResult, {
   type PaperSearchPayload,
   type PaperItem,
 } from './PaperSearchResult';
+import { ModeSelector, type ThreadMode } from './ModeSelector';
 
 interface Attachment {
   name: string;
@@ -115,126 +116,6 @@ interface TrackedFile {
 }
 
 const OFFICE_FILE_RE = /\.(docx|xlsx|pptx)$/i;
-
-function relativeTimeLabel(timestamp?: number | string | null, now = Date.now()): string {
-  if (timestamp === undefined || timestamp === null) return '尚未更新';
-  const value = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp);
-  if (!Number.isFinite(value)) return '尚未更新';
-
-  const diff = now - value;
-  if (diff < 60_000) return '刚刚更新';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前更新`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前更新`;
-  return `${Math.floor(diff / 86_400_000)} 天前更新`;
-}
-
-export function buildTaskHeaderMeta(
-  updatedAt: number | string | null | undefined,
-  fileCount: number,
-  activePluginCount: number,
-  now = Date.now()
-): string {
-  const fileLabel = `${fileCount} 个文件`;
-  const pluginLabel = `${activePluginCount} 个启用插件`;
-  return `${relativeTimeLabel(updatedAt, now)} · ${fileLabel} · ${pluginLabel}`;
-}
-
-export function buildTaskShareText({
-  title,
-  meta,
-  messages,
-  files,
-}: {
-  title: string;
-  meta: string;
-  messages: Message[];
-  files: TrackedFile[];
-}): string {
-  const visibleMessages = messages
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .slice(-8);
-  const messageLines =
-    visibleMessages.length > 0
-      ? visibleMessages.map((message) => {
-          const role = message.role === 'user' ? '用户' : 'MiQi';
-          const content = message.content.trim().replace(/\s+/g, ' ');
-          return `- ${role}: ${content || '(空消息)'}`;
-        })
-      : ['- 暂无对话内容'];
-  const fileLines =
-    files.length > 0
-      ? files.map((file) => `- ${file.name} (${file.op})`)
-      : ['- 暂无文件'];
-
-  return [
-    `# ${title}`,
-    '',
-    meta,
-    '',
-    '## 最近对话',
-    ...messageLines,
-    '',
-    '## 相关文件',
-    ...fileLines,
-  ].join('\n');
-}
-
-export function buildTaskReproContext({
-  sessionKey,
-  title,
-  meta,
-  messages,
-  files,
-}: {
-  sessionKey: string;
-  title: string;
-  meta: string;
-  messages: Message[];
-  files: TrackedFile[];
-}): string {
-  const visibleMessages = messages
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .slice(-12);
-  const messageLines =
-    visibleMessages.length > 0
-      ? visibleMessages.map((message) => {
-          const role = message.role === 'user' ? '用户' : 'MiQi';
-          const content = message.content.trim().replace(/\s+/g, ' ');
-          return `- ${role}: ${content || '(空消息)'}`;
-        })
-      : ['- 暂无对话内容'];
-  const fileLines =
-    files.length > 0
-      ? files.map((file) => `- [${file.op}] ${file.path || file.name}`)
-      : ['- 暂无文件'];
-
-  return [
-    '# MiQi 任务复现上下文',
-    '',
-    `- 会话: ${sessionKey}`,
-    `- 标题: ${title}`,
-    `- 状态: ${meta}`,
-    '',
-    '## 最近对话',
-    ...messageLines,
-    '',
-    '## 相关文件',
-    ...fileLines,
-  ].join('\n');
-}
-
-export function getTaskShareDownloadName(title: string, timestamp = Date.now()): string {
-  const safeTitle =
-    title
-      .trim()
-      .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 48) || 'miqi-task';
-  const stamp = new Date(timestamp).toISOString().replace(/[:.]/g, '-');
-  return `${safeTitle}-${stamp}.md`;
-}
 
 /** Extract file path + operation from a tool-hint progress text.
  *  Nanobot tool hints look like:
@@ -508,97 +389,28 @@ function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[
   }, [] as Message[]);
 }
 
-/** File-operation tool names shared between progress-hint parsing and
- *  onFinal tool_call tracking. Keep in sync with the backends that
- *  produce file paths. */
-const _FILE_WRITE_TOOLS = [
-  'write_file',
-  'edit_file',
-  'delete_file',
-  'apply_patch',
-  'create_docx',
-  'create_xlsx',
-  'create_pptx',
-  'docx_write',
-  'xlsx_write',
-  'pptx_write',
-  'edit_docx',
-  'append_xlsx',
-];
-const _FILE_READ_TOOLS = ['read_file'];
-
-/** Extract a file path from a JSON-stringified tool args object.
- *  Checks common keys: path, file_path, filename. */
-function _extractPathFromArgs(argsStr: string): string | null {
-  try {
-    const args = JSON.parse(argsStr);
-    return (args.path as string) || (args.file_path as string) || (args.filename as string) || null;
-  } catch {
-    return null;
-  }
-}
-
-/** Parse tracked files from raw session messages.
- *  Handles three formats:
- *  1. _tool_hint metadata (from progress events, persisted by some backends)
- *  2. tool_calls array on assistant messages (raw provider format)
- *  3. name field on tool result messages (raw provider format)
- */
+/** Parse tracked files from raw session messages (includes progress entries with _tool_hint). */
 function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
   const fileMap = new Map<string, TrackedFile>();
   const rank: Record<TrackedFile['op'], number> = { read: 0, edit: 1, write: 2, delete: 3 };
 
-  const upsert = (path: string, op: TrackedFile['op'], timestamp?: string) => {
-    const key = path.replace(/\\/g, '/');
-    const existing = fileMap.get(key);
-    if (!existing || rank[op] > rank[existing.op]) {
-      fileMap.set(key, {
-        path: key,
-        name: basename(key),
-        op,
-        lastSeen: timestamp ? new Date(timestamp).getTime() : Date.now(),
-        truncated: false,
-      });
-    }
-  };
-
   for (const msg of rawMsgs) {
-    // Format 1: _tool_hint metadata (persisted progress events)
+    // Prefer _tool_hint_text (full path, from persisted session) over content (may be truncated)
     const hintText = msg._tool_hint_text || msg.content;
     if (msg._tool_hint && hintText) {
       const parsed = parseToolHint(hintText);
       if (parsed) {
-        upsert(parsed.path, parsed.op, msg.timestamp);
-      }
-    }
-
-    // Format 2: assistant messages with tool_calls array
-    if (Array.isArray(msg.tool_calls)) {
-      for (const tc of msg.tool_calls) {
-        const fn = tc?.function || tc?.tool?.function || {};
-        const toolName: string = fn?.name || '';
-        if (!toolName) continue;
-        const argsStr: string = fn?.arguments || '{}';
-        const filePath = _extractPathFromArgs(argsStr);
-        if (!filePath) continue;
-        if (_FILE_WRITE_TOOLS.includes(toolName)) {
-          upsert(filePath, toolName === 'delete_file' ? 'delete' : 'write', msg.timestamp);
-        } else if (_FILE_READ_TOOLS.includes(toolName)) {
-          upsert(filePath, 'read', msg.timestamp);
+        const key = parsed.path;
+        const existing = fileMap.get(key);
+        if (!existing || rank[parsed.op] > rank[existing.op]) {
+          fileMap.set(key, {
+            path: key,
+            name: basename(key),
+            op: parsed.op,
+            lastSeen: msg.timestamp ? new Date(msg.timestamp).getTime() : Date.now(),
+            truncated: parsed.truncated,
+          });
         }
-      }
-    }
-
-    // Format 3: tool result messages with name field
-    if (msg.role === 'tool' && msg.name) {
-      const toolName: string = msg.name;
-      // Try to extract path from content (often contains the file path)
-      const contentPath = parseToolHint(String(msg.content || ''));
-      if (contentPath) {
-        upsert(contentPath.path, contentPath.op, msg.timestamp);
-      } else if (_FILE_WRITE_TOOLS.includes(toolName)) {
-        // Tool result without parsable content — try to infer from tool name
-        // (best-effort; actual path is in the paired assistant tool_calls message)
       }
     }
   }
@@ -621,8 +433,6 @@ export function ChatConsole({
   onOpenProviderSettings?: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [sessionUpdatedAt, setSessionUpdatedAt] = useState<string | null>(null);
-  const [clockTick, setClockTick] = useState(() => Date.now());
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
@@ -632,33 +442,6 @@ export function ChatConsole({
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(280);
   const panelResizing = useRef(false);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setClockTick(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadActivePlugins = async () => {
-      try {
-        const result = await window.miqi.plugins.list();
-        const plugins = (result as unknown as { plugins?: Array<{ status?: string }> })?.plugins;
-        if (!cancelled) {
-          setActivePluginCount((plugins ?? []).filter((plugin) => plugin.status === 'active').length);
-        }
-      } catch {
-        if (!cancelled) setActivePluginCount(0);
-      }
-    };
-
-    loadActivePlugins();
-    const timer = window.setInterval(loadActivePlugins, 60_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, []);
 
   // Task Assets panel resize
   const handlePanelResizeStart = useCallback((e: React.MouseEvent) => {
@@ -715,10 +498,6 @@ export function ChatConsole({
     Record<string, { stdout: string; stderr: string; running: boolean }>
   >({});
   const [merging, setMerging] = useState(false);
-  const [activePluginCount, setActivePluginCount] = useState(0);
-  const [shareStatus, setShareStatus] = useState<'idle' | 'copied' | 'exported' | 'context'>(
-    'idle'
-  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
   const justOpened = useRef(false);
@@ -726,7 +505,6 @@ export function ChatConsole({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const unsubsRef = useRef<Array<() => void>>([]);
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const shareFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef(sessionKey);
   // Track the active thread ID for new-protocol thread-aware conversations
   const currentThreadIdRef = useRef<string | null>(null);
@@ -741,6 +519,62 @@ export function ChatConsole({
     { threadId: 'main', agentType: 'main', label: 'Main' },
   ]);
   const [activeThreadId, setActiveThreadId] = useState('main');
+
+  // ── Agent working mode (Edit / Plan / Ask) ──
+  const [threadMode, setThreadMode] = useState<ThreadMode>(() => {
+    try {
+      const saved = localStorage.getItem(`miqi:mode:${sessionKey}`);
+      if (saved === 'edit' || saved === 'plan' || saved === 'ask') return saved;
+    } catch {
+      /* localStorage unavailable */
+    }
+    return 'edit';
+  });
+
+  // Persist mode to localStorage on change
+  useEffect(() => {
+    try {
+      localStorage.setItem(`miqi:mode:${sessionKey}`, threadMode);
+    } catch {
+      /* localStorage unavailable */
+    }
+  }, [threadMode, sessionKey]);
+
+  // Restore mode when session changes
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`miqi:mode:${sessionKey}`);
+      if (saved === 'edit' || saved === 'plan' || saved === 'ask') {
+        setThreadMode(saved);
+      } else {
+        setThreadMode('edit');
+      }
+    } catch {
+      setThreadMode('edit');
+    }
+  }, [sessionKey]);
+
+  // Keyboard shortcuts for mode switching
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && !e.shiftKey && !e.metaKey) {
+        if (e.key === 'e') {
+          e.preventDefault();
+          setThreadMode('edit');
+        }
+        if (e.key === 'p') {
+          e.preventDefault();
+          setThreadMode('plan');
+        }
+        if (e.key === 'a' && document.activeElement?.tagName !== 'TEXTAREA') {
+          e.preventDefault();
+          setThreadMode('ask');
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   useEffect(() => {
     const unsub = window.miqi.agents?.onSpawned((data) => {
@@ -823,7 +657,6 @@ export function ChatConsole({
     currentThreadIdRef.current = null; // Reset on session change
     setHistoryLoaded(false);
     setMessages([]);
-    setSessionUpdatedAt(null);
     setTrackedFiles([]);
     justOpened.current = true;
     userScrolledUp.current = false; // reset for new session
@@ -834,34 +667,20 @@ export function ChatConsole({
         const rawMsgs: any[] = (detail as any)?.messages ?? [];
         const uiMsgs = sessionMsgsToUi(rawMsgs);
         setMessages(uiMsgs);
-        setSessionUpdatedAt((detail as any)?.updated_at ?? null);
         // Restore tracked files from dedicated tracked_files.json
-        let tfList: any[] = [];
-        try {
-          const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
-          if (currentSessionRef.current !== sessionKey) return;
-          tfList = (tfResult as any)?.tracked_files ?? [];
-        } catch {
-          // backend failure is non-fatal — fall through to message extraction
-        }
-        // Also extract tracked files from session messages (fallback when
-        // tracked_files.json is empty — agent tools don't persist there).
-        const fromMessages = extractTrackedFilesFromMessages(rawMsgs);
-        // Merge: backend data takes priority, messages fill gaps
-        const mergedMap = new Map<string, TrackedFile>();
-        for (const f of fromMessages) mergedMap.set(f.path, f);
-        for (const f of tfList as any[]) {
-          const normPath = (f.path as string).replace(/\\/g, '/');
-          mergedMap.set(normPath, {
-            path: normPath,
+        const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
+        if (currentSessionRef.current !== sessionKey) return;
+        const tfList = (tfResult as any)?.tracked_files ?? [];
+        setTrackedFiles(
+          tfList.map((f: any) => ({
+            path: f.path,
             name: f.name,
             op: f.op,
             lastSeen: f.lastSeen,
-          });
-        }
-        setTrackedFiles(Array.from(mergedMap.values()));
-      } catch (err) {
-        console.warn('[ChatConsole] Failed to load session data:', err);
+          }))
+        );
+      } catch {
+        /* session doesn't exist yet */
       }
       setHistoryLoaded(true);
     };
@@ -923,23 +742,8 @@ export function ChatConsole({
     }
   }, []);
 
-  const showShareFeedback = useCallback((status: 'copied' | 'exported' | 'context') => {
-    if (shareFeedbackTimerRef.current) {
-      clearTimeout(shareFeedbackTimerRef.current);
-    }
-    setShareStatus(status);
-    shareFeedbackTimerRef.current = setTimeout(() => {
-      setShareStatus('idle');
-      shareFeedbackTimerRef.current = null;
-    }, 2000);
-  }, []);
-
   const cleanupListeners = useCallback(() => {
     clearFinalCleanupTimer();
-    if (shareFeedbackTimerRef.current) {
-      clearTimeout(shareFeedbackTimerRef.current);
-      shareFeedbackTimerRef.current = null;
-    }
     for (const unsub of unsubsRef.current) unsub();
     unsubsRef.current = [];
   }, [clearFinalCleanupTimer]);
@@ -1249,11 +1053,33 @@ export function ChatConsole({
         // Office tools (create_docx, etc.) don't always produce progress
         // hints that match parseToolHint patterns, so we extract file
         // paths directly from the final tool call list.
+        const _FILE_WRITE_TOOLS = [
+          'write_file',
+          'edit_file',
+          'delete_file',
+          'apply_patch',
+          'create_docx',
+          'create_xlsx',
+          'create_pptx',
+          'docx_write',
+          'xlsx_write',
+          'pptx_write',
+          'edit_docx',
+          'append_xlsx',
+        ];
+        const _FILE_READ_TOOLS = ['read_file'];
         for (const tc of (data.tool_calls ?? []) as any[]) {
           const fn = tc?.function || tc?.tool?.function || {};
           const toolName: string = fn?.name || '';
           if (!toolName) continue;
-          const filePath: string = _extractPathFromArgs(fn?.arguments || '{}') || '';
+          let args: Record<string, unknown> = {};
+          try {
+            args = JSON.parse(fn?.arguments || '{}');
+          } catch {
+            continue;
+          }
+          const filePath: string =
+            (args.path as string) || (args.file_path as string) || (args.filename as string) || '';
           if (!filePath) continue;
           if (_FILE_WRITE_TOOLS.includes(toolName)) {
             trackFile(filePath, 'write', false);
@@ -1330,7 +1156,7 @@ export function ChatConsole({
       let threadId = currentThreadIdRef.current;
       if (threadId == null) {
         try {
-          const title = (text || '新会话').trim().slice(0, 60);
+          const title = (text || 'New conversation').trim().slice(0, 60);
           // Non-blocking: start thread with a short timeout so chat.send
           // isn't delayed by a slow bridge restart.  Falls through to
           // chat.send without thread_id on failure.
@@ -1338,6 +1164,7 @@ export function ChatConsole({
             window.miqi.threads.start({
               title,
               session_key: currentSessionRef.current,
+              mode: threadMode,
             }),
             new Promise<never>((_, reject) =>
               setTimeout(() => reject(new Error('thread/start timeout')), 5000)
@@ -1358,7 +1185,7 @@ export function ChatConsole({
 
       const key =
         activeThreadId === 'main' ? currentSessionRef.current : `desktop:${activeThreadId}`;
-      await window.miqi.chat.send(content, key, threadId ?? undefined);
+      await window.miqi.chat.send(content, key, threadId ?? undefined, threadMode);
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
       if (streamErrorHandled) {
@@ -1569,105 +1396,15 @@ export function ChatConsole({
     const raw = sessionKey.replace(/^desktop:/, '');
     const ts = parseInt(raw, 10);
     if (!isNaN(ts) && raw.length >= 13) {
-      return new Intl.DateTimeFormat('zh-CN', {
-        month: 'long',
+      return new Intl.DateTimeFormat('en-US', {
+        month: 'short',
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
-        hour12: false,
       }).format(new Date(ts));
     }
-    return raw.replace(/_/g, ' ') || '新任务';
+    return raw.replace(/_/g, ' ') || 'New Task';
   }, [messages, sessionKey]);
-
-  const taskHeaderInfo = useMemo(() => {
-    const latestMessageAt = messages.reduce<number | null>((latest, message) => {
-      if (!Number.isFinite(message.timestamp)) return latest;
-      return latest === null || message.timestamp > latest ? message.timestamp : latest;
-    }, null);
-    const updatedAt = latestMessageAt ?? sessionUpdatedAt;
-    return {
-      updatedLabel: relativeTimeLabel(updatedAt, clockTick),
-      fileLabel: `${trackedFiles.length} 个文件`,
-      pluginLabel: `${activePluginCount} 个启用插件`,
-      meta: buildTaskHeaderMeta(updatedAt, trackedFiles.length, activePluginCount, clockTick),
-    };
-  }, [activePluginCount, clockTick, messages, sessionUpdatedAt, trackedFiles.length]);
-
-  const getTaskShareSummary = useCallback(
-    () =>
-      buildTaskShareText({
-        title: sessionTitle,
-        meta: taskHeaderInfo.meta,
-        messages,
-        files: trackedFiles,
-      }),
-    [messages, sessionTitle, taskHeaderInfo.meta, trackedFiles]
-  );
-
-  const handleCopyTaskSummary = useCallback(async () => {
-    await navigator.clipboard.writeText(getTaskShareSummary());
-    showShareFeedback('copied');
-  }, [getTaskShareSummary, showShareFeedback]);
-
-  const handleExportTaskMarkdown = useCallback(() => {
-    const text = getTaskShareSummary();
-    const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = getTaskShareDownloadName(sessionTitle);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    showShareFeedback('exported');
-  }, [getTaskShareSummary, sessionTitle, showShareFeedback]);
-
-  const handleCopyReproContext = useCallback(async () => {
-    const text = buildTaskShareText({
-      title: sessionTitle,
-      meta: taskHeaderInfo.meta,
-      messages,
-      files: trackedFiles,
-    });
-    const context = buildTaskReproContext({
-      sessionKey,
-      title: sessionTitle,
-      meta: taskHeaderInfo.meta,
-      messages,
-      files: trackedFiles,
-    });
-    await navigator.clipboard.writeText(context || text);
-    showShareFeedback('context');
-  }, [messages, sessionKey, sessionTitle, showShareFeedback, taskHeaderInfo.meta, trackedFiles]);
-
-  const shareMenuItems = useMemo<ContextMenuAction[]>(
-    () => [
-      { label: '复制摘要', shortcut: '推荐', onSelect: handleCopyTaskSummary },
-      { label: '导出 Markdown', onSelect: handleExportTaskMarkdown },
-      {
-        label: '复制上下文',
-        shortcut: `${messages.filter((message) => message.role === 'user' || message.role === 'assistant').length} 条`,
-        divider: true,
-        onSelect: handleCopyReproContext,
-      },
-    ],
-    [handleCopyReproContext, handleCopyTaskSummary, handleExportTaskMarkdown, messages]
-  );
-
-  const shareButtonLabel =
-    shareStatus === 'copied'
-      ? '已复制摘要'
-      : shareStatus === 'exported'
-        ? '已导出'
-        : shareStatus === 'context'
-          ? '已复制上下文'
-          : '分享任务';
-
-  const shareButtonTone = shareStatus === 'idle' ? 'var(--text)' : 'var(--success)';
-  const shareButtonBackground = 'var(--surface-muted)';
-  const shareButtonBorder = 'var(--border-subtle)';
 
   return (
     <div
@@ -1728,7 +1465,6 @@ export function ChatConsole({
         <span
           className="text-sm font-bold whitespace-nowrap shrink-0"
           style={{ color: 'var(--text)' }}
-          data-testid="app-title"
         >
           MiQi Desktop
         </span>
@@ -1754,7 +1490,7 @@ export function ChatConsole({
             <circle cx="11" cy="11" r="8" />
             <path d="m21 21-4.3-4.3" />
           </svg>
-          <span className="select-none">搜索或输入命令...</span>
+          <span className="select-none">Search or use commands...</span>
         </div>
 
         {/* Right: Badges + user + actions */}
@@ -1777,69 +1513,15 @@ export function ChatConsole({
 
           {/* More menu */}
           <ContextMenu
-            items={[
-              {
-                label: '分享对话',
-                onSelect: () => {
-                  const text = buildTaskShareText({
-                    title: sessionTitle || sessionKey,
-                    meta: sessionKey,
-                    messages,
-                    files: trackedFiles,
-                  });
-                  navigator.clipboard.writeText(text);
-                  showShareFeedback('copied');
-                },
-              },
-              {
-                label: '导出对话',
-                onSelect: () => {
-                  const text = buildTaskShareText({
-                    title: sessionTitle || sessionKey,
-                    meta: sessionKey,
-                    messages,
-                    files: trackedFiles,
-                  });
-                  const link = document.createElement('a');
-                  link.download = getTaskShareDownloadName(sessionTitle || sessionKey);
-                  link.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
-                  link.click();
-                  URL.revokeObjectURL(link.href);
-                  showShareFeedback('exported');
-                },
-              },
-              {
-                label: '归档',
-                divider: true,
-                onSelect: async () => {
-                  try {
-                    await window.miqi.sessions.archive(sessionKey);
-                    handleNewSession();
-                  } catch { /* ignore */ }
-                },
-              },
-              {
-                label: '删除对话',
-                danger: true,
-                onSelect: async () => {
-                  if (!window.confirm('删除此对话？操作不可恢复。')) return;
-                  try {
-                    await window.miqi.sessions.delete(sessionKey);
-                    handleNewSession();
-                  } catch (e) {
-                    console.error('Delete failed:', e);
-                  }
-                },
-              },
-            ]}
+            items={[{ label: 'Delete conversation', danger: true, onSelect: handleDeleteSession }]}
           >
             {({ onContextMenu }) => (
-              <Tooltip content="更多对话操作">
+              <Tooltip content="More conversation actions">
                 <button
                   className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
                   onClick={onContextMenu}
-                  aria-label="更多对话操作"
-                  title="更多对话操作"
+                  aria-label="More conversation actions"
+                  title="More conversation actions"
                 >
                   <MoreHorizontal size={14} style={{ color: 'var(--text-faint)' }} />
                 </button>
@@ -1855,79 +1537,59 @@ export function ChatConsole({
         <div className="flex flex-col flex-1 overflow-hidden">
           {/* ── Sub header: task title + status (inside chat area) ── */}
           <div
-            className="flex items-center gap-3 px-5 min-h-12 border-b shrink-0"
+            className="flex items-center gap-3 px-5 h-8 border-b shrink-0"
             style={{
               background: 'var(--surface)',
               borderColor: 'var(--border-subtle)',
             }}
           >
-            <div className="min-w-0 flex-1 flex items-center gap-2.5">
-              <h2
-                className="text-[16px] font-semibold truncate leading-[1.35]"
-                style={{ color: 'var(--text)' }}
-              >
-                {sessionTitle}
-              </h2>
-              <span className="tag-inprogress shrink-0">{'\u8fdb\u884c\u4e2d'}</span>
-              <div
-                className="flex min-w-0 items-center gap-1.5 shrink-0 text-[12px] leading-none whitespace-nowrap"
-                aria-label={taskHeaderInfo.meta}
-                style={{ color: 'var(--text-faint)' }}
-              >
-                <span>{taskHeaderInfo.updatedLabel}</span>
-                <span aria-hidden="true">·</span>
-                <span>{taskHeaderInfo.fileLabel}</span>
-                <span aria-hidden="true">·</span>
-                <span>{taskHeaderInfo.pluginLabel}</span>
-              </div>
-            </div>
-            <div
-              className="flex shrink-0 items-stretch overflow-hidden rounded-md shadow-[0_1px_0_rgba(18,18,18,0.05)]"
-              style={{
-                background: shareButtonBackground,
-                border: `1px solid ${shareButtonBorder}`,
-              }}
+            <h2
+              className="text-[18px] font-semibold truncate leading-tight"
+              style={{ color: 'var(--text)' }}
             >
-              <button
-                onClick={handleCopyTaskSummary}
-                className="flex h-7 min-w-[96px] items-center justify-center gap-1.5 px-3 text-xs font-semibold transition-colors whitespace-nowrap hover:brightness-95"
-                style={{
-                  color: shareButtonTone,
-                  cursor: 'pointer',
-                }}
-                title="复制任务摘要"
-                aria-label="复制任务摘要"
-              >
-                {shareStatus === 'idle' ? <Send size={12} /> : <Check size={12} />}
-                {shareButtonLabel}
-              </button>
-              <ContextMenu items={shareMenuItems} minWidth={180}>
-                {({ onContextMenu }) => (
-                  <Tooltip content="复制摘要、导出 Markdown 或复制上下文">
-                    <button
-                      onClick={onContextMenu}
-                      className="flex h-7 w-7 items-center justify-center transition-colors hover:brightness-95"
-                      style={{
-                        borderLeft: `1px solid ${shareButtonBorder}`,
-                        color: shareStatus === 'idle' ? 'var(--text-muted)' : 'var(--success)',
-                      }}
-                      title="更多分享方式"
-                      aria-label="更多分享方式"
-                      aria-haspopup="menu"
-                    >
-                      <ChevronDown size={12} />
-                    </button>
-                  </Tooltip>
-                )}
-              </ContextMenu>
+              {sessionTitle}
+            </h2>
+            <span className="tag-inprogress shrink-0">IN PROGRESS</span>
+            <span className="text-[13px] shrink-0" style={{ color: 'var(--text-muted)' }}>
+              Updated 2 mins ago · 2 linked files · 2 Active Plugins
+            </span>
+            {/* ── Mode Selector ── */}
+            <div className="mode-selector-wrapper shrink-0">
+              <ModeSelector mode={threadMode} onChange={setThreadMode} disabled={streaming} />
             </div>
-            <Tooltip content="显示或隐藏文件面板">
+            <button
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ml-auto opacity-50"
+              style={{
+                background: 'var(--surface-muted)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-muted)',
+                cursor: 'not-allowed',
+              }}
+              title="Coming soon"
+              aria-label="Share task, coming soon"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+                <polyline points="16 6 12 2 8 6" />
+                <line x1="12" y1="2" x2="12" y2="15" />
+              </svg>
+              Share Task
+            </button>
+            <Tooltip content="Toggle assets panel">
               <button
                 onClick={() => setPanelOpen((v) => !v)}
                 className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors shrink-0 ml-1"
-                title="显示或隐藏文件面板"
-                aria-label="显示或隐藏文件面板"
-                data-testid="toggle-assets-panel-btn"
+                title="Toggle assets panel"
+                aria-label="Toggle assets panel"
               >
                 <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
               </button>
@@ -1958,10 +1620,10 @@ export function ChatConsole({
                   </div>
                   <div className="flex flex-col items-center gap-1">
                     <p className="text-[15px] font-medium" style={{ color: 'var(--text-muted)' }}>
-                      从文件、问题或修改请求开始
+                      Start with a file, issue, or edit request
                     </p>
                     <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
-                      发起一段对话即可开始
+                      Start a conversation to begin
                     </p>
                   </div>
                 </div>
@@ -1985,7 +1647,6 @@ export function ChatConsole({
                 <div
                   className="flex items-center gap-2 text-xs px-1"
                   style={{ color: 'var(--text-muted)' }}
-                  data-testid="thinking-indicator"
                 >
                   <Loader2 size={12} className="animate-spin" />
                   Thinking…
@@ -2037,7 +1698,6 @@ export function ChatConsole({
 
               <div
                 className="flex items-end gap-2 rounded-xl px-4 py-3.5 focus-within:ring-2 transition-all"
-                data-testid="chat-input-container"
                 style={{
                   background: 'var(--surface)',
                   border: '1px solid var(--border)',
@@ -2061,7 +1721,13 @@ export function ChatConsole({
                     adjustTextareaHeight();
                   }}
                   onKeyDown={handleKeyDown}
-                  placeholder="输入消息或拖入文件..."
+                  placeholder={
+                    threadMode === 'edit'
+                      ? 'Ask Agent to analyze or edit files...'
+                      : threadMode === 'plan'
+                        ? 'Describe what you want to plan...'
+                        : 'Ask a question (read-only mode)...'
+                  }
                   rows={1}
                   allowResize={true}
                   className="flex-1 border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 text-sm"
@@ -2127,6 +1793,39 @@ export function ChatConsole({
                 </div>
               ))}
             </div>
+            {/* Plan mode: Accept / Reject buttons */}
+            {threadMode === 'plan' && (
+              <div className="p-2 border-t border-[var(--border)] flex gap-2">
+                <button
+                  onClick={() => {
+                    const acceptMsg = 'I approve this plan. Please proceed with execution.';
+                    setInput(acceptMsg);
+                    setPlanOpen(false);
+                  }}
+                  className="flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors"
+                  style={{
+                    background: 'var(--accent)',
+                    color: 'var(--accent-text)',
+                  }}
+                >
+                  ✓ Accept Plan
+                </button>
+                <button
+                  onClick={() => {
+                    setPlan(null);
+                    setPlanOpen(false);
+                  }}
+                  className="flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors"
+                  style={{
+                    background: 'var(--danger-bg)',
+                    color: 'var(--danger)',
+                    border: '1px solid var(--danger)',
+                  }}
+                >
+                  ✕ Reject
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -2153,8 +1852,8 @@ export function ChatConsole({
             >
               <div className="flex items-center gap-1.5">
                 <LayoutGrid size={13} style={{ color: 'var(--text-muted)' }} />
-                <span className="text-xs font-semibold" style={{ color: 'var(--text)' }} data-testid="task-assets-title">
-                  任务资产
+                <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
+                  Task Assets
                 </span>
               </div>
               <span className="text-xs font-medium" style={{ color: 'var(--text-faint)' }}>
@@ -2166,11 +1865,11 @@ export function ChatConsole({
               <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center gap-4">
                 <FileText size={28} style={{ color: 'var(--text-faint)', opacity: 0.35 }} />
                 <div className="flex flex-col items-center gap-1">
-                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }} data-testid="task-assets-empty">
-                    暂无文件
+                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }}>
+                    No files yet.
                   </p>
                   <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
-                    Agent 操作会显示在这里
+                    Agent operations will appear here.
                   </p>
                 </div>
               </div>
@@ -2179,7 +1878,7 @@ export function ChatConsole({
                 {/* Written / Edited files → Active for Edit */}
                 {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length > 0 && (
                   <>
-                    <SectionLabel label="编辑中" sectionKey="active-for-edit" />
+                    <SectionLabel label="ACTIVE FOR EDIT" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'write' || f.op === 'edit')
@@ -2198,7 +1897,7 @@ export function ChatConsole({
                 {/* Read files → Referenced Context */}
                 {trackedFiles.filter((f) => f.op === 'read').length > 0 && (
                   <>
-                    <SectionLabel label="引用上下文" sectionKey="referenced-context" />
+                    <SectionLabel label="REFERENCED CONTEXT" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'read')
@@ -2216,7 +1915,7 @@ export function ChatConsole({
                 {/* Deleted files */}
                 {trackedFiles.filter((f) => f.op === 'delete').length > 0 && (
                   <>
-                    <SectionLabel label="已删除" sectionKey="deleted" />
+                    <SectionLabel label="DELETED" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'delete')
@@ -2247,11 +1946,11 @@ export function ChatConsole({
                       style={{ background: 'var(--warning)' }}
                     />
                     <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
-                      修改建议
+                      Proposed Changes
                     </span>
                   </div>
                   <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
-                    {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length} 个文件
+                    {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length} file(s)
                   </span>
                 </div>
                 <div className="flex flex-col gap-1.5 mb-3">
@@ -2303,32 +2002,32 @@ export function ChatConsole({
               <button
                 onClick={handleMergeAll}
                 disabled={merging || trackedFiles.length === 0}
-                className={cn(
-                  'w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition duration-200',
-                  merging || trackedFiles.length === 0
-                    ? 'cursor-not-allowed'
-                    : 'hover:opacity-90',
-                )}
+                aria-describedby={
+                  trackedFiles.length === 0 ? 'merge-all-disabled-reason' : undefined
+                }
+                title={
+                  trackedFiles.length === 0
+                    ? 'No changed files are available to merge'
+                    : 'Merge all tracked changes'
+                }
+                className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
                 style={{
                   background:
                     merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'var(--accent)',
-                  color: merging || trackedFiles.length === 0 ? 'var(--text-faint)' : 'var(--accent-text)',
-                  opacity: merging || trackedFiles.length === 0 ? 0.5 : 1,
+                  color: merging || trackedFiles.length === 0 ? 'var(--text-faint)' : '#121212',
                 }}
               >
-                {merging ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <GitMerge size={13} />
-                )}
-                {merging ? '合并中...' : '合并所有更改'}
+                {merging ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
+                {merging ? 'MERGING...' : 'MERGE ALL CHANGES'}
               </button>
               {trackedFiles.length === 0 && (
-                <div className="flex items-center justify-center mt-2 py-1.5">
-                  <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
-                    跟踪文件变更后将在此显示合并选项
-                  </span>
-                </div>
+                <p
+                  id="merge-all-disabled-reason"
+                  className="mt-1.5 text-[11px] text-center"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  No changed files are available to merge.
+                </p>
               )}
             </div>
           </div>
@@ -2613,13 +2312,11 @@ function DiffView({ diff }: { diff: string }) {
   );
 }
 
-function SectionLabel({ label, sectionKey }: { label: string; sectionKey: string }) {
-  const testId = `section-label-${sectionKey}`;
+function SectionLabel({ label }: { label: string }) {
   return (
     <div
       className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest"
       style={{ color: 'var(--text-faint)' }}
-      data-testid={testId}
     >
       {label}
     </div>
@@ -2726,8 +2423,7 @@ function TrackedFileCard({
               border: '1px solid var(--border)',
               color: 'var(--text-muted)',
             }}
-            title={isOfficeFile ? '不支持预览 Office 文件' : '预览文件'}
-            data-testid="file-preview-btn"
+            title={isOfficeFile ? 'Office binary preview is not available' : 'Preview file'}
           >
             <Eye size={10} />
             Preview
@@ -2874,15 +2570,15 @@ function MessageBubble({
 
   const contextItems: ContextMenuAction[] = isUser
     ? [
-        { label: '复制文本', onSelect: () => onCopy(msg.content) },
-        { label: '重试', onSelect: () => onRetry?.() },
+        { label: 'Copy text', onSelect: () => onCopy(msg.content) },
+        { label: 'Retry', onSelect: () => onRetry?.() },
       ]
     : [
-        { label: '复制文本', onSelect: () => onCopy(msg.content) },
+        { label: 'Copy text', onSelect: () => onCopy(msg.content) },
         ...(hasCodeBlock
           ? [
               {
-                label: '复制代码',
+                label: 'Copy code',
                 onSelect: () => {
                   const codeMatch = msg.content.match(/```[\s\S]*?```/g);
                   if (codeMatch) {

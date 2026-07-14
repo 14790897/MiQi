@@ -48,7 +48,7 @@ class TestFileThreadStore:
             "title": "Test",
             "workspace": "/tmp/ws",
             "model": "deepseek-chat",
-            "mode": "agent",
+            "mode": "edit",
             "status": "idle",
             "createdAt": "2026-01-01T00:00:00Z",
             "updatedAt": "2026-01-01T00:00:00Z",
@@ -63,12 +63,12 @@ class TestFileThreadStore:
     async def test_upsert_updates_existing(self, thread_store: FileThreadStore) -> None:
         await thread_store.upsert({
             "id": "th1", "title": "Old", "workspace": "/ws",
-            "model": "gpt", "mode": "agent", "status": "idle",
+            "model": "gpt", "mode": "edit", "status": "idle",
             "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z",
         })
         await thread_store.upsert({
             "id": "th1", "title": "New", "workspace": "/ws",
-            "model": "gpt", "mode": "agent", "status": "archived",
+            "model": "gpt", "mode": "edit", "status": "archived",
             "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z",
         })
         loaded = await thread_store.get("th1")
@@ -85,7 +85,7 @@ class TestFileThreadStore:
     async def test_delete(self, thread_store: FileThreadStore) -> None:
         await thread_store.upsert({
             "id": "th1", "title": "T", "workspace": "/ws",
-            "model": "gpt", "mode": "agent", "status": "idle",
+            "model": "gpt", "mode": "edit", "status": "idle",
             "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z",
         })
         assert await thread_store.delete("th1") is True
@@ -99,13 +99,13 @@ class TestFileThreadStore:
     async def test_list(self, thread_store: FileThreadStore) -> None:
         await thread_store.upsert({
             "id": "th_a", "title": "A", "workspace": "/ws",
-            "model": "gpt", "mode": "agent", "status": "idle",
+            "model": "gpt", "mode": "edit", "status": "idle",
             "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z",
         })
         await asyncio.sleep(0.01)  # ensure mtime ordering
         await thread_store.upsert({
             "id": "th_b", "title": "B", "workspace": "/ws",
-            "model": "gpt", "mode": "agent", "status": "idle",
+            "model": "gpt", "mode": "edit", "status": "idle",
             "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z",
         })
         result = await thread_store.list()
@@ -119,7 +119,7 @@ class TestFileThreadStore:
         store1 = FileThreadStore(tmp_store_dir)
         await store1.upsert({
             "id": "th1", "title": "Persist", "workspace": "/ws",
-            "model": "gpt", "mode": "agent", "status": "idle",
+            "model": "gpt", "mode": "edit", "status": "idle",
             "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z",
         })
 
@@ -127,6 +127,21 @@ class TestFileThreadStore:
         loaded = await store2.get("th1")
         assert loaded is not None
         assert loaded["title"] == "Persist"
+
+    @pytest.mark.asyncio
+    async def test_backward_compat_agent_to_edit(self, tmp_store_dir: Path) -> None:
+        """Legacy threads with mode="agent" are normalized to "edit" on read."""
+        store1 = FileThreadStore(tmp_store_dir)
+        await store1.upsert({
+            "id": "th_legacy", "title": "Legacy", "workspace": "/ws",
+            "model": "gpt", "mode": "agent", "status": "idle",
+            "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z",
+        })
+
+        store2 = FileThreadStore(tmp_store_dir)
+        loaded = await store2.get("th_legacy")
+        assert loaded is not None
+        assert loaded["mode"] == "edit", f"Expected 'edit' but got {loaded['mode']!r}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

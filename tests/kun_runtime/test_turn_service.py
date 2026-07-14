@@ -176,7 +176,7 @@ class TestThreadService:
         assert th["id"].startswith("thread_")
         assert th["workspace"] == "/tmp/ws"
         assert th["model"] == "deepseek-chat"
-        assert th["mode"] == "agent"
+        assert th["mode"] == "edit"
         assert th["status"] == "idle"
 
     @pytest.mark.asyncio
