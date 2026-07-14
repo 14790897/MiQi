@@ -2189,37 +2189,33 @@ export function ChatConsole({
               <button
                 onClick={handleMergeAll}
                 disabled={merging || trackedFiles.length === 0}
-                aria-describedby={
-                  trackedFiles.length === 0 ? 'merge-all-disabled-reason' : undefined
-                }
-                title={
-                  trackedFiles.length === 0
-                    ? '没有可合并的文件'
-                    : '合并所有跟踪的更改'
-                }
-                className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition duration-200"
+                className={cn(
+                  'w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition duration-200',
+                  merging || trackedFiles.length === 0
+                    ? 'cursor-not-allowed'
+                    : 'hover:opacity-90',
+                )}
                 style={{
                   background:
                     merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'var(--accent)',
                   color: merging || trackedFiles.length === 0 ? 'var(--text-faint)' : 'var(--accent-text)',
-                  opacity: merging || trackedFiles.length === 0 ? 0.6 : 1,
+                  opacity: merging || trackedFiles.length === 0 ? 0.5 : 1,
                 }}
               >
                 {merging ? (
-                  <Loader2 size={14} className="animate-spin" />
+                  <Loader2 size={13} className="animate-spin" />
                 ) : (
-                  <GitMerge size={14} />
+                  <GitMerge size={13} />
                 )}
                 {merging ? '合并中...' : '合并所有更改'}
               </button>
               {trackedFiles.length === 0 && (
-                <p
-                  id="merge-all-disabled-reason"
-                  className="mt-2 text-xs text-center"
-                  style={{ color: 'var(--text-faint)' }}
-                >
-                  没有可合并的文件
-                </p>
+                <div className="flex items-center justify-center gap-2 mt-2.5 py-2">
+                  <GitMerge size={13} style={{ color: 'var(--text-faint)', opacity: 0.4 }} />
+                  <span className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+                    跟踪文件变更后将在此显示合并选项
+                  </span>
+                </div>
               )}
             </div>
           </div>
