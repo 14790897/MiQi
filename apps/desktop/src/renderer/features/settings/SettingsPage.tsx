@@ -20,6 +20,7 @@ import {
   Sun,
   Moon,
   Monitor,
+  Trash2,
 } from 'lucide-react';
 import { useRuntime } from '../../contexts/RuntimeContext';
 import * as Tabs from '@radix-ui/react-tabs';
@@ -872,43 +873,66 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
   }
 
   return (
-    <div className="p-6 max-w-2xl flex flex-col gap-4">
+    <div className="p-4 max-w-2xl flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-[var(--text)]">已归档对话</h3>
-        <Button variant="ghost" size="icon" onClick={load} disabled={loading}>
+        <h3 className="text-sm font-semibold text-[var(--text)] flex items-center gap-2">
+          <Archive size={16} />
+          已归档对话
+        </h3>
+        <button
+          onClick={load}
+          disabled={loading}
+          className="p-1.5 rounded-md hover:bg-[var(--surface-muted)] transition-colors"
+          style={{ color: 'var(--text-faint)' }}
+          title="刷新"
+        >
           <RefreshCw size={14} className={cn(loading && 'animate-spin')} />
-        </Button>
+        </button>
       </div>
 
       {sessions.length === 0 ? (
-        <div className="text-xs text-[var(--text-faint)] text-center py-12">暂无已归档的对话</div>
+        <div className="flex flex-col items-center justify-center py-12 px-4 rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-muted)]/30">
+          <div className="w-10 h-10 rounded-full bg-[var(--surface-muted)] flex items-center justify-center mb-3">
+            <Archive size={18} style={{ color: 'var(--text-faint)' }} />
+          </div>
+          <p className="text-[13px] font-medium text-[var(--text-muted)] mb-1">暂无已归档的对话</p>
+          <p className="text-[11px] text-[var(--text-faint)]">在侧边栏右键对话选择"归档"即可移至此</p>
+        </div>
       ) : (
-        <div className="settings-hover-card flex flex-col border border-[var(--border-subtle)] rounded-lg overflow-hidden">
+        <div className="flex flex-col rounded-xl border border-[var(--border-subtle)] overflow-hidden">
           {sessions.map((s) => (
             <div
               key={s.key}
-              className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border-subtle)] last:border-b-0"
+              className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--surface-muted)]/50"
+              style={{ borderBottom: '1px solid var(--border-subtle)' }}
             >
               <div className="flex-1 min-w-0">
-                <p className="text-sm truncate text-[var(--text)]">{s.title || s.key}</p>
-                <p className="text-xs text-[var(--text-faint)]">{formatTime(s.updated_at)}</p>
+                <p className="text-[13px] truncate font-medium" style={{ color: 'var(--text)' }}>
+                  {s.title || s.key}
+                </p>
+                <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+                  {formatTime(s.updated_at)}
+                </p>
               </div>
-              <button
-                onClick={() => handleRestore(s.key, s.title || s.key)}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-muted)] transition-colors"
-                title="恢复对话"
-              >
-                <Unarchive size={12} />
-                恢复
-              </button>
-              <button
-                onClick={() => handleDelete(s.key, s.title || s.key)}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-faint)] hover:text-[var(--danger)] hover:bg-[var(--surface-muted)] transition-colors"
-                title="永久删除"
-              >
-                <Archive size={12} />
-                删除
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handleRestore(s.key, s.title || s.key)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-150 hover:bg-[var(--surface)] hover:shadow-sm"
+                  style={{ color: 'var(--text-muted)' }}
+                  title="恢复对话"
+                >
+                  <Unarchive size={13} />
+                  恢复
+                </button>
+                <button
+                  onClick={() => handleDelete(s.key, s.title || s.key)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-150 hover:bg-[var(--danger-bg)]"
+                  style={{ color: 'var(--text-faint)' }}
+                  title="永久删除"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
             </div>
           ))}
         </div>
