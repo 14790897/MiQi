@@ -76,7 +76,7 @@ test.describe('Native Electron E2E', () => {
     });
 
     // Toggle button exists
-    const toggleBtn = page.locator('button[title="Toggle assets panel"]');
+    const toggleBtn = page.locator('button[title="Toggle assets panel"], button[title="显示或隐藏文件面板"]');
     await expect(toggleBtn).toBeVisible();
 
     // Empty state message when no agent operations
