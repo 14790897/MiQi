@@ -137,6 +137,46 @@ export function buildTaskHeaderMeta(
   return `${relativeTimeLabel(updatedAt, now)} · ${fileLabel}`;
 }
 
+export function buildTaskShareText({
+  title,
+  meta,
+  messages,
+  files,
+}: {
+  title: string;
+  meta: string;
+  messages: Message[];
+  files: TrackedFile[];
+}): string {
+  const visibleMessages = messages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .slice(-8);
+  const messageLines =
+    visibleMessages.length > 0
+      ? visibleMessages.map((message) => {
+          const role = message.role === 'user' ? '用户' : 'MiQi';
+          const content = message.content.trim().replace(/\s+/g, ' ');
+          return `- ${role}: ${content || '(空消息)'}`;
+        })
+      : ['- 暂无对话内容'];
+  const fileLines =
+    files.length > 0
+      ? files.map((file) => `- ${file.name} (${file.op})`)
+      : ['- 暂无文件'];
+
+  return [
+    `# ${title}`,
+    '',
+    meta,
+    '',
+    '## 最近对话',
+    ...messageLines,
+    '',
+    '## 相关文件',
+    ...fileLines,
+  ].join('\n');
+}
+
 /** Extract file path + operation from a tool-hint progress text.
  *  Nanobot tool hints look like:
  *    "Read: /abs/path/to/file.ts"
@@ -525,6 +565,7 @@ export function ChatConsole({
     Record<string, { stdout: string; stderr: string; running: boolean }>
   >({});
   const [merging, setMerging] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
   const justOpened = useRef(false);
@@ -1391,6 +1432,18 @@ export function ChatConsole({
     };
   }, [clockTick, messages, sessionUpdatedAt, trackedFiles.length]);
 
+  const handleShareTask = useCallback(async () => {
+    const text = buildTaskShareText({
+      title: sessionTitle,
+      meta: taskHeaderInfo.meta,
+      messages,
+      files: trackedFiles,
+    });
+    await navigator.clipboard.writeText(text);
+    setShareCopied(true);
+    setTimeout(() => setShareCopied(false), 2000);
+  }, [messages, sessionTitle, taskHeaderInfo.meta, trackedFiles]);
+
   return (
     <div
       className="flex flex-col h-full"
@@ -1563,15 +1616,16 @@ export function ChatConsole({
               </div>
             </div>
             <button
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap opacity-50 shrink-0"
+              onClick={handleShareTask}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
               style={{
                 background: 'var(--surface-muted)',
                 border: '1px solid var(--border-subtle)',
-                color: 'var(--text-muted)',
-                cursor: 'not-allowed',
+                color: shareCopied ? 'var(--success)' : 'var(--text-muted)',
+                cursor: 'pointer',
               }}
-              title="即将支持"
-              aria-label="分享任务，即将支持"
+              title="复制任务摘要"
+              aria-label="复制任务摘要"
             >
               <svg
                 width="12"
@@ -1587,7 +1641,7 @@ export function ChatConsole({
                 <polyline points="16 6 12 2 8 6" />
                 <line x1="12" y1="2" x2="12" y2="15" />
               </svg>
-              分享任务
+              {shareCopied ? '已复制' : '分享任务'}
             </button>
             <Tooltip content="Toggle assets panel">
               <button

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildTaskHeaderMeta, sessionMsgsToUi } from '../src/renderer/features/chat/ChatConsole';
+import {
+  buildTaskHeaderMeta,
+  buildTaskShareText,
+  sessionMsgsToUi,
+} from '../src/renderer/features/chat/ChatConsole';
 
 describe('sessionMsgsToUi', () => {
   it('shows only the final assistant text within a tool-heavy turn', () => {
@@ -60,5 +64,27 @@ describe('buildTaskHeaderMeta', () => {
     expect(label).toContain('2 个文件');
     expect(label).not.toContain('linked files');
     expect(label).not.toContain('Active Plugins');
+  });
+});
+
+describe('buildTaskShareText', () => {
+  it('builds a shareable task summary with recent messages and files', () => {
+    const text = buildTaskShareText({
+      title: '测试任务',
+      meta: '刚刚更新 · 1 个文件',
+      messages: [
+        { role: 'user', content: '请修改 README', timestamp: 1 },
+        { role: 'assistant', content: '已完成修改', timestamp: 2 },
+        { role: 'progress', content: 'Write: README.md', timestamp: 3 },
+      ],
+      files: [{ path: 'README.md', name: 'README.md', op: 'edit', lastSeen: 4 }],
+    });
+
+    expect(text).toContain('# 测试任务');
+    expect(text).toContain('刚刚更新 · 1 个文件');
+    expect(text).toContain('- 用户: 请修改 README');
+    expect(text).toContain('- MiQi: 已完成修改');
+    expect(text).toContain('- README.md (edit)');
+    expect(text).not.toContain('Write: README.md');
   });
 });
