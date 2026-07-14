@@ -1717,7 +1717,56 @@ export function ChatConsole({
 
           {/* More menu */}
           <ContextMenu
-            items={[{ label: '删除对话', danger: true, onSelect: handleDeleteSession }]}
+            items={[
+              {
+                label: '分享对话',
+                onSelect: () => {
+                  const text = buildTaskShareText({
+                    title: sessionTitle || sessionKey,
+                    meta: sessionKey,
+                    messages,
+                    files: trackedFiles,
+                  });
+                  navigator.clipboard.writeText(text);
+                  showShareFeedback('copied');
+                },
+              },
+              {
+                label: '导出对话',
+                onSelect: () => {
+                  const text = buildTaskShareText({
+                    title: sessionTitle || sessionKey,
+                    meta: sessionKey,
+                    messages,
+                    files: trackedFiles,
+                  });
+                  const link = document.createElement('a');
+                  link.download = getTaskShareDownloadName(sessionTitle || sessionKey);
+                  link.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+                  link.click();
+                  URL.revokeObjectURL(link.href);
+                  showShareFeedback('exported');
+                },
+              },
+              {
+                label: '归档',
+                divider: true,
+                onSelect: async () => {
+                  try {
+                    await window.miqi.sessions.archive(sessionKey);
+                    handleDeleteSession();
+                  } catch { /* ignore */ }
+                },
+              },
+              {
+                label: '删除对话',
+                danger: true,
+                onSelect: () => {
+                  if (!window.confirm('删除此对话？操作不可恢复。')) return;
+                  handleDeleteSession();
+                },
+              },
+            ]}
           >
             {({ onContextMenu }) => (
               <Tooltip content="更多对话操作">
