@@ -93,6 +93,22 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
   }, { timeout: 5000, polling: 200 });
 }
 
+/** Poll for approval dialogs and click "永久允许" until the AI stops
+ *  thinking.  Used by sandbox and session-isolation tests. */
+export async function approveLoop(page: Page, timeout = 180_000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const btn = page.getByTestId('approval-allow-permanent');
+    if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await btn.click();
+      console.log('[test] Auto-approved tool');
+    }
+    const thinking = await page.getByTestId('thinking-indicator').isVisible().catch(() => false);
+    if (!thinking) break;
+    await page.waitForTimeout(1000);
+  }
+}
+
 // ─── Session / Sidebar helpers ──────────────────────────────────────
 
 /** Get the current session title from the header.

@@ -12,6 +12,7 @@ import {
   LLM_TIMEOUT,
   waitForInputReady,
   createNewConversation,
+  approveLoop,
   launchElectronApp,
   closeElectronApp,
 } from './helpers/electron-setup';
@@ -26,20 +27,6 @@ async function sendWithoutWaiting(page: Page, text: string) {
   await inputX.type(text);
   await inputX.press('Enter');
   // DO NOT wait for response
-}
-
-async function approveLoop(page: Page, timeout = 180_000) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    const btn = page.getByTestId('approval-allow-permanent');
-    if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await btn.click();
-      console.log('[test] Auto-approved tool');
-    }
-    const thinking = await page.getByTestId('thinking-indicator').isVisible().catch(() => false);
-    if (!thinking) break;
-    await page.waitForTimeout(1000);
-  }
 }
 
 async function sendAndWait(page: Page, text: string, loopTimeout = 180_000) {
