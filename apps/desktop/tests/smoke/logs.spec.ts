@@ -26,7 +26,7 @@ async function injectMockAndGoto(
 
 /** Click "System Settings" in the sidebar bottom bar to open SettingsPage */
 async function navigateToSettings(page: import('@playwright/test').Page) {
-  await page.getByText('System Settings').click();
+  await page.getByText(/^(System Settings|系统设置)$/).click();
   await expect(page.getByRole('heading', { name: '设置' })).toBeVisible({ timeout: 3000 });
 }
 
@@ -466,7 +466,7 @@ test.describe('Logs Tab — Edge Cases', () => {
     await expect(errorHeading).toBeVisible();
 
     // Settings should not be accessible
-    await expect(page.getByText('System Settings')).not.toBeVisible();
+    await expect(page.getByText(/^(System Settings|系统设置)$/)).not.toBeVisible();
   });
 
   test('auto-scroll checkbox can be toggled', async ({ page }) => {

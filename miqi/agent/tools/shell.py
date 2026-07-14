@@ -534,7 +534,7 @@ class ExecTool(Tool):
 
         Rules (Phase 31):
         - NONE       → direct host execution (orchestrator explicitly allowed it).
-        - BWRAP      → must use bwrap sandbox.  Unavailable → fail closed.
+        - BWRAP      → must use bwrap sandbox.  Unavailable → fall back to host with warning.
         - LANDLOCK   → unsupported yet.  Fail closed.
         - RESTRICTED → direct execution with cwd/env/timeout enforcement.
         """

@@ -117,7 +117,7 @@ export function Sidebar({
   const FILTER_TABS: Array<{ value: FilterTab; label: string }> = [
     { value: 'ALL', label: '全部' },
     { value: 'IN-PROGRESS', label: '进行中' },
-    { value: 'REVIEW', label: '审阅' },
+    { value: 'REVIEW', label: '待审阅' },
     { value: 'COMPLETED', label: '已完成' },
   ];
 
@@ -248,7 +248,7 @@ export function Sidebar({
                       onSelect: () => setStatus(s.key, 'PENDING'),
                     },
                     {
-                      label: '标记为审阅',
+                      label: '标记为待审阅',
                       icon: <Eye size={13} />,
                       onSelect: () => setStatus(s.key, 'REVIEW'),
                     },
