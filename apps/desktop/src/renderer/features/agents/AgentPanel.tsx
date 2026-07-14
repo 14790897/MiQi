@@ -46,9 +46,9 @@ export default function AgentPanel() {
 
   return (
     <div className="p-4">
-      <h2 className="text-lg font-bold mb-4">Agents</h2>
+      <h2 className="text-lg font-bold mb-4">智能体</h2>
       {agents.length === 0 ? (
-        <p className="text-gray-400">No agents running. Send a message to start.</p>
+        <p className="text-gray-400">暂无运行中的智能体，发送消息即可启动。</p>
       ) : (
         <div className="space-y-3">
           {agents.map((a) => (
