@@ -11,7 +11,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import { resolve } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
-import { existsSync, mkdtempSync, mkdirSync, cpSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, cpSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 
 // ─── Constants ──────────────────────────────────────────────────────
 
