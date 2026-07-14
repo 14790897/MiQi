@@ -141,20 +141,20 @@ async def test_context_runtime_compact_thread_replaces_history():
 
 
 def test_context_runtime_estimate_tokens():
-    """estimate_tokens() approximates token count (chars / 4)."""
+    """estimate_tokens() approximates token count (chars / 2.5)."""
     runtime = ContextRuntime()
     msgs = [
         {"role": "user", "content": "hello world"},
         {"role": "assistant", "content": "hi"},
     ]
-    # "hello world" (11) + "hi" (2) = 13 chars → 13//4 = 3 tokens
-    assert runtime.estimate_tokens(msgs) == 3
+    # "hello world" (11) + "hi" (2) = 13 chars → int(13/2.5) = 5 tokens
+    assert runtime.estimate_tokens(msgs) == 5
 
 
 def test_context_runtime_should_auto_compact():
     """should_auto_compact() returns True when estimated tokens >= limit."""
     runtime = ContextRuntime()
-    msgs = [{"role": "user", "content": "x" * 400}]  # 400 chars → 100 tokens
+    msgs = [{"role": "user", "content": "x" * 400}]  # 400 chars → 160 tokens
     assert runtime.should_auto_compact(msgs, token_limit=50) is True
     assert runtime.should_auto_compact(msgs, token_limit=200) is False
 
