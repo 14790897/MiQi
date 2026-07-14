@@ -191,7 +191,7 @@ export function PermissionsPage() {
         onClick={handleSave}
         disabled={saving}
         className={cn(
-          'flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all duration-200',
+          'flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition duration-200',
           saved
             ? 'bg-[var(--success-bg)] text-[var(--success)]'
             : 'bg-[var(--accent)] text-[var(--accent-text)] hover:opacity-90',

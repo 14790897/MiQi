@@ -573,7 +573,7 @@ function AppearanceTab() {
                 onClick={() => applyTheme(value)}
                 aria-pressed={theme === value}
                 className={cn(
-                  'flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition-all duration-200',
+                  'flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition duration-200',
                   theme === value
                     ? 'bg-[var(--surface)] text-[var(--text)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]'
                     : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]/50',
@@ -917,7 +917,7 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => handleRestore(s.key, s.title || s.key)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-150 hover:bg-[var(--surface)] hover:shadow-sm"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition duration-150 hover:bg-[var(--surface)] hover:shadow-sm"
                   style={{ color: 'var(--text-muted)' }}
                   title="恢复对话"
                 >
@@ -926,7 +926,7 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
                 </button>
                 <button
                   onClick={() => handleDelete(s.key, s.title || s.key)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-150 hover:bg-[var(--danger-bg)]"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition duration-150 hover:bg-[var(--danger-bg)]"
                   style={{ color: 'var(--text-faint)' }}
                   title="永久删除"
                 >
