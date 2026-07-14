@@ -45,6 +45,9 @@ class FileThreadStore:
             return None
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
+            # Guard against non-dict JSON (list, primitive — e.g. corrupted/manual edits)
+            if not isinstance(record, dict):
+                return None
             # Backward compatibility: normalize legacy "agent" mode → "edit"
             if record.get("mode") == "agent":
                 record["mode"] = "edit"
