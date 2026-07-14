@@ -61,7 +61,7 @@ export function PluginMarket() {
       </h2>
       {plugins.length === 0 ? (
         <p className="text-gray-400">
-          暂无已安装插件。将插件添加到 ~/.miqi/plugins/ 或 <workspace>/.miqi/plugins/。
+          暂无已安装插件。将插件添加到 ~/.miqi/plugins/ 或 &lt;workspace&gt;/.miqi/plugins/。
         </p>
       ) : (
         <div className="space-y-3">
