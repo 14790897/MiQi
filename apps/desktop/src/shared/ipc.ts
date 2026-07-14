@@ -240,6 +240,7 @@ export interface RuntimeStatus {
   state: RuntimeState;
   configured: boolean;
   python_version?: string;
+  sandbox_available?: boolean;
   error?: string;
 }
 
