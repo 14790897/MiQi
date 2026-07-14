@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '../lib/utils';
 import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive } from 'lucide-react';
 import { MiQiLogo } from './MiQiLogo';
@@ -121,22 +121,22 @@ export function Sidebar({
     { value: 'COMPLETED', label: '已完成' },
   ];
 
-  // Count per filter
-  const filterCounts: Record<FilterTab, number> = {
-    ALL: sessions.length,
-    'IN-PROGRESS': sessions.filter((s) => getStatus(s.key) === 'IN-PROGRESS').length,
-    REVIEW: sessions.filter((s) => getStatus(s.key) === 'REVIEW').length,
-    COMPLETED: sessions.filter((s) => getStatus(s.key) === 'COMPLETED').length,
-  };
+  // Single-pass: count per filter + compute filtered list (Copilot optimization)
+  const { filterCounts, filteredSessions } = useMemo(() => {
+    const counts: Record<FilterTab, number> = { ALL: 0, 'IN-PROGRESS': 0, REVIEW: 0, COMPLETED: 0 };
+    const filtered: SessionInfo[] = [];
 
-  const filteredSessions = sessions.filter((s) => {
-    if (filter === 'ALL') return true;
-    const status = getStatus(s.key);
-    if (filter === 'IN-PROGRESS') return status === 'IN-PROGRESS';
-    if (filter === 'REVIEW') return status === 'REVIEW';
-    if (filter === 'COMPLETED') return status === 'COMPLETED';
-    return true;
-  });
+    for (const s of sessions) {
+      counts.ALL++;
+      const status = getStatus(s.key);
+      if (status === 'IN-PROGRESS') counts['IN-PROGRESS']++;
+      else if (status === 'REVIEW') counts.REVIEW++;
+      else if (status === 'COMPLETED') counts.COMPLETED++;
+
+      if (filter === 'ALL' || status === filter) filtered.push(s);
+    }
+    return { filterCounts: counts, filteredSessions: filtered };
+  }, [sessions, filter, getStatus]);
 
   return (
     <div
