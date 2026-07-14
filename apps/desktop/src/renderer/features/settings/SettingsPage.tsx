@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, startTransition, type ReactNode } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { ScrollArea } from '../../components/ui/ScrollArea';
@@ -17,11 +17,6 @@ import {
   Copy,
   Shield,
   ShieldOff,
-  Sun,
-  Moon,
-  Monitor,
-  Trash2,
-  Terminal,
 } from 'lucide-react';
 import { useRuntime } from '../../contexts/RuntimeContext';
 import * as Tabs from '@radix-ui/react-tabs';
@@ -38,7 +33,6 @@ import AgentPanel from '../agents/AgentPanel';
 import { PermissionsPage } from '../permissions/PermissionsPage';
 import { PluginMarket } from '../plugins/PluginMarket';
 import WslStatusPage from '../wsl/WslStatusPage';
-import { FeedbackPage } from '../feedback/FeedbackPage';
 
 export type SettingsTab =
   | 'general'
@@ -58,8 +52,7 @@ export type SettingsTab =
   | 'wsl'
   | 'logs'
   | 'archived'
-  | 'docs'
-  | 'feedback';
+  | 'docs';
 
 // ---- Helpers ----
 function getNestedStr(obj: Record<string, unknown>, ...keys: string[]): string {
@@ -125,7 +118,9 @@ function SandboxToggle() {
             tools: { sandbox: { enabled: next } },
           });
           setEnabled(next);
-          setError(next ? '已保存，重启后生效' : '已保存，重启后生效');
+          setError(next
+            ? '已保存，重启后生效'
+            : '已保存，重启后生效');
           setTimeout(() => setError(null), 4000);
           return;
         } catch {
@@ -146,87 +141,9 @@ function SandboxToggle() {
         className={cn(
           'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
           'disabled:opacity-50',
-          enabled ? 'bg-[var(--accent)]' : 'bg-[var(--border)]'
-        )}
-      >
-        <span
-          className={cn(
-            'inline-block h-4 w-4 rounded-full bg-white transition-transform',
-            enabled ? 'translate-x-6' : 'translate-x-1'
-          )}
-        />
-      </button>
-      <div className="flex items-center gap-1.5">
-        {enabled ? (
-          <Shield size={14} className="text-[var(--accent)]" />
-        ) : (
-          <ShieldOff size={14} className="text-[var(--warning)]" />
-        )}
-        <span
-          className={cn(
-            'text-xs font-medium',
-            enabled ? (ready ? 'text-[var(--accent)]' : 'text-amber-400') : 'text-[var(--warning)]'
-          )}
-          data-testid="sandbox-toggle-label"
-        >
-          {toggling
-            ? enabled
-              ? '正在关闭…'
-              : '正在开启…'
-            : enabled
-              ? ready
-                ? '已开启（推荐）'
-                : '正在安装依赖…'
-              : '已关闭'}
-        </span>
-      </div>
-      {error && <p className="text-xs text-[var(--warning)] mt-1 ml-1">{error}</p>}
-    </div>
-  );
-}
-
-// ---- Inline Exec Output Toggle ----
-// Controls whether tool-call exec results render in an inline terminal box.
-// Added in #339 follow-up: lets users suppress the dark bordered container
-// (which appears empty when the sandbox path policy strips stdout/stderr).
-function InlineExecOutputToggle() {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    window.miqi.config
-      .get()
-      .then((cfg: any) => {
-        // Default off — the terminal box is purely cosmetic and was the
-        // source of the "红边空盒" complaints before this toggle landed.
-        setEnabled(cfg?.desktop?.ui?.inlineExecOutput === true);
-      })
-      .catch(() => setEnabled(false));
-  }, []);
-
-  const handleToggle = async () => {
-    if (enabled === null) return;
-    const next = !enabled;
-    setSaving(true);
-    try {
-      await window.miqi.config.update({ desktop: { ui: { inlineExecOutput: next } } });
-      setEnabled(next);
-    } catch {
-      /* ignore — keep prior state */
-    }
-    setSaving(false);
-  };
-
-  return (
-    <div className="flex items-center gap-3">
-      <button
-        onClick={handleToggle}
-        disabled={saving || enabled === null}
-        data-testid="inline-exec-output-toggle-btn"
-        className={cn(
-          'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-          'disabled:opacity-50',
-          enabled ? 'bg-[var(--accent)]' : 'bg-[var(--border)]',
+          enabled
+            ? 'bg-[var(--accent)]'
+            : 'bg-[var(--border)]',
         )}
       >
         <span
@@ -237,17 +154,29 @@ function InlineExecOutputToggle() {
         />
       </button>
       <div className="flex items-center gap-1.5">
-        <Terminal size={14} className={enabled ? 'text-[var(--accent)]' : 'text-[var(--muted-foreground)]'} />
-        <span
-          className={cn(
-            'text-xs font-medium',
-            enabled ? 'text-[var(--accent)]' : 'text-[var(--muted-foreground)]',
-          )}
-          data-testid="inline-exec-output-toggle-label"
+        {enabled ? (
+          <Shield size={14} className="text-[var(--accent)]" />
+        ) : (
+          <ShieldOff size={14} className="text-[var(--warning)]" />
+        )}
+        <span className={cn(
+          'text-xs font-medium',
+          enabled
+            ? (ready ? 'text-[var(--accent)]' : 'text-amber-400')
+            : 'text-[var(--warning)]',
+        )}
+        data-testid="sandbox-toggle-label"
         >
-          {enabled ? '已开启' : '已关闭'}
+          {toggling
+            ? (enabled ? '正在关闭…' : '正在开启…')
+            : enabled
+              ? (ready ? '已开启（推荐）' : '正在安装依赖…')
+              : '已关闭'}
         </span>
       </div>
+      {error && (
+        <p className="text-xs text-[var(--warning)] mt-1 ml-1">{error}</p>
+      )}
     </div>
   );
 }
@@ -280,13 +209,12 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const defaults: Record<string, unknown> = {
-        name: agentName,
-        workspace,
-        model,
-        temperature: temperature === '' ? '' : parseFloat(temperature),
-        maxTokens: maxTokens === '' ? '' : parseInt(maxTokens),
-      };
+      const defaults: Record<string, unknown> = {};
+      if (agentName) defaults['name'] = agentName;
+      if (workspace) defaults['workspace'] = workspace;
+      if (model) defaults['model'] = model;
+      if (temperature) defaults['temperature'] = parseFloat(temperature);
+      if (maxTokens) defaults['maxTokens'] = parseInt(maxTokens);
       await window.miqi.config.update({ agents: { defaults } });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -301,7 +229,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
       <h3 className="text-sm font-semibold text-[var(--text)]">智能体配置</h3>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-[13px] font-medium text-[var(--text-muted)]">智能体名称</label>
+        <label className="text-xs font-medium text-[var(--text-muted)]">智能体名称</label>
         <Input
           value={agentName}
           onChange={(e) => setAgentName(e.target.value)}
@@ -310,7 +238,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-[13px] font-medium text-[var(--text-muted)]">工作目录</label>
+        <label className="text-xs font-medium text-[var(--text-muted)]">工作目录</label>
         <div className="flex gap-2">
           <Input
             value={workspace}
@@ -332,7 +260,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-[13px] font-medium text-[var(--text-muted)]">默认模型</label>
+        <label className="text-xs font-medium text-[var(--text-muted)]">默认模型</label>
         <Input
           value={model}
           onChange={(e) => setModel(e.target.value)}
@@ -342,7 +270,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
-          <label className="text-[13px] font-medium text-[var(--text-muted)]">Temperature</label>
+          <label className="text-xs font-medium text-[var(--text-muted)]">Temperature</label>
           <Input
             type="number"
             min="0"
@@ -354,7 +282,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className="text-[13px] font-medium text-[var(--text-muted)]">Max Tokens</label>
+          <label className="text-xs font-medium text-[var(--text-muted)]">Max Tokens</label>
           <Input
             type="number"
             min="256"
@@ -374,27 +302,12 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 
       {/* ---- Sandbox ---- */}
       <div className="pt-4 border-t border-[var(--border-subtle)]">
-        <h3
-          className="text-sm font-semibold text-[var(--text)] mb-1"
-          data-testid="settings-sandbox-section-title"
-        >
-          沙箱隔离
-        </h3>
+        <h3 className="text-sm font-semibold text-[var(--text)] mb-1" data-testid="settings-sandbox-section-title">沙箱隔离</h3>
         <p className="text-xs text-[var(--text-faint)] mb-3">
           开启后 AI 的文件操作和命令执行在 WSL2 bwrap 沙箱中运行，保护主机安全。
           关闭后直接操作主机文件系统（无隔离，性能更好但风险更高）。
         </p>
         <SandboxToggle />
-      </div>
-
-      {/* ---- Inline Exec Output ---- */}
-      <div className="pt-4 border-t border-[var(--border-subtle)]">
-        <h3 className="text-sm font-semibold text-[var(--text)] mb-1" data-testid="settings-inline-exec-output-title">内联终端输出</h3>
-        <p className="text-xs text-[var(--text-faint)] mb-3">
-          关闭后工具调用的 exec 结果以普通文本显示，不再包裹黑底终端框。
-          当沙箱路径策略过滤掉输出时，关闭此开关可避免出现空盒子。
-        </p>
-        <InlineExecOutputToggle />
       </div>
 
       {/* ---- Danger Zone ---- */}
@@ -461,17 +374,17 @@ function WebToolsTab() {
           web: {
             search: {
               provider: searchProvider,
-              apiKey: braveKey,
+              apiKey: braveKey || undefined,
             },
             fetch: {
               provider: fetchProvider,
-              ollamaApiBase: fetchOllamaBase,
-              ollamaApiKey: fetchOllamaKey,
+              ollamaApiBase: fetchOllamaBase || undefined,
+              ollamaApiKey: fetchOllamaKey || undefined,
             },
           },
           papers: {
             provider: papersProvider,
-            semanticScholarApiKey: s2ApiKey,
+            semanticScholarApiKey: s2ApiKey || undefined,
           },
         },
       });
@@ -513,18 +426,13 @@ function WebToolsTab() {
       <section className="flex flex-col gap-3">
         <h3 className="text-sm font-semibold text-[var(--text)]">Web 搜索</h3>
         <div className="flex gap-2">
-          <ModeBtn
-            value="ddgs"
-            current={searchProvider}
-            set={setSearchProvider}
-            label="DuckDuckGo"
-          />
+          <ModeBtn value="ddgs" current={searchProvider} set={setSearchProvider} label="DuckDuckGo" />
           <ModeBtn value="brave" current={searchProvider} set={setSearchProvider} label="Brave" />
           <ModeBtn value="hybrid" current={searchProvider} set={setSearchProvider} label="Hybrid" />
         </div>
         {(searchProvider === 'brave' || searchProvider === 'hybrid') && (
           <div className="flex flex-col gap-1.5">
-            <label className="text-[13px] font-medium text-[var(--text-muted)]">
+            <label className="text-xs font-medium text-[var(--text-muted)]">
               Brave Search API Key
             </label>
             <div className="flex gap-2">
@@ -554,7 +462,7 @@ function WebToolsTab() {
         {(fetchProvider === 'ollama' || fetchProvider === 'hybrid') && (
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1.5">
-              <label className="text-[13px] font-medium text-[var(--text-muted)]">
+              <label className="text-xs font-medium text-[var(--text-muted)]">
                 Ollama web_fetch Base URL
               </label>
               <Input
@@ -564,7 +472,7 @@ function WebToolsTab() {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-[13px] font-medium text-[var(--text-muted)]">
+              <label className="text-xs font-medium text-[var(--text-muted)]">
                 Ollama web_fetch API Key
               </label>
               <Input
@@ -599,7 +507,7 @@ function WebToolsTab() {
         </div>
         {(papersProvider === 'hybrid' || papersProvider === 'semantic_scholar') && (
           <div className="flex flex-col gap-1.5">
-            <label className="text-[13px] font-medium text-[var(--text-muted)]">
+            <label className="text-xs font-medium text-[var(--text-muted)]">
               Semantic Scholar API Key（可选）
             </label>
             <Input
@@ -629,20 +537,6 @@ function AppearanceTab() {
     return (localStorage.getItem('miqi-theme') as ThemeMode) ?? 'system';
   });
 
-  // Apply persisted theme on mount
-  useEffect(() => {
-    const saved = (localStorage.getItem('miqi-theme') as ThemeMode) ?? 'system';
-    const root = document.documentElement;
-    if (saved === 'dark') {
-      root.classList.add('dark');
-    } else if (saved === 'light') {
-      root.classList.remove('dark');
-    } else {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      root.classList.toggle('dark', prefersDark);
-    }
-  }, []);
-
   const applyTheme = (mode: ThemeMode) => {
     setTheme(mode);
     localStorage.setItem('miqi-theme', mode);
@@ -652,37 +546,32 @@ function AppearanceTab() {
     } else if (mode === 'light') {
       root.classList.remove('dark');
     } else {
+      // system
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
       root.classList.toggle('dark', prefersDark);
     }
   };
 
-  const modes: Array<{ value: ThemeMode; label: string; icon: ReactNode }> = [
-    { value: 'light', label: '浅色', icon: <Sun size={16} /> },
-    { value: 'dark', label: '深色', icon: <Moon size={16} /> },
-    { value: 'system', label: '跟随系统', icon: <Monitor size={16} /> },
-  ];
-
   return (
     <div className="p-6 max-w-lg flex flex-col gap-4">
       <h3 className="text-sm font-semibold text-[var(--text)]">外观</h3>
       <div className="flex flex-col gap-1.5">
-        <label className="text-[13px] font-medium text-[var(--text-muted)]">主题</label>
-        <div className="flex items-stretch gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
-          {modes.map(({ value, label, icon }) => (
+        <label className="text-xs font-medium text-[var(--text-muted)]">主题</label>
+        <div className="inline-flex w-fit items-center gap-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-muted)] p-1">
+          {(['light', 'dark', 'system'] as ThemeMode[]).map((m) => (
             <button
-              key={value}
-              onClick={() => applyTheme(value)}
-              aria-pressed={theme === value}
+              key={m}
+              onClick={() => applyTheme(m)}
+              aria-pressed={theme === m}
               className={cn(
-                'flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition duration-200',
-                theme === value
-                  ? 'bg-[var(--surface)] text-[var(--text)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]/50'
+                'settings-hover-tab rounded-md px-3.5 py-1.5 text-xs font-medium',
+                'focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30',
+                theme === m
+                  ? 'bg-[var(--accent)] text-[var(--accent-text)] shadow-sm'
+                  : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'
               )}
             >
-              {icon}
-              <span className="hidden sm:inline">{label}</span>
+              {m === 'light' ? '浅色' : m === 'dark' ? '深色' : '跟随系统'}
             </button>
           ))}
         </div>
@@ -699,9 +588,7 @@ function LogsTab() {
   const [copiedLogs, setCopiedLogs] = useState(false);
   const [logTab, setLogTab] = useState<'all' | 'frontend' | 'backend'>('all');
   const [level, setLevel] = useState<'all' | 'INFO' | 'WARN' | 'ERROR'>('all');
-  const [source, setSource] = useState<'all' | 'bridge' | 'renderer' | 'sandbox' | 'main' | 'tool'>(
-    'all'
-  );
+  const [source, setSource] = useState<'all' | 'bridge' | 'renderer' | 'sandbox' | 'main' | 'tool'>('all');
   const [sessionKey, setSessionKey] = useState('');
   const [keyword, setKeyword] = useState('');
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
@@ -715,9 +602,7 @@ function LogsTab() {
   // Auto-refresh: periodically poll for new log entries (tail -f effect)
   useEffect(() => {
     if (!autoRefresh) return;
-    const interval = setInterval(() => {
-      refreshLogs();
-    }, 3000);
+    const interval = setInterval(() => { refreshLogs(); }, 3000);
     return () => clearInterval(interval);
   }, [autoRefresh, refreshLogs]);
 
@@ -727,65 +612,39 @@ function LogsTab() {
     }
   }, [entries, autoScroll]);
 
-  const filtered = entries
-    .filter((entry) => {
-      if (logTab === 'frontend' && !(entry.source === 'renderer' || entry.source === 'main'))
-        return false;
-      if (
-        logTab === 'backend' &&
-        !(entry.source === 'bridge' || entry.source === 'sandbox' || entry.source === 'tool')
-      )
-        return false;
-      if (level !== 'all' && entry.level !== level) return false;
-      if (source !== 'all' && entry.source !== source) return false;
-      if (sessionKey && !(entry.sessionKey ?? '').includes(sessionKey)) return false;
-      if (keyword && !entry.message.toLowerCase().includes(keyword.toLowerCase())) return false;
-      return true;
-    })
-    .sort((a, b) => {
-      const aTime = Date.parse(a.timestamp);
-      const bTime = Date.parse(b.timestamp);
-      if (Number.isNaN(aTime)) return Number.isNaN(bTime) ? 0 : 1;
-      if (Number.isNaN(bTime)) return -1;
-      return bTime - aTime;
-    });
+  const filtered = entries.filter((entry) => {
+    if (logTab === 'frontend' && !(entry.source === 'renderer' || entry.source === 'main')) return false;
+    if (logTab === 'backend' && !(entry.source === 'bridge' || entry.source === 'sandbox' || entry.source === 'tool')) return false;
+    if (level !== 'all' && entry.level !== level) return false;
+    if (source !== 'all' && entry.source !== source) return false;
+    if (sessionKey && !(entry.sessionKey ?? '').includes(sessionKey)) return false;
+    if (keyword && !entry.message.toLowerCase().includes(keyword.toLowerCase())) return false;
+    return true;
+  });
 
   const toggleRow = (id: number) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   };
 
   const formatTime = (iso: string) => {
-    const d = new Date(iso);
-    // new Date() never throws — invalid input produces NaN getTime()
-    if (isNaN(d.getTime())) return iso;
-    const date = d.toLocaleDateString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    const time = d.toLocaleTimeString('zh-CN', { hour12: false });
-    return `${date} ${time}`;
+    try {
+      const d = new Date(iso);
+      return d.toLocaleTimeString('zh-CN', { hour12: false });
+    } catch { return iso; }
   };
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(
-      filtered
-        .map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`)
-        .join('\n')
-    );
+    await navigator.clipboard.writeText(filtered.map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`).join('\n'));
     setCopiedLogs(true);
     setTimeout(() => setCopiedLogs(false), 1500);
   };
 
   const handleExportTxt = () => {
-    const text = filtered
-      .map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`)
-      .join('\n');
+    const text = filtered.map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`).join('\n');
     const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -807,9 +666,7 @@ function LogsTab() {
   };
 
   const handleExportLog = () => {
-    const text = filtered
-      .map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`)
-      .join('\n');
+    const text = filtered.map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`).join('\n');
     const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -838,11 +695,11 @@ function LogsTab() {
       {/* Sub-tab bar */}
       <div className="flex items-center gap-2 px-6 py-2 border-b border-[var(--border-subtle)]">
         <span className="text-xs text-[var(--text-muted)] mr-1">视图：</span>
-        {[
+        {([
           { value: 'all' as const, label: '全部' },
           { value: 'frontend' as const, label: '前端日志' },
           { value: 'backend' as const, label: '后端日志' },
-        ].map((tab) => (
+        ]).map((tab) => (
           <button
             key={tab.value}
             onClick={() => setLogTab(tab.value)}
@@ -862,42 +719,20 @@ function LogsTab() {
       <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3 border-b border-[var(--border-subtle)]">
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer">
-            <input
-              type="checkbox"
-              checked={autoScroll}
-              onChange={(e) => setAutoScroll(e.target.checked)}
-              className="rounded"
-            />
+            <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} className="rounded" />
             自动滚动
           </label>
           <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer">
-            <input
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={(e) => setAutoRefresh(e.target.checked)}
-              className="rounded"
-            />
+            <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="rounded" />
             自动刷新
           </label>
-          <select
-            value={level}
-            onChange={(e) => setLevel(e.target.value as 'all' | 'INFO' | 'WARN' | 'ERROR')}
-            className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
-          >
+          <select value={level} onChange={(e) => setLevel(e.target.value as 'all' | 'INFO' | 'WARN' | 'ERROR')} className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs">
             <option value="all">全部级别</option>
             <option value="INFO">INFO</option>
             <option value="WARN">WARN</option>
             <option value="ERROR">ERROR</option>
           </select>
-          <select
-            value={source}
-            onChange={(e) =>
-              setSource(
-                e.target.value as 'all' | 'bridge' | 'renderer' | 'sandbox' | 'main' | 'tool'
-              )
-            }
-            className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
-          >
+          <select value={source} onChange={(e) => setSource(e.target.value as 'all' | 'bridge' | 'renderer' | 'sandbox' | 'main' | 'tool')} className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs">
             <option value="all">全部来源</option>
             <option value="bridge">Bridge</option>
             <option value="renderer">Renderer</option>
@@ -905,24 +740,9 @@ function LogsTab() {
             <option value="sandbox">Sandbox</option>
             <option value="tool">Tool</option>
           </select>
-          <input
-            value={sessionKey}
-            onChange={(e) => setSessionKey(e.target.value)}
-            placeholder="session"
-            className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
-          />
-          <input
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            placeholder="关键字"
-            className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
-          />
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => refreshLogs()}
-            data-testid="refresh-logs"
-          >
+          <input value={sessionKey} onChange={(e) => setSessionKey(e.target.value)} placeholder="session" className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs" />
+          <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="关键字" className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs" />
+          <Button variant="ghost" size="icon" onClick={() => refreshLogs()} data-testid="refresh-logs">
             <RefreshCw size={14} />
           </Button>
         </div>
@@ -963,38 +783,24 @@ function LogsTab() {
               <tbody>
                 {filtered.map((entry) => {
                   const isExpanded = expandedRows.has(entry.id);
-                  const rowBg =
-                    entry.level === 'ERROR'
-                      ? 'bg-red-500/5 hover:bg-red-500/10'
-                      : entry.level === 'WARN'
-                        ? 'bg-amber-500/5 hover:bg-amber-500/10'
-                        : 'hover:bg-[var(--surface-muted)]';
+                  const rowBg = entry.level === 'ERROR'
+                    ? 'bg-red-500/5 hover:bg-red-500/10'
+                    : entry.level === 'WARN'
+                      ? 'bg-amber-500/5 hover:bg-amber-500/10'
+                      : 'hover:bg-[var(--surface-muted)]';
                   return (
                     <tr
                       key={entry.id}
                       onClick={() => toggleRow(entry.id)}
-                      className={cn(
-                        'border-b border-[var(--border-subtle)] cursor-pointer transition-colors',
-                        rowBg
-                      )}
+                      className={cn('border-b border-[var(--border-subtle)] cursor-pointer transition-colors', rowBg)}
                     >
-                      <td
-                        className="px-4 py-1.5 text-[var(--text-faint)] whitespace-nowrap"
-                        title={entry.timestamp}
-                      >
+                      <td className="px-4 py-1.5 text-[var(--text-faint)] whitespace-nowrap" title={entry.timestamp}>
                         {formatTime(entry.timestamp)}
                       </td>
-                      <td className="px-2 py-1.5 whitespace-nowrap">{levelBadge(entry.level)}</td>
-                      <td
-                        className={cn(
-                          'px-2 py-1.5 whitespace-nowrap',
-                          entry.level === 'ERROR'
-                            ? 'text-[var(--danger)]'
-                            : entry.level === 'WARN'
-                              ? 'text-[var(--warning)]'
-                              : 'text-[var(--text-muted)]'
-                        )}
-                      >
+                      <td className="px-2 py-1.5 whitespace-nowrap">
+                        {levelBadge(entry.level)}
+                      </td>
+                      <td className={cn('px-2 py-1.5 whitespace-nowrap', entry.level === 'ERROR' ? 'text-[var(--danger)]' : entry.level === 'WARN' ? 'text-[var(--warning)]' : 'text-[var(--text-muted)]')}>
                         {entry.source}
                       </td>
                       <td className="px-4 py-1.5 text-[var(--text)]">
@@ -1035,23 +841,15 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
   }, [load]);
 
   const handleRestore = async (key: string, title: string) => {
-    try {
-      await window.miqi.sessions.unarchive(key);
-      await load();
-      onRestore?.(key);
-    } catch (e: any) {
-      alert(`恢复失败: ${e?.message || e}`);
-    }
+    await window.miqi.sessions.unarchive(key);
+    await load();
+    onRestore?.(key);
   };
 
   const handleDelete = async (key: string, title: string) => {
     if (!window.confirm(`永久删除对话「${title}」？此操作不可撤销。`)) return;
-    try {
-      await window.miqi.sessions.delete(key);
-      await load();
-    } catch (e: any) {
-      alert(`删除失败: ${e?.message || e}`);
-    }
+    await window.miqi.sessions.delete(key);
+    await load();
   };
 
   function formatTime(iso?: string): string {
@@ -1066,68 +864,43 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
   }
 
   return (
-    <div className="p-4 max-w-2xl flex flex-col gap-4">
+    <div className="p-6 max-w-2xl flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-[var(--text)] flex items-center gap-2">
-          <Archive size={16} />
-          已归档对话
-        </h3>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="p-1.5 rounded-md hover:bg-[var(--surface-muted)] transition-colors"
-          style={{ color: 'var(--text-faint)' }}
-          title="刷新"
-        >
+        <h3 className="text-sm font-semibold text-[var(--text)]">已归档对话</h3>
+        <Button variant="ghost" size="icon" onClick={load} disabled={loading}>
           <RefreshCw size={14} className={cn(loading && 'animate-spin')} />
-        </button>
+        </Button>
       </div>
 
       {sessions.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 px-4 rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-muted)]/30">
-          <div className="w-10 h-10 rounded-full bg-[var(--surface-muted)] flex items-center justify-center mb-3">
-            <Archive size={18} style={{ color: 'var(--text-faint)' }} />
-          </div>
-          <p className="text-[13px] font-medium text-[var(--text-muted)] mb-1">暂无已归档的对话</p>
-          <p className="text-[11px] text-[var(--text-faint)]">
-            在侧边栏右键对话选择"归档"即可移至此
-          </p>
-        </div>
+        <div className="text-xs text-[var(--text-faint)] text-center py-12">暂无已归档的对话</div>
       ) : (
-        <div className="flex flex-col rounded-xl border border-[var(--border-subtle)] overflow-hidden">
+        <div className="settings-hover-card flex flex-col border border-[var(--border-subtle)] rounded-lg overflow-hidden">
           {sessions.map((s) => (
             <div
               key={s.key}
-              className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--surface-muted)]/50"
-              style={{ borderBottom: '1px solid var(--border-subtle)' }}
+              className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border-subtle)] last:border-b-0"
             >
               <div className="flex-1 min-w-0">
-                <p className="text-[13px] truncate font-medium" style={{ color: 'var(--text)' }}>
-                  {s.title || s.key}
-                </p>
-                <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
-                  {formatTime(s.updated_at)}
-                </p>
+                <p className="text-sm truncate text-[var(--text)]">{s.title || s.key}</p>
+                <p className="text-xs text-[var(--text-faint)]">{formatTime(s.updated_at)}</p>
               </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => handleRestore(s.key, s.title || s.key)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition duration-150 hover:bg-[var(--surface)] hover:shadow-sm"
-                  style={{ color: 'var(--text-muted)' }}
-                  title="恢复对话"
-                >
-                  <Unarchive size={13} />
-                  恢复
-                </button>
-                <button
-                  onClick={() => handleDelete(s.key, s.title || s.key)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition duration-150 hover:bg-[var(--danger-bg)]"
-                  style={{ color: 'var(--text-faint)' }}
-                  title="永久删除"
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
+              <button
+                onClick={() => handleRestore(s.key, s.title || s.key)}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-muted)] transition-colors"
+                title="恢复对话"
+              >
+                <Unarchive size={12} />
+                恢复
+              </button>
+              <button
+                onClick={() => handleDelete(s.key, s.title || s.key)}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-faint)] hover:text-[var(--danger)] hover:bg-[var(--surface-muted)] transition-colors"
+                title="永久删除"
+              >
+                <Archive size={12} />
+                删除
+              </button>
             </div>
           ))}
         </div>
@@ -1268,18 +1041,10 @@ function DocsTab() {
 }
 
 // ---- Main ----
-export function SettingsPage({
-  onReopenSetup,
-  tab = 'general',
-}: {
-  onReopenSetup?: () => void;
-  tab?: SettingsTab;
-}) {
+export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup?: () => void; tab?: SettingsTab }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(tab);
 
-  useEffect(() => {
-    setActiveTab(tab);
-  }, [tab]);
+  useEffect(() => { setActiveTab(tab); }, [tab]);
 
   return (
     <div className="flex flex-col h-full">
@@ -1300,7 +1065,7 @@ export function SettingsPage({
             { value: 'channels', label: '渠道' },
             { value: 'agents', label: '智能体' },
             { value: 'skills', label: '技能' },
-            { value: 'mcps', label: 'MCP 服务' },
+            { value: 'mcps', label: 'MCPs' },
             { value: 'memory', label: '记忆' },
             { value: 'experience', label: '经验' },
             { value: 'approvals', label: '审批' },
@@ -1313,7 +1078,6 @@ export function SettingsPage({
             { value: 'logs', label: '日志' },
             { value: 'archived', label: '已归档' },
             { value: 'docs', label: '文档' },
-            { value: 'feedback', label: '反馈' },
           ].map((tab) => (
             <Tabs.Trigger
               key={tab.value}
@@ -1383,9 +1147,6 @@ export function SettingsPage({
         </Tabs.Content>
         <Tabs.Content value="docs" className="flex-1 min-h-0 flex flex-col">
           <DocsTab />
-        </Tabs.Content>
-        <Tabs.Content value="feedback" className="flex-1 overflow-y-auto">
-          <FeedbackPage />
         </Tabs.Content>
       </Tabs.Root>
     </div>
