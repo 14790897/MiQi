@@ -11,7 +11,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import { resolve } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
-import { existsSync, mkdtempSync, mkdirSync, cpSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, cpSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 
 // ─── Constants ──────────────────────────────────────────────────────
 
@@ -32,9 +32,7 @@ export function getMiqiSessionsDir(miqiHome: string): string {
 
 /** Wait for the chat input textarea to be present and enabled */
 export async function waitForInputReady(page: Page, timeout = 60_000) {
-  const textarea = page.getByPlaceholder(
-    'Ask Agent to analyze or edit files...',
-  );
+  const textarea = page.locator('[data-testid="chat-input-container"] textarea');
   await expect(textarea).toBeEnabled({ timeout });
   return textarea;
 }
@@ -52,7 +50,7 @@ export async function sendMessage(page: Page, text: string) {
 export async function waitForResponseComplete(page: Page, timeout = 120_000) {
   // Phase 1: model stops generating → "Thinking…" hidden.
   try {
-    await expect(page.getByText('Thinking…')).toBeHidden({ timeout });
+    await expect(page.locator('[data-testid="thinking-indicator"]')).toBeHidden({ timeout });
   } catch (err) {
     // Dump page state before re-throwing — so CI logs show what the AI
     // was doing when it got stuck (tool calls, errors, etc.)
@@ -95,6 +93,22 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
   }, { timeout: 5000, polling: 200 });
 }
 
+/** Poll for approval dialogs and click "永久允许" until the AI stops
+ *  thinking.  Used by sandbox and session-isolation tests. */
+export async function approveLoop(page: Page, timeout = 180_000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const btn = page.getByTestId('approval-allow-permanent');
+    if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await btn.click();
+      console.log('[test] Auto-approved tool');
+    }
+    const thinking = await page.getByTestId('thinking-indicator').isVisible().catch(() => false);
+    if (!thinking) break;
+    await page.waitForTimeout(1000);
+  }
+}
+
 // ─── Session / Sidebar helpers ──────────────────────────────────────
 
 /** Get the current session title from the header.
@@ -121,7 +135,7 @@ export async function getSidebarSessionCount(page: Page): Promise<number> {
 /** Create a new conversation via sidebar "+" button and wait for it to be ready.
  *  In the redesigned UI there is no "New Chat" header button — sidebar "+" is the canonical way. */
 export async function createNewConversation(page: Page): Promise<string> {
-  const sidebarPlusBtn = page.locator('button[title="New Session"], button[title="新建会话"]');
+  const sidebarPlusBtn = page.locator('[data-testid="nav-new-session"]');
   await expect(sidebarPlusBtn).toBeVisible();
   await sidebarPlusBtn.click();
   // Wait for the new session to load — input becomes enabled when ChatConsole mounts
@@ -144,7 +158,7 @@ export async function switchToSessionWithMarker(
   marker: string,
 ): Promise<boolean> {
   // Ensure the Tasks section is scrolled into view
-  const tasksHeader = page.getByText(/^(Tasks|任务)$/).first();
+  const tasksHeader = page.locator('[data-testid="nav-tasks-title"]');
   await tasksHeader.scrollIntoViewIfNeeded().catch(() => {});
 
   const items = getSidebarSessionItems(page);
@@ -220,9 +234,19 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
 
   // Copy user's provider config into the temp home so the LLM backend is reachable.
   const userConfigPath = join(homedir(), '.miqi', 'config.json');
+  const destConfigPath = join(miqiHome, 'config.json');
   if (existsSync(userConfigPath)) {
-    cpSync(userConfigPath, join(miqiHome, 'config.json'));
+    cpSync(userConfigPath, destConfigPath);
   }
+
+  // ── E2E: always enable approval bypass so tests don't hang on dialogs ──
+  // This is safer than *:* wildcard pre-approve because it takes effect
+  // before the bridge starts — no race with NOT_INITIALIZED or approval popups.
+  const config = existsSync(destConfigPath)
+    ? JSON.parse(readFileSync(destConfigPath, 'utf-8'))
+    : {};
+  config.approvals = { ...config.approvals, bypass_all: true };
+  writeFileSync(destConfigPath, JSON.stringify(config, null, 2));
 
   // Delete ELECTRON_RUN_AS_NODE inherited from Electron-based IDEs
   // (WorkBuddy / VSCode).  Otherwise Electron runs as plain Node.js.

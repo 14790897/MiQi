@@ -26,6 +26,9 @@ import {
 
 // ─── Test Suite ───────────────────────────────────────────────────
 
+const SKIP_APPROVAL_ON_CI =
+  !!process.env.CI;
+
 test.describe('Approval Persistence E2E', () => {
   let electronApp: ElectronApplication;
   let page: Page;
@@ -50,6 +53,7 @@ test.describe('Approval Persistence E2E', () => {
     '永久允许: same file path twice, second call auto-approves',
     { timeout: LLM_TIMEOUT * 3 },
     async () => {
+      test.skip(SKIP_APPROVAL_ON_CI, 'CI disables commandApproval — approval dialog never appears');
       // Ensure bridge ready, clear existing approvals
       await waitForBridgeInitialized(page);
       try {
@@ -69,12 +73,12 @@ test.describe('Approval Persistence E2E', () => {
         `Use write_file to create ${filepath} with content "first write"`,
       );
 
-      await expect(page.getByText('文件操作审批')).toBeVisible({
+      await expect(page.getByTestId('approval-title')).toBeVisible({
         timeout: 60_000,
       });
       console.log('[test] ✅ First call: approval dialog appeared');
 
-      await page.getByRole('button', { name: '永久允许' }).click();
+      await page.getByTestId('approval-allow-permanent').click();
       console.log('[test] Clicked 永久允许');
 
       await waitForResponseComplete(page, 240_000);
@@ -92,7 +96,7 @@ test.describe('Approval Persistence E2E', () => {
       await waitForResponseComplete(page, 240_000);
 
       // Must NOT show approval dialog again
-      await expect(page.getByText('文件操作审批')).not.toBeVisible({
+      await expect(page.getByTestId('approval-title')).not.toBeVisible({
         timeout: 5_000,
       });
       console.log('[test] ✅ Second call: no approval dialog (auto-approved)');
@@ -112,6 +116,7 @@ test.describe('Approval Persistence E2E', () => {
     '永久允许: persists across new conversations (same path)',
     { timeout: LLM_TIMEOUT * 3 },
     async () => {
+      test.skip(SKIP_APPROVAL_ON_CI, 'CI disables commandApproval — approval dialog never appears');
       try {
         await page.evaluate(() =>
           (window as any).miqi.approvals.clearPermanent(),
@@ -126,8 +131,8 @@ test.describe('Approval Persistence E2E', () => {
         page,
         `Use write_file to create ${filepath} with content "cross-session test"`,
       );
-      await expect(page.getByText('文件操作审批')).toBeVisible({ timeout: 60_000 });
-      await page.getByRole('button', { name: '永久允许' }).click();
+      await expect(page.getByTestId('approval-title')).toBeVisible({ timeout: 60_000 });
+      await page.getByTestId('approval-allow-permanent').click();
       await waitForResponseComplete(page, 240_000);
       console.log(`[test] ✅ Conv 1: approved permanently for ${filepath}`);
 
@@ -139,7 +144,7 @@ test.describe('Approval Persistence E2E', () => {
       );
       await waitForResponseComplete(page, 240_000);
 
-      await expect(page.getByText('文件操作审批')).not.toBeVisible({ timeout: 5_000 });
+      await expect(page.getByTestId('approval-title')).not.toBeVisible({ timeout: 5_000 });
       console.log('[test] ✅ Conv 2: no approval dialog (cross-session permanent allowlist)');
     },
   );

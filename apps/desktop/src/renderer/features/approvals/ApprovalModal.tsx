@@ -33,7 +33,7 @@ export function ApprovalModal() {
         {/* Header */}
         <div className="flex items-center gap-2 px-5 py-3 bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] border-b border-[var(--danger)]">
           <Shield size={16} className="text-[var(--danger)] shrink-0" />
-          <span id="approval-title" className="text-sm font-semibold text-[var(--danger)]">
+          <span id="approval-title" className="text-sm font-semibold text-[var(--danger)]" data-testid="approval-title">
             {title}
           </span>
           <span className="ml-2 text-xs text-[var(--text-muted)] font-normal">
@@ -108,6 +108,7 @@ export function ApprovalModal() {
             <button
               onClick={() => resolve('always')}
               className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition-colors"
+              data-testid="approval-allow-permanent"
             >
               永久允许
             </button>
