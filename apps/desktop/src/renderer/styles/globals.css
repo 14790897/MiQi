@@ -73,7 +73,7 @@
   --tag-review-text: #a06000;
   --tag-completed-bg: rgba(32,102,208,0.12);   /* COMPLETED 标签（蓝色） */
   --tag-completed-text: #2066D0;
-  --tag-inprogress-bg: #1D4ED8;  /* IN-PROGRESS 标签（深蓝，满足对比度） */
+  --tag-inprogress-bg: #0F766E;  /* IN-PROGRESS 标签（深青绿） */
   --tag-inprogress-text: #FFFFFF;
   --tag-cc-bg: rgba(124,58,237,0.12);          /* CC 标签（紫色） */
   --tag-cc-text: #7C3AED;
@@ -127,7 +127,7 @@
   --tag-review-text: #facc15;
   --tag-completed-bg: rgba(96, 165, 250, 0.18);
   --tag-completed-text: #93c5fd;
-  --tag-inprogress-bg: #2563eb;
+  --tag-inprogress-bg: #14B8A6;
   --tag-inprogress-text: #ffffff;
   --tag-cc-bg: rgba(168, 85, 247, 0.18);
   --tag-cc-text: #c4b5fd;

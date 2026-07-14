@@ -46,7 +46,7 @@ export function useSessionStatus() {
           label: '进行中',
           bg: 'var(--tag-inprogress-bg)',
           color: 'var(--tag-inprogress-text)',
-          cardBg: 'color-mix(in srgb, var(--surface) 88%, var(--tag-inprogress-bg))',
+          cardBg: 'color-mix(in srgb, var(--surface) 90%, var(--tag-inprogress-bg))',
           cardBorder: 'color-mix(in srgb, var(--border-subtle) 70%, var(--tag-inprogress-bg))',
         };
       case 'REVIEW':
@@ -54,7 +54,7 @@ export function useSessionStatus() {
           label: '审阅',
           bg: 'var(--tag-review-bg)',
           color: 'var(--tag-review-text)',
-          cardBg: 'color-mix(in srgb, var(--surface) 88%, var(--tag-review-bg))',
+          cardBg: 'color-mix(in srgb, var(--surface) 75%, var(--tag-review-bg))',
           cardBorder: 'color-mix(in srgb, var(--border-subtle) 70%, var(--tag-review-text))',
         };
       case 'COMPLETED':
@@ -62,7 +62,7 @@ export function useSessionStatus() {
           label: '已完成',
           bg: 'var(--tag-completed-bg)',
           color: 'var(--tag-completed-text)',
-          cardBg: 'color-mix(in srgb, var(--surface) 88%, var(--tag-completed-bg))',
+          cardBg: 'color-mix(in srgb, var(--surface) 75%, var(--tag-completed-bg))',
           cardBorder: 'color-mix(in srgb, var(--border-subtle) 70%, var(--tag-completed-text))',
         };
       case 'CC':
@@ -70,7 +70,7 @@ export function useSessionStatus() {
           label: '旧标签',
           bg: 'var(--tag-cc-bg)',
           color: 'var(--tag-cc-text)',
-          cardBg: 'color-mix(in srgb, var(--surface) 88%, var(--tag-cc-bg))',
+          cardBg: 'color-mix(in srgb, var(--surface) 75%, var(--tag-cc-bg))',
           cardBorder: 'color-mix(in srgb, var(--border-subtle) 70%, var(--tag-cc-text))',
         };
       case 'PENDING':
