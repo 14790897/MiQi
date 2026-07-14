@@ -508,28 +508,97 @@ function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[
   }, [] as Message[]);
 }
 
-/** Parse tracked files from raw session messages (includes progress entries with _tool_hint). */
+/** File-operation tool names shared between progress-hint parsing and
+ *  onFinal tool_call tracking. Keep in sync with the backends that
+ *  produce file paths. */
+const _FILE_WRITE_TOOLS = [
+  'write_file',
+  'edit_file',
+  'delete_file',
+  'apply_patch',
+  'create_docx',
+  'create_xlsx',
+  'create_pptx',
+  'docx_write',
+  'xlsx_write',
+  'pptx_write',
+  'edit_docx',
+  'append_xlsx',
+];
+const _FILE_READ_TOOLS = ['read_file'];
+
+/** Extract a file path from a JSON-stringified tool args object.
+ *  Checks common keys: path, file_path, filename. */
+function _extractPathFromArgs(argsStr: string): string | null {
+  try {
+    const args = JSON.parse(argsStr);
+    return (args.path as string) || (args.file_path as string) || (args.filename as string) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Parse tracked files from raw session messages.
+ *  Handles three formats:
+ *  1. _tool_hint metadata (from progress events, persisted by some backends)
+ *  2. tool_calls array on assistant messages (raw provider format)
+ *  3. name field on tool result messages (raw provider format)
+ */
 function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
   const fileMap = new Map<string, TrackedFile>();
   const rank: Record<TrackedFile['op'], number> = { read: 0, edit: 1, write: 2, delete: 3 };
 
+  const upsert = (path: string, op: TrackedFile['op'], timestamp?: string) => {
+    const key = path.replace(/\\/g, '/');
+    const existing = fileMap.get(key);
+    if (!existing || rank[op] > rank[existing.op]) {
+      fileMap.set(key, {
+        path: key,
+        name: basename(key),
+        op,
+        lastSeen: timestamp ? new Date(timestamp).getTime() : Date.now(),
+        truncated: false,
+      });
+    }
+  };
+
   for (const msg of rawMsgs) {
-    // Prefer _tool_hint_text (full path, from persisted session) over content (may be truncated)
+    // Format 1: _tool_hint metadata (persisted progress events)
     const hintText = msg._tool_hint_text || msg.content;
     if (msg._tool_hint && hintText) {
       const parsed = parseToolHint(hintText);
       if (parsed) {
-        const key = parsed.path;
-        const existing = fileMap.get(key);
-        if (!existing || rank[parsed.op] > rank[existing.op]) {
-          fileMap.set(key, {
-            path: key,
-            name: basename(key),
-            op: parsed.op,
-            lastSeen: msg.timestamp ? new Date(msg.timestamp).getTime() : Date.now(),
-            truncated: parsed.truncated,
-          });
+        upsert(parsed.path, parsed.op, msg.timestamp);
+      }
+    }
+
+    // Format 2: assistant messages with tool_calls array
+    if (Array.isArray(msg.tool_calls)) {
+      for (const tc of msg.tool_calls) {
+        const fn = tc?.function || tc?.tool?.function || {};
+        const toolName: string = fn?.name || '';
+        if (!toolName) continue;
+        const argsStr: string = fn?.arguments || '{}';
+        const filePath = _extractPathFromArgs(argsStr);
+        if (!filePath) continue;
+        if (_FILE_WRITE_TOOLS.includes(toolName)) {
+          upsert(filePath, toolName === 'delete_file' ? 'delete' : 'write', msg.timestamp);
+        } else if (_FILE_READ_TOOLS.includes(toolName)) {
+          upsert(filePath, 'read', msg.timestamp);
         }
+      }
+    }
+
+    // Format 3: tool result messages with name field
+    if (msg.role === 'tool' && msg.name) {
+      const toolName: string = msg.name;
+      // Try to extract path from content (often contains the file path)
+      const contentPath = parseToolHint(String(msg.content || ''));
+      if (contentPath) {
+        upsert(contentPath.path, contentPath.op, msg.timestamp);
+      } else if (_FILE_WRITE_TOOLS.includes(toolName)) {
+        // Tool result without parsable content — try to infer from tool name
+        // (best-effort; actual path is in the paired assistant tool_calls message)
       }
     }
   }
@@ -767,19 +836,32 @@ export function ChatConsole({
         setMessages(uiMsgs);
         setSessionUpdatedAt((detail as any)?.updated_at ?? null);
         // Restore tracked files from dedicated tracked_files.json
-        const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
-        if (currentSessionRef.current !== sessionKey) return;
-        const tfList = (tfResult as any)?.tracked_files ?? [];
-        setTrackedFiles(
-          tfList.map((f: any) => ({
-            path: f.path,
+        let tfList: any[] = [];
+        try {
+          const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
+          if (currentSessionRef.current !== sessionKey) return;
+          tfList = (tfResult as any)?.tracked_files ?? [];
+        } catch {
+          // backend failure is non-fatal — fall through to message extraction
+        }
+        // Also extract tracked files from session messages (fallback when
+        // tracked_files.json is empty — agent tools don't persist there).
+        const fromMessages = extractTrackedFilesFromMessages(rawMsgs);
+        // Merge: backend data takes priority, messages fill gaps
+        const mergedMap = new Map<string, TrackedFile>();
+        for (const f of fromMessages) mergedMap.set(f.path, f);
+        for (const f of tfList as any[]) {
+          const normPath = (f.path as string).replace(/\\/g, '/');
+          mergedMap.set(normPath, {
+            path: normPath,
             name: f.name,
             op: f.op,
             lastSeen: f.lastSeen,
-          }))
-        );
-      } catch {
-        /* session doesn't exist yet */
+          });
+        }
+        setTrackedFiles(Array.from(mergedMap.values()));
+      } catch (err) {
+        console.warn('[ChatConsole] Failed to load session data:', err);
       }
       setHistoryLoaded(true);
     };
@@ -1167,33 +1249,11 @@ export function ChatConsole({
         // Office tools (create_docx, etc.) don't always produce progress
         // hints that match parseToolHint patterns, so we extract file
         // paths directly from the final tool call list.
-        const _FILE_WRITE_TOOLS = [
-          'write_file',
-          'edit_file',
-          'delete_file',
-          'apply_patch',
-          'create_docx',
-          'create_xlsx',
-          'create_pptx',
-          'docx_write',
-          'xlsx_write',
-          'pptx_write',
-          'edit_docx',
-          'append_xlsx',
-        ];
-        const _FILE_READ_TOOLS = ['read_file'];
         for (const tc of (data.tool_calls ?? []) as any[]) {
           const fn = tc?.function || tc?.tool?.function || {};
           const toolName: string = fn?.name || '';
           if (!toolName) continue;
-          let args: Record<string, unknown> = {};
-          try {
-            args = JSON.parse(fn?.arguments || '{}');
-          } catch {
-            continue;
-          }
-          const filePath: string =
-            (args.path as string) || (args.file_path as string) || (args.filename as string) || '';
+          const filePath: string = _extractPathFromArgs(fn?.arguments || '{}') || '';
           if (!filePath) continue;
           if (_FILE_WRITE_TOOLS.includes(toolName)) {
             trackFile(filePath, 'write', false);
