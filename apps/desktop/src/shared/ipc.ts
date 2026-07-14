@@ -46,7 +46,7 @@ export const IPC = {
   PROVIDERS_LIST: 'providers:list',
   PROVIDERS_TEST: 'providers:test',
   PROVIDERS_UPDATE: 'providers:update',
-  BUILTIN_MODEL_UNLOCK: 'builtin_model:unlock',
+  PROVIDERS_ACTIVATE: 'providers:activate',
   CHANNELS_LIST: 'channels:list',
   CHANNELS_UPDATE: 'channels:update',
   APPROVALS_LIST: 'approvals:list',
@@ -91,6 +91,8 @@ export const IPC = {
   FILES_DIFF: 'files:diff',
   FILES_REVERT: 'files:revert',
   FILES_ACCEPT: 'files:accept',
+  FILES_OPEN_EXTERNAL: 'files:openExternal',
+  FILES_OPEN_CONTAINING_FOLDER: 'files:openContainingFolder',
 
   // Python check
   PYTHON_CHECK: 'python:check',
@@ -102,7 +104,10 @@ export const IPC = {
   WSL_IMPORT_DISTRO: 'wsl:import_distro',
   WSL_GET_STATS: 'wsl:getStats',
 
-  // Write initial config (no bridge needed — used by Setup Wizard)
+  // Sandbox runtime toggle
+  SANDBOX_SET_ENABLED: 'sandbox:setEnabled',
+
+  // Write initial config (no bridge needed �? used by Setup Wizard)
   CONFIG_WRITE_INITIAL: 'config:write_initial',
 
   // Dialog
@@ -130,7 +135,7 @@ export const IPC = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// IPC event channels (main → renderer)
+// IPC event channels (main �? renderer)
 // ---------------------------------------------------------------------------
 
 export const IPC_EVENTS = {
@@ -200,10 +205,10 @@ export const ProviderUpdateInput = z.object({
   api_base: z.string().nullable().optional(),
   extra_headers: z.record(z.string()).nullable().optional(),
   model: z.string().optional(),
-  credential_source: z.enum(['user', 'builtin']).optional(),
 });
 
-export const BuiltinModelUnlockInput = z.object({
+export const ProviderActivateInput = z.object({
+  provider_name: z.string().min(1),
   activation_code: z.string().min(1),
 });
 
@@ -241,6 +246,7 @@ export interface RuntimeStatus {
   state: RuntimeState;
   configured: boolean;
   python_version?: string;
+  sandbox_available?: boolean;
   error?: string;
 }
 
@@ -278,15 +284,14 @@ export interface ProviderInfo {
   is_local: boolean;
   default_api_base: string;
   configured: boolean;
-  builtin_unlocked?: boolean;
-  credential_source?: 'user' | 'builtin' | 'missing';
-  active_credential?: 'user' | 'builtin' | 'missing';
   api_key_hint?: string | null;
   api_base: string | null;
   configured_model?: string;
   verification_status?: 'missing' | 'unverified' | 'success' | 'failed';
   verified_at?: string | null;
   verification_message?: string | null;
+  builtin_available?: boolean;
+  builtin_activated?: boolean;
 }
 
 export interface ProvidersListResult {
@@ -300,20 +305,9 @@ export interface ProviderUpdateResult {
   provider_name: string;
 }
 
-export interface BuiltinModelUnlockResult {
-  success: boolean;
-  provider?: string;
-  providers?: Array<{
-    provider: string;
-    models?: string[];
-    defaultModel?: string;
-  }>;
-  bundleId?: string | null;
-  licenseId?: string | null;
-  label?: string;
-  userKeyPresent?: boolean;
-  activatedModel?: boolean;
-  model?: string;
+export interface ProviderActivateResult {
+  activated: boolean;
+  provider_name: string;
   error?: string;
 }
 
@@ -703,6 +697,18 @@ export interface FilesRevertResult {
   path: string;
 }
 
+export interface FilesOpenExternalResult {
+  opened: boolean;
+  path: string;
+  error?: string;
+}
+
+export interface FilesOpenContainingFolderResult {
+  revealed: boolean;
+  path: string;
+  error?: string;
+}
+
 export interface TrackedFileInfo {
   path: string;
   op: 'read' | 'write' | 'edit' | 'delete';
@@ -717,7 +723,7 @@ export interface TrackedFileInfo {
 export interface ChatProgress {
   text: string;
   tool_hint: boolean;
-  stream?: string;
+  stream?: 'stdout' | 'stderr';
   delta?: string;
   tool_call_id?: string;
   /** Session key for frontend-side event filtering (fix #212).
@@ -957,4 +963,11 @@ export interface TurnInterruptResult {
 
 export interface ThreadStartedEvent {
   thread: Record<string, unknown>;
+}
+
+export interface SandboxSetEnabledResult {
+  enabled: boolean;
+  destroyed?: number;
+  already?: boolean;
+  initializing?: boolean;
 }

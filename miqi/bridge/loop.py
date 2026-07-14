@@ -131,12 +131,95 @@ class BridgeRuntimeLoop:
         # 5. Signal ready to Desktop (Electron bridge.ts waits for this)
         self._send({"type": "ready"})
 
+        # 5.5. Start sandbox manager initialization in background.
+        # First-run auto-install of WSL deps (apt-get) can take 60-120 s,
+        # so we fire-and-forget it here after the ready signal to avoid
+        # blocking the bridge handshake timeout.
+        asyncio.create_task(self._init_sandbox_manager())
+
         # 6. Drain request queue
         await self._drain_loop()
 
         # 7. Shutdown
         await self._shutdown()
 
+    # ── Sandbox manager initialization (background) ─────────────────────────
+
+    async def _init_sandbox_manager(self) -> None:
+        """Initialize the sandbox manager as a background task.
+
+        Runs after the "ready" handshake so that first-run WSL dependency
+        auto-install (apt-get install bubblewrap coreutils rsync) does not
+        block the bridge startup timeout.
+
+        On first-time installs the sandbox starts disabled so tools run
+        on the host.  This method re-enables it before initialize() so
+        that deps actually get installed.  get_or_create() still returns
+        None until _initialized is set (by the end of initialize()).
+        """
+        if self._bridge_state is None:
+            return
+        try:
+            self._bridge_state._ensure_sandbox_manager()
+        except Exception:
+            return
+        sandbox_mgr = getattr(self._bridge_state, "_sandbox_manager", None)
+        if sandbox_mgr is None or sandbox_mgr == "disabled":
+            return
+
+        # ── Auto-enable BEFORE initialize() ───────────────────────
+        # The SandboxManager is created with enabled=False so tools
+        # run locally during dep install.  Flip it to True now so
+        # initialize() actually runs is_available() + install deps.
+        # get_or_create() still returns None because _initialized is
+        # still False, so tools keep running locally until the end
+        # of this method.
+        need_auto_enable = not sandbox_mgr.enabled
+        if need_auto_enable:
+            sandbox_mgr.enabled = True
+            try:
+                from miqi.config.loader import save_config
+                config = self._bridge_state.load_config()
+                config.tools.sandbox.enabled = True
+                save_config(config)
+            except Exception as exc:
+                logger.warning(
+                    "sandbox auto-enable: config save failed: {}", exc,
+                )
+
+        log_msg = "Sandbox manager initialized"
+        try:
+            await sandbox_mgr.initialize()
+        except TypeError:
+            pass  # mock in tests — initialize() is not async
+        except Exception as exc:
+            logger.warning("Sandbox manager initialization failed: {}", exc)
+            if self._app_server is not None:
+                try:
+                    await self._app_server.emit_client_event(
+                        "desktop",
+                        "sandbox.ready",
+                        {"enabled": True, "initialized": False, "error": str(exc)},
+                    )
+                except Exception:
+                    pass
+            return
+
+        if need_auto_enable:
+            log_msg += " (auto-enabled after first-time install)"
+
+        logger.info(log_msg)
+
+        # Notify the frontend so the settings toggle updates.
+        if self._app_server is not None:
+            try:
+                await self._app_server.emit_client_event(
+                    "desktop",
+                    "sandbox.ready",
+                    {"enabled": True, "initialized": True},
+                )
+            except Exception:
+                pass  # best-effort notification
     # ── AppServer initialization ───────────────────────────────────────────
 
     async def _init_app_server(self) -> None:
@@ -175,6 +258,11 @@ class BridgeRuntimeLoop:
         # Register bridge-owned handlers
         self._app_server.register_method("status", self._status_handler, spec=protocol_specs.STATUS)
 
+        # Register sandbox runtime toggle
+        self._app_server.register_method(
+            "sandbox.setEnabled", self._sandbox_set_enabled_handler,
+        )
+
         # Register Phase 27.3: chat.send through AppServer
         self._app_server.register_method("chat.send", self._chat_send_handler)
 
@@ -200,16 +288,10 @@ class BridgeRuntimeLoop:
         from miqi.runtime.thread_app_handlers import register_codex_thread_handlers
         register_codex_thread_handlers(self._app_server)
 
-        # Initialize sandbox manager (shared across all agents)
-        if self._bridge_state is not None:
-            self._bridge_state._ensure_sandbox_manager()
-            sandbox_mgr = getattr(self._bridge_state, "_sandbox_manager", None)
-            if sandbox_mgr is not None and sandbox_mgr != "disabled":
-                try:
-                    await sandbox_mgr.initialize()
-                except TypeError:
-                    pass  # mock in tests — initialize() is not async
-                logger.info("Sandbox manager initialized")
+        # Sandbox manager initialization is deferred to _run() after the
+        # "ready" signal so that slow first-run auto-install of WSL
+        # dependencies (apt-get) does not block the bridge handshake.
+        # See _run() → _init_sandbox_manager().
 
         # Register Phase 37: Codex-style plugin and marketplace handlers
         from miqi.runtime.plugin_app_handlers import register_plugin_app_handlers
@@ -299,15 +381,15 @@ class BridgeRuntimeLoop:
 
         # Register Phase 35.2: providers.* handlers
         from miqi.runtime.provider_handlers import (
-            builtin_model_unlock_handler,
             providers_list_handler,
             providers_test_handler,
             providers_update_handler,
+            providers_activate_handler,
         )
         self._app_server.register_method("providers.list", providers_list_handler)
         self._app_server.register_method("providers.test", providers_test_handler)
         self._app_server.register_method("providers.update", providers_update_handler)
-        self._app_server.register_method("builtin_model.unlock", builtin_model_unlock_handler)
+        self._app_server.register_method("providers.activate", providers_activate_handler)
 
         # Register Phase 35.2: channels.* handlers
         from miqi.runtime.channel_handlers import (
@@ -892,144 +974,191 @@ class BridgeRuntimeLoop:
             logger.error("BridgeRuntimeLoop: stdin queue not initialized")
             return
 
+        # ── Concurrent dispatch ─────────────────────────────────────────
+        # Issue: a single slow request (e.g. first-time chat.send that
+        # triggers sandbox install) used to block every subsequent request
+        # because _drain_loop awaited dispatch serially.  We now dispatch
+        # each line as an independent task so a slow chat.send does not
+        # delay a fast thread/start (which is on the critical path for
+        # the user's first message in a new conversation).
+        #
+        # Concurrency is bounded by a semaphore so a flood of stdin
+        # lines cannot spawn an unbounded number of in-flight tasks.
+        in_flight: set[asyncio.Task] = set()
+        max_concurrent = 16
+        sem = asyncio.Semaphore(max_concurrent)
+        # Lazy init lock: must be created on the running event loop.
+        # asyncio.Lock() is safe to create here (we are inside _drain_loop,
+        # which is awaited from _run on the persistent loop).
+        self._init_lock = asyncio.Lock()
+
+        def _spawn(line: str) -> None:
+            async def _run() -> None:
+                async with sem:
+                    await self._dispatch_one_line(line)
+
+            task = asyncio.create_task(_run())
+            in_flight.add(task)
+            task.add_done_callback(in_flight.discard)
+
         while True:
             line = await queue.get()
             if line is None:  # EOF sentinel
                 logger.info("BridgeRuntimeLoop: stdin closed, stopping dispatch")
+                # Wait for any in-flight dispatch tasks to finish so that
+                # their stdout responses are flushed before we return.
+                if in_flight:
+                    await asyncio.gather(*in_flight, return_exceptions=True)
                 break
             if not line:
                 continue
+            _spawn(line)
 
-            req_id = "?"
+    async def _dispatch_one_line(self, line: str) -> None:
+        """Dispatch a single stdin line as an independent request.
+
+        Extracted from _drain_loop so that a slow handler (e.g. a first-time
+        chat.send that triggers sandbox install) does not block subsequent
+        requests on the stdin queue.  The outer _drain_loop wraps each call
+        in a fire-and-forget task; the AppServer's internal lock still
+        serializes state-mutating operations on the session registry.
+        """
+        send = self._send
+        app_server = self._app_server
+        dispatch_legacy = self._dispatch_legacy
+        conn_state = self._connection_state
+
+        req_id = "?"
+        try:
+            req = json.loads(line)
+            method = req.get("method", "")
+            # Notifications may not have an 'id' field
+            req_id = req.get("id", "?")
+            params = req.get("params", {})
+
+            # ── Phase 45: initialize handshake gate ──────────────────
+
+            if method == "initialize":
+                # Phase 45 hardening: reject repeated initialize
+                # at the transport level before calling AppServer.
+                if conn_state is not None and conn_state.initialized:
+                    send({
+                        "id": req_id,
+                        "error": "Already initialized",
+                        "code": "ALREADY_INITIALIZED",
+                        "recoverable": False,
+                    })
+                    return
+
+                response = await app_server.dispatch(
+                    request_id=req_id,
+                    method=method,
+                    params=params,
+                    client_id="pre-init",
+                    session_id=None,
+                )
+                # If initialize succeeded, update connection state.
+                # Use a per-loop lock to make initialize + connection-state
+                # mutation atomic with respect to other in-flight tasks.
+                async with self._init_lock:
+                    if conn_state is not None and not conn_state.initialized:
+                        if "result" in response:
+                            result = response["result"]
+                            cid = result.get("clientId")
+                            if cid:
+                                conn_state.client_id = cid
+                                conn_state.initialized = True
+                                conn_state.initialized_ack = False
+                                # Re-register event sink under the connected client_id
+                                self._migrate_event_sink(cid)
+                send(response)
+                return
+
+            if method == "initialized":
+                # Notification — no response, just advance state
+                if conn_state is not None and conn_state.initialized:
+                    conn_state.initialized_ack = True
+                # Do NOT send a response for notifications
+                return
+
+            # ── NOT_INITIALIZED gate ────────────────────────────────
+
+            if conn_state is None or not conn_state.initialized:
+                send({
+                    "id": req_id,
+                    "error": "Not initialized",
+                    "code": "NOT_INITIALIZED",
+                    "recoverable": False,
+                })
+                return
+
+            # ── Per-request client_id conflict check ────────────────
+
+            params_client_id = (
+                params.get("client_id")
+                or params.get("caller_id")
+                or params.get("user_id")
+            )
+            if params_client_id and params_client_id != conn_state.client_id:
+                send({
+                    "id": req_id,
+                    "error": (
+                        f"client_id mismatch: request claims "
+                        f"{params_client_id} but connection is "
+                        f"{conn_state.client_id}"
+                    ),
+                    "code": "INVALID_PARAMS",
+                    "recoverable": False,
+                })
+                return
+
+            # ── Normal dispatch with connection client_id ───────────
+
+            client_id = conn_state.client_id or self._resolve_client_id(params)
+            session_id = params.get("session_key") or params.get("session_id")
+            # Namespace session_key with client_id so the registry
+            # lookup matches {client_id}:{session_key} (create_session format).
+            # session_key may already contain ":" (e.g. "desktop:default").
+            if session_id and client_id:
+                prefix = f"{client_id}:"
+                if not session_id.startswith(prefix):
+                    session_id = f"{prefix}{session_id}"
+
+            # Check if this method is registered on AppServer
+            if method in getattr(app_server, "_methods", {}):
+                response = await app_server.dispatch(
+                    request_id=req_id,
+                    method=method,
+                    params=params,
+                    client_id=client_id,
+                    session_id=session_id,
+                )
+                send(response)
+            elif dispatch_legacy is not None:
+                # Legacy handler path (sync functions)
+                dispatch_legacy(req_id, method, params)
+            else:
+                send({
+                    "id": req_id,
+                    "error": f"Unknown method: {method}",
+                    "code": "UNKNOWN_METHOD",
+                    "recoverable": False,
+                })
+        except json.JSONDecodeError as exc:
+            logger.warning("BridgeRuntimeLoop: invalid JSON: {}", exc)
             try:
-                req = json.loads(line)
-                method = req.get("method", "")
-                # Notifications may not have an 'id' field
-                req_id = req.get("id", "?")
-                params = req.get("params", {})
-
-                # ── Phase 45: initialize handshake gate ──────────────────
-
-                if method == "initialize":
-                    # Phase 45 hardening: reject repeated initialize
-                    # at the transport level before calling AppServer.
-                    if conn_state is not None and conn_state.initialized:
-                        send({
-                            "id": req_id,
-                            "error": "Already initialized",
-                            "code": "ALREADY_INITIALIZED",
-                            "recoverable": False,
-                        })
-                        continue
-
-                    response = await app_server.dispatch(
-                        request_id=req_id,
-                        method=method,
-                        params=params,
-                        client_id="pre-init",
-                        session_id=None,
-                    )
-                    # If initialize succeeded, update connection state
-                    if "result" in response:
-                        result = response["result"]
-                        cid = result.get("clientId")
-                        if cid and conn_state is not None:
-                            conn_state.client_id = cid
-                            conn_state.initialized = True
-                            conn_state.initialized_ack = False
-                            # Re-register event sink under the connected client_id
-                            self._migrate_event_sink(cid)
-                    send(response)
-                    continue
-
-                if method == "initialized":
-                    # Notification — no response, just advance state
-                    if conn_state is not None and conn_state.initialized:
-                        conn_state.initialized_ack = True
-                    # Do NOT send a response for notifications
-                    continue
-
-                # ── NOT_INITIALIZED gate ────────────────────────────────
-
-                if conn_state is None or not conn_state.initialized:
-                    send({
-                        "id": req_id,
-                        "error": "Not initialized",
-                        "code": "NOT_INITIALIZED",
-                        "recoverable": False,
-                    })
-                    continue
-
-                # ── ALREADY_INITIALIZED gate (should not reach here; belt-and-suspenders) ──
-                # Already handled above — initialize skips this block.
-
-                # ── Per-request client_id conflict check ────────────────
-
-                params_client_id = (
-                    params.get("client_id")
-                    or params.get("caller_id")
-                    or params.get("user_id")
-                )
-                if params_client_id and params_client_id != conn_state.client_id:
-                    send({
-                        "id": req_id,
-                        "error": (
-                            f"client_id mismatch: request claims "
-                            f"{params_client_id} but connection is "
-                            f"{conn_state.client_id}"
-                        ),
-                        "code": "INVALID_PARAMS",
-                        "recoverable": False,
-                    })
-                    continue
-
-                # ── Normal dispatch with connection client_id ───────────
-
-                client_id = conn_state.client_id or self._resolve_client_id(params)
-                session_id = params.get("session_key") or params.get("session_id")
-                # Namespace session_key with client_id so the registry
-                # lookup matches {client_id}:{session_key} (create_session format).
-                # session_key may already contain ":" (e.g. "desktop:default").
-                if session_id and client_id:
-                    prefix = f"{client_id}:"
-                    if not session_id.startswith(prefix):
-                        session_id = f"{prefix}{session_id}"
-
-                # Check if this method is registered on AppServer
-                if method in getattr(app_server, "_methods", {}):
-                    response = await app_server.dispatch(
-                        request_id=req_id,
-                        method=method,
-                        params=params,
-                        client_id=client_id,
-                        session_id=session_id,
-                    )
-                    send(response)
-                elif dispatch_legacy is not None:
-                    # Legacy handler path (sync functions)
-                    dispatch_legacy(req_id, method, params)
-                else:
-                    send({
-                        "id": req_id,
-                        "error": f"Unknown method: {method}",
-                        "code": "UNKNOWN_METHOD",
-                        "recoverable": False,
-                    })
-            except json.JSONDecodeError as exc:
-                logger.warning("BridgeRuntimeLoop: invalid JSON: {}", exc)
-                try:
-                    send({"id": req_id, "error": "Invalid JSON"})
-                except Exception:
-                    pass
+                send({"id": req_id, "error": "Invalid JSON"})
             except Exception:
-                logger.error(
-                    "BridgeRuntimeLoop: unhandled error: {}",
-                    traceback.format_exc(),
-                )
-                try:
-                    send({"id": req_id, "error": "Internal bridge error"})
-                except Exception:
-                    pass
+                pass
+        except Exception:
+            logger.error(
+                "BridgeRuntimeLoop: unhandled error: {}",
+                traceback.format_exc(),
+            )
+            try:
+                send({"id": req_id, "error": "Internal bridge error"})
+            except Exception:
+                pass
 
     def _migrate_event_sink(self, client_id: str) -> None:
         """Re-register the Desktop event sink under the initialized *client_id*.
@@ -1072,6 +1201,95 @@ class BridgeRuntimeLoop:
         )
 
     # ── shutdown ───────────────────────────────────────────────────────────
+
+    # ── Sandbox runtime toggle ─────────────────────────────────────────────
+    async def _sandbox_set_enabled_handler(
+        self, request_id: str, params: dict, client_id: str,
+        session_id: str | None, registry: Any,
+    ) -> dict:
+        """AppServer handler for sandbox.setEnabled.
+
+        Enables or disables the bwrap sandbox at runtime without restarting.
+        When disabling, active sandboxes are destroyed.  When enabling, a new
+        SandboxManager is created and initialized.  The config is persisted
+        so the setting survives bridge restarts.
+        """
+        enabled = params.get("enabled", True)
+        if not isinstance(enabled, bool):
+            from miqi.runtime.app_server import AppServerError
+            raise AppServerError(
+                "sandbox.setEnabled: 'enabled' must be a boolean",
+                code="INVALID_PARAMS",
+            )
+
+        if self._bridge_state is None:
+            from miqi.runtime.app_server import AppServerError
+            raise AppServerError(
+                "Bridge state not available", code="INTERNAL",
+            )
+
+        # ── Persist to config ─────────────────────────────────────────
+        from miqi.config.loader import save_config
+        config = self._bridge_state.load_config()
+        config.tools.sandbox.enabled = enabled
+        try:
+            save_config(config)
+        except Exception as exc:
+            logger.error("sandbox.setEnabled: config save failed: {}", exc)
+            raise AppServerError(
+                "Failed to save config", code="INTERNAL",
+            ) from exc
+
+        old_mgr = getattr(self._bridge_state, "_sandbox_manager", None)
+
+        if enabled:
+            # ── Enable ────────────────────────────────────────────────
+            if old_mgr is not None and old_mgr != "disabled":
+                return {"result": {"enabled": True, "already": True}}
+
+            from miqi.sandbox.manager import SandboxManager
+
+            sb_cfg = getattr(config.tools, "sandbox", None)
+            new_mgr = SandboxManager(
+                workspace=config.workspace_path,
+                share_net=getattr(sb_cfg, "share_net", False),
+                enabled=True,
+                max_sandboxes=getattr(sb_cfg, "max_sandboxes", 10),
+                auto_cleanup=getattr(sb_cfg, "auto_cleanup", True),
+                auto_install_deps=getattr(sb_cfg, "auto_install_deps", True),
+                wsl_distro=getattr(sb_cfg, "wsl_distro", ""),
+                wsl_base_dir=getattr(sb_cfg, "wsl_base_dir", "/tmp/miqi-sandboxes"),
+            )
+            self._bridge_state._sandbox_manager = new_mgr
+            # Initialize in background (may trigger apt-get)
+            asyncio.create_task(self._init_sandbox_manager())
+            logger.info(
+                "sandbox.setEnabled: enabled (init in background) "
+                "(client={})", client_id,
+            )
+            return {"result": {"enabled": True, "initializing": True}}
+
+        else:
+            # ── Disable ───────────────────────────────────────────────
+            destroyed = 0
+            if old_mgr is not None and old_mgr != "disabled":
+                # Mark disabled BEFORE destroying, so existing sessions
+                # that still hold a reference to this manager will see
+                # get_or_create() return None instead of recreating
+                # sandboxes.
+                old_mgr.enabled = False
+                try:
+                    destroyed = await old_mgr.destroy_all()
+                except Exception as exc:
+                    logger.warning(
+                        "sandbox.setEnabled: destroy_all error: {}", exc,
+                    )
+            self._bridge_state._sandbox_manager = "disabled"
+            logger.info(
+                "sandbox.setEnabled: disabled, destroyed {} sandbox(es) "
+                "(client={})", destroyed, client_id,
+            )
+            return {"result": {"enabled": False, "destroyed": destroyed}}
 
     async def _shutdown(self) -> None:
         """Graceful shutdown sequence.

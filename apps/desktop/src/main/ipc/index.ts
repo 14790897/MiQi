@@ -2,7 +2,7 @@ import { electron } from '../../shared/electron';
 import { spawnSync } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { isAbsolute, join } from 'path';
 import type { BridgeManager } from '../bridge';
 import {
   IPC,
@@ -14,7 +14,7 @@ import {
   ConfigUpdateInput,
   ProviderTestInput,
   ProviderUpdateInput,
-  BuiltinModelUnlockInput,
+  ProviderActivateInput,
   ChannelsUpdateInput,
   CronCreateInput,
   CronUpdateInput,
@@ -40,11 +40,11 @@ import {
 } from '../../shared/ipc';
 import type { WslCheckResult, WslStatsResult } from '../../shared/ipc';
 
-const { ipcMain, dialog } = electron;
+const { ipcMain, dialog, shell } = electron;
 
 function readWorkspaceLogLines(
   projectRoot: string,
-  includeFile: (name: string) => boolean,
+  includeFile: (name: string) => boolean
 ): string[] {
   const logDir = join(projectRoot, 'workspace', 'logs');
   const lines: string[] = [];
@@ -75,6 +75,28 @@ function getConfigPath(): string {
   return join(getConfigDir(), 'config.json');
 }
 
+/** Resolve the workspace root directory — mirrors Python config.schema workspace_path property. */
+function getWorkspacePath(): string {
+  const config = readLocalConfig();
+  const agents = (config['agents'] as Record<string, unknown> | undefined) ?? {};
+  const defaults = (agents['defaults'] as Record<string, unknown> | undefined) ?? {};
+  const raw = (defaults['workspace'] as string) || '~/.miqi/workspace';
+
+  // When using the default path but MIQI_HOME is set, rebase like the Python side does
+  if (raw === '~/.miqi/workspace') {
+    const miqiHome = process.env['MIQI_HOME']?.trim();
+    if (miqiHome) return join(miqiHome, 'workspace');
+  }
+
+  // Expand ~ to home directory
+  if (raw.startsWith('~')) {
+    const stripSep = raw.startsWith('~/') || raw.startsWith('~\\');
+    return join(homedir(), raw.slice(stripSep ? 2 : 1));
+  }
+
+  return raw;
+}
+
 function readLocalConfig(): Record<string, unknown> {
   const configPath = getConfigPath();
   try {
@@ -86,7 +108,10 @@ function readLocalConfig(): Record<string, unknown> {
   }
 }
 
-function deepMergeConfig(base: Record<string, unknown>, updates: Record<string, unknown>): Record<string, unknown> {
+function deepMergeConfig(
+  base: Record<string, unknown>,
+  updates: Record<string, unknown>
+): Record<string, unknown> {
   const result: Record<string, unknown> = { ...base };
   for (const [key, value] of Object.entries(updates)) {
     const current = result[key];
@@ -109,7 +134,11 @@ function deepMergeConfig(base: Record<string, unknown>, updates: Record<string, 
   return result;
 }
 
-function writeLocalConfig(updates: Record<string, unknown>): { saved: boolean; path: string; offline: boolean } {
+function writeLocalConfig(updates: Record<string, unknown>): {
+  saved: boolean;
+  path: string;
+  offline: boolean;
+} {
   const configDir = getConfigDir();
   const configPath = getConfigPath();
   const merged = deepMergeConfig(readLocalConfig(), updates);
@@ -182,9 +211,8 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
 
   ipcMain.handle(IPC.RUNTIME_BACKEND_LOGS, () => {
     const backendPrefixes = ['bridge-', 'sandbox-', 'tool-', 'electron-main-'];
-    return readWorkspaceLogLines(
-      bridge.getProjectRoot(),
-      (name) => backendPrefixes.some((prefix) => name.startsWith(prefix)),
+    return readWorkspaceLogLines(bridge.getProjectRoot(), (name) =>
+      backendPrefixes.some((prefix) => name.startsWith(prefix))
     );
   });
 
@@ -197,7 +225,8 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         : 'INFO';
     const rawMessage = typeof entry.message === 'string' ? entry.message : 'Renderer log';
     // Cap message length to prevent log file bloat from runaway renderers
-    const message = rawMessage.length > 4096 ? rawMessage.slice(0, 4096) + '…[truncated]' : rawMessage;
+    const message =
+      rawMessage.length > 4096 ? rawMessage.slice(0, 4096) + '…[truncated]' : rawMessage;
     const sessionKey =
       typeof entry.sessionKey === 'string' && /^[\w:.-]{1,128}$/.test(entry.sessionKey)
         ? entry.sessionKey
@@ -348,18 +377,9 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     return bridge.send('providers.update', input as Record<string, unknown>);
   });
 
-  ipcMain.handle(IPC.BUILTIN_MODEL_UNLOCK, async (_event, payload: unknown) => {
-    const input = BuiltinModelUnlockInput.parse(payload);
-    try {
-      const result = await bridge.send(
-        'builtin_model.unlock',
-        input as Record<string, unknown>
-      ) as Record<string, unknown>;
-      return { success: true, ...result };
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { success: false, error: message };
-    }
+  ipcMain.handle(IPC.PROVIDERS_ACTIVATE, async (_event, payload: unknown) => {
+    const input = ProviderActivateInput.parse(payload);
+    return bridge.send('providers.activate', input as Record<string, unknown>);
   });
 
   // -----------------------------------------------------------------------
@@ -1060,6 +1080,21 @@ for m in ("pydantic", "httpx", "loguru"):
   );
 
   // -----------------------------------------------------------------------
+  // Sandbox runtime toggle
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.SANDBOX_SET_ENABLED, async (_event, enabled: boolean) => {
+    const res = await bridge.send('sandbox.setEnabled', { enabled });
+    const data = res as Record<string, unknown> | undefined;
+    if (data?.enabled === true) {
+      bridge.sandboxAvailable = data?.initializing === true ? false : true;
+    } else if (data?.enabled === false) {
+      bridge.sandboxAvailable = false;
+    }
+    bridge.emitState();
+    return res;
+  });
+
+  // -----------------------------------------------------------------------
   // Dialog (file open for workspace)
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.DIALOG_OPEN_FILE, async () => {
@@ -1250,6 +1285,52 @@ for m in ("pydantic", "httpx", "loguru"):
   ipcMain.handle(IPC.FILES_ACCEPT, async (_event, payload: unknown) => {
     const p = payload as { path: string; session_key?: string };
     return bridge.send('files.accept', p as Record<string, unknown>);
+  });
+
+  // -- Open file with system default application -------------------------
+  ipcMain.handle(IPC.FILES_OPEN_EXTERNAL, async (_event, payload: unknown) => {
+    const p = payload as { path: string };
+    const raw = p.path;
+    // Resolve to absolute: bridge works with workspace-relative paths
+    let absolutePath: string;
+    if (isAbsolute(raw)) {
+      absolutePath = raw;
+    } else {
+      absolutePath = join(getWorkspacePath(), raw);
+    }
+    try {
+      if (!existsSync(absolutePath)) {
+        return { opened: false, path: raw, error: `File not found: ${absolutePath}` };
+      }
+      const error = await shell.openPath(absolutePath);
+      if (error) {
+        return { opened: false, path: raw, error };
+      }
+      return { opened: true, path: raw };
+    } catch (e: any) {
+      return { opened: false, path: raw, error: e?.message ?? String(e) };
+    }
+  });
+
+  // -- Reveal file in system file manager (Explorer / Finder) ------------
+  ipcMain.handle(IPC.FILES_OPEN_CONTAINING_FOLDER, async (_event, payload: unknown) => {
+    const p = payload as { path: string };
+    const raw = p.path;
+    let absolutePath: string;
+    if (isAbsolute(raw)) {
+      absolutePath = raw;
+    } else {
+      absolutePath = join(getWorkspacePath(), raw);
+    }
+    try {
+      if (!existsSync(absolutePath)) {
+        return { revealed: false, path: raw, error: `File not found: ${absolutePath}` };
+      }
+      shell.showItemInFolder(absolutePath);
+      return { revealed: true, path: raw };
+    } catch (e: any) {
+      return { revealed: false, path: raw, error: e?.message ?? String(e) };
+    }
   });
 
   // -----------------------------------------------------------------------
@@ -1465,6 +1546,19 @@ for m in ("pydantic", "httpx", "loguru"):
           type === 'item/completed'
         ) {
           safeSend(`turn:event`, data);
+        } else if (type === 'item/commandExecution/outputDelta') {
+          // Exec real-time delta — stream to chat:progress for inline
+          // terminal output. Drop empty deltas.
+          const d = data as Record<string, unknown> | undefined;
+          if (d && typeof d.delta === 'string' && (d.delta as string).length > 0) {
+            safeSend('chat:progress', {
+              text: '',
+              tool_hint: true,
+              stream: d.stream,
+              delta: d.delta,
+              tool_call_id: d.itemId?.toString().split(':').pop(),
+            });
+          }
         } else if (type === 'approval_request') {
           safeSend('approval:request', data);
         } else if (type === 'approval_cleared') {

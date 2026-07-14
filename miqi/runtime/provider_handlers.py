@@ -41,30 +41,16 @@ PROVIDER_TEST_MODELS = {
 }
 
 
-def _provider_fingerprint(
-    provider_config: Any,
-    model: str | None = None,
-    builtin_state: dict[str, Any] | None = None,
-    credential_source: str | None = None,
-) -> str | None:
+def _provider_fingerprint(provider_config: Any, model: str | None = None) -> str | None:
     """Return a stable fingerprint for provider fields that affect verification."""
     if provider_config is None:
         return None
-    if credential_source == "builtin" and isinstance(builtin_state, dict) and builtin_state.get("enabled"):
-        payload = {
-            "credential_source": "builtin",
-            "builtin_provider": builtin_state.get("provider") or "",
-            "builtin_bundle": builtin_state.get("bundleId") or "",
-            "model": model or "",
-        }
-    else:
-        payload = {
-            "credential_source": credential_source or "user",
-            "api_key": getattr(provider_config, "api_key", "") or "",
-            "api_base": getattr(provider_config, "api_base", None) or "",
-            "extra_headers": getattr(provider_config, "extra_headers", None) or {},
-            "model": model or "",
-        }
+    payload = {
+        "api_key": getattr(provider_config, "api_key", "") or "",
+        "api_base": getattr(provider_config, "api_base", None) or "",
+        "extra_headers": getattr(provider_config, "extra_headers", None) or {},
+        "model": model or "",
+    }
     if not any(payload.values()):
         return None
     serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -101,110 +87,6 @@ def _set_provider_verification(
     }
 
 
-BUILTIN_MODEL_KEY = "builtinModel"
-PROVIDER_CREDENTIALS_KEY = "providerCredentials"
-
-
-def _builtin_model_store(config: Any) -> dict[str, Any]:
-    """Get/create the desktop['builtinModel'] state block. Never stores the key."""
-    desktop = getattr(config, "desktop", None)
-    if not isinstance(desktop, dict):
-        desktop = {}
-        config.desktop = desktop
-    store = desktop.get(BUILTIN_MODEL_KEY)
-    if not isinstance(store, dict):
-        store = {}
-        desktop[BUILTIN_MODEL_KEY] = store
-    return store
-
-
-def _provider_credentials_store(config: Any) -> dict[str, Any]:
-    desktop = getattr(config, "desktop", None)
-    if not isinstance(desktop, dict):
-        desktop = {}
-        config.desktop = desktop
-    store = desktop.get(PROVIDER_CREDENTIALS_KEY)
-    if not isinstance(store, dict):
-        store = {}
-        desktop[PROVIDER_CREDENTIALS_KEY] = store
-    active = store.get("active")
-    if not isinstance(active, dict):
-        active = {}
-        store["active"] = active
-    return store
-
-
-def _active_credential_for_provider(config: Any, provider_name: str) -> str | None:
-    desktop = getattr(config, "desktop", None)
-    if not isinstance(desktop, dict):
-        return None
-    store = desktop.get(PROVIDER_CREDENTIALS_KEY)
-    if not isinstance(store, dict):
-        return None
-    active = store.get("active")
-    if not isinstance(active, dict):
-        return None
-    source = active.get(provider_name)
-    return source if source in {"user", "builtin"} else None
-
-
-def _set_active_credential(config: Any, provider_name: str, source: str) -> None:
-    if source not in {"user", "builtin"}:
-        return
-    store = _provider_credentials_store(config)
-    store["active"][provider_name] = source
-
-
-def _effective_credential_source(
-    config: Any,
-    provider_name: str,
-    *,
-    configured: bool,
-    builtin_unlocked: bool,
-) -> str:
-    active = _active_credential_for_provider(config, provider_name)
-    if active == "builtin" and builtin_unlocked:
-        return "builtin"
-    if active == "user" and configured:
-        return "user"
-    if configured:
-        return "user"
-    if builtin_unlocked:
-        return "builtin"
-    return "missing"
-
-
-def _builtin_state_for_provider(config: Any, provider_name: str) -> dict[str, Any] | None:
-    desktop = getattr(config, "desktop", None)
-    if not isinstance(desktop, dict):
-        return None
-    state = desktop.get(BUILTIN_MODEL_KEY)
-    if not isinstance(state, dict):
-        return None
-    if not state.get("enabled"):
-        return None
-    providers = state.get("providers")
-    if isinstance(providers, list):
-        for item in providers:
-            if isinstance(item, dict) and item.get("provider") == provider_name:
-                provider_state = dict(item)
-                provider_state["bundleId"] = state.get("bundleId")
-                provider_state["licenseId"] = state.get("licenseId")
-                provider_state["enabled"] = True
-                return provider_state
-            if item == provider_name:
-                return state
-    if state.get("provider") == provider_name:
-        return state
-    return None
-
-
-def _is_provider_configured(config: Any, spec: Any, pc: Any) -> bool:
-    if pc is None:
-        return False
-    return bool(pc.api_key or pc.api_base)
-
-
 async def providers_list_handler(
     request_id: str,
     params: dict[str, Any],
@@ -224,41 +106,35 @@ async def providers_list_handler(
     model = config.agents.defaults.model
     model_provider = config.get_provider_name(model)
     verification_store = _provider_verification_store(config)
+    activation_store = _provider_activation_store(config)
 
     providers_out = []
     for spec in PROVIDERS:
         pc = getattr(config.providers, spec.name, None)
         api_key = pc.api_key if pc else None
         hint = None
-        if api_key and len(api_key) >= 8:
+        builtin_available = spec.name in _BUILTIN_PROVIDERS
+        builtin_activated = bool(
+            activation_store.get(spec.name, {}).get("builtin", False)
+        )
+        if builtin_activated:
+            # Hide the real key from the frontend for built-in activations
+            hint = "企业共享密钥"
+        elif api_key and len(api_key) >= 8:
             hint = api_key[:4] + "…" + api_key[-4:]
         elif api_key:
             hint = "***"
-        configured = _is_provider_configured(config, spec, pc)
-        builtin_state = _builtin_state_for_provider(config, spec.name)
-        builtin_unlocked = bool(builtin_state)
-        usable = configured or builtin_unlocked
-        credential_source = _effective_credential_source(
-            config,
-            spec.name,
-            configured=configured,
-            builtin_unlocked=builtin_unlocked,
-        )
+        configured = bool(pc and (pc.api_key or pc.api_base))
         provider_model = model if model_provider == spec.name else PROVIDER_TEST_MODELS.get(spec.name)
-        fingerprint = _provider_fingerprint(
-            pc,
-            provider_model,
-            builtin_state,
-            credential_source if credential_source != "missing" else None,
-        )
+        fingerprint = _provider_fingerprint(pc, provider_model)
         record = verification_store.get(spec.name)
         record_matches = (
-            usable
+            configured
             and fingerprint
             and isinstance(record, dict)
             and record.get("fingerprint") == fingerprint
         )
-        if not usable:
+        if not configured:
             verification_status = "missing"
         elif record_matches and record.get("status") in {"success", "failed"}:
             verification_status = str(record.get("status"))
@@ -274,15 +150,14 @@ async def providers_list_handler(
             "is_local": spec.is_local,
             "default_api_base": spec.default_api_base,
             "configured": configured,
-            "builtin_unlocked": builtin_unlocked,
-            "credential_source": credential_source,
-            "active_credential": credential_source,
             "api_key_hint": hint,
             "api_base": pc.api_base if pc else None,
             "configured_model": model if model_provider == spec.name else None,
             "verification_status": verification_status,
             "verified_at": record.get("checkedAt") if record_matches else None,
             "verification_message": record.get("message") if record_matches else None,
+            "builtin_available": builtin_available,
+            "builtin_activated": builtin_activated,
         })
 
     return {
@@ -338,9 +213,10 @@ async def providers_test_handler(
 
     # If no API key provided, read from current saved config
     if not api_key:
-        api_key = config.get_api_key(f"{provider_name}/{test_model}") or ""
-        if not api_base:
-            api_base = config.get_api_base(f"{provider_name}/{test_model}")
+        if pc is not None:
+            api_key = pc.api_key or ""
+            if not api_base:
+                api_base = pc.api_base
 
     if not api_key:
         raise AppServerError(
@@ -385,14 +261,7 @@ async def providers_test_handler(
         ok = finish_reason != "error" and not error_kind
         if not ok:
             raise RuntimeError(response.content or "Provider returned an error response")
-        builtin_state = _builtin_state_for_provider(config, provider_name)
-        credential_source = _effective_credential_source(
-            config,
-            provider_name,
-            configured=_is_provider_configured(config, spec, pc),
-            builtin_unlocked=bool(builtin_state),
-        )
-        fingerprint = _provider_fingerprint(pc, test_model, builtin_state, credential_source)
+        fingerprint = _provider_fingerprint(pc, test_model)
         if ok and should_persist_result and fingerprint:
             from miqi.config.loader import save_config
             _set_provider_verification(
@@ -406,14 +275,7 @@ async def providers_test_handler(
             state.config = config
         return {"result": {"ok": ok, "model": test_model}}
     except Exception as exc:
-        builtin_state = _builtin_state_for_provider(config, provider_name)
-        credential_source = _effective_credential_source(
-            config,
-            provider_name,
-            configured=_is_provider_configured(config, spec, pc),
-            builtin_unlocked=bool(builtin_state),
-        )
-        fingerprint = _provider_fingerprint(pc, test_model, builtin_state, credential_source)
+        fingerprint = _provider_fingerprint(pc, test_model)
         if should_persist_result and fingerprint:
             from miqi.config.loader import save_config
             _set_provider_verification(
@@ -479,40 +341,32 @@ async def providers_update_handler(
     model_override: str | None = None
     if "model" in params and params["model"]:
         model_override = str(params["model"]).strip()
-    credential_source = str(params.get("credential_source") or "").strip()
-    if credential_source and credential_source not in {"user", "builtin"}:
-        raise AppServerError("credential_source must be user or builtin", code="INVALID_PARAMS")
 
     if update.get("api_key") and "api_base" not in update and not getattr(pc, "api_base", None):
         default_api_base = spec.default_api_base if spec else ""
         if default_api_base:
             update["api_base"] = default_api_base
 
-    if not update and not model_override and not credential_source:
+    if not update and not model_override:
         raise AppServerError("No fields to update", code="INVALID_PARAMS")
 
-    new_pc = pc
     if update:
         current_dict = pc.model_dump(by_alias=False)
         current_dict.update(update)
         new_pc = ProviderConfig.model_validate(current_dict)
         setattr(config.providers, provider_name, new_pc)
-        if "api_key" in update and update["api_key"]:
-            credential_source = credential_source or "user"
         _set_provider_verification(
             config,
             provider_name,
             "unverified",
-            _provider_fingerprint(new_pc, config.agents.defaults.model, None, "user"),
+            _provider_fingerprint(new_pc, config.agents.defaults.model),
             "Provider settings changed; test again to verify",
         )
-
-    if credential_source == "builtin" and not _builtin_state_for_provider(config, provider_name):
-        raise AppServerError("Built-in credential is not unlocked", code="INVALID_PARAMS")
-    if credential_source == "user" and not _is_provider_configured(config, spec, new_pc):
-        raise AppServerError("User credential is not configured", code="INVALID_PARAMS")
-    if credential_source:
-        _set_active_credential(config, provider_name, credential_source)
+        # When user explicitly provides their own API key, clear the built-in
+        # activation flag so the UI defaults to "own key" next time.
+        if update.get("api_key"):
+            activation_store = _provider_activation_store(config)
+            activation_store.pop(provider_name, None)
 
     if model_override:
         config.agents.defaults.model = model_override
@@ -523,70 +377,131 @@ async def providers_update_handler(
     return {"result": {"saved": True, "provider_name": provider_name}}
 
 
-async def builtin_model_unlock_handler(
+# ---------------------------------------------------------------------------
+# Built-in credential: activation code → decrypt embedded API key
+# ---------------------------------------------------------------------------
+
+# Providers that support built-in (enterprise shared) keys
+_BUILTIN_PROVIDERS = {"deepseek"}
+
+# Encrypted API keys — generated with:
+#   python -c "from cryptography.fernet import Fernet; k=Fernet.generate_key(); f=Fernet(k); print('KEY:',k.decode()); print('TOKEN:',f.encrypt(b'sk-xxx').decode())"
+# The activation code is derived from the Fernet key (company-specific secret).
+# For MVP, we use a simple fixed activation code → key mapping.
+_BUILTIN_KEYS: dict[str, str] = {"deepseek": "gAAAAABqVghDC7Dd45IErvy2blWiV_whmHf55rpoUpts1rcW2DxYAJ9h6jw_jESjXrHWUPiDtkU1Hi7Kyk__IDhNO14jGfKvwGIs_byTMAYyfR2ZQiEXK_RpxdjJtGClbIIuF5UNivuc"}  # provider_name → encrypted_key
+
+# Default activation code — the company name / internal code
+_DEFAULT_ACTIVATION_CODE = "weiguanjiyuan5g"
+
+
+def _get_fernet() -> Any:
+    """Get Fernet instance for the built-in key encryption."""
+    from cryptography.fernet import Fernet
+    # Derive a Fernet key from the activation code (for MVP)
+    import base64
+    import hashlib
+    digest = hashlib.sha256(_DEFAULT_ACTIVATION_CODE.encode()).digest()
+    key = base64.urlsafe_b64encode(digest)
+    return Fernet(key)
+
+
+def _decrypt_builtin_key(provider_name: str) -> str | None:
+    """Decrypt the built-in API key for a provider. Returns None if not configured."""
+    token = _BUILTIN_KEYS.get(provider_name)
+    if not token:
+        return None
+    try:
+        fernet = _get_fernet()
+        return fernet.decrypt(token.encode()).decode()
+    except Exception:
+        return None
+
+
+async def providers_activate_handler(
     request_id: str,
     params: dict[str, Any],
     client_id: str,
     session_id: str | None,
     registry: Any,
 ) -> dict[str, Any]:
-    """Unlock and enable the bundled internal model credential."""
-    from miqi.config.loader import save_config
-    from miqi.providers.builtin_credentials import BUILTIN_KEY_PROVIDER
+    """Activate a provider's built-in enterprise API key with an activation code.
 
-    activation_code = str(params.get("activation_code") or "").strip()
+    The activation code is validated, and if correct, the built-in API key is
+    decrypted and stored in the provider config. The frontend never sees the
+    actual key — only the activation status.
+    """
+    from miqi.config.loader import save_config
+    from miqi.config.schema import ProviderConfig, ProvidersConfig
+
+    provider_name = params.get("provider_name", "").strip()
+    activation_code = params.get("activation_code", "").strip()
+
+    if not provider_name:
+        raise AppServerError("provider_name is required", code="INVALID_PARAMS")
     if not activation_code:
         raise AppServerError("activation_code is required", code="INVALID_PARAMS")
+    if provider_name not in _BUILTIN_PROVIDERS:
+        raise AppServerError(
+            f"Provider '{provider_name}' does not support built-in activation",
+            code="NOT_SUPPORTED",
+        )
 
-    metadata = BUILTIN_KEY_PROVIDER.unlock(activation_code)
-    if not metadata:
-        raise AppServerError("Invalid unlock code", code="INVALID_CODE")
+    # Validate activation code
+    if activation_code != _DEFAULT_ACTIVATION_CODE:
+        raise AppServerError("激活码无效", code="INVALID_CODE")
+
+    # Decrypt the built-in key
+    api_key = _decrypt_builtin_key(provider_name)
+    if not api_key:
+        raise AppServerError(
+            "未配置内置密钥，请联系管理员",
+            code="NO_BUILTIN_KEY",
+        )
 
     state = get_bridge_state(registry)
     config = state.load_config()
-    store = _builtin_model_store(config)
-    store.clear()
-    store["enabled"] = True
-    store["bundleId"] = metadata.get("bundleId")
-    store["licenseId"] = metadata.get("licenseId")
-    store["label"] = metadata.get("label") or ""
-    store["providers"] = metadata.get("providers") or []
-    sealed = BUILTIN_KEY_PROVIDER.sealed_credentials()
-    if sealed:
-        store["sealedCredential"] = sealed
+    pc = getattr(config.providers, provider_name, None)
+    if pc is None:
+        raise AppServerError(
+            f"Provider config not found: {provider_name}", code="NOT_FOUND",
+        )
 
-    provider_names = [
-        item.get("provider")
-        for item in store["providers"]
-        if isinstance(item, dict) and item.get("provider")
-    ]
-    user_key_present = any(
-        bool(getattr(getattr(config.providers, name, None), "api_key", ""))
-        for name in provider_names
-    )
-    for name in provider_names:
-        _set_active_credential(config, name, "builtin")
-    activated_model = False
-    default_model = ""
-    for item in store["providers"]:
-        if isinstance(item, dict):
-            default_model = str(item.get("defaultModel") or item.get("default_model") or "").strip()
-            if default_model:
-                break
-    if default_model:
-        config.agents.defaults.model = default_model
-        activated_model = True
+    # Write the decrypted key to provider config
+    current_dict = pc.model_dump(by_alias=False)
+    current_dict["api_key"] = api_key
+    new_pc = ProviderConfig.model_validate(current_dict)
+    setattr(config.providers, provider_name, new_pc)
+
+    # Mark as built-in activated so the frontend hides the real key
+    activation_store = _provider_activation_store(config)
+    activation_store[provider_name] = {
+        "builtin": True,
+        "activatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
     save_config(config)
     state.config = config
 
+    logger.info(
+        "providers.activate: provider={} activated via built-in key", provider_name,
+    )
+
     return {
         "result": {
-            "providers": store["providers"],
-            "bundleId": store["bundleId"],
-            "licenseId": store["licenseId"],
-            "label": store["label"],
-            "userKeyPresent": user_key_present,
-            "activatedModel": activated_model,
-            "model": config.agents.defaults.model,
+            "activated": True,
+            "provider_name": provider_name,
         }
     }
+
+
+def _provider_activation_store(config: Any) -> dict[str, Any]:
+    """Get or create the provider activation store in desktop config."""
+    desktop = getattr(config, "desktop", None)
+    if not isinstance(desktop, dict):
+        desktop = {}
+        config.desktop = desktop
+    store = desktop.get("providerActivation")
+    if not isinstance(store, dict):
+        store = {}
+        desktop["providerActivation"] = store
+    return store
