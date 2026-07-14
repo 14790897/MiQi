@@ -594,16 +594,19 @@ export function ChatConsole({
   // Keyboard shortcuts for mode switching
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && !e.shiftKey && !e.metaKey) {
-        if (e.key === 'e') {
+      // Use Ctrl+Shift to avoid conflicting with browser/OS shortcuts
+      // (Ctrl+A = Select All, Ctrl+P = Print, Ctrl+E = focus address bar)
+      if (streaming) return;
+      if (e.ctrlKey && e.shiftKey && !e.metaKey) {
+        if (e.key === 'E' || e.key === 'e') {
           e.preventDefault();
           setThreadMode('edit');
         }
-        if (e.key === 'p') {
+        if (e.key === 'P' || e.key === 'p') {
           e.preventDefault();
           setThreadMode('plan');
         }
-        if (e.key === 'a' && document.activeElement?.tagName !== 'TEXTAREA') {
+        if (e.key === 'A' || e.key === 'a') {
           e.preventDefault();
           setThreadMode('ask');
         }
@@ -611,7 +614,7 @@ export function ChatConsole({
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [streaming]);
 
   useEffect(() => {
     const unsub = window.miqi.agents?.onSpawned((data) => {
