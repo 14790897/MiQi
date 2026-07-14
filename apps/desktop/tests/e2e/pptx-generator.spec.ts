@@ -61,7 +61,7 @@ test.describe('PPTX Generator E2E', () => {
       await shot();
 
       // Wait for "Thinking…" to appear (AI started processing)
-      await expect(page.getByText('Thinking…')).toBeVisible({ timeout: 30_000 }).catch(() => {});
+      await expect(page.getByTestId('thinking-indicator')).toBeVisible({ timeout: 30_000 }).catch(() => {});
       console.log('[test] AI started processing');
       await shot();
 
@@ -74,12 +74,12 @@ test.describe('PPTX Generator E2E', () => {
       // Wait for AI to finish, capturing frames along the way
       const deadline = Date.now() + 300_000;
       while (Date.now() < deadline) {
-        const thinking = await page.getByText('Thinking…').isVisible().catch(() => false);
+        const thinking = await page.getByTestId('thinking-indicator').isVisible().catch(() => false);
         if (!thinking) break;
         await page.waitForTimeout(8000);
         await shot();
       }
-      await expect(page.getByText('Thinking…')).toBeHidden({ timeout: 300_000 });
+      await expect(page.getByTestId('thinking-indicator')).toBeHidden({ timeout: 300_000 });
       await shot();
 
       // Verify pptx file was created + check 14 internal items
