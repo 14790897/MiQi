@@ -680,9 +680,14 @@ export function ChatConsole({
         const uiMsgs = sessionMsgsToUi(rawMsgs);
         setMessages(uiMsgs);
         // Restore tracked files from dedicated tracked_files.json
-        const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
-        if (currentSessionRef.current !== sessionKey) return;
-        const tfList = (tfResult as any)?.tracked_files ?? [];
+        let tfList: any[] = [];
+        try {
+          const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
+          if (currentSessionRef.current !== sessionKey) return;
+          tfList = (tfResult as any)?.tracked_files ?? [];
+        } catch {
+          // backend failure is non-fatal — fall through to message extraction
+        }
         // Also extract tracked files from session messages (fallback when
         // tracked_files.json is empty — agent tools don't persist there).
         const fromMessages = extractTrackedFilesFromMessages(rawMsgs);

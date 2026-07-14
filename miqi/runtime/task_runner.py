@@ -612,55 +612,50 @@ class TaskRunner:
                 steer_queue=steer_queue,
             )
 
-            # Phase 17: persist assistant messages and complete turn
-            if history_runtime is not None:
-                for message in result.messages_delta:
+            # Persist assistant messages to all stores in a single pass.
+            # Build the extra-fields mapping once per message so every
+            # persistence destination receives the same metadata.
+            for message in result.messages_delta:
+                role = message["role"]
+                content = message.get("content") or ""
+                extra_fields = {k: v for k, v in message.items() if k not in ("role", "content")}
+
+                if history_runtime is not None:
                     await history_runtime.append_message(
                         thread_id=thread_id,
                         turn_id=turn_id,
-                        role=message["role"],
-                        content=message.get("content") or "",
-                        payload={
-                            "message_fields": {
-                                k: v for k, v in message.items()
-                                if k not in {"role", "content"}
-                            },
-                        },
+                        role=role,
+                        content=content,
+                        payload={"message_fields": extra_fields},
                     )
+
+                # Dual-write to legacy SessionManager (independent of history_runtime
+                # so fallback JSONL is always populated). Forward all extra fields
+                # (tool_calls, name, tool_call_id, etc.) so get_history() preserves
+                # them and the frontend can reconstruct file operations.
+                await self._save_to_session_manager(
+                    role=role, content=content, **extra_fields,
+                )
+
+                if ledger is not None:
+                    await ledger.append_item(
+                        thread_id=thread_id,
+                        turn_id=turn_id,
+                        item_type="message",
+                        role=role,
+                        content=content,
+                        payload={"message_fields": extra_fields},
+                    )
+
+            if history_runtime is not None:
                 await history_runtime.complete_turn(
                     turn_id,
                     status="completed",
                     tools_used=result.tools_used,
                     token_usage=result.token_usage,
                 )
-            # Dual-write assistant messages to legacy SessionManager (runs
-            # independently of history_runtime so fallback JSONL is always populated).
-            # Forward all non-role/non-content fields (tool_calls, name, tool_call_id,
-            # etc.) so get_history() preserves them and the frontend can reconstruct
-            # file operations from stored messages.
-            for message in result.messages_delta:
-                extra = {k: v for k, v in message.items() if k not in ("role", "content")}
-                await self._save_to_session_manager(
-                    role=message["role"],
-                    content=message.get("content") or "",
-                    **extra,
-                )
-            # Phase 24: record assistant messages and turn completion in ledger
+            # Phase 24: complete turn in ledger
             if ledger is not None:
-                for message in result.messages_delta:
-                    await ledger.append_item(
-                        thread_id=thread_id,
-                        turn_id=turn_id,
-                        item_type="message",
-                        role=message.get("role"),
-                        content=message.get("content") or "",
-                        payload={
-                            "message_fields": {
-                                k: v for k, v in message.items()
-                                if k not in {"role", "content"}
-                            },
-                        },
-                    )
                 await ledger.append_item(
                     thread_id=thread_id,
                     turn_id=turn_id,
