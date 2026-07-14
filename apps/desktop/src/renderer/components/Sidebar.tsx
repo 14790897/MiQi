@@ -344,6 +344,7 @@ export function Sidebar({
           style={{ color: 'var(--text-faint)' }}
           onClick={() => onNavChange?.('settings')}
           data-testid="nav-system-settings"
+        >
           <Settings size={13} />
           <span>系统设置</span>
         </button>
