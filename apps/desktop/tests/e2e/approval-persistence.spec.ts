@@ -26,6 +26,9 @@ import {
 
 // ─── Test Suite ───────────────────────────────────────────────────
 
+const SKIP_APPROVAL_ON_CI =
+  !!process.env.CI;
+
 test.describe('Approval Persistence E2E', () => {
   let electronApp: ElectronApplication;
   let page: Page;
@@ -50,6 +53,7 @@ test.describe('Approval Persistence E2E', () => {
     '永久允许: same file path twice, second call auto-approves',
     { timeout: LLM_TIMEOUT * 3 },
     async () => {
+      test.skip(SKIP_APPROVAL_ON_CI, 'CI disables commandApproval — approval dialog never appears');
       // Ensure bridge ready, clear existing approvals
       await waitForBridgeInitialized(page);
       try {
@@ -112,6 +116,7 @@ test.describe('Approval Persistence E2E', () => {
     '永久允许: persists across new conversations (same path)',
     { timeout: LLM_TIMEOUT * 3 },
     async () => {
+      test.skip(SKIP_APPROVAL_ON_CI, 'CI disables commandApproval — approval dialog never appears');
       try {
         await page.evaluate(() =>
           (window as any).miqi.approvals.clearPermanent(),
