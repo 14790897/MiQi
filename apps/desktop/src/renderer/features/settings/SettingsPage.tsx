@@ -1087,7 +1087,7 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
 
       <Tabs.Root
         value={activeTab}
-        onValueChange={(v) => startTransition(() => setActiveTab(v as SettingsTab))}
+        onValueChange={(v) => setActiveTab(v as SettingsTab)}
         className="flex flex-col flex-1 min-h-0"
       >
         <Tabs.List className="flex gap-0 px-4 border-b border-[var(--border-subtle)] shrink-0 overflow-x-auto">
