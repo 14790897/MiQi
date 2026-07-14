@@ -172,6 +172,13 @@ export class BridgeManager extends EventEmitter {
   private initialized: boolean = false;
   private clientId: string = 'miqi-desktop';
   private stoppingPromise: Promise<void> | null = null;
+  get sandboxAvailable(): boolean {
+    return this._sandboxAvailable;
+  }
+
+  set sandboxAvailable(v: boolean) {
+    this._sandboxAvailable = v;
+  }
 
   constructor(projectRoot?: string) {
     super();
@@ -192,6 +199,7 @@ export class BridgeManager extends EventEmitter {
     return {
       state: this.state,
       configured: this.state === 'running',
+      sandbox_available: this.sandboxAvailable,
       error: this.state === 'error' ? 'Bridge process exited unexpectedly' : undefined,
     };
   }
@@ -288,6 +296,14 @@ export class BridgeManager extends EventEmitter {
               type: resp.eventType,
               data: resp.data,
             });
+
+            // Track sandbox availability from the Python bridge.
+            // sandbox.ready fires when _init_sandbox_manager() completes.
+            if (resp.eventType === 'sandbox.ready') {
+              const d = resp.data as Record<string, unknown> | undefined;
+              this.sandboxAvailable = d?.initialized === true;
+              this.emitState();
+            }
             return;
           }
 
@@ -617,9 +633,7 @@ export class BridgeManager extends EventEmitter {
     this.addLog(`[Hot Reload] Detected change in: ${filename}`);
 
     if (this.state !== 'running' || !this.initialized || this.restartInProgress) {
-      this.addLog(
-        `[Hot Reload] Ignoring change while bridge is ${this.state}`
-      );
+      this.addLog(`[Hot Reload] Ignoring change while bridge is ${this.state}`);
       return;
     }
 
@@ -853,7 +867,7 @@ export class BridgeManager extends EventEmitter {
     writeMainProcessLog(level, message, this.projectRoot, source);
   }
 
-  private emitState(): void {
+  emitState(): void {
     this.emit('state', this.getStatus());
   }
 }

@@ -1077,7 +1077,15 @@ for m in ("pydantic", "httpx", "loguru"):
   // Sandbox runtime toggle
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.SANDBOX_SET_ENABLED, async (_event, enabled: boolean) => {
-    return bridge.send('sandbox.setEnabled', { enabled });
+    const res = await bridge.send('sandbox.setEnabled', { enabled });
+    const data = res as Record<string, unknown> | undefined;
+    if (data?.enabled === true) {
+      bridge.sandboxAvailable = data?.initializing === true ? false : true;
+    } else if (data?.enabled === false) {
+      bridge.sandboxAvailable = false;
+    }
+    bridge.emitState();
+    return res;
   });
 
   // -----------------------------------------------------------------------
