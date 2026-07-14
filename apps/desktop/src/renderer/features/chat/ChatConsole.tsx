@@ -2040,7 +2040,7 @@ export function ChatConsole({
               <div className="flex items-center gap-1.5">
                 <LayoutGrid size={13} style={{ color: 'var(--text-muted)' }} />
                 <span className="text-xs font-semibold" style={{ color: 'var(--text)' }} data-testid="task-assets-title">
-                  Task Assets
+                  任务资产
                 </span>
               </div>
               <span className="text-xs font-medium" style={{ color: 'var(--text-faint)' }}>
@@ -2053,10 +2053,10 @@ export function ChatConsole({
                 <FileText size={28} style={{ color: 'var(--text-faint)', opacity: 0.35 }} />
                 <div className="flex flex-col items-center gap-1">
                   <p className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }} data-testid="task-assets-empty">
-                    No files yet.
+                    暂无文件
                   </p>
                   <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
-                    Agent operations will appear here.
+                    Agent 操作会显示在这里
                   </p>
                 </div>
               </div>
@@ -2065,7 +2065,7 @@ export function ChatConsole({
                 {/* Written / Edited files → Active for Edit */}
                 {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length > 0 && (
                   <>
-                    <SectionLabel label="ACTIVE FOR EDIT" />
+                    <SectionLabel label="编辑中" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'write' || f.op === 'edit')
@@ -2084,7 +2084,7 @@ export function ChatConsole({
                 {/* Read files → Referenced Context */}
                 {trackedFiles.filter((f) => f.op === 'read').length > 0 && (
                   <>
-                    <SectionLabel label="REFERENCED CONTEXT" />
+                    <SectionLabel label="引用上下文" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'read')
@@ -2102,7 +2102,7 @@ export function ChatConsole({
                 {/* Deleted files */}
                 {trackedFiles.filter((f) => f.op === 'delete').length > 0 && (
                   <>
-                    <SectionLabel label="DELETED" />
+                    <SectionLabel label="已删除" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'delete')
@@ -2133,11 +2133,11 @@ export function ChatConsole({
                       style={{ background: 'var(--warning)' }}
                     />
                     <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
-                      Proposed Changes
+                      修改建议
                     </span>
                   </div>
                   <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
-                    {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length} file(s)
+                    {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length} 个文件
                   </span>
                 </div>
                 <div className="flex flex-col gap-1.5 mb-3">
@@ -2194,8 +2194,8 @@ export function ChatConsole({
                 }
                 title={
                   trackedFiles.length === 0
-                    ? 'No changed files are available to merge'
-                    : 'Merge all tracked changes'
+                    ? '没有可合并的文件'
+                    : '合并所有跟踪的更改'
                 }
                 className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
                 style={{
@@ -2205,7 +2205,7 @@ export function ChatConsole({
                 }}
               >
                 {merging ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
-                {merging ? 'MERGING...' : 'MERGE ALL CHANGES'}
+                {merging ? '合并中...' : '合并所有更改'}
               </button>
               {trackedFiles.length === 0 && (
                 <p
@@ -2213,7 +2213,7 @@ export function ChatConsole({
                   className="mt-1.5 text-[11px] text-center"
                   style={{ color: 'var(--text-muted)' }}
                 >
-                  No changed files are available to merge.
+                  没有可合并的文件
                 </p>
               )}
             </div>
