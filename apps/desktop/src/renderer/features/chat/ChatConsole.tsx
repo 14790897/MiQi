@@ -31,6 +31,7 @@ import {
   Undo2,
   ListChecks,
   Settings,
+  ExternalLink,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -114,6 +115,126 @@ interface TrackedFile {
 }
 
 const OFFICE_FILE_RE = /\.(docx|xlsx|pptx)$/i;
+
+function relativeTimeLabel(timestamp?: number | string | null, now = Date.now()): string {
+  if (timestamp === undefined || timestamp === null) return '尚未更新';
+  const value = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp);
+  if (!Number.isFinite(value)) return '尚未更新';
+
+  const diff = now - value;
+  if (diff < 60_000) return '刚刚更新';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前更新`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前更新`;
+  return `${Math.floor(diff / 86_400_000)} 天前更新`;
+}
+
+export function buildTaskHeaderMeta(
+  updatedAt: number | string | null | undefined,
+  fileCount: number,
+  activePluginCount: number,
+  now = Date.now()
+): string {
+  const fileLabel = `${fileCount} 个文件`;
+  const pluginLabel = `${activePluginCount} 个启用插件`;
+  return `${relativeTimeLabel(updatedAt, now)} · ${fileLabel} · ${pluginLabel}`;
+}
+
+export function buildTaskShareText({
+  title,
+  meta,
+  messages,
+  files,
+}: {
+  title: string;
+  meta: string;
+  messages: Message[];
+  files: TrackedFile[];
+}): string {
+  const visibleMessages = messages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .slice(-8);
+  const messageLines =
+    visibleMessages.length > 0
+      ? visibleMessages.map((message) => {
+          const role = message.role === 'user' ? '用户' : 'MiQi';
+          const content = message.content.trim().replace(/\s+/g, ' ');
+          return `- ${role}: ${content || '(空消息)'}`;
+        })
+      : ['- 暂无对话内容'];
+  const fileLines =
+    files.length > 0
+      ? files.map((file) => `- ${file.name} (${file.op})`)
+      : ['- 暂无文件'];
+
+  return [
+    `# ${title}`,
+    '',
+    meta,
+    '',
+    '## 最近对话',
+    ...messageLines,
+    '',
+    '## 相关文件',
+    ...fileLines,
+  ].join('\n');
+}
+
+export function buildTaskReproContext({
+  sessionKey,
+  title,
+  meta,
+  messages,
+  files,
+}: {
+  sessionKey: string;
+  title: string;
+  meta: string;
+  messages: Message[];
+  files: TrackedFile[];
+}): string {
+  const visibleMessages = messages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .slice(-12);
+  const messageLines =
+    visibleMessages.length > 0
+      ? visibleMessages.map((message) => {
+          const role = message.role === 'user' ? '用户' : 'MiQi';
+          const content = message.content.trim().replace(/\s+/g, ' ');
+          return `- ${role}: ${content || '(空消息)'}`;
+        })
+      : ['- 暂无对话内容'];
+  const fileLines =
+    files.length > 0
+      ? files.map((file) => `- [${file.op}] ${file.path || file.name}`)
+      : ['- 暂无文件'];
+
+  return [
+    '# MiQi 任务复现上下文',
+    '',
+    `- 会话: ${sessionKey}`,
+    `- 标题: ${title}`,
+    `- 状态: ${meta}`,
+    '',
+    '## 最近对话',
+    ...messageLines,
+    '',
+    '## 相关文件',
+    ...fileLines,
+  ].join('\n');
+}
+
+export function getTaskShareDownloadName(title: string, timestamp = Date.now()): string {
+  const safeTitle =
+    title
+      .trim()
+      .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 48) || 'miqi-task';
+  const stamp = new Date(timestamp).toISOString().replace(/[:.]/g, '-');
+  return `${safeTitle}-${stamp}.md`;
+}
 
 /** Extract file path + operation from a tool-hint progress text.
  *  Nanobot tool hints look like:
@@ -431,6 +552,8 @@ export function ChatConsole({
   onOpenProviderSettings?: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [sessionUpdatedAt, setSessionUpdatedAt] = useState<string | null>(null);
+  const [clockTick, setClockTick] = useState(() => Date.now());
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
@@ -440,6 +563,33 @@ export function ChatConsole({
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(280);
   const panelResizing = useRef(false);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockTick(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadActivePlugins = async () => {
+      try {
+        const result = await window.miqi.plugins.list();
+        const plugins = (result as unknown as { plugins?: Array<{ status?: string }> })?.plugins;
+        if (!cancelled) {
+          setActivePluginCount((plugins ?? []).filter((plugin) => plugin.status === 'active').length);
+        }
+      } catch {
+        if (!cancelled) setActivePluginCount(0);
+      }
+    };
+
+    loadActivePlugins();
+    const timer = window.setInterval(loadActivePlugins, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   // Task Assets panel resize
   const handlePanelResizeStart = useCallback((e: React.MouseEvent) => {
@@ -496,6 +646,10 @@ export function ChatConsole({
     Record<string, { stdout: string; stderr: string; running: boolean }>
   >({});
   const [merging, setMerging] = useState(false);
+  const [activePluginCount, setActivePluginCount] = useState(0);
+  const [shareStatus, setShareStatus] = useState<'idle' | 'copied' | 'exported' | 'context'>(
+    'idle'
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
   const justOpened = useRef(false);
@@ -503,6 +657,7 @@ export function ChatConsole({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const unsubsRef = useRef<Array<() => void>>([]);
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shareFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef(sessionKey);
   // Track the active thread ID for new-protocol thread-aware conversations
   const currentThreadIdRef = useRef<string | null>(null);
@@ -599,6 +754,7 @@ export function ChatConsole({
     currentThreadIdRef.current = null; // Reset on session change
     setHistoryLoaded(false);
     setMessages([]);
+    setSessionUpdatedAt(null);
     setTrackedFiles([]);
     justOpened.current = true;
     userScrolledUp.current = false; // reset for new session
@@ -609,6 +765,7 @@ export function ChatConsole({
         const rawMsgs: any[] = (detail as any)?.messages ?? [];
         const uiMsgs = sessionMsgsToUi(rawMsgs);
         setMessages(uiMsgs);
+        setSessionUpdatedAt((detail as any)?.updated_at ?? null);
         // Restore tracked files from dedicated tracked_files.json
         const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
         if (currentSessionRef.current !== sessionKey) return;
@@ -684,8 +841,23 @@ export function ChatConsole({
     }
   }, []);
 
+  const showShareFeedback = useCallback((status: 'copied' | 'exported' | 'context') => {
+    if (shareFeedbackTimerRef.current) {
+      clearTimeout(shareFeedbackTimerRef.current);
+    }
+    setShareStatus(status);
+    shareFeedbackTimerRef.current = setTimeout(() => {
+      setShareStatus('idle');
+      shareFeedbackTimerRef.current = null;
+    }, 2000);
+  }, []);
+
   const cleanupListeners = useCallback(() => {
     clearFinalCleanupTimer();
+    if (shareFeedbackTimerRef.current) {
+      clearTimeout(shareFeedbackTimerRef.current);
+      shareFeedbackTimerRef.current = null;
+    }
     for (const unsub of unsubsRef.current) unsub();
     unsubsRef.current = [];
   }, [clearFinalCleanupTimer]);
@@ -1199,19 +1371,24 @@ export function ChatConsole({
 
   const handlePreview = useCallback(async (path: string) => {
     if (OFFICE_FILE_RE.test(path)) {
-      setPreviewFile({
-        path,
-        content:
-          'Office document created. Text preview is not available for .docx/.xlsx/.pptx files; open it from the workspace or Task Assets file entry.',
-      });
+      // Open directly with system default app (Word, Excel, PowerPoint) — no modal
+      window.miqi.files.openExternal(path).catch(() => {});
       return;
     }
     try {
       const result = await window.miqi.files.read(path);
-      setPreviewFile({
-        path,
-        content: result.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
-      });
+      if (result.is_binary) {
+        setPreviewFile({
+          path,
+          content:
+            'Binary file. Text preview is not available for this file type.\n\nUse the button below to open it with your system default application.',
+        });
+      } else {
+        setPreviewFile({
+          path,
+          content: result.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
+        });
+      }
     } catch {
       setPreviewFile({ path, content: `(Could not read file: ${path})` });
     }
@@ -1332,15 +1509,105 @@ export function ChatConsole({
     const raw = sessionKey.replace(/^desktop:/, '');
     const ts = parseInt(raw, 10);
     if (!isNaN(ts) && raw.length >= 13) {
-      return new Intl.DateTimeFormat('en-US', {
-        month: 'short',
+      return new Intl.DateTimeFormat('zh-CN', {
+        month: 'long',
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
+        hour12: false,
       }).format(new Date(ts));
     }
-    return raw.replace(/_/g, ' ') || 'New Task';
+    return raw.replace(/_/g, ' ') || '新任务';
   }, [messages, sessionKey]);
+
+  const taskHeaderInfo = useMemo(() => {
+    const latestMessageAt = messages.reduce<number | null>((latest, message) => {
+      if (!Number.isFinite(message.timestamp)) return latest;
+      return latest === null || message.timestamp > latest ? message.timestamp : latest;
+    }, null);
+    const updatedAt = latestMessageAt ?? sessionUpdatedAt;
+    return {
+      updatedLabel: relativeTimeLabel(updatedAt, clockTick),
+      fileLabel: `${trackedFiles.length} 个文件`,
+      pluginLabel: `${activePluginCount} 个启用插件`,
+      meta: buildTaskHeaderMeta(updatedAt, trackedFiles.length, activePluginCount, clockTick),
+    };
+  }, [activePluginCount, clockTick, messages, sessionUpdatedAt, trackedFiles.length]);
+
+  const getTaskShareSummary = useCallback(
+    () =>
+      buildTaskShareText({
+        title: sessionTitle,
+        meta: taskHeaderInfo.meta,
+        messages,
+        files: trackedFiles,
+      }),
+    [messages, sessionTitle, taskHeaderInfo.meta, trackedFiles]
+  );
+
+  const handleCopyTaskSummary = useCallback(async () => {
+    await navigator.clipboard.writeText(getTaskShareSummary());
+    showShareFeedback('copied');
+  }, [getTaskShareSummary, showShareFeedback]);
+
+  const handleExportTaskMarkdown = useCallback(() => {
+    const text = getTaskShareSummary();
+    const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = getTaskShareDownloadName(sessionTitle);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    showShareFeedback('exported');
+  }, [getTaskShareSummary, sessionTitle, showShareFeedback]);
+
+  const handleCopyReproContext = useCallback(async () => {
+    const text = buildTaskShareText({
+      title: sessionTitle,
+      meta: taskHeaderInfo.meta,
+      messages,
+      files: trackedFiles,
+    });
+    const context = buildTaskReproContext({
+      sessionKey,
+      title: sessionTitle,
+      meta: taskHeaderInfo.meta,
+      messages,
+      files: trackedFiles,
+    });
+    await navigator.clipboard.writeText(context || text);
+    showShareFeedback('context');
+  }, [messages, sessionKey, sessionTitle, showShareFeedback, taskHeaderInfo.meta, trackedFiles]);
+
+  const shareMenuItems = useMemo<ContextMenuAction[]>(
+    () => [
+      { label: '复制摘要', shortcut: '推荐', onSelect: handleCopyTaskSummary },
+      { label: '导出 Markdown', onSelect: handleExportTaskMarkdown },
+      {
+        label: '复制上下文',
+        shortcut: `${messages.filter((message) => message.role === 'user' || message.role === 'assistant').length} 条`,
+        divider: true,
+        onSelect: handleCopyReproContext,
+      },
+    ],
+    [handleCopyReproContext, handleCopyTaskSummary, handleExportTaskMarkdown, messages]
+  );
+
+  const shareButtonLabel =
+    shareStatus === 'copied'
+      ? '已复制摘要'
+      : shareStatus === 'exported'
+        ? '已导出'
+        : shareStatus === 'context'
+          ? '已复制上下文'
+          : '分享任务';
+
+  const shareButtonTone = shareStatus === 'idle' ? 'var(--text)' : 'var(--success)';
+  const shareButtonBackground = 'var(--surface-muted)';
+  const shareButtonBorder = 'var(--border-subtle)';
 
   return (
     <div
@@ -1398,7 +1665,10 @@ export function ChatConsole({
         }}
       >
         {/* Left: Logo */}
-        <span className="text-sm font-bold whitespace-nowrap shrink-0" style={{ color: 'var(--text)' }}>
+        <span
+          className="text-sm font-bold whitespace-nowrap shrink-0"
+          style={{ color: 'var(--text)' }}
+        >
           MiQi Desktop
         </span>
 
@@ -1423,7 +1693,7 @@ export function ChatConsole({
             <circle cx="11" cy="11" r="8" />
             <path d="m21 21-4.3-4.3" />
           </svg>
-          <span className="select-none">Search or use commands...</span>
+          <span className="select-none">搜索或输入命令...</span>
         </div>
 
         {/* Right: Badges + user + actions */}
@@ -1446,15 +1716,15 @@ export function ChatConsole({
 
           {/* More menu */}
           <ContextMenu
-            items={[{ label: 'Delete conversation', danger: true, onSelect: handleDeleteSession }]}
+            items={[{ label: '删除对话', danger: true, onSelect: handleDeleteSession }]}
           >
             {({ onContextMenu }) => (
-              <Tooltip content="More conversation actions">
+              <Tooltip content="更多对话操作">
                 <button
                   className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
                   onClick={onContextMenu}
-                  aria-label="More conversation actions"
-                  title="More conversation actions"
+                  aria-label="更多对话操作"
+                  title="更多对话操作"
                 >
                   <MoreHorizontal size={14} style={{ color: 'var(--text-faint)' }} />
                 </button>
@@ -1470,55 +1740,78 @@ export function ChatConsole({
         <div className="flex flex-col flex-1 overflow-hidden">
           {/* ── Sub header: task title + status (inside chat area) ── */}
           <div
-            className="flex items-center gap-3 px-5 h-8 border-b shrink-0"
+            className="flex items-center gap-3 px-5 min-h-12 border-b shrink-0"
             style={{
               background: 'var(--surface)',
               borderColor: 'var(--border-subtle)',
             }}
           >
-            <h2
-              className="text-[18px] font-semibold truncate leading-tight"
-              style={{ color: 'var(--text)' }}
-            >
-              {sessionTitle}
-            </h2>
-            <span className="tag-inprogress shrink-0">IN PROGRESS</span>
-            <span className="text-[13px] shrink-0" style={{ color: 'var(--text-muted)' }}>
-              Updated 2 mins ago · 2 linked files · 2 Active Plugins
-            </span>
-            <button
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ml-auto opacity-50"
-              style={{
-                background: 'var(--surface-muted)',
-                border: '1px solid var(--border-subtle)',
-                color: 'var(--text-muted)',
-                cursor: 'not-allowed',
-              }}
-              title="Coming soon"
-              aria-label="Share task, coming soon"
-            >
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            <div className="min-w-0 flex-1 flex items-center gap-2.5">
+              <h2
+                className="text-[16px] font-semibold truncate leading-[1.35]"
+                style={{ color: 'var(--text)' }}
               >
-                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
-                <polyline points="16 6 12 2 8 6" />
-                <line x1="12" y1="2" x2="12" y2="15" />
-              </svg>
-              Share Task
-            </button>
-            <Tooltip content="Toggle assets panel">
+                {sessionTitle}
+              </h2>
+              <span className="tag-inprogress shrink-0">{'\u8fdb\u884c\u4e2d'}</span>
+              <div
+                className="flex min-w-0 items-center gap-1.5 shrink-0 text-[12px] leading-none whitespace-nowrap"
+                aria-label={taskHeaderInfo.meta}
+                style={{ color: 'var(--text-faint)' }}
+              >
+                <span>{taskHeaderInfo.updatedLabel}</span>
+                <span aria-hidden="true">·</span>
+                <span>{taskHeaderInfo.fileLabel}</span>
+                <span aria-hidden="true">·</span>
+                <span>{taskHeaderInfo.pluginLabel}</span>
+              </div>
+            </div>
+            <div
+              className="flex shrink-0 items-stretch overflow-hidden rounded-md shadow-[0_1px_0_rgba(18,18,18,0.05)]"
+              style={{
+                background: shareButtonBackground,
+                border: `1px solid ${shareButtonBorder}`,
+              }}
+            >
+              <button
+                onClick={handleCopyTaskSummary}
+                className="flex h-7 min-w-[96px] items-center justify-center gap-1.5 px-3 text-xs font-semibold transition-colors whitespace-nowrap hover:brightness-95"
+                style={{
+                  color: shareButtonTone,
+                  cursor: 'pointer',
+                }}
+                title="复制任务摘要"
+                aria-label="复制任务摘要"
+              >
+                {shareStatus === 'idle' ? <Send size={12} /> : <Check size={12} />}
+                {shareButtonLabel}
+              </button>
+              <ContextMenu items={shareMenuItems} minWidth={180}>
+                {({ onContextMenu }) => (
+                  <Tooltip content="复制摘要、导出 Markdown 或复制上下文">
+                    <button
+                      onClick={onContextMenu}
+                      className="flex h-7 w-7 items-center justify-center transition-colors hover:brightness-95"
+                      style={{
+                        borderLeft: `1px solid ${shareButtonBorder}`,
+                        color: shareStatus === 'idle' ? 'var(--text-muted)' : 'var(--success)',
+                      }}
+                      title="更多分享方式"
+                      aria-label="更多分享方式"
+                      aria-haspopup="menu"
+                    >
+                      <ChevronDown size={12} />
+                    </button>
+                  </Tooltip>
+                )}
+              </ContextMenu>
+            </div>
+            <Tooltip content="显示或隐藏文件面板">
               <button
                 onClick={() => setPanelOpen((v) => !v)}
                 className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors shrink-0 ml-1"
-                title="Toggle assets panel"
-                aria-label="Toggle assets panel"
+                title="显示或隐藏文件面板"
+                aria-label="显示或隐藏文件面板"
               >
                 <LayoutGrid size={14} style={{ color: 'var(--text-faint)' }} />
               </button>
@@ -1549,10 +1842,10 @@ export function ChatConsole({
                   </div>
                   <div className="flex flex-col items-center gap-1">
                     <p className="text-[15px] font-medium" style={{ color: 'var(--text-muted)' }}>
-                      Start with a file, issue, or edit request
+                      从文件、问题或修改请求开始
                     </p>
                     <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
-                      Start a conversation to begin
+                      发起一段对话即可开始
                     </p>
                   </div>
                 </div>
@@ -1892,7 +2185,9 @@ export function ChatConsole({
               <button
                 onClick={handleMergeAll}
                 disabled={merging || trackedFiles.length === 0}
-                aria-describedby={trackedFiles.length === 0 ? 'merge-all-disabled-reason' : undefined}
+                aria-describedby={
+                  trackedFiles.length === 0 ? 'merge-all-disabled-reason' : undefined
+                }
                 title={
                   trackedFiles.length === 0
                     ? 'No changed files are available to merge'
@@ -1953,12 +2248,22 @@ export function ChatConsole({
                   {previewFile.path}
                 </span>
               </div>
-              <button
-                onClick={closePreview}
-                className="p-1 rounded hover:bg-[var(--surface-muted)] transition-colors shrink-0"
-              >
-                <X size={14} style={{ color: 'var(--text-faint)' }} />
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={() => window.miqi.files.openExternal(previewFile.path)}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors"
+                  title="Open with system default application"
+                >
+                  <ExternalLink size={12} />
+                  <span>系统应用打开</span>
+                </button>
+                <button
+                  onClick={closePreview}
+                  className="p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
+                >
+                  <X size={14} style={{ color: 'var(--text-faint)' }} />
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-auto p-4">
               <pre

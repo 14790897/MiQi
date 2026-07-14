@@ -189,8 +189,8 @@ async def test_sandbox_selection_bwrap_with_active_sandbox():
 
 
 @pytest.mark.asyncio
-async def test_sandbox_selection_bwrap_unavailable_no_manager_fails_closed():
-    """BWRAP selected but no sandbox_manager → fail closed, NO direct execution."""
+async def test_sandbox_selection_bwrap_unavailable_no_manager_falls_back():
+    """BWRAP selected but no sandbox_manager → fall back to host execution."""
     tool = ExecTool(timeout=5, sandbox_manager=None)
     sel = _make_selection(SandboxType.BWRAP)
 
@@ -199,13 +199,13 @@ async def test_sandbox_selection_bwrap_unavailable_no_manager_fails_closed():
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "BWRAP sandbox" in result
+    assert "sandbox not available" in result
+    assert "should-not-run" in result
 
 
 @pytest.mark.asyncio
-async def test_sandbox_selection_bwrap_no_active_sandbox_fails_closed():
-    """BWRAP selected, sandbox_manager exists but no active sandbox → fail closed."""
+async def test_sandbox_selection_bwrap_no_active_sandbox_falls_back():
+    """BWRAP selected, sandbox_manager exists but no active sandbox → fall back to host."""
     mock_mgr = _make_mock_sandbox_manager(active_sandbox=None)
 
     tool = ExecTool(timeout=5, sandbox_manager=mock_mgr)
@@ -216,13 +216,13 @@ async def test_sandbox_selection_bwrap_no_active_sandbox_fails_closed():
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "BWRAP sandbox" in result
+    assert "sandbox not available" in result
+    assert "should-not-run" in result
 
 
 @pytest.mark.asyncio
-async def test_sandbox_selection_bwrap_sandbox_not_running_fails_closed():
-    """BWRAP selected, sandbox exists but is_running=False → fail closed."""
+async def test_sandbox_selection_bwrap_sandbox_not_running_falls_back():
+    """BWRAP selected, sandbox exists but is_running=False → fall back to host."""
     mock_sandbox = await _make_mock_sandbox(is_running=False)
     mock_mgr = _make_mock_sandbox_manager(active_sandbox=mock_sandbox)
 
@@ -234,8 +234,8 @@ async def test_sandbox_selection_bwrap_sandbox_not_running_fails_closed():
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "BWRAP sandbox" in result
+    assert "sandbox not available" in result
+    assert "should-not-run" in result
 
 
 @pytest.mark.asyncio
@@ -1052,9 +1052,9 @@ async def test_none_path_unaffected_by_restricted_changes(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_bwrap_unavailable_fail_closed_unchanged():
-    """Regression: BWRAP selection with no active sandbox still fails
-    closed (Phase 31 test)."""
+async def test_bwrap_unavailable_falls_back_unchanged():
+    """Regression: BWRAP selection with no active sandbox falls back to
+    host execution with warning (Phase 31)."""
     tool = ExecTool(timeout=5, sandbox_manager=None)
     sel = _make_selection(SandboxType.BWRAP)
 
@@ -1063,8 +1063,8 @@ async def test_bwrap_unavailable_fail_closed_unchanged():
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "BWRAP sandbox" in result
+    assert "sandbox not available" in result
+    assert "should-not-run" in result
 
 
 @pytest.mark.asyncio

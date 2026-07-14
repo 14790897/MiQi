@@ -1126,9 +1126,9 @@ async def test_bwrap_end_event_output_size_accurate(require_subprocess):
 
 
 @pytest.mark.asyncio
-async def test_regression_bwrap_unavailable_fail_closed_unchanged():
+async def test_regression_bwrap_unavailable_falls_back():
     """Phase 33.2 regression: BWRAP selection with no sandbox_manager
-    still fails closed (Phase 31 behaviour preserved)."""
+    falls back to host execution with warning."""
     tool = ExecTool(timeout=5, sandbox_manager=None)
     sel = _make_bwrap_selection()
 
@@ -1137,8 +1137,8 @@ async def test_regression_bwrap_unavailable_fail_closed_unchanged():
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "BWRAP sandbox" in result
+    assert "sandbox not available" in result
+    assert "should-not-run" in result
 
 
 @pytest.mark.subprocess

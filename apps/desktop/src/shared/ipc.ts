@@ -90,6 +90,8 @@ export const IPC = {
   FILES_DIFF: 'files:diff',
   FILES_REVERT: 'files:revert',
   FILES_ACCEPT: 'files:accept',
+  FILES_OPEN_EXTERNAL: 'files:openExternal',
+  FILES_OPEN_CONTAINING_FOLDER: 'files:openContainingFolder',
 
   // Python check
   PYTHON_CHECK: 'python:check',
@@ -104,7 +106,7 @@ export const IPC = {
   // Sandbox runtime toggle
   SANDBOX_SET_ENABLED: 'sandbox:setEnabled',
 
-  // Write initial config (no bridge needed â€? used by Setup Wizard)
+  // Write initial config (no bridge needed ï¿½? used by Setup Wizard)
   CONFIG_WRITE_INITIAL: 'config:write_initial',
 
   // Dialog
@@ -132,7 +134,7 @@ export const IPC = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// IPC event channels (main â†? renderer)
+// IPC event channels (main ï¿½? renderer)
 // ---------------------------------------------------------------------------
 
 export const IPC_EVENTS = {
@@ -678,6 +680,18 @@ export interface FilesDiffResult {
 export interface FilesRevertResult {
   reverted: boolean;
   path: string;
+}
+
+export interface FilesOpenExternalResult {
+  opened: boolean;
+  path: string;
+  error?: string;
+}
+
+export interface FilesOpenContainingFolderResult {
+  revealed: boolean;
+  path: string;
+  error?: string;
 }
 
 export interface TrackedFileInfo {

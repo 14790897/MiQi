@@ -51,7 +51,7 @@ export function useSessionStatus() {
         };
       case 'REVIEW':
         return {
-          label: '审阅',
+          label: '待审阅',
           bg: 'var(--tag-review-bg)',
           color: 'var(--tag-review-text)',
           cardBg: 'color-mix(in srgb, var(--surface) 75%, var(--tag-review-bg))',
