@@ -233,7 +233,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
       <h3 className="text-sm font-semibold text-[var(--text)]">智能体配置</h3>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium text-[var(--text-muted)]">智能体名称</label>
+        <label className="text-[13px] font-medium text-[var(--text-muted)]">智能体名称</label>
         <Input
           value={agentName}
           onChange={(e) => setAgentName(e.target.value)}
@@ -242,7 +242,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium text-[var(--text-muted)]">工作目录</label>
+        <label className="text-[13px] font-medium text-[var(--text-muted)]">工作目录</label>
         <div className="flex gap-2">
           <Input
             value={workspace}
@@ -264,7 +264,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium text-[var(--text-muted)]">默认模型</label>
+        <label className="text-[13px] font-medium text-[var(--text-muted)]">默认模型</label>
         <Input
           value={model}
           onChange={(e) => setModel(e.target.value)}
@@ -274,7 +274,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-[var(--text-muted)]">Temperature</label>
+          <label className="text-[13px] font-medium text-[var(--text-muted)]">Temperature</label>
           <Input
             type="number"
             min="0"
@@ -286,7 +286,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-[var(--text-muted)]">Max Tokens</label>
+          <label className="text-[13px] font-medium text-[var(--text-muted)]">Max Tokens</label>
           <Input
             type="number"
             min="256"
@@ -436,7 +436,7 @@ function WebToolsTab() {
         </div>
         {(searchProvider === 'brave' || searchProvider === 'hybrid') && (
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-[var(--text-muted)]">
+            <label className="text-[13px] font-medium text-[var(--text-muted)]">
               Brave Search API Key
             </label>
             <div className="flex gap-2">
@@ -466,7 +466,7 @@ function WebToolsTab() {
         {(fetchProvider === 'ollama' || fetchProvider === 'hybrid') && (
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-[var(--text-muted)]">
+              <label className="text-[13px] font-medium text-[var(--text-muted)]">
                 Ollama web_fetch Base URL
               </label>
               <Input
@@ -476,7 +476,7 @@ function WebToolsTab() {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-[var(--text-muted)]">
+              <label className="text-[13px] font-medium text-[var(--text-muted)]">
                 Ollama web_fetch API Key
               </label>
               <Input
@@ -511,7 +511,7 @@ function WebToolsTab() {
         </div>
         {(papersProvider === 'hybrid' || papersProvider === 'semantic_scholar') && (
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-[var(--text-muted)]">
+            <label className="text-[13px] font-medium text-[var(--text-muted)]">
               Semantic Scholar API Key（可选）
             </label>
             <Input
@@ -565,7 +565,7 @@ function AppearanceTab() {
       <div className="p-6 max-w-lg flex flex-col gap-4">
         <h3 className="text-sm font-semibold text-[var(--text)]">外观</h3>
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-[var(--text-muted)]">主题</label>
+          <label className="text-[13px] font-medium text-[var(--text-muted)]">主题</label>
           <div className="flex items-stretch gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
             {modes.map(({ value, label, icon }) => (
               <button
@@ -895,8 +895,8 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
           <div className="w-10 h-10 rounded-full bg-[var(--surface-muted)] flex items-center justify-center mb-3">
             <Archive size={18} style={{ color: 'var(--text-faint)' }} />
           </div>
-          <p className="text-sm font-medium text-[var(--text-muted)] mb-1">暂无已归档的对话</p>
-          <p className="text-xs text-[var(--text-faint)]">在侧边栏右键对话选择"归档"即可移至此</p>
+          <p className="text-[13px] font-medium text-[var(--text-muted)] mb-1">暂无已归档的对话</p>
+          <p className="text-[11px] text-[var(--text-faint)]">在侧边栏右键对话选择"归档"即可移至此</p>
         </div>
       ) : (
         <div className="flex flex-col rounded-xl border border-[var(--border-subtle)] overflow-hidden">
@@ -907,17 +907,17 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
               style={{ borderBottom: '1px solid var(--border-subtle)' }}
             >
               <div className="flex-1 min-w-0">
-                <p className="text-sm truncate font-medium" style={{ color: 'var(--text)' }}>
+                <p className="text-[13px] truncate font-medium" style={{ color: 'var(--text)' }}>
                   {s.title || s.key}
                 </p>
-                <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
                   {formatTime(s.updated_at)}
                 </p>
               </div>
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => handleRestore(s.key, s.title || s.key)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition duration-150 hover:bg-[var(--surface)] hover:shadow-sm"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition duration-150 hover:bg-[var(--surface)] hover:shadow-sm"
                   style={{ color: 'var(--text-muted)' }}
                   title="恢复对话"
                 >
@@ -926,7 +926,7 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
                 </button>
                 <button
                   onClick={() => handleDelete(s.key, s.title || s.key)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition duration-150 hover:bg-[var(--danger-bg)]"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition duration-150 hover:bg-[var(--danger-bg)]"
                   style={{ color: 'var(--text-faint)' }}
                   title="永久删除"
                 >
@@ -1072,13 +1072,6 @@ function DocsTab() {
   );
 }
 
-function KeepAlive({ active, children }: { active: boolean; children: ReactNode }) {
-  const mounted = useRef(false);
-  if (active) mounted.current = true;
-  if (!mounted.current) return null;
-  return <div style={{ display: active ? undefined : 'none' }}>{children}</div>;
-}
-
 // ---- Main ----
 export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup?: () => void; tab?: SettingsTab }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(tab);
@@ -1133,59 +1126,59 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
           ))}
         </Tabs.List>
 
-        <Tabs.Content value="general" forceMount className="flex-1 overflow-y-auto">
-          <KeepAlive active={activeTab === "general"}><GeneralTab onReopenSetup={onReopenSetup} /></KeepAlive>
+        <Tabs.Content value="general" className="flex-1 overflow-y-auto">
+          <GeneralTab onReopenSetup={onReopenSetup} />
         </Tabs.Content>
-        <Tabs.Content value="providers" forceMount className="flex-1 overflow-y-auto">
-          <KeepAlive active={activeTab === "providers"}><ProvidersPage /></KeepAlive>
+        <Tabs.Content value="providers" className="flex-1 overflow-y-auto">
+          <ProvidersPage />
         </Tabs.Content>
-        <Tabs.Content value="channels" forceMount className="flex-1 overflow-y-auto">
-          <KeepAlive active={activeTab === "channels"}><ChannelsPage /></KeepAlive>
+        <Tabs.Content value="channels" className="flex-1 overflow-y-auto">
+          <ChannelsPage />
         </Tabs.Content>
-        <Tabs.Content value="approvals" forceMount className="flex-1 overflow-y-auto">
-          <KeepAlive active={activeTab === "approvals"}><ApprovalsPage /></KeepAlive>
+        <Tabs.Content value="approvals" className="flex-1 overflow-y-auto">
+          <ApprovalsPage />
         </Tabs.Content>
-        <Tabs.Content value="workspace" forceMount className="flex-1 overflow-y-auto">
-          <KeepAlive active={activeTab === "workspace"}><WorkspacePage /></KeepAlive>
+        <Tabs.Content value="workspace" className="flex-1 overflow-y-auto">
+          <WorkspacePage />
         </Tabs.Content>
-        <Tabs.Content value="agents" forceMount className="flex-1 overflow-y-auto">
-          <KeepAlive active={activeTab === "agents"}><AgentPanel /></KeepAlive>
+        <Tabs.Content value="agents" className="flex-1 overflow-y-auto">
+          <AgentPanel />
         </Tabs.Content>
-        <Tabs.Content value="skills" forceMount className="flex-1 overflow-y-auto">
-          <KeepAlive active={activeTab === "skills"}><SkillsPage /></KeepAlive>
+        <Tabs.Content value="skills" className="flex-1 overflow-y-auto">
+          <SkillsPage />
         </Tabs.Content>
-        <Tabs.Content value="mcps" forceMount className="flex-1 overflow-y-auto">
-          <KeepAlive active={activeTab === "mcps"}><MCPsPage /></KeepAlive>
+        <Tabs.Content value="mcps" className="flex-1 overflow-y-auto">
+          <MCPsPage />
         </Tabs.Content>
-        <Tabs.Content value="memory" forceMount className="flex-1 overflow-y-auto">
-          <KeepAlive active={activeTab === "memory"}><MemoryPage /></KeepAlive>
+        <Tabs.Content value="memory" className="flex-1 overflow-y-auto">
+          <MemoryPage />
         </Tabs.Content>
-        <Tabs.Content value="experience" forceMount className="flex-1 overflow-y-auto">
-          <KeepAlive active={activeTab === "experience"}><ExperiencePage /></KeepAlive>
+        <Tabs.Content value="experience" className="flex-1 overflow-y-auto">
+          <ExperiencePage />
         </Tabs.Content>
-        <Tabs.Content value="permissions" forceMount className="flex-1 overflow-y-auto">
-          <KeepAlive active={activeTab === "permissions"}><PermissionsPage /></KeepAlive>
+        <Tabs.Content value="permissions" className="flex-1 overflow-y-auto">
+          <PermissionsPage />
         </Tabs.Content>
-        <Tabs.Content value="plugins" forceMount className="flex-1 overflow-y-auto">
-          <KeepAlive active={activeTab === "plugins"}><PluginMarket /></KeepAlive>
+        <Tabs.Content value="plugins" className="flex-1 overflow-y-auto">
+          <PluginMarket />
         </Tabs.Content>
-        <Tabs.Content value="wsl" forceMount className="flex-1 overflow-y-auto">
-          <KeepAlive active={activeTab === "wsl"}><WslStatusPage /></KeepAlive>
+        <Tabs.Content value="wsl" className="flex-1 overflow-y-auto">
+          <WslStatusPage />
         </Tabs.Content>
-        <Tabs.Content value="webtools" forceMount className="flex-1 overflow-y-auto">
-          <KeepAlive active={activeTab === "webtools"}><WebToolsTab /></KeepAlive>
+        <Tabs.Content value="webtools" className="flex-1 overflow-y-auto">
+          <WebToolsTab />
         </Tabs.Content>
-        <Tabs.Content value="appearance" forceMount className="flex-1 overflow-y-auto">
-          <KeepAlive active={activeTab === "appearance"}><AppearanceTab /></KeepAlive>
+        <Tabs.Content value="appearance" className="flex-1 overflow-y-auto">
+          <AppearanceTab />
         </Tabs.Content>
-        <Tabs.Content value="logs" forceMount className="flex-1 min-h-0 flex flex-col">
-          <KeepAlive active={activeTab === "logs"}><LogsTab /></KeepAlive>
+        <Tabs.Content value="logs" className="flex-1 min-h-0 flex flex-col">
+          <LogsTab />
         </Tabs.Content>
-        <Tabs.Content value="archived" forceMount className="flex-1 overflow-y-auto">
-          <KeepAlive active={activeTab === "archived"}><ArchivedTab /></KeepAlive>
+        <Tabs.Content value="archived" className="flex-1 overflow-y-auto">
+          <ArchivedTab />
         </Tabs.Content>
-        <Tabs.Content value="docs" forceMount className="flex-1 min-h-0 flex flex-col">
-          <KeepAlive active={activeTab === "docs"}><DocsTab /></KeepAlive>
+        <Tabs.Content value="docs" className="flex-1 min-h-0 flex flex-col">
+          <DocsTab />
         </Tabs.Content>
       </Tabs.Root>
     </div>
