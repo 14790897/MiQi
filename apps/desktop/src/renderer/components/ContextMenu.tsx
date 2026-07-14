@@ -10,6 +10,8 @@ export interface ContextMenuAction {
   danger?: boolean;
   /** Divider before this item */
   divider?: boolean;
+  /** Optional icon to show before label */
+  icon?: ReactNode;
   onSelect: () => void;
 }
 
@@ -130,7 +132,10 @@ export function ContextMenu({ children, items, minWidth = 180 }: Props) {
                         : 'text-[var(--text)] hover:bg-[var(--surface-muted)]'
                   }`}
                 >
-                  <span>{item.label}</span>
+                  <span className="flex items-center gap-2">
+                    {item.icon && <span className="w-4 h-4 flex items-center justify-center shrink-0">{item.icon}</span>}
+                    {item.label}
+                  </span>
                   {item.shortcut && (
                     <span className="text-[var(--text-faint)] shrink-0">{item.shortcut}</span>
                   )}

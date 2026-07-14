@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { cn } from '../lib/utils';
-import { Plus, ListChecks } from 'lucide-react';
+import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive } from 'lucide-react';
 import { MiQiLogo } from './MiQiLogo';
 import { ContextMenu } from './ContextMenu';
 import { useSessionStatus, type SessionStatus } from '../hooks/useSessionStatus';
@@ -25,11 +25,11 @@ function relativeTime(iso?: string): string {
   const d = new Date(iso);
   const now = new Date();
   const diff = now.getTime() - d.getTime();
-  if (diff < 60_000) return 'Just now';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} mins ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} hours ago`;
-  if (diff < 2 * 86_400_000) return 'Yesterday';
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (diff < 60_000) return '刚刚';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  if (diff < 2 * 86_400_000) return '昨天';
+  return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
 }
 
 interface SidebarProps {
@@ -142,12 +142,12 @@ export function Sidebar({
       <div className="flex items-center gap-2.5 px-4 py-3 shrink-0">
         <MiQiLogo size={28} />
         <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
-          Tasks
+          任务
         </span>
         <button
           onClick={onNewSession}
           className="ml-auto w-6 h-6 rounded flex items-center justify-center transition-colors hover:bg-[var(--surface-muted)]"
-          title="New Session"
+          title="新建会话"
         >
           <Plus size={14} style={{ color: 'var(--text-faint)' }} />
         </button>
@@ -201,28 +201,34 @@ export function Sidebar({
                   items={[
                     {
                       label: '标记为进行中',
+                      icon: <Play size={13} />,
                       onSelect: () => setStatus(s.key, 'IN-PROGRESS'),
                     },
                     {
                       label: '标记为待处理',
+                      icon: <Clock size={13} />,
                       onSelect: () => setStatus(s.key, 'PENDING'),
                     },
                     {
                       label: '标记为审阅',
+                      icon: <Eye size={13} />,
                       onSelect: () => setStatus(s.key, 'REVIEW'),
                     },
                     {
                       label: '标记为已完成',
+                      icon: <CheckCircle2 size={13} />,
                       divider: true,
                       onSelect: () => setStatus(s.key, 'COMPLETED'),
                     },
                     {
                       label: '重置状态',
+                      icon: <RotateCcw size={13} />,
                       danger: true,
                       onSelect: () => clearStatus(s.key),
                     },
                     {
                       label: '归档',
+                      icon: <Archive size={13} />,
                       divider: true,
                       onSelect: async () => {
                         try {
@@ -286,13 +292,14 @@ export function Sidebar({
         className="shrink-0 px-4 py-2.5 border-t flex items-center justify-between"
         style={{ borderColor: 'var(--sidebar-border)' }}
       >
-        <span
-          className="text-[11px] cursor-pointer hover:text-[var(--text)] settings-hover-sidebar"
+        <button
+          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition-all duration-150 hover:text-[var(--text)]"
           style={{ color: 'var(--text-faint)' }}
           onClick={() => onNavChange?.('settings')}
         >
-          System Settings
-        </span>
+          <Settings size={13} />
+          <span>系统设置</span>
+        </button>
         <span
           className="text-[10px] font-mono"
           style={{ color: 'var(--text-faint)' }}
