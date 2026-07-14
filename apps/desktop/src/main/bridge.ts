@@ -172,6 +172,8 @@ export class BridgeManager extends EventEmitter {
   private initialized: boolean = false;
   private clientId: string = 'miqi-desktop';
   private stoppingPromise: Promise<void> | null = null;
+  private _sandboxAvailable: boolean = false;
+
   get sandboxAvailable(): boolean {
     return this._sandboxAvailable;
   }
