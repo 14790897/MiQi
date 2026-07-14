@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
+import { cn } from '../lib/utils';
 
 interface ApprovalBypassStatus {
   bypassAll?: boolean;
@@ -48,18 +49,22 @@ export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: ()
     if (!enabled) setDismissed(false);
   }, [enabled]);
 
-  // Auto-dismiss after 5 seconds
+  // Auto-dismiss after 3 seconds
   useEffect(() => {
     if (!enabled || dismissed) return;
-    const t = setTimeout(() => setDismissed(true), 5000);
+    const t = setTimeout(() => setDismissed(true), 3000);
     return () => clearTimeout(t);
   }, [enabled, dismissed]);
 
-  if (!enabled || dismissed) return null;
+  if (!enabled) return null;
 
   return (
     <div
-      className="approval-bypass-island fixed left-1/2 top-12 z-50 flex max-w-[min(720px,calc(100vw-24px))] items-center gap-2 rounded-full border px-3 py-2 text-xs backdrop-blur"
+      className={cn(
+        'approval-bypass-island fixed left-1/2 top-12 z-50 flex max-w-[min(720px,calc(100vw-24px))] items-center gap-2 rounded-full border px-3 py-2 text-xs backdrop-blur',
+        'transition-opacity duration-300',
+        dismissed ? 'opacity-0 pointer-events-none' : 'opacity-100',
+      )}
       style={{
         background: 'color-mix(in srgb, var(--approval-warning-bg) 92%, white)',
         borderColor: 'var(--approval-warning-border)',
