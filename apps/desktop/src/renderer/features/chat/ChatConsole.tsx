@@ -2210,9 +2210,8 @@ export function ChatConsole({
                 {merging ? '合并中...' : '合并所有更改'}
               </button>
               {trackedFiles.length === 0 && (
-                <div className="flex items-center justify-center gap-2 mt-2.5 py-2">
-                  <GitMerge size={13} style={{ color: 'var(--text-faint)', opacity: 0.4 }} />
-                  <span className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+                <div className="flex items-center justify-center mt-2 py-1.5">
+                  <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
                     跟踪文件变更后将在此显示合并选项
                   </span>
                 </div>
