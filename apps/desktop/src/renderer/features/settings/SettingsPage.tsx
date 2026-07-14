@@ -864,15 +864,23 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
   }, [load]);
 
   const handleRestore = async (key: string, title: string) => {
-    await window.miqi.sessions.unarchive(key);
-    await load();
-    onRestore?.(key);
+    try {
+      await window.miqi.sessions.unarchive(key);
+      await load();
+      onRestore?.(key);
+    } catch (e: any) {
+      alert(`恢复失败: ${e?.message || e}`);
+    }
   };
 
   const handleDelete = async (key: string, title: string) => {
     if (!window.confirm(`永久删除对话「${title}」？此操作不可撤销。`)) return;
-    await window.miqi.sessions.delete(key);
-    await load();
+    try {
+      await window.miqi.sessions.delete(key);
+      await load();
+    } catch (e: any) {
+      alert(`删除失败: ${e?.message || e}`);
+    }
   };
 
   function formatTime(iso?: string): string {
