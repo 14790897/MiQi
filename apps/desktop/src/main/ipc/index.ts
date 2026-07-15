@@ -1477,6 +1477,15 @@ for m in ("pydantic", "httpx", "loguru"):
     return bridge.sendSafe('plugins.toggle', { name, enabled });
   });
 
+  // -- Feedback --------------------------------------------------------------
+  ipcMain.handle(IPC.FEEDBACK_SUBMIT, async (_event, payload: unknown) => {
+    return bridge.send('feedback:submit', payload as Record<string, unknown>);
+  });
+
+  ipcMain.handle(IPC.FEEDBACK_LIST, async (_event, payload: unknown) => {
+    return bridge.sendSafe('feedback:list', payload as Record<string, unknown>);
+  });
+
   // -- Threads (Phase 36+) --------------------------------------------------
   ipcMain.handle(IPC.THREAD_START, async (_event, payload: unknown) => {
     const input = ThreadStartInput.parse(payload);

@@ -37,6 +37,7 @@ import AgentPanel from '../agents/AgentPanel';
 import { PermissionsPage } from '../permissions/PermissionsPage';
 import { PluginMarket } from '../plugins/PluginMarket';
 import WslStatusPage from '../wsl/WslStatusPage';
+import { FeedbackPage } from '../feedback/FeedbackPage';
 
 export type SettingsTab =
   | 'general'
@@ -56,7 +57,8 @@ export type SettingsTab =
   | 'wsl'
   | 'logs'
   | 'archived'
-  | 'docs';
+  | 'docs'
+  | 'feedback';
 
 // ---- Helpers ----
 function getNestedStr(obj: Record<string, unknown>, ...keys: string[]): string {
@@ -1132,6 +1134,7 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
             { value: 'logs', label: '日志' },
             { value: 'archived', label: '已归档' },
             { value: 'docs', label: '文档' },
+            { value: 'feedback', label: '反馈' },
           ].map((tab) => (
             <Tabs.Trigger
               key={tab.value}
@@ -1201,6 +1204,9 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
         </Tabs.Content>
         <Tabs.Content value="docs" className="flex-1 min-h-0 flex flex-col">
           <DocsTab />
+        </Tabs.Content>
+        <Tabs.Content value="feedback" className="flex-1 overflow-y-auto">
+          <FeedbackPage />
         </Tabs.Content>
       </Tabs.Root>
     </div>

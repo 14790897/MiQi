@@ -158,6 +158,14 @@ class FeishuChannelConfig(Base):
     require_mention_in_groups: bool = True  # If true, only respond when @mentioned in group chats
 
 
+class FeedbackConfig(Base):
+    """User feedback collection configuration (submit to Feishu Bitable)."""
+
+    enabled: bool = False
+    bitable_app_token: str = ""   # Bitable app_token (from URL "base/xxx")
+    bitable_table_id: str = ""    # Bitable table id (from URL "?table=tblxxx")
+
+
 class ChannelsConfig(Base):
     """Configuration for chat channels."""
 
@@ -165,6 +173,7 @@ class ChannelsConfig(Base):
     send_tool_hints: bool = False  # stream tool-call hints (e.g. read_file("…"))
     send_queue_notifications: bool = True  # Notify users about their position in the task queue
     feishu: FeishuChannelConfig = Field(default_factory=FeishuChannelConfig)
+    feedback: FeedbackConfig = Field(default_factory=FeedbackConfig)
 
 
 class FallbackChainEntry(Base):

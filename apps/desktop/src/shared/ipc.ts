@@ -132,6 +132,8 @@ export const IPC = {
   PLUGINS_INSTALL: 'plugins:install',
   PLUGINS_UNINSTALL: 'plugins:uninstall',
   PLUGINS_TOGGLE: 'plugins:toggle',
+  FEEDBACK_SUBMIT: 'feedback:submit',
+  FEEDBACK_LIST: 'feedback:list',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -970,4 +972,38 @@ export interface SandboxSetEnabledResult {
   destroyed?: number;
   already?: boolean;
   initializing?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Feedback schemas
+// ---------------------------------------------------------------------------
+
+export const FeedbackSubmitInput = z.object({
+  category: z.enum(['bug', 'question', 'suggestion', 'other']),
+  title: z.string().min(1).max(200),
+  content: z.string().min(1).max(10000),
+  contact: z.string().max(200).optional(),
+  app_version: z.string().max(50).optional(),
+});
+
+export interface FeedbackEntry {
+  id: string;
+  category: 'bug' | 'question' | 'suggestion' | 'other';
+  title: string;
+  content: string;
+  contact: string;
+  app_version: string;
+  os: string;
+  python_version: string;
+  feishu_record_id: string;
+  created_at: string;
+}
+
+export interface FeedbackListResult {
+  entries: FeedbackEntry[];
+}
+
+export interface FeedbackSubmitResult {
+  ok: boolean;
+  record_id: string;
 }
