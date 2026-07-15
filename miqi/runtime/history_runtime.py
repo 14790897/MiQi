@@ -238,7 +238,7 @@ class HistoryRuntime:
         db = self._conn
         role = _validate_role(item.role)
         content = _sanitize_content(item.content)
-        payload = _sanitize_payload(item.payload)
+        payload_json = _sanitize_payload(item.payload)
         await db.execute(
             """INSERT INTO runtime_history_items
                (item_id, thread_id, session_id, turn_id, role, content,
@@ -251,7 +251,7 @@ class HistoryRuntime:
                 item.turn_id,
                 role,
                 content,
-                json.dumps(payload),
+                payload_json,
                 item.created_at,
             ),
         )
@@ -455,21 +455,33 @@ def _sanitize_content(content: str) -> str:
     return _truncate_text(content, MAX_HISTORY_CONTENT_CHARS)
 
 
-def _sanitize_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def _sanitize_payload(payload: dict[str, Any]) -> str:
+    """Sanitize and JSON-serialize payload for storage.
+
+    Returns the final JSON string (not dict) so the caller avoids
+    a second serialization pass.  Enforces MAX_HISTORY_PAYLOAD_JSON_CHARS
+    against the *stored* string, including the truncation-marker framing.
+    """
     safe_payload = _json_safe(payload)
-    payload_json = json.dumps(safe_payload)
+    payload_json = json.dumps(safe_payload, ensure_ascii=False)
     if len(payload_json) <= MAX_HISTORY_PAYLOAD_JSON_CHARS:
-        return safe_payload
+        return payload_json
     logger.warning(
         "Truncating history payload from {} to {} chars",
         len(payload_json),
         MAX_HISTORY_PAYLOAD_JSON_CHARS,
     )
-    return {
-        "truncated": True,
-        "original_size_chars": len(payload_json),
-        "preview": _truncate_text(payload_json, MAX_HISTORY_PAYLOAD_JSON_CHARS),
-    }
+    # Reserve ~80 chars for the JSON wrapper keys so the final stored
+    # string never exceeds the configured limit.
+    preview_limit = max(0, MAX_HISTORY_PAYLOAD_JSON_CHARS - 80)
+    return json.dumps(
+        {
+            "truncated": True,
+            "original_size_chars": len(payload_json),
+            "preview": _truncate_text(payload_json, preview_limit),
+        },
+        ensure_ascii=False,
+    )
 
 
 def _truncate_text(value: str, limit: int) -> str:
