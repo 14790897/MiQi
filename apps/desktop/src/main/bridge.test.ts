@@ -232,6 +232,7 @@ beforeEach(() => {
 afterEach(() => {
   // Restore env set by cleanup/hot-reload tests to avoid cross-test leakage
   delete process.env['ELECTRON_RENDERER_URL'];
+  delete process.env['MIQI_BRIDGE_HOT_RELOAD'];
 });
 
 describe('BridgeManager lifecycle', () => {
