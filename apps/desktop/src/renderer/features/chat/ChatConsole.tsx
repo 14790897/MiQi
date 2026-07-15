@@ -2125,7 +2125,7 @@ export function ChatConsole({
                 {/* Written / Edited files → Active for Edit */}
                 {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length > 0 && (
                   <>
-                    <SectionLabel label="ACTIVE FOR EDIT" />
+                    <SectionLabel label="ACTIVE FOR EDIT" section="active-for-edit" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'write' || f.op === 'edit')
@@ -2144,7 +2144,7 @@ export function ChatConsole({
                 {/* Read files → Referenced Context */}
                 {trackedFiles.filter((f) => f.op === 'read').length > 0 && (
                   <>
-                    <SectionLabel label="REFERENCED CONTEXT" />
+                    <SectionLabel label="REFERENCED CONTEXT" section="referenced-context" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'read')
@@ -2162,7 +2162,7 @@ export function ChatConsole({
                 {/* Deleted files */}
                 {trackedFiles.filter((f) => f.op === 'delete').length > 0 && (
                   <>
-                    <SectionLabel label="DELETED" />
+                    <SectionLabel label="DELETED" section="deleted" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'delete')
@@ -2559,8 +2559,8 @@ function DiffView({ diff }: { diff: string }) {
   );
 }
 
-function SectionLabel({ label }: { label: string }) {
-  const testId = `section-label-${label.toLowerCase().replace(/\s+/g, '-')}`;
+function SectionLabel({ label, section }: { label: string; section: string }) {
+  const testId = `section-label-${section}`;
   return (
     <div
       className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest"
