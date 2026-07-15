@@ -602,6 +602,7 @@ export function ChatConsole({
     currentThreadIdRef.current = null; // Reset on session change
     setHistoryLoaded(false);
     setMessages([]);
+    setSessionUpdatedAt(null);
     // NOTE: do NOT clear trackedFiles here — clearing before the async
     // load completes causes a flash of "No files yet" on every session
     // switch.  If the bridge is not ready yet, sendSafe returns null and
@@ -616,34 +617,37 @@ export function ChatConsole({
         const rawMsgs: any[] = (detail as any)?.messages ?? [];
         const uiMsgs = sessionMsgsToUi(rawMsgs);
         setMessages(uiMsgs);
+        setSessionUpdatedAt((detail as any)?.updated_at ?? null);
         // Restore tracked files from dedicated tracked_files.json
-        const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
-        if (currentSessionRef.current !== sessionKey) return;
-        // Guard: only update when the bridge actually responded.  sendSafe
-        // returns null when the bridge is not running or the call errors
-        // out — in that case keep whatever we were showing before.
-        if (tfResult !== null) {
-          const tfList = (tfResult as any)?.tracked_files ?? [];
-          if (tfList.length > 0) {
-            setTrackedFiles(
-              tfList.map((f: any) => ({
-                path: f.path,
-                name: f.name,
-                op: f.op,
-                lastSeen: f.lastSeen,
-              }))
-            );
-          } else {
-            // Fallback: tracked_files.json is empty (e.g. files were created
-            // by an older agent before _persist_tracked_file was added).
-            // Reconstruct from session messages which now preserve tool_calls
-            // and _tool_hint fields.
-            const fromMsgs = extractTrackedFilesFromMessages(rawMsgs);
-            if (fromMsgs.length > 0) setTrackedFiles(fromMsgs);
-          }
+        let tfList: any[] = [];
+        try {
+          const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
+          if (currentSessionRef.current !== sessionKey) return;
+          tfList = (tfResult as any)?.tracked_files ?? [];
+        } catch {
+          // backend failure is non-fatal — fall through to message extraction
         }
-      } catch {
-        /* session doesn't exist yet */
+        // Also extract tracked files from session messages (fallback when
+        // tracked_files.json is empty — agent tools don't persist there).
+        const fromMessages = extractTrackedFilesFromMessages(rawMsgs);
+        // Merge: backend data takes priority, messages fill gaps
+        const mergedMap = new Map<string, TrackedFile>();
+        for (const f of fromMessages) mergedMap.set(f.path, f);
+        for (const f of tfList as any[]) {
+          const normPath = (f.path as string).replace(/\\/g, '/');
+          mergedMap.set(normPath, {
+            path: normPath,
+            name: f.name,
+            op: f.op,
+            lastSeen: f.lastSeen,
+          });
+        }
+        // Only update if we got valid data (bridge responded or messages exist)
+        if (tfList.length > 0 || fromMessages.length > 0) {
+          setTrackedFiles(Array.from(mergedMap.values()));
+        }
+      } catch (err) {
+        console.warn('[ChatConsole] Failed to load session data:', err);
       }
       setHistoryLoaded(true);
     };
