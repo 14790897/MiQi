@@ -62,6 +62,9 @@ import type {
   TurnStartResult,
   TurnInterruptResult,
   SandboxSetEnabledResult,
+  FeedbackEntry,
+  FeedbackListResult,
+  FeedbackSubmitResult,
 } from '../shared/ipc';
 
 // ---------------------------------------------------------------------------
@@ -482,6 +485,20 @@ const api = {
         turn_id: turnId,
         session_key: sessionKey,
       }),
+  },
+
+  // -- Feedback ---------------------------------------------------------------
+  feedback: {
+    submit: (params: {
+      category: string;
+      title: string;
+      content: string;
+      contact?: string;
+      app_version?: string;
+    }): Promise<FeedbackSubmitResult> =>
+      ipcRenderer.invoke(IPC.FEEDBACK_SUBMIT, params),
+    list: (params?: { limit?: number }): Promise<FeedbackListResult> =>
+      ipcRenderer.invoke(IPC.FEEDBACK_LIST, params ?? {}),
   },
 };
 

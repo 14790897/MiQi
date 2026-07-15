@@ -504,7 +504,15 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("experience:toggle", experience_toggle_handler)
         self._app_server.register_method("experience:search", experience_search_handler)
 
-        # Register Phase 35.8: diagnostic handlers
+        # Register Phase 35.8: feedback handlers
+        from miqi.runtime.feedback_handlers import (
+            feedback_list_handler,
+            feedback_submit_handler,
+        )
+        self._app_server.register_method("feedback:submit", feedback_submit_handler)
+        self._app_server.register_method("feedback:list", feedback_list_handler)
+
+        # Register Phase 35.9: diagnostic handlers
         from miqi.runtime.diagnostic_handlers import python_check_handler
         self._app_server.register_method("python.check", python_check_handler, spec=protocol_specs.PYTHON_CHECK)
 
