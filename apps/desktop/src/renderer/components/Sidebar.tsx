@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '../lib/utils';
 import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, Trash2 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { MiQiLogo } from './MiQiLogo';
 import { ContextMenu } from './ContextMenu';
 import { useSessionStatus, type SessionStatus } from '../hooks/useSessionStatus';
@@ -40,7 +41,7 @@ interface SidebarProps {
   onNewSession?: () => void;
 }
 
-const STATUS_ICONS: Record<SessionStatus, typeof Play> = {
+const STATUS_ICONS: Record<SessionStatus, LucideIcon> = {
   'IN-PROGRESS': Play,
   'PENDING': Clock,
   'REVIEW': Eye,
@@ -351,7 +352,7 @@ export function Sidebar({
         style={{ borderColor: 'var(--sidebar-border)' }}
       >
         <button
-          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition duration-150 hover:scale-110 hover:text-[#404040] origin-left"
+          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition duration-150 hover:scale-110 hover:text-[var(--text)] origin-left"
           style={{ color: 'var(--text-faint)' }}
           onClick={() => onNavChange?.('settings')}
           data-testid="nav-system-settings"
