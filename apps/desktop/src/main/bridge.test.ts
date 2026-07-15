@@ -680,6 +680,30 @@ describe('BridgeManager lifecycle', () => {
 
     expect(bridge.sandboxAvailable).toBe(false);
   }, 10_000);
+
+  it('does not start hot reload watcher when MIQI_BRIDGE_HOT_RELOAD=0', async () => {
+    process.env['ELECTRON_RENDERER_URL'] = 'test';
+    process.env['MIQI_BRIDGE_HOT_RELOAD'] = '0';
+    const BridgeManager = await importBridgeManager();
+    const proc = createMockProcess();
+    const bridge = new BridgeManager('/fake/root');
+
+    await startBridge(proc, bridge);
+
+    expect(watchCallbacks.length).toBe(0);
+    expect((bridge as any).fileWatcher).toBeNull();
+  });
+
+  it('starts hot reload watcher by default in dev renderer mode', async () => {
+    process.env['ELECTRON_RENDERER_URL'] = 'test';
+    const BridgeManager = await importBridgeManager();
+    const proc = createMockProcess();
+    const bridge = new BridgeManager('/fake/root');
+
+    await startBridge(proc, bridge);
+
+    expect((bridge as any).hotReloadEnabled).toBe(true);
+  });
 });
 
 describe('BridgeManager sandbox tracking', () => {
