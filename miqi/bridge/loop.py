@@ -390,10 +390,12 @@ class BridgeRuntimeLoop:
             providers_list_handler,
             providers_test_handler,
             providers_update_handler,
+            providers_activate_handler,
         )
         self._app_server.register_method("providers.list", providers_list_handler)
         self._app_server.register_method("providers.test", providers_test_handler)
         self._app_server.register_method("providers.update", providers_update_handler)
+        self._app_server.register_method("providers.activate", providers_activate_handler)
 
         # Register Phase 35.2: channels.* handlers
         from miqi.runtime.channel_handlers import (

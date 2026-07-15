@@ -122,6 +122,14 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Built-in activation state
+  // Default to built-in ("推荐") when already activated, otherwise own key.
+  const [useOwnKey, setUseOwnKey] = useState(!provider.builtin_activated);
+  const [activationCode, setActivationCode] = useState('');
+  const [activating, setActivating] = useState(false);
+  const [activationError, setActivationError] = useState<string | null>(null);
+  const [activationSuccess, setActivationSuccess] = useState(provider.builtin_activated ?? false);
+
   const placeholderBase = provider.default_api_base || '';
 
   const handleSave = async () => {
@@ -138,6 +146,10 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
         extraHeaders,
         model || undefined
       );
+      // If user saved their own key while builtin was activated, reset state
+      if (useOwnKey && activationSuccess) {
+        setActivationSuccess(false);
+      }
       onSaved();
       markRestartRequired();
       onClose();
@@ -150,6 +162,40 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleActivate = async () => {
+    if (!activationCode.trim()) {
+      setActivationError('请输入激活码');
+      return;
+    }
+    setActivating(true);
+    setActivationError(null);
+    try {
+      const result = await window.miqi.providers.activate(provider.name, activationCode.trim());
+      if (result.activated) {
+        setActivationSuccess(true);
+        setUseOwnKey(false);
+        // Auto-test and auto-set as default
+        try {
+          await window.miqi.providers.test(provider.name);
+        } catch { /* test failure doesn't block activation */ }
+        // Auto-activate as current provider
+        const fallbackModel = (PROVIDER_SUGGESTED_MODELS[provider.name] ?? [])[0] || 'deepseek-v4-flash';
+        try {
+          await window.miqi.providers.update(provider.name, undefined, undefined, undefined, fallbackModel);
+          markRestartRequired();
+        } catch { /* activation as default can fail silently */ }
+        onSaved();
+      } else {
+        setActivationError(result.error || '激活失败');
+      }
+    } catch (err: unknown) {
+      const msg = sanitizeUiMessage(err instanceof Error ? err.message : String(err));
+      setActivationError(msg || '激活失败，请检查激活码');
+    } finally {
+      setActivating(false);
     }
   };
 
@@ -207,6 +253,140 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
         </div>
 
         <div className="px-5 py-4 flex flex-col gap-4">
+          {/* ---- API Key / Built-in activation ---- */}
+          {provider.builtin_available ? (
+            <div className="flex flex-col gap-3">
+              <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
+                {activationSuccess ? 'API来源' : 'API Key'}
+              </label>
+
+              {/* Radio: 推荐 */}
+              <label className={cn(
+                'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
+                !useOwnKey
+                  ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]'
+                  : 'border-[var(--border-subtle)] hover:border-[var(--accent)]'
+              )}>
+                <input
+                  type="radio"
+                  name="apiSource"
+                  checked={!useOwnKey}
+                  onChange={() => setUseOwnKey(false)}
+                  className="mt-0.5 w-3.5 h-3.5 accent-[var(--accent)] shrink-0"
+                />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm text-[var(--text)]">
+                    推荐（无需API Key）
+                  </span>
+                  {activationSuccess ? (
+                    <p className="flex items-center gap-1.5 mt-1 text-xs text-[var(--success)]">
+                      <CheckCircle size={12} />
+                      已激活
+                    </p>
+                  ) : !useOwnKey ? (
+                    <div className="flex flex-col gap-2 mt-2">
+                      <div className="flex gap-2">
+                        <input
+                          type="password"
+                          value={activationCode}
+                          onChange={(e) => { setActivationCode(e.target.value); setActivationError(null); }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleActivate(); }}
+                          placeholder="输入激活码"
+                          className="flex-1 px-3 py-1.5 rounded-md text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+                          autoComplete="off"
+                          spellCheck={false}
+                          disabled={activating}
+                        />
+                        <button
+                          onClick={handleActivate}
+                          disabled={activating || !activationCode.trim()}
+                          className="px-3 py-1.5 rounded-md bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-xs font-medium transition-colors disabled:opacity-50 shrink-0"
+                        >
+                          {activating ? <Loader2 size={13} className="animate-spin" /> : '激活'}
+                        </button>
+                      </div>
+                      {activationError && (
+                        <p className="text-xs text-[var(--danger)]">{activationError}</p>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              </label>
+
+              {/* Radio: 我自己的API Key */}
+              <label className={cn(
+                'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
+                useOwnKey
+                  ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]'
+                  : 'border-[var(--border-subtle)] hover:border-[var(--accent)]'
+              )}>
+                <input
+                  type="radio"
+                  name="apiSource"
+                  checked={useOwnKey}
+                  onChange={() => setUseOwnKey(true)}
+                  className="mt-0.5 w-3.5 h-3.5 accent-[var(--accent)] shrink-0"
+                />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm text-[var(--text)]">
+                    我自己的API Key
+                  </span>
+                  {useOwnKey && (
+                    <div className="flex flex-col gap-3 mt-3">
+                      <div className="relative">
+                        <input
+                          type={showKey ? 'text' : 'password'}
+                          value={apiKey}
+                          onChange={(e) => setApiKey(e.target.value)}
+                          placeholder={
+                            provider.configured
+                              ? '●●●●●●●●●●●● (leave blank to keep current)'
+                              : provider.env_key
+                                ? `Set ${provider.env_key} or enter here`
+                                : 'Enter API key'
+                          }
+                          className="w-full px-3 py-2 pr-10 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+                          autoComplete="off"
+                          spellCheck={false}
+                        />
+                        <button
+                          onClick={() => setShowKey(!showKey)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)] hover:text-[var(--text-muted)]"
+                          tabIndex={-1}
+                          type="button"
+                        >
+                          {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </button>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-[var(--text-muted)]">
+                          API Base URL <span className="font-normal text-[var(--text-faint)]">(optional)</span>
+                        </label>
+                        <input
+                          type="url"
+                          value={apiBase}
+                          onChange={(e) => setApiBase(e.target.value)}
+                          placeholder={placeholderBase || 'https://api.example.com/v1'}
+                          className="mt-1 w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+                          spellCheck={false}
+                        />
+                        {placeholderBase && (
+                          <p className="text-xs text-[var(--text-faint)] mt-1">Default: {placeholderBase}</p>
+                        )}
+                      </div>
+                      {provider.api_key_hint && (
+                        <p className="text-xs text-[var(--text-faint)]">
+                          当前已保存：<span className="font-mono">{provider.api_key_hint}</span>；API Key 留空将保持当前值。
+                        </p>
+                      )}
+                      <ExtraHeadersField value={extraHeadersText} onChange={setExtraHeadersText} />
+                    </div>
+                  )}
+                </div>
+              </label>
+            </div>
+          ) : (
+            <>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
               API Key
@@ -262,6 +442,8 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
           )}
 
           <ExtraHeadersField value={extraHeadersText} onChange={setExtraHeadersText} />
+            </>
+          )}
 
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">

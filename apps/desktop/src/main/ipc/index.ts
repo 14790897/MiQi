@@ -14,6 +14,7 @@ import {
   ConfigUpdateInput,
   ProviderTestInput,
   ProviderUpdateInput,
+  ProviderActivateInput,
   ChannelsUpdateInput,
   CronCreateInput,
   CronUpdateInput,
@@ -374,6 +375,11 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   ipcMain.handle(IPC.PROVIDERS_UPDATE, async (_event, payload: unknown) => {
     const input = ProviderUpdateInput.parse(payload);
     return bridge.send('providers.update', input as Record<string, unknown>);
+  });
+
+  ipcMain.handle(IPC.PROVIDERS_ACTIVATE, async (_event, payload: unknown) => {
+    const input = ProviderActivateInput.parse(payload);
+    return bridge.send('providers.activate', input as Record<string, unknown>);
   });
 
   // -----------------------------------------------------------------------
