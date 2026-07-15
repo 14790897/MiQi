@@ -187,11 +187,12 @@ class BridgeRuntimeLoop:
                     "sandbox auto-enable: config save failed: {}", exc,
                 )
 
-        log_msg = "Sandbox manager initialized"
         try:
-            await sandbox_mgr.initialize()
-        except TypeError:
-            pass  # mock in tests — initialize() is not async
+            res = sandbox_mgr.initialize()
+            if hasattr(res, "__await__"):
+                ok = await res
+            else:
+                ok = False  # mock in tests — initialize() is not async
         except Exception as exc:
             logger.warning("Sandbox manager initialization failed: {}", exc)
             if self._app_server is not None:
@@ -199,16 +200,21 @@ class BridgeRuntimeLoop:
                     await self._app_server.emit_client_event(
                         "desktop",
                         "sandbox.ready",
-                        {"enabled": True, "initialized": False, "error": str(exc)},
+                        {"enabled": getattr(sandbox_mgr, "enabled", True), "initialized": False, "error": str(exc)},
                     )
                 except Exception:
                     pass
             return
 
-        if need_auto_enable:
-            log_msg += " (auto-enabled after first-time install)"
-
-        logger.info(log_msg)
+        if ok:
+            log_msg = "Sandbox manager initialized"
+            if need_auto_enable:
+                log_msg += " (auto-enabled after first-time install)"
+            logger.info(log_msg)
+        else:
+            logger.info(
+                "Sandbox manager not available — tools will run in RESTRICTED mode"
+            )
 
         # Notify the frontend so the settings toggle updates.
         if self._app_server is not None:
@@ -216,7 +222,7 @@ class BridgeRuntimeLoop:
                 await self._app_server.emit_client_event(
                     "desktop",
                     "sandbox.ready",
-                    {"enabled": True, "initialized": True},
+                    {"enabled": getattr(sandbox_mgr, "enabled", True), "initialized": ok},
                 )
             except Exception:
                 pass  # best-effort notification
