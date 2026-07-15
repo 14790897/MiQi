@@ -105,10 +105,10 @@ jobs:
         run: uv sync --all-extras
 
       - name: Run WSL sandbox tests (auto-install)
-        run: uv run pytest -q -m "wsl" --tb=long -v
+        run: uv run pytest -q -m "wsl" --tb=short
 
       - name: Run WSL sandbox tests (bwrap integration)
-        run: uv run pytest -q -m "sandbox and bwrap" --tb=long -v
+        run: uv run pytest -q -m "sandbox and bwrap" --tb=short
 
   wsl-e2e:
     runs-on: windows-latest
