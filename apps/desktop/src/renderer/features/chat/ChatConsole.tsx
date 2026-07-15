@@ -830,6 +830,7 @@ export function ChatConsole({
     currentThreadIdRef.current = null; // Reset on session change
     setHistoryLoaded(false);
     setMessages([]);
+    setSessionUpdatedAt(null);
     // NOTE: do NOT clear trackedFiles here — clearing before the async
     // load completes causes a flash of "No files yet" on every session
     // switch.  If the bridge is not ready yet, sendSafe returns null and
