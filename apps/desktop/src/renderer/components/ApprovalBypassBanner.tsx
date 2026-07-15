@@ -1,58 +1,42 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
+import { cn } from '../lib/utils';
 
-interface ApprovalBypassStatus {
-  bypassAll?: boolean;
-  bypassCommandApproval?: boolean;
-  bypassFileWriteApproval?: boolean;
-  bypassToolConfirmation?: boolean;
-  bypassNetworkApproval?: boolean;
-}
+const SESSION_KEY = 'miqi:bypass:enabled';
 
-function hasApprovalBypass(config: Record<string, unknown>): boolean {
-  const approvals = (config.approvals ?? {}) as ApprovalBypassStatus;
+export function ApprovalBypassBanner() {
+  const [visible, setVisible] = useState(() => sessionStorage.getItem(SESSION_KEY) === 'true');
 
-  return Boolean(
-    approvals.bypassAll ||
-      approvals.bypassCommandApproval ||
-      approvals.bypassFileWriteApproval ||
-      approvals.bypassToolConfirmation ||
-      approvals.bypassNetworkApproval
-  );
-}
+  const show = useCallback(() => {
+    sessionStorage.setItem(SESSION_KEY, 'true');
+    setVisible(true);
+  }, []);
 
-export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
-  const [enabled, setEnabled] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
-
-  const load = useCallback(async () => {
-    if (!(window as any).miqi?.config?.get) {
-      setEnabled(false);
-      return;
-    }
-    try {
-      const config = await window.miqi.config.get();
-      setEnabled(hasApprovalBypass(config));
-    } catch {
-      setEnabled(false);
-    }
+  const dismiss = useCallback(() => {
+    sessionStorage.removeItem(SESSION_KEY);
+    setVisible(false);
   }, []);
 
   useEffect(() => {
-    load();
-    window.addEventListener('miqi:approval-bypass-updated', load);
-    return () => window.removeEventListener('miqi:approval-bypass-updated', load);
-  }, [load]);
+    const handler = () => show();
+    window.addEventListener('miqi:approval-bypass-updated', handler);
+    return () => window.removeEventListener('miqi:approval-bypass-updated', handler);
+  }, [show]);
 
+  // Auto-dismiss after 3 seconds
   useEffect(() => {
-    if (!enabled) setDismissed(false);
-  }, [enabled]);
-
-  if (!enabled || dismissed) return null;
+    if (!visible) return;
+    const t = setTimeout(dismiss, 3000);
+    return () => clearTimeout(t);
+  }, [visible, dismiss]);
 
   return (
     <div
-      className="approval-bypass-island fixed left-1/2 top-12 z-50 flex max-w-[min(720px,calc(100vw-24px))] items-center gap-2 rounded-full border px-3 py-2 text-xs backdrop-blur"
+      className={cn(
+        'approval-bypass-island fixed left-1/2 top-12 z-50 flex max-w-[min(720px,calc(100vw-24px))] items-center gap-2 rounded-full border px-3 py-2 text-xs backdrop-blur',
+        'transition-all duration-300',
+        visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none',
+      )}
       style={{
         background: 'color-mix(in srgb, var(--approval-warning-bg) 92%, white)',
         borderColor: 'var(--approval-warning-border)',
@@ -65,14 +49,17 @@ export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: ()
       </span>
       <button
         type="button"
-        onClick={onOpenApprovals}
+        onClick={() => {
+          window.dispatchEvent(new Event('miqi:navigate:approvals'));
+          dismiss();
+        }}
         className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors hover:bg-[rgba(124,45,18,0.08)]"
       >
         查看设置
       </button>
       <button
         type="button"
-        onClick={() => setDismissed(true)}
+        onClick={dismiss}
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-[rgba(124,45,18,0.12)] transition-colors"
         title="关闭提醒"
       >

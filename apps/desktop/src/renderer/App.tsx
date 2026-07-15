@@ -122,6 +122,13 @@ function AppShell() {
     setActiveNav('settings');
   };
 
+  // Listen for navigation event from Banner/TopBar
+  useEffect(() => {
+    const handler = () => openApprovalSettings();
+    window.addEventListener('miqi:navigate:approvals', handler);
+    return () => window.removeEventListener('miqi:navigate:approvals', handler);
+  }, []);
+
   // Loading state
   if (needsSetup === null) {
     return (
@@ -224,8 +231,8 @@ function AppShell() {
         <ApprovalProvider>
           {/* Full-height flex column */}
           <div className="flex flex-col h-screen" style={{ background: 'var(--background)' }}>
-            <TopBar onOpenApprovals={openApprovalSettings} />
-            <ApprovalBypassBanner onOpenApprovals={openApprovalSettings} />
+            <TopBar />
+            <ApprovalBypassBanner />
             {/* Body row */}
             <div className="flex flex-1 overflow-hidden">
               <Sidebar
