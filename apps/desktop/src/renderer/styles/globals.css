@@ -73,7 +73,7 @@
   --tag-review-text: #a06000;
   --tag-completed-bg: rgba(32,102,208,0.12);   /* COMPLETED 标签（蓝色） */
   --tag-completed-text: #2066D0;
-  --tag-inprogress-bg: #1D4ED8;  /* IN-PROGRESS 标签（深蓝，满足对比度） */
+  --tag-inprogress-bg: #0F766E;  /* IN-PROGRESS 标签（深青绿） */
   --tag-inprogress-text: #FFFFFF;
   --tag-cc-bg: rgba(124,58,237,0.12);          /* CC 标签（紫色） */
   --tag-cc-text: #7C3AED;
@@ -127,7 +127,7 @@
   --tag-review-text: #facc15;
   --tag-completed-bg: rgba(96, 165, 250, 0.18);
   --tag-completed-text: #93c5fd;
-  --tag-inprogress-bg: #2563eb;
+  --tag-inprogress-bg: #14B8A6;
   --tag-inprogress-text: #ffffff;
   --tag-cc-bg: rgba(168, 85, 247, 0.18);
   --tag-cc-text: #c4b5fd;
@@ -264,12 +264,10 @@ code {
     border-color 160ms ease-out,
     background-color 160ms ease-out,
     transform 160ms ease-out;
-  transform: translateZ(0);
-  will-change: transform;
 }
 
 .settings-hover-tab:hover {
-  transform: translateZ(0) scale(1.08);
+  transform: scale(1.08);
 }
 
 .settings-hover-card {
@@ -278,14 +276,12 @@ code {
     border-color 180ms ease-out,
     box-shadow 180ms ease-out,
     transform 180ms ease-out;
-  transform: translateZ(0);
-  will-change: transform;
 }
 
 .settings-hover-card:hover {
   background-color: color-mix(in srgb, var(--surface) 94%, var(--accent-soft));
   border-color: var(--accent);
-  transform: translate3d(0, -6px, 0);
+  transform: translateY(-6px);
   box-shadow:
     0 18px 42px rgba(42, 42, 72, 0.2),
     0 6px 14px rgba(42, 42, 72, 0.12),
@@ -309,12 +305,10 @@ code {
   transition:
     color 160ms ease-out,
     transform 160ms ease-out;
-  transform: translateZ(0);
-  will-change: transform;
 }
 
 .settings-hover-sidebar:hover {
-  transform: translateZ(0) scale(1.1);
+  transform: scale(1.1);
 }
 
 @keyframes approval-bypass-island-in {

@@ -400,6 +400,7 @@ class AppServer:
             "chat.send", "chat.abort",
             "sessions.get", "sessions.list",
             "sessions.get_tracked_files",
+            "sessions.delete", "sessions.archive", "sessions.unarchive",
         ):
             session = await self.registry.get_session(client_id, session_id)
             if session is None:
