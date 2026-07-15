@@ -4,24 +4,22 @@ import { cn } from '../lib/utils';
 
 const SESSION_KEY = 'miqi:bypass:enabled';
 
-export function ApprovalBypassBanner() {
-  const [visible, setVisible] = useState(() => sessionStorage.getItem(SESSION_KEY) === 'true');
+export function ApprovalBypassBanner({ onNavigateSettings }: { onNavigateSettings: () => void }) {
+  const [visible, setVisible] = useState(false);
 
-  const show = useCallback(() => {
-    sessionStorage.setItem(SESSION_KEY, 'true');
-    setVisible(true);
+  useEffect(() => {
+    const handler = () => {
+      sessionStorage.setItem(SESSION_KEY, 'true');
+      setVisible(true);
+    };
+    window.addEventListener('miqi:approval-bypass-updated', handler);
+    return () => window.removeEventListener('miqi:approval-bypass-updated', handler);
   }, []);
 
   const dismiss = useCallback(() => {
     sessionStorage.removeItem(SESSION_KEY);
     setVisible(false);
   }, []);
-
-  useEffect(() => {
-    const handler = () => show();
-    window.addEventListener('miqi:approval-bypass-updated', handler);
-    return () => window.removeEventListener('miqi:approval-bypass-updated', handler);
-  }, [show]);
 
   // Auto-dismiss after 3 seconds
   useEffect(() => {
@@ -49,10 +47,7 @@ export function ApprovalBypassBanner() {
       </span>
       <button
         type="button"
-        onClick={() => {
-          window.dispatchEvent(new Event('miqi:navigate:approvals'));
-          dismiss();
-        }}
+        onClick={() => { onNavigateSettings(); dismiss(); }}
         className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors hover:bg-[rgba(124,45,18,0.08)]"
       >
         查看设置

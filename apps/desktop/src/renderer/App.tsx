@@ -231,8 +231,8 @@ function AppShell() {
         <ApprovalProvider>
           {/* Full-height flex column */}
           <div className="flex flex-col h-screen" style={{ background: 'var(--background)' }}>
-            <TopBar />
-            <ApprovalBypassBanner />
+            <TopBar onNavigateSettings={openApprovalSettings} />
+            <ApprovalBypassBanner onNavigateSettings={openApprovalSettings} />
             {/* Body row */}
             <div className="flex flex-1 overflow-hidden">
               <Sidebar
