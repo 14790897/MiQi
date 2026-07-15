@@ -384,11 +384,9 @@ async def providers_update_handler(
 # Providers that support built-in (enterprise shared) keys
 _BUILTIN_PROVIDERS = {"deepseek"}
 
-# Encrypted API keys — generated with:
-#   python -c "from cryptography.fernet import Fernet; k=Fernet.generate_key(); f=Fernet(k); print('KEY:',k.decode()); print('TOKEN:',f.encrypt(b'sk-xxx').decode())"
-# The activation code is derived from the Fernet key (company-specific secret).
-# For MVP, we use a simple fixed activation code → key mapping.
-_BUILTIN_KEYS: dict[str, str] = {"deepseek": "gAAAAABqVghDC7Dd45IErvy2blWiV_whmHf55rpoUpts1rcW2DxYAJ9h6jw_jESjXrHWUPiDtkU1Hi7Kyk__IDhNO14jGfKvwGIs_byTMAYyfR2ZQiEXK_RpxdjJtGClbIIuF5UNivuc"}  # provider_name → encrypted_key
+# Encrypted API key for DeepSeek internal testing.
+# Token generated via Fernet with activation-code-derived key.
+_BUILTIN_KEYS: dict[str, str] = {"deepseek": "gAAAAABqVvj-NrrD9IWE4hrbCvexuygd09CeYtOWuflv1ATJm-vaoBENzFakFX1tRQpX4jYshKb3pcc38wdO-faRSC4NSaZXm0C-Q4e8AdKO0u0oLyJhy0ppimff7Q7DHYRMseC31Gi0"}  # provider_name → encrypted_key
 
 # Default activation code — the company name / internal code
 _DEFAULT_ACTIVATION_CODE = "weiguanjiyuan5g"
