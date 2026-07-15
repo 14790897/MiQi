@@ -1,3 +1,82 @@
+# [0.7.0](https://github.com/14790897/MiQi/compare/v0.6.1...v0.7.0) (2026-07-15)
+
+
+### Bug Fixes
+
+* all 6 CodeRabbit issues on [#280](https://github.com/14790897/MiQi/issues/280) ([b933ec0](https://github.com/14790897/MiQi/commit/b933ec09f1634943691e1d838a20050f9b30171d))
+* **backend:** add sessions.delete/archive/unarchive to AppServer auth exemption ([6b9586e](https://github.com/14790897/MiQi/commit/6b9586efdc48710d9b0cf5ee36b77af6d954ea74))
+* **bridge:** address CodeRabbit review comments on sandbox init ([92ec1c0](https://github.com/14790897/MiQi/commit/92ec1c0424e0d3d6b30afb7cf8cb2752571a5dc8))
+* **bridge:** check sandbox initialize() return value to avoid misleading log ([2fa468d](https://github.com/14790897/MiQi/commit/2fa468d1b58b427bd7599e42c0e259ba3e01e9e5))
+* **chat:** archive no longer deletes session + remove double confirm ([2392d9a](https://github.com/14790897/MiQi/commit/2392d9a7e1391bcb2e57923968bde8914748c36e)), closes [#280](https://github.com/14790897/MiQi/issues/280)
+* **chat:** move handleNewSession inside try + console.error on delete fail ([6b65f14](https://github.com/14790897/MiQi/commit/6b65f1408a7cc81449e93afed3951d9e6ab26bbe))
+* **desktop:** prevent sidebar filter overflow ([d2284e9](https://github.com/14790897/MiQi/commit/d2284e9f3760055d7ce0f1cfd4d1f9b710eb5e7f))
+* **desktop:** redesign sidebar — filter tabs, icons, i18n, shadows ([084e7fc](https://github.com/14790897/MiQi/commit/084e7fc6d523b1bc9dd7ce9f16da5ad9d52f8979)), closes [#242](https://github.com/14790897/MiQi/issues/242)
+* **desktop:** resolve merge conflicts with develop ([#256](https://github.com/14790897/MiQi/issues/256)) ([309efd0](https://github.com/14790897/MiQi/commit/309efd0f71cdc88b1b70f52173c44fa41726ec5f)), closes [#242](https://github.com/14790897/MiQi/issues/242)
+* **desktop:** sidebar i18n, icons, and cleanup ([2fd6330](https://github.com/14790897/MiQi/commit/2fd6330068ffb5eb3218824463cdbc88a17e3447))
+* **e2e:** add missing data-testid attributes for CI ([e4f88c6](https://github.com/14790897/MiQi/commit/e4f88c6e71779fd326444dbe456daa9f0a5f87ce))
+* **e2e:** use stable sectionKey for SectionLabel data-testid ([669e032](https://github.com/14790897/MiQi/commit/669e032669f64128cd821e46fdd290775da69d9c))
+* regenerate protocol snapshot for providers.activate (153→154 methods) ([57119f3](https://github.com/14790897/MiQi/commit/57119f36dca9db274baeadbdfcaef68ad6745036))
+* remove old test with autouse builtin_credentials import, add compat shim ([4eb14bc](https://github.com/14790897/MiQi/commit/4eb14bc67b97b6fc3b68bc7224d46325fb193f3c))
+* restore clean preload and ProvidersPage after merge ([fd5da13](https://github.com/14790897/MiQi/commit/fd5da1371335378d7f8147df6c6c73de13afcb1f))
+* restore test_provider_handlers.py from old branch ([173a153](https://github.com/14790897/MiQi/commit/173a153ee2a3db2db4ea954a970995e4dcf0de9f))
+* **settings:** add try-catch to archive delete/restore handlers ([8b703bc](https://github.com/14790897/MiQi/commit/8b703bc68624b15f9fa4fee01f18f2140febd1f3))
+* **sidebar:** add missing closing bracket on settings button ([8360753](https://github.com/14790897/MiQi/commit/8360753f710a3a2cca8f374e71409634bd64218b))
+* **sidebar:** address CodeRabbit review — overflow-x-auto + hover class ([122c743](https://github.com/14790897/MiQi/commit/122c7439c58f178e77d99310a5262da0a9a2bf1a)), closes [#404040](https://github.com/14790897/MiQi/issues/404040)
+* **sidebar:** CC icon → MessageSquare, tighter tab spacing for 5 tabs ([beea6db](https://github.com/14790897/MiQi/commit/beea6db6ab7edd29d80bf80930a1a6bc898d716e))
+* **sidebar:** mentor review — remove temp files, LucideIcon type, CC label ([52d0c36](https://github.com/14790897/MiQi/commit/52d0c36b1e2ddc90b8d89d56941a72a7fae89257))
+* **sidebar:** settings button hover uses CSS var instead of hardcoded [#404040](https://github.com/14790897/MiQi/issues/404040) ([bcaff6a](https://github.com/14790897/MiQi/commit/bcaff6a8fed0ae0567a64b27bab6c7c16df8af24))
+* **ui:** add ReactNode import for theme switcher ([cab8a47](https://github.com/14790897/MiQi/commit/cab8a47e86643ea8ca583135a21a5836870ebe76))
+* **ui:** auto-dismiss bypass island + remove focus ring ([#285](https://github.com/14790897/MiQi/issues/285)) ([153e423](https://github.com/14790897/MiQi/commit/153e4237c61e6a1fe530a3b85c1d7b0afb9cee90))
+* **ui:** bump label text from xs to 13px for readability ([37b9870](https://github.com/14790897/MiQi/commit/37b9870ca316ebf22c591f4293d568418b3d03cb))
+* **ui:** bypass island — 3s auto-dismiss + fade transition ([dc6b819](https://github.com/14790897/MiQi/commit/dc6b819af43b3950cc11994b0a53d8264b6db949))
+* **ui:** complete Chinese localization for ChatConsole right panel ([131a926](https://github.com/14790897/MiQi/commit/131a926d9c1abdc2e393ef5168ee2c2930b51279)), closes [#247](https://github.com/14790897/MiQi/issues/247)
+* **ui:** escape JSX brackets in plugin message ([ace164f](https://github.com/14790897/MiQi/commit/ace164fd38a4f8c80fd6bba71e23dbc7c913a577))
+* **ui:** MCPs → MCP 服务 ([c064fa9](https://github.com/14790897/MiQi/commit/c064fa9d5ea63264bb4055c8ed7c6344cfabe087))
+* **ui:** merge section — icon + descriptive empty state ([ab40331](https://github.com/14790897/MiQi/commit/ab403314402e369ecc29785a41fbf20b2e854058))
+* **ui:** polish archived sessions tab style ([952c4c8](https://github.com/14790897/MiQi/commit/952c4c8a7241397d6a2854f85dc130d35c2c9682))
+* **ui:** polish merge button — bigger icon, proper disabled opacity, var(--accent-text) ([2b78c38](https://github.com/14790897/MiQi/commit/2b78c387ed2d730aa960a17541baa2947d46cd2d)), closes [#121212](https://github.com/14790897/MiQi/issues/121212)
+* **ui:** redesign AgentPanel and PluginMarket empty states ([9dbc2de](https://github.com/14790897/MiQi/commit/9dbc2de6a48890b1f6e142e7a60a8c2e5462953e))
+* **ui:** redesign permissions page with proper styling ([47a8e53](https://github.com/14790897/MiQi/commit/47a8e539622a84443787e4b6b8fcabe5b9924875))
+* **ui:** redesign theme switcher with icons, translate Permissions ([ca70b5c](https://github.com/14790897/MiQi/commit/ca70b5cd43121f20e4c38a784b0ba7532c5a1e9a))
+* **ui:** remove Core Agent subtitle, center agent name ([48f4d06](https://github.com/14790897/MiQi/commit/48f4d062135bd7ef448cce1ce242055c8a0eb584))
+* **ui:** remove duplicate GitMerge icon from merge empty state ([abb8c62](https://github.com/14790897/MiQi/commit/abb8c62913875e6e81fc30d2ee994f432548638e))
+* **ui:** remove GPU-forced text blur from hover classes ([11e25a2](https://github.com/14790897/MiQi/commit/11e25a2a8c2d2ec188e493011c2c114d0ad46d6c))
+* **ui:** remove startTransition from tab switch — may block external prop sync ([6feed90](https://github.com/14790897/MiQi/commit/6feed90de621efdd19c47aed10b5c2f25fe230d4))
+* **ui:** replace custom text sizes with standard Tailwind to fix blur ([183632d](https://github.com/14790897/MiQi/commit/183632d8bed92c8d6bd21dda703815e93418a9e8))
+* **ui:** replace transition-all with transition to prevent text blur ([9ee3c2a](https://github.com/14790897/MiQi/commit/9ee3c2a445c6a23e2109c5648986bbf3975ce806))
+* **ui:** translate placeholder, agent labels ([a01cf68](https://github.com/14790897/MiQi/commit/a01cf68b4f48cae5d82f75a62eae69c9576b6c7c))
+* **ui:** translate remaining English strings in ChatConsole ([7ecb1ab](https://github.com/14790897/MiQi/commit/7ecb1ab4fe8dd6a9e57d90dc7bc01d3dc6173869))
+* **ui:** translate settings — permissions, agents, plugins ([c89456d](https://github.com/14790897/MiQi/commit/c89456db766c96e3d747bf576472495e67056fa8))
+* **ui:** translate TopBar — bypass labels, sync status ([8463409](https://github.com/14790897/MiQi/commit/8463409ba617e5686574ca5f756ac07e7dc11b6a))
+* **ui:** WSL page non-blocking — show UI immediately, load async ([c7bf351](https://github.com/14790897/MiQi/commit/c7bf351ff48f998e59b9ecc75edf581632f088a5))
+* update contract audit legacy bounds for providers.activate (+1 method) ([2e76f4d](https://github.com/14790897/MiQi/commit/2e76f4d3c09a487519facaf7dd4b38a51246d2fe))
+* update method count assertion for providers.activate (153→154) ([362e27b](https://github.com/14790897/MiQi/commit/362e27bf4ab9d5e6b8554234a936a51698b51cae))
+* **wsl:** render UI immediately, load distros in background ([64def2f](https://github.com/14790897/MiQi/commit/64def2f9087f737aaba2a2f0595210825ccf431a))
+
+
+### Features
+
+* add built-in DeepSeek credential unlock ([5a949e0](https://github.com/14790897/MiQi/commit/5a949e02a189991ab6b05e5e340994f01ef8db69))
+* **chat:** expand three-dot menu — share, export, archive, delete ([4d9523a](https://github.com/14790897/MiQi/commit/4d9523a3cea7b74e38a3f01bc255ce2eac7d89e1))
+* redesign built-in credential as provider API source option ([9629340](https://github.com/14790897/MiQi/commit/9629340dc2a2d3fa1da247fcdf5fe14720b7c96d))
+* **sidebar:** add CC (抄送) filter tab and context menu ([633e9cf](https://github.com/14790897/MiQi/commit/633e9cf276af9b95404f73841635a9da8812735d))
+* **sidebar:** add delete conversation to right-click menu ([2195bb9](https://github.com/14790897/MiQi/commit/2195bb91f9461b8349d3161ead8cc2ca79cab713))
+
+
+### Performance Improvements
+
+* **sidebar:** single-pass filterCounts + filteredSessions via useMemo ([447f0b8](https://github.com/14790897/MiQi/commit/447f0b85cb74c316ea081585d0cbe7cd10b18b67))
+* **ui:** KeepAlive — mount tabs once, never remount ([c9a5153](https://github.com/14790897/MiQi/commit/c9a51533d66b527d5378340c0ebf145d46b98595))
+* **ui:** lazy mount tabs — first visit mounts, then stays ([1632ffe](https://github.com/14790897/MiQi/commit/1632ffef3186ec268e6b6b74792d3750ccf23ab7))
+* **ui:** use startTransition for instant tab switching ([193d5cf](https://github.com/14790897/MiQi/commit/193d5cf58c3ee29accb8c2f4bd25304b5f9c349b))
+
+
+### Reverts
+
+* remove CC UI entries, keep underlying infrastructure ([4088fe0](https://github.com/14790897/MiQi/commit/4088fe0348f0366e0d78e987651c0f186df8672a))
+* restore original ApprovalBypassBanner — bypass fixes belong in [#285](https://github.com/14790897/MiQi/issues/285) ([38312a5](https://github.com/14790897/MiQi/commit/38312a5a645f32cad9d36148d24d7d34da76b879))
+* restore original Tabs.Content — KeepAlive caused 18-component DOM bloat ([453a39a](https://github.com/14790897/MiQi/commit/453a39a319ec44b79a62d562b6f060057d192db4))
+
 ## [0.6.1](https://github.com/14790897/MiQi/compare/v0.6.0...v0.6.1) (2026-07-14)
 
 
