@@ -14,6 +14,7 @@ export interface MockBridgeOptions {
   providers?: Array<Record<string, unknown>>;
   activeModel?: string;
   activeProvider?: string | null;
+  config?: Record<string, unknown>;
 }
 
 export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
@@ -33,6 +34,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   const providersJson = JSON.stringify(opts.providers || []);
   const activeModelJson = JSON.stringify(opts.activeModel || '');
   const activeProviderJson = JSON.stringify(opts.activeProvider ?? null);
+  const configJson = JSON.stringify(opts.config || {});
 
   return `
 (function() {
@@ -49,6 +51,8 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   window.cancelAnimationFrame = function(id) { clearTimeout(id); };
 
   var noop = function() { return function() {}; };
+  var _config = ${configJson};
+  var _configUpdates = [];
 
   // ── Interactive helpers ──────────────────────────────────────────
   var _callbacks = { progress: [], final: [], error: [], aborted: [], log: [] };
@@ -152,8 +156,11 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
     },
 
     config: {
-      get: function() { return Promise.resolve({}); },
-      update: function() { return Promise.resolve({}); },
+      get: function() { return Promise.resolve(JSON.parse(JSON.stringify(_config))); },
+      update: function(payload) {
+        _configUpdates.push(JSON.parse(JSON.stringify(payload)));
+        return Promise.resolve({});
+      },
     },
 
     providers: {
@@ -303,6 +310,10 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
     /** Clear all registered callbacks */
     reset: function() {
       _callbacks = { progress: [], final: [], error: [], aborted: [], log: [] };
+    },
+
+    getConfigUpdates: function() {
+      return JSON.parse(JSON.stringify(_configUpdates));
     },
   };
 
