@@ -3213,6 +3213,21 @@
         "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
         "emits": [],
         "eventSchemas": {},
+        "method": "providers.activate",
+        "paramsSchema": {
+          "type": "object"
+        },
+        "resultSchema": {
+          "type": "object"
+        },
+        "scope": "session",
+        "stability": "legacy"
+      },
+      {
+        "deprecatedBy": null,
+        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "emits": [],
+        "eventSchemas": {},
         "method": "providers.list",
         "paramsSchema": {
           "type": "object"
@@ -5295,8 +5310,8 @@
     "source": "miqi.runtime.export_app_protocol_ts.render_typescript_contract"
   },
   "methodCounts": {
-    "legacy": 70,
-    "total": 153,
+    "legacy": 71,
+    "total": 154,
     "typed": 83
   },
   "schemaVersion": 1
