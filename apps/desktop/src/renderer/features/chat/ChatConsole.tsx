@@ -1330,7 +1330,7 @@ export function ChatConsole({
       let threadId = currentThreadIdRef.current;
       if (threadId == null) {
         try {
-          const title = (text || 'New conversation').trim().slice(0, 60);
+          const title = (text || '新会话').trim().slice(0, 60);
           // Non-blocking: start thread with a short timeout so chat.send
           // isn't delayed by a slow bridge restart.  Falls through to
           // chat.send without thread_id on failure.
@@ -1777,7 +1777,61 @@ export function ChatConsole({
 
           {/* More menu */}
           <ContextMenu
-            items={[{ label: '删除对话', danger: true, onSelect: handleDeleteSession }]}
+            items={[
+              {
+                label: '分享对话',
+                onSelect: () => {
+                  const text = buildTaskShareText({
+                    title: sessionTitle || sessionKey,
+                    meta: sessionKey,
+                    messages,
+                    files: trackedFiles,
+                  });
+                  navigator.clipboard.writeText(text);
+                  showShareFeedback('copied');
+                },
+              },
+              {
+                label: '导出对话',
+                onSelect: () => {
+                  const text = buildTaskShareText({
+                    title: sessionTitle || sessionKey,
+                    meta: sessionKey,
+                    messages,
+                    files: trackedFiles,
+                  });
+                  const link = document.createElement('a');
+                  link.download = getTaskShareDownloadName(sessionTitle || sessionKey);
+                  link.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+                  link.click();
+                  URL.revokeObjectURL(link.href);
+                  showShareFeedback('exported');
+                },
+              },
+              {
+                label: '归档',
+                divider: true,
+                onSelect: async () => {
+                  try {
+                    await window.miqi.sessions.archive(sessionKey);
+                    handleNewSession();
+                  } catch { /* ignore */ }
+                },
+              },
+              {
+                label: '删除对话',
+                danger: true,
+                onSelect: async () => {
+                  if (!window.confirm('删除此对话？操作不可恢复。')) return;
+                  try {
+                    await window.miqi.sessions.delete(sessionKey);
+                    handleNewSession();
+                  } catch (e) {
+                    console.error('Delete failed:', e);
+                  }
+                },
+              },
+            ]}
           >
             {({ onContextMenu }) => (
               <Tooltip content="更多对话操作">
@@ -2007,7 +2061,7 @@ export function ChatConsole({
                     adjustTextareaHeight();
                   }}
                   onKeyDown={handleKeyDown}
-                  placeholder="Ask Agent to analyze or edit files..."
+                  placeholder="输入消息或拖入文件..."
                   rows={1}
                   allowResize={true}
                   className="flex-1 border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 text-sm"
@@ -2100,7 +2154,7 @@ export function ChatConsole({
               <div className="flex items-center gap-1.5">
                 <LayoutGrid size={13} style={{ color: 'var(--text-muted)' }} />
                 <span className="text-xs font-semibold" style={{ color: 'var(--text)' }} data-testid="task-assets-title">
-                  Task Assets
+                  任务资产
                 </span>
               </div>
               <span className="text-xs font-medium" style={{ color: 'var(--text-faint)' }}>
@@ -2113,10 +2167,10 @@ export function ChatConsole({
                 <FileText size={28} style={{ color: 'var(--text-faint)', opacity: 0.35 }} />
                 <div className="flex flex-col items-center gap-1">
                   <p className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }} data-testid="task-assets-empty">
-                    No files yet.
+                    暂无文件
                   </p>
                   <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
-                    Agent operations will appear here.
+                    Agent 操作会显示在这里
                   </p>
                 </div>
               </div>
@@ -2125,7 +2179,7 @@ export function ChatConsole({
                 {/* Written / Edited files → Active for Edit */}
                 {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length > 0 && (
                   <>
-                    <SectionLabel label="ACTIVE FOR EDIT" />
+                    <SectionLabel label="编辑中" sectionKey="active-for-edit" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'write' || f.op === 'edit')
@@ -2144,7 +2198,7 @@ export function ChatConsole({
                 {/* Read files → Referenced Context */}
                 {trackedFiles.filter((f) => f.op === 'read').length > 0 && (
                   <>
-                    <SectionLabel label="REFERENCED CONTEXT" />
+                    <SectionLabel label="引用上下文" sectionKey="referenced-context" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'read')
@@ -2162,7 +2216,7 @@ export function ChatConsole({
                 {/* Deleted files */}
                 {trackedFiles.filter((f) => f.op === 'delete').length > 0 && (
                   <>
-                    <SectionLabel label="DELETED" />
+                    <SectionLabel label="已删除" sectionKey="deleted" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'delete')
@@ -2193,11 +2247,11 @@ export function ChatConsole({
                       style={{ background: 'var(--warning)' }}
                     />
                     <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
-                      Proposed Changes
+                      修改建议
                     </span>
                   </div>
                   <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
-                    {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length} file(s)
+                    {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length} 个文件
                   </span>
                 </div>
                 <div className="flex flex-col gap-1.5 mb-3">
@@ -2249,32 +2303,32 @@ export function ChatConsole({
               <button
                 onClick={handleMergeAll}
                 disabled={merging || trackedFiles.length === 0}
-                aria-describedby={
-                  trackedFiles.length === 0 ? 'merge-all-disabled-reason' : undefined
-                }
-                title={
-                  trackedFiles.length === 0
-                    ? 'No changed files are available to merge'
-                    : 'Merge all tracked changes'
-                }
-                className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+                className={cn(
+                  'w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition duration-200',
+                  merging || trackedFiles.length === 0
+                    ? 'cursor-not-allowed'
+                    : 'hover:opacity-90',
+                )}
                 style={{
                   background:
                     merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'var(--accent)',
-                  color: merging || trackedFiles.length === 0 ? 'var(--text-faint)' : '#121212',
+                  color: merging || trackedFiles.length === 0 ? 'var(--text-faint)' : 'var(--accent-text)',
+                  opacity: merging || trackedFiles.length === 0 ? 0.5 : 1,
                 }}
               >
-                {merging ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
-                {merging ? 'MERGING...' : 'MERGE ALL CHANGES'}
+                {merging ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <GitMerge size={13} />
+                )}
+                {merging ? '合并中...' : '合并所有更改'}
               </button>
               {trackedFiles.length === 0 && (
-                <p
-                  id="merge-all-disabled-reason"
-                  className="mt-1.5 text-[11px] text-center"
-                  style={{ color: 'var(--text-muted)' }}
-                >
-                  No changed files are available to merge.
-                </p>
+                <div className="flex items-center justify-center mt-2 py-1.5">
+                  <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                    跟踪文件变更后将在此显示合并选项
+                  </span>
+                </div>
               )}
             </div>
           </div>
@@ -2559,8 +2613,8 @@ function DiffView({ diff }: { diff: string }) {
   );
 }
 
-function SectionLabel({ label }: { label: string }) {
-  const testId = `section-label-${label.toLowerCase().replace(/\s+/g, '-')}`;
+function SectionLabel({ label, sectionKey }: { label: string; sectionKey: string }) {
+  const testId = `section-label-${sectionKey}`;
   return (
     <div
       className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest"
@@ -2672,7 +2726,7 @@ function TrackedFileCard({
               border: '1px solid var(--border)',
               color: 'var(--text-muted)',
             }}
-            title={isOfficeFile ? 'Office binary preview is not available' : 'Preview file'}
+            title={isOfficeFile ? '不支持预览 Office 文件' : '预览文件'}
             data-testid="file-preview-btn"
           >
             <Eye size={10} />
@@ -2820,15 +2874,15 @@ function MessageBubble({
 
   const contextItems: ContextMenuAction[] = isUser
     ? [
-        { label: 'Copy text', onSelect: () => onCopy(msg.content) },
-        { label: 'Retry', onSelect: () => onRetry?.() },
+        { label: '复制文本', onSelect: () => onCopy(msg.content) },
+        { label: '重试', onSelect: () => onRetry?.() },
       ]
     : [
-        { label: 'Copy text', onSelect: () => onCopy(msg.content) },
+        { label: '复制文本', onSelect: () => onCopy(msg.content) },
         ...(hasCodeBlock
           ? [
               {
-                label: 'Copy code',
+                label: '复制代码',
                 onSelect: () => {
                   const codeMatch = msg.content.match(/```[\s\S]*?```/g);
                   if (codeMatch) {
