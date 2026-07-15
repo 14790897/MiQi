@@ -172,11 +172,12 @@ class AgentLoop:
             )
 
         # List tools
+        thread_mode = thread.get("mode")
         tool_context = ToolHostContext(
             thread_id=thread_id,
             turn_id=turn_id,
             workspace=thread.get("workspace", ""),
-            thread_mode=thread.get("mode"),
+            thread_mode=thread_mode,
             approval_policy=thread.get("approvalPolicy", "auto"),
             abort_signal=token,
             active_skill_ids=turn.get("activeSkillIds", []),
