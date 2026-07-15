@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, startTransition, type ReactNode } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { ScrollArea } from '../../components/ui/ScrollArea';
@@ -17,6 +17,10 @@ import {
   Copy,
   Shield,
   ShieldOff,
+  Sun,
+  Moon,
+  Monitor,
+  Trash2,
 } from 'lucide-react';
 import { useRuntime } from '../../contexts/RuntimeContext';
 import * as Tabs from '@radix-ui/react-tabs';
@@ -229,7 +233,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
       <h3 className="text-sm font-semibold text-[var(--text)]">智能体配置</h3>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">智能体名称</label>
+        <label className="text-[13px] font-medium text-[var(--text-muted)]">智能体名称</label>
         <Input
           value={agentName}
           onChange={(e) => setAgentName(e.target.value)}
@@ -238,7 +242,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">工作目录</label>
+        <label className="text-[13px] font-medium text-[var(--text-muted)]">工作目录</label>
         <div className="flex gap-2">
           <Input
             value={workspace}
@@ -260,7 +264,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">默认模型</label>
+        <label className="text-[13px] font-medium text-[var(--text-muted)]">默认模型</label>
         <Input
           value={model}
           onChange={(e) => setModel(e.target.value)}
@@ -270,7 +274,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-[var(--text-muted)]">Temperature</label>
+          <label className="text-[13px] font-medium text-[var(--text-muted)]">Temperature</label>
           <Input
             type="number"
             min="0"
@@ -282,7 +286,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-[var(--text-muted)]">Max Tokens</label>
+          <label className="text-[13px] font-medium text-[var(--text-muted)]">Max Tokens</label>
           <Input
             type="number"
             min="256"
@@ -432,7 +436,7 @@ function WebToolsTab() {
         </div>
         {(searchProvider === 'brave' || searchProvider === 'hybrid') && (
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[var(--text-muted)]">
+            <label className="text-[13px] font-medium text-[var(--text-muted)]">
               Brave Search API Key
             </label>
             <div className="flex gap-2">
@@ -462,7 +466,7 @@ function WebToolsTab() {
         {(fetchProvider === 'ollama' || fetchProvider === 'hybrid') && (
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)]">
+              <label className="text-[13px] font-medium text-[var(--text-muted)]">
                 Ollama web_fetch Base URL
               </label>
               <Input
@@ -472,7 +476,7 @@ function WebToolsTab() {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[var(--text-muted)]">
+              <label className="text-[13px] font-medium text-[var(--text-muted)]">
                 Ollama web_fetch API Key
               </label>
               <Input
@@ -507,7 +511,7 @@ function WebToolsTab() {
         </div>
         {(papersProvider === 'hybrid' || papersProvider === 'semantic_scholar') && (
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[var(--text-muted)]">
+            <label className="text-[13px] font-medium text-[var(--text-muted)]">
               Semantic Scholar API Key（可选）
             </label>
             <Input
@@ -537,48 +541,67 @@ function AppearanceTab() {
     return (localStorage.getItem('miqi-theme') as ThemeMode) ?? 'system';
   });
 
-  const applyTheme = (mode: ThemeMode) => {
-    setTheme(mode);
-    localStorage.setItem('miqi-theme', mode);
-    const root = document.documentElement;
-    if (mode === 'dark') {
-      root.classList.add('dark');
-    } else if (mode === 'light') {
-      root.classList.remove('dark');
-    } else {
-      // system
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      root.classList.toggle('dark', prefersDark);
-    }
-  };
+    // Apply persisted theme on mount
+    useEffect(() => {
+      const saved = (localStorage.getItem('miqi-theme') as ThemeMode) ?? 'system';
+      const root = document.documentElement;
+      if (saved === 'dark') {
+        root.classList.add('dark');
+      } else if (saved === 'light') {
+        root.classList.remove('dark');
+      } else {
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        root.classList.toggle('dark', prefersDark);
+      }
+    }, []);
 
-  return (
-    <div className="p-6 max-w-lg flex flex-col gap-4">
-      <h3 className="text-sm font-semibold text-[var(--text)]">外观</h3>
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)]">主题</label>
-        <div className="inline-flex w-fit items-center gap-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-muted)] p-1">
-          {(['light', 'dark', 'system'] as ThemeMode[]).map((m) => (
-            <button
-              key={m}
-              onClick={() => applyTheme(m)}
-              aria-pressed={theme === m}
-              className={cn(
-                'settings-hover-tab rounded-md px-3.5 py-1.5 text-xs font-medium',
-                'focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30',
-                theme === m
-                  ? 'bg-[var(--accent)] text-[var(--accent-text)] shadow-sm'
-                  : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'
-              )}
-            >
-              {m === 'light' ? '浅色' : m === 'dark' ? '深色' : '跟随系统'}
-            </button>
-          ))}
+    const applyTheme = (mode: ThemeMode) => {
+      setTheme(mode);
+      localStorage.setItem('miqi-theme', mode);
+      const root = document.documentElement;
+      if (mode === 'dark') {
+        root.classList.add('dark');
+      } else if (mode === 'light') {
+        root.classList.remove('dark');
+      } else {
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        root.classList.toggle('dark', prefersDark);
+      }
+    };
+
+    const modes: Array<{ value: ThemeMode; label: string; icon: ReactNode }> = [
+      { value: 'light', label: '浅色', icon: <Sun size={16} /> },
+      { value: 'dark', label: '深色', icon: <Moon size={16} /> },
+      { value: 'system', label: '跟随系统', icon: <Monitor size={16} /> },
+    ];
+
+    return (
+      <div className="p-6 max-w-lg flex flex-col gap-4">
+        <h3 className="text-sm font-semibold text-[var(--text)]">外观</h3>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[13px] font-medium text-[var(--text-muted)]">主题</label>
+          <div className="flex items-stretch gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
+            {modes.map(({ value, label, icon }) => (
+              <button
+                key={value}
+                onClick={() => applyTheme(value)}
+                aria-pressed={theme === value}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition duration-200',
+                  theme === value
+                    ? 'bg-[var(--surface)] text-[var(--text)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]/50',
+                )}
+              >
+                {icon}
+                <span className="hidden sm:inline">{label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
 // ---- Logs Tab (existing) ----
 function LogsTab() {
@@ -841,15 +864,23 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
   }, [load]);
 
   const handleRestore = async (key: string, title: string) => {
-    await window.miqi.sessions.unarchive(key);
-    await load();
-    onRestore?.(key);
+    try {
+      await window.miqi.sessions.unarchive(key);
+      await load();
+      onRestore?.(key);
+    } catch (e: any) {
+      alert(`恢复失败: ${e?.message || e}`);
+    }
   };
 
   const handleDelete = async (key: string, title: string) => {
     if (!window.confirm(`永久删除对话「${title}」？此操作不可撤销。`)) return;
-    await window.miqi.sessions.delete(key);
-    await load();
+    try {
+      await window.miqi.sessions.delete(key);
+      await load();
+    } catch (e: any) {
+      alert(`删除失败: ${e?.message || e}`);
+    }
   };
 
   function formatTime(iso?: string): string {
@@ -864,43 +895,66 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
   }
 
   return (
-    <div className="p-6 max-w-2xl flex flex-col gap-4">
+    <div className="p-4 max-w-2xl flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-[var(--text)]">已归档对话</h3>
-        <Button variant="ghost" size="icon" onClick={load} disabled={loading}>
+        <h3 className="text-sm font-semibold text-[var(--text)] flex items-center gap-2">
+          <Archive size={16} />
+          已归档对话
+        </h3>
+        <button
+          onClick={load}
+          disabled={loading}
+          className="p-1.5 rounded-md hover:bg-[var(--surface-muted)] transition-colors"
+          style={{ color: 'var(--text-faint)' }}
+          title="刷新"
+        >
           <RefreshCw size={14} className={cn(loading && 'animate-spin')} />
-        </Button>
+        </button>
       </div>
 
       {sessions.length === 0 ? (
-        <div className="text-xs text-[var(--text-faint)] text-center py-12">暂无已归档的对话</div>
+        <div className="flex flex-col items-center justify-center py-12 px-4 rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-muted)]/30">
+          <div className="w-10 h-10 rounded-full bg-[var(--surface-muted)] flex items-center justify-center mb-3">
+            <Archive size={18} style={{ color: 'var(--text-faint)' }} />
+          </div>
+          <p className="text-[13px] font-medium text-[var(--text-muted)] mb-1">暂无已归档的对话</p>
+          <p className="text-[11px] text-[var(--text-faint)]">在侧边栏右键对话选择"归档"即可移至此</p>
+        </div>
       ) : (
-        <div className="settings-hover-card flex flex-col border border-[var(--border-subtle)] rounded-lg overflow-hidden">
+        <div className="flex flex-col rounded-xl border border-[var(--border-subtle)] overflow-hidden">
           {sessions.map((s) => (
             <div
               key={s.key}
-              className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border-subtle)] last:border-b-0"
+              className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--surface-muted)]/50"
+              style={{ borderBottom: '1px solid var(--border-subtle)' }}
             >
               <div className="flex-1 min-w-0">
-                <p className="text-sm truncate text-[var(--text)]">{s.title || s.key}</p>
-                <p className="text-xs text-[var(--text-faint)]">{formatTime(s.updated_at)}</p>
+                <p className="text-[13px] truncate font-medium" style={{ color: 'var(--text)' }}>
+                  {s.title || s.key}
+                </p>
+                <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+                  {formatTime(s.updated_at)}
+                </p>
               </div>
-              <button
-                onClick={() => handleRestore(s.key, s.title || s.key)}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-muted)] transition-colors"
-                title="恢复对话"
-              >
-                <Unarchive size={12} />
-                恢复
-              </button>
-              <button
-                onClick={() => handleDelete(s.key, s.title || s.key)}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-faint)] hover:text-[var(--danger)] hover:bg-[var(--surface-muted)] transition-colors"
-                title="永久删除"
-              >
-                <Archive size={12} />
-                删除
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handleRestore(s.key, s.title || s.key)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition duration-150 hover:bg-[var(--surface)] hover:shadow-sm"
+                  style={{ color: 'var(--text-muted)' }}
+                  title="恢复对话"
+                >
+                  <Unarchive size={13} />
+                  恢复
+                </button>
+                <button
+                  onClick={() => handleDelete(s.key, s.title || s.key)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition duration-150 hover:bg-[var(--danger-bg)]"
+                  style={{ color: 'var(--text-faint)' }}
+                  title="永久删除"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -1065,7 +1119,7 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
             { value: 'channels', label: '渠道' },
             { value: 'agents', label: '智能体' },
             { value: 'skills', label: '技能' },
-            { value: 'mcps', label: 'MCPs' },
+            { value: 'mcps', label: 'MCP 服务' },
             { value: 'memory', label: '记忆' },
             { value: 'experience', label: '经验' },
             { value: 'approvals', label: '审批' },

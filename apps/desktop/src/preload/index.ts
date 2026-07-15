@@ -189,6 +189,14 @@ const api = {
         extra_headers: extraHeaders ?? null,
         model: model ?? undefined,
       }),
+    activate: (
+      providerName: string,
+      activationCode: string
+    ): Promise<{ activated: boolean; provider_name: string; error?: string }> =>
+      ipcRenderer.invoke(IPC.PROVIDERS_ACTIVATE, {
+        provider_name: providerName,
+        activation_code: activationCode,
+      }),
   },
 
   // -- Channels ---------------------------------------------------------------

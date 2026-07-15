@@ -46,6 +46,7 @@ export const IPC = {
   PROVIDERS_LIST: 'providers:list',
   PROVIDERS_TEST: 'providers:test',
   PROVIDERS_UPDATE: 'providers:update',
+  PROVIDERS_ACTIVATE: 'providers:activate',
   CHANNELS_LIST: 'channels:list',
   CHANNELS_UPDATE: 'channels:update',
   APPROVALS_LIST: 'approvals:list',
@@ -206,6 +207,11 @@ export const ProviderUpdateInput = z.object({
   model: z.string().optional(),
 });
 
+export const ProviderActivateInput = z.object({
+  provider_name: z.string().min(1),
+  activation_code: z.string().min(1),
+});
+
 // New Phase 1 schemas
 export const AgentSpawnInput = z.object({
   agent_type: z.string().min(1),
@@ -284,6 +290,8 @@ export interface ProviderInfo {
   verification_status?: 'missing' | 'unverified' | 'success' | 'failed';
   verified_at?: string | null;
   verification_message?: string | null;
+  builtin_available?: boolean;
+  builtin_activated?: boolean;
 }
 
 export interface ProvidersListResult {
@@ -295,6 +303,12 @@ export interface ProvidersListResult {
 export interface ProviderUpdateResult {
   saved: boolean;
   provider_name: string;
+}
+
+export interface ProviderActivateResult {
+  activated: boolean;
+  provider_name: string;
+  error?: string;
 }
 
 export interface FeishuChannelConfig {

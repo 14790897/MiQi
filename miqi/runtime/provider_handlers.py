@@ -106,13 +106,21 @@ async def providers_list_handler(
     model = config.agents.defaults.model
     model_provider = config.get_provider_name(model)
     verification_store = _provider_verification_store(config)
+    activation_store = _provider_activation_store(config)
 
     providers_out = []
     for spec in PROVIDERS:
         pc = getattr(config.providers, spec.name, None)
         api_key = pc.api_key if pc else None
         hint = None
-        if api_key and len(api_key) >= 8:
+        builtin_available = spec.name in _BUILTIN_PROVIDERS
+        builtin_activated = bool(
+            activation_store.get(spec.name, {}).get("builtin", False)
+        )
+        if builtin_activated:
+            # Hide the real key from the frontend for built-in activations
+            hint = "企业共享密钥"
+        elif api_key and len(api_key) >= 8:
             hint = api_key[:4] + "…" + api_key[-4:]
         elif api_key:
             hint = "***"
@@ -148,6 +156,8 @@ async def providers_list_handler(
             "verification_status": verification_status,
             "verified_at": record.get("checkedAt") if record_matches else None,
             "verification_message": record.get("message") if record_matches else None,
+            "builtin_available": builtin_available,
+            "builtin_activated": builtin_activated,
         })
 
     return {
@@ -352,6 +362,11 @@ async def providers_update_handler(
             _provider_fingerprint(new_pc, config.agents.defaults.model),
             "Provider settings changed; test again to verify",
         )
+        # When user explicitly provides their own API key, clear the built-in
+        # activation flag so the UI defaults to "own key" next time.
+        if update.get("api_key"):
+            activation_store = _provider_activation_store(config)
+            activation_store.pop(provider_name, None)
 
     if model_override:
         config.agents.defaults.model = model_override
@@ -360,3 +375,131 @@ async def providers_update_handler(
     state.config = config
 
     return {"result": {"saved": True, "provider_name": provider_name}}
+
+
+# ---------------------------------------------------------------------------
+# Built-in credential: activation code → decrypt embedded API key
+# ---------------------------------------------------------------------------
+
+# Providers that support built-in (enterprise shared) keys
+_BUILTIN_PROVIDERS = {"deepseek"}
+
+# Encrypted API key for DeepSeek internal testing.
+# Token generated via Fernet with activation-code-derived key.
+_BUILTIN_KEYS: dict[str, str] = {"deepseek": "gAAAAABqVvj-NrrD9IWE4hrbCvexuygd09CeYtOWuflv1ATJm-vaoBENzFakFX1tRQpX4jYshKb3pcc38wdO-faRSC4NSaZXm0C-Q4e8AdKO0u0oLyJhy0ppimff7Q7DHYRMseC31Gi0"}  # provider_name → encrypted_key
+
+# Default activation code — the company name / internal code
+_DEFAULT_ACTIVATION_CODE = "weiguanjiyuan5g"
+
+
+def _get_fernet() -> Any:
+    """Get Fernet instance for the built-in key encryption."""
+    from cryptography.fernet import Fernet
+    # Derive a Fernet key from the activation code (for MVP)
+    import base64
+    import hashlib
+    digest = hashlib.sha256(_DEFAULT_ACTIVATION_CODE.encode()).digest()
+    key = base64.urlsafe_b64encode(digest)
+    return Fernet(key)
+
+
+def _decrypt_builtin_key(provider_name: str) -> str | None:
+    """Decrypt the built-in API key for a provider. Returns None if not configured."""
+    token = _BUILTIN_KEYS.get(provider_name)
+    if not token:
+        return None
+    try:
+        fernet = _get_fernet()
+        return fernet.decrypt(token.encode()).decode()
+    except Exception:
+        return None
+
+
+async def providers_activate_handler(
+    request_id: str,
+    params: dict[str, Any],
+    client_id: str,
+    session_id: str | None,
+    registry: Any,
+) -> dict[str, Any]:
+    """Activate a provider's built-in enterprise API key with an activation code.
+
+    The activation code is validated, and if correct, the built-in API key is
+    decrypted and stored in the provider config. The frontend never sees the
+    actual key — only the activation status.
+    """
+    from miqi.config.loader import save_config
+    from miqi.config.schema import ProviderConfig, ProvidersConfig
+
+    provider_name = params.get("provider_name", "").strip()
+    activation_code = params.get("activation_code", "").strip()
+
+    if not provider_name:
+        raise AppServerError("provider_name is required", code="INVALID_PARAMS")
+    if not activation_code:
+        raise AppServerError("activation_code is required", code="INVALID_PARAMS")
+    if provider_name not in _BUILTIN_PROVIDERS:
+        raise AppServerError(
+            f"Provider '{provider_name}' does not support built-in activation",
+            code="NOT_SUPPORTED",
+        )
+
+    # Validate activation code
+    if activation_code != _DEFAULT_ACTIVATION_CODE:
+        raise AppServerError("激活码无效", code="INVALID_CODE")
+
+    # Decrypt the built-in key
+    api_key = _decrypt_builtin_key(provider_name)
+    if not api_key:
+        raise AppServerError(
+            "未配置内置密钥，请联系管理员",
+            code="NO_BUILTIN_KEY",
+        )
+
+    state = get_bridge_state(registry)
+    config = state.load_config()
+    pc = getattr(config.providers, provider_name, None)
+    if pc is None:
+        raise AppServerError(
+            f"Provider config not found: {provider_name}", code="NOT_FOUND",
+        )
+
+    # Write the decrypted key to provider config
+    current_dict = pc.model_dump(by_alias=False)
+    current_dict["api_key"] = api_key
+    new_pc = ProviderConfig.model_validate(current_dict)
+    setattr(config.providers, provider_name, new_pc)
+
+    # Mark as built-in activated so the frontend hides the real key
+    activation_store = _provider_activation_store(config)
+    activation_store[provider_name] = {
+        "builtin": True,
+        "activatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+    save_config(config)
+    state.config = config
+
+    logger.info(
+        "providers.activate: provider={} activated via built-in key", provider_name,
+    )
+
+    return {
+        "result": {
+            "activated": True,
+            "provider_name": provider_name,
+        }
+    }
+
+
+def _provider_activation_store(config: Any) -> dict[str, Any]:
+    """Get or create the provider activation store in desktop config."""
+    desktop = getattr(config, "desktop", None)
+    if not isinstance(desktop, dict):
+        desktop = {}
+        config.desktop = desktop
+    store = desktop.get("providerActivation")
+    if not isinstance(store, dict):
+        store = {}
+        desktop["providerActivation"] = store
+    return store

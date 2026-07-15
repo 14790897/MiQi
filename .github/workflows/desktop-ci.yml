@@ -34,7 +34,7 @@ jobs:
         run: npm ci
 
       - name: Build renderer
-        run: npm run build
+        run: npm run build -- --logLevel warn
 
       - name: Unit tests (vitest)
         run: npm test
@@ -43,7 +43,7 @@ jobs:
         run: npx playwright install chromium --with-deps
 
       - name: Mock smoke tests (Playwright)
-        run: npx playwright test --config=playwright.config.ts --project=smoke
+        run: npx playwright test --config=playwright.config.ts --project=smoke --quiet
         continue-on-error: true  # flaky in headless, don't block
 
       - name: Upload Playwright report
@@ -98,7 +98,7 @@ jobs:
         run: npx playwright install chromium --with-deps
 
       - name: Build renderer
-        run: npm run build
+        run: npm run build -- --logLevel warn
 
       - name: Generate config.json
         run: |
