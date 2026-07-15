@@ -2179,7 +2179,7 @@ export function ChatConsole({
                 {/* Written / Edited files → Active for Edit */}
                 {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length > 0 && (
                   <>
-                    <SectionLabel label="编辑中" />
+                    <SectionLabel label="编辑中" sectionKey="active-for-edit" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'write' || f.op === 'edit')
@@ -2198,7 +2198,7 @@ export function ChatConsole({
                 {/* Read files → Referenced Context */}
                 {trackedFiles.filter((f) => f.op === 'read').length > 0 && (
                   <>
-                    <SectionLabel label="引用上下文" />
+                    <SectionLabel label="引用上下文" sectionKey="referenced-context" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'read')
@@ -2216,7 +2216,7 @@ export function ChatConsole({
                 {/* Deleted files */}
                 {trackedFiles.filter((f) => f.op === 'delete').length > 0 && (
                   <>
-                    <SectionLabel label="已删除" />
+                    <SectionLabel label="已删除" sectionKey="deleted" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'delete')
@@ -2613,8 +2613,8 @@ function DiffView({ diff }: { diff: string }) {
   );
 }
 
-function SectionLabel({ label }: { label: string }) {
-  const testId = `section-label-${label.toLowerCase().replace(/\s+/g, '-')}`;
+function SectionLabel({ label, sectionKey }: { label: string; sectionKey: string }) {
+  const testId = `section-label-${sectionKey}`;
   return (
     <div
       className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest"
