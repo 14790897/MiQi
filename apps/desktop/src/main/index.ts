@@ -15,22 +15,14 @@ const { app, BrowserWindow, shell, Menu } = electron;
 let mainWindow: typeof BrowserWindow.prototype | null = null;
 let bridgeManager: BridgeManager | null = null;
 
-/** Resolve the app icon path for both dev (source) and packaged (resources) modes. */
-function getIconPath(): string {
-  if (app.isPackaged) {
-    return join(process.resourcesPath, 'icon.ico');
-  }
-  return join(__dirname, '../../src/renderer/assets/icon.ico');
-}
-
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
     minWidth: 900,
     minHeight: 760,
+    show: false,
     title: 'MiQi Desktop',
-    icon: getIconPath(),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -41,6 +33,12 @@ function createWindow(): void {
 
   // Remove native menu bar — app has its own navigation
   mainWindow.removeMenu();
+
+  mainWindow.on('ready-to-show', () => {
+    closeSplash().then(() => {
+      mainWindow?.show();
+    });
+  });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
@@ -141,10 +139,17 @@ export function main(): void {
     bridgeManager.on('state', onState);
     bridgeManager.on('log', onLog);
 
-    createSplash(() => {
-      closeSplash();
-    });
+    createSplash();
+
     createWindow();
+
+    const splashTimeout = setTimeout(() => {
+      closeSplash().catch(() => {});
+    }, 5000);
+
+    mainWindow!.once('ready-to-show', () => {
+      clearTimeout(splashTimeout);
+    });
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
