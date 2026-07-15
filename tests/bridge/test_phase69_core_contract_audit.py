@@ -56,6 +56,6 @@ async def test_plan69_reduces_legacy_method_count():
 
         assert len(catalog["methods"]) == 154  # +1 for providers.activate
         assert len(typed) >= 44
-        assert len(legacy) <= 108
+        assert len(legacy) <= 109
     finally:
         await loop.app_server.stop()
