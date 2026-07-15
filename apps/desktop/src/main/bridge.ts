@@ -187,12 +187,9 @@ export class BridgeManager extends EventEmitter {
     // In dev: __dirname = apps/desktop/out/main → projectRoot is 4 levels up
     this.projectRoot = projectRoot || join(__dirname, '..', '..', '..', '..');
     // Hot reload is ON by default in dev mode for development convenience.
-    // Set MIQI_BRIDGE_HOT_RELOAD=0 to opt-out (e.g., when configuring models
-    // or doing chat QA — bridge restarts cancel pending requests).
     this.hotReloadEnabled =
-      process.env['MIQI_BRIDGE_HOT_RELOAD'] !== '0' &&
-      (process.env['NODE_ENV'] === 'development' ||
-       process.env['ELECTRON_RENDERER_URL'] !== undefined);
+      process.env['NODE_ENV'] === 'development' ||
+      process.env['ELECTRON_RENDERER_URL'] !== undefined;
   }
 
   /** Whether the bridge has completed the initialize/initialized handshake. */
@@ -639,6 +636,14 @@ export class BridgeManager extends EventEmitter {
 
     if (this.state !== 'running' || !this.initialized || this.restartInProgress) {
       this.addLog(`[Hot Reload] Ignoring change while bridge is ${this.state}`);
+      return;
+    }
+
+    // Don't restart if there are active requests — avoid killing sessions
+    if (this.pending.size > 0) {
+      this.addLog(
+        `[Hot Reload] Skipping restart — ${this.pending.size} pending request(s)`,
+      );
       return;
     }
 
