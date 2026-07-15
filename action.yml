@@ -135,9 +135,8 @@ runs:
           // 1. Description
           {
             const val = extract('Bug 描述');
-            if (!val || val.length < minDesc) {
-              const actual = val ? val.length : 0;
-              failures.push(`Bug 描述：未填写或内容过短（当前 ${actual} 字符，需至少 ${minDesc} 字符）`);
+            if (!val) {
+              failures.push(`Bug 描述：未填写`);
             }
           }
 
@@ -145,10 +144,8 @@ runs:
           {
             const val = extract('环境');
             const stillDefault = val?.includes('运行上方命令后将输出粘贴到这里');
-            const matched = sysKw.filter(kw => val?.includes(kw)).length;
-            if (!val || val.length < 30 || stillDefault || matched < minSysKw) {
-              const actual = val ? val.length : 0;
-              failures.push(`环境信息：未填写或内容过短（当前 ${actual} 字符，需至少 30 字符，系统关键词命中 ${matched}/${minSysKw}）`);
+            if (!val || stillDefault) {
+              failures.push(`环境信息：未填写`);
             }
           }
 
@@ -156,45 +153,40 @@ runs:
           {
             const val = extract('复现步骤');
             const actual = val?.split('\n').filter(l => l.replace(/^\d+\.\s*/, '').trim().length > 0).join('\n').trim();
-            if (!actual || actual.length < minSteps) {
-              const len = actual ? actual.length : 0;
-              failures.push(`复现步骤：未填写或内容过短（当前 ${len} 字符，需至少 ${minSteps} 字符）`);
+            if (!actual) {
+              failures.push(`复现步骤：未填写`);
             }
           }
 
           // 4. Frequency
           {
             const val = extract('复现频率');
-            if (!val || val.length < minFreq) {
-              const actual = val ? val.length : 0;
-              failures.push(`复现频率：未填写或内容过短（当前 ${actual} 字符，需至少 ${minFreq} 字符）`);
+            if (!val) {
+              failures.push(`复现频率：未填写`);
             }
           }
 
           // 5. Expected behavior
           {
             const val = extract('期望行为');
-            if (!val || val.length < minDesc) {
-              const actual = val ? val.length : 0;
-              failures.push(`期望行为：未填写或内容过短（当前 ${actual} 字符，需至少 ${minDesc} 字符）`);
+            if (!val) {
+              failures.push(`期望行为：未填写`);
             }
           }
 
           // 6. Actual behavior
           {
             const val = extract('实际行为');
-            if (!val || val.length < minDesc) {
-              const actual = val ? val.length : 0;
-              failures.push(`实际行为：未填写或内容过短（当前 ${actual} 字符，需至少 ${minDesc} 字符）`);
+            if (!val) {
+              failures.push(`实际行为：未填写`);
             }
           }
 
           // 7. Logs
           {
             const val = extract('日志');
-            if (!val || val.length < minLogs) {
-              const actual = val ? val.length : 0;
-              failures.push(`日志：未填写或内容过短（当前 ${actual} 字符，需至少 ${minLogs} 字符）`);
+            if (!val) {
+              failures.push(`日志：未填写`);
             }
           }
 
