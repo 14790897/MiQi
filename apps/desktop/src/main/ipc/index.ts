@@ -1,5 +1,7 @@
 import { electron } from '../../shared/electron';
 import { spawnSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { isAbsolute, join } from 'path';
@@ -74,7 +76,6 @@ function getConfigPath(): string {
   return join(getConfigDir(), 'config.json');
 }
 
-/** Resolve the workspace root directory — mirrors Python config.schema workspace_path property. */
 /** Strip sandbox prefix and resolve against the host workspace.
  *
  *  The bwrap sandbox mounts at /home/miqi/workspace/.  Paths reported
@@ -435,17 +436,9 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     let pythonVersion = 'unknown';
 
     // Check for bundled miqi-bridge.exe first (packaged / production environment).
-    // The bundled exe is a self-contained PyInstaller build that includes
-    // Python 3.11+ and all dependencies (pydantic, httpx, loguru, …).
-    // No system Python needed — if the exe exists, the environment is ready.
     const bundledBridge = join(process.resourcesPath, 'miqi-bridge.exe');
     if (existsSync(bundledBridge)) {
-      // The bundled exe supports --check for optional validation.
-      // PyInstaller onefile exe has a decompression delay on first run,
-      // so we keep this lightweight and don't block the UI on it.
-      // Primary signal: file exists → environment is considered OK.
       pythonVersion = 'bundled';
-      // Try a quick --check to get the actual Python version (best-effort, non-blocking)
       try {
         const checkResult = spawnSync(bundledBridge, ['--check'], {
           timeout: 15000,
@@ -463,7 +456,6 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
             // JSON parse failed — not critical, bundled exe exists
           }
         }
-        // If --check failed or not supported (old exe), still OK — file exists
       } catch {
         // --check timeout or error — not critical, bundled exe exists
       }
@@ -473,19 +465,15 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
       if (process.env['MIQI_PYTHON_PATH']) {
         candidates.push([process.env['MIQI_PYTHON_PATH']!]);
       }
-      // uv
       const hasUvLock =
         existsSync(join(projectRoot, 'uv.lock')) || existsSync(join(projectRoot, 'pyproject.toml'));
       if (hasUvLock) {
         candidates.push(['uv', 'run', 'python']);
       }
-      // .venv on Windows
       const venvWin = join(projectRoot, '.venv', 'Scripts', 'python.exe');
       if (existsSync(venvWin)) candidates.push([venvWin]);
-      // .venv on Unix
       const venvUnix = join(projectRoot, '.venv', 'bin', 'python');
       if (existsSync(venvUnix)) candidates.push([venvUnix]);
-      // system fallbacks
       candidates.push(['python3'], ['python']);
 
       let pythonCmd: string[] | null = null;
@@ -500,7 +488,6 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
             pythonCmd = candidate;
             const ver = (r.stdout || r.stderr || '').trim().replace(/^Python\s+/i, '');
             pythonVersion = ver;
-            // Validate version >= 3.11
             const parts = ver.split('.').map(Number);
             if (parts[0] < 3 || (parts[0] === 3 && (parts[1] ?? 0) < 11)) {
               issues.push(`Python ${ver} is too old (need >= 3.11)`);
@@ -516,7 +503,6 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         issues.push('Python not found. Install Python >= 3.11 or set MIQI_PYTHON_PATH.');
         pythonVersion = 'not found';
       } else {
-        // Check key MiQi dependencies
         const checkScript = `
 import importlib, sys
 for m in ("pydantic", "httpx", "loguru"):
@@ -577,7 +563,6 @@ for m in ("pydantic", "httpx", "loguru"):
     let defaultDistro: string | null = null;
     let running = false;
 
-    // Check if WSL is installed at all
     try {
       const statusResult = spawnSync('wsl', ['--status'], {
         timeout: 8000,
@@ -586,11 +571,9 @@ for m in ("pydantic", "httpx", "loguru"):
       });
       if (statusResult.status === 0) {
         installed = true;
-        // WSL --status outputs UTF-16LE on Windows; decode accordingly
         let output = '';
         const buf = statusResult.stdout as Buffer | null;
         if (buf && buf.length > 1) {
-          // Detect BOM or try UTF-16LE if there are many null bytes
           const hasBOM = buf[0] === 0xff && buf[1] === 0xfe;
           const nullRatio =
             buf.reduce((acc, b, i) => (i % 2 === 1 && b === 0 ? acc + 1 : acc), 0) /
@@ -600,13 +583,10 @@ for m in ("pydantic", "httpx", "loguru"):
           } else {
             output = buf.toString('utf8');
           }
-          // Strip BOM and trailing nulls
-          output = output.replace(/^\uFEFF/, '').replace(/\0/g, '');
+          output = output.replace(/^﻿/, '').replace(/\0/g, '');
         }
-        // Parse default distro line, e.g. "默认分发版: Ubuntu-22.04" or "Default Distribution: Ubuntu"
         const defaultMatch = output.match(/(?:默认分发|Default Distr?ibution)\s*[:：]\s*(.+)/i);
         if (defaultMatch) defaultDistro = defaultMatch[1].trim();
-        // Parse default version, e.g. "默认版本: 2" or "Default Version: 2"
         const verMatch = output.match(/(?:默认版本|Default Version)\s*[:：]\s*(\d+)/i);
         if (verMatch) version = verMatch[1];
       }
@@ -614,7 +594,6 @@ for m in ("pydantic", "httpx", "loguru"):
       // WSL not installed
     }
 
-    // List installed distros
     if (installed) {
       try {
         const listResult = spawnSync('wsl', ['--list', '--quiet'], {
@@ -632,10 +611,7 @@ for m in ("pydantic", "httpx", "loguru"):
               Math.floor(buf.length / 2);
             raw =
               hasBOM || nullRatio > 0.3
-                ? buf
-                    .toString('utf16le')
-                    .replace(/^\uFEFF/, '')
-                    .replace(/\0/g, '')
+                ? buf.toString('utf16le').replace(/^﻿/, '').replace(/\0/g, '')
                 : buf.toString('utf8').replace(/\0/g, '');
           }
           const lines = raw
@@ -643,7 +619,6 @@ for m in ("pydantic", "httpx", "loguru"):
             .map((l) => l.trim())
             .filter(Boolean);
           distros = lines;
-          // If no default found from --status, use first listed distro
           if (!defaultDistro && distros.length > 0) {
             defaultDistro = distros[0];
           }
@@ -652,7 +627,6 @@ for m in ("pydantic", "httpx", "loguru"):
         // ignore
       }
 
-      // Check if WSL is currently running (any WSL process active)
       try {
         const psResult = spawnSync('wsl', ['--list', '--running'], {
           timeout: 8000,
@@ -669,17 +643,13 @@ for m in ("pydantic", "httpx", "loguru"):
               Math.floor(buf.length / 2);
             raw =
               hasBOM || nullRatio > 0.3
-                ? buf
-                    .toString('utf16le')
-                    .replace(/^\uFEFF/, '')
-                    .replace(/\0/g, '')
+                ? buf.toString('utf16le').replace(/^﻿/, '').replace(/\0/g, '')
                 : buf.toString('utf8').replace(/\0/g, '');
           }
           const runningLines = raw
             .split(/\r?\n/)
             .map((l) => l.trim())
             .filter(Boolean);
-          // Header line + at least one distro means something is running
           running = runningLines.length > 1;
         }
       } catch {
@@ -702,8 +672,6 @@ for m in ("pydantic", "httpx", "loguru"):
       return { launched: false, error: 'Not on Windows' };
     }
     try {
-      // wsl --install requires admin; spawning with shell: true so it can
-      // request elevation via UAC.  We detach since the installer may reboot.
       const child = spawnSync(
         'powershell.exe',
         ['-Command', 'Start-Process wsl -ArgumentList "--install" -Verb RunAs'],
@@ -720,7 +688,6 @@ for m in ("pydantic", "httpx", "loguru"):
 
   // -----------------------------------------------------------------------
   // WSL stats — memory / CPU / disk usage (Windows only)
-  // Optimized: fast stats in one WSL call; CPU via two-sample /proc/stat
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.WSL_GET_STATS, (_event, distroName?: string) => {
     if (process.platform !== 'win32') {
@@ -735,7 +702,6 @@ for m in ("pydantic", "httpx", "loguru"):
       };
     }
 
-    // Determine target distro
     let targetDistro = distroName ?? '';
     if (!targetDistro) {
       try {
@@ -757,10 +723,7 @@ for m in ("pydantic", "httpx", "loguru"):
               ) /
                 Math.floor(buf.length / 2) >
                 0.3
-                ? buf
-                    .toString('utf16le')
-                    .replace(/^\uFEFF/, '')
-                    .replace(/\0/g, '')
+                ? buf.toString('utf16le').replace(/^﻿/, '').replace(/\0/g, '')
                 : buf.toString('utf8').replace(/\0/g, '');
           }
           const m = out.match(/(?:默认分发|Default Distr?ibution)\s*[:：]\s*(.+)/i);
@@ -790,10 +753,7 @@ for m in ("pydantic", "httpx", "loguru"):
                 ) /
                   Math.floor(buf.length / 2) >
                   0.3
-                  ? buf
-                      .toString('utf16le')
-                      .replace(/^\uFEFF/, '')
-                      .replace(/\0/g, '')
+                  ? buf.toString('utf16le').replace(/^﻿/, '').replace(/\0/g, '')
                   : buf.toString('utf8').replace(/\0/g, '');
             }
             const lines = out
@@ -820,23 +780,17 @@ for m in ("pydantic", "httpx", "loguru"):
       }
     }
 
-    // Helper: run command in WSL (15s timeout, auto-detect UTF-8 vs UTF-16LE)
     const runInWsl = (cmd: string): { stdout: string; stderr: string; status: number | null } => {
       const r = spawnSync('wsl.exe', ['-d', targetDistro, '--', 'bash', '-c', cmd], {
         timeout: 15000,
-        encoding: 'buffer', // read as buffer to auto-detect encoding
+        encoding: 'buffer',
         windowsHide: true,
       });
       const decodeBuf = (buf: Buffer | string | null): string => {
         if (!buf || buf.length === 0) return '';
         if (typeof buf === 'string') return buf.trim();
-        // Auto-detect: UTF-16LE BOM or high ratio of null bytes in odd positions → UTF-16LE
         if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
-          return buf
-            .toString('utf16le')
-            .replace(/^\uFEFF/, '')
-            .replace(/\0/g, '')
-            .trim();
+          return buf.toString('utf16le').replace(/^﻿/, '').replace(/\0/g, '').trim();
         }
         const nullRatio =
           buf.reduce((a, b, i) => (i % 2 === 1 && b === 0 ? a + 1 : a), 0) /
@@ -853,24 +807,14 @@ for m in ("pydantic", "httpx", "loguru"):
       };
     };
 
-    // --- Fast stats: memory + disk + cores + uptime in ONE WSL call ---
-    // Each command outputs a prefixed line; awk ensures precise field extraction.
     const fastScript = [
       'free -m 2>/dev/null | awk \'/^Mem:/ {print "MEM:" $2 ":" $3 ":" $4 ":" $7}\'',
       'nproc 2>/dev/null | awk \'{print "CORES:" $1}\'',
-      // Use --output for reliable column order: size, used, avail (in MB)
       'df --output=size,used,avail --block-size=1M / 2>/dev/null | awk \'NR==2 {printf "DISK:%d:%d:%d\\n", $1, $2, $3}\'',
       'awk \'{print "UPTIME:" $1}\' /proc/uptime 2>/dev/null',
     ].join('; ');
     const fastResult = runInWsl(fastScript);
-    console.log(
-      '[wsl:stats] fastScript status:',
-      fastResult.status,
-      'stdout:',
-      JSON.stringify(fastResult.stdout)
-    );
 
-    // Parse results (each metric independent)
     let memory = { total_mb: 0, used_mb: 0, free_mb: 0, used_pct: 0 };
     let cores = 0;
     let disk = { total_gb: 0, used_gb: 0, free_gb: 0, used_pct: 0 };
@@ -878,8 +822,6 @@ for m in ("pydantic", "httpx", "loguru"):
 
     if (fastResult.stdout) {
       const lines = fastResult.stdout.split('\n');
-
-      // Memory: MEM:total:used:free:available
       const memLine = lines.find((l) => l.startsWith('MEM:'));
       if (memLine) {
         const parts = memLine.substring(4).split(':');
@@ -894,14 +836,10 @@ for m in ("pydantic", "httpx", "loguru"):
           };
         }
       }
-
-      // Cores
       const coresLine = lines.find((l) => l.startsWith('CORES:'));
       if (coresLine) {
         cores = parseInt(coresLine.substring(7), 10) || 0;
       }
-
-      // Disk: DISK:total_MB:used_MB:free_MB (from --output --block-size=1M)
       const diskLine = lines.find((l) => l.startsWith('DISK:'));
       if (diskLine) {
         const parts = diskLine.substring(5).split(':');
@@ -917,17 +855,13 @@ for m in ("pydantic", "httpx", "loguru"):
           };
         }
       }
-
-      // Uptime
       const uptimeLine = lines.find((l) => l.startsWith('UPTIME:'));
       if (uptimeLine) {
         uptimeSec = parseFloat(uptimeLine.substring(8)) || 0;
       }
     }
 
-    // --- Fallback: if combined script failed, try individual commands ---
     if (memory.total_mb === 0) {
-      console.log('[wsl:stats] memory from fastScript empty, trying fallback');
       const memRaw = runInWsl('cat /proc/meminfo');
       if (memRaw.stdout) {
         const mt = memRaw.stdout.match(/MemTotal:\s*(\d+)/);
@@ -951,9 +885,7 @@ for m in ("pydantic", "httpx", "loguru"):
     }
 
     if (disk.total_gb === 0) {
-      // Fallback: use df --output for reliable column order (in MB)
       const dfRaw = runInWsl('df --output=size,used,avail --block-size=1M / 2>/dev/null');
-      console.log('[wsl:stats] disk fallback raw:', JSON.stringify(dfRaw.stdout));
       if (dfRaw.stdout) {
         const lines2 = dfRaw.stdout.split('\n').filter(Boolean);
         if (lines2.length >= 2) {
@@ -978,14 +910,11 @@ for m in ("pydantic", "httpx", "loguru"):
       if (upRaw.stdout) uptimeSec = parseFloat(upRaw.stdout.trim().split(/\s+/)[0]) || 0;
     }
 
-    // --- CPU usage: two /proc/stat samples with 0.5s delay ---
-    // Uses bash built-ins + awk; no external dependencies beyond bash.
     let cpuUsagePct = 0;
     const cpuScript = [
       "S1=$(awk 'NR==1 {print $2, $3, $4, $5, $6, $7, $8}' /proc/stat)",
       'sleep 0.5',
       "S2=$(awk 'NR==1 {print $2, $3, $4, $5, $6, $7, $8}' /proc/stat)",
-      '# Compute total and idle diff',
       'set -- $S1; T1=$(( $2 + $3 + $4 + $5 + $6 + $7 + $8 )); I1=$5',
       'set -- $S2; T2=$(( $2 + $3 + $4 + $5 + $6 + $7 + $8 )); I2=$5',
       'TD=$(( T2 - T1 )); ID=$(( I2 - I1 ))',
@@ -1009,9 +938,6 @@ for m in ("pydantic", "httpx", "loguru"):
     } satisfies WslStatsResult;
   });
 
-  // Export default WSL distro to a tar file for sandbox use.
-  // This creates a dedicated sandbox distro that avoids requiring sudo
-  // because the sandbox uses --unshare-user-try (user namespace).
   ipcMain.handle(IPC.WSL_EXPORT_DISTRO, async (_, distroName: string) => {
     if (process.platform !== 'win32') {
       return { exported: false, distro: null, tarPath: null, error: 'Not on Windows' };
@@ -1020,7 +946,6 @@ for m in ("pydantic", "httpx", "loguru"):
       return { exported: false, distro: null, tarPath: null, error: 'No distro to export' };
     }
     try {
-      // Export the specified distro to a tar file
       const exportDir = process.env['LOCALAPPDATA'] || process.env['APPDATA'] || '';
       if (!exportDir) {
         return { exported: false, distro: null, tarPath: null, error: 'LOCALAPPDATA not found' };
@@ -1045,9 +970,6 @@ for m in ("pydantic", "httpx", "loguru"):
     }
   });
 
-  // Import a dedicated sandbox distro from a tar file.
-  // The imported distro is used exclusively by the sandbox,
-  // avoiding sudo requirement because sandbox uses --unshare-user-try.
   ipcMain.handle(
     IPC.WSL_IMPORT_DISTRO,
     async (_, options: { tarPath: string; distroName: string }) => {
@@ -1072,22 +994,13 @@ for m in ("pydantic", "httpx", "loguru"):
         };
       }
       try {
-        // Import the tar file as a new dedicated sandbox distro
-        // Use LOCALAPPDATA as install location to avoid requiring admin
         const installLocation = join(
           process.env['LOCALAPPDATA'] || process.env['APPDATA'] || '',
           'MiQi Sandbox'
         );
         const child = spawnSync(
           'wsl.exe',
-          [
-            '--import',
-            distroName,
-            installLocation,
-            tarPath,
-            '--version',
-            '2', // Always WSL2 for sandbox
-          ],
+          ['--import', distroName, installLocation, tarPath, '--version', '2'],
           { timeout: 120000, encoding: 'utf8', windowsHide: true }
         );
         if (child.status !== 0) {
@@ -1110,16 +1023,10 @@ for m in ("pydantic", "httpx", "loguru"):
     }
   );
 
-  // -----------------------------------------------------------------------
-  // Sandbox runtime toggle
-  // -----------------------------------------------------------------------
   ipcMain.handle(IPC.SANDBOX_SET_ENABLED, async (_event, enabled: boolean) => {
     return bridge.send('sandbox.setEnabled', { enabled });
   });
 
-  // -----------------------------------------------------------------------
-  // Dialog (file open for workspace)
-  // -----------------------------------------------------------------------
   ipcMain.handle(IPC.DIALOG_OPEN_FILE, async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile', 'openDirectory'],
@@ -1273,9 +1180,7 @@ for m in ("pydantic", "httpx", "loguru"):
     return bridge.send('skills.delete', p as Record<string, unknown>);
   });
 
-  // -----------------------------------------------------------------------
-  // Files (Workspace Editor)
-  // -----------------------------------------------------------------------
+  // -- Files (Workspace Editor) ------------------------------------------------
   ipcMain.handle(IPC.FILES_TREE, async () => {
     return bridge.sendSafe('files.tree');
   });
@@ -1310,77 +1215,96 @@ for m in ("pydantic", "httpx", "loguru"):
     return bridge.send('files.accept', p as Record<string, unknown>);
   });
 
+  // -- WSL helpers (async — must not block the Electron main thread) -----
+
+  const execFileAsync = promisify(execFile);
+
+  async function findFileInWsl(
+    relPath: string
+  ): Promise<{ wslAbsPath: string; distro: string } | null> {
+    const execOpts = { timeout: 10000, encoding: 'utf8' as const, windowsHide: true };
+    // List WSL distros
+    let distros: string[] = [];
+    try {
+      const { stdout } = await execFileAsync('wsl.exe', ['--list', '--quiet'], execOpts);
+      distros = stdout
+        .split(/\r?\n/)
+        .map((d: string) => d.trim())
+        .filter(Boolean);
+    } catch {
+      return null;
+    }
+
+    const searchScript =
+      `for d in /tmp/miqi-sandboxes/*/home/miqi/workspace/; do\n` +
+      `  if [ -f "$d${relPath}" ]; then echo "$d${relPath}"; exit 0; fi\n` +
+      `  for s in "$d"sessions/*/files/; do\n` +
+      `    if [ -f "${s}${relPath}" ]; then echo "${s}${relPath}"; exit 0; fi\n` +
+      `  done\n` +
+      `done\n` +
+      `exit 1\n`;
+
+    for (const distro of distros) {
+      try {
+        const { stdout } = await execFileAsync('wsl.exe', ['-d', distro, '--', 'bash'], {
+          ...execOpts,
+          input: searchScript,
+        });
+        if (stdout?.trim()) return { wslAbsPath: stdout.trim(), distro };
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }
+
+  async function copyFromWsl(
+    wslAbsPath: string,
+    distro: string,
+    hostTarget: string
+  ): Promise<boolean> {
+    const wslTarget = hostTarget
+      .replace(/^([A-Z]):/, (_, d: string) => `/mnt/${d.toLowerCase()}`)
+      .replace(/\\/g, '/');
+    const wslTargetDir = wslTarget.replace(/\/[^/]+$/, '');
+    try {
+      await execFileAsync(
+        'wsl.exe',
+        [
+          '-d',
+          distro,
+          '--',
+          'bash',
+          '-c',
+          `mkdir -p '${wslTargetDir}' && cp '${wslAbsPath}' '${wslTarget}'`,
+        ],
+        { timeout: 10000, encoding: 'utf8', windowsHide: true }
+      );
+      return existsSync(hostTarget);
+    } catch {
+      return false;
+    }
+  }
+
   // -- Open file with system default application -------------------------
   ipcMain.handle(IPC.FILES_OPEN_EXTERNAL, async (_event, payload: unknown) => {
     const p = payload as { path: string };
     const raw = p.path;
     const absolutePath = resolveWorkspacePath(raw);
 
-    // On Windows the file may live inside a WSL sandbox.  Try the host
-    // workspace first, then fall back to the sandbox workspace directory
-    // on the WSL filesystem via \\wsl$\<distro> UNC paths.
+    // On Windows the file may live inside a WSL sandbox.
     const candidates: string[] = [absolutePath];
 
     if (process.platform === 'win32' && !existsSync(absolutePath)) {
+      // Extract workspace-relative path for sandbox search
+      const relPath = raw.replace(/\\/g, '/').replace(/^\/home\/miqi\/workspace\//, '');
       try {
-        const wslResult = spawnSync('wsl.exe', ['--list', '--quiet'], {
-          timeout: 5000,
-          encoding: 'utf8',
-          windowsHide: true,
-        });
-        if (wslResult.status === 0 && wslResult.stdout) {
-          const distros = wslResult.stdout
-            .split(/\r?\n/)
-            .map((d: string) => d.trim())
-            .filter(Boolean);
-          const relPath = normalised;
-          // Build search script — piped via stdin to avoid encoding issues
-          // with non-ASCII filenames passed as command-line arguments.
-          const searchScript =
-            `for d in /tmp/miqi-sandboxes/*/home/miqi/workspace/; do\n` +
-            `  if [ -f "$d${relPath}" ]; then echo "$d${relPath}"; exit 0; fi\n` +
-            `  for s in "$d"sessions/*/files/; do\n` +
-            `    if [ -f "${s}${relPath}" ]; then echo "${s}${relPath}"; exit 0; fi\n` +
-            `  done\n` +
-            `done\n` +
-            `exit 1\n`;
-          for (const distro of distros) {
-            // Search inside WSL — pipe script via stdin
-            const tryList = spawnSync('wsl.exe', ['-d', distro, '--', 'bash'], {
-              timeout: 15000,
-              encoding: 'utf8',
-              windowsHide: true,
-              input: searchScript,
-            });
-            if (tryList.status !== 0 || !tryList.stdout?.trim()) continue;
-
-            const wslAbsPath = tryList.stdout.trim();
-
-            // Copy from sandbox to host workspace
-            const hostTarget = join(getWorkspacePath(), relPath);
-            const wslTarget = hostTarget
-              .replace(/^([A-Z]):/, (_, d: string) => `/mnt/${d.toLowerCase()}`)
-              .replace(/\\/g, '/');
-            const wslTargetDir = wslTarget.replace(/\/[^/]+$/, '');
-            const cpResult = spawnSync(
-              'wsl.exe',
-              [
-                '-d',
-                distro,
-                '--',
-                'bash',
-                '-c',
-                `mkdir -p '${wslTargetDir}' && cp '${wslAbsPath}' '${wslTarget}'`,
-              ],
-              { timeout: 10000, encoding: 'utf8', windowsHide: true }
-            );
-            if (cpResult.status === 0 && existsSync(hostTarget)) {
-              candidates.push(hostTarget);
-            }
-            // UNC fallback
-            candidates.push(`\\\\wsl$\\${distro}\\${wslAbsPath.replace(/\//g, '\\')}`);
-            break;
-          }
+        const found = await findFileInWsl(relPath);
+        if (found) {
+          const hostTarget = join(getWorkspacePath(), relPath);
+          const copied = await copyFromWsl(found.wslAbsPath, found.distro, hostTarget);
+          if (copied) candidates.push(hostTarget);
+          candidates.push(`\\\\wsl$\\${found.distro}\\${found.wslAbsPath.replace(/\//g, '\\')}`);
         }
       } catch {
         // wsl.exe unavailable — stay with host workspace candidate only
@@ -1430,9 +1354,7 @@ for m in ("pydantic", "httpx", "loguru"):
     }
   });
 
-  // -----------------------------------------------------------------------
-  // MCP
-  // -----------------------------------------------------------------------
+  // -- MCP -----------------------------------------------------------------
   ipcMain.handle(IPC.MCP_LIST, async () => {
     return bridge.sendSafe('mcp.list');
   });
@@ -1447,10 +1369,6 @@ for m in ("pydantic", "httpx", "loguru"):
     return bridge.send('mcp.delete', input as Record<string, unknown>);
   });
 
-  // -----------------------------------------------------------------------
-  // Write initial config (no bridge needed — used by Setup Wizard before
-  // MiQi has ever been configured or started).
-  // -----------------------------------------------------------------------
   ipcMain.handle(IPC.CONFIG_WRITE_INITIAL, (_event, payload: unknown) => {
     const { provider_name, api_key, api_base, model, workspace } = payload as {
       provider_name?: string | null;
@@ -1462,7 +1380,6 @@ for m in ("pydantic", "httpx", "loguru"):
     const configDir = getConfigDir();
     const configPath = getConfigPath();
 
-    // Load existing config if it exists, so we don't clobber other keys
     let existing: Record<string, unknown> = {};
     try {
       if (existsSync(configPath)) {
@@ -1472,7 +1389,6 @@ for m in ("pydantic", "httpx", "loguru"):
       // Start fresh
     }
 
-    // Deep-merge provider key only when the advanced flow picked one.
     if (provider_name) {
       const providers = (existing['providers'] as Record<string, unknown> | undefined) ?? {};
       providers[provider_name] = {
@@ -1483,7 +1399,6 @@ for m in ("pydantic", "httpx", "loguru"):
       existing['providers'] = providers;
     }
 
-    // Set only the agent defaults provided by the simplified setup flow.
     if (model || workspace) {
       const agents = (existing['agents'] as Record<string, unknown> | undefined) ?? {};
       const defaults = (agents['defaults'] as Record<string, unknown> | undefined) ?? {};
@@ -1493,7 +1408,6 @@ for m in ("pydantic", "httpx", "loguru"):
       existing['agents'] = agents;
     }
 
-    // Ensure directory exists
     mkdirSync(configDir, { recursive: true });
     writeFileSync(configPath, JSON.stringify(existing, null, 2), 'utf8');
 
