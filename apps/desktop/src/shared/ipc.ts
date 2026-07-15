@@ -650,6 +650,7 @@ export const McpDeleteInput = z.object({
 
 export const FilesReadInput = z.object({
   path: z.string().min(1),
+  session_key: z.string().optional(),
 });
 
 export const FilesWriteInput = z.object({

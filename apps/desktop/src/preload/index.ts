@@ -318,7 +318,8 @@ const api = {
   // -- Files (Workspace Editor) ------------------------------------------------
   files: {
     tree: (): Promise<FilesTreeResult> => ipcRenderer.invoke(IPC.FILES_TREE),
-    read: (path: string): Promise<FilesReadResult> => ipcRenderer.invoke(IPC.FILES_READ, { path }),
+    read: (path: string, sessionKey?: string): Promise<FilesReadResult> =>
+      ipcRenderer.invoke(IPC.FILES_READ, { path, session_key: sessionKey }),
     write: (
       path: string,
       content: string,
