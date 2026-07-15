@@ -75,6 +75,43 @@ function getConfigPath(): string {
 }
 
 /** Resolve the workspace root directory — mirrors Python config.schema workspace_path property. */
+/** Strip sandbox prefix and resolve against the host workspace.
+ *
+ *  The bwrap sandbox mounts at /home/miqi/workspace/.  Paths reported
+ *  by the agent (e.g. /home/miqi/workspace/report.md) are normalised
+ *  to workspace-relative form and then joined with the host workspace
+ *  root.  Absolute paths outside the workspace are rejected.
+ */
+function resolveWorkspacePath(raw: string): string {
+  const SANDBOX_WS = '/home/miqi/workspace';
+  let normalised = raw;
+  if (normalised === SANDBOX_WS) {
+    normalised = '.';
+  } else if (normalised.startsWith(SANDBOX_WS + '/')) {
+    normalised = normalised.slice(SANDBOX_WS.length + 1);
+  } else if (normalised.startsWith(SANDBOX_WS + '\\')) {
+    normalised = normalised.slice(SANDBOX_WS.length + 1);
+  }
+
+  const wsRoot = getWorkspacePath();
+  let resolved: string;
+  if (isAbsolute(normalised)) {
+    resolved = normalised;
+  } else {
+    resolved = join(wsRoot, normalised);
+  }
+
+  // Enforce workspace containment — prevent escape via .. or absolute
+  // paths that land outside the workspace root.
+  const rel = resolved.replace(/\\/g, '/');
+  const wsNorm = wsRoot.replace(/\\/g, '/');
+  if (!rel.startsWith(wsNorm)) {
+    throw new Error(`Path outside workspace: ${raw}`);
+  }
+
+  return resolved;
+}
+
 function getWorkspacePath(): string {
   const config = readLocalConfig();
   const agents = (config['agents'] as Record<string, unknown> | undefined) ?? {};
@@ -1277,27 +1314,7 @@ for m in ("pydantic", "httpx", "loguru"):
   ipcMain.handle(IPC.FILES_OPEN_EXTERNAL, async (_event, payload: unknown) => {
     const p = payload as { path: string };
     const raw = p.path;
-
-    // Normalise: strip the bwrap sandbox workspace prefix.  The agent
-    // runs inside a sandbox and reports paths like
-    //   /home/miqi/workspace/report.md
-    // which need to be mapped to the host workspace.
-    let normalised = raw;
-    const SANDBOX_WS = '/home/miqi/workspace';
-    if (normalised === SANDBOX_WS) {
-      normalised = '.';
-    } else if (normalised.startsWith(SANDBOX_WS + '/')) {
-      normalised = normalised.slice(SANDBOX_WS.length + 1);
-    } else if (normalised.startsWith(SANDBOX_WS + '\\')) {
-      normalised = normalised.slice(SANDBOX_WS.length + 1);
-    }
-
-    let absolutePath: string;
-    if (isAbsolute(normalised)) {
-      absolutePath = normalised;
-    } else {
-      absolutePath = join(getWorkspacePath(), normalised);
-    }
+    const absolutePath = resolveWorkspacePath(raw);
 
     // On Windows the file may live inside a WSL sandbox.  Try the host
     // workspace first, then fall back to the sandbox workspace directory
@@ -1401,24 +1418,7 @@ for m in ("pydantic", "httpx", "loguru"):
   ipcMain.handle(IPC.FILES_OPEN_CONTAINING_FOLDER, async (_event, payload: unknown) => {
     const p = payload as { path: string };
     const raw = p.path;
-
-    // Normalise sandbox workspace prefix (same logic as openExternal)
-    let normalised = raw;
-    const SANDBOX_WS_2 = '/home/miqi/workspace';
-    if (normalised === SANDBOX_WS_2) {
-      normalised = '.';
-    } else if (normalised.startsWith(SANDBOX_WS_2 + '/')) {
-      normalised = normalised.slice(SANDBOX_WS_2.length + 1);
-    } else if (normalised.startsWith(SANDBOX_WS_2 + '\\')) {
-      normalised = normalised.slice(SANDBOX_WS_2.length + 1);
-    }
-
-    let absolutePath: string;
-    if (isAbsolute(normalised)) {
-      absolutePath = normalised;
-    } else {
-      absolutePath = join(getWorkspacePath(), normalised);
-    }
+    const absolutePath = resolveWorkspacePath(raw);
     try {
       if (!existsSync(absolutePath)) {
         return { revealed: false, path: raw, error: `File not found: ${absolutePath}` };
