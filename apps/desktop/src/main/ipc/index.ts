@@ -1277,36 +1277,147 @@ for m in ("pydantic", "httpx", "loguru"):
   ipcMain.handle(IPC.FILES_OPEN_EXTERNAL, async (_event, payload: unknown) => {
     const p = payload as { path: string };
     const raw = p.path;
-    // Resolve to absolute: bridge works with workspace-relative paths
+
+    // Normalise: strip the bwrap sandbox workspace prefix.  The agent
+    // runs inside a sandbox and reports paths like
+    //   /home/miqi/workspace/report.md
+    // which need to be mapped to the host workspace.
+    let normalised = raw;
+    const SANDBOX_WS = '/home/miqi/workspace';
+    if (normalised === SANDBOX_WS) {
+      normalised = '.';
+    } else if (normalised.startsWith(SANDBOX_WS + '/')) {
+      normalised = normalised.slice(SANDBOX_WS.length + 1);
+    } else if (normalised.startsWith(SANDBOX_WS + '\\')) {
+      normalised = normalised.slice(SANDBOX_WS.length + 1);
+    }
+
     let absolutePath: string;
-    if (isAbsolute(raw)) {
-      absolutePath = raw;
+    if (isAbsolute(normalised)) {
+      absolutePath = normalised;
     } else {
-      absolutePath = join(getWorkspacePath(), raw);
+      absolutePath = join(getWorkspacePath(), normalised);
     }
-    try {
-      if (!existsSync(absolutePath)) {
-        return { opened: false, path: raw, error: `File not found: ${absolutePath}` };
+
+    // On Windows the file may live inside a WSL sandbox.  Try the host
+    // workspace first, then fall back to the sandbox workspace directory
+    // on the WSL filesystem via \\wsl$\<distro> UNC paths.
+    const candidates: string[] = [absolutePath];
+
+    if (process.platform === 'win32' && !existsSync(absolutePath)) {
+      try {
+        const wslResult = spawnSync('wsl.exe', ['--list', '--quiet'], {
+          timeout: 5000,
+          encoding: 'utf8',
+          windowsHide: true,
+        });
+        if (wslResult.status === 0 && wslResult.stdout) {
+          const distros = wslResult.stdout
+            .split(/\r?\n/)
+            .map((d: string) => d.trim())
+            .filter(Boolean);
+          const relPath = normalised;
+          // Build search script — piped via stdin to avoid encoding issues
+          // with non-ASCII filenames passed as command-line arguments.
+          const searchScript =
+            `for d in /tmp/miqi-sandboxes/*/home/miqi/workspace/; do\n` +
+            `  if [ -f "$d${relPath}" ]; then echo "$d${relPath}"; exit 0; fi\n` +
+            `  for s in "$d"sessions/*/files/; do\n` +
+            `    if [ -f "${s}${relPath}" ]; then echo "${s}${relPath}"; exit 0; fi\n` +
+            `  done\n` +
+            `done\n` +
+            `exit 1\n`;
+          for (const distro of distros) {
+            // Search inside WSL — pipe script via stdin
+            const tryList = spawnSync('wsl.exe', ['-d', distro, '--', 'bash'], {
+              timeout: 15000,
+              encoding: 'utf8',
+              windowsHide: true,
+              input: searchScript,
+            });
+            if (tryList.status !== 0 || !tryList.stdout?.trim()) continue;
+
+            const wslAbsPath = tryList.stdout.trim();
+
+            // Copy from sandbox to host workspace
+            const hostTarget = join(getWorkspacePath(), relPath);
+            const wslTarget = hostTarget
+              .replace(/^([A-Z]):/, (_, d: string) => `/mnt/${d.toLowerCase()}`)
+              .replace(/\\/g, '/');
+            const wslTargetDir = wslTarget.replace(/\/[^/]+$/, '');
+            const cpResult = spawnSync(
+              'wsl.exe',
+              [
+                '-d',
+                distro,
+                '--',
+                'bash',
+                '-c',
+                `mkdir -p '${wslTargetDir}' && cp '${wslAbsPath}' '${wslTarget}'`,
+              ],
+              { timeout: 10000, encoding: 'utf8', windowsHide: true }
+            );
+            if (cpResult.status === 0 && existsSync(hostTarget)) {
+              candidates.push(hostTarget);
+            }
+            // UNC fallback
+            candidates.push(`\\\\wsl$\\${distro}\\${wslAbsPath.replace(/\//g, '\\')}`);
+            break;
+          }
+        }
+      } catch {
+        // wsl.exe unavailable — stay with host workspace candidate only
       }
-      const error = await shell.openPath(absolutePath);
-      if (error) {
-        return { opened: false, path: raw, error };
-      }
-      return { opened: true, path: raw };
-    } catch (e: any) {
-      return { opened: false, path: raw, error: e?.message ?? String(e) };
     }
+
+    // Try each candidate until one works
+    let opened = false;
+    let lastError = '';
+    for (const candidate of candidates) {
+      try {
+        if (!existsSync(candidate)) continue;
+        const error = await shell.openPath(candidate);
+        if (!error) {
+          opened = true;
+          break;
+        }
+        lastError = error;
+      } catch (e: any) {
+        lastError = e?.message ?? String(e);
+      }
+    }
+
+    if (!opened) {
+      return {
+        opened: false,
+        path: raw,
+        error: lastError || `File not found: ${raw}`,
+      };
+    }
+    return { opened: true, path: raw };
   });
 
   // -- Reveal file in system file manager (Explorer / Finder) ------------
   ipcMain.handle(IPC.FILES_OPEN_CONTAINING_FOLDER, async (_event, payload: unknown) => {
     const p = payload as { path: string };
     const raw = p.path;
+
+    // Normalise sandbox workspace prefix (same logic as openExternal)
+    let normalised = raw;
+    const SANDBOX_WS_2 = '/home/miqi/workspace';
+    if (normalised === SANDBOX_WS_2) {
+      normalised = '.';
+    } else if (normalised.startsWith(SANDBOX_WS_2 + '/')) {
+      normalised = normalised.slice(SANDBOX_WS_2.length + 1);
+    } else if (normalised.startsWith(SANDBOX_WS_2 + '\\')) {
+      normalised = normalised.slice(SANDBOX_WS_2.length + 1);
+    }
+
     let absolutePath: string;
-    if (isAbsolute(raw)) {
-      absolutePath = raw;
+    if (isAbsolute(normalised)) {
+      absolutePath = normalised;
     } else {
-      absolutePath = join(getWorkspacePath(), raw);
+      absolutePath = join(getWorkspacePath(), normalised);
     }
     try {
       if (!existsSync(absolutePath)) {

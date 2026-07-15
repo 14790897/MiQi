@@ -53,12 +53,18 @@ class TaskRunner:
         # Lazily initialised SessionManager for dual-write compatibility
         self._legacy_sm: Any = None
 
-    async def _save_to_session_manager(self, *, role: str, content: str) -> None:
+    async def _save_to_session_manager(
+        self, *, role: str, content: str, extra: dict[str, Any] | None = None,
+    ) -> None:
         """Dual-write a message to the legacy SessionManager JSONL store.
 
         AppServer-managed sessions use HistoryRuntime (SQLite), but the
         sessions.get handler reads from SessionManager (JSONL).  This mirror
         write keeps both stores in sync so sidebar switching works.
+
+        *extra* carries additional fields (tool_calls, _tool_hint, …) that
+        should be preserved so the frontend can reconstruct file operation
+        history from persisted messages.
         """
         try:
             session_id: str = self.services.session_id
@@ -76,7 +82,7 @@ class TaskRunner:
             # The sessions_get_handler calls get_or_create with client_id and
             # raises REQUIRES_CLAIM for unowned sessions.
             session = self._legacy_sm.get_or_create(session_key, client_id=client_id)
-            session.add_message(role, content)
+            session.add_message(role, content, **(extra or {}))
             self._legacy_sm.save(session)
         except Exception:
             logger.debug("Failed to mirror message to legacy SessionManager", exc_info=True)
@@ -632,9 +638,18 @@ class TaskRunner:
             # Dual-write assistant messages to legacy SessionManager (runs
             # independently of history_runtime so fallback JSONL is always populated).
             for message in result.messages_delta:
+                # Preserve tool_calls, _tool_hint and other extra fields so
+                # the frontend can reconstruct file operations from persisted
+                # messages (extractTrackedFilesFromMessages).
+                extra = {
+                    k: v for k, v in message.items()
+                    if k not in ("role", "content")
+                }
                 await self._save_to_session_manager(
                     role=message["role"],
-                    content=message.get("content") or "")
+                    content=message.get("content") or "",
+                    extra=extra if extra else None,
+                )
             # Phase 24: record assistant messages and turn completion in ledger
             if ledger is not None:
                 for message in result.messages_delta:

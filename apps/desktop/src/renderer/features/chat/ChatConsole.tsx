@@ -114,7 +114,7 @@ interface TrackedFile {
   truncated?: boolean;
 }
 
-const OFFICE_FILE_RE = /\.(docx|xlsx|pptx)$/i;
+const OFFICE_FILE_RE = /\.(docx|xlsx|pptx|ppt)$/i;
 
 /** Extract file path + operation from a tool-hint progress text.
  *  Nanobot tool hints look like:
@@ -142,6 +142,8 @@ function parseToolHint(
       'write',
     ],
     [/(?:edit_docx|append_xlsx)\s*\(\s*["'](.+?)["']\s*\)/i, 'edit'],
+    // Office tool success: "Created: file.xlsx (3 sheet(s))"
+    [/^(?:Created|Appended):\s+(.+?\.\w{1,6})(?:\s*\(.*\))?$/i, 'write'],
     // Generic fallback: any mention of a path-like string after a colon
     [/(?:file|path)[:\s]+([^\s,]+\.[a-zA-Z]{1,6})/i, 'read'],
   ];
@@ -600,7 +602,11 @@ export function ChatConsole({
     currentThreadIdRef.current = null; // Reset on session change
     setHistoryLoaded(false);
     setMessages([]);
-    setTrackedFiles([]);
+    // NOTE: do NOT clear trackedFiles here — clearing before the async
+    // load completes causes a flash of "No files yet" on every session
+    // switch.  If the bridge is not ready yet, sendSafe returns null and
+    // we would permanently lose the display.  Instead we replace atomically
+    // inside load() after the bridge responds.
     justOpened.current = true;
     userScrolledUp.current = false; // reset for new session
     const load = async () => {
@@ -613,15 +619,29 @@ export function ChatConsole({
         // Restore tracked files from dedicated tracked_files.json
         const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
         if (currentSessionRef.current !== sessionKey) return;
-        const tfList = (tfResult as any)?.tracked_files ?? [];
-        setTrackedFiles(
-          tfList.map((f: any) => ({
-            path: f.path,
-            name: f.name,
-            op: f.op,
-            lastSeen: f.lastSeen,
-          }))
-        );
+        // Guard: only update when the bridge actually responded.  sendSafe
+        // returns null when the bridge is not running or the call errors
+        // out — in that case keep whatever we were showing before.
+        if (tfResult !== null) {
+          const tfList = (tfResult as any)?.tracked_files ?? [];
+          if (tfList.length > 0) {
+            setTrackedFiles(
+              tfList.map((f: any) => ({
+                path: f.path,
+                name: f.name,
+                op: f.op,
+                lastSeen: f.lastSeen,
+              }))
+            );
+          } else {
+            // Fallback: tracked_files.json is empty (e.g. files were created
+            // by an older agent before _persist_tracked_file was added).
+            // Reconstruct from session messages which now preserve tool_calls
+            // and _tool_hint fields.
+            const fromMsgs = extractTrackedFilesFromMessages(rawMsgs);
+            if (fromMsgs.length > 0) setTrackedFiles(fromMsgs);
+          }
+        }
       } catch {
         /* session doesn't exist yet */
       }
@@ -1199,27 +1219,10 @@ export function ChatConsole({
   };
 
   const handlePreview = useCallback(async (path: string) => {
-    if (OFFICE_FILE_RE.test(path)) {
-      // Open directly with system default app (Word, Excel, PowerPoint) — no modal
-      window.miqi.files.openExternal(path).catch(() => {});
-      return;
-    }
-    try {
-      const result = await window.miqi.files.read(path);
-      if (result.is_binary) {
-        setPreviewFile({
-          path,
-          content:
-            'Binary file. Text preview is not available for this file type.\n\nUse the button below to open it with your system default application.',
-        });
-      } else {
-        setPreviewFile({
-          path,
-          content: result.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
-        });
-      }
-    } catch {
-      setPreviewFile({ path, content: `(Could not read file: ${path})` });
+    // Open all files with the system default application — no in-app preview modal.
+    const result = await window.miqi.files.openExternal(path);
+    if (!result?.opened) {
+      setPreviewFile({ path, content: `(Could not open file: ${path})` });
     }
   }, []);
 
@@ -1264,7 +1267,7 @@ export function ChatConsole({
         setTrackedFiles((prev) => prev.filter((f) => f.path !== diffFile.path));
         // Refresh preview if open
         if (previewFile?.path === diffFile.path) {
-          const content = await window.miqi.files.read(diffFile.path);
+          const content = await window.miqi.files.read(diffFile.path, currentSessionRef.current);
           setPreviewFile({
             path: diffFile.path,
             content: content.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
@@ -1493,7 +1496,9 @@ export function ChatConsole({
             </h2>
             <span className="tag-inprogress shrink-0">IN PROGRESS</span>
             <span className="text-[13px] shrink-0" style={{ color: '#4B5563' }}>
-              Updated 2 mins ago · 2 linked files · 2 Active Plugins
+              {trackedFiles.length > 0
+                ? `${trackedFiles.length} linked file${trackedFiles.length > 1 ? 's' : ''}`
+                : 'No linked files'}
             </span>
             <button
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ml-auto opacity-50"

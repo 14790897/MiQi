@@ -477,6 +477,7 @@ class SandboxManager:
                 "is_active": key == self._active_key,
                 "is_running": sandbox.is_running,
                 "workspace": sandbox.workspace_path,
+                "distro": getattr(sandbox, "_detected_distro", ""),
             })
         return result
 
