@@ -188,9 +188,11 @@ class BridgeRuntimeLoop:
                 )
 
         try:
-            ok = await sandbox_mgr.initialize()
-        except TypeError:
-            ok = False  # mock in tests — initialize() is not async
+            res = sandbox_mgr.initialize()
+            if hasattr(res, "__await__"):
+                ok = await res
+            else:
+                ok = False  # mock in tests — initialize() is not async
         except Exception as exc:
             logger.warning("Sandbox manager initialization failed: {}", exc)
             if self._app_server is not None:
@@ -198,7 +200,7 @@ class BridgeRuntimeLoop:
                     await self._app_server.emit_client_event(
                         "desktop",
                         "sandbox.ready",
-                        {"enabled": True, "initialized": False, "error": str(exc)},
+                        {"enabled": getattr(sandbox_mgr, "enabled", True), "initialized": False, "error": str(exc)},
                     )
                 except Exception:
                     pass
@@ -220,7 +222,7 @@ class BridgeRuntimeLoop:
                 await self._app_server.emit_client_event(
                     "desktop",
                     "sandbox.ready",
-                    {"enabled": True, "initialized": ok},
+                    {"enabled": getattr(sandbox_mgr, "enabled", True), "initialized": ok},
                 )
             except Exception:
                 pass  # best-effort notification
