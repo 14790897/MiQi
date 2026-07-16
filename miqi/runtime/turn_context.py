@@ -28,6 +28,8 @@ class TurnContext:
     # Phase 31.4: client/session identity for approval scoping
     client_id: str = ""
     session_id: str = ""
+    # Agent work mode: "edit" (default) | "plan" | "ask"
+    mode: str = "edit"
     temperature: float = 0.1
     max_tokens: int = 8192
     # Permissions

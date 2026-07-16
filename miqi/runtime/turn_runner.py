@@ -433,6 +433,17 @@ class TurnRunner:
         else:
             tools = []
 
+        # Ask mode: filter out write/exec/side-effect tools
+        if turn.mode == "ask":
+            _ASK_DISALLOWED = frozenset({
+                "write_file", "edit_file", "apply_patch", "edit_diff",
+                "write", "edit", "delete", "move",
+                "exec", "bash", "shell",
+                "spawn", "subagent", "cron",
+                "skill_manage", "memory",
+            })
+            tools = [t for t in tools if t.get("name") not in _ASK_DISALLOWED]
+
         return await self.run(
             turn=turn,
             user_content=job.task,
