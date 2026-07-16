@@ -1478,25 +1478,17 @@ for m in ("pydantic", "httpx", "loguru"):
   });
 
   // -- Threads (Phase 36+) --------------------------------------------------
+  // thread/start is a simple request-response method (not streaming).
+  // Do NOT pass an onEvent callback — it would put the bridge in streaming
+  // mode where the Promise only resolves on terminal events (final/error/
+  // aborted), which thread/start never sends.
   ipcMain.handle(IPC.THREAD_START, async (_event, payload: unknown) => {
     const input = ThreadStartInput.parse(payload);
-    const sender = _event.sender;
-    const safeSend = (channel: string, data: unknown) => {
-      if (!sender.isDestroyed()) sender.send(channel, data);
-    };
-    return bridge.send(
-      'thread/start',
-      {
-        title: input.title,
-        sessionKey: input.session_key,
-        threadId: input.thread_id,
-      },
-      (type: string, data: unknown) => {
-        if (type === 'thread/started') {
-          safeSend('thread:started', data);
-        }
-      }
-    );
+    return bridge.send('thread/start', {
+      title: input.title,
+      sessionKey: input.session_key,
+      threadId: input.thread_id,
+    });
   });
 
   ipcMain.handle(IPC.THREAD_LIST, async (_event, payload: unknown) => {

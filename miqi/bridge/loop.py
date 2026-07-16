@@ -19,6 +19,9 @@ from typing import Any
 from loguru import logger
 
 
+CHAT_DRAIN_IDLE_TIMEOUT_SECONDS = 600
+
+
 class BridgeRuntimeLoop:
     """Persistent asyncio event loop for the bridge transport.
 
@@ -651,11 +654,19 @@ class BridgeRuntimeLoop:
         # Subscribe client to session events so emit_event delivers to the sink
         self._app_server.subscribe(client_id, runtime_id)
 
-        # Cancel any still-running drain for this session so the new one
-        # doesn't compete for events on the shared _events queue.
-        old = self._session_drain_tasks.pop(runtime_id, None)
+        # Reject duplicate turns for the same session: cancelling the old
+        # drain task leaves abandoned sandbox creation running (WSL
+        # subprocesses don't respond to asyncio cancellation), which
+        # poisons the _creating flag and causes the next turn's tool
+        # calls to fall back to local (non-sandboxed) execution.
+        old = self._session_drain_tasks.get(runtime_id)
         if old is not None and not old.done():
-            old.cancel()
+            from miqi.runtime.app_server import AppServerError
+
+            raise AppServerError(
+                "A turn is already in progress for this session",
+                code="TURN_IN_PROGRESS",
+            )
 
         # Spawn background drain task
         app_server = self._app_server
@@ -754,11 +765,21 @@ class BridgeRuntimeLoop:
             while True:
                 # Keep in sync with CHAT_BACKEND_DRAIN_TIMEOUT_MS in
                 # apps/desktop/src/main/bridge.ts.
-                event = await runtime.next_event(timeout=300)
+                event = await runtime.next_event(timeout=CHAT_DRAIN_IDLE_TIMEOUT_SECONDS)
                 if event is None:
-                    # Timeout — no response from agent
+                    logger.warning(
+                        "chat.send drain idle timeout after {}s "
+                        "(request={} session={} thread={})",
+                        CHAT_DRAIN_IDLE_TIMEOUT_SECONDS,
+                        request_id,
+                        session_id,
+                        thread_id,
+                    )
                     await _emit_terminal("error", {
-                        "message": "Turn timed out after 300s",
+                        "message": (
+                            f"Turn timed out after "
+                            f"{CHAT_DRAIN_IDLE_TIMEOUT_SECONDS}s"
+                        ),
                     })
                     break
 

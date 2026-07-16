@@ -370,7 +370,7 @@ async def test_drain_chat_events_converts_tool_begin_to_tool_hint_progress():
 
 @pytest.mark.asyncio
 async def test_drain_chat_events_sends_backend_timeout_error_directly():
-    from miqi.bridge.loop import BridgeRuntimeLoop
+    from miqi.bridge.loop import CHAT_DRAIN_IDLE_TIMEOUT_SECONDS, BridgeRuntimeLoop
 
     class DroppingAppServer:
         async def emit_event(self, session_id, event_type, data, request_id=None):
@@ -397,7 +397,7 @@ async def test_drain_chat_events_sends_backend_timeout_error_directly():
         "id": "req-timeout",
         "type": "error",
         "data": {
-            "message": "Turn timed out after 300s",
+            "message": f"Turn timed out after {CHAT_DRAIN_IDLE_TIMEOUT_SECONDS}s",
             "session_key": "session-timeout",
         },
     }
