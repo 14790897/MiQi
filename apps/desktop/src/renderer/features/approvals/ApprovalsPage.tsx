@@ -46,7 +46,7 @@ function normalizeApprovalBypass(config: Record<string, unknown>): ApprovalBypas
   const approvals = (config.approvals ?? {}) as Partial<ApprovalBypassConfig>;
 
   return {
-    bypassAll: Boolean(approvals.bypassAll),
+    bypassAll: false,  // always false — superseded by Execution Policy
     bypassCommandApproval: Boolean(approvals.bypassCommandApproval),
     bypassFileWriteApproval: Boolean(approvals.bypassFileWriteApproval),
     bypassToolConfirmation: Boolean(approvals.bypassToolConfirmation),
