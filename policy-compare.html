@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiQi — 执行策略 vs 工作模式 对比</title>
+<style>
+:root {
+  --surface:#fff; --border:#d0d0d0; --text:#121212; --text-muted:#888; --text-faint:#bbb; --surface-muted:#f5f5f5; --bg:#fafafa;
+  --manual:#9ca3af; --edits:#3b82f6; --plan:#a855f7; --bypass:#f59e0b;
+}
+@media(prefers-color-scheme:dark){
+  :root{--surface:#242424;--border:#444;--text:#E4E4E0;--text-muted:#999;--text-faint:#666;--surface-muted:#2a2a2a;--bg:#1a1a1a;--manual:#9ca3af;--edits:#60a5fa;--plan:#c084fc;--bypass:#fbbf24}
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,'Inter',sans-serif;background:var(--bg);color:var(--text);padding:30px 20px}
+h2{font-size:16px;margin:30px 0 14px;color:var(--text-muted);font-weight:500;padding-top:20px;border-top:1px solid var(--border)}
+.badge{font-size:10px;padding:2px 8px;border-radius:10px;margin-left:8px;font-weight:600}
+.badge.old{background:var(--manual);color:#fff}
+.badge.new{background:var(--edits);color:#fff}
+.col{display:flex;gap:30px;max-width:1100px;margin:0 auto}
+.col>div{flex:1;min-width:0}
+
+.topbar{display:flex;align-items:center;justify-content:space-between;height:40px;padding:0 14px;background:var(--surface);border-bottom:1px solid var(--border);border-radius:10px;margin-bottom:18px}
+.topbar .brand{font-size:13px;font-weight:600}
+.topbar .right{display:flex;align-items:center;gap:10px}
+.topbar .status{font-size:10px;color:var(--text-muted);display:flex;align-items:center;gap:5px}
+.topbar .dot{width:6px;height:6px;border-radius:50%;background:#10b981}
+
+/* V1: pills */
+.pills{display:flex;gap:6px;padding:6px 0 12px}
+.pills span{font-size:10px;color:var(--text-faint);text-transform:uppercase;margin-right:4px;display:flex;align-items:center}
+.pill{display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid transparent;color:var(--text-muted);transition:all .15s}
+.pill:hover{background:var(--surface-muted)}
+.pill.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);color:var(--text);font-weight:600}
+.pill .pd{width:6px;height:6px;border-radius:50%;background:var(--c)}
+
+/* V2: dropdown */
+.pw{position:relative;display:inline-block}
+.pbtn{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--text)}
+.pbtn:hover{background:var(--surface-muted)}
+.pbtn .pd{width:6px;height:6px;border-radius:50%;background:var(--c)}
+.pbtn .ch{font-size:8px;color:var(--text-faint);margin-left:2px}
+.pbtn .warn{font-size:13px;display:none;margin-left:1px}
+.pbtn.bypass{border-color:var(--bypass)}
+.pbtn.bypass .warn{display:inline}
+
+.dd{position:absolute;top:100%;right:0;margin-top:4px;min-width:220px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.12);overflow:hidden;z-index:100}
+.dd .ttl{padding:8px 14px 4px;font-size:10px;text-transform:uppercase;color:var(--text-faint);letter-spacing:.5px}
+.di{display:flex;align-items:center;gap:10px;padding:8px 14px;cursor:pointer;font-size:12px;color:var(--text-muted);transition:background .12s}
+.di:hover{background:var(--surface-muted);color:var(--text)}
+.di.on{background:color-mix(in srgb,var(--c) 10%,transparent);color:var(--text);font-weight:500}
+.di .pd{width:7px;height:7px;border-radius:50%;background:var(--c);flex-shrink:0}
+.di .lb{flex:1}
+.di .ky{font-size:10px;color:var(--text-faint);border:1px solid var(--border);border-radius:3px;padding:1px 4px}
+.di .ck{font-size:10px;color:var(--c);visibility:hidden}
+.di.on .ck{visibility:visible}
+.di .ds{font-size:10px;color:var(--text-faint);display:block;margin-top:1px}
+
+.input-box{display:flex;align-items:flex-end;gap:10px;padding:12px 16px;border-radius:14px;border:1px solid var(--border);background:var(--surface);box-shadow:0 -4px 20px rgba(0,0,0,0.06)}
+.input-box textarea{flex:1;border:0;background:transparent;color:var(--text);font-size:13px;line-height:1.5;resize:none;outline:none;font-family:inherit}
+.input-box textarea::placeholder{color:var(--text-faint)}
+
+.grad{display:flex;align-items:center;gap:12px;margin-top:14px}
+.grad .gl{font-size:10px;color:var(--text-faint);white-space:nowrap}
+.grad .gb{flex:1;height:4px;border-radius:2px;background:linear-gradient(to right,var(--plan),var(--manual),var(--edits),var(--bypass))}
+.grad .gi{display:flex;justify-content:space-between;font-size:10px;color:var(--text-faint);margin-top:4px}
+
+.note{font-size:11px;color:var(--text-faint);margin-top:10px;line-height:1.6}
+
+.M{--c:var(--manual)} .E{--c:var(--edits)} .P{--c:var(--plan)} .B{--c:var(--bypass)}
+</style>
+</head>
+<body>
+<div class="col">
+
+<div>
+<h2>V1 — 工作模式 <span class="badge old">旧</span></h2>
+<p style="font-size:11px;color:var(--text-faint);margin-bottom:12px">三个模式：编辑 / 规划 / 提问。pills 在输入框上方。</p>
+
+<div class="topbar"><span class="brand">MiQi Desktop</span><div class="right"><span class="status"><span class="dot"></span>Active</span></div></div>
+
+<div class="pills">
+  <span>模式</span>
+  <button class="pill E on"><span class="pd"></span>编辑</button>
+  <button class="pill P"><span class="pd"></span>规划</button>
+  <button class="pill A" style="--c:#a855f7"><span class="pd"></span>提问</button>
+</div>
+
+<div class="input-box">
+  <textarea rows="1" placeholder="输入消息或拖入文件..."></textarea>
+</div>
+
+<div class="note">
+  问题：<br>
+  • "模式"概念模糊——是工作模式还是模型模式？<br>
+  • Plan 和 Ask 不是线性权限关系<br>
+  • 三个不够——缺"完全自主"和"手动确认"<br>
+  • pills 占空间，不像 toolbar 控件
+</div>
+</div>
+
+<div>
+<h2>V2 — 执行策略 <span class="badge new">新</span></h2>
+<p style="font-size:11px;color:var(--text-faint);margin-bottom:12px">四个等级：规划 / 手动 / 接受编辑 / 绕过权限。dropdown 在工具栏。</p>
+
+<div class="topbar"><span class="brand">MiQi Desktop</span><div class="right">
+  <div class="pw">
+    <button class="pbtn E"><span class="pd"></span>接受编辑<span class="ch">▾</span><span class="warn">⚠</span></button>
+    <div class="dd">
+      <div class="ttl">执行策略</div>
+      <div class="di P"><span class="pd"></span><span class="lb">规划<div class="ds">只分析不修改</div></span><span class="ky">1</span><span class="ck">✓</span></div>
+      <div class="di M"><span class="pd"></span><span class="lb">手动<div class="ds">每次修改需确认</div></span><span class="ky">2</span><span class="ck">✓</span></div>
+      <div class="di E on"><span class="pd"></span><span class="lb">接受编辑<div class="ds">自动修改文件，危险操作仍需确认</div></span><span class="ky">3</span><span class="ck">✓</span></div>
+      <div class="di B"><span class="pd"></span><span class="lb">绕过权限<div class="ds">完全自主 ⚠</div></span><span class="ky">4</span><span class="ck">✓</span></div>
+    </div>
+  </div>
+  <span class="status"><span class="dot"></span>Active</span>
+</div></div>
+
+<div class="input-box">
+  <textarea rows="1" placeholder="输入消息或拖入文件..."></textarea>
+</div>
+
+<div class="grad"><span class="gl">自主程度</span><div style="flex:1"><div class="gb"></div><div class="gi"><span style="color:var(--plan)">规划</span><span style="color:var(--manual)">手动</span><span style="color:var(--edits)">接受编辑</span><span style="color:var(--bypass)">绕过</span></div></div></div>
+
+<div class="note">
+  改进：<br>
+  • "执行策略"概念明确——控制 Agent 自主程度<br>
+  • 四个等级覆盖从零到完全自主<br>
+  • dropdown 在 toolbar，不占输入区空间<br>
+  • 绕过首次需确认<br>
+  • 自主程度梯度条直观
+</div>
+</div>
+
+</div>
+</body>
+</html>

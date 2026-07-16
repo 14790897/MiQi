@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiQi Mode Selector — 原型</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #111; color: #eee; padding: 40px; }
+h2 { font-size: 16px; margin: 30px 0 15px; color: #888; font-weight: 500; }
+.container { max-width: 720px; margin: 0 auto; }
+
+/* === 方案 A: 输入框上方 inline pills === */
+.opt-a { display:flex; align-items:center; gap:6px; padding:8px 12px; background:#1a1a1a; border-radius:14px 14px 0 0; border:1px solid #2a2a2a; border-bottom:0; }
+.opt-a .label { font-size:11px; color:#666; margin-right:8px; }
+.opt-a .pill { display:flex; align-items:center; gap:5px; padding:5px 12px; border-radius:20px; font-size:12px; font-weight:500; cursor:pointer; border:1px solid transparent; transition:all .2s; }
+.opt-a .pill:hover { background:#2a2a2a; }
+.opt-a .pill.active { border-color: var(--c); background: color-mix(in srgb, var(--c) 15%, transparent); }
+.opt-a .pill .dot { width:7px; height:7px; border-radius:50%; background:var(--c); }
+.opt-a .pill .key { font-size:10px; color:#555; margin-left:auto; }
+
+/* === 方案 B: 输入框左边竖向条 === */
+.opt-b-wrap { display:flex; gap:0; background:#1a1a1a; border-radius:14px; border:1px solid #2a2a2a; }
+.opt-b { display:flex; flex-direction:column; gap:2px; padding:8px 6px; border-right:1px solid #2a2a2a; }
+.opt-b .tab { display:flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:8px; cursor:pointer; transition:all .2s; color:#555; font-size:11px; font-weight:600; }
+.opt-b .tab:hover { background:#2a2a2a; color:#aaa; }
+.opt-b .tab.active { background: color-mix(in srgb, var(--c) 20%, transparent); color: var(--c); }
+.opt-b .input-area { flex:1; display:flex; align-items:center; padding:12px 14px; }
+.opt-b .input-area .hint { font-size:13px; color:#555; }
+
+/* === 方案 C: 输入框内左下角 chip === */
+.opt-c-wrap { display:flex; background:#1a1a1a; border-radius:14px; border:1px solid #2a2a2a; padding:10px 14px; gap:10px; align-items:flex-end; }
+.opt-c-left { display:flex; flex-direction:column; gap:6px; }
+.opt-c-chip { display:flex; align-items:center; gap:6px; padding:4px 10px 4px 6px; border-radius:8px; font-size:11px; font-weight:500; cursor:pointer; border:1px solid #2a2a2a; background:#1e1e1e; min-width:64px; }
+.opt-c-chip .icon-dot { width:6px; height:6px; border-radius:50%; background: var(--c); }
+.opt-c-menu { display:flex; flex-direction:column; gap:2px; background:#1e1e1e; border:1px solid #2a2a2a; border-radius:10px; padding:4px; }
+.opt-c-menu .item { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer; transition:background .15s; color:#999; }
+.opt-c-menu .item:hover { background:#2a2a2a; color:#ddd; }
+.opt-c-menu .item.active { background: color-mix(in srgb, var(--c) 15%, transparent); color:#eee; font-weight:500; }
+.opt-c-menu .item .dot { width:5px; height:5px; border-radius:50%; background:var(--c); opacity:0.5; }
+.opt-c-menu .item.active .dot { opacity:1; }
+.opt-c-menu .item .desc { font-size:10px; color:#555; margin-left:auto; }
+.opt-c-input { flex:1; }
+.opt-c-input textarea { width:100%; background:transparent; border:0; color:#eee; font-size:13px; resize:none; outline:none; font-family:inherit; }
+.opt-c-input textarea::placeholder { color:#555; }
+
+/* mode colors */
+.e { --c: #10b981; } /* edit: green */
+.p { --c: #3b82f6; } /* plan: blue */
+.a { --c: #a855f7; } /* ask: purple */
+
+.chat-box { margin-top:8px; border:1px solid #2a2a2a; border-radius:0 0 14px 14px; background:#1a1a1a; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h2>方案 A — 输入框上方 pills</h2>
+<div class="opt-a">
+  <span class="label">Mode:</span>
+  <div class="pill active e"><span class="dot"></span>Edit<span class="key">⌘E</span></div>
+  <div class="pill p"><span class="dot"></span>Plan<span class="key">⌘P</span></div>
+  <div class="pill a"><span class="dot"></span>Ask<span class="key">⌘A</span></div>
+</div>
+<div class="chat-box" style="padding:12px 14px;">
+  <span style="font-size:13px;color:#555;">输入消息或拖入文件...</span>
+</div>
+
+<h2>方案 B — 输入框左边竖向 tab</h2>
+<div class="opt-b-wrap">
+  <div class="opt-b">
+    <div class="tab active e">E</div>
+    <div class="tab p">P</div>
+    <div class="tab a">A</div>
+  </div>
+  <div class="input-area">
+    <span class="hint">Ask a question (read-only)...</span>
+  </div>
+</div>
+
+<h2>方案 C — 输入框内左下 chip + 弹出菜单</h2>
+<div class="opt-c-wrap">
+  <div class="opt-c-left">
+    <div class="opt-c-chip e"><span class="icon-dot"></span>Edit ▾</div>
+    <div class="opt-c-menu">
+      <div class="item active e"><span class="dot"></span>Edit<span class="desc">⌘E</span></div>
+      <div class="item p"><span class="dot"></span>Plan<span class="desc">⌘P</span></div>
+      <div class="item a"><span class="dot"></span>Ask<span class="desc">⌘A</span></div>
+    </div>
+  </div>
+  <div class="opt-c-input">
+    <textarea rows="1" placeholder="Describe what you want to plan..."></textarea>
+  </div>
+</div>
+
+<p style="margin-top:40px;color:#555;font-size:12px;">
+  颜色：🟢 Edit=green &nbsp; 🔵 Plan=blue &nbsp; 🟣 Ask=purple<br>
+  方案 A 最像 Claude Code，方案 B 省空间，方案 C 最灵动（chip+弹出）
+</p>
+
+</div>
+</body>
+</html>
