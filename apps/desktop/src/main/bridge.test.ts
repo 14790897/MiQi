@@ -680,6 +680,48 @@ describe('BridgeManager lifecycle', () => {
 
     expect(bridge.sandboxAvailable).toBe(false);
   }, 10_000);
+
+  it('starts hot reload watcher by default in dev renderer mode', async () => {
+    process.env['ELECTRON_RENDERER_URL'] = 'test';
+    const BridgeManager = await importBridgeManager();
+    const proc = createMockProcess();
+    const bridge = new BridgeManager('/fake/root');
+
+    await startBridge(proc, bridge);
+
+    expect((bridge as any).hotReloadEnabled).toBe(true);
+  });
+
+  it('skips hot reload restart when there are pending requests', async () => {
+    process.env['ELECTRON_RENDERER_URL'] = 'test';
+    const BridgeManager = await importBridgeManager();
+    const proc = createMockProcess();
+    const bridge = new BridgeManager('/fake/root');
+
+    await startBridge(proc, bridge);
+    expect((bridge as any).hotReloadEnabled).toBe(true);
+
+    // Inject a pending request to simulate an active session
+    (bridge as any).pending.set('req-1', {
+      resolve: () => {},
+      reject: () => {},
+      method: 'chat.send',
+      timestamp: Date.now(),
+    });
+
+    // Trigger file change — should skip restart because pending > 0
+    const logs: string[] = [];
+    const origAddLog = (bridge as any).addLog.bind(bridge);
+    (bridge as any).addLog = (msg: string) => {
+      logs.push(msg);
+      origAddLog(msg);
+    };
+
+    (bridge as any).handleFileChange('test.py');
+
+    // Should have logged about skipping, not restarted
+    expect(logs.some((l: string) => l.includes('Skipping restart'))).toBe(true);
+  });
 });
 
 describe('BridgeManager sandbox tracking', () => {
