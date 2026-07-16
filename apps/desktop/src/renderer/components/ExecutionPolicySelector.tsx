@@ -3,17 +3,11 @@ import { cn } from '../lib/utils';
 
 export type ExecutionPolicy = 'plan' | 'manual' | 'accept_edits' | 'bypass';
 
-interface PolicyConfig {
-  label: string;
-  shortcut: string;
-  description: string;
-}
-
-const POLICIES: Record<ExecutionPolicy, PolicyConfig> = {
-  plan:          { label: '规划', shortcut: '1', description: '只分析不修改' },
-  manual:        { label: '手动', shortcut: '2', description: '每次修改需确认' },
-  accept_edits:  { label: '接受编辑', shortcut: '3', description: '自动修改文件，危险操作仍需确认' },
-  bypass:        { label: '绕过权限', shortcut: '4', description: '完全自主 ⚠' },
+const POLICIES: Record<ExecutionPolicy, { label: string; desc: string }> = {
+  plan:          { label: '规划', desc: '只分析不修改' },
+  manual:        { label: '手动', desc: '每次修改需确认' },
+  accept_edits:  { label: '接受编辑', desc: '自动修改文件，危险操作仍需确认' },
+  bypass:        { label: '绕过权限', desc: '完全自主 ⚠' },
 };
 
 const COLORS: Record<ExecutionPolicy, string> = {
@@ -25,7 +19,7 @@ const COLORS: Record<ExecutionPolicy, string> = {
 
 interface Props {
   policy: ExecutionPolicy;
-  onChange: (policy: ExecutionPolicy) => void;
+  onChange: (p: ExecutionPolicy) => void;
   disabled?: boolean;
 }
 
@@ -37,11 +31,11 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
 
   useEffect(() => {
     if (!open) return;
-    const h = (e: MouseEvent) => {
+    const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
   const select = useCallback((p: ExecutionPolicy) => {
@@ -56,65 +50,82 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
         onClick={() => setOpen(!open)}
         disabled={disabled}
         className={cn(
-          'flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors',
-          'border hover:bg-[var(--surface-muted)] disabled:opacity-50',
-          policy === 'bypass' && 'border-[var(--bypass)]',
+          'group flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium',
+          'transition-all duration-150',
+          'hover:bg-[var(--surface-muted)] active:scale-[0.97]',
+          'disabled:opacity-50 disabled:cursor-not-allowed',
         )}
-        style={{
-          background: 'var(--surface)',
-          borderColor: open ? color : 'var(--border)',
-          color: 'var(--text)',
-        }}
-        aria-label="执行策略"
-        aria-expanded={open}
+        style={{ color: 'var(--text-muted)' }}
       >
         <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color }} />
         <span>{cfg.label}</span>
-        <span className="text-[8px] opacity-30 ml-0.5">▾</span>
-        {policy === 'bypass' && <span className="text-[11px]">⚠</span>}
+        <svg
+          className={cn('w-2.5 h-2.5 transition-transform duration-150', open && 'rotate-180')}
+          viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="1.5"
+        >
+          <path d="M1 1l4 4 4-4" />
+        </svg>
       </button>
 
-      {open && (
-        <div
-          className="absolute bottom-full right-0 mb-1 min-w-[210px] rounded-xl shadow-lg z-50 overflow-hidden"
-          style={{ background: 'var(--surface)', border: '1px solid var(--border-subtle)' }}
-        >
-          <div className="px-3.5 pt-2.5 pb-1 text-[10px] text-[var(--text-faint)] uppercase tracking-wide">
+      <div
+        className={cn(
+          'absolute left-0 bottom-full mb-1.5 w-56 origin-bottom-left',
+          'rounded-xl shadow-lg backdrop-blur z-50 overflow-hidden',
+          'transition-all duration-150',
+          open
+            ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto'
+            : 'opacity-0 scale-95 translate-y-1 pointer-events-none',
+        )}
+        style={{
+          background: 'color-mix(in srgb, var(--surface) 96%, var(--surface-muted))',
+          border: '1px solid var(--border-subtle)',
+          boxShadow: '0 12px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)',
+        }}
+      >
+        <div className="px-3.5 pt-3 pb-1.5">
+          <span className="text-[10px] font-medium tracking-wider text-[var(--text-faint)] uppercase">
             执行策略
-          </div>
-          {(Object.entries(POLICIES) as [ExecutionPolicy, PolicyConfig][]).map(([key, c]) => {
-            const active = policy === key;
-            const cColor = COLORS[key];
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => select(key)}
-                className={cn(
-                  'flex items-center gap-2.5 w-full px-3.5 py-2 text-left transition-colors text-xs',
-                  active
-                    ? 'font-medium'
-                    : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-muted)]',
-                )}
-                style={active ? { background: `${cColor}15`, color: 'var(--text)' } : undefined}
-              >
-                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: cColor }} />
-                <span className="flex-1">
-                  <span className="block">{c.label}</span>
-                  <span className="text-[10px] text-[var(--text-faint)]">{c.description}</span>
-                </span>
-                <span
-                  className="text-[10px] rounded px-1 shrink-0"
-                  style={{ color: 'var(--text-faint)', border: '1px solid var(--border-subtle)' }}
-                >
-                  {c.shortcut}
-                </span>
-                {active && <span className="text-[10px] shrink-0" style={{ color: cColor }}>✓</span>}
-              </button>
-            );
-          })}
+          </span>
         </div>
-      )}
+        {(Object.entries(POLICIES) as [ExecutionPolicy, typeof POLICIES['plan']][]).map(([key, c]) => {
+          const active = policy === key;
+          const cColor = COLORS[key];
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => select(key)}
+              disabled={active}
+              className={cn(
+                'flex items-start gap-3 w-full px-3.5 py-2.5 text-left transition-colors duration-100',
+                active
+                  ? 'cursor-default'
+                  : 'cursor-pointer hover:bg-[var(--surface-muted)]',
+              )}
+              style={active ? { background: `${cColor}12` } : undefined}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full shrink-0 mt-1.5"
+                style={{ background: cColor, opacity: active ? 1 : 0.6 }}
+              />
+              <span className="flex-1 min-w-0">
+                <span
+                  className="block text-xs font-medium"
+                  style={{ color: active ? 'var(--text)' : 'var(--text-muted)' }}
+                >
+                  {c.label}
+                </span>
+                <span className="block text-[10px] leading-snug mt-0.5 text-[var(--text-faint)]">
+                  {c.desc}
+                </span>
+              </span>
+              {active && (
+                <span className="text-[10px] mt-1 shrink-0" style={{ color: cColor }}>✓</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
