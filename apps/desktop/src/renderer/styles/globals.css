@@ -328,3 +328,13 @@ code {
     0 14px 35px rgba(124, 45, 18, 0.14),
     0 2px 10px rgba(124, 45, 18, 0.08);
 }
+
+/* Bypass pill: subtle pulse on click */
+@keyframes bypass-pill-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(251, 146, 60, 0.5); }
+  50%  { box-shadow: 0 0 0 4px rgba(251, 146, 60, 0.15); }
+  100% { box-shadow: 0 0 0 0 rgba(251, 146, 60, 0); }
+}
+.bypass-pill-pressed {
+  animation: bypass-pill-pulse 500ms ease-out;
+}
