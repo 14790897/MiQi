@@ -789,6 +789,8 @@ export class BridgeManager extends EventEmitter {
     // so a slow method no longer blocks fast ones.
     const SLOW_METHODS = new Set([
       'chat.send',
+      'config.get',
+      'plugins.list',
       'sandbox.setEnabled',
       'sessions.archive',
       'sessions.get',
