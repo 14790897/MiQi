@@ -47,7 +47,9 @@ def _ensure_memory_dir() -> None:
 
 def _collect_all_logs(log_dir: Path) -> str:
     """Read all .log and .jsonl files from workspace/logs/ and return
-    concatenated text.  Individual files are capped at 1 MB (tail end)."""
+    concatenated text.  Individual files are capped at 1 MB (tail end).
+    The combined payload is capped at 100,000 characters to fit within
+    Feishu Bitable text-field limits (per official docs)."""
     if not log_dir.exists():
         return "[日志目录不存在]"
 
@@ -65,7 +67,12 @@ def _collect_all_logs(log_dir: Path) -> str:
 
     if not parts:
         return "[无日志文件]"
-    return "\n\n".join(parts)
+
+    combined = "\n\n".join(parts)
+    total_cap = 100_000
+    if len(combined) > total_cap:
+        return f"...(总日志超出 {len(combined) - total_cap} 字符，已截断)\n{combined[-total_cap:]}"
+    return combined
 
 
 def _collect_system_info() -> dict[str, str]:
@@ -201,7 +208,9 @@ async def feedback_submit_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """Submit user feedback + collected logs to Feishu Bitable."""
-    category = str(params.get("category", "other"))
+    raw_category = str(params.get("category", "other"))
+    allowed_categories = {"bug", "question", "suggestion", "other"}
+    category = raw_category if raw_category in allowed_categories else "other"
     title = str(params.get("title", "")).strip()
     content = str(params.get("content", "")).strip()
     contact = str(params.get("contact", "")).strip()
@@ -301,7 +310,7 @@ async def feedback_list_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """List local feedback backups."""
-    limit = int(params.get("limit", 50))
+    limit = int(params.get("limit") or 50)
     entries = _read_local_backups()
     if limit > 0 and len(entries) > limit:
         entries = entries[:limit]

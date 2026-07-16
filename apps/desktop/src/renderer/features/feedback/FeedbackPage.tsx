@@ -72,6 +72,16 @@ function SubmitModal({
 
   const canSubmit = title.trim().length > 0 && content.trim().length > 0 && !submitting;
 
+  // Close on Escape
+  useEffect(() => {
+    if (success) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose, success]);
+
   const handleSubmit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
@@ -98,8 +108,14 @@ function SubmitModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-6 w-full max-w-lg mx-4 shadow-xl max-h-[90vh] overflow-y-auto">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-6 w-full max-w-lg mx-4 shadow-xl max-h-[90vh] overflow-y-auto"
+      >
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-lg font-semibold">提交反馈</h3>

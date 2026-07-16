@@ -37,6 +37,7 @@ import {
   ThreadNameSetInput,
   TurnStartInput,
   TurnInterruptInput,
+  FeedbackSubmitInput,
 } from '../../shared/ipc';
 import type { WslCheckResult, WslStatsResult } from '../../shared/ipc';
 
@@ -1479,7 +1480,8 @@ for m in ("pydantic", "httpx", "loguru"):
 
   // -- Feedback --------------------------------------------------------------
   ipcMain.handle(IPC.FEEDBACK_SUBMIT, async (_event, payload: unknown) => {
-    return bridge.send('feedback:submit', payload as Record<string, unknown>);
+    const input = FeedbackSubmitInput.parse(payload);
+    return bridge.send('feedback:submit', input as unknown as Record<string, unknown>);
   });
 
   ipcMain.handle(IPC.FEEDBACK_LIST, async (_event, payload: unknown) => {
