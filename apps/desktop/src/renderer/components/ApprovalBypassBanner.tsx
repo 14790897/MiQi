@@ -6,9 +6,8 @@ export function ApprovalBypassBanner({ onNavigateSettings }: { onNavigateSetting
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ enabled: boolean }>).detail;
-      if (detail?.enabled) {
+    const handler = () => {
+      if (sessionStorage.getItem('miqi:bypass:enabled') === 'true') {
         setVisible(true);
       } else {
         setVisible(false);
@@ -20,7 +19,6 @@ export function ApprovalBypassBanner({ onNavigateSettings }: { onNavigateSetting
 
   const dismiss = useCallback(() => setVisible(false), []);
 
-  // Auto-dismiss after 3 seconds
   useEffect(() => {
     if (!visible) return;
     const t = setTimeout(dismiss, 3000);
@@ -41,24 +39,18 @@ export function ApprovalBypassBanner({ onNavigateSettings }: { onNavigateSetting
       }}
     >
       <AlertTriangle size={14} className="shrink-0" />
-      <span className="min-w-0 truncate font-medium">
-        审批绕过已开启，本次会话的部分操作会直接放行。
-      </span>
+      <span className="min-w-0 truncate font-medium">审批绕过已开启，本次会话的部分操作会直接放行。</span>
       <button
         type="button"
         onClick={() => { onNavigateSettings(); dismiss(); }}
         className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors hover:bg-[rgba(124,45,18,0.08)]"
-      >
-        查看设置
-      </button>
+      >查看设置</button>
       <button
         type="button"
         onClick={dismiss}
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-[rgba(124,45,18,0.12)] transition-colors"
         title="关闭提醒"
-      >
-        <X size={13} />
-      </button>
+      ><X size={13} /></button>
     </div>
   );
 }

@@ -301,7 +301,8 @@ export function ApprovalsPage() {
         next.bypassToolConfirmation ||
         next.bypassNetworkApproval
       );
-      window.dispatchEvent(new CustomEvent('miqi:approval-bypass-updated', { detail: { enabled: bypassOn } }));
+      sessionStorage.setItem('miqi:bypass:enabled', bypassOn ? 'true' : '');
+      window.dispatchEvent(new Event('miqi:approval-bypass-updated'));
       window.setTimeout(
         () => setBypassSaved((current) => (current === key ? null : current)),
         1800
