@@ -70,12 +70,12 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
           onClick={() => setOpen(!open)}
           disabled={disabled}
           className={cn(
-            'group flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-semibold',
-            'transition-all duration-150',
+            'group flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold',
+            'transition-all duration-150 border',
             'hover:bg-[var(--surface-muted)] active:scale-[0.97]',
             'disabled:opacity-50 disabled:cursor-not-allowed',
           )}
-          style={{ color: 'var(--text-muted)' }}
+          style={{ color: 'var(--text-muted)', borderColor: 'var(--border-subtle)' }}
         >
           <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: current.color }} />
           <span className="hidden sm:inline">{current.label}</span>
@@ -126,10 +126,10 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
                   style={{ background: p.color, opacity: active ? 1 : 0.6 }}
                 />
                 <span className="flex-1 min-w-0">
-                  <span className="block text-xs font-medium" style={{ color: active ? 'var(--text)' : 'var(--text-muted)' }}>
+                  <span className="block text-[13px] font-medium" style={{ color: active ? 'var(--text)' : 'var(--text-muted)' }}>
                     {p.label}
                   </span>
-                  <span className="block text-[10px] leading-snug mt-0.5 text-[var(--text-faint)]">{p.desc}</span>
+                  <span className="block text-[11px] leading-snug mt-0.5 text-[var(--text-faint)]">{p.desc}</span>
                 </span>
                 {active && <span className="text-[10px] mt-1 shrink-0" style={{ color: p.color }}>✓</span>}
               </button>
@@ -158,7 +158,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
             onClick={e => e.stopPropagation()}
           >
             <div className="px-5 py-4">
-              <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: '#f59e0b' }}>
+              <h3 className="text-[15px] font-semibold flex items-center gap-2" style={{ color: '#f59e0b' }}>
                 ⚠ 开启绕过权限？
               </h3>
               <p className="text-xs text-[var(--text-muted)] mt-2">Agent 将获得完全自主权：</p>
