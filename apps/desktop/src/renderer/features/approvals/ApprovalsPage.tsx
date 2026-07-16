@@ -294,7 +294,14 @@ export function ApprovalsPage() {
       }
       await window.miqi.config.update(update);
       setBypassSaved(key);
-      window.dispatchEvent(new Event('miqi:approval-bypass-updated'));
+      const bypassOn = !!(
+        next.bypassAll ||
+        next.bypassCommandApproval ||
+        next.bypassFileWriteApproval ||
+        next.bypassToolConfirmation ||
+        next.bypassNetworkApproval
+      );
+      window.dispatchEvent(new CustomEvent('miqi:approval-bypass-updated', { detail: { enabled: bypassOn } }));
       window.setTimeout(
         () => setBypassSaved((current) => (current === key ? null : current)),
         1800
