@@ -2047,7 +2047,6 @@ export function ChatConsole({
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
-                <ExecutionPolicySelector policy={executionPolicy} onChange={setExecutionPolicy} disabled={streaming} />
                 <button
                   onClick={handleAttachClick}
                   className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
@@ -2089,6 +2088,16 @@ export function ChatConsole({
                   </button>
                 )}
               </div>
+              <ExecutionPolicySelector
+                policy={executionPolicy}
+                onChange={setExecutionPolicy}
+                disabled={streaming}
+                status={[
+                  { label: 'Model', value: 'deepseek' },
+                  { label: 'Memory', value: 'on' },
+                  { label: 'Approval', value: executionPolicy === 'bypass' ? 'off' : 'on' },
+                ]}
+              />
             </div>
           </div>
         </div>
