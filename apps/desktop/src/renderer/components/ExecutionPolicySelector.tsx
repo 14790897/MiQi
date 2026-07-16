@@ -40,6 +40,17 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
     onChange(p); setOpen(false); toastFn(`✓ ${LABELS[p]} 已启用`);
   }, [onChange, toastFn]);
 
+  // keyboard shortcuts 1/2/3/4
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement)?.tagName === 'TEXTAREA') return;
+      const m: Record<string, ExecutionPolicy> = { '1': 'plan', '2': 'manual', '3': 'accept_edits', '4': 'bypass' };
+      if (m[e.key]) pick(m[e.key]);
+    };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [pick]);
+
   return (
     <>
       <div ref={ref} style={{ position: 'relative', flexShrink: 0 }}>
@@ -98,6 +109,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
                   <span style={{ display: 'block' }}>{p.label}</span>
                   <span style={{ fontSize: 10, color: 'var(--text-faint)' }}>{p.desc}</span>
                 </span>
+                <span style={{ fontSize: 10, color: 'var(--text-faint)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 4px' }}>{['1','2','3','4'][ITEMS.indexOf(p)]}</span>
                 {active && <span style={{ fontSize: 10, color: p.color, flexShrink: 0 }}>✓</span>}
               </button>
             );
