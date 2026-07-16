@@ -406,7 +406,7 @@ export function ApprovalsPage() {
           <div className="flex items-center gap-3 px-5 py-4">
             <AlertTriangle size={15} className="text-[var(--approval-warning)] shrink-0" />
             <div>
-              <h2 className="text-sm font-semibold text-[var(--text)]">审批行为由执行策略控制</h2>
+              <h2 className="text-sm font-semibold text-[var(--text)]">审批行为由工具栏模式控制</h2>
               <p className="text-xs text-[var(--approval-warning)] mt-0.5">
                 在聊天工具栏可切换<strong>规划 / 手动 / 接受编辑 / 绕过</strong>模式来调整 Agent 自主程度。此页面配置各审批类别的底层规则。
               </p>
