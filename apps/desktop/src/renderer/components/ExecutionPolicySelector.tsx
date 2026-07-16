@@ -86,7 +86,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
           }}
         >
           <div style={{ padding: '8px 14px 4px', fontSize: 10, color: 'var(--text-faint)', letterSpacing: .5, textTransform: 'uppercase' }}>
-            执行策略
+            模式
           </div>
           {ITEMS.map(p => {
             const active = policy === p.key;
