@@ -8,9 +8,25 @@ export function ApprovalBypassBanner({ onNavigateSettings }: { onNavigateSetting
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    const handler = () => {
-      sessionStorage.setItem(SESSION_KEY, 'true');
-      setVisible(true);
+    const handler = async () => {
+      try {
+        const cfg = await window.miqi.config.get();
+        const a = (cfg as any)?.approvals ?? {};
+        const on = !!(
+          a.bypassAll ||
+          a.bypassCommandApproval ||
+          a.bypassFileWriteApproval ||
+          a.bypassToolConfirmation ||
+          a.bypassNetworkApproval
+        );
+        if (on) {
+          sessionStorage.setItem(SESSION_KEY, 'true');
+          setVisible(true);
+        } else {
+          sessionStorage.removeItem(SESSION_KEY);
+          setVisible(false);
+        }
+      } catch { /* bridge busy, keep current state */ }
     };
     window.addEventListener('miqi:approval-bypass-updated', handler);
     return () => window.removeEventListener('miqi:approval-bypass-updated', handler);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRuntime } from '../contexts/RuntimeContext';
 import { AlertTriangle, RefreshCw, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -7,12 +7,26 @@ import { MiQiLogo } from './MiQiLogo';
 export function TopBar({ onNavigateSettings }: { onNavigateSettings: () => void }) {
   const { status } = useRuntime();
   const [bypassEnabled, setBypassEnabled] = useState(false);
+  const [pressed, setPressed] = useState(false);
 
   useEffect(() => {
-    const handler = () => setBypassEnabled(true);
+    const handler = async () => {
+      try {
+        const cfg = await window.miqi.config.get();
+        const a = (cfg as any)?.approvals ?? {};
+        const on = !!(a.bypassAll || a.bypassCommandApproval || a.bypassFileWriteApproval || a.bypassToolConfirmation || a.bypassNetworkApproval);
+        setBypassEnabled(on);
+      } catch { /* bridge may be busy */ }
+    };
     window.addEventListener('miqi:approval-bypass-updated', handler);
     return () => window.removeEventListener('miqi:approval-bypass-updated', handler);
   }, []);
+
+  const handleClick = useCallback(() => {
+    setPressed(true);
+    setTimeout(() => setPressed(false), 600);
+    onNavigateSettings();
+  }, [onNavigateSettings]);
 
   const isRunning = status.state === 'running';
   const isStarting = status.state === 'starting' || status.state === 'stopping';
@@ -33,12 +47,18 @@ export function TopBar({ onNavigateSettings }: { onNavigateSettings: () => void 
         {bypassEnabled && (
           <button
             type="button"
-            onClick={onNavigateSettings}
+            onClick={handleClick}
             className={cn(
-              'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold',
-              'transition-transform hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]'
+              'bypass-pill flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold',
+              'transition-all duration-200 hover:-translate-y-px hover:shadow-sm',
+              'focus:outline-none',
+              pressed && 'bypass-pill-pressed',
             )}
-            style={{ background: 'var(--approval-warning-pill-bg)', color: 'var(--approval-warning-pill-text)' }}
+            style={{
+              background: 'var(--approval-warning-pill-bg)',
+              color: 'var(--approval-warning-pill-text)',
+              border: '1px solid var(--approval-warning-pill-border, var(--approval-warning-border))',
+            }}
             title="审批绕过已开启"
             aria-label="审批绕过已开启"
           >
