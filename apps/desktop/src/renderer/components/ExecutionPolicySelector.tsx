@@ -70,8 +70,8 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
           onClick={() => setOpen(!open)}
           disabled={disabled}
           className={cn(
-            'group flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium',
-            'transition-all duration-150',
+            'group flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[11px] font-medium',
+            'transition-all duration-150 tracking-wide',
             'hover:bg-[var(--surface-muted)] active:scale-[0.97]',
             'disabled:opacity-50 disabled:cursor-not-allowed',
           )}
@@ -151,7 +151,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
 
       {/* ── Bypass confirmation dialog ── */}
       {bypassConfirm && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
+        <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[12vh]" style={{ background: 'rgba(0,0,0,0.4)' }}>
           <div
             className="rounded-2xl w-[340px] max-w-[90vw] overflow-hidden"
             style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
