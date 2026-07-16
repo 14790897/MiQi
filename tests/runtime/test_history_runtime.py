@@ -2,6 +2,7 @@
 
 import pytest
 
+from miqi.runtime import history_runtime
 from miqi.runtime.history_runtime import HistoryRuntime, HistoryItem
 
 
@@ -95,6 +96,72 @@ async def test_history_runtime_load_messages_formats_for_provider(tmp_path):
     assert messages[0] == {"role": "user", "content": "hello"}
     assert messages[1] == {"role": "assistant", "content": "hi there"}
     await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_append_item_rejects_invalid_role(tmp_path):
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+    await runtime.initialize()
+    try:
+        with pytest.raises(ValueError, match="Invalid history role"):
+            await runtime.append_item(HistoryItem(
+                item_id="bad-role",
+                thread_id="thread-1",
+                turn_id="turn-1",
+                role="admin",
+                content="should not persist",
+            ))
+
+        items = await runtime.load_items("thread-1")
+        assert items == []
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_append_item_truncates_large_content_and_payload(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        history_runtime,
+        "MAX_HISTORY_CONTENT_CHARS",
+        32,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        history_runtime,
+        "MAX_HISTORY_PAYLOAD_JSON_CHARS",
+        64,
+        raising=False,
+    )
+
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+    await runtime.initialize()
+    try:
+        await runtime.append_item(HistoryItem(
+            item_id="large-item",
+            thread_id="thread-1",
+            turn_id="turn-1",
+            role="tool",
+            content="x" * 128,
+            payload={"result": "y" * 256},
+        ))
+
+        items = await runtime.load_items("thread-1")
+        assert len(items) == 1
+        item = items[0]
+        assert len(item.content) <= history_runtime.MAX_HISTORY_CONTENT_CHARS
+        assert item.content.endswith("<truncated>")
+        assert item.payload["truncated"] is True
+        assert item.payload["original_size_chars"] > (
+            history_runtime.MAX_HISTORY_PAYLOAD_JSON_CHARS
+        )
+        assert len(item.payload["preview"]) <= (
+            history_runtime.MAX_HISTORY_PAYLOAD_JSON_CHARS
+        )
+    finally:
+        await runtime.close()
 
 
 # ---------------------------------------------------------------------------

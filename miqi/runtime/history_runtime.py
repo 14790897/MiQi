@@ -26,6 +26,19 @@ import aiosqlite
 from loguru import logger
 
 
+VALID_HISTORY_ROLES = frozenset({
+    "system",
+    "user",
+    "assistant",
+    "tool",
+    "developer",
+    "unknown",
+})
+MAX_HISTORY_CONTENT_CHARS = 1_000_000
+MAX_HISTORY_PAYLOAD_JSON_CHARS = 1_000_000
+_TRUNCATED_SUFFIX = "<truncated>"
+
+
 @dataclass(frozen=True)
 class HistoryItem:
     """A single message or event in thread history."""
@@ -223,6 +236,9 @@ class HistoryRuntime:
 
     async def append_item(self, item: HistoryItem) -> None:
         db = self._conn
+        role = _validate_role(item.role)
+        content = _sanitize_content(item.content)
+        payload_json = _sanitize_payload(item.payload)
         await db.execute(
             """INSERT INTO runtime_history_items
                (item_id, thread_id, session_id, turn_id, role, content,
@@ -233,9 +249,9 @@ class HistoryRuntime:
                 item.thread_id,
                 self.session_id,
                 item.turn_id,
-                item.role,
-                item.content,
-                json.dumps(item.payload),
+                role,
+                content,
+                payload_json,
                 item.created_at,
             ),
         )
@@ -420,3 +436,76 @@ class HistoryRuntime:
         except Exception:
             await db.execute("ROLLBACK")
             raise
+
+
+def _validate_role(role: str) -> str:
+    if role not in VALID_HISTORY_ROLES:
+        raise ValueError(f"Invalid history role: {role!r}")
+    return role
+
+
+def _sanitize_content(content: str) -> str:
+    if len(content) <= MAX_HISTORY_CONTENT_CHARS:
+        return content
+    logger.warning(
+        "Truncating history content from {} to {} chars",
+        len(content),
+        MAX_HISTORY_CONTENT_CHARS,
+    )
+    return _truncate_text(content, MAX_HISTORY_CONTENT_CHARS)
+
+
+def _sanitize_payload(payload: dict[str, Any]) -> str:
+    """Sanitize and JSON-serialize payload for storage.
+
+    Returns the final JSON string (not dict) so the caller avoids
+    a second serialization pass.  Enforces MAX_HISTORY_PAYLOAD_JSON_CHARS
+    against the *stored* string, including the truncation-marker framing.
+    """
+    safe_payload = _json_safe(payload)
+    payload_json = json.dumps(safe_payload, ensure_ascii=False)
+    if len(payload_json) <= MAX_HISTORY_PAYLOAD_JSON_CHARS:
+        return payload_json
+    logger.warning(
+        "Truncating history payload from {} to {} chars",
+        len(payload_json),
+        MAX_HISTORY_PAYLOAD_JSON_CHARS,
+    )
+    # Build truncated payload with iterative shrinking to account for
+    # JSON escaping expansion in the preview string.
+    preview_limit = max(0, MAX_HISTORY_PAYLOAD_JSON_CHARS - 80)
+    preview = _truncate_text(payload_json, preview_limit)
+    while True:
+        final_json = json.dumps(
+            {
+                "truncated": True,
+                "original_size_chars": len(payload_json),
+                "preview": preview,
+            },
+            ensure_ascii=False,
+        )
+        if len(final_json) <= MAX_HISTORY_PAYLOAD_JSON_CHARS or preview_limit == 0:
+            return final_json
+        excess = len(final_json) - MAX_HISTORY_PAYLOAD_JSON_CHARS
+        preview_limit = max(0, preview_limit - max(1, excess))
+        preview = _truncate_text(payload_json, preview_limit)
+
+
+def _truncate_text(value: str, limit: int) -> str:
+    if limit <= len(_TRUNCATED_SUFFIX):
+        return _TRUNCATED_SUFFIX[:limit]
+    return value[: limit - len(_TRUNCATED_SUFFIX)] + _TRUNCATED_SUFFIX
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if hasattr(value, "value"):
+        return _json_safe(value.value)
+    return repr(value)
