@@ -152,4 +152,41 @@ test.describe('Feedback Page E2E', () => {
     // At minimum, the modal must still be visible (no crash)
     await expect(page.getByRole('heading', { name: '提交反馈' })).toBeVisible({ timeout: 2000 });
   });
+
+  test('screenshot drop zone accepts files and shows thumbnails', async () => {
+    await openFeedbackTab(page);
+
+    const headerBtn = page.locator('div.flex.items-center.gap-4').getByRole('button', {
+      name: '提交反馈',
+      exact: true,
+    });
+    await headerBtn.click();
+    await expect(page.getByRole('heading', { name: '提交反馈' })).toBeVisible();
+
+    // Drop zone hint visible
+    await expect(page.getByText('拖入图片 / 粘贴 (Ctrl+V) / 点击选择')).toBeVisible();
+
+    // Counter starts at 0/5
+    await expect(page.getByText('0/5')).toBeVisible();
+
+    // Upload a small PNG via the hidden file input (scoped to the modal)
+    const tinyPng = Buffer.from(
+      '89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C489' +
+      '0000000D49444154789C636000000000050001A5F645400000000049454E44AE426082',
+      'hex',
+    );
+    const fileInput = page
+      .locator('div.bg-\\[var\\(--surface\\)\\]')
+      .locator('input[type="file"]');
+    await fileInput.setInputFiles({
+      name: 'test.png',
+      mimeType: 'image/png',
+      buffer: tinyPng,
+    });
+
+    // Counter updates to 1/5
+    await expect(page.getByText('1/5')).toBeVisible({ timeout: 3_000 });
+    // Thumbnail renders
+    await expect(page.locator('img[alt="test.png"]')).toBeVisible();
+  });
 });

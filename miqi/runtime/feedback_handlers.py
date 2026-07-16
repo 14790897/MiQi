@@ -127,6 +127,69 @@ def _get_tenant_access_token(app_id: str, app_secret: str) -> str:
     return token
 
 
+def _upload_attachment(
+    token: str,
+    *,
+    filename: str,
+    content_type: str,
+    data: bytes,
+) -> str:
+    """Upload an attachment to Feishu Drive and return the file_token.
+
+    Used for Bitable attachment fields: the record references the file_token
+    rather than embedding the bytes inline.
+    """
+    resp = requests.post(
+        "https://open.feishu.cn/open-apis/drive/v1/medias/upload_all",
+        headers={"Authorization": f"Bearer {token}"},
+        data={
+            "file_name": filename,
+            "parent_type": "bitable_file",
+            "parent_node": "",
+            "size": str(len(data)),
+        },
+        files={"file": (filename, data, content_type)},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    code = body.get("code", -1)
+    if code != 0:
+        msg = body.get("msg", "unknown error")
+        raise AppServerError(
+            f"上传截图失败: {msg} (code={code})", code="FEISHU_UPLOAD_ERROR",
+        )
+    file_token = body.get("data", {}).get("file_token", "")
+    if not file_token:
+        raise AppServerError(
+            "上传截图返回的 file_token 为空", code="FEISHU_UPLOAD_ERROR",
+        )
+    return file_token
+
+
+def _decode_data_url(data_url: str) -> tuple[str, str, bytes]:
+    """Decode a `data:<mime>;base64,<...>` URL to (mime, filename, bytes)."""
+    if not data_url.startswith("data:"):
+        raise AppServerError(
+            "截图格式错误（期望 data URL）", code="INVALID_PARAMS",
+        )
+    try:
+        header, b64 = data_url.split(",", 1)
+        mime = header.split(";", 1)[0].split(":", 1)[1]
+        import base64
+        raw = base64.b64decode(b64)
+    except Exception as exc:
+        raise AppServerError(
+            f"截图 base64 解码失败: {exc}", code="INVALID_PARAMS",
+        ) from exc
+    ext_map = {
+        "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg",
+        "image/gif": "gif", "image/webp": "webp", "image/bmp": "bmp",
+    }
+    ext = ext_map.get(mime, "png")
+    return mime, f"screenshot.{ext}", raw
+
+
 def _add_bitable_record(
     token: str,
     app_token: str,
@@ -222,6 +285,10 @@ async def feedback_submit_handler(
     content = str(params.get("content", "")).strip()
     contact = str(params.get("contact", "")).strip()
     app_version = str(params.get("app_version", "unknown"))
+    screenshots_raw = params.get("screenshots") or []
+    if not isinstance(screenshots_raw, list):
+        screenshots_raw = []
+    screenshots = [str(s) for s in screenshots_raw if s][:5]  # cap at 5
 
     if not title:
         raise AppServerError("反馈标题不能为空", code="INVALID_PARAMS")
@@ -277,9 +344,37 @@ async def feedback_submit_handler(
         "提交时间": now_iso,
     }
 
-    # 5. Send to Feishu
+    # 5. Send to Feishu — get token first, then upload screenshots, then add record
     try:
         token = _get_tenant_access_token(app_id, app_secret)
+
+        # 5a. Upload each screenshot to get file_token references
+        if screenshots:
+            file_tokens: list[dict[str, str]] = []
+            for idx, data_url in enumerate(screenshots):
+                try:
+                    mime, filename, raw = _decode_data_url(data_url)
+                except AppServerError:
+                    raise
+                except Exception as exc:
+                    raise AppServerError(
+                        f"截图 {idx + 1} 处理失败: {exc}",
+                        code="INVALID_PARAMS",
+                    ) from exc
+                # 10 MB cap per image
+                if len(raw) > 10 * 1024 * 1024:
+                    raise AppServerError(
+                        f"截图 {idx + 1} 超过 10MB 限制",
+                        code="FILE_TOO_LARGE",
+                    )
+                logger.info("Uploading screenshot {} ({} bytes)", idx + 1, len(raw))
+                file_token = _upload_attachment(
+                    token, filename=filename, content_type=mime, data=raw,
+                )
+                file_tokens.append({"file_token": file_token})
+            fields["截图"] = file_tokens
+
+        # 5b. Add the Bitable record (with attachment references)
         record_id = _add_bitable_record(
             token, fb_cfg.bitable_app_token, fb_cfg.bitable_table_id, fields,
         )
