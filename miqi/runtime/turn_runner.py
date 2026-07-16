@@ -433,16 +433,22 @@ class TurnRunner:
         else:
             tools = []
 
-        # Ask mode: filter out write/exec/side-effect tools
-        if turn.mode == "ask":
-            _ASK_DISALLOWED = frozenset({
+        # Execution policy — controls agent autonomy level
+        if turn.execution_policy == "plan":
+            # Plan mode: no tools, agent only generates plans
+            tools = []
+        elif turn.execution_policy == "ask":
+            # Legacy ask mode — filter write/exec tools
+            _DISALLOWED = frozenset({
                 "write_file", "edit_file", "apply_patch", "edit_diff",
                 "write", "edit", "delete", "move",
                 "exec", "bash", "shell",
                 "spawn", "subagent", "cron",
                 "skill_manage", "memory",
             })
-            tools = [t for t in tools if t.get("name") not in _ASK_DISALLOWED]
+            tools = [t for t in tools if t.get("name") not in _DISALLOWED]
+        # manual / accept_edits / bypass: all tools available,
+        # differentiation happens at approval layer
 
         return await self.run(
             turn=turn,
