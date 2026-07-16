@@ -37,6 +37,7 @@ VALID_HISTORY_ROLES = frozenset({
 MAX_HISTORY_CONTENT_CHARS = 1_000_000
 MAX_HISTORY_PAYLOAD_JSON_CHARS = 1_000_000
 _TRUNCATED_SUFFIX = "<truncated>"
+_HISTORY_CREATED_AT_STEP = 1e-6
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,7 @@ class HistoryRuntime:
         self.db_path = db_path
         self.session_id = session_id
         self._db: aiosqlite.Connection | None = None
+        self._last_history_created_at = 0.0
 
     # ── lifecycle ──────────────────────────────────────────────────────
 
@@ -252,7 +254,7 @@ class HistoryRuntime:
                 role,
                 content,
                 payload_json,
-                item.created_at,
+                self._next_history_created_at(item.created_at),
             ),
         )
         await db.commit()
@@ -410,7 +412,7 @@ class HistoryRuntime:
                                 },
                             },
                         ),
-                        time.time(),
+                        self._next_history_created_at(time.time()),
                     ),
                 )
             # Record the compaction with full audit metadata
@@ -436,6 +438,13 @@ class HistoryRuntime:
         except Exception:
             await db.execute("ROLLBACK")
             raise
+
+    def _next_history_created_at(self, preferred: float | None = None) -> float:
+        created_at = time.time() if preferred is None else preferred
+        if created_at <= self._last_history_created_at:
+            created_at = self._last_history_created_at + _HISTORY_CREATED_AT_STEP
+        self._last_history_created_at = created_at
+        return created_at
 
 
 def _validate_role(role: str) -> str:
