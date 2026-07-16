@@ -640,8 +640,11 @@ export function ChatConsole({
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false; // prevent overlapping polls when bridge is slow (#311)
     const loadActivePlugins = async () => {
+      if (inFlight) return; // skip if previous request still pending
       try {
+        inFlight = true;
         const result = await window.miqi.plugins.list();
         const plugins = (result as unknown as { plugins?: Array<{ status?: string }> })?.plugins;
         if (!cancelled) {
@@ -649,6 +652,8 @@ export function ChatConsole({
         }
       } catch {
         if (!cancelled) setActivePluginCount(0);
+      } finally {
+        inFlight = false;
       }
     };
 
