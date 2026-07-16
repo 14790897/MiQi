@@ -1331,16 +1331,18 @@ export function ChatConsole({
       if (threadId == null) {
         try {
           const title = (text || '新会话').trim().slice(0, 60);
-          // Non-blocking: start thread with a short timeout so chat.send
+          // Non-blocking: start thread with a timeout so chat.send
           // isn't delayed by a slow bridge restart.  Falls through to
           // chat.send without thread_id on failure.
+          // 30s timeout gives sandbox first-init (WSL apt-get 60-120s)
+          // a better chance without holding up the UI forever (#311).
           const threadResult = await Promise.race([
             window.miqi.threads.start({
               title,
               session_key: currentSessionRef.current,
             }),
             new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('thread/start timeout')), 5000)
+              setTimeout(() => reject(new Error('thread/start timeout')), 30_000)
             ),
           ]);
           // Extract thread id from the result
