@@ -253,6 +253,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         content: input.content,
         session_key: input.session_key ?? 'desktop:default',
         thread_id: (input as any).thread_id ?? undefined,
+        mode: input.mode,
       },
       (type: string, data: unknown) => {
         if (type === 'progress') {
