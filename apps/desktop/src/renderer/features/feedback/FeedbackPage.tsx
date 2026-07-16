@@ -86,15 +86,15 @@ function SubmitModal({
 
   const canSubmit = title.trim().length > 0 && content.trim().length > 0 && !submitting;
 
-  // Close on Escape
+  // Close on Escape — but only when not actively submitting
   useEffect(() => {
     if (success) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !submitting) onClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose, success]);
+  }, [onClose, submitting, success]);
 
   const readFileAsDataUrl = (file: File): Promise<ScreenshotFile> =>
     new Promise((resolve, reject) => {
@@ -121,24 +121,40 @@ function SubmitModal({
   const addFiles = useCallback(
     async (files: FileList | File[]) => {
       const list = Array.from(files);
-      const remaining = MAX_SCREENSHOTS - screenshots.length;
-      if (remaining <= 0) {
-        setError(`最多 ${MAX_SCREENSHOTS} 张截图`);
-        return;
-      }
-      const accepted = list.slice(0, remaining);
       setError(null);
       try {
-        const decoded = await Promise.all(accepted.map(readFileAsDataUrl));
-        setScreenshots((prev) => [...prev, ...decoded]);
-        if (list.length > remaining) {
-          setError(`仅添加了前 ${remaining} 张，已达 ${MAX_SCREENSHOTS} 张上限`);
+        // Pre-decode all files (catching per-file errors so one bad file
+        // doesn't drop the whole batch); then commit against the LATEST
+        // state to enforce MAX_SCREENSHOTS under concurrent pastes/drops.
+        const results = await Promise.allSettled(list.map(readFileAsDataUrl));
+        const accepted: ScreenshotFile[] = [];
+        for (const r of results) {
+          if (r.status === 'fulfilled') accepted.push(r.value);
         }
+        if (accepted.length < results.length) {
+          const rejected = results.length - accepted.length;
+          setError(
+            `${rejected} 个文件未添加（不支持的类型或超过 10MB）`,
+          );
+        }
+        setScreenshots((prev) => {
+          const cap = Math.max(0, MAX_SCREENSHOTS - prev.length);
+          if (cap === 0) {
+            setError(`最多 ${MAX_SCREENSHOTS} 张截图`);
+            return prev;
+          }
+          if (accepted.length > cap) {
+            setError(
+              `仅添加了前 ${cap} 张，已达 ${MAX_SCREENSHOTS} 张上限`,
+            );
+          }
+          return [...prev, ...accepted.slice(0, cap)];
+        });
       } catch (e: any) {
         setError(e?.message || '处理图片失败');
       }
     },
-    [screenshots.length],
+    [],
   );
 
   // Paste from clipboard (Ctrl+V) when modal is open
@@ -196,7 +212,9 @@ function SubmitModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={onClose}
+      onClick={() => {
+        if (!submitting) onClose();
+      }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -206,8 +224,11 @@ function SubmitModal({
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-lg font-semibold">提交反馈</h3>
           <button
-            onClick={onClose}
-            className="p-1 rounded hover:bg-[var(--muted)]/20 text-[var(--muted-foreground)]"
+            onClick={() => {
+              if (!submitting) onClose();
+            }}
+            disabled={submitting}
+            className="p-1 rounded hover:bg-[var(--muted)]/20 text-[var(--muted-foreground)] disabled:opacity-50"
           >
             <X size={18} />
           </button>

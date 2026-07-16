@@ -70,15 +70,26 @@ def _collect_all_logs(log_dir: Path) -> str:
 
     combined = "\n\n".join(parts)
     # Cap by UTF-8 byte size — Feishu Bitable text-field limit is 100k bytes,
-    # not 100k chars (Chinese characters can be 3+ bytes each).
+    # not 100k chars (Chinese characters can be 3+ bytes each).  The truncation
+    # marker is reserved up front so the result never exceeds the byte cap.
     total_bytes = len(combined.encode("utf-8"))
     if total_bytes > 100_000:
-        # Truncate from the head, keeping the tail (most recent log entries)
+        # Truncate from the head, keeping the tail (most recent log entries).
+        # Marker placeholder is filled in last, so its exact length is reserved.
+        marker_template = "...(总日志超出 NNN 字节, 已截断)\n"
+        cap = 100_000
         truncated_tail = combined
-        while len(truncated_tail.encode("utf-8")) > 100_000:
+        while len(truncated_tail.encode("utf-8")) + len(marker_template.encode("utf-8")) > cap:
             truncated_tail = truncated_tail[len(truncated_tail) // 10:]
         dropped = total_bytes - len(truncated_tail.encode("utf-8"))
-        return f"...(总日志超出 {dropped} 字节，已截断)\n{truncated_tail}"
+        marker = marker_template.replace("NNN", str(dropped))
+        # If the marker itself pushed us over, drop more bytes from the tail
+        final_bytes = (marker + truncated_tail).encode("utf-8")
+        if len(final_bytes) > cap:
+            excess = len(final_bytes) - cap
+            # truncate the kept tail further to fit the marker
+            truncated_tail = truncated_tail.encode("utf-8")[:-excess].decode("utf-8", errors="ignore")
+        return marker + truncated_tail
     return combined
 
 
@@ -168,19 +179,37 @@ def _upload_attachment(
 
 
 def _decode_data_url(data_url: str) -> tuple[str, str, bytes]:
-    """Decode a `data:<mime>;base64,<...>` URL to (mime, filename, bytes)."""
+    """Decode a `data:<mime>;base64,<...>` URL to (mime, filename, bytes).
+
+    Validates the encoded b64 section's size BEFORE decoding to bound memory
+    usage — a malicious caller could otherwise send a multi-GB data URL.
+    """
     if not data_url.startswith("data:"):
         raise AppServerError(
-            "截图格式错误（期望 data URL）", code="INVALID_PARAMS",
+            "Screenshot format error (expected data URL)", code="INVALID_PARAMS",
         )
     try:
         header, b64 = data_url.split(",", 1)
         mime = header.split(";", 1)[0].split(":", 1)[1]
-        import base64
-        raw = base64.b64decode(b64)
     except Exception as exc:
         raise AppServerError(
-            f"截图 base64 解码失败: {exc}", code="INVALID_PARAMS",
+            f"Screenshot header parse failed: {exc}", code="INVALID_PARAMS",
+        ) from exc
+
+    # Bound the encoded size before decoding.  base64 inflates by ~4/3, so
+    # 14 MB encoded gives at most ~10.5 MB decoded — leave a small buffer.
+    if len(b64) > 14 * 1024 * 1024:
+        raise AppServerError(
+            "Screenshot exceeds 10MB limit (encoded)",
+            code="FILE_TOO_LARGE",
+        )
+
+    import base64
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except Exception as exc:
+        raise AppServerError(
+            f"Screenshot base64 decode failed: {exc}", code="INVALID_PARAMS",
         ) from exc
     ext_map = {
         "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg",
@@ -412,7 +441,23 @@ async def feedback_list_handler(
     registry: Any,
 ) -> dict[str, Any]:
     """List local feedback backups."""
-    limit = int(params.get("limit") or 50)
+    # Validate and clamp limit.  Accept int, treat None/0/non-positive as
+    # "no limit" (return all).  Clamp to a sane upper bound to bound work.
+    raw_limit = params.get("limit")
+    if raw_limit is None or raw_limit == 0:
+        limit = 0  # 0 = no limit
+    else:
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            raise AppServerError(
+                f"Invalid limit value: {raw_limit!r}", code="INVALID_PARAMS",
+            )
+    if limit < 0:
+        limit = 0
+    if limit > 200:
+        limit = 200
+
     entries = _read_local_backups()
     if limit > 0 and len(entries) > limit:
         entries = entries[:limit]
