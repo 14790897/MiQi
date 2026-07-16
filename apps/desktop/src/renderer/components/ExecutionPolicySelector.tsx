@@ -70,7 +70,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
           onClick={() => setOpen(!open)}
           disabled={disabled}
           className={cn(
-            'group flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold',
+            'group flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-semibold',
             'transition-all duration-150 border',
             'hover:bg-[var(--surface-muted)] active:scale-[0.97]',
             'disabled:opacity-50 disabled:cursor-not-allowed',
@@ -104,7 +104,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
           }}
         >
           <div className="px-3.5 pt-3 pb-1.5">
-            <span className="text-[10px] font-medium tracking-wider text-[var(--text-faint)] uppercase">执行策略</span>
+            <span className="text-[11px] font-medium tracking-wider text-[var(--text-faint)] uppercase">执行策略</span>
           </div>
 
           {POLICIES.map(p => {
