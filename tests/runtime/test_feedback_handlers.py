@@ -251,14 +251,31 @@ def test_collect_all_logs_nonexistent_dir():
     assert "日志目录不存在" in result
 
 
-def test_collect_all_logs_caps_combined_payload_at_100k(tmp_path):
-    """Combined log content must be capped at 100k chars for Bitable text-field limit."""
+def test_collect_all_logs_caps_combined_payload_at_100k_bytes(tmp_path):
+    """Combined log payload must be capped at 100k UTF-8 bytes for Bitable text-field.
+
+    Feishu Bitable's text-field limit is 100k bytes (not chars).  Chinese
+    characters are 3+ bytes each in UTF-8, so a naive 100k-char cap can
+    still exceed the byte limit.  Verify the cap is enforced in bytes.
+    """
     from miqi.runtime.feedback_handlers import _collect_all_logs
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    (log_dir / "big.log").write_text("x" * 200_000)
+    # 200k chars of multi-byte content (each char is ~3 bytes UTF-8)
+    (log_dir / "big.log").write_text("中" * 200_000)
     result = _collect_all_logs(log_dir)
-    assert len(result) <= 100_200  # 100k + truncation marker overhead
+    assert len(result.encode("utf-8")) <= 100_200  # 100k + marker overhead
+
+
+def test_collect_all_logs_keeps_small_payloads_intact(tmp_path):
+    """Payloads under 100k bytes pass through without the truncation marker."""
+    from miqi.runtime.feedback_handlers import _collect_all_logs
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "small.log").write_text("line1\nline2\n")
+    result = _collect_all_logs(log_dir)
+    assert "已截断" not in result
+    assert "small.log" in result
 
 
 def test_collect_system_info():
