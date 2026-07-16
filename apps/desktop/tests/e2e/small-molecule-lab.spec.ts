@@ -5,7 +5,10 @@
  * calculation for H2O potential energy surface in fast mode and
  * produces result.json + PNG visualizations.
  *
- * Run: cd apps/desktop && npx playwright test --config=playwright.config.ts --project=electron -g "small-molecule-lab"
+ * Run: cd apps/desktop && MIQI_RUN_SML_E2E=1 npx playwright test --config=playwright.config.ts --project=electron -g "small-molecule-lab"
+ *
+ * CI: skipped by default — LLM output is non-deterministic. Set
+ * MIQI_RUN_SML_E2E=1 to run manually or in nightly tests.
  */
 import { test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
@@ -16,7 +19,15 @@ import {
   closeElectronApp,
 } from './helpers/electron-setup';
 
+const SKIP_SML_E2E =
+  !!process.env.CI && process.env.MIQI_RUN_SML_E2E !== '1';
+
 test.describe('Small Molecule Lab E2E', () => {
+  test.skip(
+    SKIP_SML_E2E,
+    'small-molecule-lab E2E depends on LLM choices and remote dependencies; run with MIQI_RUN_SML_E2E=1 for manual/nightly verification.',
+  );
+
   let electronApp: ElectronApplication;
   let page: Page;
   let miqiHome: string;
@@ -87,13 +98,20 @@ test.describe('Small Molecule Lab E2E', () => {
             .filter({ hasText: '合并所有更改' }),
         );
       if (await mergeBtn.isVisible({ timeout: 10_000 }).catch(() => false)) {
-        console.log('[test] Merging sandbox files to host workspace…');
-        await mergeBtn.click();
-        // Wait longer for merge to complete — WSL rsync over many files
-        await page.waitForTimeout(15_000);
-        console.log('[test] Merge complete');
+        // Button may be disabled if no files were changed in sandbox.
+        // Only click if it's enabled.
+        const isEnabled = await mergeBtn.isEnabled().catch(() => false);
+        if (isEnabled) {
+          console.log('[test] Merging sandbox files to host workspace…');
+          await mergeBtn.click();
+          await page.waitForTimeout(15_000);
+          console.log('[test] Merge complete');
+        } else {
+          console.log('[test] Merge button visible but disabled — skipping merge');
+        }
       } else {
-        console.log('[test] No merge button visible — files may already be on host');
+        console.log('[test] No merge button visible, or button disabled — '
+          + 'files may already be on host or no files changed');
       }
 
       // ── Verification: check page content for expected outputs ──────────
