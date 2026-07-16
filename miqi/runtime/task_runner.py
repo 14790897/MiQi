@@ -465,6 +465,7 @@ class TaskRunner:
             workspace=self.services.workspace,
             model=self.services.model_settings.model,
             provider=self.services.provider,
+            mode=msg.mode or "edit",
             temperature=self.services.model_settings.temperature,
             max_tokens=self.services.model_settings.max_tokens,
             client_id=client_id,
