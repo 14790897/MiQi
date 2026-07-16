@@ -210,19 +210,16 @@ def _subprocess_kwargs():
     """Return kwargs for asyncio.create_subprocess_exec to hide console windows.
 
     On Windows, ``asyncio.create_subprocess_exec`` creates a console window
-    by default for every subprocess.  Passing ``startupinfo`` with
-    ``STARTF_USESHOWWINDOW`` and ``SW_HIDE`` suppresses these, preventing
-    the brief black console flash (Issue #301).
+    by default for every subprocess.  Passing ``creationflags`` with
+    ``CREATE_NO_WINDOW`` suppresses this, preventing the brief black console
+    flash (Issue #301).
 
     Returns:
-        dict with ``startupinfo`` on Windows; empty dict on other platforms.
+        dict with ``creationflags`` on Windows; empty dict on other platforms.
     """
     if not _is_windows():
         return {}
-    startupinfo = subprocess.STARTUPINFO()
-    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    startupinfo.wShowWindow = subprocess.SW_HIDE
-    return {"startupinfo": startupinfo}
+    return {"creationflags": subprocess.CREATE_NO_WINDOW}
 
 
 class BwrapSandbox:
@@ -494,6 +491,7 @@ class BwrapSandbox:
 
         async def _distro_has_bash(distro: str) -> bool:
             """Check if a distro has bash (indicating a real Linux distro)."""
+            proc = None
             try:
                 proc = await _create_subprocess_exec(
                     "wsl.exe", "-d", distro, "--", "bash", "-c", "echo ok",
@@ -503,7 +501,7 @@ class BwrapSandbox:
                 await asyncio.wait_for(proc.communicate(), timeout=30.0)
                 return proc.returncode == 0
             except (asyncio.TimeoutError, Exception):
-                if isinstance(proc, asyncio.subprocess.Process):
+                if proc is not None:
                     proc.kill()
                 return False
 
