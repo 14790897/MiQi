@@ -70,8 +70,8 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
           onClick={() => setOpen(!open)}
           disabled={disabled}
           className={cn(
-            'group flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[11px] font-medium',
-            'transition-all duration-150 tracking-wide',
+            'group flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-semibold',
+            'transition-all duration-150',
             'hover:bg-[var(--surface-muted)] active:scale-[0.97]',
             'disabled:opacity-50 disabled:cursor-not-allowed',
           )}
@@ -151,7 +151,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
 
       {/* ── Bypass confirmation dialog ── */}
       {bypassConfirm && (
-        <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[12vh]" style={{ background: 'rgba(0,0,0,0.4)' }}>
+        <div className="fixed inset-0 z-[200] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
           <div
             className="rounded-2xl w-[340px] max-w-[90vw] overflow-hidden"
             style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
@@ -188,7 +188,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
       {/* ── Toast ── */}
       <div
         className={cn(
-          'fixed bottom-48 left-1/2 -translate-x-1/2 z-[150] px-4 py-2 rounded-full text-[11px] font-medium whitespace-nowrap',
+          'fixed bottom-24 left-1/2 -translate-x-1/2 z-[150] px-4 py-2 rounded-full text-[11px] font-medium whitespace-nowrap',
           'transition-all duration-200',
           toast ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none',
         )}
