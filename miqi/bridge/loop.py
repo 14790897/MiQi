@@ -649,7 +649,11 @@ class BridgeRuntimeLoop:
             )
 
         # Submit the user message
-        await runtime.submit(UserMessage(content=content, thread_id=thread_id))
+        await runtime.submit(UserMessage(
+            content=content,
+            thread_id=thread_id,
+            mode=params.get("mode"),
+        ))
 
         # Subscribe client to session events so emit_event delivers to the sink
         self._app_server.subscribe(client_id, runtime_id)
