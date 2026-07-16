@@ -80,7 +80,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
             open ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-1 pointer-events-none',
           )}
           style={{
-            minWidth: 220, background: 'var(--surface)',
+            minWidth: 240, background: 'var(--surface)',
             border: '1px solid var(--border)', borderRadius: 12,
             boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
           }}
@@ -110,7 +110,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
                   <span style={{ fontSize: 10, color: 'var(--text-faint)' }}>{p.desc}</span>
                 </span>
                 <span style={{ fontSize: 10, color: 'var(--text-faint)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 4px' }}>{['1','2','3','4'][ITEMS.indexOf(p)]}</span>
-                {active && <span style={{ fontSize: 10, color: p.color, flexShrink: 0 }}>✓</span>}
+                <span style={{ fontSize: 10, color: p.color, flexShrink: 0, visibility: active ? 'visible' : 'hidden' }}>✓</span>
               </button>
             );
           })}
