@@ -2,40 +2,23 @@ import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 
-const SESSION_KEY = 'miqi:bypass:enabled';
-
 export function ApprovalBypassBanner({ onNavigateSettings }: { onNavigateSettings: () => void }) {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    const handler = async () => {
-      try {
-        const cfg = await window.miqi.config.get();
-        const a = (cfg as any)?.approvals ?? {};
-        const on = !!(
-          a.bypassAll ||
-          a.bypassCommandApproval ||
-          a.bypassFileWriteApproval ||
-          a.bypassToolConfirmation ||
-          a.bypassNetworkApproval
-        );
-        if (on) {
-          sessionStorage.setItem(SESSION_KEY, 'true');
-          setVisible(true);
-        } else {
-          sessionStorage.removeItem(SESSION_KEY);
-          setVisible(false);
-        }
-      } catch { /* bridge busy, keep current state */ }
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ enabled: boolean }>).detail;
+      if (detail?.enabled) {
+        setVisible(true);
+      } else {
+        setVisible(false);
+      }
     };
     window.addEventListener('miqi:approval-bypass-updated', handler);
     return () => window.removeEventListener('miqi:approval-bypass-updated', handler);
   }, []);
 
-  const dismiss = useCallback(() => {
-    sessionStorage.removeItem(SESSION_KEY);
-    setVisible(false);
-  }, []);
+  const dismiss = useCallback(() => setVisible(false), []);
 
   // Auto-dismiss after 3 seconds
   useEffect(() => {

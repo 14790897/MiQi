@@ -10,13 +10,9 @@ export function TopBar({ onNavigateSettings }: { onNavigateSettings: () => void 
   const [pressed, setPressed] = useState(false);
 
   useEffect(() => {
-    const handler = async () => {
-      try {
-        const cfg = await window.miqi.config.get();
-        const a = (cfg as any)?.approvals ?? {};
-        const on = !!(a.bypassAll || a.bypassCommandApproval || a.bypassFileWriteApproval || a.bypassToolConfirmation || a.bypassNetworkApproval);
-        setBypassEnabled(on);
-      } catch { /* bridge may be busy */ }
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ enabled: boolean }>).detail;
+      setBypassEnabled(!!detail?.enabled);
     };
     window.addEventListener('miqi:approval-bypass-updated', handler);
     return () => window.removeEventListener('miqi:approval-bypass-updated', handler);
