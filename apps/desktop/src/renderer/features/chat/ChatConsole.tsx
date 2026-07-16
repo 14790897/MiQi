@@ -6,7 +6,7 @@ import { Textarea } from '../../components/ui/Textarea';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { ContextMenu, type ContextMenuAction } from '../../components/ContextMenu';
 import { cn } from '../../lib/utils';
-import { ModeSelector, type ThreadMode } from './ModeSelector';
+import { ExecutionPolicySelector, type ExecutionPolicy } from '../../components/ExecutionPolicySelector';
 import {
   Send,
   Square,
@@ -625,7 +625,7 @@ export function ChatConsole({
   const [sessionUpdatedAt, setSessionUpdatedAt] = useState<string | null>(null);
   const [clockTick, setClockTick] = useState(() => Date.now());
   const [input, setInput] = useState('');
-  const [threadMode, setThreadMode] = useState<ThreadMode>('edit');
+  const [executionPolicy, setExecutionPolicy] = useState<ExecutionPolicy>('accept_edits');
   const [streaming, setStreaming] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -1360,7 +1360,7 @@ export function ChatConsole({
 
       const key =
         activeThreadId === 'main' ? currentSessionRef.current : `desktop:${activeThreadId}`;
-      await window.miqi.chat.send(content, key, threadId ?? undefined, threadMode);
+      await window.miqi.chat.send(content, key, threadId ?? undefined, executionPolicy);
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
       if (streamErrorHandled) {
@@ -2047,7 +2047,7 @@ export function ChatConsole({
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
-                <ModeSelector mode={threadMode} onChange={setThreadMode} disabled={streaming} />
+                <ExecutionPolicySelector policy={executionPolicy} onChange={setExecutionPolicy} disabled={streaming} />
                 <button
                   onClick={handleAttachClick}
                   className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
@@ -2064,13 +2064,7 @@ export function ChatConsole({
                     adjustTextareaHeight();
                   }}
                   onKeyDown={handleKeyDown}
-                  placeholder={
-                    threadMode === 'ask'
-                      ? 'Ask a question (read-only)...'
-                      : threadMode === 'plan'
-                        ? 'Describe what you want to plan...'
-                        : '输入消息或拖入文件...'
-                  }
+                  placeholder="输入消息或拖入文件..."
                   rows={1}
                   allowResize={true}
                   className="flex-1 border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 text-sm"
