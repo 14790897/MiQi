@@ -114,12 +114,14 @@ test.describe('Small Molecule Lab E2E', () => {
         detail: mentionsWater ? 'found' : 'not found in main text',
       });
 
-      // Check 2: Energy data present (eV, Hartree, or kcal/mol)
+      // Check 2: Energy data present (eV, Hartree, kcal/mol, or kJ/mol)
       const mentionsEnergy =
         (mainText || '').includes('eV') ||
         (mainText || '').includes('能量') ||
         (mainText || '').includes('E=') ||
-        (mainText || '').includes('Hartree');
+        (mainText || '').includes('Hartree') ||
+        (mainText || '').includes('kcal') ||
+        (mainText || '').includes('kJ/mol');
       checks.push({
         label: 'Shows energy data',
         pass: mentionsEnergy,
