@@ -186,7 +186,7 @@ export class BridgeManager extends EventEmitter {
     super();
     // In dev: __dirname = apps/desktop/out/main → projectRoot is 4 levels up
     this.projectRoot = projectRoot || join(__dirname, '..', '..', '..', '..');
-    // Enable hot reload in development mode
+    // Hot reload is ON by default in dev mode for development convenience.
     this.hotReloadEnabled =
       process.env['NODE_ENV'] === 'development' ||
       process.env['ELECTRON_RENDERER_URL'] !== undefined;
@@ -636,6 +636,14 @@ export class BridgeManager extends EventEmitter {
 
     if (this.state !== 'running' || !this.initialized || this.restartInProgress) {
       this.addLog(`[Hot Reload] Ignoring change while bridge is ${this.state}`);
+      return;
+    }
+
+    // Don't restart if there are active requests — avoid killing sessions
+    if (this.pending.size > 0) {
+      this.addLog(
+        `[Hot Reload] Skipping restart — ${this.pending.size} pending request(s)`,
+      );
       return;
     }
 
