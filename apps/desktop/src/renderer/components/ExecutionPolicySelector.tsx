@@ -188,7 +188,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
       {/* ── Toast ── */}
       <div
         className={cn(
-          'fixed bottom-20 left-1/2 -translate-x-1/2 z-[150] px-4 py-2 rounded-full text-[11px] font-medium whitespace-nowrap',
+          'fixed top-24 left-1/2 -translate-x-1/2 z-[150] px-4 py-2 rounded-full text-[11px] font-medium whitespace-nowrap',
           'transition-all duration-200',
           toast ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none',
         )}
