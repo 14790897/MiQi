@@ -385,3 +385,188 @@ def test_backward_compat_aliases_exist(tmp_path):
         result = _read_local_feedbacks()
         assert len(result) == 1
         assert result[0]["id"] == "a"
+
+
+# ── Screenshot upload tests ──────────────────────────────────────────────────
+
+
+def test_decode_data_url_extracts_mime_filename_and_bytes():
+    """Round-trip: build a tiny PNG data URL, decode it."""
+    import base64
+    from miqi.runtime.feedback_handlers import _decode_data_url
+
+    # 1x1 transparent PNG
+    png_bytes = bytes.fromhex(
+        "89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C489"
+        "0000000D49444154789C636000000000050001A5F645400000000049454E44AE426082"
+    )
+    data_url = "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
+
+    mime, filename, raw = _decode_data_url(data_url)
+    assert mime == "image/png"
+    assert filename.endswith(".png")
+    assert raw == png_bytes
+
+
+def test_decode_data_url_rejects_invalid_format():
+    from miqi.runtime.feedback_handlers import _decode_data_url
+
+    with pytest.raises(AppServerError, match="data URL"):
+        _decode_data_url("not-a-data-url")
+
+
+def test_decode_data_url_rejects_invalid_base64():
+    from miqi.runtime.feedback_handlers import _decode_data_url
+
+    with pytest.raises(AppServerError, match="base64"):
+        _decode_data_url("data:image/png;base64,!!!not-valid-base64!!!")
+
+
+@pytest.mark.asyncio
+async def test_feedback_submit_uploads_screenshots_and_creates_record(
+    _bridge_state_isolated,
+):
+    """Submit with one screenshot: upload should be called once, record includes 截图 field."""
+    from miqi.runtime.feedback_handlers import feedback_submit_handler
+    import base64
+
+    workspace = _make_workspace()
+    state = _make_mock_state(workspace)
+    _bridge_state_isolated._state = state
+    registry = ClientSessionRegistry()
+    registry.bridge_context["state"] = state
+
+    # 1x1 PNG
+    png_bytes = bytes.fromhex(
+        "89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C489"
+        "0000000D49444154789C636000000000050001A5F645400000000049454E44AE426082"
+    )
+    data_url = "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
+
+    with patch(
+        "miqi.runtime.feedback_handlers._get_workspace_path", return_value=workspace,
+    ), patch(
+        "miqi.runtime.feedback_handlers._get_tenant_access_token", return_value="tok",
+    ), patch(
+        "miqi.runtime.feedback_handlers._upload_attachment", return_value="file_tok_1",
+    ) as upload, patch(
+        "miqi.runtime.feedback_handlers._add_bitable_record", return_value="rec_1",
+    ) as add_record:
+        result = await feedback_submit_handler(
+            "req-1",
+            {
+                "title": "with screenshot",
+                "content": "see attached image",
+                "screenshots": [data_url],
+            },
+            "client-1", None, registry,
+        )
+
+    assert result["result"]["record_id"] == "rec_1"
+    upload.assert_called_once()
+    # Check that file_token reference was passed to add_record
+    call_kwargs = add_record.call_args
+    fields = call_kwargs.args[3]  # 4th positional arg is fields dict
+    assert "截图" in fields
+    assert fields["截图"] == [{"file_token": "file_tok_1"}]
+
+
+@pytest.mark.asyncio
+async def test_feedback_submit_without_screenshots_skips_upload(
+    _bridge_state_isolated,
+):
+    """No screenshots → no upload call, no 截图 field in record."""
+    from miqi.runtime.feedback_handlers import feedback_submit_handler
+
+    workspace = _make_workspace()
+    state = _make_mock_state(workspace)
+    _bridge_state_isolated._state = state
+    registry = ClientSessionRegistry()
+    registry.bridge_context["state"] = state
+
+    with patch(
+        "miqi.runtime.feedback_handlers._get_workspace_path", return_value=workspace,
+    ), patch(
+        "miqi.runtime.feedback_handlers._get_tenant_access_token", return_value="tok",
+    ), patch(
+        "miqi.runtime.feedback_handlers._upload_attachment",
+    ) as upload, patch(
+        "miqi.runtime.feedback_handlers._add_bitable_record", return_value="rec_2",
+    ) as add_record:
+        await feedback_submit_handler(
+            "req-1", {"title": "no shots", "content": "just text"},
+            "client-1", None, registry,
+        )
+
+    upload.assert_not_called()
+    fields = add_record.call_args.args[3]
+    assert "截图" not in fields
+
+
+@pytest.mark.asyncio
+async def test_feedback_submit_rejects_oversized_screenshot(_bridge_state_isolated):
+    """Screenshot > 10MB must be rejected."""
+    from miqi.runtime.feedback_handlers import feedback_submit_handler
+
+    workspace = _make_workspace()
+    state = _make_mock_state(workspace)
+    _bridge_state_isolated._state = state
+    registry = ClientSessionRegistry()
+    registry.bridge_context["state"] = state
+
+    # Construct a data URL whose decoded bytes exceed 10 MB
+    import base64
+    big_png = b"\x89PNG" + b"\x00" * (11 * 1024 * 1024)
+    data_url = "data:image/png;base64," + base64.b64encode(big_png).decode("ascii")
+
+    with patch(
+        "miqi.runtime.feedback_handlers._get_workspace_path", return_value=workspace,
+    ), patch(
+        "miqi.runtime.feedback_handlers._get_tenant_access_token", return_value="tok",
+    ):
+        with pytest.raises(AppServerError, match="10MB"):
+            await feedback_submit_handler(
+                "req-1",
+                {"title": "big", "content": "x", "screenshots": [data_url]},
+                "client-1", None, registry,
+            )
+
+
+@pytest.mark.asyncio
+async def test_feedback_submit_caps_screenshots_at_5(_bridge_state_isolated):
+    """More than 5 screenshots → only first 5 are uploaded."""
+    from miqi.runtime.feedback_handlers import feedback_submit_handler
+    import base64
+
+    workspace = _make_workspace()
+    state = _make_mock_state(workspace)
+    _bridge_state_isolated._state = state
+    registry = ClientSessionRegistry()
+    registry.bridge_context["state"] = state
+
+    png_bytes = bytes.fromhex(
+        "89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C489"
+        "0000000D49444154789C636000000000050001A5F645400000000049454E44AE426082"
+    )
+    data_url = "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
+    screenshots = [data_url] * 7  # 7 > cap of 5
+
+    with patch(
+        "miqi.runtime.feedback_handlers._get_workspace_path", return_value=workspace,
+    ), patch(
+        "miqi.runtime.feedback_handlers._get_tenant_access_token", return_value="tok",
+    ), patch(
+        "miqi.runtime.feedback_handlers._upload_attachment",
+        side_effect=[f"file_tok_{i}" for i in range(5)],
+    ) as upload, patch(
+        "miqi.runtime.feedback_handlers._add_bitable_record", return_value="rec_3",
+    ) as add_record:
+        await feedback_submit_handler(
+            "req-1",
+            {"title": "many shots", "content": "x", "screenshots": screenshots},
+            "client-1", None, registry,
+        )
+
+    assert upload.call_count == 5
+    fields = add_record.call_args.args[3]
+    assert len(fields["截图"]) == 5

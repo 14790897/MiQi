@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   MessageSquare,
   Plus,
@@ -12,11 +12,22 @@ import {
   Loader2,
   CheckCircle,
   AlertTriangle,
+  ImagePlus,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { FeedbackEntry, FeedbackSubmitResult } from '../../../shared/ipc';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
+
+const MAX_SCREENSHOTS = 5;
+const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024; // 10 MB per image
+const ALLOWED_MIME_PREFIX = 'image/';
+
+interface ScreenshotFile {
+  dataUrl: string;
+  name: string;
+  size: number;
+}
 
 const CATEGORY_OPTIONS = [
   { value: 'bug', label: '🐛 缺陷报告', icon: Bug },
@@ -69,6 +80,9 @@ function SubmitModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [screenshots, setScreenshots] = useState<ScreenshotFile[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const canSubmit = title.trim().length > 0 && content.trim().length > 0 && !submitting;
 
@@ -82,6 +96,77 @@ function SubmitModal({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose, success]);
 
+  const readFileAsDataUrl = (file: File): Promise<ScreenshotFile> =>
+    new Promise((resolve, reject) => {
+      if (!file.type.startsWith(ALLOWED_MIME_PREFIX)) {
+        reject(new Error(`不支持的文件类型: ${file.type || '未知'}`));
+        return;
+      }
+      if (file.size > MAX_SCREENSHOT_BYTES) {
+        reject(new Error(`${file.name} 超过 10MB 限制`));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        resolve({
+          dataUrl: String(reader.result),
+          name: file.name,
+          size: file.size,
+        });
+      };
+      reader.onerror = () => reject(new Error('读取文件失败'));
+      reader.readAsDataURL(file);
+    });
+
+  const addFiles = useCallback(
+    async (files: FileList | File[]) => {
+      const list = Array.from(files);
+      const remaining = MAX_SCREENSHOTS - screenshots.length;
+      if (remaining <= 0) {
+        setError(`最多 ${MAX_SCREENSHOTS} 张截图`);
+        return;
+      }
+      const accepted = list.slice(0, remaining);
+      setError(null);
+      try {
+        const decoded = await Promise.all(accepted.map(readFileAsDataUrl));
+        setScreenshots((prev) => [...prev, ...decoded]);
+        if (list.length > remaining) {
+          setError(`仅添加了前 ${remaining} 张，已达 ${MAX_SCREENSHOTS} 张上限`);
+        }
+      } catch (e: any) {
+        setError(e?.message || '处理图片失败');
+      }
+    },
+    [screenshots.length],
+  );
+
+  // Paste from clipboard (Ctrl+V) when modal is open
+  useEffect(() => {
+    if (success) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const imageFiles: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith(ALLOWED_MIME_PREFIX)) {
+          const f = items[i].getAsFile();
+          if (f) imageFiles.push(f);
+        }
+      }
+      if (imageFiles.length > 0) {
+        e.preventDefault();
+        addFiles(imageFiles);
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [addFiles, success]);
+
+  const removeScreenshot = (idx: number) => {
+    setScreenshots((prev) => prev.filter((_, i) => i !== idx));
+  };
+
   const handleSubmit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
@@ -94,6 +179,7 @@ function SubmitModal({
         contact: contact.trim() || undefined,
         app_version:
           typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
+        screenshots: screenshots.map((s) => s.dataUrl),
       });
       setSuccess(true);
       setTimeout(() => {
@@ -193,7 +279,7 @@ function SubmitModal({
             </div>
 
             {/* Contact (optional) */}
-            <div className="mb-5">
+            <div className="mb-4">
               <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">
                 联系方式（选填）
               </label>
@@ -205,6 +291,88 @@ function SubmitModal({
                 className="w-full px-3 py-2 text-sm bg-[var(--muted)]/10 rounded-md border border-[var(--border)]
                            outline-none focus:border-[var(--accent)]"
               />
+            </div>
+
+            {/* Screenshots */}
+            <div className="mb-4">
+              <label className="flex items-center justify-between text-xs font-medium text-[var(--muted-foreground)] mb-1.5">
+                <span>截图（选填，可拖入 / 粘贴 / 点击上传）</span>
+                <span className="text-[10px] opacity-70">
+                  {screenshots.length}/{MAX_SCREENSHOTS}
+                </span>
+              </label>
+
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  if (e.dataTransfer?.files?.length) {
+                    addFiles(e.dataTransfer.files);
+                  }
+                }}
+                onClick={() => fileInputRef.current?.click()}
+                className={cn(
+                  'flex flex-col items-center justify-center gap-1.5 py-4 px-3 rounded-md border border-dashed cursor-pointer transition-colors',
+                  dragOver
+                    ? 'border-[var(--accent)] bg-[var(--accent)]/5'
+                    : 'border-[var(--border)] hover:border-[var(--accent)]/50 hover:bg-[var(--muted)]/5',
+                )}
+              >
+                <ImagePlus size={20} className="text-[var(--muted-foreground)]" />
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  拖入图片 / 粘贴 (Ctrl+V) / 点击选择
+                </p>
+                <p className="text-[10px] text-[var(--muted-foreground)] opacity-70">
+                  支持 PNG / JPG / GIF / WebP，单张 ≤ 10MB
+                </p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files?.length) addFiles(e.target.files);
+                    e.target.value = '';
+                  }}
+                />
+              </div>
+
+              {screenshots.length > 0 && (
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  {screenshots.map((s, idx) => (
+                    <div
+                      key={idx}
+                      className="relative group rounded-md overflow-hidden border border-[var(--border)] aspect-video bg-[var(--muted)]/10"
+                    >
+                      <img
+                        src={s.dataUrl}
+                        alt={s.name}
+                        className="w-full h-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeScreenshot(idx);
+                        }}
+                        className="absolute top-1 right-1 p-1 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="移除"
+                      >
+                        <X size={12} />
+                      </button>
+                      <div className="absolute bottom-0 left-0 right-0 px-1.5 py-0.5 bg-black/60 text-[10px] text-white truncate">
+                        {(s.size / 1024).toFixed(0)} KB
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {error && (

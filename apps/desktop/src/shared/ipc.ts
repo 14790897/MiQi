@@ -984,6 +984,7 @@ export const FeedbackSubmitInput = z.object({
   content: z.string().min(1).max(10000),
   contact: z.string().max(200).optional(),
   app_version: z.string().max(50).optional(),
+  screenshots: z.array(z.string()).max(5).optional(),
 });
 
 export interface FeedbackEntry {
