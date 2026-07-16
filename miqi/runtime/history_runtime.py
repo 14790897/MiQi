@@ -471,17 +471,24 @@ def _sanitize_payload(payload: dict[str, Any]) -> str:
         len(payload_json),
         MAX_HISTORY_PAYLOAD_JSON_CHARS,
     )
-    # Reserve ~80 chars for the JSON wrapper keys so the final stored
-    # string never exceeds the configured limit.
+    # Build truncated payload with iterative shrinking to account for
+    # JSON escaping expansion in the preview string.
     preview_limit = max(0, MAX_HISTORY_PAYLOAD_JSON_CHARS - 80)
-    return json.dumps(
-        {
-            "truncated": True,
-            "original_size_chars": len(payload_json),
-            "preview": _truncate_text(payload_json, preview_limit),
-        },
-        ensure_ascii=False,
-    )
+    preview = _truncate_text(payload_json, preview_limit)
+    while True:
+        final_json = json.dumps(
+            {
+                "truncated": True,
+                "original_size_chars": len(payload_json),
+                "preview": preview,
+            },
+            ensure_ascii=False,
+        )
+        if len(final_json) <= MAX_HISTORY_PAYLOAD_JSON_CHARS or preview_limit == 0:
+            return final_json
+        excess = len(final_json) - MAX_HISTORY_PAYLOAD_JSON_CHARS
+        preview_limit = max(0, preview_limit - max(1, excess))
+        preview = _truncate_text(payload_json, preview_limit)
 
 
 def _truncate_text(value: str, limit: int) -> str:
