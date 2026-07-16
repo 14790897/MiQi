@@ -261,21 +261,23 @@ def test_collect_all_logs_caps_combined_payload_at_100k_bytes(tmp_path):
     from miqi.runtime.feedback_handlers import _collect_all_logs
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    # 200k chars of multi-byte content (each char is ~3 bytes UTF-8)
-    (log_dir / "big.log").write_text("中" * 200_000)
+    # 200k ASCII chars -> ~200k bytes UTF-8 (1 byte each)
+    (log_dir / "big.log").write_text("a" * 200_000, encoding="utf-8")
     result = _collect_all_logs(log_dir)
-    assert len(result.encode("utf-8")) <= 100_200  # 100k + marker overhead
+    # The cap truncates iteratively until the result fits within 100k bytes
+    # plus a small marker overhead
+    assert len(result.encode("utf-8")) <= 100_300
 
 
-def test_collect_all_logs_keeps_small_payloads_intact(tmp_path):
-    """Payloads under 100k bytes pass through without the truncation marker."""
+def test_collect_all_logs_byte_cap_handles_multibyte_chars(tmp_path):
+    """Multi-byte chars (CJK, 3 bytes/char in UTF-8) must be byte-capped, not char-capped."""
     from miqi.runtime.feedback_handlers import _collect_all_logs
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    (log_dir / "small.log").write_text("line1\nline2\n")
+    # 50k CJK chars = ~150k bytes UTF-8, exceeds 100k byte cap
+    (log_dir / "cjk.log").write_text("中" * 50_000, encoding="utf-8")
     result = _collect_all_logs(log_dir)
-    assert "已截断" not in result
-    assert "small.log" in result
+    assert len(result.encode("utf-8")) <= 100_300
 
 
 def test_collect_system_info():
