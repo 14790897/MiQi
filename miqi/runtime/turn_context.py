@@ -45,3 +45,6 @@ class TurnContext:
     capabilities: Any | None = None
     permission_profile: Any | None = None
     cancel_event: Any | None = None  # asyncio.Event for turn abort signalling
+    # Execution policy flags for approval layer
+    bypass_approval: bool = False    # skip all approval checks
+    force_approval: bool = False     # require approval even if switch is off
