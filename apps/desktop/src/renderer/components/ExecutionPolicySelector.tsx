@@ -76,7 +76,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
 
       {open && (
         <div
-          className="absolute top-full right-0 mt-1 min-w-[210px] rounded-xl shadow-lg z-50 overflow-hidden"
+          className="absolute bottom-full right-0 mb-1 min-w-[210px] rounded-xl shadow-lg z-50 overflow-hidden"
           style={{ background: 'var(--surface)', border: '1px solid var(--border-subtle)' }}
         >
           <div className="px-3.5 pt-2.5 pb-1 text-[10px] text-[var(--text-faint)] uppercase tracking-wide">
