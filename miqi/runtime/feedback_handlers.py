@@ -48,7 +48,7 @@ def _ensure_memory_dir() -> None:
 def _collect_all_logs(log_dir: Path) -> str:
     """Read all .log and .jsonl files from workspace/logs/ and return
     concatenated text.  Individual files are capped at 1 MB (tail end).
-    The combined payload is capped at 100,000 characters to fit within
+    The combined payload is capped at 100,000 UTF-8 bytes to fit within
     Feishu Bitable text-field limits (per official docs)."""
     if not log_dir.exists():
         return "[日志目录不存在]"
@@ -69,9 +69,16 @@ def _collect_all_logs(log_dir: Path) -> str:
         return "[无日志文件]"
 
     combined = "\n\n".join(parts)
-    total_cap = 100_000
-    if len(combined) > total_cap:
-        return f"...(总日志超出 {len(combined) - total_cap} 字符，已截断)\n{combined[-total_cap:]}"
+    # Cap by UTF-8 byte size — Feishu Bitable text-field limit is 100k bytes,
+    # not 100k chars (Chinese characters can be 3+ bytes each).
+    total_bytes = len(combined.encode("utf-8"))
+    if total_bytes > 100_000:
+        # Truncate from the head, keeping the tail (most recent log entries)
+        truncated_tail = combined
+        while len(truncated_tail.encode("utf-8")) > 100_000:
+            truncated_tail = truncated_tail[len(truncated_tail) // 10:]
+        dropped = total_bytes - len(truncated_tail.encode("utf-8"))
+        return f"...(总日志超出 {dropped} 字节，已截断)\n{truncated_tail}"
     return combined
 
 
