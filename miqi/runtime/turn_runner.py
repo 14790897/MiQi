@@ -449,6 +449,13 @@ class TurnRunner:
             tools = [t for t in tools if t.get("name") not in _DISALLOWED]
         # manual / accept_edits / bypass: all tools available,
         # differentiation happens at approval layer
+        if turn.execution_policy == "bypass":
+            turn.bypass_approval = True
+        elif turn.execution_policy == "manual":
+            turn.bypass_approval = False
+            turn.force_approval = True
+        # accept_edits: honor approval switches normally
+        # plan: no tools, approval not reached
 
         return await self.run(
             turn=turn,

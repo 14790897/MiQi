@@ -158,6 +158,25 @@ class PermissionEngine:
                     reason=f"Matches deny pattern: {pattern}",
                 )
 
+        # 1b. Execution policy: bypass skips all checks
+        if getattr(ctx, "bypass_approval", False):
+            return PermissionDecision(
+                verdict=PermissionVerdict.ALLOW,
+                category=DecisionCategory.RUN,
+                reason="Bypassed by execution policy (bypass mode)",
+                allow_permanent=False,
+            )
+
+        # 1c. Execution policy: manual forces approval for everything
+        if getattr(ctx, "force_approval", False):
+            return PermissionDecision(
+                verdict=PermissionVerdict.REQUIRE_APPROVAL,
+                category=DecisionCategory.RUN,
+                reason="Approval required by execution policy (manual mode)",
+                allow_permanent=False,
+                description=f"Manual mode: {tool_name} requires confirmation",
+            )
+
         # 3. Session-scoped allowlist (keyed by tool + arguments)
         cmd_key = self._make_key(ctx)
         if cmd_key in self.session_allowlist:
