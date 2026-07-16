@@ -744,6 +744,9 @@ class BridgeRuntimeLoop:
                 AgentReasoningEvent,
                 ApprovalResolvedEvent,
                 ErrorEvent,
+                ExecCommandBeginEvent,
+                ExecCommandEndEvent,
+                ExecCommandOutputDeltaEvent,
                 ToolCallBeginEvent,
                 ToolCallEndEvent,
                 TurnAbortedEvent,
@@ -803,6 +806,9 @@ class BridgeRuntimeLoop:
                     AgentReasoningEvent,       # model reasoning; no user-visible rendering target yet
                     TurnStartedEvent,          # turn lifecycle; not chat content
                     ApprovalResolvedEvent,     # approval lifecycle; not chat content
+                    ExecCommandBeginEvent,     # exec lifecycle; rendered via ToolCallBeginEvent
+                    ExecCommandEndEvent,       # exec lifecycle; rendered via ToolCallEndEvent
+                    ExecCommandOutputDeltaEvent,  # exec delta; streamed inline, not standalone rows
                 )):
                     continue
 

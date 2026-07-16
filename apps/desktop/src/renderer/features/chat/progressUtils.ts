@@ -35,12 +35,12 @@ export function extractProgressMessage(
 
   // Exec lifecycle events are internal plumbing. Rendering them as progress
   // rows makes completed commands look like they are still spinning.
-  if (/^ExecCommand(?:Begin|End)Event$/.test(eventName)) {
+  if (/^ExecCommand(?:Begin|End|OutputDelta)Event$/.test(eventName)) {
     return null;
   }
 
   // Exec delta events are streamed inline — skip rendering as standalone rows.
-  if (eventName.includes('outputDelta') || eventName.includes('commandExecution')) {
+  if (eventName.toLowerCase().includes('outputdelta') || eventName.toLowerCase().includes('commandexecution')) {
     return null;
   }
 
