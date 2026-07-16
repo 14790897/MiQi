@@ -495,6 +495,7 @@ const api = {
       content: string;
       contact?: string;
       app_version?: string;
+      screenshots?: string[];
     }): Promise<FeedbackSubmitResult> =>
       ipcRenderer.invoke(IPC.FEEDBACK_SUBMIT, params),
     list: (params?: { limit?: number }): Promise<FeedbackListResult> =>

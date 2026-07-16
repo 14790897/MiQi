@@ -56,6 +56,16 @@ test.describe('Feedback Page E2E', () => {
     await closeElectronApp(electronApp, miqiHome);
   });
 
+  // Reset modal between tests so the backdrop doesn't intercept clicks
+  // in subsequent tests that call openFeedbackTab().
+  test.afterEach(async () => {
+    const modalHeading = page.getByRole('heading', { name: '提交反馈' });
+    if (await modalHeading.isVisible().catch(() => false)) {
+      await page.keyboard.press('Escape');
+      await expect(modalHeading).not.toBeVisible({ timeout: 2_000 });
+    }
+  });
+
   test('feedback tab loads with empty state', async () => {
     await openFeedbackTab(page);
 
@@ -143,14 +153,22 @@ test.describe('Feedback Page E2E', () => {
       .getByRole('button', { name: '提交', exact: true });
     await submitButton.click();
 
-    // Either success (if feedback enabled) or error message should appear
+    // Either success (if feedback enabled) or error message should appear.
+    // We must observe one of them — silent no-op is a test failure.
     const successOrError = await Promise.race([
-      page.getByText('提交成功！').waitFor({ timeout: 5000 }).then(() => 'success').catch(() => null),
-      page.locator('.bg-red-500\\/10, [class*="red"]').waitFor({ timeout: 5000 }).then(() => 'error').catch(() => null),
+      page
+        .getByText('提交成功！')
+        .waitFor({ timeout: 5000 })
+        .then(() => 'success' as const)
+        .catch(() => null),
+      page
+        .locator('[class*="bg-red-500"]')
+        .waitFor({ timeout: 5000 })
+        .then(() => 'error' as const)
+        .catch(() => null),
     ]).catch(() => null);
 
-    // At minimum, the modal must still be visible (no crash)
-    await expect(page.getByRole('heading', { name: '提交反馈' })).toBeVisible({ timeout: 2000 });
+    expect(successOrError).not.toBeNull();
   });
 
   test('screenshot drop zone accepts files and shows thumbnails', async () => {

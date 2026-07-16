@@ -85,6 +85,98 @@ async def test_feedback_list_returns_entries():
 
 @pytest.mark.asyncio
 async def test_feedback_list_respects_limit():
+    """With 7 backups and limit=3, only the newest 3 are returned."""
+    from miqi.runtime.feedback_handlers import feedback_list_handler
+    import miqi.runtime.feedback_handlers as handlers
+
+    workspace = _make_workspace()
+    state = _make_mock_state(workspace)
+    registry = ClientSessionRegistry()
+    registry.bridge_context["state"] = state
+    feedback_file = workspace / "memory" / "FEEDBACK.jsonl"
+
+    with patch("miqi.runtime.feedback_handlers._get_workspace_path", return_value=workspace):
+        with patch.object(handlers, "_get_feedback_file", return_value=feedback_file):
+            # Write 7 backups, oldest first
+            entries = [
+                {"id": str(i), "title": f"item-{i}", "created_at": f"2026-01-{i:02d}T00:00:00Z"}
+                for i in range(1, 8)
+            ]
+            with feedback_file.open("w", encoding="utf-8") as f:
+                for e in entries:
+                    f.write(json.dumps(e) + "\n")
+
+            result = await feedback_list_handler(
+                "req-1", {"limit": 3}, "client-1", None, registry,
+            )
+    assert len(result["result"]["entries"]) == 3
+    # Newest first (item-7, item-6, item-5)
+    assert result["result"]["entries"][0]["id"] == "7"
+    assert result["result"]["entries"][1]["id"] == "6"
+    assert result["result"]["entries"][2]["id"] == "5"
+
+
+@pytest.mark.asyncio
+async def test_feedback_list_limit_zero_returns_all():
+    """limit=0 (or null/None) means no limit — return everything."""
+    from miqi.runtime.feedback_handlers import feedback_list_handler
+    import miqi.runtime.feedback_handlers as handlers
+
+    workspace = _make_workspace()
+    state = _make_mock_state(workspace)
+    registry = ClientSessionRegistry()
+    registry.bridge_context["state"] = state
+    feedback_file = workspace / "memory" / "FEEDBACK.jsonl"
+
+    with patch("miqi.runtime.feedback_handlers._get_workspace_path", return_value=workspace):
+        with patch.object(handlers, "_get_feedback_file", return_value=feedback_file):
+            entries = [
+                {"id": str(i), "title": f"item-{i}", "created_at": "2026-01-01T00:00:00Z"}
+                for i in range(1, 8)
+            ]
+            with feedback_file.open("w", encoding="utf-8") as f:
+                for e in entries:
+                    f.write(json.dumps(e) + "\n")
+
+            for raw_limit in (None, 0, "0"):
+                result = await feedback_list_handler(
+                    "req-1", {"limit": raw_limit}, "client-1", None, registry,
+                )
+                assert len(result["result"]["entries"]) == 7
+
+
+@pytest.mark.asyncio
+async def test_feedback_list_limit_clamps_to_max():
+    """limit > 200 is clamped to 200 to bound work."""
+    from miqi.runtime.feedback_handlers import feedback_list_handler
+    import miqi.runtime.feedback_handlers as handlers
+
+    workspace = _make_workspace()
+    state = _make_mock_state(workspace)
+    registry = ClientSessionRegistry()
+    registry.bridge_context["state"] = state
+    feedback_file = workspace / "memory" / "FEEDBACK.jsonl"
+
+    with patch("miqi.runtime.feedback_handlers._get_workspace_path", return_value=workspace):
+        with patch.object(handlers, "_get_feedback_file", return_value=feedback_file):
+            entries = [
+                {"id": str(i), "title": f"item-{i}", "created_at": "2026-01-01T00:00:00Z"}
+                for i in range(1, 4)
+            ]
+            with feedback_file.open("w", encoding="utf-8") as f:
+                for e in entries:
+                    f.write(json.dumps(e) + "\n")
+
+            result = await feedback_list_handler(
+                "req-1", {"limit": 999}, "client-1", None, registry,
+            )
+            # 3 entries available, all returned
+            assert len(result["result"]["entries"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_feedback_list_rejects_malformed_limit():
+    """Non-integer limit raises AppServerError."""
     from miqi.runtime.feedback_handlers import feedback_list_handler
 
     workspace = _make_workspace()
@@ -93,8 +185,10 @@ async def test_feedback_list_respects_limit():
     registry.bridge_context["state"] = state
 
     with patch("miqi.runtime.feedback_handlers._get_workspace_path", return_value=workspace):
-        result = await feedback_list_handler("req-1", {"limit": 5}, "client-1", None, registry)
-        assert "entries" in result["result"]
+        with pytest.raises(AppServerError, match="Invalid limit"):
+            await feedback_list_handler(
+                "req-1", {"limit": "not-a-number"}, "client-1", None, registry,
+            )
 
 
 @pytest.mark.asyncio
@@ -264,9 +358,12 @@ def test_collect_all_logs_caps_combined_payload_at_100k_bytes(tmp_path):
     # 200k ASCII chars -> ~200k bytes UTF-8 (1 byte each)
     (log_dir / "big.log").write_text("a" * 200_000, encoding="utf-8")
     result = _collect_all_logs(log_dir)
-    # The cap truncates iteratively until the result fits within 100k bytes
-    # plus a small marker overhead
-    assert len(result.encode("utf-8")) <= 100_300
+    # Result must be at most exactly 100,000 bytes
+    assert len(result.encode("utf-8")) <= 100_000, (
+        f"Expected <= 100k bytes, got {len(result.encode('utf-8'))}"
+    )
+    # And it must include the truncation marker
+    assert "已截断" in result
 
 
 def test_collect_all_logs_byte_cap_handles_multibyte_chars(tmp_path):
@@ -277,7 +374,18 @@ def test_collect_all_logs_byte_cap_handles_multibyte_chars(tmp_path):
     # 50k CJK chars = ~150k bytes UTF-8, exceeds 100k byte cap
     (log_dir / "cjk.log").write_text("中" * 50_000, encoding="utf-8")
     result = _collect_all_logs(log_dir)
-    assert len(result.encode("utf-8")) <= 100_300
+    assert len(result.encode("utf-8")) <= 100_000
+
+
+def test_collect_all_logs_byte_cap_exact_100k_bytes(tmp_path):
+    """Edge case: payload just over 100k bytes should be trimmed to exactly fit."""
+    from miqi.runtime.feedback_handlers import _collect_all_logs
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    # 110k ASCII chars = 110k bytes, just over the cap
+    (log_dir / "edge.log").write_text("x" * 110_000, encoding="utf-8")
+    result = _collect_all_logs(log_dir)
+    assert len(result.encode("utf-8")) <= 100_000
 
 
 def test_collect_system_info():
@@ -505,7 +613,7 @@ async def test_feedback_submit_without_screenshots_skips_upload(
 
 @pytest.mark.asyncio
 async def test_feedback_submit_rejects_oversized_screenshot(_bridge_state_isolated):
-    """Screenshot > 10MB must be rejected."""
+    """Screenshot > 10MB must be rejected (after base64 encoding)."""
     from miqi.runtime.feedback_handlers import feedback_submit_handler
 
     workspace = _make_workspace()
@@ -518,6 +626,34 @@ async def test_feedback_submit_rejects_oversized_screenshot(_bridge_state_isolat
     import base64
     big_png = b"\x89PNG" + b"\x00" * (11 * 1024 * 1024)
     data_url = "data:image/png;base64," + base64.b64encode(big_png).decode("ascii")
+
+    with patch(
+        "miqi.runtime.feedback_handlers._get_workspace_path", return_value=workspace,
+    ), patch(
+        "miqi.runtime.feedback_handlers._get_tenant_access_token", return_value="tok",
+    ):
+        with pytest.raises(AppServerError, match="10MB"):
+            await feedback_submit_handler(
+                "req-1",
+                {"title": "big", "content": "x", "screenshots": [data_url]},
+                "client-1", None, registry,
+            )
+
+
+@pytest.mark.asyncio
+async def test_feedback_submit_rejects_oversized_encoded_data_url(_bridge_state_isolated):
+    """Data URL with encoded b64 section > 14MB is rejected BEFORE base64 decode."""
+    from miqi.runtime.feedback_handlers import feedback_submit_handler
+
+    workspace = _make_workspace()
+    state = _make_mock_state(workspace)
+    _bridge_state_isolated._state = state
+    registry = ClientSessionRegistry()
+    registry.bridge_context["state"] = state
+
+    # 15MB of base64 — would decode to ~11MB but we reject before decoding.
+    big_b64 = "A" * (15 * 1024 * 1024)
+    data_url = f"data:image/png;base64,{big_b64}"
 
     with patch(
         "miqi.runtime.feedback_handlers._get_workspace_path", return_value=workspace,
