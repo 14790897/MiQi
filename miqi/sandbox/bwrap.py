@@ -41,6 +41,7 @@ import asyncio
 import os
 import platform
 import signal
+import subprocess
 import tempfile
 import uuid
 from pathlib import Path
@@ -183,6 +184,13 @@ class BwrapCommandHandle:
             self._script_path = None
 
 
+
+async def _create_subprocess_exec(*args, **kwargs):
+    """Wrapper around asyncio.create_subprocess_exec that suppresses Windows console windows."""
+    kwargs.update(_subprocess_kwargs())
+    return await asyncio.create_subprocess_exec(*args, **kwargs)
+
+
 def _shell_quote(s: str) -> str:
     """Shell-escape a string using single quotes.
 
@@ -196,6 +204,22 @@ def _shell_quote(s: str) -> str:
 def _is_windows() -> bool:
     """Check if running on Windows."""
     return platform.system() == "Windows"
+
+
+def _subprocess_kwargs():
+    """Return kwargs for asyncio.create_subprocess_exec to hide console windows.
+
+    On Windows, ``asyncio.create_subprocess_exec`` creates a console window
+    by default for every subprocess.  Passing ``creationflags`` with
+    ``CREATE_NO_WINDOW`` suppresses this, preventing the brief black console
+    flash (Issue #301).
+
+    Returns:
+        dict with ``creationflags`` on Windows; empty dict on other platforms.
+    """
+    if not _is_windows():
+        return {}
+    return {"creationflags": subprocess.CREATE_NO_WINDOW}
 
 
 class BwrapSandbox:
@@ -277,7 +301,7 @@ class BwrapSandbox:
             full_args = list(args)
 
         try:
-            process = await asyncio.create_subprocess_exec(
+            process = await _create_subprocess_exec(
                 *full_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -316,7 +340,7 @@ class BwrapSandbox:
             full_args = ["bash", "-c", cmd]
 
         try:
-            process = await asyncio.create_subprocess_exec(
+            process = await _create_subprocess_exec(
                 *full_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -361,7 +385,7 @@ class BwrapSandbox:
             full_args = ["bash", "-c", write_cmd]
 
         try:
-            process = await asyncio.create_subprocess_exec(
+            process = await _create_subprocess_exec(
                 *full_args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
@@ -405,7 +429,7 @@ class BwrapSandbox:
         # Try preferred distro first
         if preferred:
             try:
-                proc = await asyncio.create_subprocess_exec(
+                proc = await _create_subprocess_exec(
                     "wsl.exe", "-d", preferred, "--", "bash", "-c", "which bwrap",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
@@ -418,7 +442,7 @@ class BwrapSandbox:
 
         # List all distros and find one with bwrap
         try:
-            proc = await asyncio.create_subprocess_exec(
+            proc = await _create_subprocess_exec(
                 "wsl.exe", "-l", "-q",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -439,7 +463,7 @@ class BwrapSandbox:
                 if not distro:
                     continue
                 try:
-                    check = await asyncio.create_subprocess_exec(
+                    check = await _create_subprocess_exec(
                         "wsl.exe", "-d", distro, "--", "bash", "-c", "which bwrap",
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
@@ -467,8 +491,9 @@ class BwrapSandbox:
 
         async def _distro_has_bash(distro: str) -> bool:
             """Check if a distro has bash (indicating a real Linux distro)."""
+            proc = None
             try:
-                proc = await asyncio.create_subprocess_exec(
+                proc = await _create_subprocess_exec(
                     "wsl.exe", "-d", distro, "--", "bash", "-c", "echo ok",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
@@ -476,7 +501,7 @@ class BwrapSandbox:
                 await asyncio.wait_for(proc.communicate(), timeout=30.0)
                 return proc.returncode == 0
             except (asyncio.TimeoutError, Exception):
-                if isinstance(proc, asyncio.subprocess.Process):
+                if proc is not None:
                     proc.kill()
                 return False
 
@@ -487,7 +512,7 @@ class BwrapSandbox:
 
         # List all distros and find the first one with bash
         try:
-            proc = await asyncio.create_subprocess_exec(
+            proc = await _create_subprocess_exec(
                 "wsl.exe", "-l", "-q",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -522,7 +547,7 @@ class BwrapSandbox:
         """
         # Check if already exists
         try:
-            check = await asyncio.create_subprocess_exec(
+            check = await _create_subprocess_exec(
                 "wsl.exe", "-d", target_name, "--", "bash", "-c",
                 "echo ok",
                 stdout=asyncio.subprocess.PIPE,
@@ -556,7 +581,7 @@ class BwrapSandbox:
             os.close(fd)
 
             # Export source distro
-            export_proc = await asyncio.create_subprocess_exec(
+            export_proc = await _create_subprocess_exec(
                 "wsl.exe", "--export", source, tar_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -584,7 +609,7 @@ class BwrapSandbox:
                 / "MiQi Sandbox"
             )
 
-            import_proc = await asyncio.create_subprocess_exec(
+            import_proc = await _create_subprocess_exec(
                 "wsl.exe", "--import", target_name,
                 install_dir, tar_path,
                 "--version", "2",
@@ -607,7 +632,7 @@ class BwrapSandbox:
 
             # Set default user to root so apt-get never needs a password
             try:
-                set_root = await asyncio.create_subprocess_exec(
+                set_root = await _create_subprocess_exec(
                     "wsl.exe", "-d", target_name, "-u", "root", "--",
                     "bash", "-c",
                     "echo -e '[user]\\ndefault=root' > /etc/wsl.conf",
@@ -618,7 +643,7 @@ class BwrapSandbox:
                     set_root.communicate(), timeout=10.0,
                 )
                 # Terminate so wsl.conf takes effect on next launch
-                term = await asyncio.create_subprocess_exec(
+                term = await _create_subprocess_exec(
                     "wsl.exe", "--terminate", target_name,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
@@ -658,7 +683,7 @@ class BwrapSandbox:
         """
         # Quick check: skip if bwrap already installed
         try:
-            check = await asyncio.create_subprocess_exec(
+            check = await _create_subprocess_exec(
                 "wsl.exe", "-d", distro, "--", "bash", "-c", "which bwrap",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -682,7 +707,7 @@ class BwrapSandbox:
             for i in range(180):
                 await asyncio.sleep(1)
                 try:
-                    recheck = await asyncio.create_subprocess_exec(
+                    recheck = await _create_subprocess_exec(
                         "wsl.exe", "-d", distro, "--", "bash", "-c",
                         "which bwrap",
                         stdout=asyncio.subprocess.PIPE,
@@ -718,7 +743,7 @@ class BwrapSandbox:
             # a password.
             use_sudo = False
             try:
-                check_nopass = await asyncio.create_subprocess_exec(
+                check_nopass = await _create_subprocess_exec(
                     "wsl.exe", "-d", distro, "--", "bash", "-c",
                     "sudo -n true 2>/dev/null",
                     stdout=asyncio.subprocess.PIPE,
@@ -749,7 +774,7 @@ class BwrapSandbox:
                 install_cmd = f"sudo bash -c '{install_cmd}'"
 
             try:
-                proc = await asyncio.create_subprocess_exec(
+                proc = await _create_subprocess_exec(
                     "wsl.exe", "-d", distro, "--", "bash", "-c",
                     install_cmd,
                     stdout=asyncio.subprocess.PIPE,
@@ -790,7 +815,7 @@ class BwrapSandbox:
 
         # Verify bwrap is now available
         try:
-            verify = await asyncio.create_subprocess_exec(
+            verify = await _create_subprocess_exec(
                 "wsl.exe", "-d", distro, "--", "bash", "-c", "which bwrap",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -995,7 +1020,7 @@ class BwrapSandbox:
                 # Run bwrap natively — no command-line length issue on Linux
                 full_args = bwrap_args
 
-                process = await asyncio.create_subprocess_exec(
+                process = await _create_subprocess_exec(
                     *full_args,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
@@ -1122,7 +1147,7 @@ class BwrapSandbox:
         Uses ``start_new_session=True`` so that :meth:`BwrapCommandHandle.kill`
         can target the entire process group (bwrap + children).
         """
-        process = await asyncio.create_subprocess_exec(
+        process = await _create_subprocess_exec(
             *bwrap_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -1181,7 +1206,7 @@ class BwrapSandbox:
 
         full_args = self._wsl_prefix() + ["bash", script_path]
 
-        process = await asyncio.create_subprocess_exec(
+        process = await _create_subprocess_exec(
             *full_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -1247,7 +1272,7 @@ class BwrapSandbox:
             # Execute the script via wsl.exe — short command line
             full_args = self._wsl_prefix() + ["bash", script_path]
 
-            process = await asyncio.create_subprocess_exec(
+            process = await _create_subprocess_exec(
                 *full_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -1465,7 +1490,7 @@ class BwrapSandbox:
         """Find the bwrap binary on native Linux."""
         for candidate in ("bwrap", "/usr/bin/bwrap", "/usr/local/bin/bwrap"):
             try:
-                proc = await asyncio.create_subprocess_exec(
+                proc = await _create_subprocess_exec(
                     "which", candidate,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
@@ -1555,7 +1580,7 @@ class BwrapSandbox:
             prefix = []
 
         try:
-            process = await asyncio.create_subprocess_exec(
+            process = await _create_subprocess_exec(
                 *prefix, "rm", "-rf", linux_dir,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
