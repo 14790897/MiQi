@@ -574,6 +574,55 @@ describe('BridgeManager lifecycle', () => {
     await expect(sendPromise).rejects.toThrow(/timed out/);
   }, 10_000);
 
+  it('refreshes chat.send inactivity timeout when progress arrives', async () => {
+    const BridgeManager = await importBridgeManager();
+    const proc = createMockProcess();
+    const bridge = new BridgeManager('/fake/root');
+
+    await startBridge(proc, bridge, {
+      clientId: 'progress-timeout-test',
+      serverInfo: { version: '1' },
+    });
+
+    vi.useFakeTimers();
+    try {
+      let settled = false;
+      const origSendRequest = (bridge as any).sendRequest.bind(bridge);
+      const sendPromise = origSendRequest('chat.send', { message: 'test' }, (() => {}) as any, {
+        timeoutMs: 100,
+      });
+      sendPromise.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        }
+      );
+
+      await vi.advanceTimersByTimeAsync(10);
+      const reqId = findRequestId(proc, 'chat.send');
+
+      feedLine(proc, { id: reqId, result: { status: 'accepted' } });
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(90);
+      expect(settled).toBe(false);
+
+      feedLine(proc, { id: reqId, type: 'progress', data: { text: 'still running' } });
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(99);
+      expect(settled).toBe(false);
+
+      feedLine(proc, { id: reqId, type: 'final', data: { text: 'done' } });
+      await Promise.resolve();
+      await expect(sendPromise).resolves.toEqual({ text: 'done' });
+    } finally {
+      vi.useRealTimers();
+      proc.stdout.destroy();
+      proc.stderr.destroy();
+    }
+  }, 10_000);
+
   it('keeps chat.send client timeout later than the backend drain timeout', async () => {
     const BridgeManager = await importBridgeManager();
     const proc = createMockProcess();
