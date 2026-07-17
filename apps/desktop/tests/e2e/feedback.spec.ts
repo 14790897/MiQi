@@ -153,22 +153,27 @@ test.describe('Feedback Page E2E', () => {
       .getByRole('button', { name: '提交', exact: true });
     await submitButton.click();
 
-    // Either success (if feedback enabled) or error message should appear.
-    // We must observe one of them — silent no-op is a test failure.
-    const successOrError = await Promise.race([
-      page
-        .getByText('提交成功！')
-        .waitFor({ timeout: 5000 })
-        .then(() => 'success' as const)
-        .catch(() => null),
-      page
-        .locator('[class*="bg-red-500"]')
-        .waitFor({ timeout: 5000 })
-        .then(() => 'error' as const)
-        .catch(() => null),
-    ]).catch(() => null);
+    // Feedback is disabled by default in E2E config → specific error must appear.
+    // Assert the FEEDBACK_DISABLED message is shown and "提交成功！" is absent.
+    const errorBox = page.locator('[class*="bg-red-500"]');
+    await expect(errorBox).toBeVisible({ timeout: 5_000 });
+    await expect(errorBox).toContainText('反馈功能未启用');
+    await expect(page.getByText('提交成功！')).not.toBeVisible();
+    // Modal stays open so the user can correct and retry
+    await expect(page.getByRole('heading', { name: '提交反馈' })).toBeVisible();
+    // Close modal so afterEach Escape doesn't double-press
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('heading', { name: '提交反馈' })).not.toBeVisible();
+  });
 
-    expect(successOrError).not.toBeNull();
+  test('submit feedback via mocked bridge shows success entry', async () => {
+    // Skip: the renderer captures `window.miqi.feedback` via contextBridge
+    // which freezes the API surface, so direct property replacement in
+    // page.evaluate() doesn't intercept calls.  A full success-path E2E
+    // requires enabling feedback in the test config (mock IPC at the
+    // main-process level) — covered by Python unit tests + manual
+    // verification documented in PR description.
+    test.skip(true, 'success-path requires main-process IPC mock; see PR description');
   });
 
   test('screenshot drop zone accepts files and shows thumbnails', async () => {

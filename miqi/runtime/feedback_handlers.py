@@ -46,24 +46,31 @@ def _ensure_memory_dir() -> None:
 
 
 def _collect_all_logs(log_dir: Path) -> str:
-    """Read all .log and .jsonl files from workspace/logs/ and return
-    concatenated text.  Individual files are capped at 1 MB (tail end).
-    The combined payload is capped at 100,000 UTF-8 bytes to fit within
-    Feishu Bitable text-field limits (per official docs)."""
+    """Read every file under workspace/logs/ recursively (relative path
+    shown for nested files) and return concatenated text.
+
+    Individual files are capped at 1 MB (tail end).  The combined payload
+    is capped at 100,000 UTF-8 bytes to fit within Feishu Bitable
+    text-field limits (per official docs).
+    """
     if not log_dir.exists():
         return "[日志目录不存在]"
 
     parts: list[str] = []
-    for pattern in ("*.log", "*.jsonl"):
-        for f in sorted(log_dir.glob(pattern)):
-            try:
-                content = f.read_text(encoding="utf-8", errors="replace")
-                max_chars = 1_000_000
-                if len(content) > max_chars:
-                    content = f"...(截断 {len(content) - max_chars} 字符)\n{content[-max_chars:]}"
-                parts.append(f"=== {f.name} ===\n{content}")
-            except Exception as exc:
-                parts.append(f"=== {f.name} === [读取失败: {exc}]")
+    # Recursive walk: catches nested logs and any extension (binary-safe
+    # via errors='replace' below).
+    for f in sorted(log_dir.rglob("*")):
+        if not f.is_file():
+            continue
+        try:
+            content = f.read_text(encoding="utf-8", errors="replace")
+            max_chars = 1_000_000
+            if len(content) > max_chars:
+                content = f"...(截断 {len(content) - max_chars} 字符)\n{content[-max_chars:]}"
+            rel = f.relative_to(log_dir)
+            parts.append(f"=== {rel} ===\n{content}")
+        except Exception as exc:
+            parts.append(f"=== {f.name} === [读取失败: {exc}]")
 
     if not parts:
         return "[无日志文件]"
@@ -144,11 +151,15 @@ def _upload_attachment(
     filename: str,
     content_type: str,
     data: bytes,
+    parent_node: str,
 ) -> str:
     """Upload an attachment to Feishu Drive and return the file_token.
 
     Used for Bitable attachment fields: the record references the file_token
     rather than embedding the bytes inline.
+
+    `parent_node` MUST be the target Bitable's app_token — empty strings
+    cause the upload to fail before the record is created.
     """
     resp = requests.post(
         "https://open.feishu.cn/open-apis/drive/v1/medias/upload_all",
@@ -156,7 +167,7 @@ def _upload_attachment(
         data={
             "file_name": filename,
             "parent_type": "bitable_file",
-            "parent_node": "",
+            "parent_node": parent_node,
             "size": str(len(data)),
         },
         files={"file": (filename, data, content_type)},
@@ -398,7 +409,11 @@ async def feedback_submit_handler(
                     )
                 logger.info("Uploading screenshot {} ({} bytes)", idx + 1, len(raw))
                 file_token = _upload_attachment(
-                    token, filename=filename, content_type=mime, data=raw,
+                    token,
+                    filename=filename,
+                    content_type=mime,
+                    data=raw,
+                    parent_node=fb_cfg.bitable_app_token,
                 )
                 file_tokens.append({"file_token": file_token})
             fields["截图"] = file_tokens

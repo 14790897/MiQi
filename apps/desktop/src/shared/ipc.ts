@@ -978,13 +978,36 @@ export interface SandboxSetEnabledResult {
 // Feedback schemas
 // ---------------------------------------------------------------------------
 
+// Per-screenshot validator: must be a `data:image/<mime>;base64,<...>`
+// URL whose decoded byte size is within the documented 10 MB limit.
+// Mirrors the server-side check in miqi/runtime/feedback_handlers.py
+// _decode_data_url so oversized/malformed payloads are rejected at the
+// IPC boundary before they reach the bridge.
+const MAX_DATA_URL_BYTES = 10 * 1024 * 1024;
+const dataUrlScreenshot = z
+  .string()
+  .refine(
+    (s) => s.startsWith('data:image/') && s.includes(';base64,'),
+    'Screenshot must be a base64-encoded data URL with image MIME type',
+  )
+  .refine(
+    (s) => {
+      const comma = s.indexOf(',');
+      if (comma < 0) return false;
+      const b64 = s.slice(comma + 1);
+      // base64 inflates ~4/3, so 14 MB encoded → ~10.5 MB decoded
+      return b64.length * 3 <= MAX_DATA_URL_BYTES * 4 + 4;
+    },
+    'Screenshot exceeds 10 MB limit',
+  );
+
 export const FeedbackSubmitInput = z.object({
   category: z.enum(['bug', 'question', 'suggestion', 'other']),
   title: z.string().min(1).max(200),
   content: z.string().min(1).max(10000),
   contact: z.string().max(200).optional(),
   app_version: z.string().max(50).optional(),
-  screenshots: z.array(z.string()).max(5).optional(),
+  screenshots: z.array(dataUrlScreenshot).max(5).optional(),
 });
 
 export interface FeedbackEntry {

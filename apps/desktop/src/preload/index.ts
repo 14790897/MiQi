@@ -1,5 +1,6 @@
+import type { z } from 'zod';
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, IPC_EVENTS } from '../shared/ipc';
+import { IPC, IPC_EVENTS, FeedbackSubmitInput } from '../shared/ipc';
 import type {
   RuntimeStatus,
   SessionInfo,
@@ -66,6 +67,8 @@ import type {
   FeedbackListResult,
   FeedbackSubmitResult,
 } from '../shared/ipc';
+
+type FeedbackSubmitInputType = z.infer<typeof FeedbackSubmitInput>;
 
 // ---------------------------------------------------------------------------
 // Typed API exposed to the renderer via contextBridge
@@ -489,14 +492,7 @@ const api = {
 
   // -- Feedback ---------------------------------------------------------------
   feedback: {
-    submit: (params: {
-      category: string;
-      title: string;
-      content: string;
-      contact?: string;
-      app_version?: string;
-      screenshots?: string[];
-    }): Promise<FeedbackSubmitResult> =>
+    submit: (params: FeedbackSubmitInputType): Promise<FeedbackSubmitResult> =>
       ipcRenderer.invoke(IPC.FEEDBACK_SUBMIT, params),
     list: (params?: { limit?: number }): Promise<FeedbackListResult> =>
       ipcRenderer.invoke(IPC.FEEDBACK_LIST, params ?? {}),

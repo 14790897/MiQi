@@ -188,7 +188,7 @@ function SubmitModal({
     setSubmitting(true);
     setError(null);
     try {
-      await window.miqi.feedback.submit({
+      const result = await window.miqi.feedback.submit({
         category,
         title: title.trim(),
         content: content.trim(),
@@ -197,6 +197,12 @@ function SubmitModal({
           typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
         screenshots: screenshots.map((s) => s.dataUrl),
       });
+      // The bridge always returns ok=true for successful submissions.  An
+      // unexpected payload (e.g. from an older backend) is treated as a
+      // failure rather than silently marking success.
+      if (!result || result.ok !== true) {
+        throw new Error('提交未确认（后端返回 ok=false）');
+      }
       setSuccess(true);
       setTimeout(() => {
         onSubmitted();

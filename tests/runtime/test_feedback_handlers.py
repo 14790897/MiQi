@@ -159,9 +159,10 @@ async def test_feedback_list_limit_clamps_to_max():
 
     with patch("miqi.runtime.feedback_handlers._get_workspace_path", return_value=workspace):
         with patch.object(handlers, "_get_feedback_file", return_value=feedback_file):
+            # Create 201 entries so the clamp has something to clamp down.
             entries = [
                 {"id": str(i), "title": f"item-{i}", "created_at": "2026-01-01T00:00:00Z"}
-                for i in range(1, 4)
+                for i in range(1, 202)
             ]
             with feedback_file.open("w", encoding="utf-8") as f:
                 for e in entries:
@@ -170,8 +171,8 @@ async def test_feedback_list_limit_clamps_to_max():
             result = await feedback_list_handler(
                 "req-1", {"limit": 999}, "client-1", None, registry,
             )
-            # 3 entries available, all returned
-            assert len(result["result"]["entries"]) == 3
+            # Clamped to 200 even though 201 entries exist and limit=999
+            assert len(result["result"]["entries"]) == 200
 
 
 @pytest.mark.asyncio
@@ -613,7 +614,12 @@ async def test_feedback_submit_without_screenshots_skips_upload(
 
 @pytest.mark.asyncio
 async def test_feedback_submit_rejects_oversized_screenshot(_bridge_state_isolated):
-    """Screenshot > 10MB must be rejected (after base64 encoding)."""
+    """Screenshot > 10MB decoded must be rejected by the decoded-size check.
+
+    Construct exactly 10*1024*1024 + 1 decoded bytes.  The b64 encoded form
+    is ~13.4 MB — well below the 14 MB pre-decode guard, so this exercises
+    the post-decode rejection branch.
+    """
     from miqi.runtime.feedback_handlers import feedback_submit_handler
 
     workspace = _make_workspace()
@@ -622,9 +628,9 @@ async def test_feedback_submit_rejects_oversized_screenshot(_bridge_state_isolat
     registry = ClientSessionRegistry()
     registry.bridge_context["state"] = state
 
-    # Construct a data URL whose decoded bytes exceed 10 MB
     import base64
-    big_png = b"\x89PNG" + b"\x00" * (11 * 1024 * 1024)
+    over_limit_bytes = 10 * 1024 * 1024 + 1
+    big_png = b"\x89PNG" + b"\x00" * over_limit_bytes
     data_url = "data:image/png;base64," + base64.b64encode(big_png).decode("ascii")
 
     with patch(
