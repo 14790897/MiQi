@@ -159,9 +159,14 @@ class FeishuChannelConfig(Base):
 
 
 class FeedbackConfig(Base):
-    """User feedback collection configuration (submit to Feishu Bitable)."""
+    """User feedback collection configuration (submit to Feishu Bitable).
 
-    enabled: bool = False
+    Default is enabled=True so the Settings → 反馈 tab is functional
+    out-of-the-box.  Users fill in the bitable_app_token /
+    bitable_table_id from their Feishu Bitable URL to enable submission.
+    """
+
+    enabled: bool = True
     bitable_app_token: str = ""   # Bitable app_token (from URL "base/xxx")
     bitable_table_id: str = ""    # Bitable table id (from URL "?table=tblxxx")
 
