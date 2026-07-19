@@ -246,6 +246,15 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
     ? JSON.parse(readFileSync(destConfigPath, 'utf-8'))
     : {};
   config.approvals = { ...config.approvals, bypass_all: true };
+  // ── E2E: always disable feedback channel so tests don't hit real Feishu ──
+  // Each test that needs feedback enabled can opt in by patching the config
+  // after launchElectronApp.  Default OFF keeps the disabled-error path
+  // verifiable for the E2E suite.
+  config.channels = {
+    ...config.channels,
+    feishu: { ...(config.channels?.feishu ?? {}), enabled: false },
+    feedback: { enabled: false, bitableAppToken: '', bitableTableId: '' },
+  };
   writeFileSync(destConfigPath, JSON.stringify(config, null, 2));
 
   // Delete ELECTRON_RUN_AS_NODE inherited from Electron-based IDEs

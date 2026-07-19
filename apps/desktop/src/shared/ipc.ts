@@ -132,6 +132,8 @@ export const IPC = {
   PLUGINS_INSTALL: 'plugins:install',
   PLUGINS_UNINSTALL: 'plugins:uninstall',
   PLUGINS_TOGGLE: 'plugins:toggle',
+  FEEDBACK_SUBMIT: 'feedback:submit',
+  FEEDBACK_LIST: 'feedback:list',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -970,4 +972,64 @@ export interface SandboxSetEnabledResult {
   destroyed?: number;
   already?: boolean;
   initializing?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Feedback schemas
+// ---------------------------------------------------------------------------
+
+// Per-screenshot validator: must be a `data:image/<mime>;base64,<...>`
+// URL whose decoded byte size is within the documented 10 MB limit.
+// Mirrors the server-side check in miqi/runtime/feedback_handlers.py
+// _decode_data_url so oversized/malformed payloads are rejected at the
+// IPC boundary before they reach the bridge.
+const MAX_DATA_URL_BYTES = 10 * 1024 * 1024;
+const dataUrlScreenshot = z
+  .string()
+  .refine(
+    (s) => s.startsWith('data:image/') && s.includes(';base64,'),
+    'Screenshot must be a base64-encoded data URL with image MIME type',
+  )
+  .refine(
+    (s) => {
+      const comma = s.indexOf(',');
+      if (comma < 0) return false;
+      const b64 = s.slice(comma + 1);
+      // base64 inflates ~4/3, so 14 MB encoded → ~10.5 MB decoded
+      return b64.length * 3 <= MAX_DATA_URL_BYTES * 4 + 4;
+    },
+    'Screenshot exceeds 10 MB limit',
+  );
+
+export const FeedbackSubmitInput = z.object({
+  category: z.enum(['bug', 'question', 'suggestion', 'other']),
+  title: z.string().min(1).max(200),
+  content: z.string().min(1).max(10000),
+  contact: z.string().max(200).optional(),
+  app_version: z.string().max(50).optional(),
+  screenshots: z.array(dataUrlScreenshot).max(5).optional(),
+  prompt_used: z.string().max(10000).optional(),
+  repro_frequency: z.string().max(200).optional(),
+});
+
+export interface FeedbackEntry {
+  id: string;
+  category: 'bug' | 'question' | 'suggestion' | 'other';
+  title: string;
+  content: string;
+  contact: string;
+  app_version: string;
+  os: string;
+  python_version: string;
+  feishu_record_id: string;
+  created_at: string;
+}
+
+export interface FeedbackListResult {
+  entries: FeedbackEntry[];
+}
+
+export interface FeedbackSubmitResult {
+  ok: boolean;
+  record_id: string;
 }

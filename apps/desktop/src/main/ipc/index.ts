@@ -37,6 +37,7 @@ import {
   ThreadNameSetInput,
   TurnStartInput,
   TurnInterruptInput,
+  FeedbackSubmitInput,
 } from '../../shared/ipc';
 import type { WslCheckResult, WslStatsResult } from '../../shared/ipc';
 
@@ -1475,6 +1476,16 @@ for m in ("pydantic", "httpx", "loguru"):
   ipcMain.handle(IPC.PLUGINS_TOGGLE, async (_event, payload: unknown) => {
     const { name, enabled } = payload as { name: string; enabled: boolean };
     return bridge.sendSafe('plugins.toggle', { name, enabled });
+  });
+
+  // -- Feedback --------------------------------------------------------------
+  ipcMain.handle(IPC.FEEDBACK_SUBMIT, async (_event, payload: unknown) => {
+    const input = FeedbackSubmitInput.parse(payload);
+    return bridge.send('feedback:submit', input as unknown as Record<string, unknown>);
+  });
+
+  ipcMain.handle(IPC.FEEDBACK_LIST, async (_event, payload: unknown) => {
+    return bridge.sendSafe('feedback:list', payload as Record<string, unknown>);
   });
 
   // -- Threads (Phase 36+) --------------------------------------------------
