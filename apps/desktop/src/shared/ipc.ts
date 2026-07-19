@@ -1008,6 +1008,8 @@ export const FeedbackSubmitInput = z.object({
   contact: z.string().max(200).optional(),
   app_version: z.string().max(50).optional(),
   screenshots: z.array(dataUrlScreenshot).max(5).optional(),
+  prompt_used: z.string().max(10000).optional(),
+  repro_frequency: z.string().max(200).optional(),
 });
 
 export interface FeedbackEntry {

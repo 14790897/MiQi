@@ -325,6 +325,8 @@ async def feedback_submit_handler(
     content = str(params.get("content", "")).strip()
     contact = str(params.get("contact", "")).strip()
     app_version = str(params.get("app_version", "unknown"))
+    prompt_used = str(params.get("prompt_used", "")).strip()
+    repro_frequency = str(params.get("repro_frequency", "")).strip()
     screenshots_raw = params.get("screenshots") or []
     if not isinstance(screenshots_raw, list):
         screenshots_raw = []
@@ -375,13 +377,15 @@ async def feedback_submit_handler(
     fields: dict[str, Any] = {
         "类别": category,
         "标题": title,
-        "详细描述": content,
+        "详细描述（复现步骤，期望行为，实际行为等）": content,
         "联系方式": contact,
         "应用版本": app_version,
         "操作系统": os_str,
         "Python版本": sys_info["python_version"],
-        "日志内容": log_content,
+        "日志内容（设置界面日志栏目-复制日志）": log_content,
         "提交时间": now_iso,
+        "使用的提示词": prompt_used,
+        "复现频率": repro_frequency,
     }
 
     # 5. Send to Feishu — get token first, then upload screenshots, then add record
@@ -416,7 +420,7 @@ async def feedback_submit_handler(
                     parent_node=fb_cfg.bitable_app_token,
                 )
                 file_tokens.append({"file_token": file_token})
-            fields["截图"] = file_tokens
+            fields["附件"] = file_tokens
 
         # 5b. Add the Bitable record (with attachment references)
         record_id = _add_bitable_record(

@@ -535,7 +535,7 @@ def test_decode_data_url_rejects_invalid_base64():
 async def test_feedback_submit_uploads_screenshots_and_creates_record(
     _bridge_state_isolated,
 ):
-    """Submit with one screenshot: upload should be called once, record includes 截图 field."""
+    """Submit with one screenshot: upload should be called once, record includes 附件 field."""
     from miqi.runtime.feedback_handlers import feedback_submit_handler
     import base64
 
@@ -576,15 +576,15 @@ async def test_feedback_submit_uploads_screenshots_and_creates_record(
     # Check that file_token reference was passed to add_record
     call_kwargs = add_record.call_args
     fields = call_kwargs.args[3]  # 4th positional arg is fields dict
-    assert "截图" in fields
-    assert fields["截图"] == [{"file_token": "file_tok_1"}]
+    assert "附件" in fields
+    assert fields["附件"] == [{"file_token": "file_tok_1"}]
 
 
 @pytest.mark.asyncio
 async def test_feedback_submit_without_screenshots_skips_upload(
     _bridge_state_isolated,
 ):
-    """No screenshots → no upload call, no 截图 field in record."""
+    """No screenshots → no upload call, no 附件 field in record."""
     from miqi.runtime.feedback_handlers import feedback_submit_handler
 
     workspace = _make_workspace()
@@ -609,7 +609,7 @@ async def test_feedback_submit_without_screenshots_skips_upload(
 
     upload.assert_not_called()
     fields = add_record.call_args.args[3]
-    assert "截图" not in fields
+    assert "附件" not in fields
 
 
 @pytest.mark.asyncio
@@ -711,4 +711,4 @@ async def test_feedback_submit_caps_screenshots_at_5(_bridge_state_isolated):
 
     assert upload.call_count == 5
     fields = add_record.call_args.args[3]
-    assert len(fields["截图"]) == 5
+    assert len(fields["附件"]) == 5
