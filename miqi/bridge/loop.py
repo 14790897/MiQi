@@ -799,6 +799,17 @@ class BridgeRuntimeLoop:
                         })
                     break
 
+                # Exec output deltas: forward with the top-level shape that
+                # ChatConsole.tsx expects (stream / delta / tool_call_id)
+                # so inline terminal output updates in real time.
+                if isinstance(event, ExecCommandOutputDeltaEvent):
+                    await _emit("progress", {
+                        "stream": event.stream,
+                        "delta": event.delta,
+                        "tool_call_id": event.tool_call_id,
+                    })
+                    continue
+
                 # Internal runtime events that should never appear in
                 # the chat message stream.  See Issue #35.
                 if isinstance(event, (
@@ -808,7 +819,6 @@ class BridgeRuntimeLoop:
                     ApprovalResolvedEvent,     # approval lifecycle; not chat content
                     ExecCommandBeginEvent,     # exec lifecycle; rendered via ToolCallBeginEvent
                     ExecCommandEndEvent,       # exec lifecycle; rendered via ToolCallEndEvent
-                    ExecCommandOutputDeltaEvent,  # exec delta; streamed inline, not standalone rows
                 )):
                     continue
 

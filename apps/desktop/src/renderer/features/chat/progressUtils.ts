@@ -24,7 +24,7 @@ export function extractProgressMessage(
 
   // 1) Direct text is the happy path
   if (payload.text && payload.text.trim()) {
-    if (/^ExecCommand(?:Begin|End)Event$/.test(payload.text.trim())) {
+    if (/^ExecCommand(?:Begin|End|OutputDelta)Event$/i.test(payload.text.trim())) {
       return null;
     }
     return { message: payload.text, role: 'progress' };
