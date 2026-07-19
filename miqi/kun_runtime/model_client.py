@@ -110,6 +110,35 @@ class MiQiModelClient:
         # Build messages
         messages = _build_messages(request)
 
+        # Phase 56: hard-trim messages before provider call so we never
+        # send a request that exceeds the model's input token limit.
+        from miqi.kun_runtime.context_estimator import (
+            estimate_tokens,
+            get_safe_context_limit,
+        )
+        model = request.model or self.model
+        safe_limit = get_safe_context_limit(model)
+        est = estimate_tokens(str(messages))
+        if est > safe_limit:
+            logger.warning(
+                "KUN pre-send guard: estimated {} tokens exceeds {} limit "
+                "for {}; trimming oldest pairs",
+                est, safe_limit, model,
+            )
+            head_protect = 1 if messages and messages[0].get("role") == "system" else 0
+            while len(messages) > head_protect + 1 and est > safe_limit:
+                head_protect = 1 if messages and messages[0].get("role") == "system" else 0
+                for i in range(head_protect, len(messages) - 1):
+                    if messages[i].get("role") in ("assistant", "tool"):
+                        messages.pop(i)
+                        break
+                else:
+                    break
+                est = estimate_tokens(str(messages))
+            logger.info(
+                "KUN pre-send guard: est tokens now {}", est,
+            )
+
         # Build tools
         tools = _build_tools(request.tools) if request.tools else None
 
