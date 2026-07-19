@@ -77,26 +77,25 @@ def _collect_all_logs(log_dir: Path) -> str:
 
     combined = "\n\n".join(parts)
     # Cap by UTF-8 byte size — Feishu Bitable text-field limit is 100k bytes,
-    # not 100k chars (Chinese characters can be 3+ bytes each).  The truncation
-    # marker is reserved up front so the result never exceeds the byte cap.
-    total_bytes = len(combined.encode("utf-8"))
+    # not 100k chars (Chinese characters can be 3+ bytes each).  Encode once,
+    # then slice the tail bytes directly to avoid repeatedly re-encoding.
+    encoded = combined.encode("utf-8")
+    total_bytes = len(encoded)
     if total_bytes > 100_000:
-        # Truncate from the head, keeping the tail (most recent log entries).
-        # Marker placeholder is filled in last, so its exact length is reserved.
-        marker_template = "...(总日志超出 NNN 字节, 已截断)\n"
-        cap = 100_000
-        truncated_tail = combined
-        while len(truncated_tail.encode("utf-8")) + len(marker_template.encode("utf-8")) > cap:
-            truncated_tail = truncated_tail[len(truncated_tail) // 10:]
-        dropped = total_bytes - len(truncated_tail.encode("utf-8"))
-        marker = marker_template.replace("NNN", str(dropped))
-        # If the marker itself pushed us over, drop more bytes from the tail
-        final_bytes = (marker + truncated_tail).encode("utf-8")
-        if len(final_bytes) > cap:
-            excess = len(final_bytes) - cap
-            # truncate the kept tail further to fit the marker
-            truncated_tail = truncated_tail.encode("utf-8")[:-excess].decode("utf-8", errors="ignore")
-        return marker + truncated_tail
+        # Reserve 100 bytes for the marker text (incl. the digit count).
+        keep_bytes = 100_000 - 100
+        retained = encoded[-keep_bytes:].decode("utf-8", errors="ignore")
+        retained_bytes = len(retained.encode("utf-8"))
+        dropped = total_bytes - retained_bytes
+        marker = f"...(总日志超出 {dropped} 字节，已截断)\n"
+        # If the marker pushed us over (rare; depends on dropped digit count),
+        # trim the tail further to fit exactly within the cap.
+        candidate = marker + retained
+        if len(candidate.encode("utf-8")) > 100_000:
+            excess = len(candidate.encode("utf-8")) - 100_000
+            retained = retained.encode("utf-8")[:-excess].decode("utf-8", errors="ignore")
+            return marker + retained
+        return candidate
     return combined
 
 

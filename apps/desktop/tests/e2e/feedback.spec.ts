@@ -166,57 +166,52 @@ test.describe('Feedback Page E2E', () => {
     await expect(page.getByRole('heading', { name: '提交反馈' })).not.toBeVisible();
   });
 
-  test('submit feedback via mocked bridge shows success entry', async () => {
-    // The renderer reaches the bridge via the IPC pipeline, so we patch
-    // window.miqi.feedback.submit/list with deterministic stubs BEFORE
-    // the FeedbackPage mounts.  Since the renderer captures the API via
-    // contextBridge (which freezes the surface), we instead drive the
-    // bridge directly from the page's ipcRenderer by patching the
-    // window-level function that the FeedbackPage component reads.
-    //
-    // Implementation: the renderer reads `window.miqi.feedback` lazily on
-    // each call, so replacing it at runtime works for our test scope.
-    await page.addInitScript(() => {
-      (window as any).__capturedSubmits = [];
-      const origSubmit = (window as any).miqi?.feedback?.submit;
-      const origList = (window as any).miqi?.feedback?.list;
-      // Wrap submit so calls are captured but only if mocking succeeds
-      if ((window as any).miqi?.feedback) {
-        (window as any).miqi.feedback.submit = async (params: any) => {
-          (window as any).__capturedSubmits.push(params);
-          return { ok: true, record_id: 'mock_record_xyz' };
+  test('submit feedback via mocked main-process IPC shows success entry', async () => {
+    // contextBridge freezes window.miqi.feedback in the renderer, so
+    // addInitScript-based mocks are no-ops.  Patch the IPC handler in
+    // the main process instead via electronApp.evaluate — this captures
+    // the actual params flowing through the full IPC pipeline and lets
+    // us assert against a deterministic success path.
+    await electronApp.evaluate(async ({ ipcMain: ipc }) => {
+      // Use the IPC channel string literals directly — Playwright's eval
+      // context is ESM sandboxed and can't import the compiled CJS IPC
+      // module.  These strings are stable and match apps/desktop/src/shared/ipc.ts
+      const FEEDBACK_SUBMIT = 'feedback:submit';
+      const FEEDBACK_LIST = 'feedback:list';
+      const box = ((global as any).__capturedSubmits = []);
+      ipc.removeHandler(FEEDBACK_SUBMIT);
+      ipc.handle(FEEDBACK_SUBMIT, async (_e: unknown, params: any) => {
+        box.push(params);
+        return { ok: true, record_id: 'mock_record_xyz' };
+      });
+      ipc.removeHandler(FEEDBACK_LIST);
+      ipc.handle(FEEDBACK_LIST, async () => {
+        return {
+          entries: box.map((s: any, i: number) => ({
+            id: `mock_${i}`,
+            category: s.category,
+            title: s.title,
+            content: s.content,
+            contact: s.contact || '',
+            app_version: s.app_version || 'dev',
+            os: 'Windows 11 (test)',
+            python_version: '3.12',
+            feishu_record_id: 'mock_record_xyz',
+            created_at: new Date().toISOString(),
+          })),
         };
-        (window as any).miqi.feedback.list = async () => {
-          const subs = (window as any).__capturedSubmits;
-          return {
-            entries: subs.map((s: any, i: number) => ({
-              id: `mock_${i}`,
-              category: s.category,
-              title: s.title,
-              content: s.content,
-              contact: s.contact || '',
-              app_version: s.app_version || 'dev',
-              os: 'Windows 11 (test)',
-              python_version: '3.12',
-              feishu_record_id: 'mock_record_xyz',
-              created_at: new Date().toISOString(),
-            })),
-          };
-        };
-      }
-      // Mark success if either path worked
-      (window as any).__mockApplied = !!(window as any).miqi?.feedback;
+      });
     });
 
     await openFeedbackTab(page);
 
-    // Open modal
     const headerBtn = page.locator('div.flex.items-center.gap-4').getByRole('button', {
       name: '提交反馈',
       exact: true,
     });
+    await expect(headerBtn).toBeVisible({ timeout: 5_000 });
     await headerBtn.click();
-    await page.getByRole('heading', { name: '提交反馈' }).waitFor();
+    await expect(page.getByRole('heading', { name: '提交反馈' })).toBeVisible();
 
     // Fill form
     await page.getByPlaceholder('简要描述你的问题或建议').fill('E2E mock submission');
@@ -231,35 +226,27 @@ test.describe('Feedback Page E2E', () => {
       .getByRole('button', { name: '提交', exact: true });
     await submitButton.click();
 
-    // Wait briefly for either success or FEEDBACK_DISABLED (mock may have failed to apply)
-    await page.waitForTimeout(2_000);
+    // Deterministic success: success toast appears
+    await expect(page.getByText('提交成功！')).toBeVisible({ timeout: 5_000 });
 
-    // Verify the renderer either:
-    // (a) Called the mock — captured payload is non-empty, OR
-    // (b) Hit FEEDBACK_DISABLED — full chain ran end-to-end
-    const captured = await page.evaluate(() => (window as any).__capturedSubmits);
-    const mockApplied = await page.evaluate(() => !!(window as any).__mockApplied);
-    const errorBox = page.locator('[class*="bg-red-500"]');
-    const errorVisible = await errorBox.isVisible().catch(() => false);
+    // After modal auto-closes, list refreshes and shows the new entry
+    await expect(page.getByText('E2E mock submission')).toBeVisible({ timeout: 5_000 });
 
-    if (mockApplied && captured.length > 0) {
-      // Mock path: success message visible
-      await expect(page.getByText('提交成功！')).toBeVisible({ timeout: 3_000 });
-      expect(captured[0].title).toBe('E2E mock submission');
-      expect(captured[0].content).toContain('Mocked success-path');
-      expect(captured[0].contact).toBe('e2e@test.com');
-    } else {
-      // contextBridge froze the surface — confirm real backend was reached.
-      // When feedback is disabled by default, we observe FEEDBACK_DISABLED
-      // which proves the IPC → bridge → handler chain is wired correctly.
-      await expect(errorBox).toBeVisible({ timeout: 5_000 });
-      await expect(errorBox).toContainText('反馈功能未启用');
-      console.log(
-        '[e2e] contextBridge froze window.miqi.feedback; ' +
-          'mock path skipped but real IPC chain verified via FEEDBACK_DISABLED.',
-      );
-    }
-  });
+    // Verify the captured payload went through the IPC pipeline
+    const captured = await electronApp.evaluate(async () => {
+      const box = (global as any).__capturedSubmits ?? [];
+      return box.map((s: any) => ({
+        title: s.title,
+        content: s.content,
+        contact: s.contact,
+        category: s.category,
+      }));
+    });
+    expect(captured).toHaveLength(1);
+    expect(captured[0].title).toBe('E2E mock submission');
+    expect(captured[0].content).toContain('Mocked success-path');
+    expect(captured[0].contact).toBe('e2e@test.com');
+  });;
 
   test('screenshot drop zone accepts files and shows thumbnails', async () => {
     await openFeedbackTab(page);
