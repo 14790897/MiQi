@@ -107,24 +107,35 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
       {/* Center: status pills */}
       <div className="flex items-center gap-2">
         {bypassEnabled && (
-          <button
-            type="button"
-            onClick={onOpenApprovals}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold',
-              'transition-transform hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]'
-            )}
-            style={{
-              background: 'var(--approval-warning-pill-bg)',
-              color: 'var(--approval-warning-pill-text)',
-              border: '1px solid var(--approval-warning-border)',
-            }}
-            title={getBypassTitle(approvalBypass)}
-            aria-label={getBypassTitle(approvalBypass)}
-          >
-            <AlertTriangle size={11} className="shrink-0" />
-            <span className="whitespace-nowrap">{getBypassLabel(approvalBypass)}</span>
-          </button>
+          <div className="relative group">
+            <button
+              type="button"
+              onClick={onOpenApprovals}
+              className={cn(
+                'flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium',
+                'transition-colors hover:bg-[var(--surface-muted)] focus:outline-none',
+              )}
+              style={{ color: 'var(--approval-warning)', border: '1px solid transparent' }}
+            >
+              <AlertTriangle size={10} className="shrink-0" />
+              <span className="whitespace-nowrap">{getBypassLabel(approvalBypass)}</span>
+            </button>
+            {/* Hover tooltip — shows which bypasses are active */}
+            <div
+              className="absolute top-full right-0 mt-1 hidden group-hover:block z-50 rounded-lg px-3 py-2 text-[11px] whitespace-nowrap shadow-lg"
+              style={{
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-muted)',
+              }}
+            >
+              {approvalBypass?.bypassAll && <div>· 全部操作</div>}
+              {!approvalBypass?.bypassAll && approvalBypass?.bypassCommandApproval && <div>· 命令执行</div>}
+              {!approvalBypass?.bypassAll && approvalBypass?.bypassFileWriteApproval && <div>· 文件写入</div>}
+              {!approvalBypass?.bypassAll && approvalBypass?.bypassToolConfirmation && <div>· 工具调用</div>}
+              {!approvalBypass?.bypassAll && approvalBypass?.bypassNetworkApproval && <div>· 网络请求</div>}
+            </div>
+          </div>
         )}
         {/* Sync state */}
         <div
