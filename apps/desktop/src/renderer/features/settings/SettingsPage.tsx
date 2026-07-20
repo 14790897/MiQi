@@ -21,6 +21,7 @@ import {
   Moon,
   Monitor,
   Trash2,
+  Terminal,
 } from 'lucide-react';
 import { useRuntime } from '../../contexts/RuntimeContext';
 import * as Tabs from '@radix-ui/react-tabs';
@@ -187,6 +188,73 @@ function SandboxToggle() {
   );
 }
 
+// ---- Inline Exec Output Toggle ----
+// Controls whether tool-call exec results render in an inline terminal box.
+// Added in #339 follow-up: lets users suppress the dark bordered container
+// (which appears empty when the sandbox path policy strips stdout/stderr).
+function InlineExecOutputToggle() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    window.miqi.config
+      .get()
+      .then((cfg: any) => {
+        // Default off — the terminal box is purely cosmetic and was the
+        // source of the "红边空盒" complaints before this toggle landed.
+        setEnabled(cfg?.desktop?.ui?.inlineExecOutput === true);
+      })
+      .catch(() => setEnabled(false));
+  }, []);
+
+  const handleToggle = async () => {
+    if (enabled === null) return;
+    const next = !enabled;
+    setSaving(true);
+    try {
+      await window.miqi.config.update({ desktop: { ui: { inlineExecOutput: next } } });
+      setEnabled(next);
+    } catch {
+      /* ignore — keep prior state */
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={handleToggle}
+        disabled={saving || enabled === null}
+        data-testid="inline-exec-output-toggle-btn"
+        className={cn(
+          'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+          'disabled:opacity-50',
+          enabled ? 'bg-[var(--accent)]' : 'bg-[var(--border)]',
+        )}
+      >
+        <span
+          className={cn(
+            'inline-block h-4 w-4 rounded-full bg-white transition-transform',
+            enabled ? 'translate-x-6' : 'translate-x-1',
+          )}
+        />
+      </button>
+      <div className="flex items-center gap-1.5">
+        <Terminal size={14} className={enabled ? 'text-[var(--accent)]' : 'text-[var(--muted-foreground)]'} />
+        <span
+          className={cn(
+            'text-xs font-medium',
+            enabled ? 'text-[var(--accent)]' : 'text-[var(--muted-foreground)]',
+          )}
+          data-testid="inline-exec-output-toggle-label"
+        >
+          {enabled ? '已开启' : '已关闭'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ---- General Config Tab ----
 function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
   const [agentName, setAgentName] = useState('');
@@ -315,6 +383,16 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
           关闭后直接操作主机文件系统（无隔离，性能更好但风险更高）。
         </p>
         <SandboxToggle />
+      </div>
+
+      {/* ---- Inline Exec Output ---- */}
+      <div className="pt-4 border-t border-[var(--border-subtle)]">
+        <h3 className="text-sm font-semibold text-[var(--text)] mb-1" data-testid="settings-inline-exec-output-title">内联终端输出</h3>
+        <p className="text-xs text-[var(--text-faint)] mb-3">
+          关闭后工具调用的 exec 结果以普通文本显示，不再包裹黑底终端框。
+          当沙箱路径策略过滤掉输出时，关闭此开关可避免出现空盒子。
+        </p>
+        <InlineExecOutputToggle />
       </div>
 
       {/* ---- Danger Zone ---- */}
