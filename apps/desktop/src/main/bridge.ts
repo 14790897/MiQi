@@ -279,9 +279,18 @@ export class BridgeManager extends EventEmitter {
                   if (resp.code) (err as Error & { code?: string }).code = resp.code;
                   pending.reject(err);
                 } else {
-                  // final / aborted: call onEvent then resolve
-                  pending.onEvent?.(resp.eventType, resp.data);
-                  pending.resolve(resp.data);
+                  // final / aborted: call onEvent then resolve.
+                  // Wrap onEvent in try/catch so a thrown error in the
+                  // callback does not skip pending.resolve (#331).
+                  try {
+                    pending.onEvent?.(resp.eventType, resp.data);
+                  } catch (onEventErr) {
+                    this.addLog(
+                      `[Bridge] onEvent threw for terminal event ${resp.eventType}: ${onEventErr}`
+                    );
+                  } finally {
+                    pending.resolve(resp.data);
+                  }
                 }
                 // Terminal: skip bridge-event
                 return;
