@@ -40,6 +40,13 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
     onChange(p); setOpen(false); toastFn(`✓ ${LABELS[p]} 已启用`);
   }, [onChange, toastFn]);
 
+  // Sync auto mode to sessionStorage so TopBar/ApprovalBypassBanner can react
+  useEffect(() => {
+    if (policy === 'auto') sessionStorage.setItem('miqi:mode:auto', '1');
+    else sessionStorage.removeItem('miqi:mode:auto');
+    window.dispatchEvent(new Event('miqi:mode-changed'));
+  }, [policy]);
+
   // keyboard: 1/2/3/4 direct, Shift+Tab cycle
   useEffect(() => {
     const h = (e: KeyboardEvent) => {

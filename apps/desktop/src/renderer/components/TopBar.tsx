@@ -33,7 +33,8 @@ function isAllBypassOn(status: ApprovalBypassStatus | null): boolean {
   ));
 }
 
-function getBypassLabel(status: ApprovalBypassStatus | null): string {
+function getBypassLabel(status: ApprovalBypassStatus | null, autoMode: boolean): string {
+  if (autoMode) return '自动';
   if (isAllBypassOn(status)) return '全部绕过';
   return '绕过';
 }
@@ -54,15 +55,26 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
   const { status } = useRuntime();
   const [approvalBypass, setApprovalBypass] = useState<ApprovalBypassStatus | null>(null);
   const [bypassHovered, setBypassHovered] = useState(false);
+  const [autoMode, setAutoMode] = useState(() => sessionStorage.getItem('miqi:mode:auto') === '1');
 
   const isRunning = status.state === 'running';
   const isStarting = status.state === 'starting' || status.state === 'stopping';
-  const bypassEnabled = isBypassEnabled(approvalBypass);
+  const bypassEnabled = isBypassEnabled(approvalBypass) || autoMode;
+
+  // Listen for auto mode changes
+  useEffect(() => {
+    const h = () => setAutoMode(sessionStorage.getItem('miqi:mode:auto') === '1');
+    window.addEventListener('miqi:mode-changed', h);
+    return () => window.removeEventListener('miqi:mode-changed', h);
+  }, []);
 
   // Build detail text for hover expansion
   const bypassDetails: string[] = [];
-  if (isAllBypassOn(approvalBypass)) bypassDetails.push('全部操作');
-  else {
+  if (autoMode) {
+    bypassDetails.push('自动模式');
+  } else if (isAllBypassOn(approvalBypass)) {
+    bypassDetails.push('全部操作');
+  } else {
     if (approvalBypass?.bypassCommandApproval) bypassDetails.push('命令执行');
     if (approvalBypass?.bypassFileWriteApproval) bypassDetails.push('文件写入');
     if (approvalBypass?.bypassToolConfirmation) bypassDetails.push('工具调用');
@@ -146,7 +158,7 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
             >
               <span className="flex items-center gap-1 px-2.5 whitespace-nowrap shrink-0">
                 <AlertTriangle size={10} className="shrink-0" />
-                <span>{getBypassLabel(approvalBypass)}</span>
+                <span>{getBypassLabel(approvalBypass, autoMode)}</span>
               </span>
               {bypassDetailText && (
                 <span
