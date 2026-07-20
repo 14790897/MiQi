@@ -721,6 +721,36 @@ export function ChatConsole({
   const [execOutputs, setExecOutputs] = useState<
     Record<string, { stdout: string; stderr: string; running: boolean }>
   >({});
+  // When false, suppress the bordered inline terminal box for exec outputs.
+  // Stored under desktop.ui.inlineExecOutput (opaque desktop-owned settings).
+  // Defaults to false to avoid empty-box artifacts when sandbox policy strips
+  // stdout/stderr (see issue surfaced after #339).
+  const [inlineExecOutput, setInlineExecOutput] = useState(false);
+  useEffect(() => {
+    window.miqi.config
+      ?.get()
+      ?.then((cfg: any) => {
+        if (cfg?.desktop?.ui?.inlineExecOutput === true) setInlineExecOutput(true);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Refetch when window regains focus, so toggling the setting in the
+  // Settings page takes effect without a full app reload.
+  useEffect(() => {
+    const refetch = () => {
+      window.miqi.config
+        ?.get()
+        ?.then((cfg: any) => setInlineExecOutput(cfg?.desktop?.ui?.inlineExecOutput === true))
+        .catch(() => {});
+    };
+    window.addEventListener('focus', refetch);
+    document.addEventListener('visibilitychange', refetch);
+    return () => {
+      window.removeEventListener('focus', refetch);
+      document.removeEventListener('visibilitychange', refetch);
+    };
+  }, []);
   const [merging, setMerging] = useState(false);
   const [activePluginCount, setActivePluginCount] = useState(0);
   const [shareStatus, setShareStatus] = useState<'idle' | 'copied' | 'exported' | 'context'>(
@@ -1967,6 +1997,7 @@ export function ChatConsole({
                     key={`${msg.timestamp}-${i}`}
                     msg={msg}
                     execOutputs={execOutputs}
+                    inlineExecOutput={inlineExecOutput}
                     isLast={i === messages.length - 1}
                     onCopy={(text) => handleCopy(text, i)}
                     isCopied={copiedIdx === i}
@@ -2737,6 +2768,7 @@ function TrackedFileCard({
 function MessageBubble({
   msg,
   execOutputs,
+  inlineExecOutput,
   isLast,
   onCopy,
   isCopied,
@@ -2747,6 +2779,7 @@ function MessageBubble({
 }: {
   msg: Message;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
+  inlineExecOutput: boolean;
   isLast: boolean;
   onCopy: (text: string) => void;
   isCopied: boolean;
@@ -2797,8 +2830,8 @@ function MessageBubble({
         ) : (
           <span className="whitespace-pre-wrap break-all">{msg.content}</span>
         )}
-        {/* Inline exec output (Phase 7.4) */}
-        {msg.toolCallId && execOutputs[msg.toolCallId] && (
+        {/* Inline exec output (Phase 7.4) — gated by ui.inlineExecOutput setting */}
+        {inlineExecOutput && msg.toolCallId && execOutputs[msg.toolCallId] && (
           <div className="ml-5 mt-1 p-2 bg-black/80 text-green-400 text-[11px] font-mono rounded max-h-48 overflow-y-auto border border-gray-700">
             <pre className="whitespace-pre-wrap">
               {execOutputs[msg.toolCallId].stdout}
