@@ -129,7 +129,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
       {bypass && (
         <div onClick={() => setBypass(false)} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.35)' }}>
           <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px 20px', maxWidth: 300, width: '90%', boxShadow: '0 16px 48px rgba(0,0,0,0.16)' }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>🔓 开启绕过权限</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>开启绕过权限</div>
             <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0' }}>直接修改文件 · 执行命令 · 跳过审批</p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
               <button onClick={() => setBypass(false)} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 500, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)' }}>取消</button>
