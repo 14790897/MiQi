@@ -1,4 +1,0 @@
-interface:
-  display_name: "MOF Synthesis Price Agent"
-  short_description: "Extract MOF synthesis routes, prices, and reports"
-  default_prompt: "Use $mof-synthesis-price-agent to process a MOF paper DOI, PDF, text, JSON, or CSV prefix into synthesis, pricing, and feasibility reports."
