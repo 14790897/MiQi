@@ -533,15 +533,27 @@ def _graceful_shutdown() -> None:
             loop = None
 
         if loop and loop.is_running():
-            # Phase 27.6: persistent loop running — schedule cleanup
-            asyncio.ensure_future(sandbox_mgr.destroy_all())
+            # Phase 27.6: persistent loop running — schedule cleanup.
+            # We must await the future so that destroy_all() actually
+            # runs before _clear_state_file() deletes the state file
+            # and _bridge_state is set to None (#329).
+            try:
+                loop.run_until_complete(
+                    asyncio.ensure_future(sandbox_mgr.destroy_all())
+                )
+            except Exception as destroy_exc:
+                _log(
+                    "Sandbox destroy_all failed during shutdown "
+                    f"(non-fatal): {destroy_exc}"
+                )
         else:
             # No running loop (signal/atexit after loop closed) — create one
             asyncio.run(sandbox_mgr.destroy_all())
     except Exception as exc:
         _log(f"Sandbox cleanup on shutdown failed (non-fatal): {exc}")
     finally:
-        # Always clear the state file to prevent stale entries
+        # Always clear the state file to prevent stale entries.
+        # Only do this after destroy_all() has completed (#329).
         try:
             sandbox_mgr._clear_state_file()
         except Exception:
