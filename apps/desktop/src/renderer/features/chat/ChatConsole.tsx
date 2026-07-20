@@ -1997,6 +1997,7 @@ export function ChatConsole({
                     key={`${msg.timestamp}-${i}`}
                     msg={msg}
                     execOutputs={execOutputs}
+                    inlineExecOutput={inlineExecOutput}
                     isLast={i === messages.length - 1}
                     onCopy={(text) => handleCopy(text, i)}
                     isCopied={copiedIdx === i}
@@ -2767,6 +2768,7 @@ function TrackedFileCard({
 function MessageBubble({
   msg,
   execOutputs,
+  inlineExecOutput,
   isLast,
   onCopy,
   isCopied,
@@ -2777,6 +2779,7 @@ function MessageBubble({
 }: {
   msg: Message;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
+  inlineExecOutput: boolean;
   isLast: boolean;
   onCopy: (text: string) => void;
   isCopied: boolean;
