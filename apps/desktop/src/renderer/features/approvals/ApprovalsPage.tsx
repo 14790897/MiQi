@@ -152,6 +152,14 @@ export function ApprovalsPage() {
   const [bypassSaved, setBypassSaved] = useState<ApprovalBypassKey | null>(null);
   const [bypassError, setBypassError] = useState<string | null>(null);
 
+  // Auto mode override: when active, all switches appear checked
+  const [autoMode, setAutoMode] = useState(() => sessionStorage.getItem('miqi:mode:auto') === '1');
+  useEffect(() => {
+    const h = () => setAutoMode(sessionStorage.getItem('miqi:mode:auto') === '1');
+    window.addEventListener('miqi:mode-changed', h);
+    return () => window.removeEventListener('miqi:mode-changed', h);
+  }, []);
+
   // Expand
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
@@ -445,13 +453,13 @@ export function ApprovalsPage() {
             <button
               type="button"
               onClick={() => updateBypassConfig('bypassAll', !bypassConfig.bypassAll)}
-              disabled={bypassLoading}
+              disabled={bypassLoading || autoMode}
               className="flex items-center gap-3 shrink-0 cursor-pointer disabled:cursor-not-allowed"
             >
               <span className="text-xs font-medium text-[var(--text-muted)]">全部绕过</span>
               <ToggleSwitch
-                checked={bypassConfig.bypassAll}
-                disabled={bypassLoading}
+                checked={autoMode || bypassConfig.bypassAll}
+                disabled={bypassLoading || autoMode}
                 testId="approval-bypass-all-toggle"
                 tone="warning"
               />
@@ -465,8 +473,8 @@ export function ApprovalsPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-[var(--border-subtle)]">
             {bypassRows.map((row) => {
-              const disabled = bypassLoading || bypassConfig.bypassAll;
-              const checked = isBypassOn(row.key);
+              const disabled = bypassLoading || bypassConfig.bypassAll || autoMode;
+              const checked = autoMode || isBypassOn(row.key);
               const storedChecked = bypassConfig[row.key];
               const nextStored = !storedChecked;
               return (
