@@ -43,13 +43,15 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
   // keyboard shortcuts 1/2/3/4
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'TEXTAREA') return;
+      if (disabled) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       const m: Record<string, ExecutionPolicy> = { '1': 'plan', '2': 'manual', '3': 'accept_edits', '4': 'bypass' };
       if (m[e.key]) pick(m[e.key]);
     };
     document.addEventListener('keydown', h);
     return () => document.removeEventListener('keydown', h);
-  }, [pick]);
+  }, [pick, disabled]);
 
   return (
     <>
