@@ -170,7 +170,7 @@ class PermissionEngine:
         # 1c. Execution policy: manual forces approval for everything
         if getattr(ctx, "force_approval", False):
             return PermissionDecision(
-                verdict=PermissionVerdict.REQUIRE_APPROVAL,
+                verdict=PermissionVerdict.APPROVAL_REQUIRED,
                 category="run",
                 reason="Approval required by execution policy (manual mode)",
                 allow_permanent=False,
