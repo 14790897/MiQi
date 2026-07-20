@@ -49,7 +49,7 @@ async function waitForFileInPanel(page: Page, filename: string, timeout = 30_000
     .first();
   await expect(card).toBeVisible({ timeout });
   // Panel should no longer show empty state
-  await expect(page.getByText(/No files yet/)).not.toBeVisible({ timeout: 5_000 });
+  await expect(page.locator('[data-testid="task-assets-empty"]')).not.toBeVisible({ timeout: 5_000 });
   return card;
 }
 
@@ -175,8 +175,8 @@ test.describe('Task Assets Preview & Persistence', () => {
       }
 
       // Session B should have no files
-      await expect(page.getByText(/No files yet/)).toBeVisible({ timeout: 10_000 });
-      console.log('[test] ✅ Session B shows "No files yet."');
+      await expect(page.locator('[data-testid="task-assets-empty"]')).toBeVisible({ timeout: 10_000 });
+      console.log('[test] ✅ Session B shows empty state.');
 
       // Step 3: switch back to Session A
       const found = await switchToSessionWithMarker(page, persistMarker);
