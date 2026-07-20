@@ -33,6 +33,7 @@ export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: ()
   const [enabled, setEnabled] = useState(false);
   const [phase, setPhase] = useState<'hidden' | 'show' | 'hide'>('hidden');
   const timer = useRef<number>(0);
+  const firstLoad = useRef(true);
 
   const load = useCallback(async () => {
     if (!(window as any).miqi?.config?.get) { setEnabled(false); return; }
@@ -52,12 +53,13 @@ export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: ()
     };
   }, [load]);
 
-  // Trigger show animation when enabled becomes true
+  // Trigger show animation when enabled becomes true (skip first load)
   useEffect(() => {
     if (!enabled) { setPhase('hidden'); return; }
+    if (firstLoad.current) { firstLoad.current = false; return; }
     if (timer.current) clearTimeout(timer.current);
     setPhase('show');
-    timer.current = window.setTimeout(() => setPhase('hide'), 2500); // 0.5s fade-in + 2s hold
+    timer.current = window.setTimeout(() => setPhase('hide'), 2500);
   }, [enabled]);
 
   if (phase === 'hidden') return null;

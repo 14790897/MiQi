@@ -283,7 +283,19 @@ export function ApprovalsPage() {
     const next =
       key === 'bypassAll'
         ? { ...DEFAULT_APPROVAL_BYPASS, bypassAll: enabled }
-        : { ...bypassConfig, bypassAll: false, [key]: enabled };
+        : (() => {
+            const updated = { ...bypassConfig, [key]: enabled };
+            // If all 4 individual bypasses are now ON, auto-check bypassAll
+            if (updated.bypassCommandApproval &&
+                updated.bypassFileWriteApproval &&
+                updated.bypassToolConfirmation &&
+                updated.bypassNetworkApproval) {
+              updated.bypassAll = true;
+            } else {
+              updated.bypassAll = false;
+            }
+            return updated;
+          })();
     setBypassSaving(key);
     setBypassError(null);
     setBypassConfig(next);
