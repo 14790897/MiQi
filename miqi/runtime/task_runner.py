@@ -509,7 +509,7 @@ class TaskRunner:
             ctx_runtime = getattr(self.services, "context_runtime", None)
             auto_limit = getattr(self.services.model_settings, "context_limit_chars", 0)
             if history_runtime is not None and ctx_runtime is not None and auto_limit:
-                token_limit = max(1, int(auto_limit) // 4)
+                token_limit = max(1, int(int(auto_limit) / 2.5))
                 if ctx_runtime.should_auto_compact(history, token_limit):
                     try:
                         compact_result = await ctx_runtime.compact_thread(

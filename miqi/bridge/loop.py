@@ -504,7 +504,15 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("experience:toggle", experience_toggle_handler)
         self._app_server.register_method("experience:search", experience_search_handler)
 
-        # Register Phase 35.8: diagnostic handlers
+        # Register Phase 35.8: feedback handlers
+        from miqi.runtime.feedback_handlers import (
+            feedback_list_handler,
+            feedback_submit_handler,
+        )
+        self._app_server.register_method("feedback:submit", feedback_submit_handler)
+        self._app_server.register_method("feedback:list", feedback_list_handler)
+
+        # Register Phase 35.9: diagnostic handlers
         from miqi.runtime.diagnostic_handlers import python_check_handler
         self._app_server.register_method("python.check", python_check_handler, spec=protocol_specs.PYTHON_CHECK)
 
@@ -759,6 +767,9 @@ class BridgeRuntimeLoop:
                 AgentReasoningEvent,
                 ApprovalResolvedEvent,
                 ErrorEvent,
+                ExecCommandBeginEvent,
+                ExecCommandEndEvent,
+                ExecCommandOutputDeltaEvent,
                 ToolCallBeginEvent,
                 ToolCallEndEvent,
                 TurnAbortedEvent,
@@ -821,6 +832,17 @@ class BridgeRuntimeLoop:
                         })
                     break
 
+                # Exec output deltas: forward with the top-level shape that
+                # ChatConsole.tsx expects (stream / delta / tool_call_id)
+                # so inline terminal output updates in real time.
+                if isinstance(event, ExecCommandOutputDeltaEvent):
+                    await _emit("progress", {
+                        "stream": event.stream,
+                        "delta": event.delta,
+                        "tool_call_id": event.tool_call_id,
+                    })
+                    continue
+
                 # Internal runtime events that should never appear in
                 # the chat message stream.  See Issue #35.
                 if isinstance(event, (
@@ -828,6 +850,8 @@ class BridgeRuntimeLoop:
                     AgentReasoningEvent,       # model reasoning; no user-visible rendering target yet
                     TurnStartedEvent,          # turn lifecycle; not chat content
                     ApprovalResolvedEvent,     # approval lifecycle; not chat content
+                    ExecCommandBeginEvent,     # exec lifecycle; rendered via ToolCallBeginEvent
+                    ExecCommandEndEvent,       # exec lifecycle; rendered via ToolCallEndEvent
                 )):
                     continue
 

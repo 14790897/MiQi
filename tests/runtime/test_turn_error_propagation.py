@@ -40,6 +40,9 @@ class _FakeContext:
     def add_tool_result(self, messages, tool_call_id, name, content):
         return [*messages, {"role": "tool", "content": content}]
 
+    def trim_for_model(self, messages, model):
+        return messages
+
 
 class _FakeEvents:
     def __init__(self):

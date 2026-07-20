@@ -155,6 +155,10 @@ class TurnRunner:
             if cancel_event is not None and cancel_event.is_set():
                 raise asyncio.CancelledError("Turn cancelled via AbortTurn")
 
+            # Phase 56: hard-trim messages before provider call so we never
+            # send a request that exceeds the model's input token limit.
+            messages = self._context.trim_for_model(messages, turn.model)
+
             # Phase 20: prefer streaming. stream_chat() is a base-class
             # method on LLMProvider so every provider supports it — the
             # default wraps chat() and yields a single "completed" event.
