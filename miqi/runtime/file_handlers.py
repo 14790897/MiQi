@@ -447,14 +447,17 @@ def _find_in_sandbox_workspaces(
                 continue
 
             candidates: list[Path] = []
+            # Strip leading separator so an absolute *file_path* cannot
+            # discard the sandbox-workspace prefix via Path "/" semantics.
+            rel = file_path.lstrip("/").lstrip("\\")
 
             # 1) Check at workspace root
-            candidates.append((Path(sandbox_ws) / file_path).resolve())
+            candidates.append((Path(sandbox_ws) / rel).resolve())
 
             # 2) Check session-scoped subdirectory
             if session_suffix:
                 candidates.append(
-                    (Path(sandbox_ws) / session_suffix / file_path).resolve()
+                    (Path(sandbox_ws) / session_suffix / rel).resolve()
                 )
 
             distro = entry.get("distro", "")
