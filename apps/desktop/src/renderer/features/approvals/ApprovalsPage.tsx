@@ -46,7 +46,7 @@ function normalizeApprovalBypass(config: Record<string, unknown>): ApprovalBypas
   const approvals = (config.approvals ?? {}) as Partial<ApprovalBypassConfig>;
 
   return {
-    bypassAll: false,  // always false — superseded by Execution Policy
+    bypassAll: Boolean(approvals.bypassAll),
     bypassCommandApproval: Boolean(approvals.bypassCommandApproval),
     bypassFileWriteApproval: Boolean(approvals.bypassFileWriteApproval),
     bypassToolConfirmation: Boolean(approvals.bypassToolConfirmation),
@@ -401,21 +401,56 @@ export function ApprovalsPage() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-6 py-5">
         <div
-          className="border rounded-lg mb-5 overflow-hidden border-[var(--approval-warning-border)] bg-[var(--approval-warning-bg)]"
+          className={`border rounded-lg mb-5 overflow-hidden ${
+            bypassConfig.bypassAll
+              ? 'border-[var(--approval-warning-border)] bg-[var(--approval-warning-bg)]'
+              : 'border-[var(--border-subtle)] bg-[var(--surface)]'
+          }`}
         >
-          <div className="flex items-center gap-3 px-5 py-4">
-            <AlertTriangle size={15} className="text-[var(--approval-warning)] shrink-0" />
-            <div>
-              <h2 className="text-sm font-semibold text-[var(--text)]">审批行为由工具栏模式控制</h2>
-              <p className="text-xs text-[var(--approval-warning)] mt-0.5">
-                在聊天工具栏可切换<strong>规划 / 手动 / 接受编辑 / 绕过</strong>模式来调整 Agent 自主程度。此页面配置各审批类别的底层规则。
+          <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-[var(--border-subtle)]">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <AlertTriangle
+                  size={15}
+                  className={
+                    bypassConfig.bypassAll
+                      ? 'text-[var(--approval-warning)]'
+                      : 'text-[var(--text-faint)]'
+                  }
+                />
+                <h2 className="text-sm font-semibold text-[var(--text)]">审批绕过模式</h2>
+                {bypassSaved === 'bypassAll' && (
+                  <span className="text-[11px] text-[var(--success)]">已保存</span>
+                )}
+              </div>
+              <p className="text-xs text-[var(--text-muted)] mt-1">
+                开启后，智能体执行对应操作时会跳过审批弹窗。
               </p>
             </div>
+            <button
+              type="button"
+              onClick={() => updateBypassConfig('bypassAll', !bypassConfig.bypassAll)}
+              disabled={bypassLoading}
+              className="flex items-center gap-3 shrink-0 cursor-pointer disabled:cursor-not-allowed"
+            >
+              <span className="text-xs font-medium text-[var(--text-muted)]">全部绕过</span>
+              <ToggleSwitch
+                checked={bypassConfig.bypassAll}
+                disabled={bypassLoading}
+                testId="approval-bypass-all-toggle"
+                tone="warning"
+              />
+            </button>
           </div>
+          {bypassError && (
+            <div className="px-5 py-2 text-xs text-[var(--danger)] border-b border-[var(--border-subtle)]">
+              {bypassError}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-[var(--border-subtle)]">
             {bypassRows.map((row) => {
-              const disabled = bypassLoading;
+              const disabled = bypassLoading || bypassConfig.bypassAll;
               const checked = isBypassOn(row.key);
               const storedChecked = bypassConfig[row.key];
               const nextStored = !storedChecked;
@@ -440,6 +475,9 @@ export function ApprovalsPage() {
                     </span>
                     <span className="block text-[11px] text-[var(--text-muted)] mt-0.5">
                       {row.description}
+                      {bypassConfig.bypassAll
+                        ? '。当前由“全部绕过”统一控制'
+                        : ''}
                     </span>
                   </span>
                   <ToggleSwitch
