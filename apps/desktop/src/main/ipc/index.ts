@@ -1250,11 +1250,12 @@ for m in ("pydantic", "httpx", "loguru"):
       return null;
     }
 
+    // Pass path as env var to prevent shell injection via interpolation
     const searchScript =
       `for d in /tmp/miqi-sandboxes/*/home/miqi/workspace/; do\n` +
-      `  if [ -f "$d${relPath}" ]; then echo "$d${relPath}"; exit 0; fi\n` +
+      `  if [ -f "$d$REL_PATH" ]; then echo "$d$REL_PATH"; exit 0; fi\n` +
       `  for s in "$d"sessions/*/files/; do\n` +
-      `    if [ -f "${s}${relPath}" ]; then echo "${s}${relPath}"; exit 0; fi\n` +
+      `    if [ -f "${s}$REL_PATH" ]; then echo "${s}$REL_PATH"; exit 0; fi\n` +
       `  done\n` +
       `done\n` +
       `exit 1\n`;
@@ -1264,6 +1265,7 @@ for m in ("pydantic", "httpx", "loguru"):
         const { stdout } = await execFileAsync('wsl.exe', ['-d', distro, '--', 'bash'], {
           ...execOpts,
           input: searchScript,
+          env: { ...process.env, REL_PATH: relPath },
         });
         if (stdout?.trim()) return { wslAbsPath: stdout.trim(), distro };
       } catch {
