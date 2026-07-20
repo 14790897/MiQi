@@ -438,10 +438,13 @@ export class BridgeManager extends EventEmitter {
           const normalized = normalizeBridgeMessage(resp);
           const pending = normalized.requestId ? this.pending.get(normalized.requestId) : undefined;
 
-          if (!pending && resp.type && resp.data) {
+          if (!pending && normalized.eventType && resp.data) {
             // Orphan event (e.g. subagent_result after main agent finished)
             // Forward to all renderer windows so late events are not dropped.
-            const eventKey = `CHAT_${resp.type.toUpperCase()}`;
+            // Use normalized.eventType (not raw resp.type) so events sent via
+            // the "event" field are handled correctly — consistent with the
+            // primary handler (#335).
+            const eventKey = `CHAT_${normalized.eventType.toUpperCase()}`;
             const channel = IPC_EVENTS[eventKey as keyof typeof IPC_EVENTS];
             if (channel) {
               const allWindows = BrowserWindow.getAllWindows();
