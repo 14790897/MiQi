@@ -651,9 +651,6 @@ class BridgeRuntimeLoop:
         # Submit the user message
         await runtime.submit(UserMessage(content=content, thread_id=thread_id))
 
-        # Subscribe client to session events so emit_event delivers to the sink
-        self._app_server.subscribe(client_id, runtime_id)
-
         # Reject duplicate turns for the same session: cancelling the old
         # drain task leaves abandoned sandbox creation running (WSL
         # subprocesses don't respond to asyncio cancellation), which
@@ -667,6 +664,11 @@ class BridgeRuntimeLoop:
                 "A turn is already in progress for this session",
                 code="TURN_IN_PROGRESS",
             )
+
+        # Subscribe client to session events so emit_event delivers to the sink.
+        # Must happen AFTER the TURN_IN_PROGRESS check to avoid leaking a
+        # subscription when the duplicate-turn error is raised (#326).
+        self._app_server.subscribe(client_id, runtime_id)
 
         # Spawn background drain task
         app_server = self._app_server

@@ -279,9 +279,18 @@ export class BridgeManager extends EventEmitter {
                   if (resp.code) (err as Error & { code?: string }).code = resp.code;
                   pending.reject(err);
                 } else {
-                  // final / aborted: call onEvent then resolve
-                  pending.onEvent?.(resp.eventType, resp.data);
-                  pending.resolve(resp.data);
+                  // final / aborted: call onEvent then resolve.
+                  // Wrap onEvent in try/catch so a thrown error in the
+                  // callback does not skip pending.resolve (#331).
+                  try {
+                    pending.onEvent?.(resp.eventType, resp.data);
+                  } catch (onEventErr) {
+                    this.addLog(
+                      `[Bridge] onEvent threw for terminal event ${resp.eventType}: ${onEventErr}`
+                    );
+                  } finally {
+                    pending.resolve(resp.data);
+                  }
                 }
                 // Terminal: skip bridge-event
                 return;
@@ -340,8 +349,9 @@ export class BridgeManager extends EventEmitter {
           } else {
             pending.resolve(resp.result);
           }
-        } catch {
-          this.addLog(`[Bridge] Ignoring non-JSON stdout line: ${line}`);
+        } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          this.addLog(`[Bridge] Error processing stdout line: ${errMsg} — raw: ${line}`);
         }
       });
 
@@ -438,10 +448,13 @@ export class BridgeManager extends EventEmitter {
           const normalized = normalizeBridgeMessage(resp);
           const pending = normalized.requestId ? this.pending.get(normalized.requestId) : undefined;
 
-          if (!pending && resp.type && resp.data) {
+          if (!pending && normalized.eventType && resp.data) {
             // Orphan event (e.g. subagent_result after main agent finished)
             // Forward to all renderer windows so late events are not dropped.
-            const eventKey = `CHAT_${resp.type.toUpperCase()}`;
+            // Use normalized.eventType (not raw resp.type) so events sent via
+            // the "event" field are handled correctly — consistent with the
+            // primary handler (#335).
+            const eventKey = `CHAT_${normalized.eventType.toUpperCase()}`;
             const channel = IPC_EVENTS[eventKey as keyof typeof IPC_EVENTS];
             if (channel) {
               const allWindows = BrowserWindow.getAllWindows();
