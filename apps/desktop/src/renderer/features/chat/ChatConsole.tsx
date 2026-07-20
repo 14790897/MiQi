@@ -162,9 +162,7 @@ export function buildTaskShareText({
         })
       : ['- 暂无对话内容'];
   const fileLines =
-    files.length > 0
-      ? files.map((file) => `- ${file.name} (${file.op})`)
-      : ['- 暂无文件'];
+    files.length > 0 ? files.map((file) => `- ${file.name} (${file.op})`) : ['- 暂无文件'];
 
   return [
     `# ${title}`,
@@ -650,7 +648,9 @@ export function ChatConsole({
         const result = await window.miqi.plugins.list();
         const plugins = (result as unknown as { plugins?: Array<{ status?: string }> })?.plugins;
         if (!cancelled) {
-          setActivePluginCount((plugins ?? []).filter((plugin) => plugin.status === 'active').length);
+          setActivePluginCount(
+            (plugins ?? []).filter((plugin) => plugin.status === 'active').length
+          );
         }
       } catch {
         if (!cancelled) setActivePluginCount(0);
@@ -1841,7 +1841,9 @@ export function ChatConsole({
                   try {
                     await window.miqi.sessions.archive(sessionKey);
                     handleNewSession();
-                  } catch { /* ignore */ }
+                  } catch {
+                    /* ignore */
+                  }
                 },
               },
               {
@@ -2180,7 +2182,11 @@ export function ChatConsole({
             >
               <div className="flex items-center gap-1.5">
                 <LayoutGrid size={13} style={{ color: 'var(--text-muted)' }} />
-                <span className="text-xs font-semibold" style={{ color: 'var(--text)' }} data-testid="task-assets-title">
+                <span
+                  className="text-xs font-semibold"
+                  style={{ color: 'var(--text)' }}
+                  data-testid="task-assets-title"
+                >
                   任务资产
                 </span>
               </div>
@@ -2193,7 +2199,11 @@ export function ChatConsole({
               <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center gap-4">
                 <FileText size={28} style={{ color: 'var(--text-faint)', opacity: 0.35 }} />
                 <div className="flex flex-col items-center gap-1">
-                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }} data-testid="task-assets-empty">
+                  <p
+                    className="text-[13px] font-medium"
+                    style={{ color: 'var(--text-muted)' }}
+                    data-testid="task-assets-empty"
+                  >
                     暂无文件
                   </p>
                   <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
@@ -2332,22 +2342,19 @@ export function ChatConsole({
                 disabled={merging || trackedFiles.length === 0}
                 className={cn(
                   'w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition duration-200',
-                  merging || trackedFiles.length === 0
-                    ? 'cursor-not-allowed'
-                    : 'hover:opacity-90',
+                  merging || trackedFiles.length === 0 ? 'cursor-not-allowed' : 'hover:opacity-90'
                 )}
                 style={{
                   background:
                     merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'var(--accent)',
-                  color: merging || trackedFiles.length === 0 ? 'var(--text-faint)' : 'var(--accent-text)',
+                  color:
+                    merging || trackedFiles.length === 0
+                      ? 'var(--text-faint)'
+                      : 'var(--accent-text)',
                   opacity: merging || trackedFiles.length === 0 ? 0.5 : 1,
                 }}
               >
-                {merging ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <GitMerge size={13} />
-                )}
+                {merging ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
                 {merging ? '合并中...' : '合并所有更改'}
               </button>
               {trackedFiles.length === 0 && (
@@ -2852,11 +2859,13 @@ function MessageBubble({
       <div className="flex items-start gap-3">
         <AgentAvatar />
         <div
-          className="text-sm rounded-2xl px-4 py-3"
+          className="text-sm rounded-2xl px-4 py-3 min-w-0"
           style={{
             background: 'var(--danger-bg)',
             color: 'var(--danger)',
             border: '1px solid var(--danger)',
+            maxWidth: '82%',
+            minWidth: 0,
           }}
         >
           <div className="whitespace-pre-wrap break-words">{msg.content}</div>
@@ -2884,15 +2893,16 @@ function MessageBubble({
       <div className="flex items-start gap-3">
         <GitMerge size={18} style={{ color: 'var(--accent)', marginTop: 6 }} />
         <div
-          className="text-sm rounded-2xl px-4 py-3 prose prose-sm max-w-none break-words"
+          className="text-sm rounded-2xl px-4 py-3 prose prose-sm max-w-none break-words min-w-0"
           style={{
             background: 'var(--surface-muted)',
             color: 'var(--text)',
             border: '1px solid var(--border-subtle)',
             maxWidth: '82%',
+            minWidth: 0,
           }}
         >
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+          <MarkdownContent content={msg.content} />
         </div>
       </div>
     );
@@ -2937,7 +2947,7 @@ function MessageBubble({
 
           <div
             className={cn(
-              'group flex flex-col gap-1.5',
+              'group flex flex-col gap-1.5 min-w-0',
               isUser ? 'items-end max-w-[70%]' : 'max-w-[82%]'
             )}
           >
@@ -2973,7 +2983,7 @@ function MessageBubble({
 
             {/* Main bubble */}
             <div
-              className="text-sm leading-relaxed rounded-2xl px-4 py-3"
+              className="text-sm leading-relaxed rounded-2xl px-4 py-3 max-w-full min-w-0"
               style={
                 isUser
                   ? { background: 'var(--bubble-user-bg)', color: 'var(--bubble-user-text)' }
@@ -3144,7 +3154,7 @@ function MarkdownContent({ content }: { content: string }) {
         }
         return (
           <code
-            className="text-xs font-mono px-1.5 py-0.5 rounded"
+            className="text-xs font-mono px-1.5 py-0.5 rounded break-all whitespace-pre-wrap"
             style={{ background: 'rgba(0,0,0,0.08)' }}
             {...props}
           >
@@ -3190,7 +3200,7 @@ function renderContent(text: string) {
             return (
               <code
                 key={j}
-                className="text-xs font-mono px-1 rounded"
+                className="text-xs font-mono px-1 rounded break-all whitespace-pre-wrap"
                 style={{ background: 'rgba(0,0,0,0.08)' }}
               >
                 {seg.slice(1, -1)}
