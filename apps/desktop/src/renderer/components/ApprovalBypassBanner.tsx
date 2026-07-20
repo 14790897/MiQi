@@ -48,7 +48,7 @@ export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: ()
     if (!enabled) { setPhase('hidden'); return; }
     if (timer.current) clearTimeout(timer.current);
     setPhase('show');
-    timer.current = window.setTimeout(() => setPhase('hide'), 3500); // 0.5s fade-in + 3s hold
+    timer.current = window.setTimeout(() => setPhase('hide'), 2500); // 0.5s fade-in + 2s hold
   }, [enabled]);
 
   if (phase === 'hidden') return null;
