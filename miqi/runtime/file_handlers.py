@@ -117,12 +117,19 @@ def _resolve_session_snapshot_dir(client_id: str, session_key: str) -> Path:
     return snap_dir
 
 
+# Sandbox-internal workspace prefix.  The bwrap sandbox always mounts the
+# host workspace at this location, so when the agent reports paths like
+# /home/miqi/workspace/report.md we can extract the workspace-relative
+# portion by stripping this prefix.
+_SANDBOX_WORKSPACE_PREFIX = "/home/miqi/workspace"
+
+
 def _validate_file_path(
     file_path: str,
     client_id: str,
     session_key: str | None = None,
 ) -> Path:
-    """Resolve a relative file path with path-traversal protection.
+    """Resolve a file path with path-traversal protection.
 
     If session_key is provided:
       1. Verifies ownership via _verify_session_ownership
@@ -132,14 +139,49 @@ def _validate_file_path(
     If session_key is None:
       Resolves against workspace root only.
 
-    Blocks absolute paths and path traversal (..).
+    Accepts both relative paths and absolute paths that fall within the
+    workspace.  Absolute paths that start with the sandbox workspace
+    prefix (``/home/miqi/workspace/…``) have the prefix stripped to
+    produce a workspace-relative path.  Other absolute paths are
+    resolved on the filesystem and checked against the workspace root.
+
+    Blocks absolute paths outside the workspace and path traversal (..).
     """
     workspace = _get_workspace_path()
 
-    if not file_path or file_path.startswith("/") or file_path.startswith("\\"):
+    if not file_path:
         raise AppServerError(
-            "Only relative paths are allowed", code="INVALID_PARAMS",
+            "path is required", code="INVALID_PARAMS",
         )
+
+    # ── Normalise absolute paths ──────────────────────────────────────────
+    if file_path.startswith("/") or file_path.startswith("\\"):
+        # Case 1: sandbox-internal path — the agent ran inside bwrap and
+        # reported a path under /home/miqi/workspace/.  Strip the prefix
+        # to get the workspace-relative path.
+        prefix = _SANDBOX_WORKSPACE_PREFIX
+        if file_path == prefix:
+            file_path = "."
+        elif file_path.startswith(prefix + "/"):
+            file_path = file_path[len(prefix) + 1:]
+        elif file_path.startswith(prefix + "\\"):
+            file_path = file_path[len(prefix) + 1:]
+        else:
+            # Case 2: host absolute path — try to resolve it and verify it
+            # falls inside the workspace.
+            try:
+                candidate = Path(file_path).resolve()
+            except Exception:
+                raise AppServerError(
+                    "Invalid file path", code="INVALID_PARAMS",
+                )
+            try:
+                file_path = str(candidate.relative_to(workspace.resolve()))
+            except ValueError:
+                raise AppServerError(
+                    f"Path is outside workspace: {file_path}",
+                    code="INVALID_PARAMS",
+                )
 
     # Session-scoped path resolution
     if session_key:
@@ -283,6 +325,175 @@ async def files_tree_handler(
 # ── files.read ─────────────────────────────────────────────────────────────
 
 
+def _is_wsl_sandbox_path(path: str) -> bool:
+    """Return True if *path* looks like a WSL-side sandbox path.
+
+    When the bridge runs on Windows but sandboxes live in WSL, direct
+    :meth:`Path.exists` checks fail because the Windows kernel cannot
+    see WSL's filesystem.  We detect this situation by looking for
+    Linux-style absolute paths that start with ``/tmp/`` or ``/home/``
+    while the current platform is Windows.
+    """
+    if path.startswith("/tmp/") or path.startswith("/home/"):
+        import platform
+        return platform.system() == "Windows"
+    return False
+
+
+def _wsl_file_exists(wsl_path: str, distro: str = "") -> bool:
+    """Check whether *wsl_path* exists inside WSL via ``wsl.exe``."""
+    import subprocess
+    cmd = ["wsl.exe"]
+    if distro:
+        cmd.extend(["-d", distro])
+    cmd.extend(["--", "test", "-f", wsl_path])
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=10)
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _wsl_read_file(wsl_path: str, distro: str = "") -> str:
+    """Read a text file from inside WSL via ``wsl.exe cat``.
+
+    Raises :class:`OSError` on failure.
+    """
+    import subprocess
+    cmd = ["wsl.exe"]
+    if distro:
+        cmd.extend(["-d", distro])
+    cmd.extend(["--", "cat", wsl_path])
+    result = subprocess.run(
+        cmd, capture_output=True, timeout=30, text=True, encoding="utf-8",
+    )
+    if result.returncode != 0:
+        raise OSError(
+            f"wsl.exe cat failed (rc={result.returncode}): {result.stderr.strip()}"
+        )
+    return result.stdout
+
+
+def _wsl_read_file_bytes(wsl_path: str, distro: str = "") -> bytes:
+    """Read a binary file from inside WSL via ``wsl.exe base64``.
+
+    Raises :class:`OSError` on failure.
+    """
+    import base64
+    import subprocess
+    cmd = ["wsl.exe"]
+    if distro:
+        cmd.extend(["-d", distro])
+    cmd.extend(["--", "base64", wsl_path])
+    result = subprocess.run(
+        cmd, capture_output=True, timeout=30, text=True, encoding="utf-8",
+    )
+    if result.returncode != 0:
+        raise OSError(
+            f"wsl.exe base64 failed (rc={result.returncode}): {result.stderr.strip()}"
+        )
+    return base64.b64decode(result.stdout.strip())
+
+
+def _find_in_sandbox_workspaces(
+    file_path: str,
+    host_resolved: Path,
+    session_key: str | None = None,
+) -> tuple[Path, str] | None:
+    """Search active sandbox workspace directories for *file_path*.
+
+    When the bwrap sandbox uses per-session workspace copies (Issue #221),
+    files created inside the sandbox are not immediately visible at the
+    host workspace path.  This function walks every active sandbox's
+    workspace directory looking for the file so that ``files.read`` works
+    regardless of how the file was created (``write_file``, shell command,
+    download, etc.).
+
+    When *session_key* is provided the function also checks the
+    session-scoped subdirectory (``sessions/<safe_key>/files/``) that
+    ``_get_session_workspace`` uses.
+
+    Returns ``(resolved_path, wsl_distro)`` if found, or ``None``.
+    The *wsl_distro* string is empty unless the file lives on a WSL
+    filesystem and needs to be read via ``wsl.exe``.
+    """
+    try:
+        import miqi.bridge.server as bridge_module
+        state = getattr(bridge_module, "_state", None)
+        if state is None:
+            logger.info("[files:read] sandbox fallback: bridge state unavailable")
+            return None
+        sm = getattr(state, "_sandbox_manager", None)
+        if sm is None or sm == "disabled":
+            logger.info("[files:read] sandbox fallback: sandbox manager disabled/absent")
+            return None
+
+        # Build session-scoped suffix (same logic as _get_session_workspace)
+        session_suffix = ""
+        if session_key:
+            from miqi.utils.helpers import safe_filename
+            key = session_key.split(":", 1)[-1] if ":" in session_key else session_key
+            safe_key = safe_filename(key.replace(":", "_"))
+            session_suffix = f"sessions/{safe_key}/files"
+
+        sandboxes = sm.list_sandboxes()
+        if not sandboxes:
+            logger.info("[files:read] sandbox fallback: no active sandboxes")
+            return None
+
+        for entry in sandboxes:
+            sandbox_ws = entry.get("workspace")
+            if not sandbox_ws:
+                continue
+
+            candidates: list[Path] = []
+            # Strip leading separator so an absolute *file_path* cannot
+            # discard the sandbox-workspace prefix via Path "/" semantics.
+            rel = file_path.lstrip("/").lstrip("\\")
+
+            # 1) Check at workspace root
+            candidates.append((Path(sandbox_ws) / rel).resolve())
+
+            # 2) Check session-scoped subdirectory
+            if session_suffix:
+                candidates.append(
+                    (Path(sandbox_ws) / session_suffix / rel).resolve()
+                )
+
+            distro = entry.get("distro", "")
+
+            for candidate in candidates:
+                try:
+                    if candidate.exists() and candidate.is_file():
+                        logger.info(
+                            "[files:read] sandbox fallback found: {}",
+                            candidate,
+                        )
+                        return (candidate, "")
+                except OSError:
+                    # Cross-platform path may not be directly accessible
+                    # (e.g. WSL path from Windows).  Fall through to the
+                    # wsl.exe helper below.
+                    pass
+
+            # 3) Cross-platform fallback: when the bridge runs on Windows
+            #    but the sandbox lives inside WSL, WSL paths like
+            #    /tmp/miqi-sandboxes/... are not reachable via Path.exists().
+            #    Use wsl.exe to probe the file.
+            if _is_wsl_sandbox_path(str(sandbox_ws)):
+                for candidate in candidates:
+                    if _wsl_file_exists(str(candidate), distro):
+                        logger.info(
+                            "[files:read] sandbox fallback found via wsl.exe: {}",
+                            candidate,
+                        )
+                        return (candidate, distro)
+
+    except Exception as exc:
+        logger.warning("[files:read] sandbox fallback error: {}", exc)
+    return None
+
+
 async def files_read_handler(
     request_id: str,
     params: dict[str, Any],
@@ -316,16 +527,45 @@ async def files_read_handler(
             "Invalid file path", code="INVALID_PARAMS",
         ) from exc
 
+    # Files read from a WSL sandbox need to be accessed via wsl.exe because
+    # the Windows kernel cannot see WSL's filesystem directly.
+    wsl_distro = ""
+
     if not resolved.exists():
-        raise AppServerError(f"File not found: {file_path}", code="NOT_FOUND")
-    if resolved.is_dir():
-        raise AppServerError(f"Path is a directory: {file_path}", code="INVALID_PARAMS")
+        # The file may have been created inside a sandbox whose workspace
+        # is a per-session copy (not a bind-mount of the host workspace).
+        # Search active sandbox workspace directories as a fallback.
+        sandbox_result = _find_in_sandbox_workspaces(file_path, resolved, session_key)
+        if sandbox_result is not None:
+            resolved, wsl_distro = sandbox_result
+            logger.info(
+                "[files:read] found in sandbox workspace: {} → {}",
+                file_path, resolved,
+            )
+        else:
+            logger.warning(
+                "[files:read] file not found — checked host={} session_key={}",
+                resolved, session_key,
+            )
+            raise AppServerError(
+                f"File not found: {file_path}"
+                + (f" (session: {session_key})" if session_key else ""),
+                code="NOT_FOUND",
+            )
+
+    if not wsl_distro:
+        # Host-accessible file — use normal path checks
+        if resolved.is_dir():
+            raise AppServerError(f"Path is a directory: {file_path}", code="INVALID_PARAMS")
 
     suffix = resolved.suffix.lower()
     if suffix in _TEXT_SAFE_SUFFIXES or resolved.name in _TEXT_SAFE_NAMES:
         # ── text file ──────────────────────────────────────────────────
         try:
-            content = resolved.read_text(encoding="utf-8")
+            if wsl_distro:
+                content = _wsl_read_file(str(resolved), wsl_distro)
+            else:
+                content = resolved.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             raise AppServerError(
                 "File is not valid UTF-8 text", code="INVALID_PARAMS",
@@ -348,7 +588,10 @@ async def files_read_handler(
     if suffix in _BINARY_VIEWABLE_SUFFIXES:
         # ── binary file — return base64 ───────────────────────────────
         try:
-            data = resolved.read_bytes()
+            if wsl_distro:
+                data = _wsl_read_file_bytes(str(resolved), wsl_distro)
+            else:
+                data = resolved.read_bytes()
         except Exception as exc:
             logger.warning("[files:read] binary read error {}: {}", file_path, exc)
             raise AppServerError(

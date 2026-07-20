@@ -320,8 +320,8 @@ def test_phase35_runtime_bridge_state_imports_audit():
     )
 
     total_imports = sum(imports.values())
-    assert total_imports == 14, (
-        f"Expected 14 total bridge.server imports in runtime/, "
+    assert total_imports == 15, (
+        f"Expected 15 total bridge.server imports in runtime/, "
         f"got {total_imports}. Update this test if the count changed."
     )
 
