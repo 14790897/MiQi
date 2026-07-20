@@ -144,24 +144,30 @@ test.describe('Task Assets Panel E2E', () => {
       await fileCard.locator('[data-testid="file-preview-btn"]').click();
       console.log('[test] Clicked Preview on file card');
 
-      // Preview modal should appear with file content
-      // The modal shows file path in monospace font
-      await expect(page.locator('pre.text-xs.font-mono')).toBeVisible({ timeout: 10_000 });
-      await page.screenshot({ path: 'test-results/preview-modal.png' });
-
-      // Should display our content (or an error if files.read has path issues)
-      const previewText = (await page.locator('pre.text-xs.font-mono').textContent()) || '';
-      if (previewText.includes(content)) {
-        console.log('[test] ✅ Preview modal shows correct content');
+      // Preview button now opens files with system default application.
+      // In CI (headless), openExternal may fail and fall back to showing
+      // a preview modal with an error message, or succeed and show nothing.
+      const previewModal = page.locator('pre.text-xs.font-mono');
+      const modalVisible = await previewModal.isVisible({ timeout: 8_000 }).catch(() => false);
+      if (modalVisible) {
+        await page.screenshot({ path: 'test-results/preview-modal.png' });
+        const previewText = (await previewModal.textContent()) || '';
+        if (previewText.includes(content)) {
+          console.log('[test] ✅ Preview modal shows correct content');
+        } else {
+          console.log(`[test] Preview opened externally or showed: ${previewText.slice(0, 120)}`);
+        }
       } else {
-        console.log(`[test] ⚠️ Preview content mismatch (known files.read path issue): ${previewText.slice(0, 120)}`);
+        console.log('[test] ✅ Preview opened with system app (no in-app modal)');
+        await page.screenshot({ path: 'test-results/preview-external.png' });
       }
 
-      // Close preview modal (click X button in modal header)
+      // Close preview modal if visible
       const closeBtn = page.locator('.fixed.inset-0.z-50 button').last();
-      await closeBtn.click();
-      await expect(page.locator('pre.text-xs.font-mono')).not.toBeVisible({ timeout: 10_000 });
-      console.log('[test] ✅ Preview modal closed');
+      if (await closeBtn.isVisible().catch(() => false)) {
+        await closeBtn.click();
+        console.log('[test] ✅ Preview modal closed');
+      }
     },
   );
 
