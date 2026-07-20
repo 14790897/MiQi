@@ -43,10 +43,22 @@ function getBypassTitle(status: ApprovalBypassStatus | null): string {
 export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
   const { status } = useRuntime();
   const [approvalBypass, setApprovalBypass] = useState<ApprovalBypassStatus | null>(null);
+  const [bypassHovered, setBypassHovered] = useState(false);
 
   const isRunning = status.state === 'running';
   const isStarting = status.state === 'starting' || status.state === 'stopping';
   const bypassEnabled = isBypassEnabled(approvalBypass);
+
+  // Build detail text for hover expansion
+  const bypassDetails: string[] = [];
+  if (approvalBypass?.bypassAll) bypassDetails.push('全部操作');
+  else {
+    if (approvalBypass?.bypassCommandApproval) bypassDetails.push('命令执行');
+    if (approvalBypass?.bypassFileWriteApproval) bypassDetails.push('文件写入');
+    if (approvalBypass?.bypassToolConfirmation) bypassDetails.push('工具调用');
+    if (approvalBypass?.bypassNetworkApproval) bypassDetails.push('网络请求');
+  }
+  const bypassDetailText = bypassDetails.length ? ' · ' + bypassDetails.join(' · ') : '';
 
   useEffect(() => {
     let cancelled = false;
@@ -107,35 +119,38 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
       {/* Center: status pills */}
       <div className="flex items-center gap-2">
         {bypassEnabled && (
-          <div className="relative group">
             <button
               type="button"
               onClick={onOpenApprovals}
-              className={cn(
-                'flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium',
-                'transition-colors hover:bg-[var(--surface-muted)] focus:outline-none',
-              )}
-              style={{ color: 'var(--approval-warning)', border: '1px solid transparent' }}
-            >
-              <AlertTriangle size={10} className="shrink-0" />
-              <span className="whitespace-nowrap">{getBypassLabel(approvalBypass)}</span>
-            </button>
-            {/* Hover tooltip — shows which bypasses are active */}
-            <div
-              className="absolute top-full right-0 mt-1 hidden group-hover:block z-50 rounded-lg px-3 py-2 text-[11px] whitespace-nowrap shadow-lg"
+              onMouseEnter={() => setBypassHovered(true)}
+              onMouseLeave={() => setBypassHovered(false)}
+              className="flex items-center rounded-full text-[11px] font-medium overflow-hidden h-6 shrink-0"
               style={{
-                background: 'var(--surface)',
-                border: '1px solid var(--border)',
-                color: 'var(--text-muted)',
+                color: 'var(--approval-warning)',
+                background: bypassHovered
+                  ? 'color-mix(in srgb, var(--approval-warning-bg) 80%, transparent)'
+                  : 'color-mix(in srgb, var(--approval-warning-bg) 50%, transparent)',
+                border: '1px solid var(--approval-warning-border)',
+                transition: 'background 0.2s ease',
               }}
             >
-              {approvalBypass?.bypassAll && <div>· 全部操作</div>}
-              {!approvalBypass?.bypassAll && approvalBypass?.bypassCommandApproval && <div>· 命令执行</div>}
-              {!approvalBypass?.bypassAll && approvalBypass?.bypassFileWriteApproval && <div>· 文件写入</div>}
-              {!approvalBypass?.bypassAll && approvalBypass?.bypassToolConfirmation && <div>· 工具调用</div>}
-              {!approvalBypass?.bypassAll && approvalBypass?.bypassNetworkApproval && <div>· 网络请求</div>}
-            </div>
-          </div>
+              <span className="flex items-center gap-1 px-2.5 whitespace-nowrap shrink-0">
+                <AlertTriangle size={10} className="shrink-0" />
+                <span>{getBypassLabel(approvalBypass)}</span>
+              </span>
+              {bypassDetailText && (
+                <span
+                  className="whitespace-nowrap overflow-hidden pr-2.5"
+                  style={{
+                    maxWidth: bypassHovered ? '400px' : '0px',
+                    opacity: bypassHovered ? 1 : 0,
+                    transition: 'max-width 0.3s ease, opacity 0.25s ease',
+                  }}
+                >
+                  <span style={{ color: 'var(--text-muted)' }}>{bypassDetailText}</span>
+                </span>
+              )}
+            </button>
         )}
         {/* Sync state */}
         <div
