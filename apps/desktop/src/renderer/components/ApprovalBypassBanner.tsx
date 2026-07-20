@@ -25,12 +25,17 @@ export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: ()
   const [visible, setVisible] = useState(false);
   const dismissTimer = useRef<number>(0);
 
-  const show = useCallback(() => {
-    setVisible(true);
+  // Trigger fade-in on next frame after render
+  useEffect(() => {
+    if (!enabled) return;
+    const raf = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setVisible(true));
+    });
     // auto-dismiss after 3 seconds
     if (dismissTimer.current) window.clearTimeout(dismissTimer.current);
     dismissTimer.current = window.setTimeout(() => setVisible(false), 3000);
-  }, []);
+    return () => { cancelAnimationFrame(raf); };
+  }, [enabled]);
 
   const load = useCallback(async () => {
     if (!(window as any).miqi?.config?.get) {
@@ -41,11 +46,10 @@ export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: ()
       const config = await window.miqi.config.get();
       const isBypass = hasApprovalBypass(config);
       setEnabled(isBypass);
-      if (isBypass) show();
     } catch {
       setEnabled(false);
     }
-  }, [show]);
+  }, []);
 
   useEffect(() => {
     load();
