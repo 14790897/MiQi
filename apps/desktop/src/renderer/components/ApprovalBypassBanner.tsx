@@ -22,33 +22,16 @@ function hasApprovalBypass(config: Record<string, unknown>): boolean {
 
 export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
   const [enabled, setEnabled] = useState(false);
-  const [visible, setVisible] = useState(false);
-  const dismissTimer = useRef<number>(0);
-
-  // Trigger fade-in on next frame after render
-  useEffect(() => {
-    if (!enabled) return;
-    const raf = requestAnimationFrame(() => {
-      requestAnimationFrame(() => setVisible(true));
-    });
-    // auto-dismiss after 3 seconds
-    if (dismissTimer.current) window.clearTimeout(dismissTimer.current);
-    dismissTimer.current = window.setTimeout(() => setVisible(false), 3000);
-    return () => { cancelAnimationFrame(raf); };
-  }, [enabled]);
+  const [phase, setPhase] = useState<'hidden' | 'show' | 'hide'>('hidden');
+  const timer = useRef<number>(0);
 
   const load = useCallback(async () => {
-    if (!(window as any).miqi?.config?.get) {
-      setEnabled(false);
-      return;
-    }
+    if (!(window as any).miqi?.config?.get) { setEnabled(false); return; }
     try {
       const config = await window.miqi.config.get();
       const isBypass = hasApprovalBypass(config);
       setEnabled(isBypass);
-    } catch {
-      setEnabled(false);
-    }
+    } catch { setEnabled(false); }
   }, []);
 
   useEffect(() => {
@@ -56,43 +39,38 @@ export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: ()
     window.addEventListener('miqi:approval-bypass-updated', load);
     return () => {
       window.removeEventListener('miqi:approval-bypass-updated', load);
-      if (dismissTimer.current) window.clearTimeout(dismissTimer.current);
+      if (timer.current) clearTimeout(timer.current);
     };
   }, [load]);
 
-  if (!enabled) return null;
+  // Trigger show animation when enabled becomes true
+  useEffect(() => {
+    if (!enabled) { setPhase('hidden'); return; }
+    if (timer.current) clearTimeout(timer.current);
+    setPhase('show');
+    timer.current = window.setTimeout(() => setPhase('hide'), 3500); // 0.5s fade-in + 3s hold
+  }, [enabled]);
+
+  if (phase === 'hidden') return null;
 
   return (
     <div
-      className="approval-bypass-island fixed left-1/2 top-12 z-50 flex max-w-[min(720px,calc(100vw-24px))] items-center gap-2 rounded-full border px-3 py-2 text-xs backdrop-blur pointer-events-auto"
+      className={[
+        'approval-bypass-island fixed left-1/2 top-12 z-50 flex max-w-[min(720px,calc(100vw-24px))] items-center gap-2 rounded-full border px-3 py-2 text-xs backdrop-blur pointer-events-auto',
+        phase === 'show' ? 'animate-banner-in' : 'animate-banner-out',
+      ].join(' ')}
       style={{
         background: 'color-mix(in srgb, var(--approval-warning-bg) 92%, white)',
         borderColor: 'var(--approval-warning-border)',
         color: 'var(--approval-warning)',
-        opacity: visible ? 1 : 0,
-        transform: visible ? 'translate(-50%, 0)' : 'translate(-50%, -8px)',
-        transition: 'opacity 0.5s ease, transform 0.5s ease',
       }}
     >
       <AlertTriangle size={14} className="shrink-0" />
       <span className="min-w-0 truncate font-medium">
         审批绕过已开启，本次会话的部分操作会直接放行。
       </span>
-      <button
-        type="button"
-        onClick={onOpenApprovals}
-        className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors hover:bg-[rgba(124,45,18,0.08)]"
-      >
-        查看设置
-      </button>
-      <button
-        type="button"
-        onClick={() => setVisible(false)}
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-[rgba(124,45,18,0.12)] transition-colors"
-        title="关闭提醒"
-      >
-        <X size={13} />
-      </button>
+      <button type="button" onClick={onOpenApprovals} className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors hover:bg-[rgba(124,45,18,0.08)]">查看设置</button>
+      <button type="button" onClick={() => setPhase('hide')} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-[rgba(124,45,18,0.12)] transition-colors" title="关闭提醒"><X size={13} /></button>
     </div>
   );
 }
