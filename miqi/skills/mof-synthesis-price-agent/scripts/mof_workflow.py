@@ -80,7 +80,7 @@ def _die(state: WorkflowState, message: str, state_name: str = "failed") -> Work
 
 def _slug(value: str) -> str:
     value = DOI_RE.search(value).group(0) if DOI_RE.search(value) else value
-    return re.sub(r'[<>:"/\\|?*\x00-\x1f\s]+', "_", value.strip()).strip("_")[:120] or "mof_input"
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f\s.]+', "_", value.strip()).strip("_")[:120] or "mof_input"
 
 
 def _script_root() -> Path:
