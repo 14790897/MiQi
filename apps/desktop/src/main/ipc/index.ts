@@ -108,7 +108,7 @@ function resolveWorkspacePath(raw: string): string {
   // paths that land outside the workspace root.
   const rel = resolved.replace(/\\/g, '/');
   const wsNorm = wsRoot.replace(/\\/g, '/');
-  if (!rel.startsWith(wsNorm)) {
+  if (!(rel + '/').startsWith(wsNorm + '/') && rel !== wsNorm) {
     throw new Error(`Path outside workspace: ${raw}`);
   }
 
