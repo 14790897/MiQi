@@ -54,7 +54,11 @@ def _log(msg: str, level: str = "INFO") -> None:
     Also routes through loguru so that all loguru-based modules (sandbox,
     agent loop, etc.) appear in the same stream.
     """
-    print(f"[miqi-bridge] {msg}", file=sys.stderr, flush=True)
+    try:
+        print(f"[miqi-bridge] {msg}", file=sys.stderr, flush=True)
+    except OSError:
+        # stderr may be closed during shutdown on Windows / PyInstaller
+        pass
 
 
 def _init_logging() -> None:
