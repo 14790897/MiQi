@@ -127,19 +127,20 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
       </div>
 
       {bypass && (
-        <div onClick={() => setBypass(false)} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, padding: 24, maxWidth: 360, width: '90%' }}>
-            <h3 style={{ fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, color: '#f59e0b' }}>⚠ 开启绕过权限？</h3>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>Agent 将获得完全自主权：</p>
-            <ul style={{ margin: '12px 0 20px', fontSize: 12, color: 'var(--text-muted)', lineHeight: 2, listStyle: 'none' }}>
-              {['无需确认直接修改文件','自由执行 Shell 命令','跳过所有审批弹窗'].map(s => (
-                <li key={s}><span style={{ color: '#f59e0b' }}>✓ </span>{s}</li>
+        <div onClick={() => setBypass(false)} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(2px)' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 20, padding: '20px 24px', maxWidth: 320, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.18)' }}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', margin: 0 }}>开启绕过权限</h3>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '6px 0 0' }}>Agent 将跳过所有审批直接操作：</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, margin: '10px 0', fontSize: 12, color: 'var(--text-muted)' }}>
+              {['直接修改文件','自由执行命令','跳过确认弹窗'].map(s => (
+                <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ color: '#f59e0b', fontSize: 10 }}>●</span> {s}
+                </div>
               ))}
-            </ul>
-            <p style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 16 }}>仅在你完全信任当前任务时启用。</p>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => setBypass(false)} style={{ padding: '7px 16px', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)' }}>取消</button>
-              <button onClick={() => { onChange('bypass'); setBypass(false); toastFn('✓ 绕过权限 已启用'); }} style={{ padding: '7px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none', background: '#f59e0b', color: '#fff' }}>启用</button>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+              <button onClick={() => setBypass(false)} style={{ padding: '6px 16px', borderRadius: 10, fontSize: 12, fontWeight: 500, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)' }}>取消</button>
+              <button onClick={() => { onChange('bypass'); setBypass(false); toastFn('✓ 绕过权限 已启用'); }} style={{ padding: '6px 16px', borderRadius: 10, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none', background: '#f59e0b', color: '#fff' }}>确认启用</button>
             </div>
           </div>
         </div>
