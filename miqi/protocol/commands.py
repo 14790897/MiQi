@@ -13,7 +13,7 @@ class UserMessage:
     type: str = field(default="user_message", init=False)
     content: str
     thread_id: str | None = None  # None = use active thread
-    mode: str | None = None  # "edit" | "plan" | "ask"
+    mode: str | None = None  # "plan" | "manual" | "accept_edits" | "bypass"
     media: list[dict[str, Any]] = field(default_factory=list)
     attachments: list[str] = field(default_factory=list)
     timestamp: float = field(default_factory=time.time)

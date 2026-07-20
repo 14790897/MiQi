@@ -415,7 +415,7 @@ export function ApprovalsPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-[var(--border-subtle)]">
             {bypassRows.map((row) => {
-              const disabled = bypassLoading || bypassConfig.bypassAll;
+              const disabled = bypassLoading;
               const checked = isBypassOn(row.key);
               const storedChecked = bypassConfig[row.key];
               const nextStored = !storedChecked;
@@ -440,9 +440,6 @@ export function ApprovalsPage() {
                     </span>
                     <span className="block text-[11px] text-[var(--text-muted)] mt-0.5">
                       {row.description}
-                      {bypassConfig.bypassAll
-                        ? '。当前由“全部绕过”统一控制'
-                        : ''}
                     </span>
                   </span>
                   <ToggleSwitch

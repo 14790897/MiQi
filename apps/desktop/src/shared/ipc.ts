@@ -167,7 +167,7 @@ export const ChatSendInput = z.object({
   content: z.string().min(1),
   session_key: z.string().optional(),
   thread_id: z.string().optional(),
-  mode: z.enum(['edit', 'plan', 'ask']).optional(),
+  mode: z.enum(['plan', 'manual', 'accept_edits', 'bypass']).optional(),
 });
 
 export const SessionGetInput = z.object({
