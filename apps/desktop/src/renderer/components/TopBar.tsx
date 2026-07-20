@@ -23,8 +23,18 @@ function isBypassEnabled(status: ApprovalBypassStatus | null): boolean {
   );
 }
 
+function isAllBypassOn(status: ApprovalBypassStatus | null): boolean {
+  if (!status) return false;
+  return !!(status.bypassAll || (
+    status.bypassCommandApproval &&
+    status.bypassFileWriteApproval &&
+    status.bypassToolConfirmation &&
+    status.bypassNetworkApproval
+  ));
+}
+
 function getBypassLabel(status: ApprovalBypassStatus | null): string {
-  if (status?.bypassAll) return '全部绕过';
+  if (isAllBypassOn(status)) return '全部绕过';
   return '绕过';
 }
 
@@ -51,7 +61,7 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
 
   // Build detail text for hover expansion
   const bypassDetails: string[] = [];
-  if (approvalBypass?.bypassAll) bypassDetails.push('全部操作');
+  if (isAllBypassOn(approvalBypass)) bypassDetails.push('全部操作');
   else {
     if (approvalBypass?.bypassCommandApproval) bypassDetails.push('命令执行');
     if (approvalBypass?.bypassFileWriteApproval) bypassDetails.push('文件写入');

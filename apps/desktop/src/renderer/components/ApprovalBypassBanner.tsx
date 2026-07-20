@@ -20,6 +20,15 @@ function hasApprovalBypass(config: Record<string, unknown>): boolean {
   );
 }
 
+function isAllBypassOn(status: ApprovalBypassStatus): boolean {
+  return !!(status.bypassAll || (
+    status.bypassCommandApproval &&
+    status.bypassFileWriteApproval &&
+    status.bypassToolConfirmation &&
+    status.bypassNetworkApproval
+  ));
+}
+
 export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
   const [enabled, setEnabled] = useState(false);
   const [phase, setPhase] = useState<'hidden' | 'show' | 'hide'>('hidden');
