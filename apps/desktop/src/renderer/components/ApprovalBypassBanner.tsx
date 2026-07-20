@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 
 interface ApprovalBypassStatus {
@@ -11,19 +11,26 @@ interface ApprovalBypassStatus {
 
 function hasApprovalBypass(config: Record<string, unknown>): boolean {
   const approvals = (config.approvals ?? {}) as ApprovalBypassStatus;
-
   return Boolean(
     approvals.bypassAll ||
-      approvals.bypassCommandApproval ||
-      approvals.bypassFileWriteApproval ||
-      approvals.bypassToolConfirmation ||
-      approvals.bypassNetworkApproval
+    approvals.bypassCommandApproval ||
+    approvals.bypassFileWriteApproval ||
+    approvals.bypassToolConfirmation ||
+    approvals.bypassNetworkApproval
   );
 }
 
 export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
   const [enabled, setEnabled] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const dismissTimer = useRef<number>(0);
+
+  const show = useCallback(() => {
+    setVisible(true);
+    // auto-dismiss after 3 seconds
+    if (dismissTimer.current) window.clearTimeout(dismissTimer.current);
+    dismissTimer.current = window.setTimeout(() => setVisible(false), 3000);
+  }, []);
 
   const load = useCallback(async () => {
     if (!(window as any).miqi?.config?.get) {
@@ -32,31 +39,35 @@ export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: ()
     }
     try {
       const config = await window.miqi.config.get();
-      setEnabled(hasApprovalBypass(config));
+      const isBypass = hasApprovalBypass(config);
+      setEnabled(isBypass);
+      if (isBypass) show();
     } catch {
       setEnabled(false);
     }
-  }, []);
+  }, [show]);
 
   useEffect(() => {
     load();
     window.addEventListener('miqi:approval-bypass-updated', load);
-    return () => window.removeEventListener('miqi:approval-bypass-updated', load);
+    return () => {
+      window.removeEventListener('miqi:approval-bypass-updated', load);
+      if (dismissTimer.current) window.clearTimeout(dismissTimer.current);
+    };
   }, [load]);
 
-  useEffect(() => {
-    if (!enabled) setDismissed(false);
-  }, [enabled]);
-
-  if (!enabled || dismissed) return null;
+  if (!enabled) return null;
 
   return (
     <div
-      className="approval-bypass-island fixed left-1/2 top-12 z-50 flex max-w-[min(720px,calc(100vw-24px))] items-center gap-2 rounded-full border px-3 py-2 text-xs backdrop-blur"
+      className="approval-bypass-island fixed left-1/2 top-12 z-50 flex max-w-[min(720px,calc(100vw-24px))] items-center gap-2 rounded-full border px-3 py-2 text-xs backdrop-blur pointer-events-auto"
       style={{
         background: 'color-mix(in srgb, var(--approval-warning-bg) 92%, white)',
         borderColor: 'var(--approval-warning-border)',
         color: 'var(--approval-warning)',
+        opacity: visible ? 1 : 0,
+        transform: visible ? 'translate(-50%, 0)' : 'translate(-50%, -8px)',
+        transition: 'opacity 0.5s ease, transform 0.5s ease',
       }}
     >
       <AlertTriangle size={14} className="shrink-0" />
@@ -72,7 +83,7 @@ export function ApprovalBypassBanner({ onOpenApprovals }: { onOpenApprovals?: ()
       </button>
       <button
         type="button"
-        onClick={() => setDismissed(true)}
+        onClick={() => setVisible(false)}
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-[rgba(124,45,18,0.12)] transition-colors"
         title="关闭提醒"
       >
