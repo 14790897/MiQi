@@ -1,22 +1,22 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { cn } from '../lib/utils';
 
-export type ExecutionPolicy = 'plan' | 'manual' | 'accept_edits' | 'bypass';
+export type ExecutionPolicy = 'plan' | 'manual' | 'edit' | 'auto';
 
 type P = { key: ExecutionPolicy; label: string; desc: string; color: string };
 const ITEMS: P[] = [
-  { key: 'plan',         label: '规划',      desc: '只规划不修改',                            color: '#a855f7' },
-  { key: 'manual',       label: '手动',      desc: '每次修改需确认',                          color: '#9ca3af' },
-  { key: 'accept_edits', label: '接受编辑',  desc: '自动修改文件，危险操作仍需确认',          color: '#3b82f6' },
-  { key: 'bypass',       label: '绕过权限',  desc: '完全自主——跳过所有审批检查',              color: '#f59e0b' },
+  { key: 'plan',   label: '规划',     desc: '只分析出方案，不动手',               color: '#a855f7' },
+  { key: 'manual', label: '手动',     desc: '每步说明并等待确认',                 color: '#0F766E' },
+  { key: 'edit',   label: '允许编辑', desc: '改文件自动放行，危险操作确认',       color: '#3b82f6' },
+  { key: 'auto',   label: '自动',     desc: '完全自主执行，无需确认',             color: '#f59e0b' },
 ];
 const LABELS: Record<string, string> = Object.fromEntries(ITEMS.map(p => [p.key, p.label]));
 
-interface Props { policy: ExecutionPolicy; onChange: (p: ExecutionPolicy) => void; disabled?: boolean }
+interface Props { policy: ExecutionPolicy; onChange: (p: ExecutionPolicy) => void; disabled?: boolean; onOpenApprovals?: () => void }
 
-export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
+export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenApprovals }: Props) {
   const [open, setOpen] = useState(false);
-  const [bypass, setBypass] = useState(false);
+  const [confirmAuto, setConfirmAuto] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const t = useRef(0);
@@ -36,22 +36,29 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
   useEffect(() => () => clearTimeout(t.current), []);
 
   const pick = useCallback((p: ExecutionPolicy) => {
-    if (p === 'bypass') { setBypass(true); setOpen(false); return; }
+    if (p === 'auto') { setConfirmAuto(true); setOpen(false); return; }
     onChange(p); setOpen(false); toastFn(`✓ ${LABELS[p]} 已启用`);
   }, [onChange, toastFn]);
 
-  // keyboard shortcuts 1/2/3/4
+  // keyboard: 1/2/3/4 direct, Shift+Tab cycle
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (disabled) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      const m: Record<string, ExecutionPolicy> = { '1': 'plan', '2': 'manual', '3': 'accept_edits', '4': 'bypass' };
-      if (m[e.key]) pick(m[e.key]);
+      const m: Record<string, ExecutionPolicy> = { '1': 'plan', '2': 'manual', '3': 'edit', '4': 'auto' };
+      if (m[e.key]) { pick(m[e.key]); return; }
+      if (e.key === 'Tab' && e.shiftKey) {
+        e.preventDefault();
+        const order: ExecutionPolicy[] = ['plan', 'manual', 'edit', 'auto'];
+        const idx = order.indexOf(policy);
+        const next = order[(idx + 1) % order.length];
+        pick(next);
+      }
     };
     document.addEventListener('keydown', h);
     return () => document.removeEventListener('keydown', h);
-  }, [pick, disabled]);
+  }, [pick, disabled, policy]);
 
   return (
     <>
@@ -62,7 +69,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '4px 10px', borderRadius: 7,
             fontSize: 11, fontWeight: 600, cursor: 'pointer',
-            border: `1px solid ${policy === 'bypass' ? cur.color : 'var(--border)'}`,
+            border: `1px solid ${policy === 'auto' ? cur.color : 'var(--border)'}`,
             background: 'var(--surface)', color: 'var(--text)',
             transition: 'all .15s',
           }}
@@ -72,7 +79,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: cur.color }} />
           <span>{cur.label}</span>
           <span style={{ fontSize: 8, opacity: .3 }}>▾</span>
-          {cur.key === 'bypass' && <span style={{ fontSize: 13 }}>⚠</span>}
+          {cur.key === 'auto' && <span style={{ fontSize: 13 }}>⚠</span>}
         </button>
 
         <div
@@ -88,7 +95,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
           }}
         >
           <div style={{ padding: '8px 14px 4px', fontSize: 10, color: 'var(--text-faint)', letterSpacing: .5, textTransform: 'uppercase' }}>
-            模式
+            Agent 模式
           </div>
           {ITEMS.map(p => {
             const active = policy === p.key;
@@ -118,22 +125,40 @@ export function ExecutionPolicySelector({ policy, onChange, disabled }: Props) {
           })}
           <div style={{ padding: '8px 14px', borderTop: '1px solid var(--border-subtle)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 9, color: 'var(--text-faint)' }}>低自主</span>
-              <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'linear-gradient(to right, #a855f7, #9ca3af, #3b82f6, #f59e0b)' }} />
-              <span style={{ fontSize: 9, color: 'var(--text-faint)' }}>高自主</span>
+              <span style={{ fontSize: 9, color: 'var(--text-faint)' }}>保守</span>
+              <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'linear-gradient(to right, #a855f7, #0F766E, #3b82f6, #f59e0b)' }} />
+              <span style={{ fontSize: 9, color: 'var(--text-faint)' }}>自主</span>
             </div>
+            {onOpenApprovals && (
+              <button
+                type="button"
+                onClick={() => { setOpen(false); onOpenApprovals(); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5, width: '100%',
+                  marginTop: 6, padding: '5px 0', fontSize: 10,
+                  color: 'var(--text-faint)', cursor: 'pointer',
+                  border: 'none', background: 'transparent',
+                }}
+                onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'var(--text-faint)'}
+              >
+                <span style={{ fontSize: 11 }}>⚙</span>
+                <span>审批设置</span>
+                <span style={{ fontSize: 9, color: 'var(--text-faint)', marginLeft: 'auto' }}>→</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      {bypass && (
-        <div onClick={() => setBypass(false)} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.35)' }}>
+      {confirmAuto && (
+        <div onClick={() => setConfirmAuto(false)} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.35)' }}>
           <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px 20px', maxWidth: 300, width: '90%', boxShadow: '0 16px 48px rgba(0,0,0,0.16)' }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>开启绕过权限</div>
-            <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0' }}>直接修改文件 · 执行命令 · 跳过审批</p>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>开启自主模式</div>
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0' }}>Agent 将完全自主执行，不再弹窗确认</p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
-              <button onClick={() => setBypass(false)} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 500, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)' }}>取消</button>
-              <button onClick={() => { onChange('bypass'); setBypass(false); toastFn('✓ 绕过权限 已启用'); }} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: '#f59e0b', color: '#fff' }}>确认</button>
+              <button onClick={() => setConfirmAuto(false)} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 500, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)' }}>取消</button>
+              <button onClick={() => { onChange('auto'); setConfirmAuto(false); toastFn('✓ 自主 已启用'); }} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: '#f59e0b', color: '#fff' }}>确认</button>
             </div>
           </div>
         </div>

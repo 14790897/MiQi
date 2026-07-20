@@ -465,7 +465,7 @@ class TaskRunner:
             workspace=self.services.workspace,
             model=self.services.model_settings.model,
             provider=self.services.provider,
-            execution_policy=msg.mode or "accept_edits",
+            execution_policy=msg.mode or "edit",
             temperature=self.services.model_settings.temperature,
             max_tokens=self.services.model_settings.max_tokens,
             client_id=client_id,
@@ -481,6 +481,56 @@ class TaskRunner:
             tools = capabilities.tool_definitions
         else:
             tools = self.services.tool_registry.get_definitions()
+
+        # ── Execution Policy ──────────────────────────────────────────
+        # Three-layer: system prompt + tool set + approval flags.
+        # Mode = Agent role, not permission preset.
+        # Plan:   strategist — read-only, proposes approach
+        # Manual: collaborator — all tools, each step confirmed by user
+        # Edit:   developer  — all tools, safe auto, dangerous ask
+        # Auto:   agent      — all tools, bypass approval entirely
+
+        _EP_WRITE_EXEC_TOOLS = frozenset({
+            "write_file", "edit_file", "apply_patch", "edit_diff",
+            "write", "edit", "delete", "move",
+            "exec", "bash", "shell",
+            "spawn", "subagent", "cron",
+            "skill_manage", "memory",
+        })
+
+        if turn.execution_policy == "plan":
+            tools = [t for t in tools if t.get("name") not in _EP_WRITE_EXEC_TOOLS]
+
+        if turn.execution_policy == "auto":
+            turn.bypass_approval = True
+        elif turn.execution_policy == "manual":
+            turn.force_approval = True
+        # edit: both flags False → normal approval flow
+        # plan: read-only tools, approval not reached
+
+        _MODE_PROMPTS = {
+            "plan": (
+                "【Agent 模式：规划】你的角色是规划师。只分析、制定方案，不执行。"
+                "请给出具体的、可操作的方案（包含工具名、文件路径、步骤）。"
+                "方案末尾注明：切换到「允许编辑」或「自动」模式即可执行。\n\n"
+            ),
+            "manual": (
+                "【Agent 模式：手动】你的角色是协作者。你有全部工具，但每个操作需要用户确认。"
+                "请逐步说明你打算做什么（改哪个文件、执行什么命令），等待用户逐一批准后再动手。\n\n"
+            ),
+            "edit": (
+                "【Agent 模式：允许编辑】你的角色是工程师。直接修改文件，安全操作自动放行。"
+                "危险操作（执行命令、网络请求、删除文件）需要用户确认。高效工作。\n\n"
+            ),
+            "auto": (
+                "【Agent 模式：自动】你的角色是全权代理。完全自主执行，不中断询问。"
+                "直接完成任务，注意安全底线。用户信任你的判断。\n\n"
+            ),
+        }
+        mode_prompt = _MODE_PROMPTS.get(turn.execution_policy, "")
+        effective_system_prompt = mode_prompt + metadata.system_prompt if mode_prompt else metadata.system_prompt
+
+        # ── End Execution Policy ─────────────────────────────────────
 
         # Phase 13: attach permission profile for orchestrator
         from miqi.runtime.permission_profile import PermissionProfile
@@ -606,7 +656,7 @@ class TaskRunner:
             result = await self.services.turn_runner.run(
                 turn=turn,
                 user_content=msg.content,
-                system_prompt=metadata.system_prompt,
+                system_prompt=effective_system_prompt,
                 tools=tools,
                 history=history,
                 cancel_event=cancel_evt,

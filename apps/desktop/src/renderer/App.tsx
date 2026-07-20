@@ -265,6 +265,10 @@ function AppShell() {
                       setSettingsTab('providers');
                       setActiveNav('settings');
                     }}
+                    onOpenApprovals={() => {
+                      setSettingsTab('approvals');
+                      setActiveNav('settings');
+                    }}
                   />
                 </div>
                 {activeNav === 'workspace' && <WorkspacePage />}

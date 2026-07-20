@@ -657,7 +657,7 @@ class BridgeRuntimeLoop:
             )
 
         # Submit the user message
-        mode = params.get("mode", "accept_edits")
+        mode = params.get("mode", "edit")
         logger.info(f"chat.send received mode={mode}")
         await runtime.submit(UserMessage(
             content=content,
