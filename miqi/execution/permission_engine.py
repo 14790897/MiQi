@@ -162,7 +162,7 @@ class PermissionEngine:
         if getattr(ctx, "bypass_approval", False):
             return PermissionDecision(
                 verdict=PermissionVerdict.ALLOW,
-                category=DecisionCategory.RUN,
+                category="run",
                 reason="Bypassed by execution policy (bypass mode)",
                 allow_permanent=False,
             )
@@ -171,7 +171,7 @@ class PermissionEngine:
         if getattr(ctx, "force_approval", False):
             return PermissionDecision(
                 verdict=PermissionVerdict.REQUIRE_APPROVAL,
-                category=DecisionCategory.RUN,
+                category="run",
                 reason="Approval required by execution policy (manual mode)",
                 allow_permanent=False,
                 description=f"Manual mode: {tool_name} requires confirmation",
