@@ -446,8 +446,8 @@ export function ApprovalsPage() {
               <p className="text-xs text-[var(--text-muted)] mt-1">
                 开启后，智能体执行对应操作时会跳过审批弹窗。
               </p>
-              <p className="text-xs text-[var(--text-faint)] mt-1.5 px-2 py-1 rounded bg-[var(--surface-muted)] border border-[var(--border-subtle)]">
-                ⚡ 提示：审批设置仅在「允许编辑」模式下生效。「规划」「手动」模式各自有独立的审批策略，「自动」模式全部放行。
+              <p className="text-[10px] text-[var(--text-faint)] mt-0.5">
+                ⚡ 审批设置仅在「允许编辑」模式下生效。其他模式有独立审批策略。
               </p>
             </div>
             <button
