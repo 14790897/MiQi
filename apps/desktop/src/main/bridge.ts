@@ -340,8 +340,9 @@ export class BridgeManager extends EventEmitter {
           } else {
             pending.resolve(resp.result);
           }
-        } catch {
-          this.addLog(`[Bridge] Ignoring non-JSON stdout line: ${line}`);
+        } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          this.addLog(`[Bridge] Error processing stdout line: ${errMsg} — raw: ${line}`);
         }
       });
 
