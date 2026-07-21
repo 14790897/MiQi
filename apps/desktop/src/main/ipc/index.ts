@@ -563,6 +563,33 @@ for m in ("pydantic", "httpx", "loguru"):
       } satisfies WslCheckResult;
     }
 
+    // ── Mock mode for testing (MIQI_WSL_MOCK=1) ───────────────────────
+    if (process.env['MIQI_WSL_MOCK'] === '1') {
+      const state = process.env['MIQI_WSL_MOCK_STATE'] || 'ready';
+      switch (state) {
+        case 'not-enabled':
+          return { isWindows: true, installed: false, version: null, distros: [],
+            defaultDistro: null, running: false,
+            featureState: 'not-enabled', rebootRequired: false };
+        case 'not-installed':
+          return { isWindows: true, installed: false, version: null, distros: [],
+            defaultDistro: null, running: false,
+            featureState: 'not-installed', rebootRequired: false };
+        case 'no-distro':
+          return { isWindows: true, installed: true, version: '2', distros: [],
+            defaultDistro: null, running: false,
+            featureState: 'installed-but-not-initialized', rebootRequired: false };
+        case 'not-initialized':
+          return { isWindows: true, installed: true, version: '2',
+            distros: ['Ubuntu'], defaultDistro: 'Ubuntu', running: false,
+            featureState: 'installed-but-not-initialized', rebootRequired: false };
+        default: // 'ready'
+          return { isWindows: true, installed: true, version: '2',
+            distros: ['Ubuntu'], defaultDistro: 'Ubuntu', running: true,
+            featureState: 'ready', rebootRequired: false };
+      }
+    }
+
     let featureWsl = false;
     let featureVmp = false;
     let rebootRequired = false;
@@ -759,6 +786,60 @@ for m in ("pydantic", "httpx", "loguru"):
     }
 
     try {
+      // ── Mock mode: simulate progress with delays ───────────────────
+      if (process.env['MIQI_WSL_MOCK'] === '1') {
+        const state = process.env['MIQI_WSL_MOCK_STATE'] || 'not-enabled';
+
+        safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+          phase: 'checking', message: '[MOCK] 正在检测 WSL 状态...',
+        } satisfies WslInstallProgress);
+        await new Promise(r => setTimeout(r, 500));
+
+        if (state === 'not-enabled' || state === 'not-installed') {
+          safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+            phase: 'installing_wsl',
+            message: '[MOCK] 正在安装 WSL2（模拟，未执行实际命令）...',
+          } satisfies WslInstallProgress);
+          await new Promise(r => setTimeout(r, 2000));
+
+          safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+            phase: 'installing_wsl',
+            message: '[MOCK] WSL2 安装完成。需要重启系统。',
+            rebootRequired: true,
+          } satisfies WslInstallProgress);
+          return {
+            success: true, phase: 'installing_wsl', rebootRequired: true,
+            nextStep: '[MOCK] 请重启系统后重新运行此向导',
+          } satisfies WslInstallAndProvisionResult;
+        }
+
+        if (state === 'no-distro') {
+          safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+            phase: 'installing_distro',
+            message: '[MOCK] 正在安装 Ubuntu 发行版...',
+          } satisfies WslInstallProgress);
+          await new Promise(r => setTimeout(r, 3000));
+        }
+
+        if (state === 'not-initialized') {
+          safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+            phase: 'provisioning',
+            message: '[MOCK] 正在初始化用户账户...',
+          } satisfies WslInstallProgress);
+          await new Promise(r => setTimeout(r, 1500));
+          safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+            phase: 'provisioning',
+            message: '[MOCK] 用户 miqi 已创建（密码: miqi_test_123）',
+          } satisfies WslInstallProgress);
+        }
+
+        safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+          phase: 'complete', message: '[MOCK] WSL2 安装配置完成！',
+        } satisfies WslInstallProgress);
+        safeSend(IPC_EVENTS.WSL_CHECK_UPDATED, {});
+        return { success: true, phase: 'complete' } satisfies WslInstallAndProvisionResult;
+      }
+
       // ── Step 1: Check ───────────────────────────────────────────────
       safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
         phase: 'checking', message: '正在检测 WSL 状态...',
