@@ -135,28 +135,28 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
               </button>
             );
           })}
-          <div style={{ padding: '8px 14px', borderTop: '1px solid var(--border-subtle)' }}>
+          <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border-subtle)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 9, color: 'var(--text-faint)' }}>保守</span>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>保守</span>
               <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'linear-gradient(to right, #a855f7, #0F766E, #3b82f6, #f59e0b)' }} />
-              <span style={{ fontSize: 9, color: 'var(--text-faint)' }}>自主</span>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>自主</span>
             </div>
             {onOpenApprovals && (
               <button
                 type="button"
                 onClick={() => { setOpen(false); onOpenApprovals(); }}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 5, width: '100%',
-                  marginTop: 6, padding: '5px 0', fontSize: 10,
-                  color: 'var(--text-faint)', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+                  marginTop: 8, padding: '6px 0', fontSize: 11,
+                  color: 'var(--text-muted)', cursor: 'pointer',
                   border: 'none', background: 'transparent',
                 }}
                 onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
-                onMouseLeave={e => e.currentTarget.style.color = 'var(--text-faint)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
               >
-                <span style={{ fontSize: 11 }}>⚙</span>
+                <span style={{ fontSize: 12 }}>⚙</span>
                 <span>审批设置</span>
-                <span style={{ fontSize: 9, color: 'var(--text-faint)', marginLeft: 'auto' }}>→</span>
+                <span style={{ fontSize: 10, color: 'var(--text-faint)', marginLeft: 'auto' }}>→</span>
               </button>
             )}
           </div>
