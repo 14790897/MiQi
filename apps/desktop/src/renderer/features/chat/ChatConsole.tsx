@@ -55,6 +55,28 @@ interface Attachment {
   dataUrl?: string;
   content?: string;
   size: number;
+  extracting?: boolean;
+  dataBase64?: string;
+}
+
+function extractPdfText(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer), limit = Math.min(bytes.length, 2_000_000);
+  let raw = '';
+  for (let i = 0; i < limit; i++) raw += String.fromCharCode(bytes[i]);
+  const results: string[] = [];
+  let pos = 0;
+  while (pos < raw.length) {
+    const bt = raw.indexOf('BT', pos);
+    if (bt === -1) break;
+    const et = raw.indexOf('ET', bt + 2);
+    if (et === -1) break;
+    const block = raw.slice(bt + 2, et);
+    for (const m of block.matchAll(/\(([^)]*)\)\s*Tj/g)) if (m[1].trim()) results.push(m[1]);
+    for (const m of block.matchAll(/\[([^\]]*)\]\s*TJ/g))
+      for (const im of m[1].matchAll(/\(([^)]*)\)/g)) if (im[1].trim()) results.push(im[1]);
+    pos = et + 2;
+  }
+  return results.join(' ') || '';
 }
 
 interface Message {
@@ -999,25 +1021,53 @@ export function ChatConsole({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     Array.from(e.target.files ?? []).forEach((file) => {
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
       const isImage = file.type.startsWith('image/');
+      const isPdf = file.type === 'application/pdf' || ext === 'pdf';
+      const isOffice = /^(docx|xlsx|pptx)$/.test(ext) || file.type.includes('openxmlformats');
+      const isBinary = isPdf || isOffice;
+      if (isBinary) {
+        setAttachments((prev) => [...prev, { name: file.name, type: 'text', size: file.size, extracting: true }]);
+        const reader = new FileReader();
+        reader.onload = () => {
+          const raw = extractPdfText(reader.result as ArrayBuffer);
+          setAttachments((prev) => prev.map(a =>
+            a.size === file.size && a.name === file.name && a.extracting
+              ? { name: file.name, type: 'text', content: raw || 'No extractable text', size: file.size }
+              : a
+          ));
+        };
+        reader.readAsArrayBuffer(file);
+        return;
+      }
       const reader = new FileReader();
       if (isImage) {
-        reader.onload = () =>
-          setAttachments((prev) => [
-            ...prev,
-            { name: file.name, type: 'image', dataUrl: reader.result as string, size: file.size },
-          ]);
+        reader.onload = () => setAttachments((prev) => [...prev,
+          { name: file.name, type: 'image', dataUrl: reader.result as string, size: file.size }]);
         reader.readAsDataURL(file);
       } else {
-        reader.onload = () =>
-          setAttachments((prev) => [
-            ...prev,
-            { name: file.name, type: 'text', content: reader.result as string, size: file.size },
-          ]);
+        reader.onload = () => setAttachments((prev) => [...prev,
+          { name: file.name, type: 'text', content: reader.result as string, size: file.size }]);
         reader.readAsText(file);
       }
     });
     e.target.value = '';
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items || !fileInputRef.current) return;
+    const files: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const f = items[i].getAsFile();
+      if (f) files.push(f);
+    }
+    if (!files.length) return;
+    e.preventDefault();
+    const dt = new DataTransfer();
+    files.forEach((f) => dt.items.add(f));
+    fileInputRef.current.files = dt.files;
+    fileInputRef.current.dispatchEvent(new Event('change', { bubbles: true }));
   };
 
   const removeAttachment = (idx: number) =>
@@ -1091,9 +1141,13 @@ export function ChatConsole({
     setCurrentReqId(reqId);
 
     let content = text;
+    const binaryAtts: Array<{name: string, data_base64: string}> = [];
     for (const att of attachments) {
-      if (att.type === 'text' && att.content)
-        content += `\n\n[Attachment: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\``;
+      if (att.dataBase64) {
+        binaryAtts.push({ name: att.name, data_base64: att.dataBase64 });
+        content += `\n\n[File: ${att.name}] saved to uploads/${att.name}`;
+      } else if (att.content)
+        content += `\n\n[File: ${att.name}] text extracted`;
       else if (att.type === 'image' && att.dataUrl) content += `\n\n[Image: ${att.name}]`;
     }
 
@@ -1205,6 +1259,31 @@ export function ChatConsole({
     const unsubProgress = window.miqi.chat.onProgress((data: ChatProgress) => {
       if (data.session_key && data.session_key !== currentSessionRef.current) return;
       lastEventAt = Date.now();
+      // Handle document processing progress
+      if (data.type === 'doc_progress') {
+        const file = data.file || '';
+        const stage = data.stage || '';
+        const msg = data.message || '';
+        if (file && stage) {
+          setMessages((prev) => {
+            const existing = prev.findIndex(m => m.role === 'progress' && m.toolCallId === `doc:${file}`);
+            const docMsg: Message = {
+              role: 'progress',
+              content: stage === 'ready' ? `✅ ${file} · ${msg}` :
+                       stage === 'scanned' ? `⚠️ ${file} · ${msg}` :
+                       `📄 ${file} · ${msg}`,
+              timestamp: Date.now(),
+              toolCallId: `doc:${file}`,
+              toolHint: true,
+              collapsed: stage !== 'ready' && stage !== 'scanned',
+              summary: `📄 ${file}`,
+            };
+            if (existing >= 0) { const copy = [...prev]; copy[existing] = docMsg; return copy; }
+            return [...prev, docMsg];
+          });
+        }
+        return;
+      }
       // Handle stream deltas from exec (Phase 7 inline tool progress)
       if (data.stream && data.delta && data.tool_call_id) {
         const stream = data.stream;
@@ -1411,7 +1490,7 @@ export function ChatConsole({
 
       const key =
         activeThreadId === 'main' ? currentSessionRef.current : `desktop:${activeThreadId}`;
-      await window.miqi.chat.send(content, key, threadId ?? undefined, executionPolicy);
+      await window.miqi.chat.send(content, key, threadId ?? undefined, executionPolicy, binaryAtts.length > 0 ? binaryAtts : undefined);
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
       if (streamErrorHandled) {
@@ -1709,6 +1788,7 @@ export function ChatConsole({
     <div
       className="flex flex-col h-full"
       onDrop={handleDrop}
+      onPaste={handlePaste}
       onDragOver={(e) => e.preventDefault()}
     >
       <input
@@ -2040,27 +2120,36 @@ export function ChatConsole({
           >
             <div className="max-w-[760px] mx-auto">
               {attachments.length > 0 && (
-                <div className="flex flex-wrap gap-2 mb-2">
+                <div className="flex flex-wrap gap-2 mb-3">
                   {attachments.map((att, i) => (
                     <div
                       key={i}
-                      className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs max-w-[200px]"
+                      className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs max-w-[220px] transition-all duration-200 shadow-sm"
                       style={{
                         background: 'var(--surface-muted)',
                         border: '1px solid var(--border-subtle)',
-                        color: 'var(--text-muted)',
+                        color: 'var(--text)',
                       }}
+                      title={`${att.name}${att.size ? ` (${(att.size / 1024).toFixed(0)} KB)` : ''}`}
                     >
                       {att.type === 'image' ? (
-                        <Image size={12} className="shrink-0" style={{ color: 'var(--info)' }} />
+                        <div className="w-5 h-5 rounded-md bg-[var(--info)]/10 flex items-center justify-center shrink-0">
+                          <Image size={12} style={{ color: 'var(--info)' }} />
+                        </div>
+                      ) : att.extracting ? (
+                        <div className="w-5 h-5 rounded-md bg-[var(--warning)]/10 flex items-center justify-center shrink-0">
+                          <Loader2 size={12} className="animate-spin" style={{ color: 'var(--warning)' }} />
+                        </div>
+                      ) : att.content ? (
+                        <div className="w-5 h-5 rounded-md bg-[#22c55e]/10 flex items-center justify-center shrink-0">
+                          <CheckCircle size={12} style={{ color: '#22c55e' }} />
+                        </div>
                       ) : (
-                        <FileText
-                          size={12}
-                          className="shrink-0"
-                          style={{ color: 'var(--text-faint)' }}
-                        />
+                        <div className="w-5 h-5 rounded-md bg-[var(--text-faint)]/10 flex items-center justify-center shrink-0">
+                          <FileText size={12} style={{ color: 'var(--text-faint)' }} />
+                        </div>
                       )}
-                      <span className="truncate">{att.name}</span>
+                      <span className="truncate text-[12px] leading-none">{att.name}</span>
                       <button
                         onClick={() => removeAttachment(i)}
                         className="shrink-0 hover:text-[var(--danger)]"
@@ -2116,7 +2205,7 @@ export function ChatConsole({
                 ) : (
                   <button
                     onClick={handleSend}
-                    disabled={!input.trim() && attachments.length === 0}
+                    disabled={(!input.trim() && attachments.length === 0) || attachments.some(a => a.extracting)}
                     className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors disabled:opacity-30"
                     style={{ background: 'var(--accent)' }}
                   >

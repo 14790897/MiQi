@@ -730,11 +730,13 @@ export interface ChatProgress {
   stream?: 'stdout' | 'stderr';
   delta?: string;
   tool_call_id?: string;
-  /** Session key for frontend-side event filtering (fix #212).
-   *  Optional for backward compatibility with backends that don't yet
-   *  emit this field.  Should become required once all backends are
-   *  updated. */
+  /** Session key for frontend-side event filtering (fix #212). */
   session_key?: string;
+  /** Document processing progress (attachment pipeline) */
+  type?: 'doc_progress';
+  file?: string;
+  stage?: string;
+  message?: string;
 }
 
 export interface ChatFinal {
