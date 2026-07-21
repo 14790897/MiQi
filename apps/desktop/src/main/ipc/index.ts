@@ -8,6 +8,7 @@ import { isAbsolute, join } from 'path';
 import type { BridgeManager } from '../bridge';
 import {
   IPC,
+  IPC_EVENTS,
   ChatSendInput,
   ChatAbortInput,
   SessionGetInput,
@@ -41,7 +42,7 @@ import {
   TurnInterruptInput,
   FeedbackSubmitInput,
 } from '../../shared/ipc';
-import type { WslCheckResult, WslStatsResult } from '../../shared/ipc';
+import type { WslCheckResult, WslStatsResult, WslInstallProgress, WslInstallAndProvisionResult } from '../../shared/ipc';
 
 const { ipcMain, dialog, shell } = electron;
 
@@ -547,22 +548,64 @@ for m in ("pydantic", "httpx", "loguru"):
   });
 
   // -----------------------------------------------------------------------
-  // WSL2 check & install — Windows only, runs in main process.
-  // Must work BEFORE the bridge starts (during Setup Wizard).
+  // WSL2 check — shared implementation used by WSL_CHECK IPC handler
+  // and WSL_INSTALL_AND_PROVISION. Returns full WslCheckResult.
   // -----------------------------------------------------------------------
-  ipcMain.handle(IPC.WSL_CHECK, () => {
+  function runWslCheckInternal(): WslCheckResult {
     const isWindows = process.platform === 'win32';
 
     if (!isWindows) {
       return {
-        isWindows: false,
-        installed: true, // not relevant on non-Windows
-        version: null,
-        distros: [],
-        defaultDistro: null,
-        running: false,
+        isWindows: false, installed: true, version: null,
+        distros: [], defaultDistro: null, running: false,
+        featureState: 'not-supported' as const, rebootRequired: false,
       } satisfies WslCheckResult;
     }
+
+    let featureWsl = false;
+    let featureVmp = false;
+    let rebootRequired = false;
+
+    try {
+      const featureResult = spawnSync(
+        'powershell.exe',
+        ['-NoProfile', '-Command',
+          [
+            '(Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux).State',
+            '(Get-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform).State',
+          ].join(';'),
+        ],
+        { timeout: 15000, encoding: 'utf8', windowsHide: true }
+      );
+      if (featureResult.status === 0 && featureResult.stdout) {
+        const lines = featureResult.stdout.trim().split(/\r?\n/);
+        featureWsl = lines[0]?.trim() === 'Enabled';
+        featureVmp = lines[1]?.trim() === 'Enabled';
+      }
+
+      try {
+        const rb = spawnSync(
+          'powershell.exe',
+          ['-NoProfile', '-Command',
+            'Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager" -Name PendingFileRenameOperations -ErrorAction SilentlyContinue | Select-Object -ExpandProperty PendingFileRenameOperations'],
+          { timeout: 8000, encoding: 'utf8', windowsHide: true }
+        );
+        if (rb.status === 0 && rb.stdout?.trim()) rebootRequired = true;
+      } catch { /* ignore */ }
+
+      try {
+        const cbs = spawnSync(
+          'powershell.exe',
+          ['-NoProfile', '-Command',
+            'Test-Path "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending"'],
+          { timeout: 5000, encoding: 'utf8', windowsHide: true }
+        );
+        if (cbs.status === 0 && cbs.stdout?.trim() === 'True') rebootRequired = true;
+      } catch { /* ignore */ }
+    } catch { /* ignore */ }
+
+    let featureState: WslCheckResult['featureState'] = 'not-supported';
+    if (!featureWsl && !featureVmp) featureState = 'not-enabled';
 
     let installed = false;
     let version: string | null = null;
@@ -572,9 +615,7 @@ for m in ("pydantic", "httpx", "loguru"):
 
     try {
       const statusResult = spawnSync('wsl', ['--status'], {
-        timeout: 8000,
-        encoding: 'buffer',
-        windowsHide: true,
+        timeout: 8000, encoding: 'buffer', windowsHide: true,
       });
       if (statusResult.status === 0) {
         installed = true;
@@ -594,19 +635,15 @@ for m in ("pydantic", "httpx", "loguru"):
         }
         const defaultMatch = output.match(/(?:默认分发|Default Distr?ibution)\s*[:：]\s*(.+)/i);
         if (defaultMatch) defaultDistro = defaultMatch[1].trim();
-        const verMatch = output.match(/(?:默认版本|Default Version)\s*[:：]\s*(\d+)/i);
+        const verMatch = output.match(/(?:默认版本|Default Version)\s*[:：]\s*(\\d+)/i);
         if (verMatch) version = verMatch[1];
       }
-    } catch {
-      // WSL not installed
-    }
+    } catch { /* WSL not installed */ }
 
     if (installed) {
       try {
         const listResult = spawnSync('wsl', ['--list', '--quiet'], {
-          timeout: 8000,
-          encoding: 'buffer',
-          windowsHide: true,
+          timeout: 8000, encoding: 'buffer', windowsHide: true,
         });
         if (listResult.status === 0) {
           const buf = listResult.stdout as Buffer | null;
@@ -616,29 +653,19 @@ for m in ("pydantic", "httpx", "loguru"):
             const nullRatio =
               buf.reduce((acc, b, i) => (i % 2 === 1 && b === 0 ? acc + 1 : acc), 0) /
               Math.floor(buf.length / 2);
-            raw =
-              hasBOM || nullRatio > 0.3
-                ? buf.toString('utf16le').replace(/^﻿/, '').replace(/\0/g, '')
-                : buf.toString('utf8').replace(/\0/g, '');
+            raw = (hasBOM || nullRatio > 0.3)
+              ? buf.toString('utf16le').replace(/^﻿/, '').replace(/\0/g, '')
+              : buf.toString('utf8').replace(/\0/g, '');
           }
-          const lines = raw
-            .split(/\r?\n/)
-            .map((l) => l.trim())
-            .filter(Boolean);
+          const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
           distros = lines;
-          if (!defaultDistro && distros.length > 0) {
-            defaultDistro = distros[0];
-          }
+          if (!defaultDistro && distros.length > 0) defaultDistro = distros[0];
         }
-      } catch {
-        // ignore
-      }
+      } catch { /* ignore */ }
 
       try {
         const psResult = spawnSync('wsl', ['--list', '--running'], {
-          timeout: 8000,
-          encoding: 'buffer',
-          windowsHide: true,
+          timeout: 8000, encoding: 'buffer', windowsHide: true,
         });
         if (psResult.status === 0) {
           const buf = psResult.stdout as Buffer | null;
@@ -648,31 +675,49 @@ for m in ("pydantic", "httpx", "loguru"):
             const nullRatio =
               buf.reduce((acc, b, i) => (i % 2 === 1 && b === 0 ? acc + 1 : acc), 0) /
               Math.floor(buf.length / 2);
-            raw =
-              hasBOM || nullRatio > 0.3
-                ? buf.toString('utf16le').replace(/^﻿/, '').replace(/\0/g, '')
-                : buf.toString('utf8').replace(/\0/g, '');
+            raw = (hasBOM || nullRatio > 0.3)
+              ? buf.toString('utf16le').replace(/^﻿/, '').replace(/\0/g, '')
+              : buf.toString('utf8').replace(/\0/g, '');
           }
-          const runningLines = raw
-            .split(/\r?\n/)
-            .map((l) => l.trim())
-            .filter(Boolean);
+          const runningLines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
           running = runningLines.length > 1;
         }
-      } catch {
-        // ignore
+      } catch { /* ignore */ }
+
+      let initialized = false;
+      if (distros.length > 0) {
+        const probeDistro = defaultDistro || distros[0];
+        try {
+          const idResult = spawnSync(
+            'wsl.exe',
+            ['-d', probeDistro, '--', 'bash', '-c', 'id -u 2>/dev/null || echo ""'],
+            { timeout: 10000, encoding: 'utf8', windowsHide: true }
+          );
+          if (idResult.status === 0 && idResult.stdout?.trim()) {
+            const uid = parseInt(idResult.stdout.trim(), 10);
+            if (!Number.isNaN(uid) && uid >= 0) initialized = true;
+          }
+        } catch { /* ignore */ }
       }
+
+      featureState = (distros.length === 0 || !initialized)
+        ? 'installed-but-not-initialized'
+        : 'ready';
+    } else if (featureState !== 'not-enabled') {
+      featureState = featureWsl || featureVmp ? 'not-installed' : 'not-enabled';
     }
 
     return {
-      isWindows: true,
-      installed,
-      version,
-      distros,
-      defaultDistro,
-      running,
+      isWindows: true, installed, version, distros, defaultDistro, running,
+      featureState, rebootRequired,
     } satisfies WslCheckResult;
-  });
+  }
+
+  // -----------------------------------------------------------------------
+  // WSL2 check & install — Windows only, runs in main process.
+  // Must work BEFORE the bridge starts (during Setup Wizard).
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.WSL_CHECK, () => runWslCheckInternal());
 
   ipcMain.handle(IPC.WSL_INSTALL, () => {
     if (process.platform !== 'win32') {
@@ -690,6 +735,178 @@ for m in ("pydantic", "httpx", "loguru"):
       return { launched: true };
     } catch (e: any) {
       return { launched: false, error: e?.message ?? String(e) };
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // WSL one-click install & provision (new in #361)
+  // Simplified flow: wsl --install handles everything → reboot once →
+  // auto-provision user. Sends progress events to renderer.
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.WSL_INSTALL_AND_PROVISION, async (_event) => {
+    const sender = _event.sender;
+    const safeSend = (channel: string, data: unknown) => {
+      if (!sender.isDestroyed()) sender.send(channel, data);
+    };
+
+    if (process.platform !== 'win32') {
+      return {
+        success: false, phase: 'error',
+        error: 'Not on Windows', errorCode: 'NOT_WINDOWS',
+        nextStep: '此功能仅适用于 Windows 系统',
+      } satisfies WslInstallAndProvisionResult;
+    }
+
+    try {
+      // ── Step 1: Check ───────────────────────────────────────────────
+      safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+        phase: 'checking', message: '正在检测 WSL 状态...',
+      } satisfies WslInstallProgress);
+
+      // Reuse shared check
+      const check = runWslCheckInternal();
+
+      safeSend(IPC_EVENTS.WSL_CHECK_UPDATED, {});
+
+      // ── Step 2: wsl --install (covers: enable features + kernel + distro) ──
+      if (check.featureState === 'not-enabled' || check.featureState === 'not-installed') {
+        safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+          phase: 'installing_wsl',
+          message: '正在安装 WSL2（包括启用功能、安装内核和 Ubuntu 发行版）...',
+        } satisfies WslInstallProgress);
+
+        const r = spawnSync(
+          'powershell.exe',
+          ['-NoProfile', '-Command',
+            'Start-Process wsl -ArgumentList "--install --no-launch" -Verb RunAs -Wait -PassThru | Select-Object -ExpandProperty ExitCode'],
+          { timeout: 300000, encoding: 'utf8', windowsHide: true }
+        );
+
+        const exitCode = parseInt((r.stdout || '').trim(), 10);
+        if (r.error || (r.status === 0 && exitCode !== 0)) {
+          safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+            phase: 'error',
+            message: `wsl --install 失败（exit code: ${exitCode || 'unknown'}）。请以管理员身份手动运行。`,
+            error: `wsl --install 返回 ${exitCode || 'error'}`,
+          } satisfies WslInstallProgress);
+          return {
+            success: false, phase: 'error',
+            error: 'WSL 安装未成功',
+            errorCode: 'INSTALL_FAILED',
+            nextStep: '以管理员身份打开 PowerShell 并运行: wsl --install',
+          } satisfies WslInstallAndProvisionResult;
+        }
+
+        safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+          phase: 'installing_wsl',
+          message: 'WSL2 安装完成。需要重启系统，重启后请重新打开 MiQi，向导将自动继续配置。',
+          rebootRequired: true,
+        } satisfies WslInstallProgress);
+
+        return {
+          success: true, phase: 'installing_wsl', rebootRequired: true,
+          nextStep: '请重启系统后重新运行此向导',
+        } satisfies WslInstallAndProvisionResult;
+      }
+
+      // ── Step 3: Distro missing? Install one ──────────────────────────
+      if (check.featureState === 'installed-but-not-initialized' && check.distros.length === 0) {
+        safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+          phase: 'installing_distro',
+          message: '正在安装 Ubuntu 发行版（可能需要几分钟）...',
+        } satisfies WslInstallProgress);
+
+        const r = spawnSync(
+          'powershell.exe',
+          ['-NoProfile', '-Command',
+            'Start-Process wsl -ArgumentList "--install -d Ubuntu --no-launch" -Verb RunAs -Wait -PassThru | Select-Object -ExpandProperty ExitCode'],
+          { timeout: 300000, encoding: 'utf8', windowsHide: true }
+        );
+
+        const postCheck = runWslCheckInternal();
+        if (postCheck.distros.length === 0) {
+          return {
+            success: false, phase: 'error',
+            error: 'Ubuntu 安装失败',
+            errorCode: 'DISTRO_INSTALL_FAILED',
+            nextStep: '以管理员身份打开 PowerShell 并运行: wsl --install -d Ubuntu',
+          } satisfies WslInstallAndProvisionResult;
+        }
+        check.distros = postCheck.distros;
+        check.defaultDistro = postCheck.defaultDistro;
+      }
+
+      // ── Step 4: Provision user ───────────────────────────────────────
+      if (check.featureState === 'installed-but-not-initialized' && check.distros.length > 0) {
+        const distro = check.defaultDistro || check.distros[0];
+
+        safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+          phase: 'provisioning', message: `正在初始化 ${distro} 用户账户...`,
+        } satisfies WslInstallProgress);
+
+        const user = 'miqi';
+        const pass = 'miqi' + Math.random().toString(36).slice(2, 10);
+        const script = [
+          `id -u ${user} 2>/dev/null && echo 'EXISTS' && exit 0`,
+          `useradd -m -s /bin/bash ${user}`,
+          `echo '${user}:${pass}' | chpasswd`,
+          `adduser ${user} sudo 2>/dev/null || usermod -aG sudo ${user} 2>/dev/null || true`,
+          `printf '[user]\\ndefault=${user}\\n' > /etc/wsl.conf`,
+          `echo "OK:${user}:${pass}"`,
+        ].join(' && ');
+
+        const pr = spawnSync(
+          'wsl.exe', ['-d', distro, '-u', 'root', '--', 'bash', '-c', script],
+          { timeout: 30000, encoding: 'utf8', windowsHide: true }
+        );
+
+        if (pr.status !== 0 || !pr.stdout?.includes('OK:')) {
+          // Fallback: check if any user already exists
+          const cu = spawnSync(
+            'wsl.exe', ['-d', distro, '--', 'bash', '-c', 'getent passwd 1000 | cut -d: -f1'],
+            { timeout: 10000, encoding: 'utf8', windowsHide: true }
+          );
+          const existing = cu.stdout?.trim();
+
+          safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+            phase: 'provisioning',
+            message: existing
+              ? `${distro} 已有用户 ${existing}，无需额外初始化`
+              : `用户初始化失败。请手动启动 WSL: wsl -d ${distro}`,
+            error: existing ? undefined : pr.stderr || 'provision failed',
+          } satisfies WslInstallProgress);
+
+          return {
+            success: !!existing, phase: 'provisioning',
+            error: existing ? undefined : '用户初始化失败',
+            errorCode: existing ? undefined : 'PROVISION_FAILED',
+            nextStep: existing ? undefined : `wsl -d ${distro} 创建用户名和密码后重新检查`,
+          } satisfies WslInstallAndProvisionResult;
+        }
+
+        safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+          phase: 'provisioning',
+          message: `用户 ${user} 已创建（密码: ${pass}，建议登录后修改）`,
+        } satisfies WslInstallProgress);
+      }
+
+      // ── Done ────────────────────────────────────────────────────────
+      safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+        phase: 'complete', message: 'WSL2 安装配置完成！',
+      } satisfies WslInstallProgress);
+      safeSend(IPC_EVENTS.WSL_CHECK_UPDATED, {});
+
+      return { success: true, phase: 'complete' } satisfies WslInstallAndProvisionResult;
+    } catch (e: any) {
+      safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+        phase: 'error', message: `出错: ${e?.message ?? e}`,
+        error: e?.message ?? String(e),
+      } satisfies WslInstallProgress);
+      return {
+        success: false, phase: 'error',
+        error: e?.message ?? String(e), errorCode: 'UNKNOWN',
+        nextStep: 'https://learn.microsoft.com/windows/wsl/install',
+      } satisfies WslInstallAndProvisionResult;
     }
   });
 

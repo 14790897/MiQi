@@ -17,6 +17,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { cn } from '../../lib/utils';
 import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
+import type { WslCheckResult, WslInstallProgress } from '../../../shared/ipc';
 
 type Step = 'welcome' | 'provider';
 type CheckState<T> = {
@@ -30,15 +31,6 @@ interface PythonStatus {
   python_version: string;
   issues: string[];
   config_exists: boolean;
-}
-
-interface WslStatus {
-  isWindows: boolean;
-  installed: boolean;
-  version: string | null;
-  distros: string[];
-  defaultDistro: string | null;
-  running: boolean;
 }
 
 interface StaticProvider {
@@ -206,7 +198,7 @@ export function SetupWizard({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [pythonCheck, setPythonCheck] = useState<CheckState<PythonStatus>>({ status: 'idle' });
-  const [wslCheck, setWslCheck] = useState<CheckState<WslStatus>>({ status: 'idle' });
+  const [wslCheck, setWslCheck] = useState<CheckState<WslCheckResult>>({ status: 'idle' });
 
   useEffect(() => {
     Promise.all([
@@ -280,12 +272,10 @@ export function SetupWizard({
     }
 
     if (wslResult.status === 'fulfilled') {
-      const result = wslResult.value as WslStatus;
+      const result = wslResult.value as WslCheckResult;
       const hasWarning =
         result.isWindows &&
-        (!result.installed ||
-          (result.version !== null && result.version !== '2') ||
-          result.distros.length === 0);
+        result.featureState !== 'ready';
       setWslCheck({ status: hasWarning ? 'warning' : 'ok', result });
     } else {
       setWslCheck({
@@ -427,10 +417,19 @@ export function SetupWizard({
       }
       if (wslCheck.status === 'warning') {
         if (wslCheck.error) return wslCheck.error;
-        if (!result?.installed) return '未检测到 WSL2，可稍后在设置中处理';
-        if (result.distros.length === 0) return 'WSL 已安装，但还没有 Linux 分发版';
-        if (result.version && result.version !== '2') return `检测到 WSL ${result.version}，建议升级到 WSL2`;
-        return 'WSL2 状态需要确认';
+        if (!result) return 'WSL2 状态需要确认';
+        switch (result.featureState) {
+          case 'not-enabled':
+            return '未启用 WSL 功能，需在 Windows 功能中开启';
+          case 'not-installed':
+            return 'WSL 功能已启用，但 WSL2 内核未安装';
+          case 'installed-but-not-initialized':
+            if (result.distros.length === 0) return 'WSL 已安装，但还没有 Linux 发行版';
+            return '发行版已安装，但尚未完成首次初始化';
+          default:
+            if (result.version && result.version !== '2') return `检测到 WSL ${result.version}，建议升级到 WSL2`;
+            return 'WSL2 状态需要确认';
+        }
       }
       return '等待检查';
     })();
@@ -471,12 +470,15 @@ export function SetupWizard({
       const result = wslCheck.result;
       if (result && !result.isWindows) return null;
 
-      if (!result?.installed) {
+      const featureState = result?.featureState;
+
+      // not-enabled: features not turned on
+      if (featureState === 'not-enabled' || (!result?.installed && featureState !== 'not-installed')) {
         return (
           <div className="mt-2 rounded-md border border-[var(--warning)]/25 bg-[var(--warning)]/5 p-3">
-            <p className="text-xs font-medium text-[var(--text)]">可选：安装 WSL2</p>
+            <p className="text-xs font-medium text-[var(--text)]">可选：启用 WSL2</p>
             <p className="mt-1 text-xs text-[var(--text-muted)] leading-relaxed">
-              这不会阻止你进入 MiQi，但沙箱、Linux 工具链等能力在 WSL2 上体验更稳定。
+              Windows 可选功能「适用于 Linux 的 Windows 子系统」和「虚拟机平台」未启用。你可以：
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <Button variant="ghost" size="sm" onClick={() => void runEnvironmentChecks()}>
@@ -484,26 +486,69 @@ export function SetupWizard({
               </Button>
             </div>
             <div className="mt-2 space-y-1.5 text-xs text-[var(--text-muted)]">
-              <p>也可以手动操作：以管理员身份打开 PowerShell，运行命令并重启电脑。</p>
+              <p>以管理员身份打开 PowerShell，运行以下命令并重启电脑：</p>
               {renderCommand('wsl --install')}
+            </div>
+            <div className="mt-3 pt-2 border-t border-[var(--border-subtle)]">
+              <p className="text-xs text-[var(--text-faint)]">
+                ⚡ 沙箱、Linux 工具链等能力在 WSL2 上体验更稳定，但你也可以跳过此步骤，稍后到「设置 → WSL 状态监控」中一键安装。
+              </p>
             </div>
           </div>
         );
       }
 
-      if (result.distros.length === 0) {
+      // not-installed: WSL kernel not installed
+      if (featureState === 'not-installed') {
         return (
           <div className="mt-2 rounded-md border border-[var(--warning)]/25 bg-[var(--warning)]/5 p-3">
-            <p className="text-xs font-medium text-[var(--text)]">安装 Linux 分发版</p>
+            <p className="text-xs font-medium text-[var(--text)]">安装 WSL2 内核</p>
             <p className="mt-1 text-xs text-[var(--text-muted)]">
-              WSL 已安装，但还没有可用的 Linux 分发版。安装完成后重新检查即可。
+              Windows 功能已启用，但 WSL2 内核未安装。可稍后到「设置 → WSL 状态监控」中一键安装。
             </p>
-            <div className="mt-2">{renderCommand('wsl --install -d Ubuntu')}</div>
+            <div className="mt-2">
+              <Button variant="ghost" size="sm" onClick={() => void runEnvironmentChecks()}>
+                重新检查
+              </Button>
+            </div>
           </div>
         );
       }
 
-      if (result.version && result.version !== '2') {
+      // installed-but-not-initialized
+      if (featureState === 'installed-but-not-initialized') {
+        if (result?.distros.length === 0) {
+          return (
+            <div className="mt-2 rounded-md border border-[var(--warning)]/25 bg-[var(--warning)]/5 p-3">
+              <p className="text-xs font-medium text-[var(--text)]">安装 Linux 发行版</p>
+              <p className="mt-1 text-xs text-[var(--text-muted)]">
+                WSL 已安装，但还没有可用的 Linux 发行版。可稍后到「设置 → WSL 状态监控」中一键安装 Ubuntu。
+              </p>
+              <div className="mt-2">
+                {renderCommand('wsl --install -d Ubuntu')}
+              </div>
+            </div>
+          );
+        }
+        // Has distros but not initialized
+        return (
+          <div className="mt-2 rounded-md border border-[var(--warning)]/25 bg-[var(--warning)]/5 p-3">
+            <p className="text-xs font-medium text-[var(--text)]">初始化 Linux 发行版</p>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">
+              发行版 {result?.defaultDistro || result?.distros?.[0]} 已安装，但尚未完成首次初始化（需创建用户）。
+              可稍后到「设置 → WSL 状态监控」中一键完成。
+            </p>
+            <div className="mt-2">
+              <Button variant="ghost" size="sm" onClick={() => void runEnvironmentChecks()}>
+                重新检查
+              </Button>
+            </div>
+          </div>
+        );
+      }
+
+      // Version mismatch
+      if (result?.version && result.version !== '2') {
         return (
           <div className="mt-2 rounded-md border border-[var(--warning)]/25 bg-[var(--warning)]/5 p-3">
             <p className="text-xs font-medium text-[var(--text)]">建议升级到 WSL2</p>
