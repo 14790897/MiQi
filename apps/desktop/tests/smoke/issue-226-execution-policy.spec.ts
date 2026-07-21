@@ -41,13 +41,13 @@ test.describe('#226 Execution Policy UI', () => {
 
   test('mode button is visible with default label', async ({ page }) => {
     await injectMockAndGoto(page);
-    const btn = page.locator('button').filter({ hasText: /规划|手动|编辑|绕过/ }).first();
+    const btn = page.locator('button').filter({ hasText: /规划|手动|允许编辑|自动/ }).first();
     await expect(btn).toBeVisible({ timeout: 10_000 });
   });
 
   test('click opens dropdown with 4 mode options', async ({ page }) => {
     await injectMockAndGoto(page);
-    const btn = page.locator('button').filter({ hasText: /规划|手动|编辑|绕过/ }).first();
+    const btn = page.locator('button').filter({ hasText: /规划|手动|允许编辑|自动/ }).first();
     await btn.click();
     await page.waitForTimeout(500);
 
@@ -59,7 +59,7 @@ test.describe('#226 Execution Policy UI', () => {
 
   test('selecting mode updates button label', async ({ page }) => {
     await injectMockAndGoto(page);
-    const btn = page.locator('button').filter({ hasText: /规划|手动|编辑|绕过/ }).first();
+    const btn = page.locator('button').filter({ hasText: /规划|手动|允许编辑|自动/ }).first();
 
     await btn.click();
     await page.waitForTimeout(300);
@@ -70,7 +70,7 @@ test.describe('#226 Execution Policy UI', () => {
 
   test('keyboard 1 → Plan, 3 → Accept Edits', async ({ page }) => {
     await injectMockAndGoto(page);
-    const btn = page.locator('button').filter({ hasText: /规划|手动|编辑|绕过/ }).first();
+    const btn = page.locator('button').filter({ hasText: /规划|手动|允许编辑|自动/ }).first();
 
     await page.keyboard.press('1');
     await page.waitForTimeout(500);
@@ -83,7 +83,7 @@ test.describe('#226 Execution Policy UI', () => {
 
   test('Shift+Tab cycles through modes', async ({ page }) => {
     await injectMockAndGoto(page);
-    const btn = page.locator('button').filter({ hasText: /规划|手动|编辑|绕过/ }).first();
+    const btn = page.locator('button').filter({ hasText: /规划|手动|允许编辑|自动/ }).first();
 
     // Start from default accept_edits → cycle should go to bypass
     await page.keyboard.press('Shift+Tab');
@@ -100,7 +100,7 @@ test.describe('#226 Execution Policy UI', () => {
 
   test('toast appears on mode switch', async ({ page }) => {
     await injectMockAndGoto(page);
-    const btn = page.locator('button').filter({ hasText: /规划|手动|编辑|绕过/ }).first();
+    const btn = page.locator('button').filter({ hasText: /规划|手动|允许编辑|自动/ }).first();
 
     await btn.click();
     await page.waitForTimeout(300);
@@ -112,7 +112,7 @@ test.describe('#226 Execution Policy UI', () => {
 
   test('bypass mode shows confirmation dialog', async ({ page }) => {
     await injectMockAndGoto(page);
-    const btn = page.locator('button').filter({ hasText: /规划|手动|编辑|绕过/ }).first();
+    const btn = page.locator('button').filter({ hasText: /规划|手动|允许编辑|自动/ }).first();
 
     await btn.click();
     await page.waitForTimeout(300);
@@ -147,7 +147,7 @@ test.describe('#226 Approval Integration', () => {
 
   test('mode button still works after rapid switching', async ({ page }) => {
     await injectMockAndGoto(page);
-    const btn = page.locator('button').filter({ hasText: /规划|手动|编辑|绕过/ }).first();
+    const btn = page.locator('button').filter({ hasText: /规划|手动|允许编辑|自动/ }).first();
 
     // Rapidly switch through modes 1-3 (skip bypass to avoid confirmation)
     for (const key of ['1', '2', '3']) {
@@ -161,7 +161,7 @@ test.describe('#226 Approval Integration', () => {
 
   test('bypass confirmation cancel does not change mode', async ({ page }) => {
     await injectMockAndGoto(page);
-    const btn = page.locator('button').filter({ hasText: /规划|手动|编辑|绕过/ }).first();
+    const btn = page.locator('button').filter({ hasText: /规划|手动|允许编辑|自动/ }).first();
 
     // First set to a known state
     await page.keyboard.press('3');
@@ -172,14 +172,12 @@ test.describe('#226 Approval Integration', () => {
     await page.keyboard.press('4');
     await page.waitForTimeout(500);
 
-    // Click cancel
+    // Click cancel (Playwright auto-waits — fails test if dialog doesn't appear)
     const cancel = page.locator('button').filter({ hasText: '取消' }).last();
-    if (await cancel.isVisible()) {
-      await cancel.click();
-      await page.waitForTimeout(300);
-    }
+    await cancel.click();
+    await page.waitForTimeout(300);
 
     // Mode should still be accept_edits (or whatever it was before)
-    await expect(btn).not.toContainText('绕过');
+    await expect(btn).not.toContainText('自动');
   });
 });

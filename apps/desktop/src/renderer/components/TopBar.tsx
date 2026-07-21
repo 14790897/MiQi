@@ -39,7 +39,8 @@ function getBypassLabel(status: ApprovalBypassStatus | null, autoMode: boolean):
   return '绕过';
 }
 
-function getBypassTitle(status: ApprovalBypassStatus | null): string {
+function getBypassTitle(status: ApprovalBypassStatus | null, autoMode: boolean = false): string {
+  if (autoMode) return '自动模式：所有审批已绕过';
   if (status?.bypassAll) return '所有审批类别已启用绕过';
   const labels: string[] = [];
   if (status?.bypassCommandApproval) labels.push('命令审批');
@@ -146,6 +147,10 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
               onClick={onOpenApprovals}
               onMouseEnter={() => setBypassHovered(true)}
               onMouseLeave={() => setBypassHovered(false)}
+              onFocus={() => setBypassHovered(true)}
+              onBlur={() => setBypassHovered(false)}
+              aria-label={getBypassTitle(approvalBypass, autoMode)}
+              title={getBypassTitle(approvalBypass, autoMode)}
               className="flex items-center rounded-full text-[11px] font-medium overflow-hidden h-6 shrink-0"
               style={{
                 color: 'var(--approval-warning)',
