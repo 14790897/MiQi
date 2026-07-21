@@ -65,6 +65,17 @@ export function Sidebar({
 
   const { getStatus, getStatusDisplay, setStatus, clearStatus } = useSessionStatus();
 
+  // ── Lazy rendering ──────────────────────────────────────────────────
+  const PER_PAGE = 20;
+  const [displayCount, setDisplayCount] = useState(PER_PAGE);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const listContainerRef = useRef<HTMLDivElement>(null);
+
+  // Reset display count when sessions list or filter changes
+  useEffect(() => {
+    setDisplayCount(PER_PAGE);
+  }, [sessions, filter]);
+
   // Resize handler
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -136,6 +147,32 @@ export function Sidebar({
     }
     return { filterCounts: counts, filteredSessions: filtered };
   }, [sessions, filter, getStatus]);
+
+  // IntersectionObserver: load next page when sentinel enters viewport
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const container = listContainerRef.current;
+    if (!sentinel || !container) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setDisplayCount((prev) => {
+            const next = prev + PER_PAGE;
+            return next > filteredSessions.length ? filteredSessions.length : next;
+          });
+        }
+      },
+      {
+        root: container,
+        rootMargin: '300px',
+        threshold: 0,
+      }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [filteredSessions.length, displayCount]);
 
   return (
     <div
@@ -213,7 +250,7 @@ export function Sidebar({
       </div>
 
       {/* Session list — card style with left border + description */}
-      <div className="flex-1 overflow-y-auto px-3 pt-1 pb-2">
+      <div ref={listContainerRef} className="flex-1 overflow-y-auto px-3 pt-1 pb-2">
         {initialLoading && sessions.length === 0 ? (
           <div className="flex items-center justify-center py-6">
             <div className="w-4 h-4 border-2 border-[var(--border)] border-t-[var(--accent)] rounded-full animate-spin" />
@@ -227,7 +264,7 @@ export function Sidebar({
           </div>
         ) : (
           <div className="space-y-2">
-            {filteredSessions.slice(0, 20).map((s) => {
+            {filteredSessions.slice(0, displayCount).map((s) => {
               const isActive = currentSession === s.key;
               const displayName = s.title || formatTimestampKey(s.key);
               const sessionStatus = getStatus(s.key);
@@ -342,6 +379,10 @@ export function Sidebar({
                 </ContextMenu>
               );
             })}
+            {/* Sentinel element for lazy-load intersection detection */}
+            {displayCount < filteredSessions.length && (
+              <div ref={sentinelRef} className="h-1" />
+            )}
           </div>
         )}
       </div>
