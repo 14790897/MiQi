@@ -296,6 +296,10 @@ class TurnRunner:
                     arguments=tc.arguments,
                 ))
 
+            # Propagate agent reasoning so manual-mode approval dialogs
+            # can show WHY the agent wants to act, not just WHAT.
+            turn._agent_reasoning = response.content or ""
+
             # Execute tool calls concurrently through ToolRuntime
             contexts = await self._tools.execute_many(turn, response.tool_calls)
 

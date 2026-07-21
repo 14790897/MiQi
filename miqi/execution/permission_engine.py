@@ -57,21 +57,26 @@ def _office_target_path(tool_name: str, arguments: dict[str, Any]) -> str:
     return path_str + suffix
 
 
-def _format_manual_hint(tool_name: str, arguments: dict) -> str:
+def _format_manual_hint(tool_name: str, arguments: dict, reasoning: str = "") -> str:
     """Format a human-readable hint for manual mode approval dialogs."""
     if tool_name in ("write_file", "edit_file", "apply_patch"):
         path = str(arguments.get("path") or arguments.get("file_path") or "")
-        return f"修改文件: {path}" if path else "修改文件"
-    if tool_name == "exec":
+        hint = f"修改文件: {path}" if path else "修改文件"
+    elif tool_name == "exec":
         cmd = str(arguments.get("command", ""))
-        return f"执行命令: {cmd[:80]}" if cmd else "执行命令"
-    if tool_name in ("delete", "move"):
+        hint = f"执行命令: {cmd[:80]}" if cmd else "执行命令"
+    elif tool_name in ("delete", "move"):
         path = str(arguments.get("path") or "")
-        return f"{'删除' if tool_name == 'delete' else '移动'}: {path}" if path else tool_name
-    if tool_name in ("web_search", "web_fetch"):
+        hint = f"{'删除' if tool_name == 'delete' else '移动'}: {path}" if path else tool_name
+    elif tool_name in ("web_search", "web_fetch"):
         query = str(arguments.get("query") or arguments.get("url") or "")
-        return f"网络请求: {query[:60]}" if query else "网络请求"
-    return tool_name
+        hint = f"网络请求: {query[:60]}" if query else "网络请求"
+    else:
+        hint = tool_name
+    if reasoning and reasoning.strip():
+        first_line = reasoning.strip().split("\n")[0][:120]
+        hint = f"{hint}\n\n{first_line}"
+    return hint
 
 
 class PermissionVerdict(str, Enum):
@@ -191,7 +196,7 @@ class PermissionEngine:
 
         # 1c. Execution policy: manual forces approval for everything
         if getattr(ctx, "force_approval", False):
-            detail = _format_manual_hint(tool_name, ctx.arguments)
+            detail = _format_manual_hint(tool_name, ctx.arguments, getattr(ctx, "agent_reasoning", ""))
             return PermissionDecision(
                 verdict=PermissionVerdict.APPROVAL_REQUIRED,
                 category="run",

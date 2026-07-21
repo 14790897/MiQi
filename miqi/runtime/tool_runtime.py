@@ -41,6 +41,7 @@ class ToolRuntime:
             # Execution policy flags
             bypass_approval=getattr(turn, "bypass_approval", False),
             force_approval=getattr(turn, "force_approval", False),
+            agent_reasoning=getattr(turn, "_agent_reasoning", ""),
         )
         # Phase 13: pass per-turn permission profile to orchestrator
         permission_profile = getattr(turn, "permission_profile", None)
