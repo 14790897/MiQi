@@ -419,19 +419,19 @@ export function ApprovalsPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div className="flex-1 overflow-y-auto px-4 py-3">
         <div
-          className={`border rounded-lg mb-5 overflow-hidden ${
+          className={`border rounded-lg mb-3 overflow-hidden ${
             bypassConfig.bypassAll
               ? 'border-[var(--approval-warning-border)] bg-[var(--approval-warning-bg)]'
               : 'border-[var(--border-subtle)] bg-[var(--surface)]'
           }`}
         >
-          <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-[var(--border-subtle)]">
+          <div className="flex items-center justify-between gap-4 px-4 py-2.5 border-b border-[var(--border-subtle)]">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <AlertTriangle
-                  size={15}
+                  size={14}
                   className={
                     bypassConfig.bypassAll
                       ? 'text-[var(--approval-warning)]'
@@ -443,11 +443,8 @@ export function ApprovalsPage() {
                   <span className="text-[11px] text-[var(--success)]">已保存</span>
                 )}
               </div>
-              <p className="text-xs text-[var(--text-muted)] mt-1">
-                开启后，智能体执行对应操作时会跳过审批弹窗。
-              </p>
-              <p className="text-[10px] text-[var(--text-faint)] mt-0.5">
-                ⚡ 审批设置仅在「允许编辑」模式下生效。其他模式有独立审批策略。
+              <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                开启后跳过审批弹窗。⚡ 仅「允许编辑」模式生效。
               </p>
             </div>
             <button
@@ -483,7 +480,7 @@ export function ApprovalsPage() {
                   key={row.key}
                   onClick={() => updateBypassConfig(row.key, nextStored)}
                   disabled={disabled}
-                  className={`flex items-center justify-between gap-3 px-5 py-3 ${
+                  className={`flex items-center justify-between gap-3 px-4 py-2 ${
                     disabled && !bypassLoading
                       ? 'opacity-75 cursor-not-allowed'
                       : 'cursor-pointer hover:bg-[rgba(194,65,12,0.08)]'
