@@ -56,26 +56,22 @@ interface Attachment {
   size: number;
   extracting?: boolean;
   dataBase64?: string;
+  _tmpId?: number;
 }
 
-function extractPdfText(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer), limit = Math.min(bytes.length, 2_000_000);
-  let raw = '';
-  for (let i = 0; i < limit; i++) raw += String.fromCharCode(bytes[i]);
-  const results: string[] = [];
-  let pos = 0;
-  while (pos < raw.length) {
-    const bt = raw.indexOf('BT', pos);
-    if (bt === -1) break;
-    const et = raw.indexOf('ET', bt + 2);
-    if (et === -1) break;
-    const block = raw.slice(bt + 2, et);
-    for (const m of block.matchAll(/\(([^)]*)\)\s*Tj/g)) if (m[1].trim()) results.push(m[1]);
-    for (const m of block.matchAll(/\[([^\]]*)\]\s*TJ/g))
-      for (const im of m[1].matchAll(/\(([^)]*)\)/g)) if (im[1].trim()) results.push(im[1]);
-    pos = et + 2;
-  }
-  return results.join(' ') || '';
+// ── Binary-to-base64 helper (async, non-blocking) ────────────────
+function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([buffer]);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const comma = dataUrl.indexOf(',');
+      resolve(comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl);
+    };
+    reader.onerror = () => reject(new Error('base64 encode failed'));
+    reader.readAsDataURL(blob);
+  });
 }
 
 interface Message {
@@ -983,24 +979,38 @@ export function ChatConsole({
     Array.from(e.target.files ?? []).forEach((file) => {
       const ext = file.name.split('.').pop()?.toLowerCase() || '';
       const isImage = file.type.startsWith('image/');
-      const isBinary = !isImage && (
-        file.type === 'application/pdf' || ext === 'pdf'
-        || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || ext === 'docx'
+      const isPdf = file.type === 'application/pdf' || ext === 'pdf';
+      const isOffice = !isImage && !isPdf && (
+        file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || ext === 'docx'
         || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || ext === 'xlsx'
         || file.type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' || ext === 'pptx'
-        || file.type.startsWith('application/') && !file.type.startsWith('text/')
       );
-      // PDF: extract text in background, show spinner then checkmark
+      const isBinary = isPdf || isOffice;
+
       if (isBinary) {
-        setAttachments((prev) => [...prev, { name: file.name, type: 'text', size: file.size, extracting: true }]);
+        const tmpId = Math.random();
+        setAttachments((prev) => [...prev, { name: file.name, type: 'text', size: file.size, extracting: true, _tmpId: tmpId }]);
         const reader = new FileReader();
-        reader.onload = () => {
-          const raw = extractPdfText(reader.result as ArrayBuffer);
-          setAttachments((prev) => prev.map(a =>
-            a.size === file.size && a.name === file.name && a.extracting
-              ? { name: file.name, type: 'text', content: raw || '⚠️ Scanned PDF — OCR needed (see base64 below)', size: file.size, dataBase64: raw ? undefined : (() => { const arr = new Uint8Array(reader.result as ArrayBuffer); let b = '', c = []; for (let i = 0; i < arr.length; i++) { b += String.fromCharCode(arr[i]); if (b.length > 8192) { c.push(b); b = ''; } } if (b) c.push(b); return btoa(c.join('')); })() }
+        reader.onload = async () => {
+          const buffer = reader.result as ArrayBuffer;
+          // Client-side only encodes to base64; backend saves to workspace
+          // and mirrors into the WSL sandbox.  The agent then uses read_file
+          // or exec tools (pdfplumber / python-docx / openpyxl) to extract text.
+          let dataBase64: string | undefined;
+          try {
+            dataBase64 = await arrayBufferToBase64(buffer);
+          } catch {
+            dataBase64 = undefined;
+          }
+          setAttachments((prev) => prev.map((a: any) =>
+            a._tmpId === tmpId
+              ? { name: file.name, type: 'text', content: '', size: file.size, dataBase64 }
               : a
           ));
+        };
+        reader.onerror = () => {
+          // Clear the stuck extracting attachment so Send stays usable
+          setAttachments((prev) => prev.filter((a: any) => a._tmpId !== tmpId));
         };
         reader.readAsArrayBuffer(file);
         return;
@@ -1092,7 +1102,15 @@ export function ChatConsole({
     for (const att of attachments) {
       if (att.dataBase64) {
         binaryAtts.push({ name: att.name, data_base64: att.dataBase64 });
-        content += `\n\n[Scanned PDF: ${att.name}] saved to workspace/uploads/${att.name}\nUse: exec("pip install ocrmypdf && ocrmypdf -l chi_sim+eng uploads/${att.name} uploads/${att.name.replace('.pdf','_ocr.pdf')}")\nThen: exec("python3 -c \\"import fitz; doc=fitz.open('uploads/${att.name.replace('.pdf','_ocr.pdf')}'); print(''.join(p.get_text() for p in doc))\\"")`;
+        const ext = att.name.split('.').pop()?.toLowerCase() || '';
+        const isPdf = ext === 'pdf';
+        const label = isPdf ? 'PDF' : ext.toUpperCase();
+        const wsPath = `uploads/${att.name}`;
+        if (isPdf) {
+          content += `\n\n[${label}: ${att.name}] saved to workspace ${wsPath}\nYou can read it with the read_file tool, or install PDF tools to extract text:\n  exec("pip install pdfplumber && python3 -c \\"import pdfplumber; pdf=pdfplumber.open('${wsPath}'); print('\\\\n'.join(p.extract_text() or '' for p in pdf.pages))\\"")`;
+        } else {
+          content += `\n\n[${label}: ${att.name}] saved to workspace ${wsPath}\nUse read_file to inspect, or install appropriate tools (python-docx for .docx, openpyxl for .xlsx, python-pptx for .pptx) to extract text content.`;
+        }
       } else if (att.content)
         content += `\n\n[Attachment: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\``;
       else if (att.type === 'image' && att.dataUrl) content += `\n\n[Image: ${att.name}]`;
@@ -1716,7 +1734,7 @@ export function ChatConsole({
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*,text/*,.md,.txt,.py,.ts,.js,.json,.csv,.yaml,.yml,.toml"
+        accept="image/*,text/*,.md,.txt,.py,.ts,.js,.json,.csv,.yaml,.yml,.toml,.pdf,.docx,.xlsx,.pptx"
         className="hidden"
         onChange={handleFileChange}
       />

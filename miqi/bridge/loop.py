@@ -658,6 +658,12 @@ class BridgeRuntimeLoop:
             )
 
         # ── Save attachments to workspace before submitting ──
+        # Files saved to the host workspace are NOT automatically visible
+        # inside the WSL sandbox because the sandbox uses a per-session
+        # workspace copy (Issue #221).  We write to the host workspace AND
+        # mirror each file into any active sandbox's workspace directory
+        # so that agent tools (read_file, exec) can find them at their
+        # expected paths inside the sandbox.
         attachments_raw = params.get("attachments") or []
         saved_paths: list[str] = []
         if attachments_raw:
@@ -666,20 +672,40 @@ class BridgeRuntimeLoop:
             if config is None:
                 from miqi.runtime.app_server import AppServerError
                 raise AppServerError("Config not available for attachment save", code="INTERNAL")
+            import asyncio as _asyncio
             import base64 as _b64
             import re as _re
             ws_root = config.workspace_path
             dest_dir = ws_root / "uploads"
             dest_dir.mkdir(parents=True, exist_ok=True)
-            for att in attachments_raw:
+
+            # ── Collect active sandbox info for mirroring ──────────
+            sandbox_mirrors: list[tuple[str, str]] = []  # (sandbox_workspace, distro)
+            sm = getattr(self._bridge_state, "_sandbox_manager", None) if self._bridge_state else None
+            if sm is not None and sm != "disabled":
+                try:
+                    for entry in sm.list_sandboxes():
+                        sw = entry.get("workspace")
+                        if sw:
+                            distro = entry.get("distro", "")
+                            sandbox_mirrors.append((sw, distro))
+                except Exception:
+                    sandbox_mirrors = []
+
+            def _decode_and_write(att: dict[str, str]) -> tuple[str, str, int] | None:
+                """Decode a single attachment and write to disk (called in thread)."""
                 name = (att.get("name") or "").strip()
                 data_b64 = (att.get("data_base64") or "").strip()
                 if not name or not data_b64:
-                    continue
+                    return None
                 try:
                     raw = _b64.b64decode(data_b64)
-                except Exception:
-                    continue
+                except Exception as exc:
+                    logger.warning(
+                        "chat.send: base64 decode failed for attachment %s: %s",
+                        name, exc,
+                    )
+                    return None
                 safe_name = _re.sub(r'[<>:"/\\|?*]', '_', name)
                 dest = dest_dir / safe_name
                 counter = 0
@@ -688,8 +714,84 @@ class BridgeRuntimeLoop:
                     counter += 1
                     dest = dest_dir / f"{stem}_{counter}.{ext}" if ext else dest_dir / f"{stem}_{counter}"
                 dest.write_bytes(raw)
-                saved_paths.append(str(dest))
-                logger.info("chat.send: saved attachment %s → %s (%d bytes)", name, dest, len(raw))
+                return (name, str(dest), len(raw))
+
+            tasks = [
+                _asyncio.to_thread(_decode_and_write, att)
+                for att in attachments_raw
+            ]
+            results = await _asyncio.gather(*tasks)
+            saved_entries: list[tuple[str, str]] = []  # (name, host_path)
+            for result in results:
+                if result is None:
+                    continue
+                name, path_str, size = result
+                saved_entries.append((name, path_str))
+                logger.info("chat.send: saved attachment %s → %s (%d bytes)", name, path_str, size)
+
+            # Build saved_paths list for downstream content injection
+            saved_paths = [p for _, p in saved_entries]
+
+            # ── Mirror to active sandbox workspaces ────────────────
+            if sandbox_mirrors and saved_entries:
+                for att_name, host_path_str in saved_entries:
+                    host_src = Path(host_path_str)
+                    try:
+                        raw_data = host_src.read_bytes()
+                    except OSError as exc:
+                        logger.warning(
+                            "chat.send: cannot read back attachment for mirror: %s",
+                            exc,
+                        )
+                        continue
+
+                    # Relative path under uploads/
+                    try:
+                        rel = host_src.relative_to(dest_dir)
+                    except ValueError:
+                        rel = host_src
+
+                    for sandbox_ws, distro in sandbox_mirrors:
+                        # sandbox_ws is already a Linux path (e.g. /tmp/…);
+                        # avoid Path() which would introduce Windows separators.
+                        sandbox_dest = f"{sandbox_ws.rstrip('/')}/uploads/{rel!s}"
+                        sandbox_parent = f"{sandbox_ws.rstrip('/')}/uploads"
+                        rel_str = str(rel)
+                        if "/" in rel_str:
+                            sandbox_parent = f"{sandbox_ws.rstrip('/')}/uploads/{rel_str.rsplit('/', 1)[0]}"
+                        try:
+                            write_cmd = (
+                                f"mkdir -p '{sandbox_parent}'"
+                                f" && cat > '{sandbox_dest}'"
+                            )
+                            wsl_cmd = ["wsl.exe"]
+                            if distro:
+                                wsl_cmd.extend(["-d", distro])
+                            wsl_cmd.extend(["--", "bash", "-c", write_cmd])
+                            proc = await _asyncio.create_subprocess_exec(
+                                *wsl_cmd,
+                                stdin=_asyncio.subprocess.PIPE,
+                                stdout=_asyncio.subprocess.DEVNULL,
+                                stderr=_asyncio.subprocess.PIPE,
+                            )
+                            _, err = await proc.communicate(input=raw_data)
+                            if proc.returncode == 0:
+                                logger.info(
+                                    "chat.send: mirrored attachment %s → sandbox %s",
+                                    att_name, sandbox_dest,
+                                )
+                            else:
+                                logger.warning(
+                                    "chat.send: mirror to sandbox failed for %s: %s",
+                                    att_name,
+                                    err.decode("utf-8", errors="replace").strip(),
+                                )
+                        except Exception as exc:
+                            logger.warning(
+                                "chat.send: mirror to sandbox failed for %s: %s",
+                                att_name, exc,
+                            )
+                            continue
 
         # Append attachment info to content
         if saved_paths:
