@@ -106,7 +106,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
             boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
           }}
         >
-          <div style={{ padding: '8px 14px 4px', fontSize: 10, color: 'var(--text-faint)', letterSpacing: .5, textTransform: 'uppercase' }}>
+          <div style={{ padding: '5px 14px 2px', fontSize: 10, color: 'var(--text-faint)', letterSpacing: .5, textTransform: 'uppercase' }}>
             Agent 模式
           </div>
           {ITEMS.map(p => {
@@ -116,7 +116,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
                 key={p.key} type="button" onClick={() => pick(p.key)} disabled={active}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '9px 14px', fontSize: 12, cursor: active ? 'default' : 'pointer',
+                  padding: '6px 14px', fontSize: 12, cursor: active ? 'default' : 'pointer',
                   width: '100%', textAlign: 'left', transition: 'background .12s',
                   color: active ? 'var(--text)' : 'var(--text-muted)',
                   fontWeight: active ? 500 : 400,
@@ -135,7 +135,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
               </button>
             );
           })}
-          <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border-subtle)' }}>
+          <div style={{ padding: '6px 14px', borderTop: '1px solid var(--border-subtle)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>保守</span>
               <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'linear-gradient(to right, #a855f7, #0F766E, #3b82f6, #f59e0b)' }} />
@@ -147,7 +147,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
                 onClick={() => { setOpen(false); onOpenApprovals(); }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6, width: '100%',
-                  marginTop: 8, padding: '6px 0', fontSize: 11,
+                  marginTop: 4, padding: '3px 0', fontSize: 11,
                   color: 'var(--text-muted)', cursor: 'pointer',
                   border: 'none', background: 'transparent',
                 }}
@@ -165,10 +165,10 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
 
       {confirmAuto && (
         <div onClick={() => setConfirmAuto(false)} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.35)' }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px 20px', maxWidth: 300, width: '90%', boxShadow: '0 16px 48px rgba(0,0,0,0.16)' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '12px 18px', maxWidth: 300, width: '90%', boxShadow: '0 16px 48px rgba(0,0,0,0.16)' }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>开启自主模式</div>
-            <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0' }}>Agent 将完全自主执行，不再弹窗确认</p>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '3px 0 0' }}>Agent 将完全自主执行，不再弹窗确认</p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
               <button onClick={() => setConfirmAuto(false)} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 500, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)' }}>取消</button>
               <button onClick={() => { onChange('auto'); setConfirmAuto(false); toastFn('✓ 自主 已启用'); }} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: '#f59e0b', color: '#fff' }}>确认</button>
             </div>

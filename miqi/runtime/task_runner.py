@@ -500,13 +500,13 @@ class TaskRunner:
 
         if turn.execution_policy == "plan":
             tools = [t for t in tools if t.get("name") not in _EP_WRITE_EXEC_TOOLS]
+            turn.bypass_approval = True  # plan mode tools are safe, deny-list still wins
 
         if turn.execution_policy == "auto":
             turn.bypass_approval = True
         elif turn.execution_policy == "manual":
             turn.force_approval = True
         # edit: both flags False → normal approval flow
-        # plan: read-only tools, approval not reached
 
         _MODE_PROMPTS = {
             "plan": (
