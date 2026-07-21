@@ -44,6 +44,8 @@ async def test_session_allowlist_auto_approves_exec():
     ctx.tool_name = "exec"
     ctx.arguments = {"command": "echo hello"}
     ctx.permission_profile = None
+    ctx.bypass_approval = False
+    ctx.force_approval = False
 
     decision = await engine.check(ctx)
     assert decision.verdict == PermissionVerdict.ALLOW
@@ -62,6 +64,8 @@ async def test_session_allowlist_auto_approves_file_write():
     ctx.tool_name = "write_file"
     ctx.arguments = {"path": "/tmp/test.txt"}
     ctx.permission_profile = None
+    ctx.bypass_approval = False
+    ctx.force_approval = False
 
     decision = await engine.check(ctx)
     assert decision.verdict == PermissionVerdict.ALLOW
@@ -80,6 +84,8 @@ async def test_session_allowlist_does_not_match_different_command():
     ctx.tool_name = "exec"
     ctx.arguments = {"command": "rm -rf /"}
     ctx.permission_profile = None
+    ctx.bypass_approval = False
+    ctx.force_approval = False
 
     decision = await engine.check(ctx)
     assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
@@ -98,6 +104,8 @@ async def test_session_allowlist_does_not_match_different_path():
     ctx.tool_name = "write_file"
     ctx.arguments = {"path": "/tmp/b.txt"}
     ctx.permission_profile = None
+    ctx.bypass_approval = False
+    ctx.force_approval = False
 
     decision = await engine.check(ctx)
     assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
@@ -226,6 +234,8 @@ async def test_apply_patch_always_approval_matches_future_permission_check():
     ctx.tool_name = "apply_patch"
     ctx.arguments = {"path": "/tmp/test.txt"}
     ctx.permission_profile = None
+    ctx.bypass_approval = False
+    ctx.force_approval = False
 
     decision = await permission_engine.check(ctx)
     assert decision.verdict == PermissionVerdict.ALLOW

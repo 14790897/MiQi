@@ -56,6 +56,8 @@
   --approval-warning-border: #fb923c;
   --approval-warning-pill-bg: #9a3412;
   --approval-warning-pill-text: #ffffff;
+  --bypass: #f59e0b;
+  --bypass-bg: #fffbeb;
   --danger: #c04040;
   --danger-bg: #F8E8E8;          /* ACTIVE FOR EDIT 文件卡片 */
   --info: #2066D0;               /* 链接 / 高亮提示蓝 */
@@ -157,8 +159,8 @@
   --border-radius-lg: var(--radius);
 
   --font-sans:
-    'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    'Segoe UI', sans-serif;
+    'Inter', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui,
+    -apple-system, blinkmacsystemfont, 'Segoe UI', sans-serif;
 }
 
 /* ------------------------------------------------------------------ */
@@ -178,6 +180,8 @@ body,
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizelegibility;
 }
 
 /* Scrollbar */
@@ -327,4 +331,20 @@ code {
   box-shadow:
     0 14px 35px rgba(124, 45, 18, 0.14),
     0 2px 10px rgba(124, 45, 18, 0.08);
+}
+
+/* Banner auto-dismiss animations */
+@keyframes banner-in {
+  from { opacity: 0; transform: translate(-50%, -8px) scale(0.96); }
+  to   { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+@keyframes banner-out {
+  from { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  to   { opacity: 0; transform: translate(-50%, -6px) scale(0.97); }
+}
+.animate-banner-in {
+  animation: banner-in 0.4s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+.animate-banner-out {
+  animation: banner-out 0.5s ease both;
 }

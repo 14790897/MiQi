@@ -73,7 +73,7 @@ function SubmitModal({
   onClose: () => void;
   onSubmitted: () => void;
 }) {
-  const [category, setCategory] = useState('bug');
+  const [category, setCategory] = useState<'bug' | 'question' | 'suggestion' | 'other'>('bug');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [contact, setContact] = useState('');

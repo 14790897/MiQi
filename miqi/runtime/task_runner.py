@@ -465,6 +465,7 @@ class TaskRunner:
             workspace=self.services.workspace,
             model=self.services.model_settings.model,
             provider=self.services.provider,
+            execution_policy=msg.mode or "edit",
             temperature=self.services.model_settings.temperature,
             max_tokens=self.services.model_settings.max_tokens,
             client_id=client_id,
@@ -480,6 +481,52 @@ class TaskRunner:
             tools = capabilities.tool_definitions
         else:
             tools = self.services.tool_registry.get_definitions()
+
+        # ── Execution Policy ──────────────────────────────────────────
+        # Three-layer: system prompt + tool set + approval flags.
+        # Mode = Agent role, not permission preset.
+        # Plan:   strategist — read-only, proposes approach
+        # Manual: collaborator — all tools, each step confirmed by user
+        # Edit:   developer  — all tools, safe auto, dangerous ask
+        # Auto:   agent      — all tools, bypass approval entirely
+
+        from miqi.runtime.tool_policy import PLAN_BLOCKED_TOOLS
+
+        if turn.execution_policy == "plan":
+            tools = [t for t in tools if t.get("name") not in PLAN_BLOCKED_TOOLS]
+            turn.bypass_approval = True  # plan mode tools are safe, deny-list still wins
+
+        if turn.execution_policy == "auto":
+            turn.bypass_approval = True
+        elif turn.execution_policy == "manual":
+            turn.force_approval = True
+        # edit: both flags False → normal approval flow
+
+        _MODE_PROMPTS = {
+            "plan": (
+                "【Agent 模式：规划】你的角色是规划师/研究员。你可以使用只读工具（搜索、读文件、查资料）"
+                "来收集信息和做出分析，但不能修改文件、不能执行命令、不能做任何写入操作。"
+                "请在回答中充分利用搜索、阅读等只读工具给出详尽的分析和方案。"
+                "如果你的方案需要实际操作（写文件、执行命令等），请在末尾提醒用户："
+                "「如需执行，请切换到『允许编辑』或『自动』模式。」\n\n"
+            ),
+            "manual": (
+                "【Agent 模式：手动】你的角色是协作者。你有全部工具，但每个操作需要用户确认。"
+                "请逐步说明你打算做什么（改哪个文件、执行什么命令），等待用户逐一批准后再动手。\n\n"
+            ),
+            "edit": (
+                "【Agent 模式：允许编辑】你的角色是工程师。直接修改文件，安全操作自动放行。"
+                "危险操作（执行命令、网络请求、删除文件）需要用户确认。高效工作。\n\n"
+            ),
+            "auto": (
+                "【Agent 模式：自动】你的角色是全权代理。完全自主执行，不中断询问。"
+                "直接完成任务，注意安全底线。用户信任你的判断。\n\n"
+            ),
+        }
+        mode_prompt = _MODE_PROMPTS.get(turn.execution_policy, "")
+        effective_system_prompt = mode_prompt + metadata.system_prompt if mode_prompt else metadata.system_prompt
+
+        # ── End Execution Policy ─────────────────────────────────────
 
         # Phase 13: attach permission profile for orchestrator
         from miqi.runtime.permission_profile import PermissionProfile
@@ -605,7 +652,7 @@ class TaskRunner:
             result = await self.services.turn_runner.run(
                 turn=turn,
                 user_content=msg.content,
-                system_prompt=metadata.system_prompt,
+                system_prompt=effective_system_prompt,
                 tools=tools,
                 history=history,
                 cancel_event=cancel_evt,

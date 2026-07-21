@@ -168,6 +168,9 @@ class ToolExecutionContext:
     status: OrchestrationResult | None = None
     duration_ms: int = 0
     retry_count: int = 0
+    # Execution policy flags
+    bypass_approval: bool = False
+    force_approval: bool = False
 
 
 @dataclass

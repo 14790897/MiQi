@@ -152,6 +152,14 @@ export function ApprovalsPage() {
   const [bypassSaved, setBypassSaved] = useState<ApprovalBypassKey | null>(null);
   const [bypassError, setBypassError] = useState<string | null>(null);
 
+  // Auto mode override: when active, all switches appear checked
+  const [autoMode, setAutoMode] = useState(() => sessionStorage.getItem('miqi:mode:auto') === '1');
+  useEffect(() => {
+    const h = () => setAutoMode(sessionStorage.getItem('miqi:mode:auto') === '1');
+    window.addEventListener('miqi:mode-changed', h);
+    return () => window.removeEventListener('miqi:mode-changed', h);
+  }, []);
+
   // Expand
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
@@ -283,7 +291,19 @@ export function ApprovalsPage() {
     const next =
       key === 'bypassAll'
         ? { ...DEFAULT_APPROVAL_BYPASS, bypassAll: enabled }
-        : { ...bypassConfig, bypassAll: false, [key]: enabled };
+        : (() => {
+            const updated = { ...bypassConfig, [key]: enabled };
+            // If all 4 individual bypasses are now ON, auto-check bypassAll
+            if (updated.bypassCommandApproval &&
+                updated.bypassFileWriteApproval &&
+                updated.bypassToolConfirmation &&
+                updated.bypassNetworkApproval) {
+              updated.bypassAll = true;
+            } else {
+              updated.bypassAll = false;
+            }
+            return updated;
+          })();
     setBypassSaving(key);
     setBypassError(null);
     setBypassConfig(next);
@@ -357,7 +377,7 @@ export function ApprovalsPage() {
   return (
     <div className="flex flex-col h-full bg-[var(--background)]">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] bg-[var(--surface)] shrink-0">
+      <div className="flex items-center justify-between px-5 py-2.5 border-b border-[var(--border-subtle)] bg-[var(--surface)] shrink-0">
         <div>
           <h1 className="text-base font-semibold text-[var(--text)]">命令审批</h1>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
@@ -380,7 +400,7 @@ export function ApprovalsPage() {
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`settings-hover-tab flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 -mb-px ${
+              className={`settings-hover-tab flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px ${
                 tab === t.key
                   ? 'border-[var(--accent)] text-[var(--accent)]'
                   : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text)]'
@@ -399,19 +419,19 @@ export function ApprovalsPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div className="flex-1 overflow-y-auto px-4 py-2">
         <div
-          className={`border rounded-lg mb-5 overflow-hidden ${
+          className={`border rounded-lg mb-2 overflow-hidden ${
             bypassConfig.bypassAll
               ? 'border-[var(--approval-warning-border)] bg-[var(--approval-warning-bg)]'
               : 'border-[var(--border-subtle)] bg-[var(--surface)]'
           }`}
         >
-          <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-[var(--border-subtle)]">
+          <div className="flex items-center justify-between gap-4 px-4 py-2 border-b border-[var(--border-subtle)]">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <AlertTriangle
-                  size={15}
+                  size={14}
                   className={
                     bypassConfig.bypassAll
                       ? 'text-[var(--approval-warning)]'
@@ -423,20 +443,20 @@ export function ApprovalsPage() {
                   <span className="text-[11px] text-[var(--success)]">已保存</span>
                 )}
               </div>
-              <p className="text-xs text-[var(--text-muted)] mt-1">
-                开启后，智能体执行对应操作时会跳过审批弹窗。
+              <p className="text-[11px] text-[var(--text-muted)] mt-0.5 leading-tight">
+                开启后跳过审批弹窗。⚡ 仅「允许编辑」模式生效。
               </p>
             </div>
             <button
               type="button"
               onClick={() => updateBypassConfig('bypassAll', !bypassConfig.bypassAll)}
-              disabled={bypassLoading}
+              disabled={bypassLoading || autoMode}
               className="flex items-center gap-3 shrink-0 cursor-pointer disabled:cursor-not-allowed"
             >
               <span className="text-xs font-medium text-[var(--text-muted)]">全部绕过</span>
               <ToggleSwitch
-                checked={bypassConfig.bypassAll}
-                disabled={bypassLoading}
+                checked={autoMode || bypassConfig.bypassAll}
+                disabled={bypassLoading || autoMode}
                 testId="approval-bypass-all-toggle"
                 tone="warning"
               />
@@ -450,8 +470,8 @@ export function ApprovalsPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-[var(--border-subtle)]">
             {bypassRows.map((row) => {
-              const disabled = bypassLoading || bypassConfig.bypassAll;
-              const checked = isBypassOn(row.key);
+              const disabled = bypassLoading || bypassConfig.bypassAll || autoMode;
+              const checked = autoMode || isBypassOn(row.key);
               const storedChecked = bypassConfig[row.key];
               const nextStored = !storedChecked;
               return (
@@ -460,7 +480,7 @@ export function ApprovalsPage() {
                   key={row.key}
                   onClick={() => updateBypassConfig(row.key, nextStored)}
                   disabled={disabled}
-                  className={`flex items-center justify-between gap-3 px-5 py-3 ${
+                  className={`flex items-center justify-between gap-3 px-4 py-1.5 ${
                     disabled && !bypassLoading
                       ? 'opacity-75 cursor-not-allowed'
                       : 'cursor-pointer hover:bg-[rgba(194,65,12,0.08)]'
@@ -504,7 +524,7 @@ export function ApprovalsPage() {
         ) : (
           <>
             {/* Status bar (always shown) */}
-            <div className="settings-hover-card bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl px-5 py-3 flex items-center gap-4 text-sm mb-5">
+            <div className="settings-hover-card bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl px-5 py-2 flex items-center gap-4 text-sm mb-3">
               <div className="flex items-center gap-2">
                 <Shield
                   size={14}

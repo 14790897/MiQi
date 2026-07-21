@@ -6,6 +6,7 @@ import { Textarea } from '../../components/ui/Textarea';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { ContextMenu, type ContextMenuAction } from '../../components/ContextMenu';
 import { cn } from '../../lib/utils';
+import { ExecutionPolicySelector, type ExecutionPolicy } from '../../components/ExecutionPolicySelector';
 import {
   Send,
   Square,
@@ -614,6 +615,7 @@ export function ChatConsole({
   onNewSession,
   onChatFinished,
   onOpenProviderSettings,
+  onOpenApprovals,
 }: {
   sessionKey?: string;
   /** Increment to force a session history reload (e.g. after bridge becomes ready) */
@@ -621,11 +623,13 @@ export function ChatConsole({
   onNewSession?: (newKey: string) => void;
   onChatFinished?: () => void;
   onOpenProviderSettings?: () => void;
+  onOpenApprovals?: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionUpdatedAt, setSessionUpdatedAt] = useState<string | null>(null);
   const [clockTick, setClockTick] = useState(() => Date.now());
   const [input, setInput] = useState('');
+  const [executionPolicy, setExecutionPolicy] = useState<ExecutionPolicy>('edit');
   const [streaming, setStreaming] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -1401,7 +1405,7 @@ export function ChatConsole({
 
       const key =
         activeThreadId === 'main' ? currentSessionRef.current : `desktop:${activeThreadId}`;
-      await window.miqi.chat.send(content, key, threadId ?? undefined);
+      await window.miqi.chat.send(content, key, threadId ?? undefined, executionPolicy);
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
       if (streamErrorHandled) {
@@ -1428,7 +1432,7 @@ export function ChatConsole({
       sendCleanup();
       cleanupListeners();
     }
-  }, [input, attachments, streaming, cleanupListeners, onChatFinished]);
+  }, [input, attachments, streaming, cleanupListeners, onChatFinished, executionPolicy]);
 
   // ── Download paper via chat ─────────────────────────────────────
   const handleDownloadPaper = useCallback(
@@ -2072,6 +2076,7 @@ export function ChatConsole({
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
+                <ExecutionPolicySelector policy={executionPolicy} onChange={setExecutionPolicy} disabled={streaming} onOpenApprovals={onOpenApprovals} />
                 <button
                   onClick={handleAttachClick}
                   className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
@@ -2884,12 +2889,13 @@ function MessageBubble({
       <div className="flex items-start gap-3">
         <GitMerge size={18} style={{ color: 'var(--accent)', marginTop: 6 }} />
         <div
-          className="text-sm rounded-2xl px-4 py-3 prose prose-sm max-w-none break-words"
+          className="text-sm rounded-2xl px-4 py-3 prose prose-sm max-w-none break-words overflow-x-auto"
           style={{
             background: 'var(--surface-muted)',
             color: 'var(--text)',
             border: '1px solid var(--border-subtle)',
             maxWidth: '82%',
+            minWidth: 0,
           }}
         >
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
