@@ -76,34 +76,6 @@ export function Sidebar({
     setDisplayCount(PER_PAGE);
   }, [sessions, filter]);
 
-  // IntersectionObserver: load next page when sentinel enters viewport
-  useEffect(() => {
-    const sentinel = sentinelRef.current;
-    const container = listContainerRef.current;
-    if (!sentinel || !container) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          setDisplayCount((prev) => {
-            const next = prev + PER_PAGE;
-            // Don't exceed total
-            return next > filteredSessions.length ? filteredSessions.length : next;
-          });
-        }
-      },
-      {
-        root: container,
-        // Start loading 300px before the sentinel — feels instant
-        rootMargin: '300px',
-        threshold: 0,
-      }
-    );
-
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [filteredSessions.length, displayCount]);
-
   // Resize handler
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -175,6 +147,32 @@ export function Sidebar({
     }
     return { filterCounts: counts, filteredSessions: filtered };
   }, [sessions, filter, getStatus]);
+
+  // IntersectionObserver: load next page when sentinel enters viewport
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const container = listContainerRef.current;
+    if (!sentinel || !container) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setDisplayCount((prev) => {
+            const next = prev + PER_PAGE;
+            return next > filteredSessions.length ? filteredSessions.length : next;
+          });
+        }
+      },
+      {
+        root: container,
+        rootMargin: '300px',
+        threshold: 0,
+      }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [filteredSessions.length, displayCount]);
 
   return (
     <div
