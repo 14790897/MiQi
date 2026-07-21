@@ -57,6 +57,23 @@ def _office_target_path(tool_name: str, arguments: dict[str, Any]) -> str:
     return path_str + suffix
 
 
+def _format_manual_hint(tool_name: str, arguments: dict) -> str:
+    """Format a human-readable hint for manual mode approval dialogs."""
+    if tool_name in ("write_file", "edit_file", "apply_patch"):
+        path = str(arguments.get("path") or arguments.get("file_path") or "")
+        return f"修改文件: {path}" if path else "修改文件"
+    if tool_name == "exec":
+        cmd = str(arguments.get("command", ""))
+        return f"执行命令: {cmd[:80]}" if cmd else "执行命令"
+    if tool_name in ("delete", "move"):
+        path = str(arguments.get("path") or "")
+        return f"{'删除' if tool_name == 'delete' else '移动'}: {path}" if path else tool_name
+    if tool_name in ("web_search", "web_fetch"):
+        query = str(arguments.get("query") or arguments.get("url") or "")
+        return f"网络请求: {query[:60]}" if query else "网络请求"
+    return tool_name
+
+
 class PermissionVerdict(str, Enum):
     ALLOW = "allow"
     DENY = "deny"
@@ -169,12 +186,13 @@ class PermissionEngine:
 
         # 1c. Execution policy: manual forces approval for everything
         if getattr(ctx, "force_approval", False):
+            detail = _format_manual_hint(tool_name, ctx.arguments)
             return PermissionDecision(
                 verdict=PermissionVerdict.APPROVAL_REQUIRED,
                 category="run",
                 reason="Approval required by execution policy (manual mode)",
                 allow_permanent=False,
-                description=f"Manual mode: {tool_name} requires confirmation",
+                description=f"手动模式 · {detail}",
             )
 
         # 3. Session-scoped allowlist (keyed by tool + arguments)
