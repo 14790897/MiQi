@@ -172,7 +172,7 @@ export function Sidebar({
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [filteredSessions.length, displayCount]);
+  }, [filteredSessions.length]);
 
   return (
     <div
