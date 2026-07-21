@@ -489,10 +489,13 @@ export function SetupWizard({
               <p>以管理员身份打开 PowerShell，运行以下命令并重启电脑：</p>
               {renderCommand('wsl --install')}
             </div>
-            <div className="mt-3 pt-2 border-t border-[var(--border-subtle)]">
+            <div className="mt-3 pt-2 border-t border-[var(--border-subtle)] flex items-center justify-between">
               <p className="text-xs text-[var(--text-faint)]">
-                ⚡ 沙箱、Linux 工具链等能力在 WSL2 上体验更稳定，但你也可以跳过此步骤，稍后到「设置 → WSL 状态监控」中一键安装。
+                ⚡ 沙箱等功能在 WSL2 上更稳定，也可以跳过稍后在设置中一键安装。
               </p>
+              <Button variant="ghost" size="sm" onClick={handleUseDefaults}>
+                跳过
+              </Button>
             </div>
           </div>
         );

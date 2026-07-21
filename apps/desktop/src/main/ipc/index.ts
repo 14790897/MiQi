@@ -758,60 +758,119 @@ for m in ("pydantic", "httpx", "loguru"):
       } satisfies WslInstallAndProvisionResult;
     }
 
+    // ── Persisted state path ──────────────────────────────────────────
+    const statePath = join(homedir(), '.miqi', 'wsl_install_state.json');
+
+    function readState(): { phase: string; at: number } | null {
+      try { return JSON.parse(readFileSync(statePath, 'utf8')); } catch { return null; }
+    }
+    function writeState(phase: string) {
+      try {
+        mkdirSync(join(homedir(), '.miqi'), { recursive: true });
+        writeFileSync(statePath, JSON.stringify({ phase, at: Date.now() }));
+      } catch { /* best-effort */ }
+    }
+    function clearState() {
+      try { require('fs').unlinkSync(statePath); } catch { /* ignore */ }
+    }
+
     try {
       // ── Step 1: Check ───────────────────────────────────────────────
       safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
         phase: 'checking', message: '正在检测 WSL 状态...',
       } satisfies WslInstallProgress);
 
-      // Reuse shared check
       const check = runWslCheckInternal();
-
+      const saved = readState();
       safeSend(IPC_EVENTS.WSL_CHECK_UPDATED, {});
 
-      // ── Step 2: wsl --install (covers: enable features + kernel + distro) ──
-      if (check.featureState === 'not-enabled' || check.featureState === 'not-installed') {
+      // ── Step 2: not-enabled → DISM enable features ──────────────────
+      if (check.featureState === 'not-enabled') {
         safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
-          phase: 'installing_wsl',
-          message: '正在安装 WSL2（包括启用功能、安装内核和 Ubuntu 发行版）...',
+          phase: 'enabling_features',
+          message: '正在启用 Windows 可选功能 (WSL + 虚拟机平台)...',
         } satisfies WslInstallProgress);
 
         const r = spawnSync(
           'powershell.exe',
           ['-NoProfile', '-Command',
-            'Start-Process wsl -ArgumentList "--install --no-launch" -Verb RunAs -Wait -PassThru | Select-Object -ExpandProperty ExitCode'],
-          { timeout: 300000, encoding: 'utf8', windowsHide: true }
+            'Start-Process powershell -ArgumentList "-NoProfile -Command ' +
+            'Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux -NoRestart; ' +
+            'Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -NoRestart" ' +
+            '-Verb RunAs -Wait -PassThru | Select-Object -ExpandProperty ExitCode'],
+          { timeout: 120000, encoding: 'utf8', windowsHide: true }
         );
 
         const exitCode = parseInt((r.stdout || '').trim(), 10);
-        if (r.error || (r.status === 0 && exitCode !== 0)) {
+        if (r.error || (r.status === 0 && exitCode && exitCode !== 0)) {
           safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
             phase: 'error',
-            message: `wsl --install 失败（exit code: ${exitCode || 'unknown'}）。请以管理员身份手动运行。`,
-            error: `wsl --install 返回 ${exitCode || 'error'}`,
+            message: `启用 Windows 功能失败 (code: ${exitCode || 'unknown'})`,
+            error: `DISM exit ${exitCode || 'error'}`,
           } satisfies WslInstallProgress);
           return {
-            success: false, phase: 'error',
-            error: 'WSL 安装未成功',
-            errorCode: 'INSTALL_FAILED',
+            success: false, phase: 'error', errorCode: 'FEATURE_ENABLE_FAILED',
+            error: '无法启用 Windows 可选功能',
             nextStep: '以管理员身份打开 PowerShell 并运行: wsl --install',
           } satisfies WslInstallAndProvisionResult;
         }
 
+        writeState('features_enabled');
+
+        safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+          phase: 'enabling_features', rebootRequired: true,
+          message: 'Windows 功能已启用。需要重启系统，重启后 MiQi 将自动继续安装。',
+        } satisfies WslInstallProgress);
+
+        return {
+          success: true, phase: 'enabling_features', rebootRequired: true,
+          nextStep: '请重启系统，重新打开 MiQi 后向导将自动继续',
+        } satisfies WslInstallAndProvisionResult;
+      }
+
+      // ── Step 3: not-installed → wsl --install --no-distribution ─────
+      if (check.featureState === 'not-installed') {
         safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
           phase: 'installing_wsl',
-          message: 'WSL2 安装完成。需要重启系统，重启后请重新打开 MiQi，向导将自动继续配置。',
-          rebootRequired: true,
+          message: '正在安装 WSL2 内核...',
+        } satisfies WslInstallProgress);
+
+        const r = spawnSync(
+          'powershell.exe',
+          ['-NoProfile', '-Command',
+            'Start-Process wsl -ArgumentList "--install --no-distribution --no-launch" -Verb RunAs -Wait -PassThru | Select-Object -ExpandProperty ExitCode'],
+          { timeout: 300000, encoding: 'utf8', windowsHide: true }
+        );
+
+        const exitCode = parseInt((r.stdout || '').trim(), 10);
+        if (r.error || (r.status === 0 && exitCode && exitCode !== 0)) {
+          safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+            phase: 'error',
+            message: `WSL2 内核安装失败 (code: ${exitCode || 'unknown'})`,
+            error: `wsl --install exit ${exitCode || 'error'}`,
+          } satisfies WslInstallProgress);
+          return {
+            success: false, phase: 'error', errorCode: 'KERNEL_INSTALL_FAILED',
+            error: 'WSL2 内核安装失败',
+            nextStep: '以管理员身份打开 PowerShell 并运行: wsl --install --no-distribution',
+          } satisfies WslInstallAndProvisionResult;
+        }
+
+        writeState('kernel_installed');
+
+        safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+          phase: 'installing_wsl', rebootRequired: true,
+          message: 'WSL2 内核安装完成。需要重启系统以继续。',
         } satisfies WslInstallProgress);
 
         return {
           success: true, phase: 'installing_wsl', rebootRequired: true,
-          nextStep: '请重启系统后重新运行此向导',
+          nextStep: '请重启系统，重新打开 MiQi 后向导将自动继续',
         } satisfies WslInstallAndProvisionResult;
       }
 
-      // ── Step 3: Distro missing? Install one ──────────────────────────
-      if (check.featureState === 'installed-but-not-initialized' && check.distros.length === 0) {
+      // ── Step 4: no distro → install Ubuntu ───────────────────────────
+      if (check.distros.length === 0 && check.featureState !== 'ready') {
         safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
           phase: 'installing_distro',
           message: '正在安装 Ubuntu 发行版（可能需要几分钟）...',
@@ -826,10 +885,14 @@ for m in ("pydantic", "httpx", "loguru"):
 
         const postCheck = runWslCheckInternal();
         if (postCheck.distros.length === 0) {
+          safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
+            phase: 'error',
+            message: 'Ubuntu 安装失败',
+            error: 'DISTRO_INSTALL_FAILED',
+          } satisfies WslInstallProgress);
           return {
-            success: false, phase: 'error',
-            error: 'Ubuntu 安装失败',
-            errorCode: 'DISTRO_INSTALL_FAILED',
+            success: false, phase: 'error', errorCode: 'DISTRO_INSTALL_FAILED',
+            error: 'Ubuntu 发行版安装失败',
             nextStep: '以管理员身份打开 PowerShell 并运行: wsl --install -d Ubuntu',
           } satisfies WslInstallAndProvisionResult;
         }
@@ -837,8 +900,8 @@ for m in ("pydantic", "httpx", "loguru"):
         check.defaultDistro = postCheck.defaultDistro;
       }
 
-      // ── Step 4: Provision user ───────────────────────────────────────
-      if (check.featureState === 'installed-but-not-initialized' && check.distros.length > 0) {
+      // ── Step 5: provision user ───────────────────────────────────────
+      if (check.distros.length > 0 && check.featureState !== 'ready') {
         const distro = check.defaultDistro || check.distros[0];
 
         safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
@@ -862,7 +925,6 @@ for m in ("pydantic", "httpx", "loguru"):
         );
 
         if (pr.status !== 0 || !pr.stdout?.includes('OK:')) {
-          // Fallback: check if any user already exists
           const cu = spawnSync(
             'wsl.exe', ['-d', distro, '--', 'bash', '-c', 'getent passwd 1000 | cut -d: -f1'],
             { timeout: 10000, encoding: 'utf8', windowsHide: true }
@@ -892,6 +954,7 @@ for m in ("pydantic", "httpx", "loguru"):
       }
 
       // ── Done ────────────────────────────────────────────────────────
+      clearState();
       safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
         phase: 'complete', message: 'WSL2 安装配置完成！',
       } satisfies WslInstallProgress);
