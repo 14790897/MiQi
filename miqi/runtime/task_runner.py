@@ -490,16 +490,10 @@ class TaskRunner:
         # Edit:   developer  — all tools, safe auto, dangerous ask
         # Auto:   agent      — all tools, bypass approval entirely
 
-        _EP_WRITE_EXEC_TOOLS = frozenset({
-            "write_file", "edit_file", "apply_patch", "edit_diff",
-            "write", "edit", "delete", "move",
-            "exec", "bash", "shell",
-            "spawn", "subagent", "cron",
-            "skill_manage", "memory",
-        })
+        from miqi.runtime.tool_policy import PLAN_BLOCKED_TOOLS
 
         if turn.execution_policy == "plan":
-            tools = [t for t in tools if t.get("name") not in _EP_WRITE_EXEC_TOOLS]
+            tools = [t for t in tools if t.get("name") not in PLAN_BLOCKED_TOOLS]
             turn.bypass_approval = True  # plan mode tools are safe, deny-list still wins
 
         if turn.execution_policy == "auto":
@@ -510,9 +504,11 @@ class TaskRunner:
 
         _MODE_PROMPTS = {
             "plan": (
-                "【Agent 模式：规划】你的角色是规划师。只分析、制定方案，不执行。"
-                "请给出具体的、可操作的方案（包含工具名、文件路径、步骤）。"
-                "方案末尾注明：切换到「允许编辑」或「自动」模式即可执行。\n\n"
+                "【Agent 模式：规划】你的角色是规划师/研究员。你可以使用只读工具（搜索、读文件、查资料）"
+                "来收集信息和做出分析，但不能修改文件、不能执行命令、不能做任何写入操作。"
+                "请在回答中充分利用搜索、阅读等只读工具给出详尽的分析和方案。"
+                "如果你的方案需要实际操作（写文件、执行命令等），请在末尾提醒用户："
+                "「如需执行，请切换到『允许编辑』或『自动』模式。」\n\n"
             ),
             "manual": (
                 "【Agent 模式：手动】你的角色是协作者。你有全部工具，但每个操作需要用户确认。"

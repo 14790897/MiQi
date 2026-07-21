@@ -53,7 +53,7 @@ class TestExecutionPolicyToolFiltering:
     """Verify turn_runner filters tools based on execution_policy."""
 
     def test_plan_mode_filters_write_exec(self):
-        """Plan mode → write/exec tools filtered, read-only tools kept."""
+        """Plan mode → write/exec tools filtered, read-only tools kept. bypass_approval=True for safe auto-allow."""
         turn = FakeTurnContext(execution_policy="plan")
         tools = make_tools("read_file", "write_file", "exec", "web_search", "list_dir")
 
@@ -66,6 +66,7 @@ class TestExecutionPolicyToolFiltering:
         })
         if turn.execution_policy == "plan":
             tools = [t for t in tools if t.get("name") not in _EP_WRITE_EXEC]
+            turn.bypass_approval = True  # plan mode tools are safe, deny-list still wins
 
         names = [t["name"] for t in tools]
         assert "read_file" in names, "Plan should keep read_file"
@@ -73,7 +74,7 @@ class TestExecutionPolicyToolFiltering:
         assert "list_dir" in names, "Plan should keep list_dir"
         assert "write_file" not in names, "Plan should filter write_file"
         assert "exec" not in names, "Plan should filter exec"
-        assert turn.bypass_approval is False
+        assert turn.bypass_approval is True, "Plan should set bypass_approval=True"
         assert turn.force_approval is False
 
     def test_manual_mode_flags(self):
@@ -103,29 +104,29 @@ class TestExecutionPolicyToolFiltering:
         assert turn.bypass_approval is True
         assert turn.force_approval is False
 
-    def test_accept_edits_mode_flags(self):
-        """Accept edits mode → neither flag set (defaults)."""
+    def test_edit_mode_flags(self):
+        """Edit mode → neither flag set (defaults)."""
         turn = FakeTurnContext(execution_policy="edit")
-        
+
         if turn.execution_policy == "auto":
             turn.bypass_approval = True
         elif turn.execution_policy == "manual":
             turn.bypass_approval = False
             turn.force_approval = True
-        
+
         assert turn.bypass_approval is False
         assert turn.force_approval is False
 
-    def test_accept_edits_mode_keeps_tools(self):
-        """Accept edits mode → all tools preserved."""
+    def test_edit_mode_keeps_tools(self):
+        """Edit mode → all tools preserved."""
         turn = FakeTurnContext(execution_policy="edit")
         tools = make_tools("read_file", "write_file", "exec", "web_search")
-        
-        # Accept edits keeps all tools
+
+        # Edit keeps all tools
         if turn.execution_policy == "plan":
             tools = []
-        
-        assert len(tools) == 4, "Accept edits should keep all tools"
+
+        assert len(tools) == 4, "Edit should keep all tools"
 
     def test_manual_mode_keeps_tools(self):
         """Manual mode → all tools preserved (differentiation is at approval layer)."""
@@ -186,7 +187,7 @@ class TestToolRuntimePolicyPropagation:
         assert ctx.force_approval is True
 
     def test_default_no_flags(self):
-        """Default accept_edits → no flags set."""
+        """Default edit → no flags set."""
         from miqi.execution.orchestrator import ToolExecutionContext
         
         turn = FakeTurnContext(execution_policy="edit")

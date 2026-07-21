@@ -128,11 +128,11 @@ class TestFullPipelineManual:
         assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
 
 
-class TestFullPipelineAcceptEdits:
-    """Verify accept_edits mode: normal permission logic (no flags)."""
+class TestFullPipelineEdit:
+    """Verify edit mode: normal permission logic (no flags)."""
 
-    def test_accept_edits_allows_read(self):
-        """Accept edits → read_file auto-allowed."""
+    def test_edit_allows_read(self):
+        """Edit → read_file auto-allowed."""
         engine = PermissionEngine()
         ctx = ToolExecutionContext(
             tool_name="read_file",
@@ -141,13 +141,13 @@ class TestFullPipelineAcceptEdits:
             turn_id="t1",
             thread_id="th1",
             agent_type="main",
-            # no flags ← default accept_edits behavior
+            # no flags ← default edit behavior
         )
         decision = asyncio.run(engine.check(ctx))
         assert decision.verdict == PermissionVerdict.ALLOW
 
-    def test_accept_edits_requires_approval_for_exec(self):
-        """Accept edits → dangerous exec still requires approval."""
+    def test_edit_requires_approval_for_exec(self):
+        """Edit → dangerous exec still requires approval."""
         engine = PermissionEngine()
         ctx = ToolExecutionContext(
             tool_name="exec",
@@ -160,8 +160,8 @@ class TestFullPipelineAcceptEdits:
         decision = asyncio.run(engine.check(ctx))
         assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
 
-    def test_accept_edits_requires_approval_for_file_write(self):
-        """Accept edits → write_file requires approval (normal behavior)."""
+    def test_edit_requires_approval_for_file_write(self):
+        """Edit → write_file requires approval (normal behavior)."""
         engine = PermissionEngine()
         ctx = ToolExecutionContext(
             tool_name="write_file",
@@ -179,9 +179,9 @@ class TestPlanModeReadOnlyTools:
     """Verify plan mode: only read-only tools, approval never reached for writes."""
 
     def test_plan_mode_filters_write_exec(self):
-        """Plan mode → write/exec filtered, read-only kept."""
+        """Plan mode → write/exec filtered, read-only kept. bypass_approval=True for safe auto-allow."""
         from miqi.runtime.turn_context import TurnContext
-        
+
         turn = TurnContext(
             turn_id="t1",
             thread_id="th1",
@@ -191,7 +191,7 @@ class TestPlanModeReadOnlyTools:
             provider=None,
             execution_policy="plan",
         )
-        
+
         _EP_WRITE_EXEC = frozenset({
             "write_file", "edit_file", "apply_patch", "edit_diff",
             "exec", "bash", "shell", "spawn", "subagent", "cron",
@@ -201,13 +201,14 @@ class TestPlanModeReadOnlyTools:
         tools = [{"name": "exec"}, {"name": "write_file"}, {"name": "read_file"}, {"name": "web_search"}]
         if turn.execution_policy == "plan":
             tools = [t for t in tools if t.get("name") not in _EP_WRITE_EXEC]
-        
+            turn.bypass_approval = True  # plan mode tools are safe, deny-list still wins
+
         names = [t["name"] for t in tools]
         assert "read_file" in names, "Plan should keep read tools"
         assert "web_search" in names, "Plan should keep network tools"
         assert "exec" not in names, "Plan should filter exec"
         assert "write_file" not in names, "Plan should filter write"
-        assert turn.bypass_approval is False
+        assert turn.bypass_approval is True, "Plan should set bypass_approval=True"
         assert turn.force_approval is False
 
 
@@ -288,7 +289,7 @@ class TestUserMessageToTurnContext:
         assert turn.execution_policy == "auto"
 
     def test_user_message_no_mode_defaults(self):
-        """No mode → defaults to accept_edits."""
+        """No mode → defaults to edit."""
         from miqi.protocol.commands import UserMessage
         from miqi.runtime.turn_context import TurnContext
         

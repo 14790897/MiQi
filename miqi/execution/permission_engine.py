@@ -175,7 +175,12 @@ class PermissionEngine:
                     reason=f"Matches deny pattern: {pattern}",
                 )
 
-        # 1b. Execution policy: bypass skips all checks
+        # 1b. Execution policy: bypass skips all checks.
+        # IMPORTANT: safety relies on the caller filtering tool availability
+        # BEFORE setting this flag (e.g. plan mode removes write/exec tools
+        # via PLAN_BLOCKED_TOOLS before setting bypass_approval=True).
+        # The deny-list check above still wins; this only skips the
+        # category-based approval flow for tools that passed filtering.
         if getattr(ctx, "bypass_approval", False):
             return PermissionDecision(
                 verdict=PermissionVerdict.ALLOW,
