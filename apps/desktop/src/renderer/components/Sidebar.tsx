@@ -227,7 +227,7 @@ export function Sidebar({
           </div>
         ) : (
           <div className="space-y-2">
-            {filteredSessions.slice(0, 20).map((s) => {
+            {filteredSessions.map((s) => {
               const isActive = currentSession === s.key;
               const displayName = s.title || formatTimestampKey(s.key);
               const sessionStatus = getStatus(s.key);
