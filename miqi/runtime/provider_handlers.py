@@ -114,9 +114,11 @@ async def providers_list_handler(
         api_key = pc.api_key if pc else None
         hint = None
         builtin_available = spec.name in _BUILTIN_PROVIDERS
-        builtin_activated = bool(
-            activation_store.get(spec.name, {}).get("builtin", False)
-        )
+        entry = activation_store.get(spec.name, {})
+        if isinstance(entry, bool):
+            builtin_activated = entry  # old format: {"deepseek": true}
+        else:
+            builtin_activated = bool(entry.get("builtin", False))
         if builtin_activated:
             # Hide the real key from the frontend for built-in activations
             hint = "企业共享密钥"

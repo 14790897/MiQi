@@ -106,8 +106,8 @@ const api = {
 
   // -- Chat -------------------------------------------------------------------
   chat: {
-    send: (content: string, sessionKey?: string, threadId?: string): Promise<unknown> =>
-      ipcRenderer.invoke(IPC.CHAT_SEND, { content, session_key: sessionKey, thread_id: threadId }),
+    send: (content: string, sessionKey?: string, threadId?: string, mode?: string): Promise<unknown> =>
+      ipcRenderer.invoke(IPC.CHAT_SEND, { content, session_key: sessionKey, thread_id: threadId, mode }),
     abort: (sessionKey?: string): Promise<unknown> =>
       ipcRenderer.invoke(IPC.CHAT_ABORT, { session_key: sessionKey }),
     onProgress: (callback: (data: ChatProgress) => void) => {

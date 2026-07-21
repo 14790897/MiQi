@@ -425,6 +425,7 @@ class TurnRunner:
             workspace=getattr(self._provider, "workspace", Path(".")),
             model=self._provider.get_default_model(),
             provider=self._provider,
+            execution_policy="edit",  # sub-agents default to normal approval flow
             temperature=0.1,
             max_tokens=8192,
         )
@@ -436,6 +437,32 @@ class TurnRunner:
             tools = capabilities.tool_definitions
         else:
             tools = []
+
+        # Execution policy — controls agent autonomy level
+        # Three-layer: system prompt + tool set + approval flags.
+        # Plan: strategist — read-only, proposes approach
+        # Manual: collaborator — all tools, each step confirmed by user
+        # Edit: developer — all tools, safe auto, dangerous ask
+        # Auto: agent — all tools, bypass approval entirely
+
+        from miqi.runtime.tool_policy import PLAN_BLOCKED_TOOLS
+
+        if turn.execution_policy == "plan":
+            tools = [t for t in tools if t.get("name") not in PLAN_BLOCKED_TOOLS]
+            turn.bypass_approval = True  # plan mode tools are safe, deny-list still wins
+        elif turn.execution_policy == "ask":
+            # Legacy ask mode — filter write/exec tools
+            tools = [t for t in tools if t.get("name") not in PLAN_BLOCKED_TOOLS]
+        # manual / edit / auto: all tools available,
+        # differentiation happens at approval layer
+
+        if turn.execution_policy == "auto":
+            turn.bypass_approval = True
+        elif turn.execution_policy == "manual":
+            turn.bypass_approval = False
+            turn.force_approval = True
+        # edit: both flags False → normal approval flow
+        # plan: bypass_approval already set above
 
         return await self.run(
             turn=turn,

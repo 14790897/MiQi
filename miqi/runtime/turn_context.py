@@ -28,6 +28,8 @@ class TurnContext:
     # Phase 31.4: client/session identity for approval scoping
     client_id: str = ""
     session_id: str = ""
+    # Execution policy: "plan" | "manual" | "edit" | "auto"
+    execution_policy: str = "edit"
     temperature: float = 0.1
     max_tokens: int = 8192
     # Permissions
@@ -43,3 +45,6 @@ class TurnContext:
     capabilities: Any | None = None
     permission_profile: Any | None = None
     cancel_event: Any | None = None  # asyncio.Event for turn abort signalling
+    # Execution policy flags for approval layer
+    bypass_approval: bool = False    # skip all approval checks
+    force_approval: bool = False     # require approval even if switch is off

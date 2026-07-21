@@ -23,12 +23,24 @@ function isBypassEnabled(status: ApprovalBypassStatus | null): boolean {
   );
 }
 
-function getBypassLabel(status: ApprovalBypassStatus | null): string {
-  if (status?.bypassAll) return '全部绕过';
+function isAllBypassOn(status: ApprovalBypassStatus | null): boolean {
+  if (!status) return false;
+  return !!(status.bypassAll || (
+    status.bypassCommandApproval &&
+    status.bypassFileWriteApproval &&
+    status.bypassToolConfirmation &&
+    status.bypassNetworkApproval
+  ));
+}
+
+function getBypassLabel(status: ApprovalBypassStatus | null, autoMode: boolean): string {
+  if (autoMode) return '自动';
+  if (isAllBypassOn(status)) return '全部绕过';
   return '绕过';
 }
 
-function getBypassTitle(status: ApprovalBypassStatus | null): string {
+function getBypassTitle(status: ApprovalBypassStatus | null, autoMode: boolean = false): string {
+  if (autoMode) return '自动模式：所有审批已绕过';
   if (status?.bypassAll) return '所有审批类别已启用绕过';
   const labels: string[] = [];
   if (status?.bypassCommandApproval) labels.push('命令审批');
@@ -43,10 +55,33 @@ function getBypassTitle(status: ApprovalBypassStatus | null): string {
 export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
   const { status } = useRuntime();
   const [approvalBypass, setApprovalBypass] = useState<ApprovalBypassStatus | null>(null);
+  const [bypassHovered, setBypassHovered] = useState(false);
+  const [autoMode, setAutoMode] = useState(() => sessionStorage.getItem('miqi:mode:auto') === '1');
 
   const isRunning = status.state === 'running';
   const isStarting = status.state === 'starting' || status.state === 'stopping';
-  const bypassEnabled = isBypassEnabled(approvalBypass);
+  const bypassEnabled = isBypassEnabled(approvalBypass) || autoMode;
+
+  // Listen for auto mode changes
+  useEffect(() => {
+    const h = () => setAutoMode(sessionStorage.getItem('miqi:mode:auto') === '1');
+    window.addEventListener('miqi:mode-changed', h);
+    return () => window.removeEventListener('miqi:mode-changed', h);
+  }, []);
+
+  // Build detail text for hover expansion
+  const bypassDetails: string[] = [];
+  if (autoMode) {
+    bypassDetails.push('自动模式');
+  } else if (isAllBypassOn(approvalBypass)) {
+    bypassDetails.push('全部操作');
+  } else {
+    if (approvalBypass?.bypassCommandApproval) bypassDetails.push('命令执行');
+    if (approvalBypass?.bypassFileWriteApproval) bypassDetails.push('文件写入');
+    if (approvalBypass?.bypassToolConfirmation) bypassDetails.push('工具调用');
+    if (approvalBypass?.bypassNetworkApproval) bypassDetails.push('网络请求');
+  }
+  const bypassDetailText = bypassDetails.length ? ' · ' + bypassDetails.join(' · ') : '';
 
   useEffect(() => {
     let cancelled = false;
@@ -107,24 +142,42 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
       {/* Center: status pills */}
       <div className="flex items-center gap-2">
         {bypassEnabled && (
-          <button
-            type="button"
-            onClick={onOpenApprovals}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold',
-              'transition-transform hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]'
-            )}
-            style={{
-              background: 'var(--approval-warning-pill-bg)',
-              color: 'var(--approval-warning-pill-text)',
-              border: '1px solid var(--approval-warning-border)',
-            }}
-            title={getBypassTitle(approvalBypass)}
-            aria-label={getBypassTitle(approvalBypass)}
-          >
-            <AlertTriangle size={11} className="shrink-0" />
-            <span className="whitespace-nowrap">{getBypassLabel(approvalBypass)}</span>
-          </button>
+            <button
+              type="button"
+              onClick={onOpenApprovals}
+              onMouseEnter={() => setBypassHovered(true)}
+              onMouseLeave={() => setBypassHovered(false)}
+              onFocus={() => setBypassHovered(true)}
+              onBlur={() => setBypassHovered(false)}
+              aria-label={getBypassTitle(approvalBypass, autoMode)}
+              title={getBypassTitle(approvalBypass, autoMode)}
+              className="flex items-center rounded-full text-[11px] font-medium overflow-hidden h-6 shrink-0"
+              style={{
+                color: 'var(--approval-warning)',
+                background: bypassHovered
+                  ? 'color-mix(in srgb, var(--approval-warning-bg) 80%, transparent)'
+                  : 'color-mix(in srgb, var(--approval-warning-bg) 50%, transparent)',
+                border: '1px solid var(--approval-warning-border)',
+                transition: 'background 0.2s ease',
+              }}
+            >
+              <span className="flex items-center gap-1 px-2.5 whitespace-nowrap shrink-0">
+                <AlertTriangle size={10} className="shrink-0" />
+                <span>{getBypassLabel(approvalBypass, autoMode)}</span>
+              </span>
+              {bypassDetailText && (
+                <span
+                  className="whitespace-nowrap overflow-hidden pr-2.5"
+                  style={{
+                    maxWidth: bypassHovered ? '400px' : '0px',
+                    opacity: bypassHovered ? 1 : 0,
+                    transition: 'max-width 0.3s ease, opacity 0.25s ease',
+                  }}
+                >
+                  <span style={{ color: 'var(--text-muted)' }}>{bypassDetailText}</span>
+                </span>
+              )}
+            </button>
         )}
         {/* Sync state */}
         <div
