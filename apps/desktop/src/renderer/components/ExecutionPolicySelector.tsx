@@ -139,7 +139,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>保守</span>
               <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'linear-gradient(to right, #a855f7, #0F766E, #3b82f6, #f59e0b)' }} />
-              <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>自主</span>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>自动</span>
             </div>
             {onOpenApprovals && (
               <button
@@ -166,7 +166,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
       {confirmAuto && (
         <div onClick={() => setConfirmAuto(false)} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.35)' }}>
           <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '12px 18px', maxWidth: 300, width: '90%', boxShadow: '0 16px 48px rgba(0,0,0,0.16)' }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>开启自主模式</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>开启自动模式</div>
             <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '3px 0 0' }}>Agent 将完全自主执行，不再弹窗确认</p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
               <button onClick={() => setConfirmAuto(false)} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 500, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)' }}>取消</button>
