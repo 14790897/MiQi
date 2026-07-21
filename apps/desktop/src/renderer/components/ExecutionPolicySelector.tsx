@@ -77,11 +77,16 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
             padding: '4px 10px', borderRadius: 7,
             fontSize: 11, fontWeight: 600, cursor: 'pointer',
             border: `1px solid ${policy === 'auto' ? cur.color : 'var(--border)'}`,
-            background: 'var(--surface)', color: 'var(--text)',
+            background: policy === 'auto' ? `${cur.color}14` : 'var(--surface)',
+            color: policy === 'auto' ? cur.color : 'var(--text)',
             transition: 'all .15s',
           }}
-          onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-muted)'}
-          onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = policy === 'auto' ? `${cur.color}22` : 'var(--surface-muted)';
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = policy === 'auto' ? `${cur.color}14` : 'var(--surface)';
+          }}
         >
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: cur.color }} />
           <span>{cur.label}</span>
