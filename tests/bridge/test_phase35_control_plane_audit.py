@@ -309,8 +309,9 @@ def test_phase35_runtime_bridge_state_imports_audit():
     #   (2 imports: _get_experience_store + _cleanup_experience_store)
     # - memory_handlers.py: needs state for workspace/config (Phase 35.7)
     # - cron_handlers.py: needs state for get_data_dir() (Phase 35.6)
+    # - feedback_handlers.py: needs state for workspace + config (Phase 78 feedback)
     # Phase 38.5: config_handlers.py migrated to get_bridge_state(registry) + shared helpers.
-    expected_remaining = 6  # files with at least 1 import
+    expected_remaining = 7  # files with at least 1 import
     assert len(imports) == expected_remaining, (
         f"Expected {expected_remaining} runtime files with bridge.server imports, "
         f"got {len(imports)}: {list(imports.keys())}. "
@@ -319,8 +320,8 @@ def test_phase35_runtime_bridge_state_imports_audit():
     )
 
     total_imports = sum(imports.values())
-    assert total_imports == 12, (
-        f"Expected 12 total bridge.server imports in runtime/, "
+    assert total_imports == 15, (
+        f"Expected 15 total bridge.server imports in runtime/, "
         f"got {total_imports}. Update this test if the count changed."
     )
 

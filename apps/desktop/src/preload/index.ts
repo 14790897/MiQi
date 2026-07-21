@@ -1,5 +1,6 @@
+import type { z } from 'zod';
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, IPC_EVENTS } from '../shared/ipc';
+import { IPC, IPC_EVENTS, FeedbackSubmitInput } from '../shared/ipc';
 import type {
   RuntimeStatus,
   SessionInfo,
@@ -62,7 +63,12 @@ import type {
   TurnStartResult,
   TurnInterruptResult,
   SandboxSetEnabledResult,
+  FeedbackEntry,
+  FeedbackListResult,
+  FeedbackSubmitResult,
 } from '../shared/ipc';
+
+type FeedbackSubmitInputType = z.infer<typeof FeedbackSubmitInput>;
 
 // ---------------------------------------------------------------------------
 // Typed API exposed to the renderer via contextBridge
@@ -100,8 +106,8 @@ const api = {
 
   // -- Chat -------------------------------------------------------------------
   chat: {
-    send: (content: string, sessionKey?: string, threadId?: string): Promise<unknown> =>
-      ipcRenderer.invoke(IPC.CHAT_SEND, { content, session_key: sessionKey, thread_id: threadId }),
+    send: (content: string, sessionKey?: string, threadId?: string, attachments?: Array<{name: string, data_base64?: string}>): Promise<unknown> =>
+      ipcRenderer.invoke(IPC.CHAT_SEND, { content, session_key: sessionKey, thread_id: threadId, attachments }),
     abort: (sessionKey?: string): Promise<unknown> =>
       ipcRenderer.invoke(IPC.CHAT_ABORT, { session_key: sessionKey }),
     onProgress: (callback: (data: ChatProgress) => void) => {
@@ -312,7 +318,8 @@ const api = {
   // -- Files (Workspace Editor) ------------------------------------------------
   files: {
     tree: (): Promise<FilesTreeResult> => ipcRenderer.invoke(IPC.FILES_TREE),
-    read: (path: string): Promise<FilesReadResult> => ipcRenderer.invoke(IPC.FILES_READ, { path }),
+    read: (path: string, sessionKey?: string): Promise<FilesReadResult> =>
+      ipcRenderer.invoke(IPC.FILES_READ, { path, session_key: sessionKey }),
     write: (
       path: string,
       content: string,
@@ -482,6 +489,14 @@ const api = {
         turn_id: turnId,
         session_key: sessionKey,
       }),
+  },
+
+  // -- Feedback ---------------------------------------------------------------
+  feedback: {
+    submit: (params: FeedbackSubmitInputType): Promise<FeedbackSubmitResult> =>
+      ipcRenderer.invoke(IPC.FEEDBACK_SUBMIT, params),
+    list: (params?: { limit?: number }): Promise<FeedbackListResult> =>
+      ipcRenderer.invoke(IPC.FEEDBACK_LIST, params ?? {}),
   },
 };
 

@@ -54,6 +54,28 @@ interface Attachment {
   dataUrl?: string;
   content?: string;
   size: number;
+  extracting?: boolean;
+  dataBase64?: string;
+}
+
+function extractPdfText(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer), limit = Math.min(bytes.length, 2_000_000);
+  let raw = '';
+  for (let i = 0; i < limit; i++) raw += String.fromCharCode(bytes[i]);
+  const results: string[] = [];
+  let pos = 0;
+  while (pos < raw.length) {
+    const bt = raw.indexOf('BT', pos);
+    if (bt === -1) break;
+    const et = raw.indexOf('ET', bt + 2);
+    if (et === -1) break;
+    const block = raw.slice(bt + 2, et);
+    for (const m of block.matchAll(/\(([^)]*)\)\s*Tj/g)) if (m[1].trim()) results.push(m[1]);
+    for (const m of block.matchAll(/\[([^\]]*)\]\s*TJ/g))
+      for (const im of m[1].matchAll(/\(([^)]*)\)/g)) if (im[1].trim()) results.push(im[1]);
+    pos = et + 2;
+  }
+  return results.join(' ') || '';
 }
 
 interface Message {
@@ -114,7 +136,7 @@ interface TrackedFile {
   truncated?: boolean;
 }
 
-const OFFICE_FILE_RE = /\.(docx|xlsx|pptx)$/i;
+const OFFICE_FILE_RE = /\.(docx|xlsx|pptx|ppt)$/i;
 
 function relativeTimeLabel(timestamp?: number | string | null, now = Date.now()): string {
   if (timestamp === undefined || timestamp === null) return '尚未更新';
@@ -262,6 +284,8 @@ function parseToolHint(
       'write',
     ],
     [/(?:edit_docx|append_xlsx)\s*\(\s*["'](.+?)["']\s*\)/i, 'edit'],
+    // Office tool success: "Created: file.xlsx (3 sheet(s))"
+    [/^(?:Created|Appended):\s+(.+?\.\w{1,6})(?:\s*\(.*\))?$/i, 'write'],
     // Generic fallback: any mention of a path-like string after a colon
     [/(?:file|path)[:\s]+([^\s,]+\.[a-zA-Z]{1,6})/i, 'read'],
   ];
@@ -640,8 +664,11 @@ export function ChatConsole({
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false; // prevent overlapping polls when bridge is slow (#311)
     const loadActivePlugins = async () => {
+      if (inFlight) return; // skip if previous request still pending
       try {
+        inFlight = true;
         const result = await window.miqi.plugins.list();
         const plugins = (result as unknown as { plugins?: Array<{ status?: string }> })?.plugins;
         if (!cancelled) {
@@ -649,6 +676,8 @@ export function ChatConsole({
         }
       } catch {
         if (!cancelled) setActivePluginCount(0);
+      } finally {
+        inFlight = false;
       }
     };
 
@@ -824,7 +853,11 @@ export function ChatConsole({
     setHistoryLoaded(false);
     setMessages([]);
     setSessionUpdatedAt(null);
-    setTrackedFiles([]);
+    // NOTE: do NOT clear trackedFiles here — clearing before the async
+    // load completes causes a flash of "No files yet" on every session
+    // switch.  If the bridge is not ready yet, sendSafe returns null and
+    // we would permanently lose the display.  Instead we replace atomically
+    // inside load() after the bridge responds.
     justOpened.current = true;
     userScrolledUp.current = false; // reset for new session
     const load = async () => {
@@ -948,23 +981,37 @@ export function ChatConsole({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     Array.from(e.target.files ?? []).forEach((file) => {
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
       const isImage = file.type.startsWith('image/');
-      const reader = new FileReader();
-      if (isImage) {
-        reader.onload = () =>
-          setAttachments((prev) => [
-            ...prev,
-            { name: file.name, type: 'image', dataUrl: reader.result as string, size: file.size },
-          ]);
-        reader.readAsDataURL(file);
-      } else {
-        reader.onload = () =>
-          setAttachments((prev) => [
-            ...prev,
-            { name: file.name, type: 'text', content: reader.result as string, size: file.size },
-          ]);
-        reader.readAsText(file);
+      const isBinary = !isImage && (
+        file.type === 'application/pdf' || ext === 'pdf'
+        || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || ext === 'docx'
+        || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || ext === 'xlsx'
+        || file.type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' || ext === 'pptx'
+        || file.type.startsWith('application/') && !file.type.startsWith('text/')
+      );
+      // PDF: extract text in background, show spinner then checkmark
+      if (isBinary) {
+        setAttachments((prev) => [...prev, { name: file.name, type: 'text', size: file.size, extracting: true }]);
+        const reader = new FileReader();
+        reader.onload = () => {
+          const raw = extractPdfText(reader.result as ArrayBuffer);
+          setAttachments((prev) => prev.map(a =>
+            a.size === file.size && a.name === file.name && a.extracting
+              ? { name: file.name, type: 'text', content: raw || '⚠️ Scanned PDF — OCR needed (see base64 below)', size: file.size, dataBase64: raw ? undefined : (() => { const arr = new Uint8Array(reader.result as ArrayBuffer); let b = '', c = []; for (let i = 0; i < arr.length; i++) { b += String.fromCharCode(arr[i]); if (b.length > 8192) { c.push(b); b = ''; } } if (b) c.push(b); return btoa(c.join('')); })() }
+              : a
+          ));
+        };
+        reader.readAsArrayBuffer(file);
+        return;
       }
+      const reader = new FileReader();
+      reader.onload = () => setAttachments((prev) => [...prev, isImage
+        ? { name: file.name, type: 'image', dataUrl: reader.result as string, size: file.size }
+        : { name: file.name, type: 'text', content: reader.result as string, size: file.size }
+      ]);
+      if (isImage) reader.readAsDataURL(file);
+      else reader.readAsText(file);
     });
     e.target.value = '';
   };
@@ -1040,8 +1087,13 @@ export function ChatConsole({
     setCurrentReqId(reqId);
 
     let content = text;
+    // Collect binary attachments to pass through IPC (backend saves before agent runs)
+    const binaryAtts: Array<{name: string, data_base64: string}> = [];
     for (const att of attachments) {
-      if (att.type === 'text' && att.content)
+      if (att.dataBase64) {
+        binaryAtts.push({ name: att.name, data_base64: att.dataBase64 });
+        content += `\n\n[Scanned PDF: ${att.name}] saved to workspace/uploads/${att.name}\nUse: exec("pip install ocrmypdf && ocrmypdf -l chi_sim+eng uploads/${att.name} uploads/${att.name.replace('.pdf','_ocr.pdf')}")\nThen: exec("python3 -c \\"import fitz; doc=fitz.open('uploads/${att.name.replace('.pdf','_ocr.pdf')}'); print(''.join(p.get_text() for p in doc))\\"")`;
+      } else if (att.content)
         content += `\n\n[Attachment: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\``;
       else if (att.type === 'image' && att.dataUrl) content += `\n\n[Image: ${att.name}]`;
     }
@@ -1331,16 +1383,18 @@ export function ChatConsole({
       if (threadId == null) {
         try {
           const title = (text || '新会话').trim().slice(0, 60);
-          // Non-blocking: start thread with a short timeout so chat.send
+          // Non-blocking: start thread with a timeout so chat.send
           // isn't delayed by a slow bridge restart.  Falls through to
           // chat.send without thread_id on failure.
+          // 30s timeout gives sandbox first-init (WSL apt-get 60-120s)
+          // a better chance without holding up the UI forever (#311).
           const threadResult = await Promise.race([
             window.miqi.threads.start({
               title,
               session_key: currentSessionRef.current,
             }),
             new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('thread/start timeout')), 5000)
+              setTimeout(() => reject(new Error('thread/start timeout')), 30_000)
             ),
           ]);
           // Extract thread id from the result
@@ -1358,7 +1412,7 @@ export function ChatConsole({
 
       const key =
         activeThreadId === 'main' ? currentSessionRef.current : `desktop:${activeThreadId}`;
-      await window.miqi.chat.send(content, key, threadId ?? undefined);
+      await window.miqi.chat.send(content, key, threadId ?? undefined, binaryAtts.length > 0 ? binaryAtts : undefined);
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
       if (streamErrorHandled) {
@@ -1430,27 +1484,10 @@ export function ChatConsole({
   };
 
   const handlePreview = useCallback(async (path: string) => {
-    if (OFFICE_FILE_RE.test(path)) {
-      // Open directly with system default app (Word, Excel, PowerPoint) — no modal
-      window.miqi.files.openExternal(path).catch(() => {});
-      return;
-    }
-    try {
-      const result = await window.miqi.files.read(path);
-      if (result.is_binary) {
-        setPreviewFile({
-          path,
-          content:
-            'Binary file. Text preview is not available for this file type.\n\nUse the button below to open it with your system default application.',
-        });
-      } else {
-        setPreviewFile({
-          path,
-          content: result.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
-        });
-      }
-    } catch {
-      setPreviewFile({ path, content: `(Could not read file: ${path})` });
+    // Open all files with the system default application — no in-app preview modal.
+    const result = await window.miqi.files.openExternal(path);
+    if (!result?.opened) {
+      setPreviewFile({ path, content: `(Could not open file: ${path})` });
     }
   }, []);
 
@@ -1495,7 +1532,7 @@ export function ChatConsole({
         setTrackedFiles((prev) => prev.filter((f) => f.path !== diffFile.path));
         // Refresh preview if open
         if (previewFile?.path === diffFile.path) {
-          const content = await window.miqi.files.read(diffFile.path);
+          const content = await window.miqi.files.read(diffFile.path, currentSessionRef.current);
           setPreviewFile({
             path: diffFile.path,
             content: content.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
@@ -2016,6 +2053,10 @@ export function ChatConsole({
                     >
                       {att.type === 'image' ? (
                         <Image size={12} className="shrink-0" style={{ color: 'var(--info)' }} />
+                      ) : att.extracting ? (
+                        <Loader2 size={12} className="shrink-0 animate-spin" style={{ color: 'var(--warning)' }} />
+                      ) : att.content ? (
+                        <CheckCircle size={12} className="shrink-0" style={{ color: '#22c55e' }} />
                       ) : (
                         <FileText
                           size={12}
@@ -2078,7 +2119,7 @@ export function ChatConsole({
                 ) : (
                   <button
                     onClick={handleSend}
-                    disabled={!input.trim() && attachments.length === 0}
+                    disabled={!input.trim() && attachments.length === 0 || attachments.some(a => a.extracting)}
                     className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors disabled:opacity-30"
                     style={{ background: 'var(--accent)' }}
                   >
@@ -2778,7 +2819,7 @@ function MessageBubble({
       <div
         className={cn(
           'flex items-center gap-2 text-xs py-1 px-1',
-          msg.collapsed && 'cursor-pointer select-none'
+          msg.collapsed && 'cursor-pointer'
         )}
         style={{ color: msg.toolHint ? 'var(--info)' : 'var(--text-muted)' }}
         onClick={msg.collapsed ? () => setExpanded((v) => !v) : undefined}
@@ -2941,7 +2982,6 @@ function MessageBubble({
                   <span>{att.name}</span>
                 </div>
               ))}
-
             {/* Main bubble */}
             <div
               className="text-sm leading-relaxed rounded-2xl px-4 py-3"

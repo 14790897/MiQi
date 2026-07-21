@@ -37,6 +37,7 @@ import AgentPanel from '../agents/AgentPanel';
 import { PermissionsPage } from '../permissions/PermissionsPage';
 import { PluginMarket } from '../plugins/PluginMarket';
 import WslStatusPage from '../wsl/WslStatusPage';
+import { FeedbackPage } from '../feedback/FeedbackPage';
 
 export type SettingsTab =
   | 'general'
@@ -56,7 +57,8 @@ export type SettingsTab =
   | 'wsl'
   | 'logs'
   | 'archived'
-  | 'docs';
+  | 'docs'
+  | 'feedback';
 
 // ---- Helpers ----
 function getNestedStr(obj: Record<string, unknown>, ...keys: string[]): string {
@@ -213,12 +215,13 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const defaults: Record<string, unknown> = {};
-      if (agentName) defaults['name'] = agentName;
-      if (workspace) defaults['workspace'] = workspace;
-      if (model) defaults['model'] = model;
-      if (temperature) defaults['temperature'] = parseFloat(temperature);
-      if (maxTokens) defaults['maxTokens'] = parseInt(maxTokens);
+      const defaults: Record<string, unknown> = {
+        name: agentName,
+        workspace,
+        model,
+        temperature: temperature === '' ? '' : parseFloat(temperature),
+        maxTokens: maxTokens === '' ? '' : parseInt(maxTokens),
+      };
       await window.miqi.config.update({ agents: { defaults } });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -378,17 +381,17 @@ function WebToolsTab() {
           web: {
             search: {
               provider: searchProvider,
-              apiKey: braveKey || undefined,
+              apiKey: braveKey
             },
             fetch: {
               provider: fetchProvider,
-              ollamaApiBase: fetchOllamaBase || undefined,
-              ollamaApiKey: fetchOllamaKey || undefined,
+              ollamaApiBase: fetchOllamaBase,
+              ollamaApiKey: fetchOllamaKey
             },
           },
           papers: {
             provider: papersProvider,
-            semanticScholarApiKey: s2ApiKey || undefined,
+            semanticScholarApiKey: s2ApiKey
           },
         },
       });
@@ -1132,6 +1135,7 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
             { value: 'logs', label: '日志' },
             { value: 'archived', label: '已归档' },
             { value: 'docs', label: '文档' },
+            { value: 'feedback', label: '反馈' },
           ].map((tab) => (
             <Tabs.Trigger
               key={tab.value}
@@ -1201,6 +1205,9 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
         </Tabs.Content>
         <Tabs.Content value="docs" className="flex-1 min-h-0 flex flex-col">
           <DocsTab />
+        </Tabs.Content>
+        <Tabs.Content value="feedback" className="flex-1 overflow-y-auto">
+          <FeedbackPage />
         </Tabs.Content>
       </Tabs.Root>
     </div>

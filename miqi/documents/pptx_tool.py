@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from miqi.agent.tools.base import Tool
+from miqi.agent.tools.filesystem import _persist_tracked_file
 
 
 def _raw_output_path(kwargs: dict[str, Any]) -> str:
@@ -115,6 +116,7 @@ class PptxReadTool(Tool):
         }
 
     async def execute(self, **kwargs: Any) -> str:
+        _sess_key = kwargs.pop("_session_key", None)
         raw_path = _raw_output_path(kwargs)
         if not raw_path.strip():
             return "Error: filename is required"
@@ -210,6 +212,7 @@ class CreatePptxTool(Tool):
         from pptx import Presentation
         from pptx.util import Inches
 
+        _sess_key = kwargs.pop("_session_key", None)
         raw_path = _raw_output_path(kwargs)
         slides = kwargs.get("slides") or []
         if not raw_path.strip():
@@ -271,6 +274,7 @@ class CreatePptxTool(Tool):
 
             file_path.parent.mkdir(parents=True, exist_ok=True)
             prs.save(str(file_path))
+            _persist_tracked_file(self._workspace, file_path, op="write", session_key=_sess_key)
             return f"Created: {file_path} ({len(slides)} slides)"
         except Exception as e:
             return f"Error writing {raw_path}: {e}"

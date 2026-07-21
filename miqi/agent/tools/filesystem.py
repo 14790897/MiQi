@@ -163,15 +163,69 @@ def _get_active_sandbox(sandbox_manager):
     return None
 
 
+def _persist_tracked_file(
+    workspace: Path | None,
+    file_path: str | Path,
+    op: str = "write",
+    session_key: str | None = None,
+) -> None:
+    """Save a tracked file entry to the session's tracked_files.json.
+
+    This ensures the Task Assets panel survives session switches — without
+    this, files discovered from agent tool calls exist only in the
+    frontend's in-memory state and are lost when the component unmounts.
+    """
+    if not session_key or not workspace:
+        _log.debug("_persist_tracked_file: skipped (no session_key or workspace)")
+        return
+    try:
+        from miqi.session.manager import SessionManager
+        sm = SessionManager(workspace)
+        # Strip the client_id prefix.  The orchestrator passes
+        # ctx.session_id which has the form "<client_id>:<session_key>"
+        # (e.g. "miqi-desktop:desktop:1784099553254"), but the frontend
+        # and SessionManager use just "<session_key>" as the lookup key.
+        if ":" in session_key:
+            parts = session_key.split(":", 1)
+            if len(parts) == 2 and parts[0] != "desktop":
+                session_key = parts[1]
+        # Use workspace-relative paths for consistent reads across sessions
+        rel_path = str(file_path)
+        ws_str = str(workspace.resolve()).replace("\\", "/")
+        rel_str = str(Path(file_path)).replace("\\", "/")
+        if rel_str.startswith(ws_str + "/"):
+            rel_path = rel_str[len(ws_str) + 1:]
+        elif rel_str.startswith(ws_str):
+            rel_path = rel_str[len(ws_str):].lstrip("/")
+        sm.save_tracked_file(session_key, rel_path, op=op)
+        _log.info("_persist_tracked_file: ok session=%s path=%s", session_key, rel_path)
+    except Exception as exc:
+        _log.warning("_persist_tracked_file: failed session=%s path=%s: %s", session_key, file_path, exc)
+
+
 def _sandbox_to_host_path(sandbox_path: str, workspace: Path | None, sandbox) -> str:
-    """Map sandbox-internal path to host path for user-facing output."""
+    """Map sandbox-internal path to host workspace path.
+
+    The bwrap sandbox always mounts the workspace at ``/home/miqi/workspace``
+    inside its mount namespace (see :meth:`BwrapSandbox._build_bwrap_args`).
+    This function maps sandbox-internal absolute paths like
+    ``/home/miqi/workspace/report.md`` to their host-workspace equivalent
+    (e.g. ``/home/user/.miqi/workspace/report.md``).
+
+    Returns *sandbox_path* unchanged when it does not start with the known
+    sandbox workspace prefix.
+    """
     if not sandbox_path or not workspace:
         return sandbox_path
-    sb_ws = getattr(sandbox, "workspace_path", None) or "/home/miqi/workspace"
-    sb_ws = sb_ws.rstrip("/")
-    if sandbox_path.startswith(sb_ws):
+
+    # The sandbox-internal workspace prefix — hard-coded in bwrap's
+    # --bind <host_dir> /home/miqi/workspace argument.
+    sb_internal_ws = "/home/miqi/workspace"
+    if sandbox_path == sb_internal_ws:
+        return str(workspace.resolve()).replace("\\", "/")
+    if sandbox_path.startswith(sb_internal_ws + "/"):
         host_ws = str(workspace.resolve()).replace("\\", "/")
-        rel = sandbox_path[len(sb_ws):].lstrip("/")
+        rel = sandbox_path[len(sb_internal_ws) + 1:]
         return f"{host_ws}/{rel}"
     return sandbox_path
 
@@ -529,12 +583,29 @@ class WriteFileTool(Tool):
             _log.info("write_file [sandbox]: %s → %s", path, sandbox_path)
             try:
                 await _sandbox_write_file(sandbox, sandbox_path, content)
-                host_path = _sandbox_to_host_path(sandbox_path, self._workspace, sandbox)
-                return f"Successfully wrote {len(content)} bytes to {host_path}"
             except IOError as e:
                 return f"Error: Failed to write file in sandbox (path={sandbox_path}): {e}"
             except Exception as e:
                 return f"Error: Failed to write file in sandbox (path={sandbox_path}): {type(e).__name__}: {e}"
+
+            # Mirror the file to the host workspace so that files.read
+            # (which resolves against the host workspace) can find it.
+            host_path = _sandbox_to_host_path(sandbox_path, self._workspace, sandbox)
+            try:
+                host_file = Path(host_path)
+                host_file.parent.mkdir(parents=True, exist_ok=True)
+                host_file.write_text(content, encoding="utf-8")
+                _log.info("write_file [mirror]: %s → %s", sandbox_path, host_path)
+            except Exception as exc:
+                _log.warning("write_file [mirror] failed for %s: %s", host_path, exc)
+
+            # Persist to tracked_files.json so the Task Assets panel
+            # survives session switches.
+            _persist_tracked_file(
+                self._workspace, host_path, op="write", session_key=_sess_key,
+            )
+
+            return f"Successfully wrote {len(content)} bytes to {host_path}"
         else:
             # Native sandbox or no sandbox — use local filesystem
             try:
@@ -545,6 +616,10 @@ class WriteFileTool(Tool):
                 snap_ok = _maybe_snapshot(file_path, snapshot_dir=self._snapshot_dir)
                 file_path.parent.mkdir(parents=True, exist_ok=True)
                 file_path.write_text(content, encoding="utf-8")
+                # Persist to tracked_files.json for session switch survival
+                _persist_tracked_file(
+                    self._workspace, file_path, op="write", session_key=_sess_key,
+                )
                 result = f"Successfully wrote {len(content)} bytes to {file_path}"
                 if not snap_ok:
                     _log.warning("Snapshot failed for %s — revert will not be available", file_path)
@@ -633,7 +708,21 @@ class EditFileTool(Tool):
             except Exception as e:
                 return f"Error: Failed to write edited file in sandbox (path={sandbox_path}): {type(e).__name__}: {e}"
 
-            return f"Successfully edited {_sandbox_to_host_path(sandbox_path, self._workspace, sandbox)}"
+            # Mirror the file to the host workspace so files.read can find it
+            host_path = _sandbox_to_host_path(sandbox_path, self._workspace, sandbox)
+            try:
+                host_file = Path(host_path)
+                host_file.parent.mkdir(parents=True, exist_ok=True)
+                host_file.write_text(new_content, encoding="utf-8")
+                _log.info("edit_file [mirror]: %s → %s", sandbox_path, host_path)
+            except Exception as exc:
+                _log.warning("edit_file [mirror] failed for %s: %s", host_path, exc)
+
+            _persist_tracked_file(
+                self._workspace, host_path, op="edit", session_key=_sess_key,
+            )
+
+            return f"Successfully edited {host_path}"
         else:
             # Native sandbox or no sandbox — use local filesystem
             try:
@@ -658,6 +747,10 @@ class EditFileTool(Tool):
 
                 new_content = content.replace(old_text, new_text, 1)
                 file_path.write_text(new_content, encoding="utf-8")
+
+                _persist_tracked_file(
+                    self._workspace, file_path, op="edit", session_key=_sess_key,
+                )
 
                 return f"Successfully edited {file_path}"
             except PermissionError as e:

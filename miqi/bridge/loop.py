@@ -19,6 +19,9 @@ from typing import Any
 from loguru import logger
 
 
+CHAT_DRAIN_IDLE_TIMEOUT_SECONDS = 600
+
+
 class BridgeRuntimeLoop:
     """Persistent asyncio event loop for the bridge transport.
 
@@ -501,7 +504,15 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("experience:toggle", experience_toggle_handler)
         self._app_server.register_method("experience:search", experience_search_handler)
 
-        # Register Phase 35.8: diagnostic handlers
+        # Register Phase 35.8: feedback handlers
+        from miqi.runtime.feedback_handlers import (
+            feedback_list_handler,
+            feedback_submit_handler,
+        )
+        self._app_server.register_method("feedback:submit", feedback_submit_handler)
+        self._app_server.register_method("feedback:list", feedback_list_handler)
+
+        # Register Phase 35.9: diagnostic handlers
         from miqi.runtime.diagnostic_handlers import python_check_handler
         self._app_server.register_method("python.check", python_check_handler, spec=protocol_specs.PYTHON_CHECK)
 
@@ -620,6 +631,7 @@ class BridgeRuntimeLoop:
         # Get or create RuntimeSession
         runtime_id = session_id or f"{client_id}:{session_key}"
         runtime = await registry.get_session(client_id, runtime_id)
+        config = None
         if runtime is None:
             if self._bridge_state is None:
                 from miqi.runtime.app_server import AppServerError
@@ -645,17 +657,63 @@ class BridgeRuntimeLoop:
                 sandbox_manager=sandbox_manager,
             )
 
+        # ── Save attachments to workspace before submitting ──
+        attachments_raw = params.get("attachments") or []
+        saved_paths: list[str] = []
+        if attachments_raw:
+            if config is None:
+                config = self._bridge_state.load_config() if self._bridge_state else None
+            if config is None:
+                from miqi.runtime.app_server import AppServerError
+                raise AppServerError("Config not available for attachment save", code="INTERNAL")
+            import base64 as _b64
+            import re as _re
+            ws_root = config.workspace_path
+            dest_dir = ws_root / "uploads"
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            for att in attachments_raw:
+                name = (att.get("name") or "").strip()
+                data_b64 = (att.get("data_base64") or "").strip()
+                if not name or not data_b64:
+                    continue
+                try:
+                    raw = _b64.b64decode(data_b64)
+                except Exception:
+                    continue
+                safe_name = _re.sub(r'[<>:"/\\|?*]', '_', name)
+                dest = dest_dir / safe_name
+                counter = 0
+                while dest.exists():
+                    stem, ext = safe_name.rsplit(".", 1) if "." in safe_name else (safe_name, "")
+                    counter += 1
+                    dest = dest_dir / f"{stem}_{counter}.{ext}" if ext else dest_dir / f"{stem}_{counter}"
+                dest.write_bytes(raw)
+                saved_paths.append(str(dest))
+                logger.info("chat.send: saved attachment %s → %s (%d bytes)", name, dest, len(raw))
+
+        # Append attachment info to content
+        if saved_paths:
+            content = content + "\n\n" + "\n".join(f"📎 `{p}`" for p in saved_paths)
+
         # Submit the user message
         await runtime.submit(UserMessage(content=content, thread_id=thread_id))
 
         # Subscribe client to session events so emit_event delivers to the sink
         self._app_server.subscribe(client_id, runtime_id)
 
-        # Cancel any still-running drain for this session so the new one
-        # doesn't compete for events on the shared _events queue.
-        old = self._session_drain_tasks.pop(runtime_id, None)
+        # Reject duplicate turns for the same session: cancelling the old
+        # drain task leaves abandoned sandbox creation running (WSL
+        # subprocesses don't respond to asyncio cancellation), which
+        # poisons the _creating flag and causes the next turn's tool
+        # calls to fall back to local (non-sandboxed) execution.
+        old = self._session_drain_tasks.get(runtime_id)
         if old is not None and not old.done():
-            old.cancel()
+            from miqi.runtime.app_server import AppServerError
+
+            raise AppServerError(
+                "A turn is already in progress for this session",
+                code="TURN_IN_PROGRESS",
+            )
 
         # Spawn background drain task
         app_server = self._app_server
@@ -744,6 +802,9 @@ class BridgeRuntimeLoop:
                 AgentReasoningEvent,
                 ApprovalResolvedEvent,
                 ErrorEvent,
+                ExecCommandBeginEvent,
+                ExecCommandEndEvent,
+                ExecCommandOutputDeltaEvent,
                 ToolCallBeginEvent,
                 ToolCallEndEvent,
                 TurnAbortedEvent,
@@ -754,11 +815,21 @@ class BridgeRuntimeLoop:
             while True:
                 # Keep in sync with CHAT_BACKEND_DRAIN_TIMEOUT_MS in
                 # apps/desktop/src/main/bridge.ts.
-                event = await runtime.next_event(timeout=300)
+                event = await runtime.next_event(timeout=CHAT_DRAIN_IDLE_TIMEOUT_SECONDS)
                 if event is None:
-                    # Timeout — no response from agent
+                    logger.warning(
+                        "chat.send drain idle timeout after {}s "
+                        "(request={} session={} thread={})",
+                        CHAT_DRAIN_IDLE_TIMEOUT_SECONDS,
+                        request_id,
+                        session_id,
+                        thread_id,
+                    )
                     await _emit_terminal("error", {
-                        "message": "Turn timed out after 300s",
+                        "message": (
+                            f"Turn timed out after "
+                            f"{CHAT_DRAIN_IDLE_TIMEOUT_SECONDS}s"
+                        ),
                     })
                     break
 
@@ -796,6 +867,17 @@ class BridgeRuntimeLoop:
                         })
                     break
 
+                # Exec output deltas: forward with the top-level shape that
+                # ChatConsole.tsx expects (stream / delta / tool_call_id)
+                # so inline terminal output updates in real time.
+                if isinstance(event, ExecCommandOutputDeltaEvent):
+                    await _emit("progress", {
+                        "stream": event.stream,
+                        "delta": event.delta,
+                        "tool_call_id": event.tool_call_id,
+                    })
+                    continue
+
                 # Internal runtime events that should never appear in
                 # the chat message stream.  See Issue #35.
                 if isinstance(event, (
@@ -803,6 +885,8 @@ class BridgeRuntimeLoop:
                     AgentReasoningEvent,       # model reasoning; no user-visible rendering target yet
                     TurnStartedEvent,          # turn lifecycle; not chat content
                     ApprovalResolvedEvent,     # approval lifecycle; not chat content
+                    ExecCommandBeginEvent,     # exec lifecycle; rendered via ToolCallBeginEvent
+                    ExecCommandEndEvent,       # exec lifecycle; rendered via ToolCallEndEvent
                 )):
                     continue
 
