@@ -793,7 +793,7 @@ class TaskRunner:
             # message; everything else (transient/fatal/unknown) keeps the
             # generic message to avoid leaking internal details.
             logger.error("Agent processing error in turn {}: {}", turn_id, exc, exc_info=True)
-            user_message = "An internal error occurred while processing your message."
+            user_message = "处理消息时发生内部错误，请重试。"
             if prov_err is not None and prov_err.kind is ErrorKind.AUTH:
                 # AUTH is sensitive — surface a fixed, non-leaking message
                 # instead of the raw provider exception text (Plan 58.2).

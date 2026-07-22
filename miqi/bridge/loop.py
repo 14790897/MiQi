@@ -794,8 +794,8 @@ class BridgeRuntimeLoop:
                     )
                     await _emit_terminal("error", {
                         "message": (
-                            f"Turn timed out after "
-                            f"{CHAT_DRAIN_IDLE_TIMEOUT_SECONDS}s"
+                            f"Turn 超时（"
+                            f"{CHAT_DRAIN_IDLE_TIMEOUT_SECONDS}s）"
                         ),
                     })
                     break
@@ -897,7 +897,7 @@ class BridgeRuntimeLoop:
             if len(raw) > 300:
                 raw = raw[:300] + "…"
             await _emit_terminal("error", {
-                "message": f"Bridge drain error: {raw}",
+                "message": f"Bridge 事件循环错误：{raw}",
             })
 
     # ── agent.spawn / agent.kill handlers ──────────────────────────────────

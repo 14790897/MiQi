@@ -232,7 +232,7 @@ class ToolOrchestrator:
                     verdict=PermissionVerdict.DENY,
                     reason=f"Blocked by hook: {outcome.reason}",
                 )
-                ctx.result = f"Permission denied: {outcome.reason}"
+                ctx.result = f"权限被拒绝：{outcome.reason}"
                 ctx.status = OrchestrationResult.DENIED_BY_POLICY
                 ctx.duration_ms = int((time.monotonic() - start) * 1000)
                 return ctx
@@ -256,7 +256,7 @@ class ToolOrchestrator:
             if self.tools is not None:
                 tool = self.tools.get(ctx.tool_name)
                 if tool is None:
-                    ctx.result = f"Error: Unknown tool '{ctx.tool_name}'"
+                    ctx.result = f"错误：未知工具 '{ctx.tool_name}'"
                     ctx.status = OrchestrationResult.TOOL_ERROR
                     ctx.permission_decision = PermissionDecision(
                         verdict=PermissionVerdict.DENY,
@@ -268,7 +268,7 @@ class ToolOrchestrator:
                 schema_errors = tool.validate_params(ctx.arguments)
                 if isinstance(schema_errors, list) and schema_errors:
                     ctx.result = (
-                        f"Error: Invalid parameters for tool '{ctx.tool_name}': "
+                        "错误：工具 '" + ctx.tool_name + "' 参数无效："
                         + "; ".join(schema_errors)
                         + "\n\n[Analyze the error above and try a different approach.]"
                     )
@@ -285,7 +285,7 @@ class ToolOrchestrator:
             ctx.permission_decision = decision
 
             if decision.verdict == PermissionVerdict.DENY:
-                ctx.result = f"Permission denied: {decision.reason}"
+                ctx.result = f"权限被拒绝：{decision.reason}"
                 ctx.status = OrchestrationResult.DENIED_BY_POLICY
                 return ctx
 
@@ -298,12 +298,12 @@ class ToolOrchestrator:
                         verdict=PermissionVerdict.DENY,
                         reason=f"Blocked by hook: {pr_outcome.reason}",
                     )
-                    ctx.result = f"Permission denied: {pr_outcome.reason}"
+                    ctx.result = f"权限被拒绝：{pr_outcome.reason}"
                     ctx.status = OrchestrationResult.DENIED_BY_POLICY
                     return ctx
                 decision = await self._request_approval(ctx, decision)
                 if decision.verdict != PermissionVerdict.ALLOW:
-                    ctx.result = f"User denied: {decision.reason or 'no reason given'}"
+                    ctx.result = f"用户已拒绝：{decision.reason or '未提供原因'}"
                     ctx.status = OrchestrationResult.DENIED_BY_USER
                     return ctx
 
@@ -331,12 +331,12 @@ class ToolOrchestrator:
                         ctx.tool_name, ctx.retry_count,
                     )
                     if ctx.retry_count > self.MAX_RETRIES:
-                        ctx.result = "Error: sandbox denied after max retries"
+                        ctx.result = "错误：沙箱重试次数已耗尽"
                         ctx.status = OrchestrationResult.SANDBOX_FAILED
                         return ctx
 
                 except asyncio.TimeoutError:
-                    ctx.result = f"Error: tool '{ctx.tool_name}' timed out"
+                    ctx.result = f"错误：工具 '{ctx.tool_name}' 执行超时"
                     ctx.status = OrchestrationResult.TIMEOUT
                     return ctx
 
@@ -344,11 +344,11 @@ class ToolOrchestrator:
             await self.hooks.run_with_outcome(HookPoint.POST_TOOL_USE, ctx)
 
         except asyncio.CancelledError:
-            ctx.result = "Tool execution cancelled"
+            ctx.result = "工具执行已取消"
             ctx.status = OrchestrationResult.CANCELLED
         except Exception as e:
             logger.exception("Tool orchestrator error for {}", ctx.tool_name)
-            ctx.result = f"Error executing {ctx.tool_name}: tool execution failed"
+            ctx.result = f"工具执行失败 {ctx.tool_name}：工具执行异常"
             ctx.status = OrchestrationResult.TOOL_ERROR
 
         finally:
@@ -812,7 +812,7 @@ class ToolOrchestrator:
         tool = self.tools.get(ctx.tool_name)
         if tool is None:
             ctx.status = OrchestrationResult.TOOL_ERROR
-            return f"Error: Unknown tool '{ctx.tool_name}'"
+            return f"错误：未知工具 '{ctx.tool_name}'"
 
         # Inject sandbox context into tool.
         # Phase 31: For exec tool, ALWAYS inject the SandboxSelection so
@@ -880,7 +880,7 @@ class ToolOrchestrator:
                 message=safe_msg,
                 recoverable=True,
             ))
-            result = f"Error executing {ctx.tool_name}: {safe_msg}"
+            result = f"工具执行失败 {ctx.tool_name}：{safe_msg}"
             if ctx.turn_id:
                 result += f"\n[Hint: Use 'exec' to inspect the environment or try a different approach.]"
             ctx.status = OrchestrationResult.TOOL_ERROR
