@@ -359,13 +359,22 @@ async def feedback_submit_handler(
     if not fb_cfg.enabled:
         raise AppServerError("反馈功能未启用，请在配置中开启", code="FEEDBACK_DISABLED")
 
-    app_id = config.channels.feishu.app_id
-    app_secret = config.channels.feishu.app_secret
+    # --- Resolve credentials in order (most specific → global fallback → built-in defaults) ---
+
+    # 1. App Id / Secret: try FeedbackConfig overrides first, then channels.feishu, then schema default
+    app_id = fb_cfg.feishu_app_id or config.channels.feishu.app_id
+    app_secret = fb_cfg.feishu_app_secret or config.channels.feishu.app_secret
+
+    # 2. Bitable target: FeedbackConfig always has hardcoded defaults from schema
+    bitable_app_token = fb_cfg.bitable_app_token
+    bitable_table_id = fb_cfg.bitable_table_id
+
+    # Only fail when the resolved values are truly blank (would be a broken schema build)
     if not app_id or not app_secret:
         raise AppServerError(
             "飞书 App ID / App Secret 未配置", code="FEISHU_NOT_CONFIGURED",
         )
-    if not fb_cfg.bitable_app_token or not fb_cfg.bitable_table_id:
+    if not bitable_app_token or not bitable_table_id:
         raise AppServerError(
             "飞书多维表格 app_token / table_id 未配置", code="BITABLE_NOT_CONFIGURED",
         )
@@ -416,14 +425,14 @@ async def feedback_submit_handler(
                     filename=filename,
                     content_type=mime,
                     data=raw,
-                    parent_node=fb_cfg.bitable_app_token,
+                    parent_node=bitable_app_token,
                 )
                 file_tokens.append({"file_token": file_token})
             fields["附件"] = file_tokens
 
         # 5b. Add the Bitable record (with attachment references)
         record_id = _add_bitable_record(
-            token, fb_cfg.bitable_app_token, fb_cfg.bitable_table_id, fields,
+            token, bitable_app_token, bitable_table_id, fields,
         )
     except AppServerError:
         raise
