@@ -7,7 +7,6 @@ import { homedir } from 'os';
 import { isAbsolute, join } from 'path';
 import type { BridgeManager } from '../bridge';
 import type { GrokBridgeManager } from '../grok/grok-bridge';
-import { isGrokBinaryAvailable } from '../grok/grok-bridge';
 import {
   IPC,
   ChatSendInput,
