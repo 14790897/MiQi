@@ -1265,7 +1265,7 @@ export function ChatConsole({
         const file = data.file || '';
         const stage = data.stage || '';
         const msg = data.message || '';
-        const path = (data as any).path || '';
+        const path = data.path || '';
         if (file && stage) {
           // Update attachment filePath so chip can open it
           if (path) setAttachments(prev => prev.map(a => a.name === file ? {...a, filePath: path} : a));

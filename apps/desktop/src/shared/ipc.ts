@@ -737,6 +737,7 @@ export interface ChatProgress {
   file?: string;
   stage?: string;
   message?: string;
+  path?: string;
 }
 
 export interface ChatFinal {

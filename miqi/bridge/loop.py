@@ -804,7 +804,7 @@ class BridgeRuntimeLoop:
                 name, path_str, size = result
                 saved_entries.append((name, path_str))
                 logger.info("chat.send: saved attachment %s → %s (%d bytes)", name, path_str, size)
-                _emit_doc_progress(name, "saved", f"Saved ({size // 1024} KB)")
+                _emit_doc_progress(name, "saved", f"Saved ({size // 1024} KB)", path=path_str)
 
                 # ── Server-side text extraction ──────────────────────
                 _emit_doc_progress(name, "extracting", "Extracting text...")
