@@ -52,7 +52,11 @@ for (let n = 0; n < 256; n++) {
 function dibToPng(dibData) {
   // Parse BITMAPINFOHEADER (40 bytes)
   const biWidth = dibData.readInt32LE(4);
-  const biHeight = Math.abs(dibData.readInt32LE(8)); // positive = bottom-up
+  // ICO DIB biHeight is the combined XOR + AND mask height.
+  // For 32-bit images AND mask is empty, but biHeight is still 2×.
+  const rawHeight = dibData.readInt32LE(8);
+  const bottomUp = rawHeight > 0;
+  const imageHeight = Math.abs(rawHeight) / 2;
   const biBitCount = dibData.readUInt16LE(14);
   const biCompression = dibData.readUInt32LE(16);
 
@@ -67,8 +71,10 @@ function dibToPng(dibData) {
   // BGRA → RGBA, one row at a time
   const rowLen = biWidth * 4;
   const rows = [];
-  for (let y = 0; y < biHeight; y++) {
-    const rowOff = y * rowLen;
+  for (let y = 0; y < imageHeight; y++) {
+    // Positive biHeight = bottom-up, so read from the bottom
+    const srcY = bottomUp ? imageHeight - 1 - y : y;
+    const rowOff = srcY * rowLen;
     const row = Buffer.alloc(rowLen);
     for (let x = 0; x < biWidth; x++) {
       const p = rowOff + x * 4;
@@ -92,7 +98,7 @@ function dibToPng(dibData) {
 
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(biWidth, 0);
-  ihdr.writeUInt32BE(biHeight, 4);
+  ihdr.writeUInt32BE(imageHeight, 4);
   ihdr[8] = 8; // bit depth
   ihdr[9] = 6; // color type: RGBA
   ihdr[10] = 0; // compression
