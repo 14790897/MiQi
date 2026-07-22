@@ -6,6 +6,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { homedir } from 'os';
 import { isAbsolute, join } from 'path';
 import type { BridgeManager } from '../bridge';
+import type { GrokBridgeManager } from '../grok/grok-bridge';
+import { isGrokBinaryAvailable } from '../grok/grok-bridge';
 import {
   IPC,
   ChatSendInput,
@@ -222,7 +224,13 @@ function isApprovalBypassUpdate(updates: Record<string, unknown>): boolean {
   return 'approvals' in updates || 'agents' in updates;
 }
 
-export function registerIpcHandlers(bridge: BridgeManager): void {
+function isGrokActive(): boolean {
+  const config = readLocalConfig();
+  const model: string = (config['agents'] as Record<string, unknown>)?.['defaults']?.['model'] as string ?? '';
+  return model === 'grok';
+}
+
+export function registerIpcHandlers(bridge: BridgeManager, grokBridge?: GrokBridgeManager): void {
   // -----------------------------------------------------------------------
   // Runtime
   // -----------------------------------------------------------------------
@@ -286,6 +294,43 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         sender.send(channel, data);
       }
     };
+
+    // Route to grok when agents.defaults.model === "grok" (sentinel)
+    if (isGrokActive() && grokBridge) {
+      if (!grokBridge.isRunning()) {
+        await grokBridge.ensureRunning();
+      }
+      const result = await grokBridge.send(
+        'chat.send',
+        {
+          content: input.content,
+          session_key: input.session_key ?? 'desktop:default',
+          thread_id: (input as any).thread_id ?? undefined,
+          mode: input.mode,
+        },
+        (type: string, data: unknown) => {
+          if (type === 'progress') {
+            safeSend('chat:progress', data);
+          } else if (type === 'final') {
+            safeSend('chat:final', data);
+          } else if (type === 'error') {
+            safeSend('chat:error', data);
+          } else if (type === 'aborted') {
+            safeSend('chat:aborted', data);
+          } else if (type === 'approval_request') {
+            safeSend('approval:request', data);
+          } else if (type === 'approval_cleared') {
+            safeSend('approval:cleared', data);
+          } else if (type === 'subagent_result') {
+            safeSend('chat:subagent_result', data);
+          } else if (type === 'chat:delta' || type === 'delta') {
+            safeSend('chat:progress', data);
+          }
+        }
+      );
+      return result;
+    }
+
     const result = await bridge.send(
       'chat.send',
       {
@@ -320,6 +365,12 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
 
   ipcMain.handle(IPC.CHAT_ABORT, async (_event, payload: unknown) => {
     const input = ChatAbortInput.parse(payload);
+
+    // Route to grok
+    if (isGrokActive() && grokBridge) {
+      return grokBridge.send('chat.abort', { session_key: input.session_key });
+    }
+
     return bridge.send('chat.abort', { session_key: input.session_key });
   });
 
@@ -404,21 +455,73 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   // Providers
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.PROVIDERS_LIST, async () => {
-    return bridge.sendSafe('providers.list');
+    const result = await bridge.sendSafe('providers.list');
+    const data = (result ?? { providers: [], active_model: '', active_provider: null }) as {
+      providers: Array<Record<string, unknown>>;
+      active_model?: string;
+      active_provider?: string | null;
+    };
+
+    // Inject grok provider if the binary is available
+    if (grokBridge || isGrokBinaryAvailable(bridge.getProjectRoot())) {
+      const grokEntry: Record<string, unknown> = {
+        name: 'grok',
+        display_name: 'Grok (xAI)',
+        env_key: 'MIQI_API_KEY',
+        provider_type: 'grok',
+        is_gateway: false,
+        is_local: false,
+        default_api_base: '',
+        configured: true,
+        api_key_hint: null,
+        api_base: null,
+        verification_status: grokBridge?.isRunning() ? 'success' : 'unverified',
+        builtin_available: false,
+        builtin_activated: false,
+      };
+      data.providers.push(grokEntry);
+
+      // If grok is the active sentinel, mark it
+      if (isGrokActive()) {
+        data.active_provider = 'grok';
+      }
+    }
+
+    return data;
   });
 
   ipcMain.handle(IPC.PROVIDERS_TEST, async (_event, payload: unknown) => {
     const input = ProviderTestInput.parse(payload);
+    if (input.provider_name === 'grok') {
+      if (!grokBridge) {
+        return { ok: false, error: 'Grok binary not found' };
+      }
+      try {
+        await grokBridge.ensureRunning();
+        return { ok: grokBridge.isRunning() };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? String(e) };
+      }
+    }
     return bridge.send('providers.test', input as Record<string, unknown>);
   });
 
   ipcMain.handle(IPC.PROVIDERS_UPDATE, async (_event, payload: unknown) => {
     const input = ProviderUpdateInput.parse(payload);
+    if (input.provider_name === 'grok') {
+      // grok doesn't store apiKey/apiBase — it piggybacks on other providers.
+      // Just set agents.defaults.model = "grok" (sentinel).
+      writeLocalConfig({ agents: { defaults: { model: 'grok' } } });
+      return { saved: true, provider_name: 'grok' };
+    }
     return bridge.send('providers.update', input as Record<string, unknown>);
   });
 
   ipcMain.handle(IPC.PROVIDERS_ACTIVATE, async (_event, payload: unknown) => {
     const input = ProviderActivateInput.parse(payload);
+    if (input.provider_name === 'grok') {
+      return { activated: false, provider_name: 'grok', error: 'Grok does not support activation codes' };
+    }
     return bridge.send('providers.activate', input as Record<string, unknown>);
   });
 
@@ -1059,6 +1162,11 @@ for m in ("pydantic", "httpx", "loguru"):
 
   ipcMain.handle('approvals:resolve', async (_event, payload: unknown) => {
     const p = payload as { approval_id: string; decision: string };
+    // Route grok permission requests (prefixed "grok:")
+    if (p.approval_id?.startsWith('grok:') && grokBridge) {
+      await grokBridge.resolvePermission(p.approval_id, p.decision);
+      return { resolved: true };
+    }
     return bridge.send('approvals.resolve', p as Record<string, unknown>);
   });
 

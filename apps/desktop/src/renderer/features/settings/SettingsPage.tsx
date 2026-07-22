@@ -22,6 +22,7 @@ import {
   Monitor,
   Trash2,
   Terminal,
+  Zap,
 } from 'lucide-react';
 import { useRuntime } from '../../contexts/RuntimeContext';
 import * as Tabs from '@radix-ui/react-tabs';
@@ -410,6 +411,78 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
           <RotateCcw size={14} />
           重新运行配置向导
         </Button>
+      </div>
+
+      {/* ---- Grok Backend Toggle ---- */}
+      <GrokBackendToggle />
+    </div>
+  );
+}
+
+// ---- Grok Backend Toggle ----
+function GrokBackendToggle() {
+  const [enabled, setEnabled] = useState(false);
+  const [toggling, setToggling] = useState(false);
+
+  useEffect(() => {
+    window.miqi.config.get().then((cfg: any) => {
+      setEnabled(cfg?.agents?.defaults?.model === 'grok');
+    }).catch(() => {});
+  }, []);
+
+  const handleToggle = async (on: boolean) => {
+    setToggling(true);
+    try {
+      if (on) {
+        await window.miqi.providers.update('grok', undefined, null, null, undefined);
+      } else {
+        // Revert: pick first configured non-grok provider
+        const list: any = await window.miqi.providers.list();
+        const other = (list.providers ?? []).find((p: any) => p.configured && p.name !== 'grok');
+        if (other) {
+          await window.miqi.config.update({
+            agents: { defaults: { model: `${other.name}/${other.configured_model ?? ''}` } },
+          });
+        }
+      }
+      setEnabled(on);
+    } catch { /* ignore */ }
+    setToggling(false);
+  };
+
+  return (
+    <div className="pt-4 border-t border-[var(--border-subtle)]">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <Zap size={14} className={enabled ? 'text-[var(--accent)]' : 'text-[var(--text-faint)]'} />
+            <h3 className="text-sm font-semibold text-[var(--text)]">Grok 后端</h3>
+          </div>
+          <p className="text-xs text-[var(--text-faint)] mt-1 max-w-[380px]">
+            {enabled
+              ? '聊天请求使用 grok-build 作为 Agent 运行时。当前已配置供应商的 API Key 和模型会被自动使用。'
+              : '启用后聊天请求将使用 grok-build（xAI 通用 Agent 运行时）处理。'}
+          </p>
+        </div>
+        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+          <input
+            type="checkbox"
+            className="sr-only peer"
+            checked={enabled}
+            onChange={(e) => handleToggle(e.target.checked)}
+            disabled={toggling}
+          />
+          <div className={cn(
+            'w-11 h-6 rounded-full transition-colors',
+            'peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[var(--accent)]/30',
+            enabled ? 'bg-[var(--accent)]' : 'bg-[var(--border)]',
+          )}>
+            <div className={cn(
+              'w-4 h-4 rounded-full bg-white shadow-sm transition-transform mt-1',
+              enabled ? 'translate-x-6 ml-0.5' : 'translate-x-0.5',
+            )} />
+          </div>
+        </label>
       </div>
     </div>
   );
