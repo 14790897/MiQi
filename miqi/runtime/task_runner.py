@@ -494,7 +494,13 @@ class TaskRunner:
 
         if turn.execution_policy == "plan":
             tools = [t for t in tools if t.get("name") not in PLAN_BLOCKED_TOOLS]
-            turn.bypass_approval = True  # plan mode tools are safe, deny-list still wins
+            # NOTE: Plan mode only exposes read-only tools (write/exec/spawn
+            # removed by PLAN_BLOCKED_TOOLS above).  Setting bypass_approval
+            # here skips approval prompts for safe read operations — it does
+            # NOT grant write/execute permission.  Tool filtering (above) is
+            # the security boundary.  The permission engine's deny-list still
+            # wins in all modes.
+            turn.bypass_approval = True
 
         if turn.execution_policy == "auto":
             turn.bypass_approval = True
@@ -504,11 +510,12 @@ class TaskRunner:
 
         _MODE_PROMPTS = {
             "plan": (
-                "【Agent 模式：规划】你的角色是规划师/研究员。你可以使用只读工具（搜索、读文件、查资料）"
-                "来收集信息和做出分析，但不能修改文件、不能执行命令、不能做任何写入操作。"
-                "请在回答中充分利用搜索、阅读等只读工具给出详尽的分析和方案。"
-                "如果你的方案需要实际操作（写文件、执行命令等），请在末尾提醒用户："
-                "「如需执行，请切换到『允许编辑』或『自动』模式。」\n\n"
+                "【Agent 模式：规划 — 只读分析】你的角色是分析助手。"
+                "你可以使用只读工具（搜索、读文件、查看代码）获取信息、分析问题、提供方案和建议。\n"
+                "限制：不能修改文件，不能执行会改变环境的命令，不能创建或删除资源。\n"
+                "请在回答中充分利用搜索、阅读等只读工具来获取信息并给出分析。"
+                "如果用户请求修改，请描述修改方案和步骤，"
+                "等待用户切换到「允许编辑」或「自动」模式后再执行。\n\n"
             ),
             "manual": (
                 "【Agent 模式：手动】你的角色是协作者。你有全部工具，但每个操作需要用户确认。"
