@@ -427,7 +427,7 @@ class OpenAIProvider(LLMProvider):
                     yield LLMStreamEvent(
                         kind="completed",
                         response=LLMResponse(
-                            content="The model did not respond within the first-token timeout. This may indicate the model is overloaded or stuck in a long reasoning phase. Please try again or use a different model.",
+                            content="模型响应超时：在首个 token 超时窗口内未收到回复。可能是模型过载或陷入长推理阶段，请重试或更换模型。",
                             finish_reason="error",
                             error_kind=ErrorKind.TRANSIENT.value,
                         ),
@@ -437,7 +437,7 @@ class OpenAIProvider(LLMProvider):
                     yield LLMStreamEvent(
                         kind="completed",
                         response=LLMResponse(
-                            content="An unexpected error occurred while processing your request.",
+                            content="流式响应中断：处理请求时发生意外错误，请重试。",
                             finish_reason="error",
                             error_kind=ErrorKind.TRANSIENT.value,
                         ),
