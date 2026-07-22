@@ -1029,14 +1029,22 @@ export function ChatConsole({
       const isBinary = isPdf || isOffice;
       if (isBinary) {
         setAttachments((prev) => [...prev, { name: file.name, type: 'text', size: file.size, extracting: true }]);
+        // Read as ArrayBuffer for text extraction
         const reader = new FileReader();
         reader.onload = () => {
           const raw = extractPdfText(reader.result as ArrayBuffer);
-          setAttachments((prev) => prev.map(a =>
-            a.size === file.size && a.name === file.name && a.extracting
-              ? { name: file.name, type: 'text', content: raw || 'No extractable text', size: file.size }
-              : a
-          ));
+          // Also read as base64 for backend save
+          const b64reader = new FileReader();
+          b64reader.onload = () => {
+            const dataUrl = b64reader.result as string;
+            const dataBase64 = dataUrl.split(',')[1] || '';
+            setAttachments((prev) => prev.map(a =>
+              a.size === file.size && a.name === file.name && a.extracting
+                ? { name: file.name, type: 'text', content: raw || '(binary)', size: file.size, dataBase64 }
+                : a
+            ));
+          };
+          b64reader.readAsDataURL(file);
         };
         reader.readAsArrayBuffer(file);
         return;
