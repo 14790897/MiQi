@@ -494,7 +494,13 @@ class TaskRunner:
 
         if turn.execution_policy == "plan":
             tools = [t for t in tools if t.get("name") not in PLAN_BLOCKED_TOOLS]
-            turn.bypass_approval = True  # plan mode tools are safe, deny-list still wins
+            # NOTE: Plan mode only exposes read-only tools (write/exec/spawn
+            # removed by PLAN_BLOCKED_TOOLS above).  Setting bypass_approval
+            # here skips approval prompts for safe read operations — it does
+            # NOT grant write/execute permission.  Tool filtering (above) is
+            # the security boundary.  The permission engine's deny-list still
+            # wins in all modes.
+            turn.bypass_approval = True
 
         if turn.execution_policy == "auto":
             turn.bypass_approval = True
