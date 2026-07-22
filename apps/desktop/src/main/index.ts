@@ -17,10 +17,11 @@ let bridgeManager: BridgeManager | null = null;
 
 /** Resolve the app icon path for both dev (source) and packaged (resources) modes. */
 function getIconPath(): string {
+  const iconName = process.platform === 'darwin' ? 'icon.icns' : 'icon.ico';
   if (app.isPackaged) {
-    return join(process.resourcesPath, 'icon.ico');
+    return join(process.resourcesPath, iconName);
   }
-  return join(__dirname, '../../src/renderer/assets/icon.ico');
+  return join(__dirname, '../../src/renderer/assets', iconName);
 }
 
 function createWindow(): void {

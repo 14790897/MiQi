@@ -129,15 +129,18 @@ function findBridgeExecutable(projectRoot: string): {
 
   // Check for bundled miqi-bridge executable (packaged app)
   // In asar, __dirname is inside the archive, so use process.resourcesPath
+  const bridgeExe = process.platform === 'win32' ? 'miqi-bridge.exe' : 'miqi-bridge';
   const bundledBridge = process.resourcesPath
-    ? join(process.resourcesPath, 'miqi-bridge.exe')
+    ? join(process.resourcesPath, bridgeExe)
     : null;
   if (bundledBridge && existsSync(bundledBridge)) {
     return { command: bundledBridge, args: [] };
   }
 
   // Try .venv
-  const venvPython = join(projectRoot, '.venv', 'Scripts', 'python.exe');
+  const pythonCmd = process.platform === 'win32' ? 'python.exe' : 'python';
+  const venvBin = process.platform === 'win32' ? 'Scripts' : 'bin';
+  const venvPython = join(projectRoot, '.venv', venvBin, pythonCmd);
   if (existsSync(venvPython)) {
     const bridgeScript = join(projectRoot, 'miqi', 'bridge', 'server.py');
     return { command: venvPython, args: [bridgeScript] };

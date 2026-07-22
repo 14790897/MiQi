@@ -443,8 +443,9 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     const issues: string[] = [];
     let pythonVersion = 'unknown';
 
-    // Check for bundled miqi-bridge.exe first (packaged / production environment).
-    const bundledBridge = join(process.resourcesPath, 'miqi-bridge.exe');
+    // Check for bundled miqi-bridge first (packaged / production environment).
+    const bridgeExeName = process.platform === 'win32' ? 'miqi-bridge.exe' : 'miqi-bridge';
+    const bundledBridge = join(process.resourcesPath, bridgeExeName);
     if (existsSync(bundledBridge)) {
       pythonVersion = 'bundled';
       try {
