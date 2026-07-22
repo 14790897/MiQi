@@ -311,12 +311,13 @@ class ContextRuntime:
         """Hard-trim messages to fit within the model's input token limit.
 
         This is the LAST-RESORT safety net — it runs right before the
-        provider call and discards the oldest assistant+tool pairs until
-        the estimated token count is under 80% of the model's maximum.
+        provider call and discards the oldest complete turns
+        (user→assistant→tool(s)) until the estimated token count is
+        under 80% of the model's maximum.
 
-        Always keeps the system prompt (index 0 if role=='system') and at
-        least the last user message. Returns messages unchanged when they
-        already fit.
+        Always keeps the system prompt (index 0 if role=='system'),
+        one extra message after it, and the last message.  Returns
+        messages unchanged when they already fit.
         """
         max_input = self._resolve_model_max_input(model)
         hard_limit = int(max_input * self._CONTEXT_SAFETY_FACTOR)
@@ -327,7 +328,7 @@ class ContextRuntime:
 
         logger.warning(
             "Pre-send guard: estimated {} tokens exceeds {} limit for {} "
-            "(model max={}); trimming oldest pairs",
+            "(model max={}); trimming oldest turns",
             est, hard_limit, model, max_input,
         )
 
@@ -340,18 +341,27 @@ class ContextRuntime:
             if est <= hard_limit:
                 break
 
-            # Find the oldest cuttable message pair: assistant [+ tool(s)]
+            # Find the oldest complete turn to remove.  A turn starts
+            # with 'user'.  We skip any leading 'assistant' or 'tool'
+            # messages whose corresponding user message sits inside the
+            # protected head area.
             cut_start = None
             for i in range(head_protect, len(work) - 1):
                 role = work[i].get("role")
-                if role in ("assistant", "tool"):
+                if role == "user":
                     cut_start = i
                     break
             if cut_start is None:
                 break
 
-            # Collect a single message to drop
-            removed = work.pop(cut_start)
+            # Remove user + all following messages until the next user
+            # (i.e. one complete user→assistant→tool(s) turn).
+            # Always keep the last message as the most-recent user prompt.
+            work.pop(cut_start)  # remove user
+            while cut_start < len(work) - 1:
+                if work[cut_start].get("role") == "user":
+                    break  # next turn starts here — stop
+                work.pop(cut_start)  # remove assistant / tool
 
         est_after = self.estimate_tokens(work)
         logger.info(
