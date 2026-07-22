@@ -7,10 +7,6 @@ files:
   - node_modules/**/*
   - package.json
 extraResources:
-  - from: ../../dist/miqi-bridge.exe
-    to: miqi-bridge.exe
-  - from: ../../dist/miqi-bridge
-    to: miqi-bridge
   - from: src/renderer/assets/icon.ico
     to: icon.ico
   - from: src/renderer/assets/icon.icns
@@ -30,6 +26,9 @@ win:
       arch:
         - x64
   icon: src/renderer/assets/icon.ico
+  extraResources:
+    - from: ../../dist/miqi-bridge.exe
+      to: miqi-bridge.exe
 mac:
   target:
     - target: dmg
@@ -47,6 +46,9 @@ mac:
   entitlements: platform/entitlements.mac.plist
   entitlementsInherit: platform/entitlements.mac.inherit.plist
   darkModeSupport: true
+  extraResources:
+    - from: ../../dist/miqi-bridge
+      to: miqi-bridge
 nsis:
   perMachine: true
   oneClick: false
