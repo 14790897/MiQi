@@ -350,11 +350,12 @@ class TestPlanModeCapabilityConstraints:
         """Plan mode system prompt uses read-only analysis language."""
         from miqi.runtime.turn_context import TurnContext
         from pathlib import Path
+        import tempfile
 
         tc = TurnContext(
             turn_id="test",
             thread_id="t1",
-            workspace=Path("/tmp"),
+            workspace=Path(tempfile.gettempdir()),
             model="m",
             agent_metadata=FakeAgentMetadata(),
             provider=None,
