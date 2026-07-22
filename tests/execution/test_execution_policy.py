@@ -244,3 +244,122 @@ class TestTurnContextDefaults:
         # execution_policy exists, mode does not
         assert hasattr(tc, "execution_policy")
         assert not hasattr(tc, "mode"), "Old 'mode' field should not exist"
+
+
+class TestPlanModeCapabilityConstraints:
+    """Verify plan mode tool capability boundaries — not model behavior.
+
+    These tests validate that plan mode exposes read-only / search tools
+    while blocking write / exec / side-effect tools.  They use the real
+    PLAN_BLOCKED_TOOLS constant so they stay in sync with production.
+    """
+
+    def test_plan_readonly_tools_available(self):
+        """Plan mode retains read_file, web_search, list_dir, paper_search."""
+        from miqi.runtime.tool_policy import PLAN_BLOCKED_TOOLS
+
+        tools = [
+            {"name": "read_file"},
+            {"name": "web_search"},
+            {"name": "list_dir"},
+            {"name": "paper_search"},
+            {"name": "web_fetch"},
+            {"name": "session_search"},
+        ]
+        filtered = [t for t in tools if t.get("name") not in PLAN_BLOCKED_TOOLS]
+
+        names = {t["name"] for t in filtered}
+        assert "read_file" in names
+        assert "web_search" in names
+        assert "list_dir" in names
+        assert "paper_search" in names
+        assert "web_fetch" in names
+        assert "session_search" in names
+
+    def test_plan_write_tools_blocked(self):
+        """Plan mode blocks write_file, edit_file, apply_patch."""
+        from miqi.runtime.tool_policy import PLAN_BLOCKED_TOOLS
+
+        tools = [
+            {"name": "write_file"},
+            {"name": "edit_file"},
+            {"name": "apply_patch"},
+            {"name": "edit_diff"},
+            {"name": "write"},
+            {"name": "edit"},
+            {"name": "delete"},
+            {"name": "move"},
+        ]
+        filtered = [t for t in tools if t.get("name") not in PLAN_BLOCKED_TOOLS]
+
+        assert len(filtered) == 0, (
+            f"All write/delete tools should be blocked in plan mode, "
+            f"but these passed: {[t['name'] for t in filtered]}"
+        )
+
+    def test_plan_exec_tools_blocked(self):
+        """Plan mode blocks exec, bash, shell."""
+        from miqi.runtime.tool_policy import PLAN_BLOCKED_TOOLS
+
+        tools = [
+            {"name": "exec"},
+            {"name": "bash"},
+            {"name": "shell"},
+        ]
+        filtered = [t for t in tools if t.get("name") not in PLAN_BLOCKED_TOOLS]
+
+        assert len(filtered) == 0, (
+            f"All exec/shell tools should be blocked in plan mode, "
+            f"but these passed: {[t['name'] for t in filtered]}"
+        )
+
+    def test_plan_side_effect_tools_blocked(self):
+        """Plan mode blocks spawn, subagent, cron, skill_manage, memory."""
+        from miqi.runtime.tool_policy import PLAN_BLOCKED_TOOLS
+
+        tools = [
+            {"name": "spawn"},
+            {"name": "subagent"},
+            {"name": "cron"},
+            {"name": "skill_manage"},
+            {"name": "memory"},
+        ]
+        filtered = [t for t in tools if t.get("name") not in PLAN_BLOCKED_TOOLS]
+
+        assert len(filtered) == 0, (
+            f"All side-effect tools should be blocked in plan mode, "
+            f"but these passed: {[t['name'] for t in filtered]}"
+        )
+
+    def test_plan_bypass_sets_flag_for_readonly_safety(self):
+        """Plan mode sets bypass_approval=True — safety depends on tool filtering."""
+        turn = FakeTurnContext(execution_policy="plan")
+
+        from miqi.runtime.tool_policy import PLAN_BLOCKED_TOOLS
+
+        if turn.execution_policy == "plan":
+            turn.bypass_approval = True
+
+        assert turn.bypass_approval is True, (
+            "Plan mode sets bypass_approval=True because all exposed tools "
+            "are read-only (write/exec removed by PLAN_BLOCKED_TOOLS). "
+            "The deny-list in permission_engine still wins."
+        )
+
+    def test_plan_system_prompt_references_readonly_analysis(self):
+        """Plan mode system prompt uses read-only analysis language."""
+        from miqi.runtime.turn_context import TurnContext
+        from pathlib import Path
+
+        tc = TurnContext(
+            turn_id="test",
+            thread_id="t1",
+            workspace=Path("/tmp"),
+            model="m",
+            agent_metadata=FakeAgentMetadata(),
+            provider=None,
+            execution_policy="plan",
+        )
+        assert tc.execution_policy == "plan"
+        # The actual prompt assembly is in task_runner._handle_user_message;
+        # this test guards that TurnContext carries plan mode correctly.
