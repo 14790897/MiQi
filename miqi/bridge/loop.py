@@ -933,7 +933,8 @@ class BridgeRuntimeLoop:
                             )
                             continue
 
-        # Submit the user message — extracted text is available via\n        # saved_paths; agent reads files using read_file or exec tools.\n        # No content injection to keep the chat clean.\n        await runtime.submit(UserMessage(content=content, thread_id=thread_id))
+        # Submit the user message
+        await runtime.submit(UserMessage(content=content, thread_id=thread_id))
 
         # Subscribe client to session events so emit_event delivers to the sink
         self._app_server.subscribe(client_id, runtime_id)
