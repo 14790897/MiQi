@@ -57,6 +57,7 @@ interface Attachment {
   size: number;
   extracting?: boolean;
   dataBase64?: string;
+  filePath?: string;
 }
 
 function extractPdfText(buffer: ArrayBuffer): string {
@@ -1264,7 +1265,10 @@ export function ChatConsole({
         const file = data.file || '';
         const stage = data.stage || '';
         const msg = data.message || '';
+        const path = (data as any).path || '';
         if (file && stage) {
+          // Update attachment filePath so chip can open it
+          if (path) setAttachments(prev => prev.map(a => a.name === file ? {...a, filePath: path} : a));
           setMessages((prev) => {
             const existing = prev.findIndex(m => m.role === 'progress' && m.toolCallId === `doc:${file}`);
             const docMsg: Message = {
@@ -2124,7 +2128,8 @@ export function ChatConsole({
                   {attachments.map((att, i) => (
                     <div
                       key={i}
-                      className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs max-w-[220px] transition-all duration-200 shadow-sm"
+                      className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs max-w-[220px] transition-all duration-200 shadow-sm cursor-pointer hover:brightness-95"
+                      onClick={() => { if (att.filePath) window.miqi.files.openExternal(att.filePath).catch(() => {}); }}
                       style={{
                         background: 'var(--surface-muted)',
                         border: '1px solid var(--border-subtle)',

@@ -734,15 +734,18 @@ class BridgeRuntimeLoop:
             import re as _re
             from pathlib import Path as _Path
 
-            def _emit_doc_progress(name: str, stage: str, message: str) -> None:
+            def _emit_doc_progress(name: str, stage: str, message: str, path: str = "") -> None:
                 """Emit document processing progress event to frontend."""
                 try:
-                    self._app_server.emit_event(client_id, runtime_id, {
+                    payload: dict = {
                         "type": "doc_progress",
                         "file": name,
                         "stage": stage,
                         "message": message,
-                    })
+                    }
+                    if path:
+                        payload["path"] = path
+                    self._app_server.emit_event(client_id, runtime_id, payload)
                 except Exception:
                     pass
 
@@ -854,12 +857,13 @@ class BridgeRuntimeLoop:
 
             # Build saved_paths list for downstream content injection
             saved_paths = [p for _, p in saved_entries]
-            # Emit final done for each saved file
-            for att_name, _ in saved_entries:
+            # Emit final done for each saved file, with full path for preview
+            for att_name, att_path in saved_entries:
                 status = "ready" if att_name in extracted_texts else "saved"
                 _emit_doc_progress(att_name, status,
                     f"{'✓' if status == 'ready' else 'Saved'}" +
-                    (f" {len(extracted_texts[att_name]):,} chars" if att_name in extracted_texts else ""))
+                    (f" {len(extracted_texts[att_name]):,} chars" if att_name in extracted_texts else ""),
+                    path=att_path)
 
             # ── Mirror to active sandbox workspaces ────────────────
             # IMPORTANT: this is a best-effort belt-and-suspenders step.
