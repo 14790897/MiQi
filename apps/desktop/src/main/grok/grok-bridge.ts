@@ -49,7 +49,13 @@ function findGrokExecutable(projectRoot: string): { command: string; args: strin
     return { command: envPath, args: ['agent', 'stdio'] };
   }
 
-  // 2. grok-build in project (development mode)
+  // 2. Installed in ~/.grok/bin/ (official distribution)
+  const homeGrok = join(homedir(), '.grok', 'bin', `grok${exeSuffix}`);
+  if (existsSync(homeGrok)) {
+    return { command: homeGrok, args: ['agent', 'stdio'] };
+  }
+
+  // 3. grok-build in project (development mode)
   const grokBuildDir = join(projectRoot, 'grok-build');
   const releaseExe = join(grokBuildDir, 'target', 'release', `xai-grok-pager${exeSuffix}`);
   if (existsSync(releaseExe)) {
@@ -61,7 +67,7 @@ function findGrokExecutable(projectRoot: string): { command: string; args: strin
     return { command: debugExe, args: ['agent', 'stdio'] };
   }
 
-  // 3. Bundled in resources (packaged app)
+  // 4. Bundled in resources (packaged app)
   const bundledExe = process.resourcesPath
     ? join(process.resourcesPath, `xai-grok-pager${exeSuffix}`)
     : null;
@@ -69,7 +75,7 @@ function findGrokExecutable(projectRoot: string): { command: string; args: strin
     return { command: bundledExe, args: ['agent', 'stdio'] };
   }
 
-  // 4. PATH fallback
+  // 5. PATH fallback
   return { command: 'grok', args: ['agent', 'stdio'] };
 }
 
