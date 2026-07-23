@@ -527,14 +527,19 @@ const _FILE_WRITE_TOOLS = [
   'pptx_write',
   'edit_docx',
   'append_xlsx',
+  'skill_manage',
 ];
 const _FILE_READ_TOOLS = ['read_file'];
 
 /** Extract a file path from a JSON-stringified tool args object.
- *  Checks common keys: path, file_path, filename. */
+ *  Checks common keys: path, file_path, filename.
+ *  For skill_manage, derives the SKILL.md path from the skill name. */
 function _extractPathFromArgs(argsStr: string): string | null {
   try {
     const args = JSON.parse(argsStr);
+    if (args.name && (args.action === 'create' || args.action === 'patch')) {
+      return `skills/${args.name}/SKILL.md`;
+    }
     return (args.path as string) || (args.file_path as string) || (args.filename as string) || null;
   } catch {
     return null;
