@@ -226,8 +226,7 @@ function isApprovalBypassUpdate(updates: Record<string, unknown>): boolean {
 
 function isGrokActive(): boolean {
   const config = readLocalConfig();
-  const model: string = (config['agents'] as Record<string, unknown>)?.['defaults']?.['model'] as string ?? '';
-  return model === 'grok';
+  return !!(config['desktop'] as Record<string, unknown>)?.['useGrokBackend'];
 }
 
 export function registerIpcHandlers(bridge: BridgeManager, grokBridge?: GrokBridgeManager): void {
@@ -1717,3 +1716,5 @@ for m in ("pydantic", "httpx", "loguru"):
     });
   });
 }
+
+

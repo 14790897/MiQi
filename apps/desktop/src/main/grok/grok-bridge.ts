@@ -141,6 +141,7 @@ export class GrokBridgeManager extends EventEmitter {
 
   // JSON-RPC state
   private nextId: number = 1;
+  private pendingPromptContent: string = "";
   private pending: Map<
     number,
     {
@@ -155,6 +156,8 @@ export class GrokBridgeManager extends EventEmitter {
   private sessionCache: Map<string, string> = new Map();
   // Current active grok session
   private currentSessionId: string | null = null;
+  // MiQi session key that maps to currentSessionId
+  private currentSessionKey: string = 'desktop:default';
   // Pending grok model config
   private modelConfig: ReturnType<typeof resolveGrokModelConfig> = null;
 
@@ -581,10 +584,11 @@ export class GrokBridgeManager extends EventEmitter {
           case 'agent_message_chunk': {
             const content = update?.['content'] as Record<string, unknown> | undefined;
             if (content?.['text']) {
+              this.pendingPromptContent += content['text'] as string;
               this.emitBridgeEvent('chat:progress', {
                 delta: content['text'],
                 tool_hint: false,
-                session_key: this.currentSessionId,
+                session_key: this.currentSessionKey,
               });
             }
             break;
@@ -596,7 +600,7 @@ export class GrokBridgeManager extends EventEmitter {
                 delta: content['text'],
                 tool_hint: false,
                 stream: 'stderr',
-                session_key: this.currentSessionId,
+                session_key: this.currentSessionKey,
               });
             }
             break;
@@ -608,7 +612,7 @@ export class GrokBridgeManager extends EventEmitter {
               text: title,
               tool_hint: true,
               tool_call_id: toolCallId,
-              session_key: this.currentSessionId,
+              session_key: this.currentSessionKey,
             });
             break;
           }
@@ -623,7 +627,7 @@ export class GrokBridgeManager extends EventEmitter {
                     delta: c['text'],
                     tool_hint: true,
                     tool_call_id: update?.['toolCallId'],
-                    session_key: this.currentSessionId,
+                    session_key: this.currentSessionKey,
                   });
                 }
               }
@@ -632,9 +636,22 @@ export class GrokBridgeManager extends EventEmitter {
           }
           case 'plan':
           case 'task':
-          case 'turn_completed':
-            // Informational — no renderer event needed right now
+          case 'turn_completed': {
+            // Resolve the pending session/prompt acpRequest so handleChatSend
+            // can emit the 'final' event and re-enable the textarea.
+            for (const [_id, entry] of this.pending) {
+              entry.resolve({ stopReason: 'completed' });
+              break; // only the first pending (session/prompt)
+            }
+            if (this.onEvent) {
+              this.onEvent('final', {
+                content: this.pendingPromptContent,
+                aborted: false,
+                session_key: this.currentSessionKey,
+              });
+            }
             break;
+          }
           default:
             this.addLog(`[grok] Unhandled sessionUpdate: ${sessionUpdate}`);
             break;
@@ -741,6 +758,9 @@ export class GrokBridgeManager extends EventEmitter {
     const content = (params['content'] as string) || '';
     const sessionId = await this.ensureCurrentSession(sessionKey);
     const projectCwd = (params['cwd'] as string) || this.projectRoot;
+    this.currentSessionKey = sessionKey;
+    // Reset accumulated content for this turn
+    this.pendingPromptContent = "";
 
     // Set up the event bridge so ACP streaming events flow to the IPC handler
     this.onEvent = onEvent || null;
@@ -759,10 +779,10 @@ export class GrokBridgeManager extends EventEmitter {
         const resp = result as Record<string, unknown> | undefined;
         const stopReason = resp?.['stopReason'] as string | undefined;
         onEvent('final', {
-          content: '',
+          content: this.pendingPromptContent,
           aborted: stopReason === 'cancelled',
           stop_reason: stopReason,
-          session_key: sessionId,
+          session_key: sessionKey,
         });
       }
 
@@ -771,7 +791,7 @@ export class GrokBridgeManager extends EventEmitter {
       this.onEvent = null;
       const msg = err instanceof Error ? err.message : String(err);
       if (onEvent) {
-        onEvent('error', { message: msg, session_key: sessionId });
+        onEvent('error', { message: msg, session_key: sessionKey });
       }
       throw err;
     }
@@ -862,7 +882,8 @@ export class GrokBridgeManager extends EventEmitter {
 
 function getMiQiConfigPath(): string {
   const miqiHome = process.env['MIQI_HOME']?.trim();
-  return join(miqiHome || homedir(), '.miqi', 'config.json');
+  // Mirror getConfigDir() in ipc/index.ts: MIQI_HOME → MIQI_HOME/config.json, unset → ~/.miqi/config.json
+  return miqiHome ? join(miqiHome, 'config.json') : join(homedir(), '.miqi', 'config.json');
 }
 
 function readMiQiConfig(): Record<string, unknown> {

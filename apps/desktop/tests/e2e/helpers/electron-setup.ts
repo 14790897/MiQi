@@ -70,27 +70,30 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
     // Fast responses may never show IN PROGRESS.
   }
 
-  // Phase 3: wait for textContent to have changed AND stabilized.
-  // The length must increase at least once, then remain stable for
-  // two consecutive polls (400ms).  This prevents false positives
-  // when streaming never started (AI call failed silently).
+  // Phase 3: wait for textContent to have GROWN AND stabilized.
+  // Text must increase at least once (assistant actually replied),
+  // then remain stable for two consecutive polls.
   await page.waitForFunction(() => {
     const main = document.querySelector('main');
     if (!main) return false;
     const text = main.textContent || '';
     const s = (window as any).__miqi_stream_state;
     if (!s) {
-      (window as any).__miqi_stream_state = { base: text.length, stable: 0 };
+      (window as any).__miqi_stream_state = { base: text.length, hasGrown: false, stable: 0 };
       return false;
     }
     if (text.length > s.base) {
       s.base = text.length;
+      s.hasGrown = true;
       s.stable = 0;
       return false;
     }
+    // Require at least one growth event before declaring stable.
+    // This prevents false positives when the AI never responded.
+    if (!s.hasGrown) return false;
     s.stable++;
     return s.stable >= 2;
-  }, { timeout: 5000, polling: 200 });
+  }, { timeout: 30_000, polling: 400 });
 }
 
 /** Poll for approval dialogs and click "永久允许" until the AI stops

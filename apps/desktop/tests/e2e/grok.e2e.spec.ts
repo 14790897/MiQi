@@ -1,46 +1,66 @@
 /**
  * grok.e2e.spec.ts — Real Electron E2E test for grok provider integration.
- *
- * Verifies end-to-end chat.send → streaming response through the real grok
- * agent stdio process.  Requires grok binary to be available (built or on PATH)
- * and a configured provider with apiKey in ~/.miqi/config.json.
- *
- * Run: cd apps/desktop && npx playwright test --config=playwright.config.ts --project=electron -g "Grok"
  */
 
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import {
-  LLM_TIMEOUT,
-  waitForInputReady,
-  sendMessage,
-  waitForResponseComplete,
-  launchElectronApp,
-  closeElectronApp,
-  approveLoop,
-  getSessionTitle,
+  LLM_TIMEOUT, waitForInputReady, sendMessage, waitForResponseComplete,
+  launchElectronApp, closeElectronApp, approveLoop,
 } from './helpers/electron-setup';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-// ─── Helpers ──────────────────────────────────────────────────────────
+const RUNTIME_ERROR_SIGNATURES = [
+  'Bridge not running', 'No configured provider found', 'Grok process exited',
+  'Grok did not produce', 'Failed to start grok', '运行时未启动', 'Still waiting for backend',
+];
 
-/** Patch config.json in miqiHome to activate grok provider before launch. */
 function patchToGrok(miqiHome: string) {
   const configPath = join(miqiHome, 'config.json');
-  const config = existsSync(configPath)
-    ? JSON.parse(readFileSync(configPath, 'utf-8'))
-    : {};
-  config.agents = { ...config.agents, defaults: { ...config.agents?.defaults, model: 'grok' } };
+  if (!existsSync(configPath)) return;
+  const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+  config.desktop = { ...config.desktop, useGrokBackend: true };
   writeFileSync(configPath, JSON.stringify(config, null, 2));
 }
 
-// ─── Test Suite ───────────────────────────────────────────────────────
+function ensureProviderModel(miqiHome: string, modelId: string) {
+  const configPath = join(miqiHome, 'config.json');
+  if (!existsSync(configPath)) return;
+  const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+  for (const [_name, entry] of Object.entries(config.providers ?? {})) {
+    const e = entry as Record<string, unknown>;
+    if (e['apiKey']) { e['model'] = e['model'] || modelId; break; }
+  }
+  writeFileSync(configPath, JSON.stringify(config, null, 2));
+}
+
+async function expectGrokBackendActive(page: Page) {
+  const config = await page.evaluate(() => (window as any).miqi.config.get());
+  expect(config?.desktop?.useGrokBackend).toBe(true);
+}
+
+async function expectNoRuntimeError(page: Page, description: string) {
+  const mainText = (await page.locator('main').textContent()) ?? '';
+  for (const sig of RUNTIME_ERROR_SIGNATURES) {
+    if (mainText.includes(sig)) throw new Error(`[${description}] Runtime error: "${sig}"`);
+  }
+}
+
+async function relaunchWithGrok(app: ElectronApplication, miqiHome: string) {
+  await closeElectronApp(app);
+  const fixture = await launchElectronApp();
+  patchToGrok(fixture.miqiHome);
+  ensureProviderModel(fixture.miqiHome, 'deepseek-v4-pro');
+  await fixture.page.reload();
+  await fixture.page.waitForSelector('#root', { state: 'visible', timeout: 30_000 });
+  await waitForInputReady(fixture.page);
+  await fixture.page.waitForTimeout(5000);
+  return fixture;
+}
 
 test.describe('Grok Provider Electron E2E', () => {
-  let electronApp: ElectronApplication;
-  let page: Page;
-  let miqiHome: string;
+  let electronApp: ElectronApplication, page: Page, miqiHome: string;
 
   test.beforeAll(async () => {
     const fixture = await launchElectronApp();
@@ -53,96 +73,55 @@ test.describe('Grok Provider Electron E2E', () => {
     await closeElectronApp(electronApp, miqiHome);
   });
 
-  // ═══════════════════════════════════════════════════════════════════
-  //  Grok appears only in Settings → General, NOT in provider list
-  // ═══════════════════════════════════════════════════════════════════
-
-  test('grok not in provider list but in Settings → General', { timeout: LLM_TIMEOUT }, async () => {
+  test('grok NOT in provider list, only in Settings → General', { timeout: LLM_TIMEOUT }, async () => {
     await page.getByText(/^(System Settings|系统设置)$/).click();
-
-    // Model tab should NOT show grok as a provider
     await page.getByRole('tab', { name: '模型' }).click();
     await expect(page.getByText('Grok (xAI)')).not.toBeVisible({ timeout: 5_000 });
-
-    // General tab SHOULD show the grok toggle
     await page.getByRole('tab', { name: '通用' }).click();
     await expect(page.getByText('Grok 后端')).toBeVisible({ timeout: 10_000 });
   });
 
-  // ═══════════════════════════════════════════════════════════════════
-  //  Chat with grok backend
-  // ═══════════════════════════════════════════════════════════════════
+  test('streaming response + multi-turn context retention', { timeout: LLM_TIMEOUT * 2 }, async () => {
+    const r = await relaunchWithGrok(electronApp, miqiHome);
+    electronApp = r.electronApp;
+    page = r.page;
+    miqiHome = r.miqiHome;
+    await expectGrokBackendActive(page);
+    await page.evaluate(() => (window as any).miqi.approvals.addPermanent('*:*', 'always'));
 
-  test('sends message via grok and receives streaming response', { timeout: LLM_TIMEOUT }, async () => {
-    await patchToGrok(miqiHome);
-    // Reload page to pick up new config
-    await page.reload();
-    await page.waitForSelector('#root', { state: 'visible' });
-    await waitForInputReady(page);
-    // Wait for bridge to re-read config
-    await page.waitForTimeout(2000);
-
+    // Turn 1: verify basic streaming
     await sendMessage(page, 'reply with just "OK"');
     await approveLoop(page, 120_000);
     await waitForResponseComplete(page, 120_000);
+    await expectNoRuntimeError(page, 'streaming');
+    const t1 = await page.locator('main').textContent();
+    console.log('[test] turn1:', (t1 ?? '').trim().slice(0, 200));
+    expect(t1).toContain('OK');
 
-    const mainText = await page.locator('main').textContent();
-    expect(mainText).toContain('OK');
+    // Turn 2: reference previous turn in same session
+    const preLen = ((await page.locator('main').textContent()) ?? '').length;
+    await sendMessage(page, 'What word did I ask you to say in my previous message? Reply with just that word.');
+    await approveLoop(page, 120_000);
+    await waitForResponseComplete(page, 120_000);
+    await expectNoRuntimeError(page, 'multi-turn turn2');
+    const t2 = await page.locator('main').textContent();
+    const t2delta = (t2 ?? '').slice(preLen);
+    console.log('[test] turn2:', t2delta.trim().slice(0, 200));
+    expect(t2delta).toMatch(/OK/i);
   });
 
-  // ═══════════════════════════════════════════════════════════════════
-  //  Web search capability
-  // ═══════════════════════════════════════════════════════════════════
-
-  test('grok responds with web search capability', { timeout: LLM_TIMEOUT }, async () => {
-    await patchToGrok(miqiHome);
-    await page.reload();
-    await page.waitForSelector('#root', { state: 'visible' });
-    await waitForInputReady(page);
-    await page.waitForTimeout(2000);
-
-    const marker = `GROK_SEARCH_${Date.now()}`;
-    await sendMessage(page, `Search the web for "今日日期" and reply with "${marker}" after search`);
-
-    // Handle possible network approval dialog
-    const approvalDialog = page.locator('[role="alertdialog"]');
-    if (await approvalDialog.isVisible({ timeout: 30_000 }).catch(() => false)) {
-      await page.getByRole('button', { name: /Allow once|允许一次/ }).click();
-    }
-
+  test('web search capability', { timeout: LLM_TIMEOUT }, async () => {
+    const r = await relaunchWithGrok(electronApp, miqiHome);
+    electronApp = r.electronApp;
+    page = r.page;
+    miqiHome = r.miqiHome;
+    await expectGrokBackendActive(page);
+    const marker = 'GROK_SEARCH_' + Date.now();
+    await sendMessage(page, 'Search the web for "今日日期" and reply with "' + marker + '" after search');
     await approveLoop(page, 150_000);
     await waitForResponseComplete(page, 120_000);
-
-    const mainText = await page.locator('main').textContent();
-    expect(mainText).toContain(marker);
-  });
-
-  // ═══════════════════════════════════════════════════════════════════
-  //  Multi-turn conversation
-  // ═══════════════════════════════════════════════════════════════════
-
-  test('grok retains context across multiple turns', { timeout: LLM_TIMEOUT * 2 }, async () => {
-    await patchToGrok(miqiHome);
-    await page.reload();
-    await page.waitForSelector('#root', { state: 'visible' });
-    await waitForInputReady(page);
-    await page.waitForTimeout(2000);
-
-    // Turn 1: plant a fact
-    await sendMessage(page, '只回答"已记住"');
-    await approveLoop(page, 120_000);
-    await waitForResponseComplete(page, 120_000);
-
-    const turn1Text = await page.locator('main').textContent();
-    expect(turn1Text).toContain('已记住');
-
-    // Turn 2: ask to recall
-    const recallMarker = `RECALL_${Date.now()}`;
-    await sendMessage(page, `回忆上一轮我让你回复了什么？用"${recallMarker}"结尾`);
-    await approveLoop(page, 120_000);
-    await waitForResponseComplete(page, 120_000);
-
-    const turn2Text = await page.locator('main').textContent();
-    expect(turn2Text).toContain(recallMarker);
+    await expectNoRuntimeError(page, 'web search');
+    const mt = await page.locator('main').textContent();
+    expect(mt).toContain(marker);
   });
 });
