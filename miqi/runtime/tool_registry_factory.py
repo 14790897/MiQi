@@ -102,6 +102,7 @@ def create_runtime_tool_registry(
         EditFileTool,
         ListDirTool,
         ReadFileTool,
+        RegisterAssetTool,
         WriteFileTool,
     )
     from miqi.agent.tools.shell import ExecTool
@@ -132,6 +133,13 @@ def create_runtime_tool_registry(
             workspace=_write_workspace,
             allowed_dir=allowed_dir,
             snapshot_dir=_snap_dir,
+            sandbox_manager=_sbm,
+        )
+    )
+
+    registry.register(
+        RegisterAssetTool(
+            workspace=_write_workspace,
             sandbox_manager=_sbm,
         )
     )

@@ -94,6 +94,18 @@ function resolveWorkspacePath(raw: string): string {
     normalised = normalised.slice(SANDBOX_WS.length + 1);
   } else if (normalised.startsWith(SANDBOX_WS + '\\')) {
     normalised = normalised.slice(SANDBOX_WS.length + 1);
+  } else {
+    // WSL sandbox paths embed /home/miqi/workspace/ as a sub-path:
+    //   /tmp/miqi-sandboxes/<name>/home/miqi/workspace/report.pdf
+    // Extract the workspace-relative suffix so the resolved path falls
+    // under the host workspace root and passes the containment check.
+    const sandboxWsIdx = normalised.indexOf('/home/miqi/workspace/');
+    if (sandboxWsIdx > 0) {
+      normalised = normalised.slice(sandboxWsIdx + '/home/miqi/workspace/'.length);
+      if (!normalised) normalised = '.';
+    } else if (normalised.endsWith('/home/miqi/workspace')) {
+      normalised = '.';
+    }
   }
 
   const wsRoot = getWorkspacePath();

@@ -396,12 +396,14 @@ class AppServer:
         # 2. Check session authorization (if session-scoped).
         #    Skip for chat.send/chat.abort (auto-create sessions) and
         #    sessions.get/sessions.list (read disk data, not registry state).
+        #    Also skip files.* methods — they operate on disk via
+        #    SessionManager and sandbox, not on in-memory RuntimeSession.
         if session_id is not None and method not in (
             "chat.send", "chat.abort",
             "sessions.get", "sessions.list",
             "sessions.get_tracked_files",
             "sessions.delete", "sessions.archive", "sessions.unarchive",
-        ):
+        ) and not method.startswith("files."):
             session = await self.registry.get_session(client_id, session_id)
             if session is None:
                 return {

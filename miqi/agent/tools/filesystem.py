@@ -864,3 +864,66 @@ class ListDirTool(Tool):
                 return f"Error: Permission denied: {e}"
             except Exception as e:
                 return f"Error listing directory: {type(e).__name__}: {e}"
+
+
+class RegisterAssetTool(Tool):
+    """Register a file as a task asset so it appears in the UI file panel.
+
+    Use this after running a script via ``exec`` that produces output files
+    (PDF, images, charts, spreadsheets, etc.) as a side effect.  Files
+    created directly with ``write_file`` / ``edit_file`` are already
+    tracked — this tool is only for files produced by shell commands.
+    """
+
+    def __init__(
+        self,
+        workspace: Path | None = None,
+        sandbox_manager: Any = None,
+    ):
+        self._workspace = workspace
+        self._sandbox_manager = sandbox_manager
+
+    @property
+    def name(self) -> str:
+        return "register_asset"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Register an existing file as a task asset so the user can "
+            "see and download it. Use after exec produces output files."
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Path to the generated file "
+                        "(e.g. /home/miqi/workspace/report.pdf)"
+                    ),
+                },
+            },
+            "required": ["path"],
+        }
+
+    async def execute(self, path: str, **kwargs: Any) -> str:
+        _sess_key: str | None = kwargs.pop("_session_key", None)
+        sandbox = await _ensure_sandbox(
+            self._sandbox_manager, tool_name="register_asset",
+            session_key=_sess_key,
+        )
+        session_ws = _get_session_workspace(self._workspace, sandbox)
+        host_path = _sandbox_to_host_path(path, session_ws, sandbox)
+
+        _persist_tracked_file(
+            session_ws, host_path, op="write", session_key=_sess_key,
+        )
+        _log.info(
+            "register_asset: ok session=%s path=%s (raw=%s)",
+            _sess_key, host_path, path,
+        )
+        return f"Registered: {path}"

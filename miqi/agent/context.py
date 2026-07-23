@@ -53,6 +53,23 @@ discussed in a previous session. Use it proactively when the user references a p
 task, project, or decision you don't have in current context.
 """.strip()
 
+EXEC_OUTPUT_GUIDANCE = """
+## Exec Output Registration
+After using `exec` to run a script that generates output files (PDF, images, charts,
+spreadsheets, etc.), you MUST call `write_file` once for each generated file.
+Use the same path the script wrote to and the file's content — this registers
+the file so the user sees it in the Task Assets panel.  Example:
+
+```
+exec: python3 generate_pdf.py
+  → "Created: /home/miqi/workspace/report.pdf"
+write_file(path="/home/miqi/workspace/report.pdf", content="<file contents>")
+```
+
+You only need to do this for files produced as a **side effect** of running a command.
+Files you create directly with `write_file` or `edit_file` are already tracked.
+""".strip()
+
 
 def _format_traces_for_context(traces: list) -> str:
     lines = ["## Similar Task History (reference, do not blindly copy)"]
@@ -122,7 +139,7 @@ class ContextBuilder:
             parts.append(bootstrap)
 
         # Tool usage guidance (injected before memory context)
-        guidance_parts = [MEMORY_GUIDANCE, SKILLS_GUIDANCE, SESSION_SEARCH_GUIDANCE]
+        guidance_parts = [MEMORY_GUIDANCE, SKILLS_GUIDANCE, SESSION_SEARCH_GUIDANCE, EXEC_OUTPUT_GUIDANCE]
         parts.append("\n\n".join(guidance_parts))
 
         # Memory context
