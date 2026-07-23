@@ -136,6 +136,27 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
     setSaving(true);
     setError(null);
     try {
+      // When in builtin mode and not yet activated, activation is required
+      // before saving makes sense. If the user entered a code, activate
+      // first; otherwise guide them to enter and activate.
+      if (!useOwnKey && !activationSuccess && provider.builtin_available) {
+        if (activationCode.trim()) {
+          // Auto-activate before saving — this stores the builtin key and model
+          await handleActivate();
+          // handleActivate already saves provider update, but we still
+          // need to persist extra headers or model override if any.
+          const model_ = model || undefined;
+          if (!model_) {
+            onSaved();
+            markRestartRequired();
+            onClose();
+            return;
+          }
+        } else {
+          setError('请先输入激活码并点击"激活"，或切换到"我自己的API Key"模式手动配置API Key');
+          return;
+        }
+      }
       const extraHeaders = extraHeadersText.trim()
         ? (JSON.parse(extraHeadersText) as Record<string, string>)
         : null;
@@ -279,10 +300,38 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                     推荐（无需API Key）
                   </span>
                   {activationSuccess ? (
-                    <p className="flex items-center gap-1.5 mt-1 text-xs text-[var(--success)]">
-                      <CheckCircle size={12} />
-                      已激活
-                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="flex items-center gap-1.5 text-xs text-[var(--success)]">
+                        <CheckCircle size={12} />
+                        已激活
+                      </p>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          // Clear built-in activation: switch to own-key mode
+                          // and save empty API key so the backend clears the activation flag
+                          try {
+                            await window.miqi.providers.update(
+                              provider.name,
+                              '',
+                              null,
+                              null,
+                              undefined,
+                            );
+                            setActivationSuccess(false);
+                            setUseOwnKey(true);
+                            setApiKey('');
+                            markRestartRequired();
+                          } catch (err: unknown) {
+                            const msg = err instanceof Error ? err.message : String(err);
+                            setError(msg || '取消激活失败');
+                          }
+                        }}
+                        className="text-xs text-[var(--text-faint)] hover:text-[var(--danger)] underline transition-colors"
+                      >
+                        取消激活
+                      </button>
+                    </div>
                   ) : !useOwnKey ? (
                     <div className="flex flex-col gap-2 mt-2">
                       <div className="flex gap-2">
