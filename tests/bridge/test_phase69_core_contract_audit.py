@@ -54,7 +54,7 @@ async def test_plan69_reduces_legacy_method_count():
         typed = [item for item in catalog["methods"] if item["stability"] != "legacy"]
         legacy = [item for item in catalog["methods"] if item["stability"] == "legacy"]
 
-        assert len(catalog["methods"]) == 156  # +2 for feedback:submit, feedback:list
+        assert len(catalog["methods"]) == 157  # +2 for feedback:submit, feedback:list
         assert len(typed) >= 44
         assert len(legacy) <= 109
     finally:
