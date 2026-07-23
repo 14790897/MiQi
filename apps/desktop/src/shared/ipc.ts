@@ -748,6 +748,8 @@ export interface ChatFinal {
 
 export interface ChatError {
   message: string;
+  /** Error code from backend (e.g. NO_API_KEY, INTERNAL) */
+  code?: string;
   /** Session key for frontend-side event filtering (fix #212).  Optional
    *  for backward compatibility; see ChatProgress.session_key. */
   session_key?: string;

@@ -397,6 +397,7 @@ async def test_drain_chat_events_sends_backend_timeout_error_directly():
         "id": "req-timeout",
         "type": "error",
         "data": {
+            "code": "TIMEOUT",
             "message": f"Turn 超时（{CHAT_DRAIN_IDLE_TIMEOUT_SECONDS}s）",
             "session_key": "session-timeout",
         },
