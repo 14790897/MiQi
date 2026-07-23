@@ -81,7 +81,8 @@ function isMissingProviderConfigMessage(message: string) {
   return normalized.includes('no api key configured');
 }
 
-function isProviderConfigurationProblem(message: string) {
+function isProviderConfigurationProblem(message: string, code?: string) {
+  if (code === 'NO_API_KEY') return true;
   const normalized = message.toLowerCase();
   return (
     isMissingProviderConfigMessage(message) ||
@@ -1351,7 +1352,7 @@ export function ChatConsole({
       const message = sanitizeUiMessage(data.message);
       setMessages((prev) => [
         ...prev,
-        isProviderConfigurationProblem(message)
+        isProviderConfigurationProblem(message, data.code)
           ? createProviderConfigMessage(message)
           : { role: 'error', content: message, timestamp: Date.now() },
       ]);
@@ -1420,7 +1421,7 @@ export function ChatConsole({
         return;
       }
       const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? 'Unknown error'));
-      if (isProviderConfigurationProblem(errMsg)) {
+      if (isProviderConfigurationProblem(errMsg, e?.code)) {
         setMessages((prev) => [...prev, createProviderConfigMessage(errMsg)]);
       } else if (e?.code) {
         setMessages((prev) => [

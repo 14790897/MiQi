@@ -642,7 +642,15 @@ class BridgeRuntimeLoop:
             config = self._bridge_state.load_config()
             from miqi.providers.factory import make_provider
 
-            provider = make_provider(config)
+            try:
+                provider = make_provider(config)
+            except ValueError as exc:
+                from miqi.runtime.app_server import AppServerError
+                logger.warning("make_provider failed during chat.send: {}", exc)
+                raise AppServerError(
+                    "No API key configured — set one in Settings > Models",
+                    code="NO_API_KEY",
+                ) from exc
             self._bridge_state._ensure_sandbox_manager()
             sandbox_manager = getattr(self._bridge_state, "_sandbox_manager", None)
             if sandbox_manager == "disabled":
@@ -793,6 +801,7 @@ class BridgeRuntimeLoop:
                         thread_id,
                     )
                     await _emit_terminal("error", {
+                        "code": "TIMEOUT",
                         "message": (
                             f"Turn 超时（"
                             f"{CHAT_DRAIN_IDLE_TIMEOUT_SECONDS}s）"
@@ -820,6 +829,7 @@ class BridgeRuntimeLoop:
                 if isinstance(event, ErrorEvent):
                     await _emit_terminal("error", {
                         "message": event.message,
+                        "code": event.error_kind or "ERROR",
                     })
                     break
 
