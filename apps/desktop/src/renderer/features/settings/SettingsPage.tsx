@@ -742,7 +742,13 @@ function LogsTab() {
       if (keyword && !entry.message.toLowerCase().includes(keyword.toLowerCase())) return false;
       return true;
     })
-    .reverse();
+    .sort((a, b) => {
+      const aTime = Date.parse(a.timestamp);
+      const bTime = Date.parse(b.timestamp);
+      if (Number.isNaN(aTime)) return Number.isNaN(bTime) ? 0 : 1;
+      if (Number.isNaN(bTime)) return -1;
+      return bTime - aTime;
+    });
 
   const toggleRow = (id: number) => {
     setExpandedRows((prev) => {
