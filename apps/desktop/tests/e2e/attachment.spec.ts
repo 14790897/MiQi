@@ -133,8 +133,14 @@ function cleanupFixtureFiles() {
   }
 }
 
-// Create once at module load
-const FILES: FixtureFiles = createFixtureFiles();
+// Create once at module load, but regenerate before each test
+// (MiQi may consume/move uploaded files, so we need fresh copies per test)
+function ensureFixtureFiles(): FixtureFiles {
+  cleanupFixtureFiles();
+  return createFixtureFiles();
+}
+
+let FILES: FixtureFiles;
 
 async function attachFile(page: Page, filePath: string) {
   const fileInput = page.locator('input[type="file"]');
@@ -146,9 +152,15 @@ test.describe('File Attachment Chips', () => {
   let page: Page;
 
   test.beforeAll(async () => {
+    FILES = ensureFixtureFiles();
     const fixture = await launchElectronApp();
     electronApp = fixture.electronApp;
     page = fixture.page;
+  });
+
+  test.beforeEach(async () => {
+    // Regenerate fixture files — MiQi may consume/move uploaded files
+    FILES = ensureFixtureFiles();
   });
 
   test.afterAll(async () => {
