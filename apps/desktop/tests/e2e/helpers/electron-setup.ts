@@ -228,7 +228,7 @@ export interface ElectronFixture {
  *  - Strips ELECTRON_RUN_AS_NODE (inherited from Electron-based IDEs).
  *  - Waits for MiQi Workbench UI + bridge runtime.status() === 'running'.
  */
-export async function launchElectronApp(): Promise<ElectronFixture> {
+export async function launchElectronApp(configPatch?: Record<string, unknown>): Promise<ElectronFixture> {
   // Create unique temporary home per test worker for full isolation.
   // Parallel workers each get their own MIQI_HOME → no race on sessions/.
   const miqiHome = mkdtempSync(join(tmpdir(), 'miqi-e2e-'));
@@ -259,6 +259,29 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
     feedback: { enabled: false, bitableAppToken: '', bitableTableId: '' },
   };
   writeFileSync(destConfigPath, JSON.stringify(config, null, 2));
+  // Apply config patch (e.g. { desktop: { useGrokBackend: true } }) before launch
+  if (configPatch) {
+    const obj = JSON.parse(readFileSync(destConfigPath, 'utf-8'));
+    for (const [key, value] of Object.entries(configPatch)) {
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        const target = obj[key] as Record<string, unknown> || {};
+        if (key === 'providers') {
+          // Deep merge each provider entry
+          const providers = target as Record<string, Record<string, unknown>>;
+          for (const [pName, pVal] of Object.entries(value as Record<string, unknown>)) {
+            providers[pName] = { ...(providers[pName] || {}), ...(pVal as Record<string, unknown>) };
+          }
+          obj[key] = providers;
+        } else {
+          obj[key] = { ...target, ...value as Record<string, unknown> };
+        }
+      } else {
+        obj[key] = value;
+      }
+    }
+    writeFileSync(destConfigPath, JSON.stringify(obj, null, 2));
+  }
+
 
   // Delete ELECTRON_RUN_AS_NODE inherited from Electron-based IDEs
   // (WorkBuddy / VSCode).  Otherwise Electron runs as plain Node.js.
@@ -300,7 +323,7 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
       t.includes('[miqi-bridge]') ||
       t.includes('[Bridge]') ||
       t.includes('[MiQi]') ||
-      t.includes('[e2e]')
+      t.includes('[DIAG]') || t.includes('[e2e]') || t.includes('[grok]')
     ) {
       console.log(`[e2e-console] ${t}`);
     }

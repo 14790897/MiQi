@@ -16,12 +16,12 @@ import { homedir } from 'os';
 // ---------------------------------------------------------------------------
 
 export interface GrokModelConfig {
-  modelSlug: string;     // always "grok-model"
-  modelId: string;       // actual model ID
-  modelName: string;     // display name
-  apiBase?: string;      // provider apiBase
-  apiKey: string;        // the apiKey to set as env var
-  apiKeyEnvVar: string;  // always "MIQI_API_KEY"
+  modelSlug: string; // always "grok-model"
+  modelId: string; // actual model ID
+  modelName: string; // display name
+  apiBase?: string; // provider apiBase
+  apiKey: string; // the apiKey to set as env var
+  apiKeyEnvVar: string; // always "MIQI_API_KEY"
 }
 
 // ---------------------------------------------------------------------------
@@ -40,8 +40,15 @@ export function grokHome(): string {
  * 2. First configured provider with apiKey (any model)
  * 3. XAI_API_KEY env var → use with model from agents.defaults
  */
+
+/** Per-provider fallback models when no model is configured. */
+const KNOWN_DEFAULT_MODELS: Record<string, string> = {
+  deepseek: 'deepseek-chat',
+  siliconflow: 'deepseek-ai/DeepSeek-V3',
+};
+
 export function resolveGrokModelConfig(
-  miqiConfig: Record<string, unknown>,
+  miqiConfig: Record<string, unknown>
 ): GrokModelConfig | null {
   const agents = (miqiConfig['agents'] as Record<string, unknown> | undefined) ?? {};
   const defaults = (agents['defaults'] as Record<string, unknown> | undefined) ?? {};
@@ -87,7 +94,7 @@ export function resolveGrokModelConfig(
 
     return {
       modelSlug: 'grok-model',
-      modelId: candidateModel || 'gpt-4.1',
+      modelId: candidateModel || KNOWN_DEFAULT_MODELS[name] || 'deepseek-chat',
       modelName: `${name}/${candidateModel || 'default'}`,
       apiBase,
       apiKey,

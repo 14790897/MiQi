@@ -129,7 +129,10 @@ export function main(): void {
     bridgeManager = new BridgeManager();
     grokBridgeManager = new GrokBridgeManager();
     registerIpcHandlers(bridgeManager, grokBridgeManager);
-    grokBridgeManager.start();
+    grokBridgeManager.start().catch((err) => {
+      console.error(`[grok] bridge start failed:`, err);
+      console.warn(`[grok] backend unavailable`);
+    });
 
     // Forward bridge events to renderer
     const onState = (status: unknown) => {

@@ -16,11 +16,7 @@ import { randomUUID } from 'crypto';
 import type { RuntimeState, RuntimeStatus } from '../../shared/ipc';
 import { IPC_EVENTS } from '../../shared/ipc';
 import { writeMainProcessLog } from '../electron-log';
-import {
-  resolveGrokModelConfig,
-  generateGrokConfigToml,
-  writeGrokConfigToml,
-} from './grok-config';
+import { resolveGrokModelConfig, generateGrokConfigToml, writeGrokConfigToml } from './grok-config';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -135,13 +131,14 @@ export class GrokBridgeManager extends EventEmitter {
   private rl: Interface | null = null;
 
   private state: RuntimeState = 'stopped';
+  private lastError: string = '';
   private logs: string[] = [];
   private maxLogs: number = 500;
   private projectRoot: string;
 
   // JSON-RPC state
   private nextId: number = 1;
-  private pendingPromptContent: string = "";
+  private pendingPromptContent: string = '';
   private pending: Map<
     number,
     {
@@ -169,8 +166,7 @@ export class GrokBridgeManager extends EventEmitter {
 
   constructor(projectRoot?: string) {
     super();
-    this.projectRoot =
-      projectRoot || join(__dirname, '..', '..', '..', '..');
+    this.projectRoot = projectRoot || join(__dirname, '..', '..', '..', '..');
   }
 
   // -----------------------------------------------------------------------
@@ -182,7 +178,10 @@ export class GrokBridgeManager extends EventEmitter {
       state: this.state,
       configured: this.state === 'running',
       sandbox_available: false,
-      error: this.state === 'error' ? 'Grok bridge process exited unexpectedly' : undefined,
+      error:
+        this.state === 'error'
+          ? this.lastError || 'Grok bridge process exited unexpectedly'
+          : undefined,
     };
   }
 
@@ -198,9 +197,19 @@ export class GrokBridgeManager extends EventEmitter {
     return [...this.logs];
   }
 
-  async ensureRunning(): Promise<void> {
-    if (this.isRunning()) return;
+  async ensureRunning(): Promise<boolean> {
+    if (this.isRunning()) return true;
     await this.start();
+    // Wait for actual ready state (handle fire-and-forget race)
+    let waited = 0;
+    while (this.state === 'starting' && waited < 30_000) {
+      await new Promise((r) => setTimeout(r, 200));
+      waited += 200;
+    }
+    if (this.state !== 'running') {
+      throw new Error(`Grok backend not ready after ${waited}ms: state=${this.state}`);
+    }
+    return true;
   }
 
   // -----------------------------------------------------------------------
@@ -208,7 +217,13 @@ export class GrokBridgeManager extends EventEmitter {
   // -----------------------------------------------------------------------
 
   async start(): Promise<void> {
+    console.log('[grok:start] ENTER');
     if (this.state === 'running' || this.state === 'starting') return;
+
+    console.log('[grok] start() called, re-reading MiQi config...');
+
+    this.sessionCache.clear();
+    this.clearPending(new Error('Grok bridge restarting'));
 
     this.state = 'starting';
     this.emitState();
@@ -217,12 +232,15 @@ export class GrokBridgeManager extends EventEmitter {
     const config = readMiQiConfig();
     this.modelConfig = resolveGrokModelConfig(config);
     if (!this.modelConfig) {
+      this.lastError = 'No configured provider found';
+      this.addLog('No configured provider found — grok backend staying in stopped state');
+      this.recordMainLog(
+        'WARN',
+        'No configured provider with API key found. Set up at least one provider in Settings.'
+      );
       this.state = 'error';
       this.emitState();
-      throw new Error(
-        'No configured provider found.  Please set up at least one provider ' +
-        '(e.g. OpenAI, Anthropic) with an API key before using Grok.',
-      );
+      return; // don't throw — let ensureRunning retry after user configures providers
     }
 
     // Set API key env var and generate config.toml
@@ -290,32 +308,23 @@ export class GrokBridgeManager extends EventEmitter {
       });
 
       // ── ACP lifecycle handshake ──────────────────────────────────────
-      // 1. Wait for first line (grok is alive)
-      await new Promise<void>((resolve, reject) => {
-        let settled = false;
-        const done = (err?: Error) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timeout);
-          lineReader.removeListener('line', onFirstLine);
-          grokProcess.removeListener('close', onClose);
-          if (err) reject(err);
-          else resolve();
-        };
-
-        const onFirstLine = (_line: string) => done();
-
-        const onClose = (code: number | null) => {
-          done(new Error(`Grok process exited with code ${code} before initializing`));
-        };
-
-        const timeout = setTimeout(() => {
-          done(new Error('Grok did not produce any output within 30 s'));
-        }, 30_000);
-
-        lineReader.on('line', onFirstLine);
-        grokProcess.once('close', onClose);
-      });
+      // 1. Wait for grok process to be alive (it won't produce stdout
+      //    until we send the first JSON-RPC request — protocol deadlock).
+      {
+        const graceMs = 10_000;
+        const pollMs = 250;
+        let waited = 0;
+        while (waited < graceMs && !grokProcess.killed && grokProcess.exitCode === null) {
+          await new Promise((r) => setTimeout(r, pollMs));
+          waited += pollMs;
+        }
+        if (grokProcess.killed || grokProcess.exitCode !== null) {
+          throw new Error(
+            `Grok process exited with code ${grokProcess.exitCode} during startup ` +
+              `(waited ${waited}ms)`
+          );
+        }
+      }
 
       // 2. initialize
       this.addLog('grok alive — sending ACP initialize');
@@ -387,7 +396,11 @@ export class GrokBridgeManager extends EventEmitter {
       if (startedReader) startedReader.close();
       if (this.rl === startedReader) this.rl = null;
       if (startedProcess && this.process === startedProcess) {
-        try { startedProcess.stdin?.end(); } catch { /* ignore */ }
+        try {
+          startedProcess.stdin?.end();
+        } catch {
+          /* ignore */
+        }
         startedProcess.kill('SIGTERM');
         this.process = null;
       }
@@ -435,7 +448,11 @@ export class GrokBridgeManager extends EventEmitter {
       proc.once('close', done);
       proc.once('exit', done);
 
-      try { proc.stdin?.end(); } catch { /* ignore */ }
+      try {
+        proc.stdin?.end();
+      } catch {
+        /* ignore */
+      }
       proc.kill('SIGTERM');
     });
 
@@ -449,7 +466,7 @@ export class GrokBridgeManager extends EventEmitter {
   async send(
     method: string,
     params?: Record<string, unknown>,
-    onEvent?: (type: string, data: unknown) => void,
+    onEvent?: (type: string, data: unknown) => void
   ): Promise<unknown> {
     if (!this.isRunning()) {
       throw new Error('Grok bridge not running');
@@ -501,8 +518,13 @@ export class GrokBridgeManager extends EventEmitter {
     const id = this.nextId++;
     const request: AcpRequest = { jsonrpc: '2.0', id, method, params };
     const isStreaming = STREAMING_METHODS.has(method);
-    const isLongRunning = method === 'session/new' || method === 'initialize' || method === 'authenticate';
-    const timeoutMs = isStreaming ? STREAMING_TIMEOUT_MS : isLongRunning ? 60_000 : DEFAULT_TIMEOUT_MS;
+    const isLongRunning =
+      method === 'session/new' || method === 'initialize' || method === 'authenticate';
+    const timeoutMs = isStreaming
+      ? STREAMING_TIMEOUT_MS
+      : isLongRunning
+        ? 60_000
+        : DEFAULT_TIMEOUT_MS;
     const startMs = Date.now();
 
     const promise = new Promise<unknown>((resolve, reject) => {
@@ -671,7 +693,8 @@ export class GrokBridgeManager extends EventEmitter {
         const toolCall = params?.['toolCall'] as Record<string, unknown> | undefined;
         const optionsArr = (params?.['options'] as Array<Record<string, unknown>>) || [];
 
-        const command = (toolCall?.['rawInput'] as Record<string, unknown>)?.['command'] as string || '';
+        const command =
+          ((toolCall?.['rawInput'] as Record<string, unknown>)?.['command'] as string) || '';
         const title = (toolCall?.['title'] as string) || 'Tool call';
         const kind = (toolCall?.['kind'] as string) || 'unknown';
 
@@ -687,9 +710,7 @@ export class GrokBridgeManager extends EventEmitter {
             // Send the JSON-RPC response back to grok
             const id = msg.id;
             delete (v as Record<string, unknown>).approval_id;
-            this.process?.stdin?.write(
-              JSON.stringify({ jsonrpc: '2.0', id, result: v }) + '\n',
-            );
+            this.process?.stdin?.write(JSON.stringify({ jsonrpc: '2.0', id, result: v }) + '\n');
           },
           reject: (_e) => {
             this.process?.stdin?.write(
@@ -697,7 +718,7 @@ export class GrokBridgeManager extends EventEmitter {
                 jsonrpc: '2.0',
                 id: msg.id,
                 result: { outcome: { cancelled: true } },
-              }) + '\n',
+              }) + '\n'
             );
           },
         });
@@ -719,7 +740,7 @@ export class GrokBridgeManager extends EventEmitter {
             jsonrpc: '2.0',
             id: msg.id,
             error: { code: -32601, message: `Method not found: ${msg.method}` },
-          }) + '\n',
+          }) + '\n'
         );
         break;
     }
@@ -739,7 +760,7 @@ export class GrokBridgeManager extends EventEmitter {
         Object.assign(new Error(msg.error.message), {
           code: String(msg.error.code),
           data: msg.error.data,
-        }),
+        })
       );
     } else {
       entry.resolve(msg.result);
@@ -752,15 +773,16 @@ export class GrokBridgeManager extends EventEmitter {
 
   private async handleChatSend(
     params: Record<string, unknown>,
-    onEvent?: (type: string, data: unknown) => void,
+    onEvent?: (type: string, data: unknown) => void
   ): Promise<unknown> {
     const sessionKey = (params['session_key'] as string) || 'desktop:default';
     const content = (params['content'] as string) || '';
     const sessionId = await this.ensureCurrentSession(sessionKey);
+    this.addLog('[grok] handleChatSend sessionKey=' + sessionKey + ' sessionId=' + sessionId);
     const projectCwd = (params['cwd'] as string) || this.projectRoot;
     this.currentSessionKey = sessionKey;
     // Reset accumulated content for this turn
-    this.pendingPromptContent = "";
+    this.pendingPromptContent = '';
 
     // Set up the event bridge so ACP streaming events flow to the IPC handler
     this.onEvent = onEvent || null;
@@ -813,9 +835,7 @@ export class GrokBridgeManager extends EventEmitter {
   // Private: session management
   // -----------------------------------------------------------------------
 
-  private async ensureCurrentSession(
-    sessionKey?: string,
-  ): Promise<string> {
+  private async ensureCurrentSession(sessionKey?: string): Promise<string> {
     const key = sessionKey || 'desktop:default';
     const cached = this.sessionCache.get(key);
     if (cached) return cached;

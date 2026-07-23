@@ -247,6 +247,15 @@ export function registerIpcHandlers(bridge: BridgeManager, grokBridge?: GrokBrid
     return bridge.getStatus();
   });
 
+  ipcMain.handle('grok:status', () => {
+    if (!grokBridge) return { available: false };
+    return {
+      available: true,
+      ...grokBridge.getStatus(),
+      logs: grokBridge.getLogs(),
+    };
+  });
+
   ipcMain.handle(IPC.RUNTIME_LOGS, () => {
     return bridge.getLogs();
   });
@@ -519,7 +528,11 @@ export function registerIpcHandlers(bridge: BridgeManager, grokBridge?: GrokBrid
   ipcMain.handle(IPC.PROVIDERS_ACTIVATE, async (_event, payload: unknown) => {
     const input = ProviderActivateInput.parse(payload);
     if (input.provider_name === 'grok') {
-      return { activated: false, provider_name: 'grok', error: 'Grok does not support activation codes' };
+      return {
+        activated: false,
+        provider_name: 'grok',
+        error: 'Grok does not support activation codes',
+      };
     }
     return bridge.send('providers.activate', input as Record<string, unknown>);
   });
@@ -1716,5 +1729,3 @@ for m in ("pydantic", "httpx", "loguru"):
     });
   });
 }
-
-
