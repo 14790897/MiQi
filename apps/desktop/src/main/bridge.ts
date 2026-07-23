@@ -11,6 +11,11 @@ import type { RuntimeState, RuntimeStatus } from '../shared/ipc';
 import { IPC_EVENTS } from '../shared/ipc';
 import { writeMainProcessLog } from './electron-log';
 
+/** Strip ANSI escape codes (color/bold/reset) from log text. */
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
 export interface BridgeRequest {
   id: string;
   method: string;
@@ -229,7 +234,7 @@ export class BridgeManager extends EventEmitter {
 
     this.addLog(`Starting MiQi bridge: ${command} ${args.join(' ')}`);
     this.addLog(`Working directory: ${this.projectRoot}`);
-    this.recordMainLog('INFO', `Starting MiQi bridge: ${command} ${args.join(' ')}`);
+    this.recordMainLog('INFO', `Starting MiQi bridge: ${command} ${args.join(' ')}`, 'bridge');
 
     let startedProcess: ChildProcess | null = null;
     let startedReader: Interface | null = null;
@@ -356,12 +361,13 @@ export class BridgeManager extends EventEmitter {
       });
 
       bridgeProcess.stderr!.on('data', (data: Buffer) => {
-        const text = data.toString().trim();
-        if (text) {
-          const msg = `[MIQI BRIDGE STDERR] ${text}`;
-          console.log(msg);
+        const rawText = data.toString().trim();
+        if (rawText) {
+          const text = stripAnsi(rawText);
           this.addLog(text);
-          this.recordMainLog('WARN', msg);
+          // Python libraries (loguru, warnings, etc.) often write normal
+          // output to stderr — use INFO, not WARN, to avoid false alarms.
+          this.recordMainLog('INFO', text, 'bridge');
         }
       });
 
@@ -601,7 +607,7 @@ export class BridgeManager extends EventEmitter {
     });
 
     this.addLog('Bridge stopping');
-    this.recordMainLog('INFO', 'Bridge stopping');
+    this.recordMainLog('INFO', 'Bridge stopping', 'bridge');
     await this.stoppingPromise;
   }
 
@@ -658,9 +664,7 @@ export class BridgeManager extends EventEmitter {
 
     // Don't restart if there are active requests — avoid killing sessions
     if (this.pending.size > 0) {
-      this.addLog(
-        `[Hot Reload] Skipping restart — ${this.pending.size} pending request(s)`,
-      );
+      this.addLog(`[Hot Reload] Skipping restart — ${this.pending.size} pending request(s)`);
       return;
     }
 
@@ -747,7 +751,7 @@ export class BridgeManager extends EventEmitter {
     } catch (e: any) {
       const errMsg = e?.message ?? String(e);
       this.addLog(`[Bridge] sendSafe ${method} swallowed: ${errMsg}`);
-      this.recordMainLog('WARN', `sendSafe ${method} failed: ${errMsg}`);
+      this.recordMainLog('WARN', `sendSafe ${method} failed: ${errMsg}`, 'bridge');
       return null;
     }
   }
@@ -765,7 +769,7 @@ export class BridgeManager extends EventEmitter {
     } catch (e: any) {
       const msg = e?.message ?? String(e ?? 'Unknown bridge error');
       this.addLog(`[Bridge] sendSafeWithError ${method} failed: ${msg}`);
-      this.recordMainLog('WARN', `sendSafeWithError ${method} failed: ${msg}`);
+      this.recordMainLog('WARN', `sendSafeWithError ${method} failed: ${msg}`, 'bridge');
       return { ok: false, error: msg, code: e?.code };
     }
   }
@@ -827,7 +831,7 @@ export class BridgeManager extends EventEmitter {
       if (method === 'chat.send' || method === 'turn/start') return;
       const duration = Date.now() - startMs;
       if (duration > 1000) {
-        this.recordMainLog('INFO', `IPC ${method} took ${duration}ms`);
+        this.recordMainLog('INFO', `IPC ${method} took ${duration}ms`, 'bridge');
       }
     };
 

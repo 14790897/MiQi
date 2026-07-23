@@ -1358,7 +1358,7 @@ class BridgeRuntimeLoop:
         """
         logger.info(
             "BridgeRuntimeLoop: starting graceful shutdown "
-            "(%d active chat tasks)",
+            "({} active chat tasks)",
             len(self._active_chat_tasks),
         )
 
