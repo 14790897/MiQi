@@ -70,27 +70,30 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
     // Fast responses may never show IN PROGRESS.
   }
 
-  // Phase 3: wait for textContent to have changed AND stabilized.
-  // The length must increase at least once, then remain stable for
-  // two consecutive polls (400ms).  This prevents false positives
-  // when streaming never started (AI call failed silently).
+  // Phase 3: wait for textContent to have GROWN AND stabilized.
+  // Text must increase at least once (assistant actually replied),
+  // then remain stable for two consecutive polls.
   await page.waitForFunction(() => {
     const main = document.querySelector('main');
     if (!main) return false;
     const text = main.textContent || '';
     const s = (window as any).__miqi_stream_state;
     if (!s) {
-      (window as any).__miqi_stream_state = { base: text.length, stable: 0 };
+      (window as any).__miqi_stream_state = { base: text.length, hasGrown: false, stable: 0 };
       return false;
     }
     if (text.length > s.base) {
       s.base = text.length;
+      s.hasGrown = true;
       s.stable = 0;
       return false;
     }
+    // Require at least one growth event before declaring stable.
+    // This prevents false positives when the AI never responded.
+    if (!s.hasGrown) return false;
     s.stable++;
     return s.stable >= 2;
-  }, { timeout: 5000, polling: 200 });
+  }, { timeout: 30_000, polling: 400 });
 }
 
 /** Poll for approval dialogs and click "永久允许" until the AI stops
@@ -225,7 +228,7 @@ export interface ElectronFixture {
  *  - Strips ELECTRON_RUN_AS_NODE (inherited from Electron-based IDEs).
  *  - Waits for MiQi Workbench UI + bridge runtime.status() === 'running'.
  */
-export async function launchElectronApp(): Promise<ElectronFixture> {
+export async function launchElectronApp(configPatch?: Record<string, unknown>): Promise<ElectronFixture> {
   // Create unique temporary home per test worker for full isolation.
   // Parallel workers each get their own MIQI_HOME → no race on sessions/.
   const miqiHome = mkdtempSync(join(tmpdir(), 'miqi-e2e-'));
@@ -256,6 +259,29 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
     feedback: { enabled: false, bitableAppToken: '', bitableTableId: '' },
   };
   writeFileSync(destConfigPath, JSON.stringify(config, null, 2));
+  // Apply config patch (e.g. { desktop: { useGrokBackend: true } }) before launch
+  if (configPatch) {
+    const obj = JSON.parse(readFileSync(destConfigPath, 'utf-8'));
+    for (const [key, value] of Object.entries(configPatch)) {
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        const target = obj[key] as Record<string, unknown> || {};
+        if (key === 'providers') {
+          // Deep merge each provider entry
+          const providers = target as Record<string, Record<string, unknown>>;
+          for (const [pName, pVal] of Object.entries(value as Record<string, unknown>)) {
+            providers[pName] = { ...(providers[pName] || {}), ...(pVal as Record<string, unknown>) };
+          }
+          obj[key] = providers;
+        } else {
+          obj[key] = { ...target, ...value as Record<string, unknown> };
+        }
+      } else {
+        obj[key] = value;
+      }
+    }
+    writeFileSync(destConfigPath, JSON.stringify(obj, null, 2));
+  }
+
 
   // Delete ELECTRON_RUN_AS_NODE inherited from Electron-based IDEs
   // (WorkBuddy / VSCode).  Otherwise Electron runs as plain Node.js.
@@ -297,7 +323,7 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
       t.includes('[miqi-bridge]') ||
       t.includes('[Bridge]') ||
       t.includes('[MiQi]') ||
-      t.includes('[e2e]')
+      t.includes('[DIAG]') || t.includes('[e2e]') || t.includes('[grok]')
     ) {
       console.log(`[e2e-console] ${t}`);
     }

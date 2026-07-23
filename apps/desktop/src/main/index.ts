@@ -3,6 +3,7 @@ import { inspect } from 'util';
 import { electron } from '../shared/electron';
 import { registerIpcHandlers } from './ipc';
 import { BridgeManager } from './bridge';
+import { GrokBridgeManager } from './grok/grok-bridge';
 import { writeMainProcessLog } from './electron-log';
 import { createSplash, closeSplash } from './splash';
 
@@ -14,6 +15,7 @@ const { app, BrowserWindow, shell, Menu } = electron;
 
 let mainWindow: typeof BrowserWindow.prototype | null = null;
 let bridgeManager: BridgeManager | null = null;
+let grokBridgeManager: GrokBridgeManager | null = null;
 
 /** Resolve the app icon path for both dev (source) and packaged (resources) modes. */
 function getIconPath(): string {
@@ -129,7 +131,12 @@ export function main(): void {
 
   app.whenReady().then(() => {
     bridgeManager = new BridgeManager();
-    registerIpcHandlers(bridgeManager);
+    grokBridgeManager = new GrokBridgeManager();
+    registerIpcHandlers(bridgeManager, grokBridgeManager);
+    grokBridgeManager.start().catch((err) => {
+      console.error(`[grok] bridge start failed:`, err);
+      console.warn(`[grok] backend unavailable`);
+    });
 
     // Forward bridge events to renderer
     const onState = (status: unknown) => {
@@ -144,6 +151,17 @@ export function main(): void {
     };
     bridgeManager.on('state', onState);
     bridgeManager.on('log', onLog);
+    // Forward grok bridge events too (prefixed so renderer can distinguish)
+    grokBridgeManager.on('state', (status: unknown) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('runtime:grok-state', status);
+      }
+    });
+    grokBridgeManager.on('log', (msg: string) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('runtime:grok-log', msg);
+      }
+    });
 
     createSplash(() => {
       closeSplash();
@@ -159,6 +177,7 @@ export function main(): void {
 
   app.on('window-all-closed', () => {
     bridgeManager?.stop();
+    grokBridgeManager?.stop();
     if (process.platform !== 'darwin') {
       app.quit();
     }
@@ -166,5 +185,6 @@ export function main(): void {
 
   app.on('before-quit', () => {
     bridgeManager?.stop();
+    grokBridgeManager?.stop();
   });
 }
