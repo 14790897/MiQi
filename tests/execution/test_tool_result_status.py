@@ -5,7 +5,7 @@ tool result text starts with ``"Error"``. The orchestrator sets a structured
 ``ctx.status`` (:class:`OrchestrationResult`) on every exit path, and callers
 classify success as ``ctx.status == OrchestrationResult.SUCCESS`` — no text
 guessing. This catches failure paths whose result text does NOT start with
-``"Error"``: ``Permission denied:`` (hook block + DENY), ``User denied:``
+``"Error"``: ``权限被拒绝：`` (hook block + DENY), ``User denied:``
 (approval rejected), and ``Tool execution cancelled`` (cancellation), which
 the old ``not result.startswith("Error")`` check wrongly reported as success.
 """
@@ -57,7 +57,7 @@ def _build_orch(permission_engine, sandbox_engine, hook_runtime, tool_registry):
 
 @pytest.mark.asyncio
 async def test_pre_tool_use_block_sets_denied_by_policy():
-    """PRE_TOOL_USE 'block': result is 'Permission denied: ...' which does NOT
+    """PRE_TOOL_USE 'block': result is '权限被拒绝：...' which does NOT
     start with 'Error' — the old startswith('Error') check reported success."""
     hr = HookRuntime()
 
@@ -75,7 +75,7 @@ async def test_pre_tool_use_block_sets_denied_by_policy():
 
     result_ctx = await orch.execute(_make_ctx())
 
-    assert result_ctx.result.startswith("Permission denied:")
+    assert result_ctx.result.startswith("权限被拒绝：")
     assert result_ctx.status is OrchestrationResult.DENIED_BY_POLICY
     assert result_ctx.status != OrchestrationResult.SUCCESS
 
@@ -93,7 +93,7 @@ async def test_permission_deny_sets_denied_by_policy():
 
     result_ctx = await orch.execute(_make_ctx())
 
-    assert result_ctx.result.startswith("Permission denied:")
+    assert result_ctx.result.startswith("权限被拒绝：")
     assert result_ctx.status is OrchestrationResult.DENIED_BY_POLICY
     assert result_ctx.status != OrchestrationResult.SUCCESS
 
@@ -121,7 +121,7 @@ async def test_user_denied_approval_sets_denied_by_user():
 
     result_ctx = await orch.execute(_make_ctx())
 
-    assert result_ctx.result.startswith("User denied:")
+    assert result_ctx.result.startswith("用户已拒绝：")
     assert result_ctx.status is OrchestrationResult.DENIED_BY_USER
     assert result_ctx.status != OrchestrationResult.SUCCESS
 
@@ -146,7 +146,7 @@ async def test_cancellation_sets_cancelled():
 
     result_ctx = await orch.execute(_make_ctx())
 
-    assert result_ctx.result == "Tool execution cancelled"
+    assert result_ctx.result == "工具执行已取消"
     assert result_ctx.status is OrchestrationResult.CANCELLED
     assert result_ctx.status != OrchestrationResult.SUCCESS
 
@@ -170,7 +170,7 @@ async def test_sandbox_max_retries_sets_sandbox_failed():
 
     result_ctx = await orch.execute(_make_ctx())
 
-    assert result_ctx.result.startswith("Error: sandbox denied")
+    assert result_ctx.result.startswith("错误：沙箱重试次数已耗尽")
     assert result_ctx.status is OrchestrationResult.SANDBOX_FAILED
     assert result_ctx.status != OrchestrationResult.SUCCESS
 
@@ -199,7 +199,7 @@ async def test_tool_execution_exception_sets_tool_error():
 
     result_ctx = await orch.execute(_make_ctx())
 
-    assert result_ctx.result.startswith("Error executing")
+    assert result_ctx.result.startswith("工具执行失败")
     assert result_ctx.status is OrchestrationResult.TOOL_ERROR
     assert result_ctx.status != OrchestrationResult.SUCCESS
 
