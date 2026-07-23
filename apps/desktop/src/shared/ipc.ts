@@ -93,6 +93,7 @@ export const IPC = {
   FILES_ACCEPT: 'files:accept',
   FILES_OPEN_EXTERNAL: 'files:openExternal',
   FILES_OPEN_CONTAINING_FOLDER: 'files:openContainingFolder',
+  DOCUMENTS_PARSE: 'documents:parse',
 
   // Python check
   PYTHON_CHECK: 'python:check',
@@ -170,6 +171,11 @@ export const ChatSendInput = z.object({
   session_key: z.string().optional(),
   thread_id: z.string().optional(),
   mode: z.enum(['plan', 'manual', 'edit', 'auto']).optional(),
+  attachments: z.array(z.object({
+    name: z.string(),
+    data_base64: z.string().optional(),
+    mime_type: z.string().optional(),
+  })).optional(),
 });
 
 export const SessionGetInput = z.object({
@@ -658,6 +664,7 @@ export const FilesWriteInput = z.object({
   path: z.string().min(1),
   content: z.string(),
   session_key: z.string().optional(),
+  data_base64: z.string().optional(),
 });
 
 export interface FileNode {
@@ -713,6 +720,16 @@ export interface FilesOpenContainingFolderResult {
   error?: string;
 }
 
+export interface DocumentsParseResult {
+  path: string;
+  text: string;
+  page_count: number;
+  size_bytes: number;
+  mime_type: string;
+  ocr_used: boolean;
+  parse_ms: number;
+}
+
 export interface TrackedFileInfo {
   path: string;
   op: 'read' | 'write' | 'edit' | 'delete';
@@ -732,12 +749,11 @@ export interface ChatProgress {
   tool_call_id?: string;
   /** Session key for frontend-side event filtering (fix #212). */
   session_key?: string;
-  /** Document processing progress (attachment pipeline) */
+  /** Document progress events from server-side parsing */
   type?: 'doc_progress';
   file?: string;
   stage?: string;
   message?: string;
-  path?: string;
 }
 
 export interface ChatFinal {

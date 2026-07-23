@@ -9,7 +9,6 @@ each request through AppServer (for migrated methods) or legacy _dispatch().
 from __future__ import annotations
 
 import asyncio
-import io as _stdlib_io
 import json
 import sys
 import threading
@@ -389,6 +388,12 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("files.revert", files_revert_handler)
         self._app_server.register_method("files.accept", files_accept_handler)
 
+        # Register documents.* handlers
+        from miqi.documents.documents_parse_handler import (
+            documents_parse_handler,
+        )
+        self._app_server.register_method("documents.parse", documents_parse_handler)
+
         # Register Phase 35.2: providers.* handlers
         from miqi.runtime.provider_handlers import (
             providers_list_handler,
@@ -608,53 +613,6 @@ class BridgeRuntimeLoop:
 
     # ── chat.send handler ──────────────────────────────────────────────────
 
-    @staticmethod
-    def _extract_pdf_text(data: bytes) -> str:
-        """Extract text from PDF bytes using pypdf. Returns '' on failure."""
-        try:
-            from pypdf import PdfReader
-            reader = PdfReader(_stdlib_io.BytesIO(data))
-            parts: list[str] = []
-            for page in reader.pages:
-                text = page.extract_text()
-                if text:
-                    parts.append(text)
-            return "\n".join(parts).strip()
-        except Exception:
-            return ""
-
-    @staticmethod
-    def _extract_office_text(data: bytes, filename: str) -> str:
-        """Extract text from Office files. Returns '' on failure."""
-        name_lower = filename.lower()
-        try:
-            if name_lower.endswith('.docx'):
-                from docx import Document
-                doc = Document(_stdlib_io.BytesIO(data))
-                return '\n'.join(p.text for p in doc.paragraphs).strip()
-            elif name_lower.endswith('.xlsx'):
-                from openpyxl import load_workbook
-                wb = load_workbook(_stdlib_io.BytesIO(data), read_only=True)
-                parts: list[str] = []
-                for ws in wb.worksheets:
-                    parts.append(f'--- {ws.title} ---')
-                    for row in ws.iter_rows(values_only=True):
-                        parts.append('\t'.join(str(c) if c is not None else '' for c in row))
-                return '\n'.join(parts).strip()
-            elif name_lower.endswith('.pptx'):
-                from pptx import Presentation
-                prs = Presentation(_stdlib_io.BytesIO(data))
-                parts: list[str] = []
-                for i, slide in enumerate(prs.slides, 1):
-                    parts.append(f'--- Slide {i} ---')
-                    for shape in slide.shapes:
-                        if shape.has_text_frame:
-                            parts.append(shape.text_frame.text)
-                return '\n'.join(parts).strip()
-        except Exception:
-            return ""
-        return ""
-
     async def _chat_send_handler(
         self, request_id: str, params: dict, client_id: str,
         session_id: str | None, registry: Any,
@@ -679,7 +637,6 @@ class BridgeRuntimeLoop:
         # Get or create RuntimeSession
         runtime_id = session_id or f"{client_id}:{session_key}"
         runtime = await registry.get_session(client_id, runtime_id)
-        config = None
         if runtime is None:
             if self._bridge_state is None:
                 from miqi.runtime.app_server import AppServerError
@@ -713,62 +670,43 @@ class BridgeRuntimeLoop:
                 sandbox_manager=sandbox_manager,
             )
 
-        # ── Save attachments to workspace before submitting ──
-        # Files saved to the host workspace are NOT automatically visible
-        # inside the WSL sandbox because the sandbox uses a per-session
-        # workspace copy (Issue #221).  We write to the host workspace AND
-        # mirror each file into any active sandbox's workspace directory
-        # so that agent tools (read_file, exec) can find them at their
-        # expected paths inside the sandbox.
+        # ── Parse document attachments before submitting ────────────────
+        # Extract text from uploaded documents (PDF/Office/MD) and inject
+        # into the message content so the LLM can immediately understand them.
         attachments_raw = params.get("attachments") or []
-        saved_paths: list[str] = []
         if attachments_raw:
-            if config is None:
+            # Ensure config is available (may not be set if session already existed)
+            try:
+                _ = config
+            except NameError:
                 config = self._bridge_state.load_config() if self._bridge_state else None
             if config is None:
                 from miqi.runtime.app_server import AppServerError
                 raise AppServerError("Config not available for attachment save", code="INTERNAL")
             import asyncio as _asyncio
             import base64 as _b64
-            import io as _io
             import re as _re
             from pathlib import Path as _Path
 
-            def _emit_doc_progress(name: str, stage: str, message: str, path: str = "") -> None:
-                """Emit document processing progress event to frontend."""
+            ws_root = config.workspace_path
+            # Save to session files directory so tools + documents.parse find it
+            safe_key = session_key.replace(":", "_")
+            dest_dir = ws_root / "sessions" / safe_key / "files"
+            dest_dir.mkdir(parents=True, exist_ok=True)
+
+            def _emit_doc_progress(name: str, stage: str, message: str) -> None:
                 try:
-                    payload: dict = {
+                    self._app_server.emit_client_event(client_id, "progress", {
                         "type": "doc_progress",
                         "file": name,
                         "stage": stage,
                         "message": message,
-                    }
-                    if path:
-                        payload["path"] = path
-                    self._app_server.emit_event(client_id, runtime_id, payload)
+                    })
                 except Exception:
                     pass
 
-            _MAX_PDF_EXTRACT_BYTES = 32 * 1024 * 1024  # 32 MiB hard cap
-            ws_root = config.workspace_path
-            dest_dir = ws_root / "uploads"
-            dest_dir.mkdir(parents=True, exist_ok=True)
-
-            # ── Collect active sandbox info for mirroring ──────────
-            sandbox_mirrors: list[tuple[str, str]] = []  # (sandbox_workspace, distro)
-            sm = getattr(self._bridge_state, "_sandbox_manager", None) if self._bridge_state else None
-            if sm is not None and sm != "disabled":
-                try:
-                    for entry in sm.list_sandboxes():
-                        sw = entry.get("workspace")
-                        if sw:
-                            distro = entry.get("distro", "")
-                            sandbox_mirrors.append((sw, distro))
-                except Exception:
-                    sandbox_mirrors = []
-
-            def _decode_and_write(att: dict[str, str]) -> tuple[str, str, int] | None:
-                """Decode a single attachment and write to disk (called in thread)."""
+            async def _decode_and_parse(att: dict) -> tuple[str, str] | None:
+                """Decode attachment, save to disk, parse content."""
                 name = (att.get("name") or "").strip()
                 data_b64 = (att.get("data_base64") or "").strip()
                 if not name or not data_b64:
@@ -776,165 +714,68 @@ class BridgeRuntimeLoop:
                 try:
                     raw = _b64.b64decode(data_b64)
                 except Exception as exc:
-                    logger.warning(
-                        "chat.send: base64 decode failed for attachment %s: %s",
-                        name, exc,
-                    )
+                    logger.warning("chat.send: base64 decode failed for %s: %s", name, exc)
                     return None
-                safe_name = _re.sub(r'[<>:"/\\|?*]', '_', name)
+
+                safe_name = _re.sub(r'[<>:"/\\\\|?*]', '_', name)
                 dest = dest_dir / safe_name
                 counter = 0
                 while dest.exists():
-                    stem, ext = safe_name.rsplit(".", 1) if "." in safe_name else (safe_name, "")
+                    stem, ext = (safe_name.rsplit(".", 1) + [""])[:2]
                     counter += 1
                     dest = dest_dir / f"{stem}_{counter}.{ext}" if ext else dest_dir / f"{stem}_{counter}"
                 dest.write_bytes(raw)
-                return (name, str(dest), len(raw))
+                _emit_doc_progress(name, "saved", f"Saved ({len(raw) // 1024} KB)")
 
-            tasks = [
-                _asyncio.to_thread(_decode_and_write, att)
-                for att in attachments_raw
-            ]
-            results = await _asyncio.gather(*tasks)
-            saved_entries: list[tuple[str, str]] = []  # (name, host_path)
-            extracted_texts: dict[str, str] = {}        # filename → extracted text (PDFs only)
-            for result in results:
-                if result is None:
+                # Parse document and extract text
+                try:
+                    from miqi.documents.document_parser import parse_document, is_supported_document
+                    if is_supported_document(dest):
+                        _emit_doc_progress(name, "extracting", "Extracting text...")
+                        result = parse_document(dest, max_chars=100_000)
+                        text = result["text"]
+                        ocr = result.get("ocr_used", False)
+                        tag = " (OCR)" if ocr else ""
+                        _emit_doc_progress(name, "extracted",
+                            f"Extracted {len(text):,} chars{tag}")
+                        logger.info(
+                            "chat.send: extracted {} chars from {} ocr={}",
+                            len(text), name, ocr,
+                        )
+                        return (name, text)
+                except Exception as exc:
+                    logger.warning("chat.send: parse failed for %s: %s", name, exc)
+                return (name, "")
+
+            tasks = [_decode_and_parse(att) for att in attachments_raw]
+            parsed = await _asyncio.gather(*tasks)
+
+            doc_texts = []
+            for r in parsed:
+                if r is None:
                     continue
-                name, path_str, size = result
-                saved_entries.append((name, path_str))
-                logger.info("chat.send: saved attachment %s → %s (%d bytes)", name, path_str, size)
-                _emit_doc_progress(name, "saved", f"Saved ({size // 1024} KB)", path=path_str)
+                doc_name, doc_text = r
+                if doc_text:
+                    doc_texts.append(
+                        f"\n\n--- Document: {doc_name} ---\n{doc_text}\n--- End of {doc_name} ---"
+                    )
+                else:
+                    doc_texts.append(
+                        f"\n\n[Uploaded: {doc_name} — use pdf_read or read_file tool to access]"
+                    )
+                _emit_doc_progress(doc_name, "ready", "Ready")
 
-                # ── Server-side text extraction ──────────────────────
-                _emit_doc_progress(name, "extracting", "Extracting text...")
-                #
-                # Only for PDFs ≤ 32 MiB — larger files and non-PDF
-                # binaries are still handled by the agent via workspace
-                # path references.
-                if name.lower().endswith('.pdf') and size <= _MAX_PDF_EXTRACT_BYTES:
-                    try:
-                        host_path = _Path(path_str)
-                        raw_bytes = host_path.read_bytes()
-                        text = self._extract_pdf_text(raw_bytes)
-                        if text:
-                            extracted_texts[name] = text
-                            _emit_doc_progress(name, "extracted", f"Extracted {len(text):,} chars")
-                            logger.info(
-                                "chat.send: extracted %d chars from PDF %s",
-                                len(text), name,
-                            )
-                        else:
-                            _emit_doc_progress(name, "scanned", "Scanned PDF — OCR needed")
-                            logger.info(
-                                "chat.send: PDF %s has no extractable text (scanned image?)",
-                                name,
-                            )
-                    except Exception as exc:
-                        logger.warning(
-                            "chat.send: PDF text extraction failed for %s: %s",
-                            name, exc,
-                        )
-
-                # Office file extraction (docx, xlsx, pptx)
-                elif size <= _MAX_PDF_EXTRACT_BYTES:
-                    try:
-                        host_path = _Path(path_str)
-                        raw_bytes = host_path.read_bytes()
-                        text = self._extract_office_text(raw_bytes, name)
-                        if text:
-                            extracted_texts[name] = text
-                            _emit_doc_progress(name, "extracted", f"Extracted {len(text):,} chars")
-                            logger.info(
-                                "chat.send: extracted %d chars from Office file %s",
-                                len(text), name,
-                            )
-                    except Exception as exc:
-                        logger.warning(
-                            "chat.send: Office text extraction failed for %s: %s",
-                            name, exc,
-                        )
-
-            # Build saved_paths list for downstream content injection
-            saved_paths = [p for _, p in saved_entries]
-            # Emit final done for each saved file, with full path for preview
-            for att_name, att_path in saved_entries:
-                status = "ready" if att_name in extracted_texts else "saved"
-                _emit_doc_progress(att_name, status,
-                    f"{'✓' if status == 'ready' else 'Saved'}" +
-                    (f" {len(extracted_texts[att_name]):,} chars" if att_name in extracted_texts else ""),
-                    path=att_path)
-
-            # ── Mirror to active sandbox workspaces ────────────────
-            # IMPORTANT: this is a best-effort belt-and-suspenders step.
-            # Server-side text extraction above is the PRIMARY mechanism.
-            # Mirroring ensures the file is also available if the agent
-            # decides to use read_file or exec tools directly on the file.
-            # If the sandbox doesn't exist yet (first message in a new
-            # session), mirroring will silently skip — that's OK because
-            # the extracted text is already in the message content.
-            if sandbox_mirrors and saved_entries:
-                for att_name, host_path_str in saved_entries:
-                    host_src = Path(host_path_str)
-                    try:
-                        raw_data = host_src.read_bytes()
-                    except OSError as exc:
-                        logger.warning(
-                            "chat.send: cannot read back attachment for mirror: %s",
-                            exc,
-                        )
-                        continue
-
-                    # Relative path under uploads/
-                    try:
-                        rel = host_src.relative_to(dest_dir)
-                    except ValueError:
-                        rel = host_src
-
-                    for sandbox_ws, distro in sandbox_mirrors:
-                        # sandbox_ws is already a Linux path (e.g. /tmp/…);
-                        # avoid Path() which would introduce Windows separators.
-                        sandbox_dest = f"{sandbox_ws.rstrip('/')}/uploads/{rel!s}"
-                        sandbox_parent = f"{sandbox_ws.rstrip('/')}/uploads"
-                        rel_str = str(rel)
-                        if "/" in rel_str:
-                            sandbox_parent = f"{sandbox_ws.rstrip('/')}/uploads/{rel_str.rsplit('/', 1)[0]}"
-                        try:
-                            write_cmd = (
-                                f"mkdir -p '{sandbox_parent}'"
-                                f" && cat > '{sandbox_dest}'"
-                            )
-                            wsl_cmd = ["wsl.exe"]
-                            if distro:
-                                wsl_cmd.extend(["-d", distro])
-                            wsl_cmd.extend(["--", "bash", "-c", write_cmd])
-                            proc = await _asyncio.create_subprocess_exec(
-                                *wsl_cmd,
-                                stdin=_asyncio.subprocess.PIPE,
-                                stdout=_asyncio.subprocess.DEVNULL,
-                                stderr=_asyncio.subprocess.PIPE,
-                            )
-                            _, err = await proc.communicate(input=raw_data)
-                            if proc.returncode == 0:
-                                logger.info(
-                                    "chat.send: mirrored attachment %s → sandbox %s",
-                                    att_name, sandbox_dest,
-                                )
-                            else:
-                                logger.warning(
-                                    "chat.send: mirror to sandbox failed for %s: %s",
-                                    att_name,
-                                    err.decode("utf-8", errors="replace").strip(),
-                                )
-                        except Exception as exc:
-                            logger.warning(
-                                "chat.send: mirror to sandbox failed for %s: %s",
-                                att_name, exc,
-                            )
-                            continue
+            if doc_texts:
+                content = content + "\n".join(doc_texts)
 
         # Submit the user message
-        await runtime.submit(UserMessage(content=content, thread_id=thread_id))
+        mode = params.get("mode", "edit")
+        logger.info(f"chat.send received mode={mode}")
+        await runtime.submit(UserMessage(
+            content=content,
+            thread_id=thread_id,
+            mode=mode,
+        ))
 
         # Subscribe client to session events so emit_event delivers to the sink
         self._app_server.subscribe(client_id, runtime_id)
