@@ -1,12 +1,16 @@
 """Configuration loading utilities."""
 
 import json
+import time
 from pathlib import Path
 
 from loguru import logger
 
 from miqi.config.schema import Config
 from miqi.paths import get_config_path, get_legacy_config_path
+
+_cache: dict[tuple, tuple[float, Config]] = {}
+_CACHE_TTL_S = 5.0
 
 
 def _get_load_path() -> Path:
@@ -35,6 +39,13 @@ def load_config(config_path: Path | None = None) -> Config:
         Loaded configuration object.
     """
     path = config_path or _get_load_path()
+    cache_key = (str(path),)
+    now = time.monotonic()
+    entry = _cache.get(cache_key)
+    if entry is not None:
+        ts, cfg = entry
+        if now - ts < _CACHE_TTL_S:
+            return cfg
 
     if path.exists():
         try:
@@ -46,12 +57,15 @@ def load_config(config_path: Path | None = None) -> Config:
             # Phase 31.X: load permanent approvals into global allowlist
             _init_permanent_approvals(config)
 
+            _cache[cache_key] = (now, config)
             return config
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning(f"Failed to load config from {path}: {e}")
             logger.warning("Using default configuration.")
 
-    return Config()
+    config = Config()
+    _cache[cache_key] = (now, config)
+    return config
 
 
 def save_config(config: Config, config_path: Path | None = None) -> None:
@@ -81,6 +95,9 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     path.chmod(0o600)  # Restrict to owner only — config contains API keys
+
+    # Bust cache so next read picks up the new config.
+    _cache.pop((str(path),), None)
 
 
 def save_config_allowlist(patterns: set[str]) -> None:

@@ -56,7 +56,17 @@ function AppShell() {
   });
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
   const [runtimeReadyKey, setRuntimeReadyKey] = useState(0);
-  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
+  const [needsSetup, setNeedsSetup] = useState<boolean | null>(() => {
+    // Blocking python.check() stalls the render tree on cold starts
+    // (see load_config() cache in miqi/config/loader.py).  Restore
+    // the persisted setup flag so the UI becomes interactive immediately.
+    try {
+      const stored = localStorage.getItem('miqi:setupCompleted');
+      if (stored === 'true') return false;
+      if (stored === 'false') return true;
+    } catch { /* localStorage unavailable */ }
+    return null; // first launch — must check
+  });
   const [canSkipSetup, setCanSkipSetup] = useState(false); // true when re-running wizard from settings
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
 
@@ -94,6 +104,9 @@ function AppShell() {
         const result = await window.miqi.python.check();
         const skipSetup = result.config_exists;
         setNeedsSetup(!skipSetup);
+        try {
+          localStorage.setItem('miqi:setupCompleted', String(skipSetup));
+        } catch { /* localStorage unavailable */ }
         if (skipSetup) {
           window.miqi.runtime.start().catch(() => {});
         }
@@ -108,6 +121,7 @@ function AppShell() {
     setNeedsSetup(false);
     setCanSkipSetup(false);
     setActiveNav('chat');
+    try { localStorage.setItem('miqi:setupCompleted', 'true'); } catch { /* ignore */ }
   };
 
   const handleNewSession = () => {
