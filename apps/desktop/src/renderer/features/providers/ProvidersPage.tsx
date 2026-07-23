@@ -166,7 +166,10 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
         : null;
       await window.miqi.providers.update(
         provider.name,
-        apiKey || undefined,
+        // When switching from builtin to own-key mode, explicitly clear the
+        // activation by sending an explicit API key — even if blank — so the
+        // backend clears the builtin activation flag in providerActivation.
+        useOwnKey && activationSuccess ? '' : (apiKey || undefined),
         apiBase || null,
         extraHeaders,
         model || undefined
