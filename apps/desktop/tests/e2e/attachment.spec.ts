@@ -33,15 +33,80 @@ function createFixtureFiles(): FixtureFiles {
     'utf-8',
   );
 
-  // Minimal valid DOCX (ZIP with minimal XML)
-  const minimalDocx = (() => {
-    // Minimal DOCX: ZIP with [Content_Types].xml + word/document.xml
-    // Using a pre-built minimal docx bytes
-    const zip = require('zlib');
-    // Simplified: write a small placeholder file; Playwright just needs the file to exist
-    // For E2E chip verification we only check filename visibility, not content
-    return Buffer.from('PK\x03\x04', 'binary'); // minimal ZIP header
-  })();
+  // Minimal valid DOCX/XLSX/PPTX: ZIP with empty [Content_Types].xml
+  function makeMinimalOoxml(): Buffer {
+    // Valid ZIP local file header + central directory for a minimal OOXML file
+    const contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>';
+    const buf = Buffer.from(contentTypes, 'utf-8');
+    const crc = crc32(buf);
+    
+    // Simple ZIP with one stored file
+    const chunks: Buffer[] = [];
+    // Local file header
+    chunks.push(Buffer.from([0x50, 0x4B, 0x03, 0x04])); // signature
+    chunks.push(Buffer.from([0x14, 0x00])); // version needed
+    chunks.push(Buffer.from([0x00, 0x00])); // flags
+    chunks.push(Buffer.from([0x00, 0x00])); // compression (stored)
+    chunks.push(Buffer.from([0x00, 0x00])); // mod time
+    chunks.push(Buffer.from([0x00, 0x00])); // mod date
+    // CRC-32
+    chunks.push(Buffer.from([crc & 0xFF, (crc >> 8) & 0xFF, (crc >> 16) & 0xFF, (crc >> 24) & 0xFF]));
+    chunks.push(Buffer.from([buf.length & 0xFF, (buf.length >> 8) & 0xFF, 0x00, 0x00])); // compressed size
+    chunks.push(Buffer.from([buf.length & 0xFF, (buf.length >> 8) & 0xFF, 0x00, 0x00])); // uncompressed size
+    const nameLen = '[Content_Types].xml'.length;
+    chunks.push(Buffer.from([nameLen & 0xFF, (nameLen >> 8) & 0xFF])); // filename length
+    chunks.push(Buffer.from([0x00, 0x00])); // extra field length
+    chunks.push(Buffer.from('[Content_Types].xml', 'utf-8'));
+    chunks.push(buf);
+    
+    // Central directory
+    const cdOffset = chunks.reduce((s, c) => s + c.length, 0);
+    chunks.push(Buffer.from([0x50, 0x4B, 0x01, 0x02])); // central dir signature
+    chunks.push(Buffer.from([0x14, 0x00])); // version made by
+    chunks.push(Buffer.from([0x14, 0x00])); // version needed
+    chunks.push(Buffer.from([0x00, 0x00])); // flags
+    chunks.push(Buffer.from([0x00, 0x00])); // compression
+    chunks.push(Buffer.from([0x00, 0x00])); // mod time
+    chunks.push(Buffer.from([0x00, 0x00])); // mod date
+    chunks.push(Buffer.from([crc & 0xFF, (crc >> 8) & 0xFF, (crc >> 16) & 0xFF, (crc >> 24) & 0xFF]));
+    chunks.push(Buffer.from([buf.length & 0xFF, (buf.length >> 8) & 0xFF, 0x00, 0x00]));
+    chunks.push(Buffer.from([buf.length & 0xFF, (buf.length >> 8) & 0xFF, 0x00, 0x00]));
+    chunks.push(Buffer.from([nameLen & 0xFF, (nameLen >> 8) & 0xFF]));
+    chunks.push(Buffer.from([0x00, 0x00])); // extra field
+    chunks.push(Buffer.from([0x00, 0x00])); // comment
+    chunks.push(Buffer.from([0x00, 0x00])); // disk
+    chunks.push(Buffer.from([0x00, 0x00])); // internal attrs
+    chunks.push(Buffer.from([0x00, 0x00, 0x00, 0x00])); // external attrs
+    chunks.push(Buffer.from([0x00, 0x00, 0x00, 0x00])); // local header offset
+    chunks.push(Buffer.from('[Content_Types].xml', 'utf-8'));
+    
+    // End of central directory
+    chunks.push(Buffer.from([0x50, 0x4B, 0x05, 0x06])); // eocd signature
+    chunks.push(Buffer.from([0x00, 0x00])); // disk number
+    chunks.push(Buffer.from([0x00, 0x00])); // start disk
+    chunks.push(Buffer.from([0x01, 0x00])); // entries on disk
+    chunks.push(Buffer.from([0x01, 0x00])); // total entries
+    const cdSize = cdOffset - buf.length - 30 - nameLen;
+    chunks.push(Buffer.from([cdSize & 0xFF, (cdSize >> 8) & 0xFF, 0x00, 0x00]));
+    chunks.push(Buffer.from([cdOffset & 0xFF, (cdOffset >> 8) & 0xFF, 0x00, 0x00]));
+    chunks.push(Buffer.from([0x00, 0x00])); // comment length
+    
+    return Buffer.concat(chunks);
+  }
+
+  function crc32(buf: Buffer): number {
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < buf.length; i++) {
+      crc ^= buf[i];
+      for (let j = 0; j < 8; j++) {
+        if (crc & 1) crc = (crc >>> 1) ^ 0xEDB88320;
+        else crc >>>= 1;
+      }
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  const minimalOoxml = makeMinimalOoxml();
 
   const files: FixtureFiles = {
     pdf: path.join(FIXTURE_DIR, 'board_report.pdf'),
@@ -52,9 +117,9 @@ function createFixtureFiles(): FixtureFiles {
   };
 
   fs.writeFileSync(files.pdf, minimalPdf);
-  fs.writeFileSync(files.docx, minimalDocx);
-  fs.writeFileSync(files.xlsx, minimalDocx); // same minimal ZIP structure
-  fs.writeFileSync(files.pptx, minimalDocx); // same minimal ZIP structure
+  fs.writeFileSync(files.docx, minimalOoxml);
+  fs.writeFileSync(files.xlsx, minimalOoxml);
+  fs.writeFileSync(files.pptx, minimalOoxml);
   fs.writeFileSync(files.largePdf, minimalPdf);
 
   return files;
@@ -68,6 +133,7 @@ function cleanupFixtureFiles() {
   }
 }
 
+// Create once at module load
 const FILES: FixtureFiles = createFixtureFiles();
 
 async function attachFile(page: Page, filePath: string) {
@@ -80,7 +146,6 @@ test.describe('File Attachment Chips', () => {
   let page: Page;
 
   test.beforeAll(async () => {
-    createFixtureFiles();
     const fixture = await launchElectronApp();
     electronApp = fixture.electronApp;
     page = fixture.page;
@@ -124,7 +189,7 @@ test.describe('File Attachment Chips', () => {
   });
 
   test('Send button disabled while extracting', async () => {
-    // Attach a large PDF that takes time to extract
+    // Attach a PDF that takes time to extract
     await attachFile(page, FILES.largePdf);
     // The send button should not be immediately clickable while extracting
     const sendBtn = page.locator('button').filter({ has: page.locator('svg') }).last();
