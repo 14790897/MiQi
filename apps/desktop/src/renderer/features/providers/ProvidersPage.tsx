@@ -142,7 +142,11 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
       if (!useOwnKey && !activationSuccess && provider.builtin_available) {
         if (activationCode.trim()) {
           // Auto-activate before saving — this stores the builtin key and model
-          await handleActivate();
+          const activated = await handleActivate();
+          if (!activated) {
+            setError('激活失败，请检查激活码后重试');
+            return;
+          }
           // handleActivate already saves provider update, but we still
           // need to persist extra headers or model override if any.
           const model_ = model || undefined;
@@ -186,10 +190,10 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
     }
   };
 
-  const handleActivate = async () => {
+  const handleActivate = async (): Promise<boolean> => {
     if (!activationCode.trim()) {
       setActivationError('请输入激活码');
-      return;
+      return false;
     }
     setActivating(true);
     setActivationError(null);
@@ -209,12 +213,15 @@ function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
           markRestartRequired();
         } catch { /* activation as default can fail silently */ }
         onSaved();
+        return true;
       } else {
         setActivationError(result.error || '激活失败');
+        return false;
       }
     } catch (err: unknown) {
       const msg = sanitizeUiMessage(err instanceof Error ? err.message : String(err));
       setActivationError(msg || '激活失败，请检查激活码');
+      return false;
     } finally {
       setActivating(false);
     }

@@ -801,6 +801,7 @@ class BridgeRuntimeLoop:
                         thread_id,
                     )
                     await _emit_terminal("error", {
+                        "code": "TIMEOUT",
                         "message": (
                             f"Turn 超时（"
                             f"{CHAT_DRAIN_IDLE_TIMEOUT_SECONDS}s）"
