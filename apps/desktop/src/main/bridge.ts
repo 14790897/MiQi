@@ -232,7 +232,6 @@ export class BridgeManager extends EventEmitter {
 
     const { command, args } = findBridgeExecutable(this.projectRoot);
 
-    this.addLog(`Starting MiQi bridge: ${command} ${args.join(' ')}`);
     this.addLog(`Working directory: ${this.projectRoot}`);
     this.recordMainLog('INFO', `Starting MiQi bridge: ${command} ${args.join(' ')}`, 'bridge');
 
@@ -364,7 +363,6 @@ export class BridgeManager extends EventEmitter {
         const rawText = data.toString().trim();
         if (rawText) {
           const text = stripAnsi(rawText);
-          this.addLog(text);
           // Python libraries (loguru, warnings, etc.) often write normal
           // output to stderr — use INFO, not WARN, to avoid false alarms.
           this.recordMainLog('INFO', text, 'bridge');
@@ -606,7 +604,6 @@ export class BridgeManager extends EventEmitter {
       proc.kill('SIGTERM');
     });
 
-    this.addLog('Bridge stopping');
     this.recordMainLog('INFO', 'Bridge stopping', 'bridge');
     await this.stoppingPromise;
   }
@@ -750,7 +747,6 @@ export class BridgeManager extends EventEmitter {
       return await this.send(method, params, onEvent);
     } catch (e: any) {
       const errMsg = e?.message ?? String(e);
-      this.addLog(`[Bridge] sendSafe ${method} swallowed: ${errMsg}`);
       this.recordMainLog('WARN', `sendSafe ${method} failed: ${errMsg}`, 'bridge');
       return null;
     }
@@ -768,7 +764,6 @@ export class BridgeManager extends EventEmitter {
       return { ok: true, value };
     } catch (e: any) {
       const msg = e?.message ?? String(e ?? 'Unknown bridge error');
-      this.addLog(`[Bridge] sendSafeWithError ${method} failed: ${msg}`);
       this.recordMainLog('WARN', `sendSafeWithError ${method} failed: ${msg}`, 'bridge');
       return { ok: false, error: msg, code: e?.code };
     }
