@@ -253,7 +253,7 @@ async def test_turn_runner_exhausts_iterations(turn_runner, fake_turn_context):
         tools=[{"type": "function", "function": {"name": "read_file", "parameters": {}}}],
     )
 
-    assert "Reached maximum iterations" in result.final_content
+    assert "已达到最大迭代次数" in result.final_content
 
 
 @pytest.mark.asyncio

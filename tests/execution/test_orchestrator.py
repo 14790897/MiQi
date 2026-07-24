@@ -88,7 +88,7 @@ async def test_pre_tool_use_block_skips_execution(orch, mock_orch_components):
     ctx = make_ctx()
     result_ctx = await orch.execute(ctx)
 
-    assert "Permission denied" in result_ctx.result
+    assert "权限被拒绝" in result_ctx.result
     assert "hook policy violation" in result_ctx.result
     assert result_ctx.permission_decision is not None
     assert result_ctx.permission_decision.verdict == PermissionVerdict.DENY
@@ -158,7 +158,7 @@ async def test_permission_request_block_short_circuits_approval(orch, mock_orch_
     ctx = make_ctx(tool_name="write_file", arguments={"path": "/tmp/x.txt"})
     result_ctx = await orch.execute(ctx)
 
-    assert "Permission denied" in result_ctx.result
+    assert "权限被拒绝" in result_ctx.result
     assert "auto-denied by hook" in result_ctx.result
     mock_orch_components["event_emitter"].emit.assert_not_called()
     tool_mock.execute.assert_not_called()

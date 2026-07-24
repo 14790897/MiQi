@@ -187,7 +187,7 @@ async def test_orchestrator_emits_tool_error_on_execution_exception():
     # orchestrator.execute() returns the ToolExecutionContext with .result set
     result_str = result_ctx.result
     assert result_str is not None
-    assert "Error executing broken_tool" in result_str
+    assert "工具执行失败 broken_tool" in result_str
     assert "RuntimeError" in result_str
     assert "simulated failure" in result_str
 
