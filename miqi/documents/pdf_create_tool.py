@@ -250,7 +250,12 @@ def _style_from_kwargs(kwargs: dict[str, Any]) -> tuple[dict[str, Any], dict[str
     preset = _CHINESE_PDF_STYLE_PRESETS.get(preset_name, {})
 
     title_style = _merge_style(
-        preset.get("title_style"),
+        {
+            "font_name": preset.get("title_font_name"),
+            "font_size_pt": preset.get("title_font_size_pt"),
+            "bold": preset.get("title_bold"),
+            "alignment": preset.get("title_alignment"),
+        },
         {
             "font_name": kwargs.get("title_font_name") or kwargs.get("title_font"),
             "font_size_pt": kwargs.get("title_font_size_pt") or kwargs.get("title_size_pt"),
@@ -259,7 +264,12 @@ def _style_from_kwargs(kwargs: dict[str, Any]) -> tuple[dict[str, Any], dict[str
         },
     )
     body_style = _merge_style(
-        preset.get("body_style"),
+        {
+            "font_name": preset.get("body_font_name"),
+            "font_size_pt": preset.get("body_font_size_pt"),
+            "line_spacing": preset.get("body_line_spacing"),
+            "alignment": preset.get("body_alignment"),
+        },
         {
             "font_name": kwargs.get("body_font_name") or kwargs.get("body_font"),
             "font_size_pt": kwargs.get("body_font_size_pt") or kwargs.get("body_size_pt"),
@@ -497,7 +507,7 @@ def _build_pdf(
                 table_data.append([str(c) if c is not None else "" for c in row])
             if table_data:
                 # Calculate column widths
-                avail_width = page_size[0] - 3.17 * 2 * cm - 3.17 * 2 * cm
+                avail_width = page_size[0] - 3.17 * 2 * cm
                 col_width = avail_width / max(len(table_data[0]), 1)
                 col_widths = [col_width] * len(table_data[0])
 

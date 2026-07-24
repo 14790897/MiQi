@@ -1801,7 +1801,10 @@ export function ChatConsole({
   const handlePreview = useCallback(async (path: string) => {
     // For PDF files, open directly in the default browser
     if (/\.pdf$/i.test(path)) {
-      await window.miqi.files.openExternal(path);
+      const result = await window.miqi.files.openExternal(path);
+      if (!result?.opened) {
+        setPreviewFile({ path, content: `(Could not open file: ${path})` });
+      }
       return;
     }
     // For document files, try to parse and show in-app preview first

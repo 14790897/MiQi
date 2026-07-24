@@ -1,6 +1,7 @@
 """Verify generated PDF is valid and contains expected content."""
 import json
 import os
+import re
 import sys
 import glob as _glob
 from pathlib import Path
@@ -37,10 +38,11 @@ with open(filepath, "rb") as f:
     head = f.read(5)
 check("valid PDF header", head == b"%PDF-", f"got {head!r}")
 
-# Check PDF has reasonable number of pages by counting %%EOF markers
+# Check PDF has reasonable number of pages by counting /Type /Page tokens
+# (using word boundary to avoid matching /Type /Pages which is the page tree node)
 with open(filepath, "rb") as f:
     content = f.read()
-page_markers = content.count(b"/Type /Page")
+page_markers = len(re.findall(rb"/Type\s*/Page\b", content))
 check("at least 1 page", page_markers >= 1, f"got {page_markers} page markers")
 
 json.dump(result, sys.stdout, ensure_ascii=False, indent=2)
