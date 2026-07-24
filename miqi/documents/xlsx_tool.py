@@ -248,13 +248,14 @@ class XlsxReadTool(Tool):
             else:
                 ws = wb.active
 
-            lines = [f"Sheet: {ws.title} ({ws.max_row} rows x {ws.max_column} cols)", ""]
-            for row in ws.iter_rows(values_only=True, max_row=min(ws.max_row, 200)):
+            lines = [f"Sheet: {ws.title} ({ws.max_row or '?'} rows x {ws.max_column or '?'} cols)", ""]
+            max_row = ws.max_row or 2000
+            for row in ws.iter_rows(values_only=True, max_row=min(max_row, 200)):
                 cells = [str(c) if c is not None else "" for c in row]
                 lines.append(" | ".join(cells))
 
-            if ws.max_row > 200:
-                lines.append(f"\n... ({ws.max_row - 200} more rows)")
+            if max_row > 200:
+                lines.append(f"\n... ({max_row - 200} more rows)")
 
             wb.close()
             return "\n".join(lines)

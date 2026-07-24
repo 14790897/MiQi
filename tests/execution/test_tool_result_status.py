@@ -5,8 +5,8 @@ tool result text starts with ``"Error"``. The orchestrator sets a structured
 ``ctx.status`` (:class:`OrchestrationResult`) on every exit path, and callers
 classify success as ``ctx.status == OrchestrationResult.SUCCESS`` — no text
 guessing. This catches failure paths whose result text does NOT start with
-``"Error"``: ``Permission denied:`` (hook block + DENY), ``User denied:``
-(approval rejected), and ``Tool execution cancelled`` (cancellation), which
+``"Error"``: ``权限被拒绝：`` (hook block + DENY), ``用户已拒绝：``
+(approval rejected), and ``工具执行已取消`` (cancellation), which
 the old ``not result.startswith("Error")`` check wrongly reported as success.
 """
 
@@ -57,7 +57,7 @@ def _build_orch(permission_engine, sandbox_engine, hook_runtime, tool_registry):
 
 @pytest.mark.asyncio
 async def test_pre_tool_use_block_sets_denied_by_policy():
-    """PRE_TOOL_USE 'block': result is 'Permission denied: ...' which does NOT
+    """PRE_TOOL_USE 'block': result is '权限被拒绝：...' which does NOT
     start with 'Error' — the old startswith('Error') check reported success."""
     hr = HookRuntime()
 
