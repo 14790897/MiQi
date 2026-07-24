@@ -5,8 +5,8 @@ tool result text starts with ``"Error"``. The orchestrator sets a structured
 ``ctx.status`` (:class:`OrchestrationResult`) on every exit path, and callers
 classify success as ``ctx.status == OrchestrationResult.SUCCESS`` — no text
 guessing. This catches failure paths whose result text does NOT start with
-``"Error"``: ``权限被拒绝：`` (hook block + DENY), ``User denied:``
-(approval rejected), and ``Tool execution cancelled`` (cancellation), which
+``"Error"``: ``权限被拒绝：`` (hook block + DENY), ``用户已拒绝：``
+(approval rejected), and ``工具执行已取消`` (cancellation), which
 the old ``not result.startswith("Error")`` check wrongly reported as success.
 """
 
