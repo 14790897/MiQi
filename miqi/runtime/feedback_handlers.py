@@ -359,8 +359,8 @@ async def feedback_submit_handler(
     if not fb_cfg.enabled:
         raise AppServerError("反馈功能未启用，请在配置中开启", code="FEEDBACK_DISABLED")
 
-    app_id = config.channels.feishu.app_id
-    app_secret = config.channels.feishu.app_secret
+    app_id = fb_cfg.feishu_app_id or config.channels.feishu.app_id
+    app_secret = fb_cfg.feishu_app_secret or config.channels.feishu.app_secret
     if not app_id or not app_secret:
         raise AppServerError(
             "飞书 App ID / App Secret 未配置", code="FEISHU_NOT_CONFIGURED",

@@ -268,6 +268,9 @@ async def test_feedback_submit_rejects_when_no_feishu_credentials(_bridge_state_
 
     workspace = _make_workspace()
     state = _make_mock_state(workspace, app_id="", app_secret="")
+    # Override schema defaults that ship with the app
+    state.load_config.return_value.channels.feedback.feishu_app_id = ""
+    state.load_config.return_value.channels.feedback.feishu_app_secret = ""
     _bridge_state_isolated._state = state
     registry = ClientSessionRegistry()
     registry.bridge_context["state"] = state
@@ -285,6 +288,9 @@ async def test_feedback_submit_rejects_when_no_bitable_config(_bridge_state_isol
 
     workspace = _make_workspace()
     state = _make_mock_state(workspace, bitable_app_token="", bitable_table_id="")
+    # Override schema defaults that ship with the app
+    state.load_config.return_value.channels.feedback.bitable_app_token = ""
+    state.load_config.return_value.channels.feedback.bitable_table_id = ""
     _bridge_state_isolated._state = state
     registry = ClientSessionRegistry()
     registry.bridge_context["state"] = state
