@@ -435,10 +435,15 @@ class BwrapSandbox:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                await asyncio.wait_for(proc.communicate(), timeout=15.0)
+                try:
+                    await asyncio.wait_for(proc.communicate(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.communicate()
+                    raise
                 if proc.returncode == 0:
                     return preferred
-            except Exception:
+            except (asyncio.TimeoutError, Exception):
                 pass
 
         # List all distros and find one with bwrap
@@ -448,7 +453,14 @@ class BwrapSandbox:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout_data, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+            try:
+                stdout_data, _ = await asyncio.wait_for(
+                    proc.communicate(), timeout=30.0,
+                )
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.communicate()
+                raise
             if proc.returncode != 0:
                 return None
 
@@ -469,7 +481,12 @@ class BwrapSandbox:
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
-                    await asyncio.wait_for(check.communicate(), timeout=15.0)
+                    try:
+                        await asyncio.wait_for(check.communicate(), timeout=15.0)
+                    except asyncio.TimeoutError:
+                        check.kill()
+                        await check.communicate()
+                        raise
                     if check.returncode == 0:
                         return distro
                 except Exception:

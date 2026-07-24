@@ -48,6 +48,18 @@ export async function sendMessage(page: Page, text: string) {
 
 /** Wait for streaming to finish (no "Thinking…" indicator) */
 export async function waitForResponseComplete(page: Page, timeout = 120_000) {
+  // Phase 0: capture the response-text baseline BEFORE waiting for
+  // the thinking indicator to hide.  This ensures the "grown" check
+  // in Phase 3 compares against content that was already present
+  // (e.g. user message) and only considers new AI output as growth.
+  // Each call resets the stream state so it never leaks across tests.
+  const baseline = await page.evaluate(() => {
+    const main = document.querySelector('main');
+    const base = (main?.textContent || '').length;
+    (window as any).__miqi_stream_state = { base, stable: 0, grown: false };
+    return base;
+  });
+
   // Phase 1: model stops generating → "Thinking…" hidden.
   try {
     await expect(page.locator('[data-testid="thinking-indicator"]')).toBeHidden({ timeout });
@@ -70,20 +82,17 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
     // Fast responses may never show IN PROGRESS.
   }
 
-  // Phase 3: wait for textContent to have changed AND stabilized.
-  // The length must increase at least once (proving streaming happened),
-  // then remain stable for two consecutive polls (400ms).  Without the
-  // "grown" guard, an AI call that silently fails (empty response) would
-  // immediately return true after ~400ms — a false positive.
+  // Phase 3: wait for textContent to have grown past the baseline AND
+  // stabilized.  The length must increase at least once (proving the AI
+  // added new output), then remain stable for two consecutive polls
+  // (400ms).  Without the "grown" guard, an AI call that silently fails
+  // would return true after ~400ms — a false positive.
   await page.waitForFunction(() => {
     const main = document.querySelector('main');
     if (!main) return false;
     const text = main.textContent || '';
     const s = (window as any).__miqi_stream_state;
-    if (!s) {
-      (window as any).__miqi_stream_state = { base: text.length, stable: 0, grown: false };
-      return false;
-    }
+    // s is always initialized in Phase 0 above
     if (text.length > s.base) {
       s.base = text.length;
       s.stable = 0;

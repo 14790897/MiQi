@@ -32,7 +32,7 @@ test.describe.serial('Sandbox toggle ready fix', () => {
 
   test(
     'sandbox toggle shows ready label after bridge starts',
-    { timeout: 120_000 },
+    { timeout: 420_000 },  // 300s settle window + nav/assertion margin
     async () => {
       const settingsBtn = page.locator('[data-testid="nav-system-settings"]');
       await expect(settingsBtn).toBeVisible({ timeout: 10_000 });

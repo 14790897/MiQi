@@ -40,8 +40,13 @@ test.describe('Sandbox Exec E2E', () => {
     // Wait for sandbox to finish cold-start initialization (export/import/apt).
     // On a cold CI runner this can take 3-5 minutes.  Without this wait,
     // exec commands silently fall back to local execution.
-    await waitForSandboxReady(page, 300_000);
-  }, 120_000);
+    // Fail fast if the sandbox never becomes ready — proceeding with a
+    // local-exec fallback would make all sandbox assertions pass vacuously.
+    const ready = await waitForSandboxReady(page, 300_000);
+    if (!ready) {
+      throw new Error('Sandbox manager did not become ready within 300s');
+    }
+  }, 420_000);
 
   test.afterAll(async () => {
     await closeElectronApp(electronApp, miqiHome);
