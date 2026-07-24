@@ -10,6 +10,38 @@ license: Proprietary. LICENSE.txt has complete terms
 
 This guide covers essential PDF processing operations using Python libraries and command-line tools. For advanced features, JavaScript libraries, and detailed examples, see REFERENCE.md. If you need to fill out a PDF form, read FORMS.md and follow its instructions.
 
+## IMPORTANT: YOU MUST use the built-in tool for PDF creation
+
+**YOU MUST use `create_pdf` tool (or its alias `pdf_write`) for ALL PDF creation.**
+**Do NOT write Python scripts to generate PDFs. This is forbidden.**
+
+The `create_pdf` tool handles font discovery, formatting, page layout, and Chinese text
+rendering automatically. Writing ad-hoc scripts produces broken files with garbled text
+and creates duplicate entries in the Task Assets panel.
+
+Use `create_pdf` whenever the user asks to create a PDF document.  The tool accepts:
+- `filename` / `file_path` — output file path
+- `title` — document title (centered on page 1)
+- `content` — a string (plain paragraphs) or an array of structured blocks
+- `style_preset` — `"chinese_document"` / `"chinese_essay"` / `"report"`
+- `author` — PDF metadata
+- `page_size` — `"A4"` (default), `"letter"`, `"A3"`
+- `title_style` / `body_style` — fine-grained formatting control
+- `format_instructions` — natural language, e.g. `正文宋体小四，标题黑体加粗`
+
+Content blocks:
+```python
+{"type": "paragraph", "text": "..."}
+{"type": "heading", "text": "...", "level": 1}
+{"type": "table", "headers": ["A","B"], "rows": [[1,2], [3,4]]}
+{"type": "list", "items": ["item1", "item2"]}
+{"type": "spacer", "height": 12}
+{"type": "page_break"}
+```
+
+Only fall back to writing ad-hoc scripts if the tool cannot satisfy a specific
+requirement (e.g. custom vector graphics on every page).
+
 ## Quick Start
 
 ```python

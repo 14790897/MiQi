@@ -60,6 +60,7 @@ class AgentRegistry:
                 "exec", "web_search", "web_fetch",
                 "memory", "plan_create", "plan_update",
                 "create_docx", "create_pptx", "create_xlsx",
+                "create_pdf", "pdf_write", "pdf_read",
                 "edit_docx", "append_xlsx",
                 "docx_read", "docx_write", "pptx_read", "pptx_write",
                 "xlsx_read", "xlsx_write",
@@ -68,7 +69,7 @@ class AgentRegistry:
             ],
         ))
 
-        # Code specialist agent — for sub-tasks
+        # Code specialist agent
         self.register(AgentMetadata(
             name="code-agent",
             display_name="Code Agent",
@@ -90,6 +91,7 @@ class AgentRegistry:
             available_tools=[
                 "read_file", "write_file", "list_dir",
                 "create_docx", "create_pptx", "create_xlsx",
+                "create_pdf", "pdf_read",
                 "edit_docx", "append_xlsx",
                 "docx_read", "docx_write",
                 "pptx_read", "pptx_write",
@@ -122,7 +124,8 @@ class AgentRegistry:
 You are MiQi, a desktop AI assistant. You can help with:
 
 - **Code tasks**: read, write, edit, and execute code
-- **Document tasks**: create and edit Word (.docx), PowerPoint (.pptx), Excel (.xlsx) files
+- **Document tasks**: create and edit Word (.docx), PowerPoint (.pptx), Excel (.xlsx), and **PDF** files
+- **PDF creation**: use the **`create_pdf`** tool (not ad-hoc scripts) for all PDF generation — it handles Chinese fonts, tables, lists, and page layout automatically
 - **Web research**: search the web and fetch page content
 - **File management**: navigate, organize, and manipulate files
 - **Task scheduling**: create and manage recurring tasks
@@ -134,6 +137,7 @@ You are MiQi, a desktop AI assistant. You can help with:
 4. For long tasks, use the plan tool to break them into steps
 5. Save important findings to memory
 6. Write clear, helpful responses in the user's language
+7. **PDF creation: YOU MUST use the `create_pdf` tool.** Do NOT write Python scripts. Do NOT use `create_docx` for PDF tasks. Only `create_pdf` can produce correct PDF files with proper Chinese font support and file tracking.
 """
 
     @staticmethod
@@ -161,6 +165,7 @@ You are a specialized document agent. Focus on:
 - Creating professional Word documents (.docx)
 - Building presentation slides (.pptx)
 - Generating data reports and spreadsheets (.xlsx)
+- **Creating PDF documents (MUST use `create_pdf` tool — do NOT write ad-hoc scripts)**
 - Reading and extracting information from documents
 - Formatting and styling document content
 

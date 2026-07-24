@@ -829,6 +829,7 @@ class ToolOrchestrator:
             "read_file", "list_dir",
             "docx_write", "pptx_write", "xlsx_write",
             "create_docx", "create_pptx", "create_xlsx",
+            "create_pdf", "pdf_write", "pdf_read",
             "edit_docx", "append_xlsx",
         })
         kwargs = {**ctx.arguments}
