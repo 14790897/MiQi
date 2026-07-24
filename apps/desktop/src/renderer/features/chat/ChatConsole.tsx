@@ -3532,35 +3532,30 @@ function MessageBubble({
                   </div>
                 );
               })}
-            {/* Historical file chips — extracted from [File: ...] blocks when attachments are missing */}
-            {isUser &&
-              (!msg.attachments || msg.attachments.length === 0) &&
-              (() => {
-                const { cleanContent, chips } = extractFileChips(msg.content);
-                if (chips.length === 0) return null;
-                // Store clean content for the bubble below
-                (msg as any).__cleanContent = cleanContent;
-                return chips.map((chip, i) => (
-                  <div
-                    key={`hist-${i}`}
-                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
-                    style={{
-                      background: chip.category.bg,
-                      border: `1px solid ${chip.category.color}40`,
-                      color: chip.category.color,
-                    }}
-                  >
-                    <span
-                      className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
-                      style={{ background: chip.category.color }}
-                    >
-                      {chip.category.label}
-                    </span>
-                    <span>{chip.name}</span>
-                    <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
-                  </div>
-                ));
-              })()}
+            {isUser && (!msg.attachments || msg.attachments.length === 0) && (() => {
+              const { cleanContent, chips } = extractFileChips(msg.content);
+              if (chips.length === 0) return null;
+              // Store clean content for the bubble below
+              (msg as any).__cleanContent = cleanContent;
+              return chips.map((chip, i) => (
+                <div
+                  key={`hist-${i}`}
+                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+                  style={{
+                    background: chip.category.bg,
+                    border: `1px solid ${chip.category.color}40`,
+                    color: chip.category.color,
+                  }}
+                >
+                  <span className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
+                    style={{ background: chip.category.color }}>
+                    {chip.category.label}
+                  </span>
+                  <span>{chip.name}</span>
+                  <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
+                </div>
+              ));
+            })()}
 
             {/* Main bubble */}
             <div
