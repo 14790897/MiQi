@@ -447,7 +447,7 @@ class BwrapSandbox:
                     # clause which swallows this distro probe and continues.
                 if proc.returncode == 0:
                     return preferred
-            except (asyncio.TimeoutError, Exception):
+            except (asyncio.TimeoutError, OSError):
                 pass
 
         # List all distros and find one with bwrap
@@ -531,7 +531,7 @@ class BwrapSandbox:
                 )
                 await asyncio.wait_for(proc.communicate(), timeout=30.0)
                 return proc.returncode == 0
-            except (asyncio.TimeoutError, Exception):
+            except (asyncio.TimeoutError, OSError):
                 if proc is not None:
                     proc.kill()
                 return False
