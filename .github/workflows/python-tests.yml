@@ -207,6 +207,14 @@ jobs:
           BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
         timeout-minutes: 20
 
+      - name: Run WSL one-click-install E2E tests (WSL)
+        run: |
+          npx playwright test --config=playwright.config.ts --project=electron wsl-one-click-install.spec.ts --workers=1
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_API_BASE: ${{ secrets.DEEPSEEK_API_BASE }}
+        timeout-minutes: 10
+
       - name: Upload Playwright report (WSL E2E)
         if: failure()
         uses: actions/upload-artifact@v4
