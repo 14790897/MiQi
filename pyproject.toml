@@ -43,6 +43,8 @@ dependencies = [
     "textual>=8.2.7",
     "ddgs>=9.14.4",
     "cryptography>=46.0.7",
+    "pypdfium2>=5.0.0",
+    "pdfplumber>=0.11.0",
 ]
 
 [project.optional-dependencies]

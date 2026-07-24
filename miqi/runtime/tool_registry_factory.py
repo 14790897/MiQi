@@ -234,6 +234,11 @@ def create_runtime_tool_registry(
     registry.register(XlsxWriteTool(workspace=_write_workspace, allowed_dir=_write_workspace))
     registry.register(AppendXlsxTool(workspace=_write_workspace, allowed_dir=_write_workspace))
 
+    # PDF read tool (RAG support for uploaded PDFs)
+    from miqi.documents.pdf_read_tool import PdfReadTool
+
+    registry.register(PdfReadTool(workspace=_write_workspace, allowed_dir=_write_workspace))
+
     # ── Optional tools (require external dependencies) ─────────────────
 
     # 7. Memory tool (requires MemoryStore)

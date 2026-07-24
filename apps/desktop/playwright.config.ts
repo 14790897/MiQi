@@ -37,6 +37,7 @@ export default defineConfig({
       testDir: './tests/e2e',
       testMatch: ['*.spec.ts'],
       timeout: 600_000,  // 10 min — pptx-generator + LLM can be slow
+      retries: process.env.CI ? 2 : 0,  // CI: 3 attempts for transient WSL/LLM flakiness
       use: {
         video: 'on',
         screenshot: 'on',

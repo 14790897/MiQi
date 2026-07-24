@@ -86,6 +86,13 @@ function getConfigPath(): string {
  *  root.  Absolute paths outside the workspace are rejected.
  */
 function resolveWorkspacePath(raw: string): string {
+  // Convert WSL /mnt/<drive>/ paths to Windows <drive>:\ paths
+  // (e.g. /mnt/c/Users/... -> C:\Users\...)
+  const mntMatch = raw.match(/^\/mnt\/([a-zA-Z])\/?(.*)$/);
+  if (mntMatch) {
+    return mntMatch[1].toUpperCase() + ':\\' + mntMatch[2];
+  }
+
   const SANDBOX_WS = '/home/miqi/workspace';
   let normalised = raw;
   if (normalised === SANDBOX_WS) {
@@ -293,6 +300,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         session_key: input.session_key ?? 'desktop:default',
         thread_id: (input as any).thread_id ?? undefined,
         mode: input.mode,
+        attachments: input.attachments,
       },
       (type: string, data: unknown) => {
         if (type === 'progress') {
@@ -1229,7 +1237,11 @@ for m in ("pydantic", "httpx", "loguru"):
 
   ipcMain.handle(IPC.FILES_ACCEPT, async (_event, payload: unknown) => {
     const p = payload as { path: string; session_key?: string };
-    return bridge.send('files.accept', p as Record<string, unknown>);
+    try {
+      return await bridge.send('files.accept', p as Record<string, unknown>);
+    } catch (err: any) {
+      return { accepted: false, path: p.path, error: err?.message ?? String(err) };
+    }
   });
 
   // -- WSL helpers (async — must not block the Electron main thread) -----
@@ -1371,6 +1383,11 @@ for m in ("pydantic", "httpx", "loguru"):
     } catch (e: any) {
       return { revealed: false, path: raw, error: e?.message ?? String(e) };
     }
+  });
+
+  // -- Document parsing -----------------------------------------------------
+  ipcMain.handle(IPC.DOCUMENTS_PARSE, async (_event, payload: unknown) => {
+    return bridge.sendSafe('documents.parse', payload as Record<string, unknown>);
   });
 
   // -- MCP -----------------------------------------------------------------

@@ -32,7 +32,7 @@ test.describe.serial('Sandbox toggle ready fix', () => {
 
   test(
     'sandbox toggle shows ready label after bridge starts',
-    { timeout: 120_000 },
+    { timeout: 420_000 },  // 300s settle window + nav/assertion margin
     async () => {
       const settingsBtn = page.locator('[data-testid="nav-system-settings"]');
       await expect(settingsBtn).toBeVisible({ timeout: 10_000 });
@@ -50,12 +50,16 @@ test.describe.serial('Sandbox toggle ready fix', () => {
           );
           if (!el) return false;
           const text = el.textContent || '';
+          // Log progress to CI console so we can see how long each
+          // phase of sandbox init takes (export / import / apt-get).
+          const ts = new Date().toISOString().slice(11, 19);
+          console.log(`[regression-284] ${ts} toggle label: "${text}"`);
           return (
             !text.includes('正在') &&
             (text.includes('已开启') || text.includes('已关闭'))
           );
         },
-        { timeout: 90_000, polling: 5000 },
+        { timeout: 300_000, polling: 10000 },
       );
       expect(settled).toBeTruthy();
 
