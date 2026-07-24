@@ -1,0 +1,72 @@
+# Auto detect text files and force LF
+* text=auto
+
+# Source code — LF
+*.py      text eol=lf
+*.ts      text eol=lf
+*.tsx     text eol=lf
+*.js      text eol=lf
+*.jsx     text eol=lf
+*.mjs     text eol=lf
+*.cjs     text eol=lf
+*.css     text eol=lf
+*.html    text eol=lf
+*.vue     text eol=lf
+*.svelte  text eol=lf
+
+# Config / data — LF
+*.json    text eol=lf
+*.yaml    text eol=lf
+*.yml     text eol=lf
+*.toml    text eol=lf
+*.ini     text eol=lf
+*.cfg     text eol=lf
+*.env     text eol=lf
+*.env.*   text eol=lf
+*.txt     text eol=lf
+*.md      text eol=lf
+*.rst     text eol=lf
+
+# Shell scripts — LF
+*.sh      text eol=lf
+*.bash    text eol=lf
+
+# Windows scripts — keep CRLF
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+*.ps1     text eol=crlf
+
+# Binary files
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.svg     binary
+*.pdf     binary
+*.pptx    binary
+*.docx    binary
+*.xlsx    binary
+*.zip     binary
+*.tar     binary
+*.gz      binary
+*.whl     binary
+*.exe     binary
+*.dll     binary
+*.so      binary
+*.dylib   binary
+*.pyd     binary
+*.pyc     binary
+*.pkl     binary
+*.db      binary
+*.sqlite  binary
+*.sqlite3 binary
+*.mp4     binary
+*.webm    binary
+*.mp3     binary
+*.wav     binary
+*.woff    binary
+*.woff2   binary
+*.ttf     binary
+*.eot     binary
+*.snap    binary
