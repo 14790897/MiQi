@@ -264,7 +264,8 @@ async def test_feedback_submit_rejects_when_disabled(_bridge_state_isolated):
 
 @pytest.mark.asyncio
 async def test_feedback_submit_rejects_when_no_feishu_credentials(_bridge_state_isolated):
-    from miqi.runtime.feedback_handlers import feedback_submit_handler
+    """feedback:submit raises FEISHU_NOT_CONFIGURED when app_id/app_secret are blank AND schema defaults are overridden to ''."""
+    from miqi.runtime.feedback_handlers import feedback_submit_handler, FeedbackConfig
 
     workspace = _make_workspace()
     state = _make_mock_state(workspace, app_id="", app_secret="")
@@ -275,7 +276,9 @@ async def test_feedback_submit_rejects_when_no_feishu_credentials(_bridge_state_
     registry = ClientSessionRegistry()
     registry.bridge_context["state"] = state
 
-    with patch("miqi.runtime.feedback_handlers._get_workspace_path", return_value=workspace):
+    with patch("miqi.runtime.feedback_handlers._get_workspace_path", return_value=workspace), \
+         patch.object(FeedbackConfig.model_fields["feishu_app_id"], "default", ""), \
+         patch.object(FeedbackConfig.model_fields["feishu_app_secret"], "default", ""):
         with pytest.raises(AppServerError, match="未配置"):
             await feedback_submit_handler(
                 "req-1", {"title": "test", "content": "test content"}, "client-1", None, registry,
@@ -284,7 +287,8 @@ async def test_feedback_submit_rejects_when_no_feishu_credentials(_bridge_state_
 
 @pytest.mark.asyncio
 async def test_feedback_submit_rejects_when_no_bitable_config(_bridge_state_isolated):
-    from miqi.runtime.feedback_handlers import feedback_submit_handler
+    """feedback:submit raises BITABLE_NOT_CONFIGURED when bitable target is blank AND schema defaults are overridden to ''."""
+    from miqi.runtime.feedback_handlers import feedback_submit_handler, FeedbackConfig
 
     workspace = _make_workspace()
     state = _make_mock_state(workspace, bitable_app_token="", bitable_table_id="")
@@ -295,7 +299,9 @@ async def test_feedback_submit_rejects_when_no_bitable_config(_bridge_state_isol
     registry = ClientSessionRegistry()
     registry.bridge_context["state"] = state
 
-    with patch("miqi.runtime.feedback_handlers._get_workspace_path", return_value=workspace):
+    with patch("miqi.runtime.feedback_handlers._get_workspace_path", return_value=workspace), \
+         patch.object(FeedbackConfig.model_fields["bitable_app_token"], "default", ""), \
+         patch.object(FeedbackConfig.model_fields["bitable_table_id"], "default", ""):
         with pytest.raises(AppServerError, match="未配置"):
             await feedback_submit_handler(
                 "req-1", {"title": "test", "content": "test content"}, "client-1", None, registry,
