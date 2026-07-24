@@ -865,11 +865,18 @@ export function ChatConsole({
   /** files touched by the agent during this session */
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([]);
   /** preview modal */
-  const [previewFile, setPreviewFile] = useState<{
-    path: string;
-    content: string;
-    dataBase64?: string;
-  } | null>(null);
+  const [previewFile, setPreviewFile] = useState<{ path: string; content: string; dataBase64?: string } | null>(null);
+
+  // When preview is open, lock the entire page body so no clicks fall through
+  // to elements behind the modal (sidebar, chat area, etc.)
+  useEffect(() => {
+    if (previewFile) {
+      const prev = document.body.style.pointerEvents;
+      document.body.style.pointerEvents = 'none';
+      return () => { document.body.style.pointerEvents = prev; };
+    }
+  }, [previewFile]);
+
   /** diff modal */
   const [diffFile, setDiffFile] = useState<{
     path: string;
@@ -2102,6 +2109,7 @@ export function ChatConsole({
   return (
     <div
       className="flex flex-col h-full"
+      style={previewFile ? { pointerEvents: 'none' } : undefined}
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
       onPaste={handlePaste}
@@ -2454,7 +2462,9 @@ export function ChatConsole({
                           background: isDoc && cat ? cat.bg : 'var(--surface-muted)',
                           border: `1px solid ${isDoc && cat ? cat.color + '40' : 'var(--border-subtle)'}`,
                         }}
-                        onClick={async () => {
+                        onClick={async (e) => {
+                          // Ignore clicks that arrive right after closing preview
+                          // (the close button click can fall through to the chip behind)
                           if (previewJustClosed.current) return;
                           if (!isDoc || !att.dataBase64) return;
                           const ext = att.name.split('.').pop()?.toLowerCase() ?? '';
@@ -2871,8 +2881,16 @@ export function ChatConsole({
       {previewFile && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.5)' }}
-          onClick={closePreview}
+          style={{ background: 'rgba(0,0,0,0.5)', pointerEvents: 'auto' }}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            closePreview(e);
+          }}
         >
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
@@ -2881,8 +2899,10 @@ export function ChatConsole({
               maxHeight: '85vh',
               background: 'var(--surface-elevated)',
               border: '1px solid var(--border)',
+              pointerEvents: 'auto',
             }}
             onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
           >
             <div
               className="flex items-center justify-between px-4 py-3 border-b shrink-0"
@@ -2928,7 +2948,11 @@ export function ChatConsole({
                   <span>系统应用打开</span>
                 </button>
                 <button
-                  onClick={closePreview}
+                  onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              closePreview(e);
+            }}
                   className="p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
                 >
                   <X size={14} style={{ color: 'var(--text-faint)' }} />
