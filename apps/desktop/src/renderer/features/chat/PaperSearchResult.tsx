@@ -57,7 +57,7 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 function fmtAuthors(authors: string[], max = 4): string {
-  if (!authors.length) return 'Unknown';
+  if (!authors.length) return '未知';
   const shown = authors.slice(0, max);
   const suffix = authors.length > max ? ` et al. (${authors.length})` : '';
   return shown.join(', ') + suffix;
@@ -95,7 +95,7 @@ function PaperCard({
 }) {
   const [showAbstract, setShowAbstract] = useState(false);
   const hasAbstract = paper.abstract?.trim().length > 10;
-  const sourceLabel = SOURCE_LABELS[paper.source ?? ''] || paper.source || 'Unknown';
+  const sourceLabel = SOURCE_LABELS[paper.source ?? ''] || paper.source || '未知';
   const hasPdf = !!(paper.open_access_pdf_url || paper.is_open_access);
 
   return (
@@ -118,7 +118,7 @@ function PaperCard({
               className="inline mr-1.5 shrink-0"
               style={{ color: 'var(--text-muted)' }}
             />
-            {paper.title || 'Untitled'}
+            {paper.title || '无标题'}
           </h4>
           {paper.year && (
             <span
@@ -227,7 +227,7 @@ function PaperCard({
             ) : (
               <Download size={12} />
             )}
-            {isDownloading ? 'Downloading...' : 'Download PDF'}
+            {isDownloading ? '下载中…' : '下载 PDF'}
           </button>
         )}
       </div>
@@ -278,7 +278,7 @@ export default function PaperSearchResult({
         className="flex items-center gap-2 mb-2 text-[11px]"
         style={{ color: 'var(--text-muted)' }}
       >
-        <span>{data.query ? `Results for "${data.query}"` : 'Search results'}</span>
+        <span>{data.query ? `Results for "${data.query}"` : '搜索结果'}</span>
         {data.total != null && (
           <span style={{ color: 'var(--text-faint)' }}>
             · {data.total} found · showing {items.length}
