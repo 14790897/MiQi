@@ -6,7 +6,10 @@ import { Textarea } from '../../components/ui/Textarea';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { ContextMenu, type ContextMenuAction } from '../../components/ContextMenu';
 import { cn } from '../../lib/utils';
-import { ExecutionPolicySelector, type ExecutionPolicy } from '../../components/ExecutionPolicySelector';
+import {
+  ExecutionPolicySelector,
+  type ExecutionPolicy,
+} from '../../components/ExecutionPolicySelector';
 import {
   Send,
   Square,
@@ -75,21 +78,27 @@ const DOCUMENT_SUFFIXES_RE = /\.(docx|doc|pptx|ppt|xlsx|xls|pdf|odt|odp|ods|md|m
 function getDocCategory(name: string): { label: string; color: string; bg: string } {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   const map: Record<string, { label: string; color: string; bg: string }> = {
-    pdf:  { label: 'PDF',  color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
-    docx: { label: 'DOC',  color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
-    doc:  { label: 'DOC',  color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
-    pptx: { label: 'PPT',  color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-    ppt:  { label: 'PPT',  color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-    xlsx: { label: 'XLS',  color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
-    xls:  { label: 'XLS',  color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
-    md:   { label: 'MD',   color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
+    pdf: { label: 'PDF', color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
+    docx: { label: 'DOC', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+    doc: { label: 'DOC', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+    pptx: { label: 'PPT', color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
+    ppt: { label: 'PPT', color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
+    xlsx: { label: 'XLS', color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
+    xls: { label: 'XLS', color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
+    md: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
     markdown: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
     mdown: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
-    odt:  { label: 'DOC',  color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
-    odp:  { label: 'PPT',  color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-    ods:  { label: 'XLS',  color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
+    odt: { label: 'DOC', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+    odp: { label: 'PPT', color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
+    ods: { label: 'XLS', color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
   };
-  return map[ext] ?? { label: ext.toUpperCase() || 'FILE', color: 'var(--text-faint)', bg: 'var(--surface-muted)' };
+  return (
+    map[ext] ?? {
+      label: ext.toUpperCase() || 'FILE',
+      color: 'var(--text-faint)',
+      bg: 'var(--surface-muted)',
+    }
+  );
 }
 
 function formatFileSize(bytes: number): string {
@@ -123,7 +132,7 @@ function extractFileChips(content: string): { cleanContent: string; chips: FileC
   let clean = content;
   for (const re of FILE_BLOCK_RES) {
     clean = clean.replace(re, (_full: string, name: string) => {
-      if (!chips.some(c => c.name === name)) {
+      if (!chips.some((c) => c.name === name)) {
         chips.push({ name, category: getDocCategory(name) });
       }
       return '';
@@ -199,7 +208,8 @@ const OFFICE_FILE_RE_LEGACY = /\.(docx|xlsx|pptx|ppt)$/i;
 /** Extract text from a PDF buffer by parsing BT/ET text blocks.
  *  Fast client-side extraction — handles text-based PDFs (not scanned). */
 function extractPdfText(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer), limit = Math.min(bytes.length, 2_000_000);
+  const bytes = new Uint8Array(buffer),
+    limit = Math.min(bytes.length, 2_000_000);
   let raw = '';
   for (let i = 0; i < limit; i++) raw += String.fromCharCode(bytes[i]);
   const results: string[] = [];
@@ -238,10 +248,19 @@ function getMimeTypeFromName(name: string): string {
 function getDocIcon(name: string) {
   const ext = name.split('.').pop()?.toLowerCase();
   switch (ext) {
-    case 'pdf': return FileText;
-    case 'xlsx': case 'xls': case 'csv': case 'ods': return FileSpreadsheet;
-    case 'pptx': case 'ppt': case 'odp': return FileBarChart;
-    default: return FileType;
+    case 'pdf':
+      return FileText;
+    case 'xlsx':
+    case 'xls':
+    case 'csv':
+    case 'ods':
+      return FileSpreadsheet;
+    case 'pptx':
+    case 'ppt':
+    case 'odp':
+      return FileBarChart;
+    default:
+      return FileType;
   }
 }
 
@@ -291,9 +310,7 @@ export function buildTaskShareText({
         })
       : ['- 暂无对话内容'];
   const fileLines =
-    files.length > 0
-      ? files.map((file) => `- ${file.name} (${file.op})`)
-      : ['- 暂无文件'];
+    files.length > 0 ? files.map((file) => `- ${file.name} (${file.op})`) : ['- 暂无文件'];
 
   return [
     `# ${title}`,
@@ -387,7 +404,7 @@ function parseToolHint(
     [/(?:write|edit|delete|read)_file\s*\(\s*["'](.+?)["']\s*\)/i, 'write'],
     // Office creation tools create files in the workspace.
     [
-      /(?:create_docx|create_xlsx|create_pptx|docx_write|xlsx_write|pptx_write)\s*\(\s*["'](.+?)["']\s*\)/i,
+      /(?:create_docx|create_xlsx|create_pptx|create_pdf|pdf_write|docx_write|xlsx_write|pptx_write)\s*\(\s*["'](.+?)["']\s*\)/i,
       'write',
     ],
     [/(?:edit_docx|append_xlsx)\s*\(\s*["'](.+?)["']\s*\)/i, 'edit'],
@@ -650,6 +667,8 @@ const _FILE_WRITE_TOOLS = [
   'create_docx',
   'create_xlsx',
   'create_pptx',
+  'create_pdf',
+  'pdf_write',
   'docx_write',
   'xlsx_write',
   'pptx_write',
@@ -657,7 +676,7 @@ const _FILE_WRITE_TOOLS = [
   'append_xlsx',
   'skill_manage',
 ];
-const _FILE_READ_TOOLS = ['read_file'];
+const _FILE_READ_TOOLS = ['read_file', 'pdf_read'];
 
 /** Extract a file path from a JSON-stringified tool args object.
  *  Checks common keys: path, file_path, filename.
@@ -787,7 +806,9 @@ export function ChatConsole({
         const result = await window.miqi.plugins.list();
         const plugins = (result as unknown as { plugins?: Array<{ status?: string }> })?.plugins;
         if (!cancelled) {
-          setActivePluginCount((plugins ?? []).filter((plugin) => plugin.status === 'active').length);
+          setActivePluginCount(
+            (plugins ?? []).filter((plugin) => plugin.status === 'active').length
+          );
         }
       } catch {
         if (!cancelled) setActivePluginCount(0);
@@ -842,7 +863,11 @@ export function ChatConsole({
   /** files touched by the agent during this session */
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([]);
   /** preview modal */
-  const [previewFile, setPreviewFile] = useState<{ path: string; content: string; dataBase64?: string } | null>(null);
+  const [previewFile, setPreviewFile] = useState<{
+    path: string;
+    content: string;
+    dataBase64?: string;
+  } | null>(null);
   /** diff modal */
   const [diffFile, setDiffFile] = useState<{
     path: string;
@@ -1145,13 +1170,19 @@ export function ChatConsole({
         const reader = new FileReader();
         reader.onload = () => {
           const base64 = (reader.result as string).split(',')[1];
-          const textContent = new TextDecoder().decode(Uint8Array.from(atob(base64), c => c.charCodeAt(0)));
+          const textContent = new TextDecoder().decode(
+            Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+          );
           setAttachments((prev) => [
             ...prev,
             {
-              name: file.name, type: 'document', dataBase64: base64,
-              content: textContent, dataUrl: reader.result as string,
-              size: file.size, mimeType: file.type || getMimeTypeFromName(file.name),
+              name: file.name,
+              type: 'document',
+              dataBase64: base64,
+              content: textContent,
+              dataUrl: reader.result as string,
+              size: file.size,
+              mimeType: file.type || getMimeTypeFromName(file.name),
               status: 'pending' as const,
             },
           ]);
@@ -1169,8 +1200,11 @@ export function ChatConsole({
           setAttachments((prev) => [
             ...prev,
             {
-              name: file.name, type: 'document', dataUrl: reader.result as string,
-              dataBase64: base64, size: file.size,
+              name: file.name,
+              type: 'document',
+              dataUrl: reader.result as string,
+              dataBase64: base64,
+              size: file.size,
               mimeType: file.type || getMimeTypeFromName(file.name),
               status: parseStatus,
             },
@@ -1278,7 +1312,7 @@ export function ChatConsole({
       } else if (att.type === 'document' && att.dataBase64) {
         // Decode and extract text client-side
         try {
-          const raw = Uint8Array.from(atob(att.dataBase64), c => c.charCodeAt(0));
+          const raw = Uint8Array.from(atob(att.dataBase64), (c) => c.charCodeAt(0));
           let extracted = '';
           const ext = att.name.split('.').pop()?.toLowerCase() ?? '';
 
@@ -1286,7 +1320,13 @@ export function ChatConsole({
             extracted = extractPdfText(raw.buffer);
           } else if (ext === 'md' || ext === 'markdown' || ext === 'mdown' || ext === 'txt') {
             extracted = new TextDecoder().decode(raw);
-          } else if (ext === 'csv' || ext === 'json' || ext === 'yaml' || ext === 'yml' || ext === 'xml') {
+          } else if (
+            ext === 'csv' ||
+            ext === 'json' ||
+            ext === 'yaml' ||
+            ext === 'yml' ||
+            ext === 'xml'
+          ) {
             extracted = new TextDecoder().decode(raw);
           }
 
@@ -1420,10 +1460,17 @@ export function ChatConsole({
           prev.map((a) => {
             if (a.name !== data.file || a.type !== 'document') return a;
             const stage = data.stage ?? 'parsing';
-            const status = stage === 'ready' || stage === 'done' ? 'done'
-              : stage === 'error' ? 'error'
-              : 'parsing';
-            return { ...a, status, parseError: status === 'error' ? (data.message ?? '') : a.parseError };
+            const status =
+              stage === 'ready' || stage === 'done'
+                ? 'done'
+                : stage === 'error'
+                  ? 'error'
+                  : 'parsing';
+            return {
+              ...a,
+              status,
+              parseError: status === 'error' ? (data.message ?? '') : a.parseError,
+            };
           })
         );
         return;
@@ -1636,15 +1683,15 @@ export function ChatConsole({
       const key =
         activeThreadId === 'main' ? currentSessionRef.current : `desktop:${activeThreadId}`;
       const chatAttachments = sentAttachments
-        .filter(a => a.type === 'document' && a.dataBase64)
-        .map(a => ({ name: a.name, data_base64: a.dataBase64, mime_type: a.mimeType }));
+        .filter((a) => a.type === 'document' && a.dataBase64)
+        .map((a) => ({ name: a.name, data_base64: a.dataBase64, mime_type: a.mimeType }));
 
       // Mark all doc attachments as parsing
-      if (sentAttachments.some(a => a.type === 'document')) {
+      if (sentAttachments.some((a) => a.type === 'document')) {
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === 'user' && last.attachments) {
-            const updated = last.attachments.map(a =>
+            const updated = last.attachments.map((a) =>
               a.type === 'document' ? { ...a, status: 'parsing' as const } : a
             );
             return [...prev.slice(0, -1), { ...last, attachments: updated }];
@@ -1654,17 +1701,24 @@ export function ChatConsole({
       }
 
       // Fire send — server parses synchronously in _chat_send_handler
-      const sendPromise = window.miqi.chat.send(content, key, threadId ?? undefined, executionPolicy,
-        chatAttachments.length > 0 ? chatAttachments : undefined);
+      const sendPromise = window.miqi.chat.send(
+        content,
+        key,
+        threadId ?? undefined,
+        executionPolicy,
+        chatAttachments.length > 0 ? chatAttachments : undefined
+      );
 
       // Mark as done after a tick — server parsing is synchronous, already complete
-      if (sentAttachments.some(a => a.type === 'document')) {
+      if (sentAttachments.some((a) => a.type === 'document')) {
         setTimeout(() => {
           setMessages((prev) => {
             const last = prev[prev.length - 1];
             if (last?.role === 'user' && last.attachments) {
-              const updated = last.attachments.map(a =>
-                a.type === 'document' && a.status === 'parsing' ? { ...a, status: 'done' as const } : a
+              const updated = last.attachments.map((a) =>
+                a.type === 'document' && a.status === 'parsing'
+                  ? { ...a, status: 'done' as const }
+                  : a
               );
               return [...prev.slice(0, -1), { ...last, attachments: updated }];
             }
@@ -1745,15 +1799,18 @@ export function ChatConsole({
   };
 
   const handlePreview = useCallback(async (path: string) => {
+    // For PDF files, open directly in the default browser
+    if (/\.pdf$/i.test(path)) {
+      await window.miqi.files.openExternal(path);
+      return;
+    }
     // For document files, try to parse and show in-app preview first
     const isDocFile = DOCUMENT_SUFFIXES_RE.test(path);
     if (isDocFile) {
       try {
-        const result = await window.miqi.documents.parse(
-          path,
-          currentSessionRef.current,
-          { preview: true }
-        );
+        const result = await window.miqi.documents.parse(path, currentSessionRef.current, {
+          preview: true,
+        });
         setPreviewFile({ path, content: result.text });
         return;
       } catch {
@@ -1772,7 +1829,9 @@ export function ChatConsole({
     e?.preventDefault();
     previewJustClosed.current = true;
     setPreviewFile(null);
-    setTimeout(() => { previewJustClosed.current = false; }, 300);
+    setTimeout(() => {
+      previewJustClosed.current = false;
+    }, 300);
   }, []);
 
   const handleShowDiff = useCallback(async (path: string) => {
@@ -1877,17 +1936,31 @@ export function ChatConsole({
           const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
           const isOffice = /^(docx|doc|pptx|ppt|xlsx|xls|odt|odp|ods)$/i.test(ext);
           const parseStatus: Attachment['status'] = isOffice ? 'pending' : 'done';
-          setAttachments((prev) => [...prev, {
-            name: file.name, type: 'document', dataBase64: base64,
-            size: file.size, mimeType: file.type || getMimeTypeFromName(file.name),
-            status: parseStatus,
-          }]);
+          setAttachments((prev) => [
+            ...prev,
+            {
+              name: file.name,
+              type: 'document',
+              dataBase64: base64,
+              size: file.size,
+              mimeType: file.type || getMimeTypeFromName(file.name),
+              status: parseStatus,
+            },
+          ]);
         };
         reader.readAsDataURL(file);
       } else if (file.type.startsWith('image/')) {
         const reader = new FileReader();
         reader.onload = () =>
-          setAttachments((prev) => [...prev, { name: file.name || 'pasted-image.png', type: 'image', dataUrl: reader.result as string, size: file.size }]);
+          setAttachments((prev) => [
+            ...prev,
+            {
+              name: file.name || 'pasted-image.png',
+              type: 'image',
+              dataUrl: reader.result as string,
+              size: file.size,
+            },
+          ]);
         reader.readAsDataURL(file);
       }
     }
@@ -2168,7 +2241,9 @@ export function ChatConsole({
                   try {
                     await window.miqi.sessions.archive(sessionKey);
                     handleNewSession();
-                  } catch { /* ignore */ }
+                  } catch {
+                    /* ignore */
+                  }
                 },
               },
               {
@@ -2371,8 +2446,8 @@ export function ChatConsole({
                         key={i}
                         className="flex items-center gap-2 rounded-lg pl-2 pr-1.5 py-1.5 text-xs group max-w-[240px] cursor-pointer hover:brightness-95 transition-all"
                         style={{
-                          background: (isDoc && cat) ? cat.bg : 'var(--surface-muted)',
-                          border: `1px solid ${(isDoc && cat) ? cat.color + '40' : 'var(--border-subtle)'}`,
+                          background: isDoc && cat ? cat.bg : 'var(--surface-muted)',
+                          border: `1px solid ${isDoc && cat ? cat.color + '40' : 'var(--border-subtle)'}`,
                         }}
                         onClick={async () => {
                           if (previewJustClosed.current) return;
@@ -2382,10 +2457,14 @@ export function ChatConsole({
 
                           // Client-side extraction only (fast, no server round-trip)
                           try {
-                            const raw = Uint8Array.from(atob(att.dataBase64), c => c.charCodeAt(0));
+                            const raw = Uint8Array.from(atob(att.dataBase64), (c) =>
+                              c.charCodeAt(0)
+                            );
                             if (ext === 'pdf') {
                               previewText = extractPdfText(raw.buffer);
-                            } else if (/^(md|markdown|mdown|txt|csv|json|ya?ml|xml|py|ts|js|log)$/i.test(ext)) {
+                            } else if (
+                              /^(md|markdown|mdown|txt|csv|json|ya?ml|xml|py|ts|js|log)$/i.test(ext)
+                            ) {
                               previewText = new TextDecoder().decode(raw);
                             } else {
                               previewText = '(Office 文件 —— 发送后服务端解析)';
@@ -2396,7 +2475,11 @@ export function ChatConsole({
                           if (!previewText || !previewText.trim()) {
                             previewText = '(扫描件或二进制文件，无文本内容)';
                           }
-                          setPreviewFile({ path: att.name, content: previewText.slice(0, 50000), dataBase64: att.dataBase64 });
+                          setPreviewFile({
+                            path: att.name,
+                            content: previewText.slice(0, 50000),
+                            dataBase64: att.dataBase64,
+                          });
                         }}
                       >
                         {/* File type badge */}
@@ -2410,13 +2493,19 @@ export function ChatConsole({
                         ) : att.type === 'image' ? (
                           <Image size={14} className="shrink-0" style={{ color: 'var(--info)' }} />
                         ) : (
-                          <FileText size={14} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
+                          <FileText
+                            size={14}
+                            className="shrink-0"
+                            style={{ color: 'var(--text-faint)' }}
+                          />
                         )}
 
                         {/* Name + size */}
                         <div className="flex flex-col min-w-0 leading-tight">
                           <span className="truncate font-medium" style={{ color: 'var(--text)' }}>
-                            {att.name.length > 28 ? att.name.slice(0, 25) + '…' + att.name.slice(-4) : att.name}
+                            {att.name.length > 28
+                              ? att.name.slice(0, 25) + '…' + att.name.slice(-4)
+                              : att.name}
                           </span>
                           <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
                             {formatFileSize(att.size)}
@@ -2428,13 +2517,25 @@ export function ChatConsole({
 
                         {/* Status icon — only after send */}
                         {isDoc && isParsing && (
-                          <Loader2 size={13} className="shrink-0 animate-spin" style={{ color: cat?.color ?? 'var(--text-faint)' }} />
+                          <Loader2
+                            size={13}
+                            className="shrink-0 animate-spin"
+                            style={{ color: cat?.color ?? 'var(--text-faint)' }}
+                          />
                         )}
                         {isDoc && isDone && (
-                          <CheckCircle size={13} className="shrink-0" style={{ color: '#22c55e' }} />
+                          <CheckCircle
+                            size={13}
+                            className="shrink-0"
+                            style={{ color: '#22c55e' }}
+                          />
                         )}
                         {isDoc && isError && (
-                          <AlertCircle size={13} className="shrink-0" style={{ color: '#ef4444' }} />
+                          <AlertCircle
+                            size={13}
+                            className="shrink-0"
+                            style={{ color: '#ef4444' }}
+                          />
                         )}
 
                         {/* Remove */}
@@ -2460,7 +2561,12 @@ export function ChatConsole({
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
-                <ExecutionPolicySelector policy={executionPolicy} onChange={setExecutionPolicy} disabled={streaming} onOpenApprovals={onOpenApprovals} />
+                <ExecutionPolicySelector
+                  policy={executionPolicy}
+                  onChange={setExecutionPolicy}
+                  disabled={streaming}
+                  onOpenApprovals={onOpenApprovals}
+                />
                 <button
                   onClick={handleAttachClick}
                   className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
@@ -2569,7 +2675,11 @@ export function ChatConsole({
             >
               <div className="flex items-center gap-1.5">
                 <LayoutGrid size={13} style={{ color: 'var(--text-muted)' }} />
-                <span className="text-xs font-semibold" style={{ color: 'var(--text)' }} data-testid="task-assets-title">
+                <span
+                  className="text-xs font-semibold"
+                  style={{ color: 'var(--text)' }}
+                  data-testid="task-assets-title"
+                >
                   任务资产
                 </span>
               </div>
@@ -2582,7 +2692,11 @@ export function ChatConsole({
               <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center gap-4">
                 <FileText size={28} style={{ color: 'var(--text-faint)', opacity: 0.35 }} />
                 <div className="flex flex-col items-center gap-1">
-                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }} data-testid="task-assets-empty">
+                  <p
+                    className="text-[13px] font-medium"
+                    style={{ color: 'var(--text-muted)' }}
+                    data-testid="task-assets-empty"
+                  >
                     暂无文件
                   </p>
                   <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
@@ -2721,22 +2835,19 @@ export function ChatConsole({
                 disabled={merging || trackedFiles.length === 0}
                 className={cn(
                   'w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition duration-200',
-                  merging || trackedFiles.length === 0
-                    ? 'cursor-not-allowed'
-                    : 'hover:opacity-90',
+                  merging || trackedFiles.length === 0 ? 'cursor-not-allowed' : 'hover:opacity-90'
                 )}
                 style={{
                   background:
                     merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'var(--accent)',
-                  color: merging || trackedFiles.length === 0 ? 'var(--text-faint)' : 'var(--accent-text)',
+                  color:
+                    merging || trackedFiles.length === 0
+                      ? 'var(--text-faint)'
+                      : 'var(--accent-text)',
                   opacity: merging || trackedFiles.length === 0 ? 0.5 : 1,
                 }}
               >
-                {merging ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <GitMerge size={13} />
-                )}
+                {merging ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
                 {merging ? '合并中...' : '合并所有更改'}
               </button>
               {trackedFiles.length === 0 && (
@@ -2798,7 +2909,9 @@ export function ChatConsole({
                       try {
                         await window.miqi.files.write(tmp, '', undefined, previewFile.dataBase64);
                         await window.miqi.files.openExternal(tmp);
-                      } catch { /* fallback */ }
+                      } catch {
+                        /* fallback */
+                      }
                     } else {
                       window.miqi.files.openExternal(previewFile.path);
                     }
@@ -3145,9 +3258,7 @@ function TrackedFileCard({
                 color: isOfficeFile ? 'var(--text-faint)' : 'var(--warning)',
                 opacity: isOfficeFile ? 0.55 : 1,
               }}
-              title={
-                'Diff is not available for Office binary files'
-              }
+              title={'Diff is not available for Office binary files'}
             >
               <GitCompare size={10} />
               Diff
@@ -3386,50 +3497,67 @@ function MessageBubble({
                 const isDone = !att.status || att.status === 'done';
                 const isParsing = att.status === 'parsing';
                 return (
-                <div
-                  key={i}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-500"
-                  style={{
-                    background: (isDone && cat) ? cat.bg : 'var(--surface-muted)',
-                    border: `1px solid ${(isDone && cat) ? cat.color + '40' : 'var(--border-subtle)'}`,
-                    color: (isDone && cat) ? cat.color : 'var(--text-muted)',
-                    opacity: isDone ? 1 : 0.7,
-                  }}
-                >
-                  <span className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white" style={{ background: (isDone && cat) ? cat.color : 'var(--text-faint)' }}>
-                    {cat ? cat.label : 'FILE'}
-                  </span>
-                  <span>{att.name} ({formatFileSize(att.size)})</span>
-                  {isParsing && <Loader2 size={11} className="shrink-0 animate-spin" style={{ color: 'var(--text-muted)' }} />}
-                  {isDone && <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />}
-                </div>
+                  <div
+                    key={i}
+                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-500"
+                    style={{
+                      background: isDone && cat ? cat.bg : 'var(--surface-muted)',
+                      border: `1px solid ${isDone && cat ? cat.color + '40' : 'var(--border-subtle)'}`,
+                      color: isDone && cat ? cat.color : 'var(--text-muted)',
+                      opacity: isDone ? 1 : 0.7,
+                    }}
+                  >
+                    <span
+                      className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
+                      style={{ background: isDone && cat ? cat.color : 'var(--text-faint)' }}
+                    >
+                      {cat ? cat.label : 'FILE'}
+                    </span>
+                    <span>
+                      {att.name} ({formatFileSize(att.size)})
+                    </span>
+                    {isParsing && (
+                      <Loader2
+                        size={11}
+                        className="shrink-0 animate-spin"
+                        style={{ color: 'var(--text-muted)' }}
+                      />
+                    )}
+                    {isDone && (
+                      <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
+                    )}
+                  </div>
                 );
               })}
             {/* Historical file chips — extracted from [File: ...] blocks when attachments are missing */}
-            {isUser && (!msg.attachments || msg.attachments.length === 0) && (() => {
-              const { cleanContent, chips } = extractFileChips(msg.content);
-              if (chips.length === 0) return null;
-              // Store clean content for the bubble below
-              (msg as any).__cleanContent = cleanContent;
-              return chips.map((chip, i) => (
-                <div
-                  key={`hist-${i}`}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
-                  style={{
-                    background: chip.category.bg,
-                    border: `1px solid ${chip.category.color}40`,
-                    color: chip.category.color,
-                  }}
-                >
-                  <span className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
-                    style={{ background: chip.category.color }}>
-                    {chip.category.label}
-                  </span>
-                  <span>{chip.name}</span>
-                  <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
-                </div>
-              ));
-            })()}
+            {isUser &&
+              (!msg.attachments || msg.attachments.length === 0) &&
+              (() => {
+                const { cleanContent, chips } = extractFileChips(msg.content);
+                if (chips.length === 0) return null;
+                // Store clean content for the bubble below
+                (msg as any).__cleanContent = cleanContent;
+                return chips.map((chip, i) => (
+                  <div
+                    key={`hist-${i}`}
+                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+                    style={{
+                      background: chip.category.bg,
+                      border: `1px solid ${chip.category.color}40`,
+                      color: chip.category.color,
+                    }}
+                  >
+                    <span
+                      className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
+                      style={{ background: chip.category.color }}
+                    >
+                      {chip.category.label}
+                    </span>
+                    <span>{chip.name}</span>
+                    <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
+                  </div>
+                ));
+              })()}
 
             {/* Main bubble */}
             <div
