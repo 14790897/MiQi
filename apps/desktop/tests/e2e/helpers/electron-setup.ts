@@ -48,18 +48,6 @@ export async function sendMessage(page: Page, text: string) {
 
 /** Wait for streaming to finish (no "Thinking…" indicator) */
 export async function waitForResponseComplete(page: Page, timeout = 120_000) {
-  // Phase 0: capture the response-text baseline BEFORE waiting for
-  // the thinking indicator to hide.  This ensures the "grown" check
-  // in Phase 3 compares against content that was already present
-  // (e.g. user message) and only considers new AI output as growth.
-  // Each call resets the stream state so it never leaks across tests.
-  const baseline = await page.evaluate(() => {
-    const main = document.querySelector('main');
-    const base = (main?.textContent || '').length;
-    (window as any).__miqi_stream_state = { base, stable: 0, grown: false };
-    return base;
-  });
-
   // Phase 1: model stops generating → "Thinking…" hidden.
   try {
     await expect(page.locator('[data-testid="thinking-indicator"]')).toBeHidden({ timeout });
@@ -82,14 +70,27 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
     // Fast responses may never show IN PROGRESS.
   }
 
-  // Phase 3: wait for textContent to have grown past the baseline AND
-  // stabilized.  The length must increase at least once (proving the AI
-  // added new output), then remain stable for two consecutive polls
-  // (400ms).  Without the "grown" guard, an AI call that silently fails
-  // would return true after ~400ms — a false positive.
+  // Phase 3: wait for textContent to have grown AND stabilized.
   //
-  // Baseline is captured in Phase 0; the fallback guards against edge
-  // cases where the state was cleared between phases (e.g. page reload).
+  // Capture the baseline AFTER the thinking indicator is hidden and
+  // tool-results are rendered, so the "grown" check compares against
+  // what was already visible (user message + tool output) and only
+  // counts new AI streaming output as growth.
+  //
+  // Each call resets __miqi_stream_state so it never leaks across tests.
+  await page.evaluate(() => {
+    const main = document.querySelector('main');
+    const base = (main?.textContent || '').length;
+    (window as any).__miqi_stream_state = { base, stable: 0, grown: false };
+  });
+
+  // The length must increase at least once (proving the AI added new
+  // output), then remain stable for two consecutive polls (400ms).
+  // Without the "grown" guard, an AI call that silently fails would
+  // return true after ~400ms — a false positive.
+  //
+  // Allow up to 30s for streaming to start; once it does, 400ms of
+  // silence means the response is complete.
   await page.waitForFunction(() => {
     const main = document.querySelector('main');
     if (!main) return false;
@@ -107,7 +108,7 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
     }
     s.stable++;
     return s.grown && s.stable >= 2;
-  }, { timeout: 5000, polling: 200 });
+  }, { timeout: 30000, polling: 200 });
 }
 
 /** Poll for approval dialogs and click "永久允许" until the AI stops
