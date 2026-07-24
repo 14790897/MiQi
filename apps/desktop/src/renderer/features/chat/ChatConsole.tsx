@@ -6,7 +6,6 @@ import { Textarea } from '../../components/ui/Textarea';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { ContextMenu, type ContextMenuAction } from '../../components/ContextMenu';
 import { cn } from '../../lib/utils';
-import { ExecutionPolicySelector, type ExecutionPolicy } from '../../components/ExecutionPolicySelector';
 import {
   Send,
   Square,
@@ -33,11 +32,6 @@ import {
   ListChecks,
   Settings,
   ExternalLink,
-  FileSpreadsheet,
-  FileBarChart,
-  AlertCircle,
-  FileType,
-  Loader,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -56,80 +50,10 @@ import PaperSearchResult, {
 
 interface Attachment {
   name: string;
-  type: 'image' | 'text' | 'document';
+  type: 'image' | 'text';
   dataUrl?: string;
   content?: string;
   size: number;
-  dataBase64?: string;
-  mimeType?: string;
-  /** Parse status: pending → parsing → done | error */
-  status?: 'pending' | 'parsing' | 'done' | 'error';
-  /** Server-parsed text content, shown inline after send */
-  parsedContent?: string;
-  /** Parse error message if status === 'error' */
-  parseError?: string;
-}
-
-const DOCUMENT_SUFFIXES_RE = /\.(docx|doc|pptx|ppt|xlsx|xls|pdf|odt|odp|ods|md|markdown|mdown)$/i;
-
-function getDocCategory(name: string): { label: string; color: string; bg: string } {
-  const ext = name.split('.').pop()?.toLowerCase() ?? '';
-  const map: Record<string, { label: string; color: string; bg: string }> = {
-    pdf:  { label: 'PDF',  color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
-    docx: { label: 'DOC',  color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
-    doc:  { label: 'DOC',  color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
-    pptx: { label: 'PPT',  color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-    ppt:  { label: 'PPT',  color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-    xlsx: { label: 'XLS',  color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
-    xls:  { label: 'XLS',  color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
-    md:   { label: 'MD',   color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
-    markdown: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
-    mdown: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
-    odt:  { label: 'DOC',  color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
-    odp:  { label: 'PPT',  color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-    ods:  { label: 'XLS',  color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
-  };
-  return map[ext] ?? { label: ext.toUpperCase() || 'FILE', color: 'var(--text-faint)', bg: 'var(--surface-muted)' };
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/**
- * Parse embedded document content from message body so the UI shows
- * coloured chips instead of raw injection text.  Handles three formats:
- *   1. Client-side preview:  [File: name]\n```\n...\n```
- *   2. Binary/scanned placeholder: [name: binary file, ...] / [name: scanned PDF ...]
- *   3. Server-side parsed:   --- Document: name ---\n...\n--- End of name ---
- *
- * The LLM still receives the full content; only the display is cleaned.
- */
-const FILE_BLOCK_RES = [
-  /\[File: ([^\]]+)\]\n```\n[\s\S]*?\n```/g,
-  /\[([^\]:]+):\s*(?:binary file|scanned PDF)[^\]]*\]/g,
-  /--- Document: ([^\n]+) ---\n[\s\S]*?\n--- End of \1 ---/g,
-];
-
-interface FileChip {
-  name: string;
-  category: ReturnType<typeof getDocCategory>;
-}
-
-function extractFileChips(content: string): { cleanContent: string; chips: FileChip[] } {
-  const chips: FileChip[] = [];
-  let clean = content;
-  for (const re of FILE_BLOCK_RES) {
-    clean = clean.replace(re, (_full: string, name: string) => {
-      if (!chips.some(c => c.name === name)) {
-        chips.push({ name, category: getDocCategory(name) });
-      }
-      return '';
-    });
-  }
-  return { cleanContent: clean.trim(), chips };
 }
 
 interface Message {
@@ -156,8 +80,7 @@ function isMissingProviderConfigMessage(message: string) {
   return normalized.includes('no api key configured');
 }
 
-function isProviderConfigurationProblem(message: string, code?: string) {
-  if (code === 'NO_API_KEY') return true;
+function isProviderConfigurationProblem(message: string) {
   const normalized = message.toLowerCase();
   return (
     isMissingProviderConfigMessage(message) ||
@@ -191,59 +114,7 @@ interface TrackedFile {
   truncated?: boolean;
 }
 
-const OFFICE_FILE_RE = /\.(docx|xlsx|pptx|ppt|xls|doc|odt|odp|ods)$/i;
-const PDF_FILE_RE = /\.pdf$/i;
-const TEXT_SUFFIXES_RE = /\.(md|markdown|mdown|txt|csv|json|yaml|yml|xml|log)$/i;
-const OFFICE_FILE_RE_LEGACY = /\.(docx|xlsx|pptx|ppt)$/i;
-
-/** Extract text from a PDF buffer by parsing BT/ET text blocks.
- *  Fast client-side extraction — handles text-based PDFs (not scanned). */
-function extractPdfText(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer), limit = Math.min(bytes.length, 2_000_000);
-  let raw = '';
-  for (let i = 0; i < limit; i++) raw += String.fromCharCode(bytes[i]);
-  const results: string[] = [];
-  let pos = 0;
-  while (pos < raw.length) {
-    const bt = raw.indexOf('BT', pos);
-    if (bt === -1) break;
-    const et = raw.indexOf('ET', bt + 2);
-    if (et === -1) break;
-    const block = raw.slice(bt + 2, et);
-    for (const m of block.matchAll(/\(([^)]*)\)\s*Tj/g)) if (m[1].trim()) results.push(m[1]);
-    for (const m of block.matchAll(/\[([^\]]*)\]\s*TJ/g))
-      for (const im of m[1].matchAll(/\(([^)]*)\)/g)) if (im[1].trim()) results.push(im[1]);
-    pos = et + 2;
-  }
-  return results.join(' ') || '';
-}
-
-function getMimeTypeFromName(name: string): string {
-  const ext = name.split('.').pop()?.toLowerCase();
-  const mimeMap: Record<string, string> = {
-    pdf: 'application/pdf',
-    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    doc: 'application/msword',
-    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    ppt: 'application/vnd.ms-powerpoint',
-    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    xls: 'application/vnd.ms-excel',
-    odt: 'application/vnd.oasis.opendocument.text',
-    odp: 'application/vnd.oasis.opendocument.presentation',
-    ods: 'application/vnd.oasis.opendocument.spreadsheet',
-  };
-  return ext ? mimeMap[ext] || 'application/octet-stream' : 'application/octet-stream';
-}
-
-function getDocIcon(name: string) {
-  const ext = name.split('.').pop()?.toLowerCase();
-  switch (ext) {
-    case 'pdf': return FileText;
-    case 'xlsx': case 'xls': case 'csv': case 'ods': return FileSpreadsheet;
-    case 'pptx': case 'ppt': case 'odp': return FileBarChart;
-    default: return FileType;
-  }
-}
+const OFFICE_FILE_RE = /\.(docx|xlsx|pptx)$/i;
 
 function relativeTimeLabel(timestamp?: number | string | null, now = Date.now()): string {
   if (timestamp === undefined || timestamp === null) return '尚未更新';
@@ -391,8 +262,6 @@ function parseToolHint(
       'write',
     ],
     [/(?:edit_docx|append_xlsx)\s*\(\s*["'](.+?)["']\s*\)/i, 'edit'],
-    // Office tool success: "Created: file.xlsx (3 sheet(s))"
-    [/^(?:Created|Appended):\s+(.+?\.\w{1,6})(?:\s*\(.*\))?$/i, 'write'],
     // Generic fallback: any mention of a path-like string after a colon
     [/(?:file|path)[:\s]+([^\s,]+\.[a-zA-Z]{1,6})/i, 'read'],
   ];
@@ -639,102 +508,28 @@ function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[
   }, [] as Message[]);
 }
 
-/** File-operation tool names shared between progress-hint parsing and
- *  onFinal tool_call tracking. Keep in sync with the backends that
- *  produce file paths. */
-const _FILE_WRITE_TOOLS = [
-  'write_file',
-  'edit_file',
-  'delete_file',
-  'apply_patch',
-  'create_docx',
-  'create_xlsx',
-  'create_pptx',
-  'docx_write',
-  'xlsx_write',
-  'pptx_write',
-  'edit_docx',
-  'append_xlsx',
-  'skill_manage',
-];
-const _FILE_READ_TOOLS = ['read_file'];
-
-/** Extract a file path from a JSON-stringified tool args object.
- *  Checks common keys: path, file_path, filename.
- *  For skill_manage, derives the SKILL.md path from the skill name. */
-function _extractPathFromArgs(argsStr: string): string | null {
-  try {
-    const args = JSON.parse(argsStr);
-    if (args.name && (args.action === 'create' || args.action === 'patch')) {
-      return `skills/${args.name}/SKILL.md`;
-    }
-    return (args.path as string) || (args.file_path as string) || (args.filename as string) || null;
-  } catch {
-    return null;
-  }
-}
-
-/** Parse tracked files from raw session messages.
- *  Handles three formats:
- *  1. _tool_hint metadata (from progress events, persisted by some backends)
- *  2. tool_calls array on assistant messages (raw provider format)
- *  3. name field on tool result messages (raw provider format)
- */
+/** Parse tracked files from raw session messages (includes progress entries with _tool_hint). */
 function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
   const fileMap = new Map<string, TrackedFile>();
   const rank: Record<TrackedFile['op'], number> = { read: 0, edit: 1, write: 2, delete: 3 };
 
-  const upsert = (path: string, op: TrackedFile['op'], timestamp?: string) => {
-    const key = path.replace(/\\/g, '/');
-    const existing = fileMap.get(key);
-    if (!existing || rank[op] > rank[existing.op]) {
-      fileMap.set(key, {
-        path: key,
-        name: basename(key),
-        op,
-        lastSeen: timestamp ? new Date(timestamp).getTime() : Date.now(),
-        truncated: false,
-      });
-    }
-  };
-
   for (const msg of rawMsgs) {
-    // Format 1: _tool_hint metadata (persisted progress events)
+    // Prefer _tool_hint_text (full path, from persisted session) over content (may be truncated)
     const hintText = msg._tool_hint_text || msg.content;
     if (msg._tool_hint && hintText) {
       const parsed = parseToolHint(hintText);
       if (parsed) {
-        upsert(parsed.path, parsed.op, msg.timestamp);
-      }
-    }
-
-    // Format 2: assistant messages with tool_calls array
-    if (Array.isArray(msg.tool_calls)) {
-      for (const tc of msg.tool_calls) {
-        const fn = tc?.function || tc?.tool?.function || {};
-        const toolName: string = fn?.name || '';
-        if (!toolName) continue;
-        const argsStr: string = fn?.arguments || '{}';
-        const filePath = _extractPathFromArgs(argsStr);
-        if (!filePath) continue;
-        if (_FILE_WRITE_TOOLS.includes(toolName)) {
-          upsert(filePath, toolName === 'delete_file' ? 'delete' : 'write', msg.timestamp);
-        } else if (_FILE_READ_TOOLS.includes(toolName)) {
-          upsert(filePath, 'read', msg.timestamp);
+        const key = parsed.path;
+        const existing = fileMap.get(key);
+        if (!existing || rank[parsed.op] > rank[existing.op]) {
+          fileMap.set(key, {
+            path: key,
+            name: basename(key),
+            op: parsed.op,
+            lastSeen: msg.timestamp ? new Date(msg.timestamp).getTime() : Date.now(),
+            truncated: parsed.truncated,
+          });
         }
-      }
-    }
-
-    // Format 3: tool result messages with name field
-    if (msg.role === 'tool' && msg.name) {
-      const toolName: string = msg.name;
-      // Try to extract path from content (often contains the file path)
-      const contentPath = parseToolHint(String(msg.content || ''));
-      if (contentPath) {
-        upsert(contentPath.path, contentPath.op, msg.timestamp);
-      } else if (_FILE_WRITE_TOOLS.includes(toolName)) {
-        // Tool result without parsable content — try to infer from tool name
-        // (best-effort; actual path is in the paired assistant tool_calls message)
       }
     }
   }
@@ -748,7 +543,6 @@ export function ChatConsole({
   onNewSession,
   onChatFinished,
   onOpenProviderSettings,
-  onOpenApprovals,
 }: {
   sessionKey?: string;
   /** Increment to force a session history reload (e.g. after bridge becomes ready) */
@@ -756,13 +550,11 @@ export function ChatConsole({
   onNewSession?: (newKey: string) => void;
   onChatFinished?: () => void;
   onOpenProviderSettings?: () => void;
-  onOpenApprovals?: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionUpdatedAt, setSessionUpdatedAt] = useState<string | null>(null);
   const [clockTick, setClockTick] = useState(() => Date.now());
   const [input, setInput] = useState('');
-  const [executionPolicy, setExecutionPolicy] = useState<ExecutionPolicy>('edit');
   const [streaming, setStreaming] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -779,11 +571,8 @@ export function ChatConsole({
 
   useEffect(() => {
     let cancelled = false;
-    let inFlight = false; // prevent overlapping polls when bridge is slow (#311)
     const loadActivePlugins = async () => {
-      if (inFlight) return; // skip if previous request still pending
       try {
-        inFlight = true;
         const result = await window.miqi.plugins.list();
         const plugins = (result as unknown as { plugins?: Array<{ status?: string }> })?.plugins;
         if (!cancelled) {
@@ -791,8 +580,6 @@ export function ChatConsole({
         }
       } catch {
         if (!cancelled) setActivePluginCount(0);
-      } finally {
-        inFlight = false;
       }
     };
 
@@ -842,7 +629,7 @@ export function ChatConsole({
   /** files touched by the agent during this session */
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([]);
   /** preview modal */
-  const [previewFile, setPreviewFile] = useState<{ path: string; content: string; dataBase64?: string } | null>(null);
+  const [previewFile, setPreviewFile] = useState<{ path: string; content: string } | null>(null);
   /** diff modal */
   const [diffFile, setDiffFile] = useState<{
     path: string;
@@ -858,36 +645,6 @@ export function ChatConsole({
   const [execOutputs, setExecOutputs] = useState<
     Record<string, { stdout: string; stderr: string; running: boolean }>
   >({});
-  // When false, suppress the bordered inline terminal box for exec outputs.
-  // Stored under desktop.ui.inlineExecOutput (opaque desktop-owned settings).
-  // Defaults to false to avoid empty-box artifacts when sandbox policy strips
-  // stdout/stderr (see issue surfaced after #339).
-  const [inlineExecOutput, setInlineExecOutput] = useState(false);
-  useEffect(() => {
-    window.miqi.config
-      ?.get()
-      ?.then((cfg: any) => {
-        if (cfg?.desktop?.ui?.inlineExecOutput === true) setInlineExecOutput(true);
-      })
-      .catch(() => {});
-  }, []);
-
-  // Refetch when window regains focus, so toggling the setting in the
-  // Settings page takes effect without a full app reload.
-  useEffect(() => {
-    const refetch = () => {
-      window.miqi.config
-        ?.get()
-        ?.then((cfg: any) => setInlineExecOutput(cfg?.desktop?.ui?.inlineExecOutput === true))
-        .catch(() => {});
-    };
-    window.addEventListener('focus', refetch);
-    document.addEventListener('visibilitychange', refetch);
-    return () => {
-      window.removeEventListener('focus', refetch);
-      document.removeEventListener('visibilitychange', refetch);
-    };
-  }, []);
   const [merging, setMerging] = useState(false);
   const [activePluginCount, setActivePluginCount] = useState(0);
   const [shareStatus, setShareStatus] = useState<'idle' | 'copied' | 'exported' | 'context'>(
@@ -898,13 +655,23 @@ export function ChatConsole({
   const justOpened = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const previewJustClosed = useRef(false);
   const unsubsRef = useRef<Array<() => void>>([]);
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shareFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef(sessionKey);
   // Track the active thread ID for new-protocol thread-aware conversations
   const currentThreadIdRef = useRef<string | null>(null);
+  interface InFlightEvent {
+    type: "progress" | "final" | "error" | "aborted";
+    data: unknown;
+    timestamp: number;
+  }
+  interface InFlightSnapshot {
+    events: InFlightEvent[];
+    userMsgTimestamp: number;
+  }
+  const inFlightCacheRef = useRef<Map<string, InFlightSnapshot>>(new Map());
+  const fullContentRef = useRef('');
 
   // ── Thread tabs for multi-agent support ──
   interface ThreadTab {
@@ -990,20 +757,14 @@ export function ChatConsole({
   }, []);
 
   useEffect(() => {
-    // Tear down any in-flight stream listeners from a previous session
-    // before updating the ref.  This makes the per-handler session_key
-    // guard a defence-in-depth measure rather than the sole mechanism.
-    cleanupListeners();
+    setStreaming(false);
+    setCurrentReqId(null);
     currentSessionRef.current = sessionKey;
     currentThreadIdRef.current = null; // Reset on session change
     setHistoryLoaded(false);
     setMessages([]);
     setSessionUpdatedAt(null);
-    // NOTE: do NOT clear trackedFiles here — clearing before the async
-    // load completes causes a flash of "No files yet" on every session
-    // switch.  If the bridge is not ready yet, sendSafe returns null and
-    // we would permanently lose the display.  Instead we replace atomically
-    // inside load() after the bridge responds.
+    setTrackedFiles([]);
     justOpened.current = true;
     userScrolledUp.current = false; // reset for new session
     const load = async () => {
@@ -1013,34 +774,53 @@ export function ChatConsole({
         const rawMsgs: any[] = (detail as any)?.messages ?? [];
         const uiMsgs = sessionMsgsToUi(rawMsgs);
         setMessages(uiMsgs);
+        var cached = inFlightCacheRef.current.get(sessionKey);
+        if (cached && cached.events.length > 0) {
+          setStreaming(true);
+          for (var _j = 0; _j < cached.events.length; _j++) {
+            var _ev = cached.events[_j];
+            if (_ev.type === "progress") {
+              var _pd = _ev.data as any;
+              if (_pd?.text && !_pd?.stream) {
+                setMessages(function(_prev) { return _prev.concat([{ role: "progress", content: _pd.text, timestamp: Date.now() }]); });
+              }
+            } else if (_ev.type === "final") {
+              var _fd = _ev.data as any;
+              setMessages(function(_prev) {
+                var _cl = _prev.filter(function(_m) { return _m.role !== "progress" || _m.toolHint; });
+                var _lu = _cl[_cl.length - 1];
+                if (_lu?.role === "user" && _fd?.content) {
+                  return _cl.concat([{ role: "assistant", content: _fd.content, timestamp: _lu.timestamp + 1 }]);
+                }
+                return _cl;
+              });
+              setStreaming(false);
+            } else if (_ev.type === "error") {
+              var _ed = _ev.data as any;
+              setMessages(function(_prev) { return _prev.concat([{ role: "error", content: _ed?.message || "Unknown error", timestamp: Date.now() }]); });
+              setStreaming(false);
+            } else if (_ev.type === "aborted") {
+              setMessages(function(_prev) { return _prev.concat([{ role: "progress", content: "已停止。", timestamp: Date.now() }]); });
+              setStreaming(false);
+            }
+          }
+          inFlightCacheRef.current.delete(sessionKey);
+        }
         setSessionUpdatedAt((detail as any)?.updated_at ?? null);
         // Restore tracked files from dedicated tracked_files.json
-        let tfList: any[] = [];
-        try {
-          const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
-          if (currentSessionRef.current !== sessionKey) return;
-          tfList = (tfResult as any)?.tracked_files ?? [];
-        } catch {
-          // backend failure is non-fatal — fall through to message extraction
-        }
-        // Also extract tracked files from session messages (fallback when
-        // tracked_files.json is empty — agent tools don't persist there).
-        const fromMessages = extractTrackedFilesFromMessages(rawMsgs);
-        // Merge: backend data takes priority, messages fill gaps
-        const mergedMap = new Map<string, TrackedFile>();
-        for (const f of fromMessages) mergedMap.set(f.path, f);
-        for (const f of tfList as any[]) {
-          const normPath = (f.path as string).replace(/\\/g, '/');
-          mergedMap.set(normPath, {
-            path: normPath,
+        const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
+        if (currentSessionRef.current !== sessionKey) return;
+        const tfList = (tfResult as any)?.tracked_files ?? [];
+        setTrackedFiles(
+          tfList.map((f: any) => ({
+            path: f.path,
             name: f.name,
             op: f.op,
             lastSeen: f.lastSeen,
-          });
-        }
-        setTrackedFiles(Array.from(mergedMap.values()));
-      } catch (err) {
-        console.warn('[ChatConsole] Failed to load session data:', err);
+          }))
+        );
+      } catch {
+        /* session doesn't exist yet */
       }
       setHistoryLoaded(true);
     };
@@ -1084,7 +864,12 @@ export function ChatConsole({
   // when the main chat completes, because subagents finish asynchronously.
   useEffect(() => {
     const unsub = window.miqi.chat.onSubagentResult((data: ChatSubagentResult) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      if (data.session_key && data.session_key !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(data.session_key);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(data.session_key, buf); }
+        buf.events.push({ type: "progress", data, timestamp: Date.now() });
+        return;
+      }
       const statusIcon = data.status === 'ok' ? '✅' : '❌';
       const label = data.label || data.task_id;
       const content = `${statusIcon} Subagent "${label}" ${data.status === 'ok' ? 'completed' : 'failed'}:\n\n${data.result}`;
@@ -1128,57 +913,8 @@ export function ChatConsole({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     Array.from(e.target.files ?? []).forEach((file) => {
       const isImage = file.type.startsWith('image/');
-      const isDocument = DOCUMENT_SUFFIXES_RE.test(file.name);
-      const isTextLike = TEXT_SUFFIXES_RE.test(file.name) || file.type.startsWith('text/');
-
-      if (isTextLike && !isDocument) {
-        // Plain text files — read directly as text
-        const reader = new FileReader();
-        reader.onload = () =>
-          setAttachments((prev) => [
-            ...prev,
-            { name: file.name, type: 'text', content: reader.result as string, size: file.size },
-          ]);
-        reader.readAsText(file);
-      } else if (isTextLike && isDocument) {
-        // Markdown/text files detected as documents — read as text AND as base64 for server fallback
-        const reader = new FileReader();
-        reader.onload = () => {
-          const base64 = (reader.result as string).split(',')[1];
-          const textContent = new TextDecoder().decode(Uint8Array.from(atob(base64), c => c.charCodeAt(0)));
-          setAttachments((prev) => [
-            ...prev,
-            {
-              name: file.name, type: 'document', dataBase64: base64,
-              content: textContent, dataUrl: reader.result as string,
-              size: file.size, mimeType: file.type || getMimeTypeFromName(file.name),
-              status: 'pending' as const,
-            },
-          ]);
-        };
-        reader.readAsDataURL(file);
-      } else if (isDocument) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const base64 = (reader.result as string).split(',')[1];
-          const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-          // PDF/MD/text parse instantly client-side → done; Office needs server → pending
-          const isOffice = /^(docx|doc|pptx|ppt|xlsx|xls|odt|odp|ods)$/i.test(ext);
-          const parseStatus: Attachment['status'] = isOffice ? 'pending' : 'done';
-
-          setAttachments((prev) => [
-            ...prev,
-            {
-              name: file.name, type: 'document', dataUrl: reader.result as string,
-              dataBase64: base64, size: file.size,
-              mimeType: file.type || getMimeTypeFromName(file.name),
-              status: parseStatus,
-            },
-          ]);
-        };
-        reader.readAsDataURL(file);
-      } else if (isImage) {
-        const reader = new FileReader();
+      const reader = new FileReader();
+      if (isImage) {
         reader.onload = () =>
           setAttachments((prev) => [
             ...prev,
@@ -1268,39 +1004,10 @@ export function ChatConsole({
     setCurrentReqId(reqId);
 
     let content = text;
-
-    // Build message content with embedded document text
     for (const att of attachments) {
-      if (att.type === 'text' && att.content) {
-        content += `\n\n[File: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\``;
-      } else if (att.type === 'image' && att.dataUrl) {
-        content += `\n\n[Image: ${att.name}]`;
-      } else if (att.type === 'document' && att.dataBase64) {
-        // Decode and extract text client-side
-        try {
-          const raw = Uint8Array.from(atob(att.dataBase64), c => c.charCodeAt(0));
-          let extracted = '';
-          const ext = att.name.split('.').pop()?.toLowerCase() ?? '';
-
-          if (ext === 'pdf') {
-            extracted = extractPdfText(raw.buffer);
-          } else if (ext === 'md' || ext === 'markdown' || ext === 'mdown' || ext === 'txt') {
-            extracted = new TextDecoder().decode(raw);
-          } else if (ext === 'csv' || ext === 'json' || ext === 'yaml' || ext === 'yml' || ext === 'xml') {
-            extracted = new TextDecoder().decode(raw);
-          }
-
-          if (extracted && extracted.trim()) {
-            content += `\n\n--- ${att.name} ---\n${extracted.slice(0, 50000)}\n--- End of ${att.name} ---`;
-          } else if (ext === 'pdf') {
-            content += `\n\n[${att.name}: scanned PDF — OCR will be attempted by the server]`;
-          } else {
-            content += `\n\n[${att.name}: binary file, server will parse]`;
-          }
-        } catch {
-          content += `\n\n[${att.name}: ${formatFileSize(att.size)} — parsing on server]`;
-        }
-      }
+      if (att.type === 'text' && att.content)
+        content += `\n\n[Attachment: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\``;
+      else if (att.type === 'image' && att.dataUrl) content += `\n\n[Image: ${att.name}]`;
     }
 
     const userMsg: Message = {
@@ -1309,6 +1016,10 @@ export function ChatConsole({
       attachments: [...attachments],
       timestamp: Date.now(),
     };
+    inFlightCacheRef.current.set(currentSessionRef.current, {
+      events: [],
+      userMsgTimestamp: userMsg.timestamp,
+    });
     setMessages((prev) => [...prev, userMsg]);
     userScrolledUp.current = false; // user sent a message — resume auto-scroll
     setInput('');
@@ -1319,12 +1030,11 @@ export function ChatConsole({
       }
     }, 0);
     setAttachments([]);
-    // Save a snapshot before clearing — chat.send needs it later
-    const sentAttachments = [...attachments];
     setStreaming(true);
     cleanupListeners();
 
     let fullContent = '';
+    fullContentRef.current = '';
     let displayed = '';
     let animId: number | null = null;
     let finalDone = false;
@@ -1411,24 +1121,13 @@ export function ChatConsole({
     };
 
     const unsubProgress = window.miqi.chat.onProgress((data: ChatProgress) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
-      lastEventAt = Date.now();
-
-      // ── Document progress events ───────────────────────────────
-      if (data.type === 'doc_progress' && data.file) {
-        setAttachments((prev) =>
-          prev.map((a) => {
-            if (a.name !== data.file || a.type !== 'document') return a;
-            const stage = data.stage ?? 'parsing';
-            const status = stage === 'ready' || stage === 'done' ? 'done'
-              : stage === 'error' ? 'error'
-              : 'parsing';
-            return { ...a, status, parseError: status === 'error' ? (data.message ?? '') : a.parseError };
-          })
-        );
+      if (data.session_key && data.session_key !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(data.session_key);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(data.session_key, buf); }
+        buf.events.push({ type: "final", data, timestamp: Date.now() });
         return;
       }
-
+      lastEventAt = Date.now();
       // Handle stream deltas from exec (Phase 7 inline tool progress)
       if (data.stream && data.delta && data.tool_call_id) {
         const stream = data.stream;
@@ -1509,13 +1208,19 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      if (data.session_key && data.session_key !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(data.session_key);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(data.session_key, buf); }
+        buf.events.push({ type: "error", data, timestamp: Date.now() });
+        return;
+      }
       clearFinalCleanupTimer();
       if (animId !== null) {
         cancelAnimationFrame(animId);
         animId = null;
       }
       fullContent = data.content;
+      fullContentRef.current = fullContent;
       displayed = '';
       finalDone = true;
       setCurrentReqId(null);
@@ -1524,11 +1229,33 @@ export function ChatConsole({
         // Office tools (create_docx, etc.) don't always produce progress
         // hints that match parseToolHint patterns, so we extract file
         // paths directly from the final tool call list.
+        const _FILE_WRITE_TOOLS = [
+          'write_file',
+          'edit_file',
+          'delete_file',
+          'apply_patch',
+          'create_docx',
+          'create_xlsx',
+          'create_pptx',
+          'docx_write',
+          'xlsx_write',
+          'pptx_write',
+          'edit_docx',
+          'append_xlsx',
+        ];
+        const _FILE_READ_TOOLS = ['read_file'];
         for (const tc of (data.tool_calls ?? []) as any[]) {
           const fn = tc?.function || tc?.tool?.function || {};
           const toolName: string = fn?.name || '';
           if (!toolName) continue;
-          const filePath: string = _extractPathFromArgs(fn?.arguments || '{}') || '';
+          let args: Record<string, unknown> = {};
+          try {
+            args = JSON.parse(fn?.arguments || '{}');
+          } catch {
+            continue;
+          }
+          const filePath: string =
+            (args.path as string) || (args.file_path as string) || (args.filename as string) || '';
           if (!filePath) continue;
           if (_FILE_WRITE_TOOLS.includes(toolName)) {
             trackFile(filePath, 'write', false);
@@ -1576,7 +1303,7 @@ export function ChatConsole({
       const message = sanitizeUiMessage(data.message);
       setMessages((prev) => [
         ...prev,
-        isProviderConfigurationProblem(message, data.code)
+        isProviderConfigurationProblem(message)
           ? createProviderConfigMessage(message)
           : { role: 'error', content: message, timestamp: Date.now() },
       ]);
@@ -1586,7 +1313,12 @@ export function ChatConsole({
     });
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
-      if (_data.session_key && _data.session_key !== currentSessionRef.current) return;
+      if (_data.session_key && _data.session_key !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(_data.session_key);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(_data.session_key, buf); }
+        buf.events.push({ type: "aborted", data: _data, timestamp: Date.now() });
+        return;
+      }
       if (animId !== null) cancelAnimationFrame(animId);
       setStreaming(false);
       setCurrentReqId(null);
@@ -1605,19 +1337,17 @@ export function ChatConsole({
       let threadId = currentThreadIdRef.current;
       if (threadId == null) {
         try {
-          const title = (text || '新会话').trim().slice(0, 60);
-          // Non-blocking: start thread with a timeout so chat.send
+          const title = (text || 'New conversation').trim().slice(0, 60);
+          // Non-blocking: start thread with a short timeout so chat.send
           // isn't delayed by a slow bridge restart.  Falls through to
           // chat.send without thread_id on failure.
-          // 30s timeout gives sandbox first-init (WSL apt-get 60-120s)
-          // a better chance without holding up the UI forever (#311).
           const threadResult = await Promise.race([
             window.miqi.threads.start({
               title,
               session_key: currentSessionRef.current,
             }),
             new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('thread/start timeout')), 30_000)
+              setTimeout(() => reject(new Error('thread/start timeout')), 5000)
             ),
           ]);
           // Extract thread id from the result
@@ -1635,45 +1365,7 @@ export function ChatConsole({
 
       const key =
         activeThreadId === 'main' ? currentSessionRef.current : `desktop:${activeThreadId}`;
-      const chatAttachments = sentAttachments
-        .filter(a => a.type === 'document' && a.dataBase64)
-        .map(a => ({ name: a.name, data_base64: a.dataBase64, mime_type: a.mimeType }));
-
-      // Mark all doc attachments as parsing
-      if (sentAttachments.some(a => a.type === 'document')) {
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === 'user' && last.attachments) {
-            const updated = last.attachments.map(a =>
-              a.type === 'document' ? { ...a, status: 'parsing' as const } : a
-            );
-            return [...prev.slice(0, -1), { ...last, attachments: updated }];
-          }
-          return prev;
-        });
-      }
-
-      // Fire send — server parses synchronously in _chat_send_handler
-      const sendPromise = window.miqi.chat.send(content, key, threadId ?? undefined, executionPolicy,
-        chatAttachments.length > 0 ? chatAttachments : undefined);
-
-      // Mark as done after a tick — server parsing is synchronous, already complete
-      if (sentAttachments.some(a => a.type === 'document')) {
-        setTimeout(() => {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === 'user' && last.attachments) {
-              const updated = last.attachments.map(a =>
-                a.type === 'document' && a.status === 'parsing' ? { ...a, status: 'done' as const } : a
-              );
-              return [...prev.slice(0, -1), { ...last, attachments: updated }];
-            }
-            return prev;
-          });
-        }, 100);
-      }
-
-      await sendPromise;
+      await window.miqi.chat.send(content, key, threadId ?? undefined);
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
       if (streamErrorHandled) {
@@ -1683,7 +1375,7 @@ export function ChatConsole({
         return;
       }
       const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? 'Unknown error'));
-      if (isProviderConfigurationProblem(errMsg, e?.code)) {
+      if (isProviderConfigurationProblem(errMsg)) {
         setMessages((prev) => [...prev, createProviderConfigMessage(errMsg)]);
       } else if (e?.code) {
         setMessages((prev) => [
@@ -1700,7 +1392,7 @@ export function ChatConsole({
       sendCleanup();
       cleanupListeners();
     }
-  }, [input, attachments, streaming, cleanupListeners, onChatFinished, executionPolicy]);
+  }, [input, attachments, streaming, cleanupListeners, onChatFinished]);
 
   // ── Download paper via chat ─────────────────────────────────────
   const handleDownloadPaper = useCallback(
@@ -1745,35 +1437,31 @@ export function ChatConsole({
   };
 
   const handlePreview = useCallback(async (path: string) => {
-    // For document files, try to parse and show in-app preview first
-    const isDocFile = DOCUMENT_SUFFIXES_RE.test(path);
-    if (isDocFile) {
-      try {
-        const result = await window.miqi.documents.parse(
-          path,
-          currentSessionRef.current,
-          { preview: true }
-        );
-        setPreviewFile({ path, content: result.text });
-        return;
-      } catch {
-        // Fall through to system open
-      }
+    if (OFFICE_FILE_RE.test(path)) {
+      // Open directly with system default app (Word, Excel, PowerPoint) — no modal
+      window.miqi.files.openExternal(path).catch(() => {});
+      return;
     }
-    // Open with system default application as fallback
-    const result = await window.miqi.files.openExternal(path);
-    if (!result?.opened) {
-      setPreviewFile({ path, content: `(Could not open file: ${path})` });
+    try {
+      const result = await window.miqi.files.read(path);
+      if (result.is_binary) {
+        setPreviewFile({
+          path,
+          content:
+            'Binary file. Text preview is not available for this file type.\n\nUse the button below to open it with your system default application.',
+        });
+      } else {
+        setPreviewFile({
+          path,
+          content: result.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
+        });
+      }
+    } catch {
+      setPreviewFile({ path, content: `(Could not read file: ${path})` });
     }
   }, []);
 
-  const closePreview = useCallback((e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    e?.preventDefault();
-    previewJustClosed.current = true;
-    setPreviewFile(null);
-    setTimeout(() => { previewJustClosed.current = false; }, 300);
-  }, []);
+  const closePreview = () => setPreviewFile(null);
 
   const handleShowDiff = useCallback(async (path: string) => {
     setDiffLoading(true);
@@ -1814,7 +1502,7 @@ export function ChatConsole({
         setTrackedFiles((prev) => prev.filter((f) => f.path !== diffFile.path));
         // Refresh preview if open
         if (previewFile?.path === diffFile.path) {
-          const content = await window.miqi.files.read(diffFile.path, currentSessionRef.current);
+          const content = await window.miqi.files.read(diffFile.path);
           setPreviewFile({
             path: diffFile.path,
             content: content.content ?? '当前文件不是文本内容，无法在聊天预览中显示。',
@@ -1859,39 +1547,6 @@ export function ChatConsole({
     fileInputRef.current.files = dt.files;
     fileInputRef.current.dispatchEvent(new Event('change', { bubbles: true }));
   };
-
-  // Handle clipboard paste for files and images (Ctrl+V)
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.kind !== 'file') continue;
-      const file = item.getAsFile();
-      if (!file) continue;
-      const isDocument = DOCUMENT_SUFFIXES_RE.test(file.name);
-      if (isDocument) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const base64 = (reader.result as string).split(',')[1];
-          const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-          const isOffice = /^(docx|doc|pptx|ppt|xlsx|xls|odt|odp|ods)$/i.test(ext);
-          const parseStatus: Attachment['status'] = isOffice ? 'pending' : 'done';
-          setAttachments((prev) => [...prev, {
-            name: file.name, type: 'document', dataBase64: base64,
-            size: file.size, mimeType: file.type || getMimeTypeFromName(file.name),
-            status: parseStatus,
-          }]);
-        };
-        reader.readAsDataURL(file);
-      } else if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        reader.onload = () =>
-          setAttachments((prev) => [...prev, { name: file.name || 'pasted-image.png', type: 'image', dataUrl: reader.result as string, size: file.size }]);
-        reader.readAsDataURL(file);
-      }
-    }
-  }, []);
 
   const handleCopy = (text: string, idx: number) => {
     navigator.clipboard.writeText(text);
@@ -2026,13 +1681,12 @@ export function ChatConsole({
       className="flex flex-col h-full"
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
-      onPaste={handlePaste}
     >
       <input
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*,text/*,.md,.markdown,.mdown,.txt,.py,.ts,.js,.json,.csv,.yaml,.yml,.toml,.pdf,.docx,.pptx,.xlsx,.doc,.ppt,.xls,.odt,.odp,.ods"
+        accept="image/*,text/*,.md,.txt,.py,.ts,.js,.json,.csv,.yaml,.yml,.toml"
         className="hidden"
         onChange={handleFileChange}
       />
@@ -2130,61 +1784,7 @@ export function ChatConsole({
 
           {/* More menu */}
           <ContextMenu
-            items={[
-              {
-                label: '分享对话',
-                onSelect: () => {
-                  const text = buildTaskShareText({
-                    title: sessionTitle || sessionKey,
-                    meta: sessionKey,
-                    messages,
-                    files: trackedFiles,
-                  });
-                  navigator.clipboard.writeText(text);
-                  showShareFeedback('copied');
-                },
-              },
-              {
-                label: '导出对话',
-                onSelect: () => {
-                  const text = buildTaskShareText({
-                    title: sessionTitle || sessionKey,
-                    meta: sessionKey,
-                    messages,
-                    files: trackedFiles,
-                  });
-                  const link = document.createElement('a');
-                  link.download = getTaskShareDownloadName(sessionTitle || sessionKey);
-                  link.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
-                  link.click();
-                  URL.revokeObjectURL(link.href);
-                  showShareFeedback('exported');
-                },
-              },
-              {
-                label: '归档',
-                divider: true,
-                onSelect: async () => {
-                  try {
-                    await window.miqi.sessions.archive(sessionKey);
-                    handleNewSession();
-                  } catch { /* ignore */ }
-                },
-              },
-              {
-                label: '删除对话',
-                danger: true,
-                onSelect: async () => {
-                  if (!window.confirm('删除此对话？操作不可恢复。')) return;
-                  try {
-                    await window.miqi.sessions.delete(sessionKey);
-                    handleNewSession();
-                  } catch (e) {
-                    console.error('Delete failed:', e);
-                  }
-                },
-              },
-            ]}
+            items={[{ label: '删除对话', danger: true, onSelect: handleDeleteSession }]}
           >
             {({ onContextMenu }) => (
               <Tooltip content="更多对话操作">
@@ -2324,7 +1924,6 @@ export function ChatConsole({
                     key={`${msg.timestamp}-${i}`}
                     msg={msg}
                     execOutputs={execOutputs}
-                    inlineExecOutput={inlineExecOutput}
                     isLast={i === messages.length - 1}
                     onCopy={(text) => handleCopy(text, i)}
                     isCopied={copiedIdx === i}
@@ -2358,95 +1957,34 @@ export function ChatConsole({
             <div className="max-w-[760px] mx-auto">
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
-                  {attachments.map((att, i) => {
-                    const isDoc = att.type === 'document';
-                    const cat = isDoc ? getDocCategory(att.name) : null;
-                    const isPending = isDoc && (!att.status || att.status === 'pending');
-                    const isParsing = isDoc && att.status === 'parsing';
-                    const isDone = isDoc && att.status === 'done';
-                    const isError = isDoc && att.status === 'error';
-
-                    return (
-                      <div
-                        key={i}
-                        className="flex items-center gap-2 rounded-lg pl-2 pr-1.5 py-1.5 text-xs group max-w-[240px] cursor-pointer hover:brightness-95 transition-all"
-                        style={{
-                          background: (isDoc && cat) ? cat.bg : 'var(--surface-muted)',
-                          border: `1px solid ${(isDoc && cat) ? cat.color + '40' : 'var(--border-subtle)'}`,
-                        }}
-                        onClick={async () => {
-                          if (previewJustClosed.current) return;
-                          if (!isDoc || !att.dataBase64) return;
-                          const ext = att.name.split('.').pop()?.toLowerCase() ?? '';
-                          let previewText = '';
-
-                          // Client-side extraction only (fast, no server round-trip)
-                          try {
-                            const raw = Uint8Array.from(atob(att.dataBase64), c => c.charCodeAt(0));
-                            if (ext === 'pdf') {
-                              previewText = extractPdfText(raw.buffer);
-                            } else if (/^(md|markdown|mdown|txt|csv|json|ya?ml|xml|py|ts|js|log)$/i.test(ext)) {
-                              previewText = new TextDecoder().decode(raw);
-                            } else {
-                              previewText = '(Office 文件 —— 发送后服务端解析)';
-                            }
-                          } catch {
-                            previewText = '(无法预览)';
-                          }
-                          if (!previewText || !previewText.trim()) {
-                            previewText = '(扫描件或二进制文件，无文本内容)';
-                          }
-                          setPreviewFile({ path: att.name, content: previewText.slice(0, 50000), dataBase64: att.dataBase64 });
-                        }}
+                  {attachments.map((att, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs max-w-[200px]"
+                      style={{
+                        background: 'var(--surface-muted)',
+                        border: '1px solid var(--border-subtle)',
+                        color: 'var(--text-muted)',
+                      }}
+                    >
+                      {att.type === 'image' ? (
+                        <Image size={12} className="shrink-0" style={{ color: 'var(--info)' }} />
+                      ) : (
+                        <FileText
+                          size={12}
+                          className="shrink-0"
+                          style={{ color: 'var(--text-faint)' }}
+                        />
+                      )}
+                      <span className="truncate">{att.name}</span>
+                      <button
+                        onClick={() => removeAttachment(i)}
+                        className="shrink-0 hover:text-[var(--danger)]"
                       >
-                        {/* File type badge */}
-                        {isDoc && cat ? (
-                          <span
-                            className="shrink-0 rounded font-bold text-[10px] px-1.5 py-0.5 leading-none"
-                            style={{ background: cat.color, color: '#fff' }}
-                          >
-                            {cat.label}
-                          </span>
-                        ) : att.type === 'image' ? (
-                          <Image size={14} className="shrink-0" style={{ color: 'var(--info)' }} />
-                        ) : (
-                          <FileText size={14} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
-                        )}
-
-                        {/* Name + size */}
-                        <div className="flex flex-col min-w-0 leading-tight">
-                          <span className="truncate font-medium" style={{ color: 'var(--text)' }}>
-                            {att.name.length > 28 ? att.name.slice(0, 25) + '…' + att.name.slice(-4) : att.name}
-                          </span>
-                          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                            {formatFileSize(att.size)}
-                            {isDoc && isParsing && ' · 解析中…'}
-                            {isDoc && isDone && ' · 已就绪'}
-                            {isDoc && isError && ' · 解析失败'}
-                          </span>
-                        </div>
-
-                        {/* Status icon — only after send */}
-                        {isDoc && isParsing && (
-                          <Loader2 size={13} className="shrink-0 animate-spin" style={{ color: cat?.color ?? 'var(--text-faint)' }} />
-                        )}
-                        {isDoc && isDone && (
-                          <CheckCircle size={13} className="shrink-0" style={{ color: '#22c55e' }} />
-                        )}
-                        {isDoc && isError && (
-                          <AlertCircle size={13} className="shrink-0" style={{ color: '#ef4444' }} />
-                        )}
-
-                        {/* Remove */}
-                        <button
-                          onClick={() => removeAttachment(i)}
-                          className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[rgba(0,0,0,0.1)] rounded p-0.5"
-                        >
-                          <X size={11} style={{ color: 'var(--text-faint)' }} />
-                        </button>
-                      </div>
-                    );
-                  })}
+                        <X size={11} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -2460,7 +1998,6 @@ export function ChatConsole({
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
-                <ExecutionPolicySelector policy={executionPolicy} onChange={setExecutionPolicy} disabled={streaming} onOpenApprovals={onOpenApprovals} />
                 <button
                   onClick={handleAttachClick}
                   className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
@@ -2477,7 +2014,7 @@ export function ChatConsole({
                     adjustTextareaHeight();
                   }}
                   onKeyDown={handleKeyDown}
-                  placeholder="输入消息或拖入文件..."
+                  placeholder="Ask Agent to analyze or edit files..."
                   rows={1}
                   allowResize={true}
                   className="flex-1 border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 text-sm"
@@ -2559,7 +2096,7 @@ export function ChatConsole({
           >
             {/* Resize handle — left edge */}
             <div
-              onMouseDown={handlePanelResizeStart}
+            onMouseDown={handlePanelResizeStart}
               className="absolute top-0 left-0 w-1.5 h-full cursor-col-resize hover:bg-[var(--accent)]/30 transition-colors z-10"
               style={{ marginLeft: -2 }}
             />
@@ -2570,7 +2107,7 @@ export function ChatConsole({
               <div className="flex items-center gap-1.5">
                 <LayoutGrid size={13} style={{ color: 'var(--text-muted)' }} />
                 <span className="text-xs font-semibold" style={{ color: 'var(--text)' }} data-testid="task-assets-title">
-                  任务资产
+                  Task Assets
                 </span>
               </div>
               <span className="text-xs font-medium" style={{ color: 'var(--text-faint)' }}>
@@ -2583,10 +2120,10 @@ export function ChatConsole({
                 <FileText size={28} style={{ color: 'var(--text-faint)', opacity: 0.35 }} />
                 <div className="flex flex-col items-center gap-1">
                   <p className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }} data-testid="task-assets-empty">
-                    暂无文件
+                    No files yet.
                   </p>
                   <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
-                    Agent 操作会显示在这里
+                    Agent operations will appear here.
                   </p>
                 </div>
               </div>
@@ -2595,7 +2132,7 @@ export function ChatConsole({
                 {/* Written / Edited files → Active for Edit */}
                 {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length > 0 && (
                   <>
-                    <SectionLabel label="编辑中" sectionKey="active-for-edit" />
+                    <SectionLabel label="ACTIVE FOR EDIT" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'write' || f.op === 'edit')
@@ -2614,7 +2151,7 @@ export function ChatConsole({
                 {/* Read files → Referenced Context */}
                 {trackedFiles.filter((f) => f.op === 'read').length > 0 && (
                   <>
-                    <SectionLabel label="引用上下文" sectionKey="referenced-context" />
+                    <SectionLabel label="REFERENCED CONTEXT" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'read')
@@ -2632,7 +2169,7 @@ export function ChatConsole({
                 {/* Deleted files */}
                 {trackedFiles.filter((f) => f.op === 'delete').length > 0 && (
                   <>
-                    <SectionLabel label="已删除" sectionKey="deleted" />
+                    <SectionLabel label="DELETED" />
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       {trackedFiles
                         .filter((f) => f.op === 'delete')
@@ -2663,11 +2200,11 @@ export function ChatConsole({
                       style={{ background: 'var(--warning)' }}
                     />
                     <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
-                      修改建议
+                      Proposed Changes
                     </span>
                   </div>
                   <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
-                    {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length} 个文件
+                    {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length} file(s)
                   </span>
                 </div>
                 <div className="flex flex-col gap-1.5 mb-3">
@@ -2719,32 +2256,32 @@ export function ChatConsole({
               <button
                 onClick={handleMergeAll}
                 disabled={merging || trackedFiles.length === 0}
-                className={cn(
-                  'w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition duration-200',
-                  merging || trackedFiles.length === 0
-                    ? 'cursor-not-allowed'
-                    : 'hover:opacity-90',
-                )}
+                aria-describedby={
+                  trackedFiles.length === 0 ? 'merge-all-disabled-reason' : undefined
+                }
+                title={
+                  trackedFiles.length === 0
+                    ? 'No changed files are available to merge'
+                    : 'Merge all tracked changes'
+                }
+                className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
                 style={{
                   background:
                     merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'var(--accent)',
-                  color: merging || trackedFiles.length === 0 ? 'var(--text-faint)' : 'var(--accent-text)',
-                  opacity: merging || trackedFiles.length === 0 ? 0.5 : 1,
+                  color: merging || trackedFiles.length === 0 ? 'var(--text-faint)' : '#121212',
                 }}
               >
-                {merging ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <GitMerge size={13} />
-                )}
-                {merging ? '合并中...' : '合并所有更改'}
+                {merging ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
+                {merging ? 'MERGING...' : 'MERGE ALL CHANGES'}
               </button>
               {trackedFiles.length === 0 && (
-                <div className="flex items-center justify-center mt-2 py-1.5">
-                  <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
-                    跟踪文件变更后将在此显示合并选项
-                  </span>
-                </div>
+                <p
+                  id="merge-all-disabled-reason"
+                  className="mt-1.5 text-[11px] text-center"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  No changed files are available to merge.
+                </p>
               )}
             </div>
           </div>
@@ -2761,8 +2298,8 @@ export function ChatConsole({
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
-              width: 780,
-              maxHeight: '85vh',
+              width: 680,
+              maxHeight: '80vh',
               background: 'var(--surface-elevated)',
               border: '1px solid var(--border)',
             }}
@@ -2773,15 +2310,7 @@ export function ChatConsole({
               style={{ borderColor: 'var(--border-subtle)' }}
             >
               <div className="flex items-center gap-2 min-w-0 flex-1">
-                {PDF_FILE_RE.test(previewFile.path) ? (
-                  <FileText size={14} style={{ color: '#ef4444' }} className="shrink-0" />
-                ) : /\.(xlsx|xls|csv|ods)$/i.test(previewFile.path) ? (
-                  <FileSpreadsheet size={14} style={{ color: '#22c55e' }} className="shrink-0" />
-                ) : /\.(pptx|ppt|odp)$/i.test(previewFile.path) ? (
-                  <FileBarChart size={14} style={{ color: '#f97316' }} className="shrink-0" />
-                ) : (
-                  <FileType size={14} style={{ color: 'var(--info)' }} className="shrink-0" />
-                )}
+                <FileText size={14} style={{ color: 'var(--info)' }} className="shrink-0" />
                 <span
                   className="text-[11px] font-mono break-all leading-relaxed"
                   style={{ color: 'var(--text-muted)' }}
@@ -2792,19 +2321,9 @@ export function ChatConsole({
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <button
-                  onClick={async () => {
-                    if (previewFile.dataBase64) {
-                      const tmp = `_open_${Date.now()}_${previewFile.path}`;
-                      try {
-                        await window.miqi.files.write(tmp, '', undefined, previewFile.dataBase64);
-                        await window.miqi.files.openExternal(tmp);
-                      } catch { /* fallback */ }
-                    } else {
-                      window.miqi.files.openExternal(previewFile.path);
-                    }
-                  }}
+                  onClick={() => window.miqi.files.openExternal(previewFile.path)}
                   className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors"
-                  title="用系统默认应用打开"
+                  title="Open with system default application"
                 >
                   <ExternalLink size={12} />
                   <span>系统应用打开</span>
@@ -3047,8 +2566,8 @@ function DiffView({ diff }: { diff: string }) {
   );
 }
 
-function SectionLabel({ label, sectionKey }: { label: string; sectionKey: string }) {
-  const testId = `section-label-${sectionKey}`;
+function SectionLabel({ label }: { label: string }) {
+  const testId = `section-label-${label.toLowerCase().replace(/\s+/g, '-')}`;
   return (
     <div
       className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest"
@@ -3077,7 +2596,7 @@ function TrackedFileCard({
   };
   const OpIcon = file.op === 'read' ? BookOpen : file.op === 'delete' ? X : Pencil;
   const displayPath = file.path.replace(/\\/g, '/');
-  const isOfficeFile = OFFICE_FILE_RE_LEGACY.test(file.path);
+  const isOfficeFile = OFFICE_FILE_RE.test(file.path);
 
   return (
     <div
@@ -3146,7 +2665,7 @@ function TrackedFileCard({
                 opacity: isOfficeFile ? 0.55 : 1,
               }}
               title={
-                'Diff is not available for Office binary files'
+                isOfficeFile ? 'Diff is not available for Office binary files' : 'Compare diff'
               }
             >
               <GitCompare size={10} />
@@ -3160,7 +2679,7 @@ function TrackedFileCard({
               border: '1px solid var(--border)',
               color: 'var(--text-muted)',
             }}
-            title={'预览文件'}
+            title={isOfficeFile ? 'Office binary preview is not available' : 'Preview file'}
             data-testid="file-preview-btn"
           >
             <Eye size={10} />
@@ -3175,7 +2694,6 @@ function TrackedFileCard({
 function MessageBubble({
   msg,
   execOutputs,
-  inlineExecOutput,
   isLast,
   onCopy,
   isCopied,
@@ -3186,7 +2704,6 @@ function MessageBubble({
 }: {
   msg: Message;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
-  inlineExecOutput: boolean;
   isLast: boolean;
   onCopy: (text: string) => void;
   isCopied: boolean;
@@ -3237,8 +2754,8 @@ function MessageBubble({
         ) : (
           <span className="whitespace-pre-wrap break-all">{msg.content}</span>
         )}
-        {/* Inline exec output (Phase 7.4) — gated by ui.inlineExecOutput setting */}
-        {inlineExecOutput && msg.toolCallId && execOutputs[msg.toolCallId] && (
+        {/* Inline exec output (Phase 7.4) */}
+        {msg.toolCallId && execOutputs[msg.toolCallId] && (
           <div className="ml-5 mt-1 p-2 bg-black/80 text-green-400 text-[11px] font-mono rounded max-h-48 overflow-y-auto border border-gray-700">
             <pre className="whitespace-pre-wrap">
               {execOutputs[msg.toolCallId].stdout}
@@ -3279,7 +2796,7 @@ function MessageBubble({
             >
               <Settings size={13} />
               {msg.actionLabel ?? '配置 Provider'}
-            </button>
+              </button>
           )}
         </div>
       </div>
@@ -3291,13 +2808,12 @@ function MessageBubble({
       <div className="flex items-start gap-3">
         <GitMerge size={18} style={{ color: 'var(--accent)', marginTop: 6 }} />
         <div
-          className="text-sm rounded-2xl px-4 py-3 prose prose-sm max-w-none break-words overflow-x-auto"
+          className="text-sm rounded-2xl px-4 py-3 prose prose-sm max-w-none break-words"
           style={{
             background: 'var(--surface-muted)',
             color: 'var(--text)',
             border: '1px solid var(--border-subtle)',
             maxWidth: '82%',
-            minWidth: 0,
           }}
         >
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
@@ -3311,15 +2827,15 @@ function MessageBubble({
 
   const contextItems: ContextMenuAction[] = isUser
     ? [
-        { label: '复制文本', onSelect: () => onCopy(msg.content) },
-        { label: '重试', onSelect: () => onRetry?.() },
+        { label: 'Copy text', onSelect: () => onCopy(msg.content) },
+        { label: 'Retry', onSelect: () => onRetry?.() },
       ]
     : [
-        { label: '复制文本', onSelect: () => onCopy(msg.content) },
+        { label: 'Copy text', onSelect: () => onCopy(msg.content) },
         ...(hasCodeBlock
           ? [
               {
-                label: '复制代码',
+                label: 'Copy code',
                 onSelect: () => {
                   const codeMatch = msg.content.match(/```[\s\S]*?```/g);
                   if (codeMatch) {
@@ -3378,58 +2894,6 @@ function MessageBubble({
                   <span>{att.name}</span>
                 </div>
               ))}
-            {/* document attachments */}
-            {msg.attachments
-              ?.filter((a) => a.type === 'document')
-              .map((att, i) => {
-                const cat = getDocCategory(att.name);
-                const isDone = !att.status || att.status === 'done';
-                const isParsing = att.status === 'parsing';
-                return (
-                <div
-                  key={i}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-500"
-                  style={{
-                    background: (isDone && cat) ? cat.bg : 'var(--surface-muted)',
-                    border: `1px solid ${(isDone && cat) ? cat.color + '40' : 'var(--border-subtle)'}`,
-                    color: (isDone && cat) ? cat.color : 'var(--text-muted)',
-                    opacity: isDone ? 1 : 0.7,
-                  }}
-                >
-                  <span className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white" style={{ background: (isDone && cat) ? cat.color : 'var(--text-faint)' }}>
-                    {cat ? cat.label : 'FILE'}
-                  </span>
-                  <span>{att.name} ({formatFileSize(att.size)})</span>
-                  {isParsing && <Loader2 size={11} className="shrink-0 animate-spin" style={{ color: 'var(--text-muted)' }} />}
-                  {isDone && <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />}
-                </div>
-                );
-              })}
-            {/* Historical file chips — extracted from [File: ...] blocks when attachments are missing */}
-            {isUser && (!msg.attachments || msg.attachments.length === 0) && (() => {
-              const { cleanContent, chips } = extractFileChips(msg.content);
-              if (chips.length === 0) return null;
-              // Store clean content for the bubble below
-              (msg as any).__cleanContent = cleanContent;
-              return chips.map((chip, i) => (
-                <div
-                  key={`hist-${i}`}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
-                  style={{
-                    background: chip.category.bg,
-                    border: `1px solid ${chip.category.color}40`,
-                    color: chip.category.color,
-                  }}
-                >
-                  <span className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
-                    style={{ background: chip.category.color }}>
-                    {chip.category.label}
-                  </span>
-                  <span>{chip.name}</span>
-                  <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
-                </div>
-              ));
-            })()}
 
             {/* Main bubble */}
             <div
@@ -3449,7 +2913,7 @@ function MessageBubble({
               ) : msg.role === 'assistant' ? (
                 <MarkdownContent content={msg.content} />
               ) : (
-                renderContent((msg as any).__cleanContent || msg.content)
+                renderContent(msg.content)
               )}
             </div>
 
