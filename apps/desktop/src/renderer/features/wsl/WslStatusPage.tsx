@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   Activity,
   Download,
-  Rocket,
   Circle,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -69,7 +68,6 @@ const INSTALL_STEPS: { phase: string; label: string; icon: typeof CheckCircle2 }
   { phase: 'enabling_features', label: '启用功能', icon: Cpu },
   { phase: 'installing_wsl', label: '安装 WSL', icon: Download },
   { phase: 'installing_distro', label: '安装发行版', icon: Download },
-  { phase: 'provisioning', label: '初始化用户', icon: Rocket },
 ];
 
 const PHASE_INDEX: Record<string, number> = {
@@ -77,8 +75,7 @@ const PHASE_INDEX: Record<string, number> = {
   enabling_features: 0,
   installing_wsl: 1,
   installing_distro: 2,
-  provisioning: 3,
-  complete: 4,
+  complete: 3,
   error: -1,
 };
 

@@ -17,7 +17,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { cn } from '../../lib/utils';
 import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
-import type { WslCheckResult, WslInstallProgress } from '../../../shared/ipc';
+import type { WslCheckResult } from '../../../shared/ipc';
 
 type Step = 'welcome' | 'provider';
 type CheckState<T> = {

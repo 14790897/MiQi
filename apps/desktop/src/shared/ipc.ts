@@ -860,7 +860,6 @@ export interface WslInstallProgress {
     | 'enabling_features'
     | 'installing_wsl'
     | 'installing_distro'
-    | 'provisioning'
     | 'complete'
     | 'error';
   message: string;

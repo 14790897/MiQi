@@ -636,7 +636,7 @@ for m in ("pydantic", "httpx", "loguru"):
         }
         const defaultMatch = output.match(/(?:默认分发|Default Distr?ibution)\s*[:：]\s*(.+)/i);
         if (defaultMatch) defaultDistro = defaultMatch[1].trim();
-        const verMatch = output.match(/(?:默认版本|Default Version)\s*[:：]\s*(\\d+)/i);
+        const verMatch = output.match(/(?:默认版本|Default Version)\s*[:：]\s*(\d+)/i);
         if (verMatch) version = verMatch[1];
       }
     } catch { /* WSL not installed */ }
@@ -898,59 +898,6 @@ for m in ("pydantic", "httpx", "loguru"):
         }
         check.distros = postCheck.distros;
         check.defaultDistro = postCheck.defaultDistro;
-      }
-
-      // ── Step 5: provision user ───────────────────────────────────────
-      if (check.distros.length > 0 && check.featureState !== 'ready') {
-        const distro = check.defaultDistro || check.distros[0];
-
-        safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
-          phase: 'provisioning', message: `正在初始化 ${distro} 用户账户...`,
-        } satisfies WslInstallProgress);
-
-        const user = 'miqi';
-        const pass = 'miqi' + Math.random().toString(36).slice(2, 10);
-        const script = [
-          `id -u ${user} 2>/dev/null && echo 'EXISTS' && exit 0`,
-          `useradd -m -s /bin/bash ${user}`,
-          `echo '${user}:${pass}' | chpasswd`,
-          `adduser ${user} sudo 2>/dev/null || usermod -aG sudo ${user} 2>/dev/null || true`,
-          `printf '[user]\\ndefault=${user}\\n' > /etc/wsl.conf`,
-          `echo "OK:${user}:${pass}"`,
-        ].join(' && ');
-
-        const pr = spawnSync(
-          'wsl.exe', ['-d', distro, '-u', 'root', '--', 'bash', '-c', script],
-          { timeout: 30000, encoding: 'utf8', windowsHide: true }
-        );
-
-        if (pr.status !== 0 || !pr.stdout?.includes('OK:')) {
-          const cu = spawnSync(
-            'wsl.exe', ['-d', distro, '--', 'bash', '-c', 'getent passwd 1000 | cut -d: -f1'],
-            { timeout: 10000, encoding: 'utf8', windowsHide: true }
-          );
-          const existing = cu.stdout?.trim();
-
-          safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
-            phase: 'provisioning',
-            message: existing
-              ? `${distro} 已有用户 ${existing}，无需额外初始化`
-              : `用户初始化失败。请手动启动 WSL: wsl -d ${distro}`,
-            error: existing ? undefined : pr.stderr || 'provision failed',
-          } satisfies WslInstallProgress);
-
-          return {
-            success: !!existing, phase: 'provisioning',
-            error: existing ? undefined : '用户初始化失败',
-            errorCode: existing ? undefined : 'PROVISION_FAILED',
-            nextStep: existing ? undefined : `wsl -d ${distro} 创建用户名和密码后重新检查`,
-          } satisfies WslInstallAndProvisionResult;
-        }
-
-        safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
-          phase: 'provisioning',
-          message: `用户 ${user} 已创建（密码: ${pass}，建议登录后修改）`,
-        } satisfies WslInstallProgress);
       }
 
       // ── Done ────────────────────────────────────────────────────────
