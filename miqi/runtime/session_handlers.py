@@ -263,6 +263,13 @@ async def sessions_delete_handler(
     # Success if runtime was stopped (session may not have been on disk)
     deleted = runtime_was_active or disk_deleted
 
+    # Clean up AppServer event subscriptions for the deleted session.
+    # stop_session() cleans _sessions/_client_sessions/_session_clients but
+    # _subscriptions lives on AppServer — clean it here (#327).
+    app_server = getattr(registry, "bridge_context", {}).get("app_server")
+    if app_server is not None and hasattr(app_server, "_subscriptions"):
+        app_server._subscriptions.pop(sid, None)
+
     logger.info(
         "sessions.delete: {} (key={}, client={})",
         "deleted" if deleted else "not found",
