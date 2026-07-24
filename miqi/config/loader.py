@@ -40,7 +40,7 @@ def load_config(config_path: Path | None = None) -> Config:
     """
     path = config_path or _get_load_path()
     cache_key = (str(path),)
-    now = time.monotonic()
+    now = time.time()
     entry = _cache.get(cache_key)
     if entry is not None:
         ts, cfg = entry

@@ -61,7 +61,7 @@ function AppShell() {
     // (see load_config() cache in miqi/config/loader.py).  Restore
     // the persisted setup flag so the UI becomes interactive immediately.
     try {
-      const stored = localStorage.getItem('miqi:setupCompleted');
+      const stored = localStorage.getItem('miqi:configReady');
       if (stored === 'true') return false;
       if (stored === 'false') return true;
     } catch { /* localStorage unavailable */ }
@@ -105,7 +105,7 @@ function AppShell() {
         const skipSetup = result.config_exists;
         setNeedsSetup(!skipSetup);
         try {
-          localStorage.setItem('miqi:setupCompleted', String(skipSetup));
+          localStorage.setItem('miqi:configReady', String(skipSetup));
         } catch { /* localStorage unavailable */ }
         if (skipSetup) {
           window.miqi.runtime.start().catch(() => {});
@@ -121,7 +121,7 @@ function AppShell() {
     setNeedsSetup(false);
     setCanSkipSetup(false);
     setActiveNav('chat');
-    try { localStorage.setItem('miqi:setupCompleted', 'true'); } catch { /* ignore */ }
+    try { localStorage.setItem('miqi:configReady', 'true'); } catch { /* ignore */ }
   };
 
   const handleNewSession = () => {
