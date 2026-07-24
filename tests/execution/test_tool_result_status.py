@@ -121,7 +121,7 @@ async def test_user_denied_approval_sets_denied_by_user():
 
     result_ctx = await orch.execute(_make_ctx())
 
-    assert result_ctx.result.startswith("用户拒绝：")
+    assert result_ctx.result.startswith("用户已拒绝：")
     assert result_ctx.status is OrchestrationResult.DENIED_BY_USER
     assert result_ctx.status != OrchestrationResult.SUCCESS
 
