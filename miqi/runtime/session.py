@@ -89,8 +89,11 @@ class RuntimeSession:
         available through next_event(). This includes tool-call-begin/end,
         sub-agent-spawned/completed, turn-start/complete, and error events.
         """
-        # Shared event queue — services push into it, consumers read from it
-        events: asyncio.Queue[Any] = asyncio.Queue()
+        # Shared event queue — services push into it, consumers read from it.
+        # 4096 maxsize provides backpressure: a runaway agent that floods
+        # events (e.g. thousands of tool calls) will block at put() instead
+        # of growing the queue unboundedly (#328).
+        events: asyncio.Queue[Any] = asyncio.Queue(maxsize=4096)
 
         services = RuntimeServices.from_config(
             config=config,

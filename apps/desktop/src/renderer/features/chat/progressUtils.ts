@@ -24,7 +24,7 @@ export function extractProgressMessage(
 
   // 1) Direct text is the happy path
   if (payload.text && payload.text.trim()) {
-    if (/^ExecCommand(?:Begin|End)Event$/.test(payload.text.trim())) {
+    if (/^ExecCommand(?:Begin|End|OutputDelta)Event$/i.test(payload.text.trim())) {
       return null;
     }
     return { message: payload.text, role: 'progress' };
@@ -35,12 +35,12 @@ export function extractProgressMessage(
 
   // Exec lifecycle events are internal plumbing. Rendering them as progress
   // rows makes completed commands look like they are still spinning.
-  if (/^ExecCommand(?:Begin|End)Event$/.test(eventName)) {
+  if (/^ExecCommand(?:Begin|End|OutputDelta)Event$/.test(eventName)) {
     return null;
   }
 
   // Exec delta events are streamed inline — skip rendering as standalone rows.
-  if (eventName.includes('outputDelta') || eventName.includes('commandExecution')) {
+  if (eventName.toLowerCase().includes('outputdelta') || eventName.toLowerCase().includes('commandexecution')) {
     return null;
   }
 

@@ -626,7 +626,7 @@ async def test_write_file_deny_by_policy_blocks_execution(orch, mock_orch_compon
     )
     result = await orch.execute(ctx)
 
-    assert "Permission denied" in result.result
+    assert "权限被拒绝" in result.result
     tool_mock.execute.assert_not_called()
 
 
@@ -804,7 +804,7 @@ async def test_write_file_deny_by_orchestrator_does_not_mutate_disk(tmp_path):
     assert test_file.read_text() == "original content", (
         "write_file mutated disk despite deny-by-policy"
     )
-    assert "Permission denied" in result.result
+    assert "权限被拒绝" in result.result
 
 
 # ── AppServer files.* namespace isolation ──────────────────────────────────

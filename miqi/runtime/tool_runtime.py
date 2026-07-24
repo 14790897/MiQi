@@ -38,6 +38,9 @@ class ToolRuntime:
             # Phase 31.4: propagate client/session for approval scoping
             client_id=getattr(turn, "client_id", ""),
             session_id=getattr(turn, "session_id", ""),
+            # Execution policy flags
+            bypass_approval=getattr(turn, "bypass_approval", False),
+            force_approval=getattr(turn, "force_approval", False),
         )
         # Phase 13: pass per-turn permission profile to orchestrator
         permission_profile = getattr(turn, "permission_profile", None)

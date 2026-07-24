@@ -1,7 +1,10 @@
 """Tests for HistoryRuntime — persistent turn and message history."""
 
+from types import SimpleNamespace
+
 import pytest
 
+from miqi.runtime import history_runtime
 from miqi.runtime.history_runtime import HistoryRuntime, HistoryItem
 
 
@@ -97,6 +100,72 @@ async def test_history_runtime_load_messages_formats_for_provider(tmp_path):
     await runtime.close()
 
 
+@pytest.mark.asyncio
+async def test_append_item_rejects_invalid_role(tmp_path):
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+    await runtime.initialize()
+    try:
+        with pytest.raises(ValueError, match="Invalid history role"):
+            await runtime.append_item(HistoryItem(
+                item_id="bad-role",
+                thread_id="thread-1",
+                turn_id="turn-1",
+                role="admin",
+                content="should not persist",
+            ))
+
+        items = await runtime.load_items("thread-1")
+        assert items == []
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_append_item_truncates_large_content_and_payload(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        history_runtime,
+        "MAX_HISTORY_CONTENT_CHARS",
+        32,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        history_runtime,
+        "MAX_HISTORY_PAYLOAD_JSON_CHARS",
+        64,
+        raising=False,
+    )
+
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+    await runtime.initialize()
+    try:
+        await runtime.append_item(HistoryItem(
+            item_id="large-item",
+            thread_id="thread-1",
+            turn_id="turn-1",
+            role="tool",
+            content="x" * 128,
+            payload={"result": "y" * 256},
+        ))
+
+        items = await runtime.load_items("thread-1")
+        assert len(items) == 1
+        item = items[0]
+        assert len(item.content) <= history_runtime.MAX_HISTORY_CONTENT_CHARS
+        assert item.content.endswith("<truncated>")
+        assert item.payload["truncated"] is True
+        assert item.payload["original_size_chars"] > (
+            history_runtime.MAX_HISTORY_PAYLOAD_JSON_CHARS
+        )
+        assert len(item.payload["preview"]) <= (
+            history_runtime.MAX_HISTORY_PAYLOAD_JSON_CHARS
+        )
+    finally:
+        await runtime.close()
+
+
 # ---------------------------------------------------------------------------
 # Phase 19: compaction persistence
 # ---------------------------------------------------------------------------
@@ -155,6 +224,42 @@ async def test_compaction_record_stores_audit_metadata(tmp_path):
     assert row["tokens_saved"] == 50
     assert json.loads(row["replacement_json"]) == [{"role": "system", "content": "[summary]"}]
     await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_compaction_replacement_order_does_not_fall_back_to_item_id(
+    tmp_path,
+    monkeypatch,
+):
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+    await runtime.initialize()
+    try:
+        await runtime.append_message(
+            thread_id="t1", turn_id="a", role="user", content="old"
+        )
+
+        uuids = iter(["compaction-id", "b-system", "a-user"])
+        monkeypatch.setattr(
+            history_runtime,
+            "time",
+            SimpleNamespace(time=lambda: 1000.0),
+        )
+        monkeypatch.setattr(history_runtime.uuid, "uuid4", lambda: next(uuids))
+
+        await runtime.replace_messages_with_compaction(
+            "t1",
+            "compact-1",
+            [
+                {"role": "system", "content": "[summary]"},
+                {"role": "user", "content": "recent message"},
+            ],
+        )
+
+        messages = await runtime.load_messages("t1")
+        assert [message["role"] for message in messages] == ["system", "user"]
+        assert messages[0]["content"] == "[summary]"
+    finally:
+        await runtime.close()
 
 
 # ── Phase 36: history deletion for rollback ──────────────────────────────

@@ -132,7 +132,7 @@ function AppShell() {
           justifyContent: 'center',
           height: '100vh',
           background: 'var(--avatar-dark)',
-          fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
+          fontFamily: 'Inter, "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif',
         }}
       >
         <div
@@ -263,6 +263,10 @@ function AppShell() {
                     onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
                     onOpenProviderSettings={() => {
                       setSettingsTab('providers');
+                      setActiveNav('settings');
+                    }}
+                    onOpenApprovals={() => {
+                      setSettingsTab('approvals');
                       setActiveNav('settings');
                     }}
                   />

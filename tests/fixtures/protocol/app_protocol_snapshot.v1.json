@@ -885,6 +885,21 @@
         "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
         "emits": [],
         "eventSchemas": {},
+        "method": "documents.parse",
+        "paramsSchema": {
+          "type": "object"
+        },
+        "resultSchema": {
+          "type": "object"
+        },
+        "scope": "session",
+        "stability": "legacy"
+      },
+      {
+        "deprecatedBy": null,
+        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "emits": [],
+        "eventSchemas": {},
         "method": "experience:delete",
         "paramsSchema": {
           "type": "object"
@@ -1061,6 +1076,36 @@
         },
         "scope": "connection",
         "stability": "stable"
+      },
+      {
+        "deprecatedBy": null,
+        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "emits": [],
+        "eventSchemas": {},
+        "method": "feedback:list",
+        "paramsSchema": {
+          "type": "object"
+        },
+        "resultSchema": {
+          "type": "object"
+        },
+        "scope": "session",
+        "stability": "legacy"
+      },
+      {
+        "deprecatedBy": null,
+        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "emits": [],
+        "eventSchemas": {},
+        "method": "feedback:submit",
+        "paramsSchema": {
+          "type": "object"
+        },
+        "resultSchema": {
+          "type": "object"
+        },
+        "scope": "session",
+        "stability": "legacy"
       },
       {
         "deprecatedBy": null,
@@ -5310,8 +5355,8 @@
     "source": "miqi.runtime.export_app_protocol_ts.render_typescript_contract"
   },
   "methodCounts": {
-    "legacy": 71,
-    "total": 154,
+    "legacy": 74,
+    "total": 157,
     "typed": 83
   },
   "schemaVersion": 1

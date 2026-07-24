@@ -155,6 +155,10 @@ class TurnRunner:
             if cancel_event is not None and cancel_event.is_set():
                 raise asyncio.CancelledError("Turn cancelled via AbortTurn")
 
+            # Phase 56: hard-trim messages before provider call so we never
+            # send a request that exceeds the model's input token limit.
+            messages = self._context.trim_for_model(messages, turn.model)
+
             # Phase 20: prefer streaming. stream_chat() is a base-class
             # method on LLMProvider so every provider supports it — the
             # default wraps chat() and yields a single "completed" event.
@@ -389,9 +393,9 @@ class TurnRunner:
 
         # Exhausted iterations
         content = (
-            f"Reached maximum iterations ({self._max_iterations}). "
-            f"Tools used: {', '.join(dict.fromkeys(tools_used)) or 'none'}. "
-            f"Try breaking your task into smaller steps."
+            f"已达到最大迭代次数（{self._max_iterations}）。"
+            f"已使用工具：{', '.join(dict.fromkeys(tools_used)) or '无'}。"
+            f"请将任务拆分为更小的步骤重试。"
         )
         messages_delta.append({"role": "assistant", "content": content})
         return TurnResult(
@@ -421,6 +425,7 @@ class TurnRunner:
             workspace=getattr(self._provider, "workspace", Path(".")),
             model=self._provider.get_default_model(),
             provider=self._provider,
+            execution_policy="edit",  # sub-agents default to normal approval flow
             temperature=0.1,
             max_tokens=8192,
         )
@@ -432,6 +437,32 @@ class TurnRunner:
             tools = capabilities.tool_definitions
         else:
             tools = []
+
+        # Execution policy — controls agent autonomy level
+        # Three-layer: system prompt + tool set + approval flags.
+        # Plan: strategist — read-only, proposes approach
+        # Manual: collaborator — all tools, each step confirmed by user
+        # Edit: developer — all tools, safe auto, dangerous ask
+        # Auto: agent — all tools, bypass approval entirely
+
+        from miqi.runtime.tool_policy import PLAN_BLOCKED_TOOLS
+
+        if turn.execution_policy == "plan":
+            tools = [t for t in tools if t.get("name") not in PLAN_BLOCKED_TOOLS]
+            turn.bypass_approval = True  # plan mode tools are safe, deny-list still wins
+        elif turn.execution_policy == "ask":
+            # Legacy ask mode — filter write/exec tools
+            tools = [t for t in tools if t.get("name") not in PLAN_BLOCKED_TOOLS]
+        # manual / edit / auto: all tools available,
+        # differentiation happens at approval layer
+
+        if turn.execution_policy == "auto":
+            turn.bypass_approval = True
+        elif turn.execution_policy == "manual":
+            turn.bypass_approval = False
+            turn.force_approval = True
+        # edit: both flags False → normal approval flow
+        # plan: bypass_approval already set above
 
         return await self.run(
             turn=turn,

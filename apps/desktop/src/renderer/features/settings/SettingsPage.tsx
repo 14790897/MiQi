@@ -21,6 +21,7 @@ import {
   Moon,
   Monitor,
   Trash2,
+  Terminal,
 } from 'lucide-react';
 import { useRuntime } from '../../contexts/RuntimeContext';
 import * as Tabs from '@radix-ui/react-tabs';
@@ -37,6 +38,7 @@ import AgentPanel from '../agents/AgentPanel';
 import { PermissionsPage } from '../permissions/PermissionsPage';
 import { PluginMarket } from '../plugins/PluginMarket';
 import WslStatusPage from '../wsl/WslStatusPage';
+import { FeedbackPage } from '../feedback/FeedbackPage';
 
 export type SettingsTab =
   | 'general'
@@ -56,7 +58,8 @@ export type SettingsTab =
   | 'wsl'
   | 'logs'
   | 'archived'
-  | 'docs';
+  | 'docs'
+  | 'feedback';
 
 // ---- Helpers ----
 function getNestedStr(obj: Record<string, unknown>, ...keys: string[]): string {
@@ -122,9 +125,7 @@ function SandboxToggle() {
             tools: { sandbox: { enabled: next } },
           });
           setEnabled(next);
-          setError(next
-            ? '已保存，重启后生效'
-            : '已保存，重启后生效');
+          setError(next ? '已保存，重启后生效' : '已保存，重启后生效');
           setTimeout(() => setError(null), 4000);
           return;
         } catch {
@@ -145,9 +146,87 @@ function SandboxToggle() {
         className={cn(
           'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
           'disabled:opacity-50',
-          enabled
-            ? 'bg-[var(--accent)]'
-            : 'bg-[var(--border)]',
+          enabled ? 'bg-[var(--accent)]' : 'bg-[var(--border)]'
+        )}
+      >
+        <span
+          className={cn(
+            'inline-block h-4 w-4 rounded-full bg-white transition-transform',
+            enabled ? 'translate-x-6' : 'translate-x-1'
+          )}
+        />
+      </button>
+      <div className="flex items-center gap-1.5">
+        {enabled ? (
+          <Shield size={14} className="text-[var(--accent)]" />
+        ) : (
+          <ShieldOff size={14} className="text-[var(--warning)]" />
+        )}
+        <span
+          className={cn(
+            'text-xs font-medium',
+            enabled ? (ready ? 'text-[var(--accent)]' : 'text-amber-400') : 'text-[var(--warning)]'
+          )}
+          data-testid="sandbox-toggle-label"
+        >
+          {toggling
+            ? enabled
+              ? '正在关闭…'
+              : '正在开启…'
+            : enabled
+              ? ready
+                ? '已开启（推荐）'
+                : '正在安装依赖…'
+              : '已关闭'}
+        </span>
+      </div>
+      {error && <p className="text-xs text-[var(--warning)] mt-1 ml-1">{error}</p>}
+    </div>
+  );
+}
+
+// ---- Inline Exec Output Toggle ----
+// Controls whether tool-call exec results render in an inline terminal box.
+// Added in #339 follow-up: lets users suppress the dark bordered container
+// (which appears empty when the sandbox path policy strips stdout/stderr).
+function InlineExecOutputToggle() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    window.miqi.config
+      .get()
+      .then((cfg: any) => {
+        // Default off — the terminal box is purely cosmetic and was the
+        // source of the "红边空盒" complaints before this toggle landed.
+        setEnabled(cfg?.desktop?.ui?.inlineExecOutput === true);
+      })
+      .catch(() => setEnabled(false));
+  }, []);
+
+  const handleToggle = async () => {
+    if (enabled === null) return;
+    const next = !enabled;
+    setSaving(true);
+    try {
+      await window.miqi.config.update({ desktop: { ui: { inlineExecOutput: next } } });
+      setEnabled(next);
+    } catch {
+      /* ignore — keep prior state */
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={handleToggle}
+        disabled={saving || enabled === null}
+        data-testid="inline-exec-output-toggle-btn"
+        className={cn(
+          'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+          'disabled:opacity-50',
+          enabled ? 'bg-[var(--accent)]' : 'bg-[var(--border)]',
         )}
       >
         <span
@@ -158,29 +237,17 @@ function SandboxToggle() {
         />
       </button>
       <div className="flex items-center gap-1.5">
-        {enabled ? (
-          <Shield size={14} className="text-[var(--accent)]" />
-        ) : (
-          <ShieldOff size={14} className="text-[var(--warning)]" />
-        )}
-        <span className={cn(
-          'text-xs font-medium',
-          enabled
-            ? (ready ? 'text-[var(--accent)]' : 'text-amber-400')
-            : 'text-[var(--warning)]',
-        )}
-        data-testid="sandbox-toggle-label"
+        <Terminal size={14} className={enabled ? 'text-[var(--accent)]' : 'text-[var(--muted-foreground)]'} />
+        <span
+          className={cn(
+            'text-xs font-medium',
+            enabled ? 'text-[var(--accent)]' : 'text-[var(--muted-foreground)]',
+          )}
+          data-testid="inline-exec-output-toggle-label"
         >
-          {toggling
-            ? (enabled ? '正在关闭…' : '正在开启…')
-            : enabled
-              ? (ready ? '已开启（推荐）' : '正在安装依赖…')
-              : '已关闭'}
+          {enabled ? '已开启' : '已关闭'}
         </span>
       </div>
-      {error && (
-        <p className="text-xs text-[var(--warning)] mt-1 ml-1">{error}</p>
-      )}
     </div>
   );
 }
@@ -213,12 +280,13 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const defaults: Record<string, unknown> = {};
-      if (agentName) defaults['name'] = agentName;
-      if (workspace) defaults['workspace'] = workspace;
-      if (model) defaults['model'] = model;
-      if (temperature) defaults['temperature'] = parseFloat(temperature);
-      if (maxTokens) defaults['maxTokens'] = parseInt(maxTokens);
+      const defaults: Record<string, unknown> = {
+        name: agentName,
+        workspace,
+        model,
+        temperature: temperature === '' ? '' : parseFloat(temperature),
+        maxTokens: maxTokens === '' ? '' : parseInt(maxTokens),
+      };
       await window.miqi.config.update({ agents: { defaults } });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -306,12 +374,27 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 
       {/* ---- Sandbox ---- */}
       <div className="pt-4 border-t border-[var(--border-subtle)]">
-        <h3 className="text-sm font-semibold text-[var(--text)] mb-1" data-testid="settings-sandbox-section-title">沙箱隔离</h3>
+        <h3
+          className="text-sm font-semibold text-[var(--text)] mb-1"
+          data-testid="settings-sandbox-section-title"
+        >
+          沙箱隔离
+        </h3>
         <p className="text-xs text-[var(--text-faint)] mb-3">
           开启后 AI 的文件操作和命令执行在 WSL2 bwrap 沙箱中运行，保护主机安全。
           关闭后直接操作主机文件系统（无隔离，性能更好但风险更高）。
         </p>
         <SandboxToggle />
+      </div>
+
+      {/* ---- Inline Exec Output ---- */}
+      <div className="pt-4 border-t border-[var(--border-subtle)]">
+        <h3 className="text-sm font-semibold text-[var(--text)] mb-1" data-testid="settings-inline-exec-output-title">内联终端输出</h3>
+        <p className="text-xs text-[var(--text-faint)] mb-3">
+          关闭后工具调用的 exec 结果以普通文本显示，不再包裹黑底终端框。
+          当沙箱路径策略过滤掉输出时，关闭此开关可避免出现空盒子。
+        </p>
+        <InlineExecOutputToggle />
       </div>
 
       {/* ---- Danger Zone ---- */}
@@ -378,17 +461,17 @@ function WebToolsTab() {
           web: {
             search: {
               provider: searchProvider,
-              apiKey: braveKey || undefined,
+              apiKey: braveKey,
             },
             fetch: {
               provider: fetchProvider,
-              ollamaApiBase: fetchOllamaBase || undefined,
-              ollamaApiKey: fetchOllamaKey || undefined,
+              ollamaApiBase: fetchOllamaBase,
+              ollamaApiKey: fetchOllamaKey,
             },
           },
           papers: {
             provider: papersProvider,
-            semanticScholarApiKey: s2ApiKey || undefined,
+            semanticScholarApiKey: s2ApiKey,
           },
         },
       });
@@ -430,7 +513,12 @@ function WebToolsTab() {
       <section className="flex flex-col gap-3">
         <h3 className="text-sm font-semibold text-[var(--text)]">Web 搜索</h3>
         <div className="flex gap-2">
-          <ModeBtn value="ddgs" current={searchProvider} set={setSearchProvider} label="DuckDuckGo" />
+          <ModeBtn
+            value="ddgs"
+            current={searchProvider}
+            set={setSearchProvider}
+            label="DuckDuckGo"
+          />
           <ModeBtn value="brave" current={searchProvider} set={setSearchProvider} label="Brave" />
           <ModeBtn value="hybrid" current={searchProvider} set={setSearchProvider} label="Hybrid" />
         </div>
@@ -541,67 +629,67 @@ function AppearanceTab() {
     return (localStorage.getItem('miqi-theme') as ThemeMode) ?? 'system';
   });
 
-    // Apply persisted theme on mount
-    useEffect(() => {
-      const saved = (localStorage.getItem('miqi-theme') as ThemeMode) ?? 'system';
-      const root = document.documentElement;
-      if (saved === 'dark') {
-        root.classList.add('dark');
-      } else if (saved === 'light') {
-        root.classList.remove('dark');
-      } else {
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        root.classList.toggle('dark', prefersDark);
-      }
-    }, []);
+  // Apply persisted theme on mount
+  useEffect(() => {
+    const saved = (localStorage.getItem('miqi-theme') as ThemeMode) ?? 'system';
+    const root = document.documentElement;
+    if (saved === 'dark') {
+      root.classList.add('dark');
+    } else if (saved === 'light') {
+      root.classList.remove('dark');
+    } else {
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      root.classList.toggle('dark', prefersDark);
+    }
+  }, []);
 
-    const applyTheme = (mode: ThemeMode) => {
-      setTheme(mode);
-      localStorage.setItem('miqi-theme', mode);
-      const root = document.documentElement;
-      if (mode === 'dark') {
-        root.classList.add('dark');
-      } else if (mode === 'light') {
-        root.classList.remove('dark');
-      } else {
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        root.classList.toggle('dark', prefersDark);
-      }
-    };
+  const applyTheme = (mode: ThemeMode) => {
+    setTheme(mode);
+    localStorage.setItem('miqi-theme', mode);
+    const root = document.documentElement;
+    if (mode === 'dark') {
+      root.classList.add('dark');
+    } else if (mode === 'light') {
+      root.classList.remove('dark');
+    } else {
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      root.classList.toggle('dark', prefersDark);
+    }
+  };
 
-    const modes: Array<{ value: ThemeMode; label: string; icon: ReactNode }> = [
-      { value: 'light', label: '浅色', icon: <Sun size={16} /> },
-      { value: 'dark', label: '深色', icon: <Moon size={16} /> },
-      { value: 'system', label: '跟随系统', icon: <Monitor size={16} /> },
-    ];
+  const modes: Array<{ value: ThemeMode; label: string; icon: ReactNode }> = [
+    { value: 'light', label: '浅色', icon: <Sun size={16} /> },
+    { value: 'dark', label: '深色', icon: <Moon size={16} /> },
+    { value: 'system', label: '跟随系统', icon: <Monitor size={16} /> },
+  ];
 
-    return (
-      <div className="p-6 max-w-lg flex flex-col gap-4">
-        <h3 className="text-sm font-semibold text-[var(--text)]">外观</h3>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[13px] font-medium text-[var(--text-muted)]">主题</label>
-          <div className="flex items-stretch gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
-            {modes.map(({ value, label, icon }) => (
-              <button
-                key={value}
-                onClick={() => applyTheme(value)}
-                aria-pressed={theme === value}
-                className={cn(
-                  'flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition duration-200',
-                  theme === value
-                    ? 'bg-[var(--surface)] text-[var(--text)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]'
-                    : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]/50',
-                )}
-              >
-                {icon}
-                <span className="hidden sm:inline">{label}</span>
-              </button>
-            ))}
-          </div>
+  return (
+    <div className="p-6 max-w-lg flex flex-col gap-4">
+      <h3 className="text-sm font-semibold text-[var(--text)]">外观</h3>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[13px] font-medium text-[var(--text-muted)]">主题</label>
+        <div className="flex items-stretch gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
+          {modes.map(({ value, label, icon }) => (
+            <button
+              key={value}
+              onClick={() => applyTheme(value)}
+              aria-pressed={theme === value}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition duration-200',
+                theme === value
+                  ? 'bg-[var(--surface)] text-[var(--text)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]/50'
+              )}
+            >
+              {icon}
+              <span className="hidden sm:inline">{label}</span>
+            </button>
+          ))}
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
 // ---- Logs Tab (existing) ----
 function LogsTab() {
@@ -611,7 +699,9 @@ function LogsTab() {
   const [copiedLogs, setCopiedLogs] = useState(false);
   const [logTab, setLogTab] = useState<'all' | 'frontend' | 'backend'>('all');
   const [level, setLevel] = useState<'all' | 'INFO' | 'WARN' | 'ERROR'>('all');
-  const [source, setSource] = useState<'all' | 'bridge' | 'renderer' | 'sandbox' | 'main' | 'tool'>('all');
+  const [source, setSource] = useState<'all' | 'bridge' | 'renderer' | 'sandbox' | 'main' | 'tool'>(
+    'all'
+  );
   const [sessionKey, setSessionKey] = useState('');
   const [keyword, setKeyword] = useState('');
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
@@ -625,7 +715,9 @@ function LogsTab() {
   // Auto-refresh: periodically poll for new log entries (tail -f effect)
   useEffect(() => {
     if (!autoRefresh) return;
-    const interval = setInterval(() => { refreshLogs(); }, 3000);
+    const interval = setInterval(() => {
+      refreshLogs();
+    }, 3000);
     return () => clearInterval(interval);
   }, [autoRefresh, refreshLogs]);
 
@@ -635,39 +727,65 @@ function LogsTab() {
     }
   }, [entries, autoScroll]);
 
-  const filtered = entries.filter((entry) => {
-    if (logTab === 'frontend' && !(entry.source === 'renderer' || entry.source === 'main')) return false;
-    if (logTab === 'backend' && !(entry.source === 'bridge' || entry.source === 'sandbox' || entry.source === 'tool')) return false;
-    if (level !== 'all' && entry.level !== level) return false;
-    if (source !== 'all' && entry.source !== source) return false;
-    if (sessionKey && !(entry.sessionKey ?? '').includes(sessionKey)) return false;
-    if (keyword && !entry.message.toLowerCase().includes(keyword.toLowerCase())) return false;
-    return true;
-  });
+  const filtered = entries
+    .filter((entry) => {
+      if (logTab === 'frontend' && !(entry.source === 'renderer' || entry.source === 'main'))
+        return false;
+      if (
+        logTab === 'backend' &&
+        !(entry.source === 'bridge' || entry.source === 'sandbox' || entry.source === 'tool')
+      )
+        return false;
+      if (level !== 'all' && entry.level !== level) return false;
+      if (source !== 'all' && entry.source !== source) return false;
+      if (sessionKey && !(entry.sessionKey ?? '').includes(sessionKey)) return false;
+      if (keyword && !entry.message.toLowerCase().includes(keyword.toLowerCase())) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const aTime = Date.parse(a.timestamp);
+      const bTime = Date.parse(b.timestamp);
+      if (Number.isNaN(aTime)) return Number.isNaN(bTime) ? 0 : 1;
+      if (Number.isNaN(bTime)) return -1;
+      return bTime - aTime;
+    });
 
   const toggleRow = (id: number) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
 
   const formatTime = (iso: string) => {
-    try {
-      const d = new Date(iso);
-      return d.toLocaleTimeString('zh-CN', { hour12: false });
-    } catch { return iso; }
+    const d = new Date(iso);
+    // new Date() never throws — invalid input produces NaN getTime()
+    if (isNaN(d.getTime())) return iso;
+    const date = d.toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const time = d.toLocaleTimeString('zh-CN', { hour12: false });
+    return `${date} ${time}`;
   };
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(filtered.map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`).join('\n'));
+    await navigator.clipboard.writeText(
+      filtered
+        .map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`)
+        .join('\n')
+    );
     setCopiedLogs(true);
     setTimeout(() => setCopiedLogs(false), 1500);
   };
 
   const handleExportTxt = () => {
-    const text = filtered.map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`).join('\n');
+    const text = filtered
+      .map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`)
+      .join('\n');
     const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -689,7 +807,9 @@ function LogsTab() {
   };
 
   const handleExportLog = () => {
-    const text = filtered.map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`).join('\n');
+    const text = filtered
+      .map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`)
+      .join('\n');
     const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -718,11 +838,11 @@ function LogsTab() {
       {/* Sub-tab bar */}
       <div className="flex items-center gap-2 px-6 py-2 border-b border-[var(--border-subtle)]">
         <span className="text-xs text-[var(--text-muted)] mr-1">视图：</span>
-        {([
+        {[
           { value: 'all' as const, label: '全部' },
           { value: 'frontend' as const, label: '前端日志' },
           { value: 'backend' as const, label: '后端日志' },
-        ]).map((tab) => (
+        ].map((tab) => (
           <button
             key={tab.value}
             onClick={() => setLogTab(tab.value)}
@@ -742,20 +862,42 @@ function LogsTab() {
       <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3 border-b border-[var(--border-subtle)]">
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer">
-            <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} className="rounded" />
+            <input
+              type="checkbox"
+              checked={autoScroll}
+              onChange={(e) => setAutoScroll(e.target.checked)}
+              className="rounded"
+            />
             自动滚动
           </label>
           <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer">
-            <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="rounded" />
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(e) => setAutoRefresh(e.target.checked)}
+              className="rounded"
+            />
             自动刷新
           </label>
-          <select value={level} onChange={(e) => setLevel(e.target.value as 'all' | 'INFO' | 'WARN' | 'ERROR')} className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs">
+          <select
+            value={level}
+            onChange={(e) => setLevel(e.target.value as 'all' | 'INFO' | 'WARN' | 'ERROR')}
+            className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
+          >
             <option value="all">全部级别</option>
             <option value="INFO">INFO</option>
             <option value="WARN">WARN</option>
             <option value="ERROR">ERROR</option>
           </select>
-          <select value={source} onChange={(e) => setSource(e.target.value as 'all' | 'bridge' | 'renderer' | 'sandbox' | 'main' | 'tool')} className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs">
+          <select
+            value={source}
+            onChange={(e) =>
+              setSource(
+                e.target.value as 'all' | 'bridge' | 'renderer' | 'sandbox' | 'main' | 'tool'
+              )
+            }
+            className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
+          >
             <option value="all">全部来源</option>
             <option value="bridge">Bridge</option>
             <option value="renderer">Renderer</option>
@@ -763,9 +905,24 @@ function LogsTab() {
             <option value="sandbox">Sandbox</option>
             <option value="tool">Tool</option>
           </select>
-          <input value={sessionKey} onChange={(e) => setSessionKey(e.target.value)} placeholder="session" className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs" />
-          <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="关键字" className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs" />
-          <Button variant="ghost" size="icon" onClick={() => refreshLogs()} data-testid="refresh-logs">
+          <input
+            value={sessionKey}
+            onChange={(e) => setSessionKey(e.target.value)}
+            placeholder="session"
+            className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
+          />
+          <input
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="关键字"
+            className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => refreshLogs()}
+            data-testid="refresh-logs"
+          >
             <RefreshCw size={14} />
           </Button>
         </div>
@@ -806,24 +963,38 @@ function LogsTab() {
               <tbody>
                 {filtered.map((entry) => {
                   const isExpanded = expandedRows.has(entry.id);
-                  const rowBg = entry.level === 'ERROR'
-                    ? 'bg-red-500/5 hover:bg-red-500/10'
-                    : entry.level === 'WARN'
-                      ? 'bg-amber-500/5 hover:bg-amber-500/10'
-                      : 'hover:bg-[var(--surface-muted)]';
+                  const rowBg =
+                    entry.level === 'ERROR'
+                      ? 'bg-red-500/5 hover:bg-red-500/10'
+                      : entry.level === 'WARN'
+                        ? 'bg-amber-500/5 hover:bg-amber-500/10'
+                        : 'hover:bg-[var(--surface-muted)]';
                   return (
                     <tr
                       key={entry.id}
                       onClick={() => toggleRow(entry.id)}
-                      className={cn('border-b border-[var(--border-subtle)] cursor-pointer transition-colors', rowBg)}
+                      className={cn(
+                        'border-b border-[var(--border-subtle)] cursor-pointer transition-colors',
+                        rowBg
+                      )}
                     >
-                      <td className="px-4 py-1.5 text-[var(--text-faint)] whitespace-nowrap" title={entry.timestamp}>
+                      <td
+                        className="px-4 py-1.5 text-[var(--text-faint)] whitespace-nowrap"
+                        title={entry.timestamp}
+                      >
                         {formatTime(entry.timestamp)}
                       </td>
-                      <td className="px-2 py-1.5 whitespace-nowrap">
-                        {levelBadge(entry.level)}
-                      </td>
-                      <td className={cn('px-2 py-1.5 whitespace-nowrap', entry.level === 'ERROR' ? 'text-[var(--danger)]' : entry.level === 'WARN' ? 'text-[var(--warning)]' : 'text-[var(--text-muted)]')}>
+                      <td className="px-2 py-1.5 whitespace-nowrap">{levelBadge(entry.level)}</td>
+                      <td
+                        className={cn(
+                          'px-2 py-1.5 whitespace-nowrap',
+                          entry.level === 'ERROR'
+                            ? 'text-[var(--danger)]'
+                            : entry.level === 'WARN'
+                              ? 'text-[var(--warning)]'
+                              : 'text-[var(--text-muted)]'
+                        )}
+                      >
                         {entry.source}
                       </td>
                       <td className="px-4 py-1.5 text-[var(--text)]">
@@ -918,7 +1089,9 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
             <Archive size={18} style={{ color: 'var(--text-faint)' }} />
           </div>
           <p className="text-[13px] font-medium text-[var(--text-muted)] mb-1">暂无已归档的对话</p>
-          <p className="text-[11px] text-[var(--text-faint)]">在侧边栏右键对话选择"归档"即可移至此</p>
+          <p className="text-[11px] text-[var(--text-faint)]">
+            在侧边栏右键对话选择"归档"即可移至此
+          </p>
         </div>
       ) : (
         <div className="flex flex-col rounded-xl border border-[var(--border-subtle)] overflow-hidden">
@@ -1095,10 +1268,18 @@ function DocsTab() {
 }
 
 // ---- Main ----
-export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup?: () => void; tab?: SettingsTab }) {
+export function SettingsPage({
+  onReopenSetup,
+  tab = 'general',
+}: {
+  onReopenSetup?: () => void;
+  tab?: SettingsTab;
+}) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(tab);
 
-  useEffect(() => { setActiveTab(tab); }, [tab]);
+  useEffect(() => {
+    setActiveTab(tab);
+  }, [tab]);
 
   return (
     <div className="flex flex-col h-full">
@@ -1132,6 +1313,7 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
             { value: 'logs', label: '日志' },
             { value: 'archived', label: '已归档' },
             { value: 'docs', label: '文档' },
+            { value: 'feedback', label: '反馈' },
           ].map((tab) => (
             <Tabs.Trigger
               key={tab.value}
@@ -1201,6 +1383,9 @@ export function SettingsPage({ onReopenSetup, tab = 'general' }: { onReopenSetup
         </Tabs.Content>
         <Tabs.Content value="docs" className="flex-1 min-h-0 flex flex-col">
           <DocsTab />
+        </Tabs.Content>
+        <Tabs.Content value="feedback" className="flex-1 overflow-y-auto">
+          <FeedbackPage />
         </Tabs.Content>
       </Tabs.Root>
     </div>

@@ -114,9 +114,11 @@ async def providers_list_handler(
         api_key = pc.api_key if pc else None
         hint = None
         builtin_available = spec.name in _BUILTIN_PROVIDERS
-        builtin_activated = bool(
-            activation_store.get(spec.name, {}).get("builtin", False)
-        )
+        entry = activation_store.get(spec.name, {})
+        if isinstance(entry, bool):
+            builtin_activated = entry  # old format: {"deepseek": true}
+        else:
+            builtin_activated = bool(entry.get("builtin", False))
         if builtin_activated:
             # Hide the real key from the frontend for built-in activations
             hint = "企业共享密钥"
@@ -362,9 +364,10 @@ async def providers_update_handler(
             _provider_fingerprint(new_pc, config.agents.defaults.model),
             "Provider settings changed; test again to verify",
         )
-        # When user explicitly provides their own API key, clear the built-in
-        # activation flag so the UI defaults to "own key" next time.
-        if update.get("api_key"):
+        # When user explicitly provides an API key (including empty to clear
+        # built-in activation), clear the built-in activation flag so the UI
+        # defaults to "own key" next time.
+        if "api_key" in update:
             activation_store = _provider_activation_store(config)
             activation_store.pop(provider_name, None)
 

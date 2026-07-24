@@ -1,5 +1,4 @@
 """Tests for miqi.execution.permission_engine."""
-
 import pytest
 from miqi.config.schema import ApprovalBypassConfig
 from miqi.execution.permission_engine import (
@@ -116,7 +115,6 @@ async def test_deny_pattern_blocks_execution():
 
 @pytest.mark.asyncio
 async def test_deny_pattern_in_arguments():
-    """Deny patterns in arguments should block non-read-only tools."""
     engine = PermissionEngine(deny_patterns={"malware"})
     ctx = FakeContext("exec", {"command": "curl http://malware.example.com"})
     decision = await engine.check(ctx)
@@ -125,7 +123,6 @@ async def test_deny_pattern_in_arguments():
 
 @pytest.mark.asyncio
 async def test_default_deny_by_default():
-    """Unknown tools should require approval (deny-by-default)."""
     engine = PermissionEngine()
     ctx = FakeContext("unknown_tool", {})
     decision = await engine.check(ctx)
@@ -134,7 +131,6 @@ async def test_default_deny_by_default():
 
 @pytest.mark.asyncio
 async def test_deny_pattern_blocks_read_only_tools():
-    """Deny patterns should block even read-only tools."""
     engine = PermissionEngine(deny_patterns={"secret_file"})
     ctx = FakeContext("read_file", {"path": "/etc/secret_file.txt"})
     decision = await engine.check(ctx)
@@ -143,7 +139,6 @@ async def test_deny_pattern_blocks_read_only_tools():
 
 @pytest.mark.asyncio
 async def test_shell_metacharacter_rejected():
-    """Commands with shell metacharacters should require approval."""
     engine = PermissionEngine()
     ctx = FakeContext("exec", {"command": "ls && rm -rf /tmp"})
     decision = await engine.check(ctx)
@@ -152,7 +147,6 @@ async def test_shell_metacharacter_rejected():
 
 @pytest.mark.asyncio
 async def test_shell_pipe_rejected():
-    """Piped commands should require approval."""
     engine = PermissionEngine()
     ctx = FakeContext("exec", {"command": "cat /etc/passwd | grep root"})
     decision = await engine.check(ctx)
@@ -161,7 +155,6 @@ async def test_shell_pipe_rejected():
 
 @pytest.mark.asyncio
 async def test_shell_substitution_rejected():
-    """Command substitution should require approval."""
     engine = PermissionEngine()
     ctx = FakeContext("exec", {"command": "echo $(whoami)"})
     decision = await engine.check(ctx)
@@ -176,7 +169,7 @@ async def test_permission_decision_fields():
     assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
     assert decision.category == "exec"
     assert decision.allow_permanent is True
-    assert decision.description  # should have a description
+    assert decision.description
 
 
 @pytest.mark.asyncio
@@ -230,7 +223,6 @@ async def test_engine_policy_deny_blocks_exec(tmp_path):
 
 @pytest.mark.asyncio
 async def test_legacy_prefixes_still_work_without_policy(tmp_path):
-    # Backwards-compat: profile with only exec_allow_prefixes, no exec_policy
     profile = PermissionProfile(workspace=tmp_path)
     profile.exec_allow_prefixes = [["git", "status"]]
     engine = PermissionEngine()
@@ -310,8 +302,73 @@ async def test_network_bypass_only_allows_network_tools():
 
 @pytest.mark.asyncio
 async def test_no_policy_keeps_existing_behavior(tmp_path):
-    # No approval_policy → unchanged: file writes require approval
     profile = PermissionProfile(workspace=tmp_path)
     engine = PermissionEngine()
     d = await engine.check(_Ctx("write_file", {"path": str(tmp_path / "a.txt")}, profile))
     assert d.verdict == PermissionVerdict.APPROVAL_REQUIRED
+
+
+# ── Execution Policy flag tests ──
+
+class _PolicyCtx:
+    """Fake context with execution policy flags."""
+    def __init__(self, tool_name, arguments=None, bypass_approval=False, force_approval=False):
+        self.tool_name = tool_name
+        self.arguments = arguments or {}
+        self.bypass_approval = bypass_approval
+        self.force_approval = force_approval
+
+
+@pytest.mark.asyncio
+async def test_ep_bypass_flag_allows_dangerous_command():
+    """bypass_approval=True → ALLOW even for dangerous rm."""
+    engine = PermissionEngine()
+    ctx = _PolicyCtx("exec", {"command": "rm -rf /"}, bypass_approval=True)
+    decision = await engine.check(ctx)
+    assert decision.verdict == PermissionVerdict.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_ep_bypass_flag_respects_deny_list():
+    """Deny list is first → DENY even with bypass_approval."""
+    engine = PermissionEngine(deny_patterns={"rm"})
+    ctx = _PolicyCtx("exec", {"command": "rm -rf /"}, bypass_approval=True)
+    decision = await engine.check(ctx)
+    assert decision.verdict == PermissionVerdict.DENY
+
+
+@pytest.mark.asyncio
+async def test_ep_force_approval_on_safe_tool():
+    """force_approval=True → APPROVAL_REQUIRED for read_file."""
+    engine = PermissionEngine()
+    ctx = _PolicyCtx("read_file", {"path": "test.py"}, force_approval=True)
+    decision = await engine.check(ctx)
+    assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
+
+
+@pytest.mark.asyncio
+async def test_ep_force_approval_on_dangerous_tool():
+    """force_approval=True → APPROVAL_REQUIRED for exec."""
+    engine = PermissionEngine()
+    ctx = _PolicyCtx("exec", {"command": "rm -rf /"}, force_approval=True)
+    decision = await engine.check(ctx)
+    assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
+
+
+@pytest.mark.asyncio
+async def test_ep_no_flags_normal_behavior():
+    """Without flags → normal permission logic."""
+    engine = PermissionEngine()
+    d1 = await engine.check(_PolicyCtx("read_file", {"path": "test.py"}))
+    assert d1.verdict == PermissionVerdict.ALLOW
+    d2 = await engine.check(_PolicyCtx("exec", {"command": "rm -rf /"}))
+    assert d2.verdict == PermissionVerdict.APPROVAL_REQUIRED
+
+
+@pytest.mark.asyncio
+async def test_ep_bypass_wins_over_force():
+    """Both flags → bypass checked first → ALLOW."""
+    engine = PermissionEngine()
+    ctx = _PolicyCtx("exec", {"command": "rm"}, bypass_approval=True, force_approval=True)
+    decision = await engine.check(ctx)
+    assert decision.verdict == PermissionVerdict.ALLOW

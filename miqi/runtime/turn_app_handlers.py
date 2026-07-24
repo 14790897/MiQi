@@ -74,13 +74,13 @@ async def drain_turn_events(
                 await server.emit_event(
                     session.session_id,
                     "error",
-                    {"error": {"message": "Turn timed out after 300s"}},
+                    {"error": {"message": "Turn 超时（300s）"}},
                     request_id=request_id,
                 )
                 await server.emit_event(
                     session.session_id,
                     "turn/completed",
-                    {"turn": turn_view(turn_id, thread_id, "failed", error_message="Turn timed out after 300s")},
+                    {"turn": turn_view(turn_id, thread_id, "failed", error_message="Turn 超时（300s）")},
                     request_id=request_id,
                 )
                 return

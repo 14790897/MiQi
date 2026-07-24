@@ -253,7 +253,7 @@ async def test_turn_runner_exhausts_iterations(turn_runner, fake_turn_context):
         tools=[{"type": "function", "function": {"name": "read_file", "parameters": {}}}],
     )
 
-    assert "Reached maximum iterations" in result.final_content
+    assert "已达到最大迭代次数" in result.final_content
 
 
 @pytest.mark.asyncio
@@ -341,6 +341,9 @@ async def test_turn_runner_emits_content_deltas():
         def add_assistant_message(self, *, messages, content, tool_calls=None):
             return [*messages, {"role": "assistant", "content": content}]
 
+        def trim_for_model(self, messages, model):
+            return messages
+
     class EventCollector:
         def __init__(self):
             self.events: list = []
@@ -414,6 +417,9 @@ async def test_turn_runner_consumes_steer_queue_before_completing_final_response
 
         def add_tool_result(self, messages, tool_call_id, name, content):
             return [*messages, {"role": "tool", "content": content}]
+
+        def trim_for_model(self, messages, model):
+            return messages
 
     class FakeTools:
         async def execute_many(self, turn, tool_calls):

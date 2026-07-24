@@ -90,7 +90,7 @@ async def test_web_search_missing_query_returns_validation_error():
     result_ctx = await orch.execute(ctx)
 
     # Result text
-    assert "Error: Invalid parameters" in result_ctx.result
+    assert "错误：工具" in result_ctx.result
     assert "missing required query" in result_ctx.result
     assert "[Analyze the error above" in result_ctx.result
     # NOT a Python TypeError traceback
@@ -119,7 +119,7 @@ async def test_web_search_empty_query_returns_validation_error():
     ctx = make_ctx(tool_name="web_search", arguments={"query": ""})
     result_ctx = await orch.execute(ctx)
 
-    assert "Error: Invalid parameters" in result_ctx.result
+    assert "错误：工具" in result_ctx.result
     assert "query must be at least 1 chars" in result_ctx.result
     tool.execute.assert_not_called()
     permission_engine.check.assert_not_called()
@@ -158,7 +158,7 @@ async def test_web_fetch_missing_url_returns_validation_error():
     ctx = make_ctx(tool_name="web_fetch", arguments={})
     result_ctx = await orch.execute(ctx)
 
-    assert "Error: Invalid parameters" in result_ctx.result
+    assert "错误：工具" in result_ctx.result
     assert "missing required url" in result_ctx.result
     tool.execute.assert_not_called()
     permission_engine.check.assert_not_called()
@@ -176,7 +176,7 @@ async def test_web_fetch_empty_url_returns_validation_error():
     ctx = make_ctx(tool_name="web_fetch", arguments={"url": ""})
     result_ctx = await orch.execute(ctx)
 
-    assert "Error: Invalid parameters" in result_ctx.result
+    assert "错误：工具" in result_ctx.result
     assert "url must be at least 1 chars" in result_ctx.result
     tool.execute.assert_not_called()
     permission_engine.check.assert_not_called()
@@ -213,7 +213,7 @@ async def test_exec_missing_command_returns_validation_error():
     ctx = make_ctx(tool_name="exec", arguments={})
     result_ctx = await orch.execute(ctx)
 
-    assert "Error: Invalid parameters" in result_ctx.result
+    assert "错误：工具" in result_ctx.result
     assert "missing required command" in result_ctx.result
     tool.execute.assert_not_called()
     permission_engine.check.assert_not_called()
@@ -270,7 +270,7 @@ async def test_unknown_tool_returns_error_before_validation():
     ctx = make_ctx(tool_name="nonexistent_tool", arguments={"x": 1})
     result_ctx = await orch.execute(ctx)
 
-    assert "Error: Unknown tool" in result_ctx.result
+    assert "错误：未知工具" in result_ctx.result
     assert "nonexistent_tool" in result_ctx.result
     pe.check.assert_not_called()
 
@@ -317,7 +317,7 @@ async def test_exec_command_not_a_string_returns_validation_error():
     ctx = make_ctx(tool_name="exec", arguments={"command": 123})
     result_ctx = await orch.execute(ctx)
 
-    assert "Error: Invalid parameters" in result_ctx.result
+    assert "错误：工具" in result_ctx.result
     assert "should be string" in result_ctx.result
     tool.execute.assert_not_called()
     permission_engine.check.assert_not_called()

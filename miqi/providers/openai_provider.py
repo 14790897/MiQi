@@ -20,8 +20,9 @@ from miqi.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from miqi.providers.registry import find_by_model, find_by_name, find_gateway
 from miqi.providers.resilience import ErrorKind
 
-DEFAULT_REQUEST_TIMEOUT = 600.0
-DEFAULT_STREAM_IDLE_TIMEOUT = 60.0
+DEFAULT_REQUEST_TIMEOUT = 120.0
+DEFAULT_FIRST_TOKEN_TIMEOUT = 60.0
+DEFAULT_STREAM_IDLE_TIMEOUT = 30.0
 
 # Standard OpenAI chat-completion message keys; extras (e.g. reasoning_content) are
 # stripped for providers that reject unknown fields.
@@ -412,22 +413,35 @@ class OpenAIProvider(LLMProvider):
         usage: dict[str, int] = {}
 
         aiter = stream.__aiter__()
+        is_first = True
         while True:
             try:
-                async with asyncio.timeout(self._stream_idle_timeout):
+                timeout = DEFAULT_FIRST_TOKEN_TIMEOUT if is_first else self._stream_idle_timeout
+                async with asyncio.timeout(timeout):
                     chunk = await anext(aiter)
             except StopAsyncIteration:
                 break
             except asyncio.TimeoutError:
-                logger.warning("LLM stream idle timeout for model %s", resolved)
-                yield LLMStreamEvent(
-                    kind="completed",
-                    response=LLMResponse(
-                        content="An unexpected error occurred while processing your request.",
-                        finish_reason="error",
-                        error_kind=ErrorKind.TRANSIENT.value,
-                    ),
-                )
+                if is_first:
+                    logger.warning("LLM first-token timeout for model %s (%.0fs)", resolved, timeout)
+                    yield LLMStreamEvent(
+                        kind="completed",
+                        response=LLMResponse(
+                            content="The model did not respond within the first-token timeout. This may indicate the model is overloaded or stuck in a long reasoning phase. Please try again or use a different model.",
+                            finish_reason="error",
+                            error_kind=ErrorKind.TRANSIENT.value,
+                        ),
+                    )
+                else:
+                    logger.warning("LLM stream idle timeout for model %s", resolved)
+                    yield LLMStreamEvent(
+                        kind="completed",
+                        response=LLMResponse(
+                            content="An unexpected error occurred while processing your request.",
+                            finish_reason="error",
+                            error_kind=ErrorKind.TRANSIENT.value,
+                        ),
+                    )
                 return
             except Exception as e:
                 logger.exception("LLM streaming error for model %s", resolved)
@@ -451,6 +465,8 @@ class OpenAIProvider(LLMProvider):
                         "total_tokens": getattr(chunk.usage, "total_tokens", 0) or 0,
                     }
                 continue
+
+            is_first = False  # first real content chunk received
 
             delta = chunk.choices[0].delta
             choice_finish = chunk.choices[0].finish_reason

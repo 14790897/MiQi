@@ -11,6 +11,11 @@ import type { RuntimeState, RuntimeStatus } from '../shared/ipc';
 import { IPC_EVENTS } from '../shared/ipc';
 import { writeMainProcessLog } from './electron-log';
 
+/** Strip ANSI escape codes (color/bold/reset) from log text. */
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
 export interface BridgeRequest {
   id: string;
   method: string;
@@ -32,6 +37,7 @@ interface BridgeResponse {
 interface SendOptions {
   allowStarting?: boolean;
   timeoutMs?: number;
+  timeoutMode?: 'total' | 'inactivity';
 }
 
 export interface NormalizedBridgeMessage {
@@ -59,9 +65,9 @@ export interface InitializeParams {
 
 /** Terminal event types that resolve/reject a streaming pending entry. */
 const TERMINAL_EVENT_TYPES = new Set(['final', 'error', 'aborted']);
-// Keep in sync with `runtime.next_event(timeout=300)` in `miqi/bridge/loop.py`.
-export const CHAT_BACKEND_DRAIN_TIMEOUT_MS = 300_000;
-export const CHAT_SEND_TIMEOUT_MS = CHAT_BACKEND_DRAIN_TIMEOUT_MS + 60_000;
+// Keep in sync with CHAT_DRAIN_IDLE_TIMEOUT_SECONDS in `miqi/bridge/loop.py`.
+export const CHAT_BACKEND_DRAIN_TIMEOUT_MS = 600_000;
+export const CHAT_SEND_TIMEOUT_MS = CHAT_BACKEND_DRAIN_TIMEOUT_MS + 120_000;
 
 export function normalizeBridgeMessage(resp: BridgeResponse): NormalizedBridgeMessage {
   const requestId =
@@ -128,15 +134,18 @@ function findBridgeExecutable(projectRoot: string): {
 
   // Check for bundled miqi-bridge executable (packaged app)
   // In asar, __dirname is inside the archive, so use process.resourcesPath
+  const bridgeExe = process.platform === 'win32' ? 'miqi-bridge.exe' : 'miqi-bridge';
   const bundledBridge = process.resourcesPath
-    ? join(process.resourcesPath, 'miqi-bridge.exe')
+    ? join(process.resourcesPath, bridgeExe)
     : null;
   if (bundledBridge && existsSync(bundledBridge)) {
     return { command: bundledBridge, args: [] };
   }
 
   // Try .venv
-  const venvPython = join(projectRoot, '.venv', 'Scripts', 'python.exe');
+  const pythonCmd = process.platform === 'win32' ? 'python.exe' : 'python';
+  const venvBin = process.platform === 'win32' ? 'Scripts' : 'bin';
+  const venvPython = join(projectRoot, '.venv', venvBin, pythonCmd);
   if (existsSync(venvPython)) {
     const bridgeScript = join(projectRoot, 'miqi', 'bridge', 'server.py');
     return { command: venvPython, args: [bridgeScript] };
@@ -156,6 +165,7 @@ export class BridgeManager extends EventEmitter {
       resolve: (value: unknown) => void;
       reject: (reason: Error) => void;
       onEvent?: (type: string, data: unknown) => void;
+      refreshTimeout?: () => void;
     }
   > = new Map();
 
@@ -186,7 +196,7 @@ export class BridgeManager extends EventEmitter {
     super();
     // In dev: __dirname = apps/desktop/out/main → projectRoot is 4 levels up
     this.projectRoot = projectRoot || join(__dirname, '..', '..', '..', '..');
-    // Enable hot reload in development mode
+    // Hot reload is ON by default in dev mode for development convenience.
     this.hotReloadEnabled =
       process.env['NODE_ENV'] === 'development' ||
       process.env['ELECTRON_RENDERER_URL'] !== undefined;
@@ -225,9 +235,8 @@ export class BridgeManager extends EventEmitter {
 
     const { command, args } = findBridgeExecutable(this.projectRoot);
 
-    this.addLog(`Starting MiQi bridge: ${command} ${args.join(' ')}`);
     this.addLog(`Working directory: ${this.projectRoot}`);
-    this.recordMainLog('INFO', `Starting MiQi bridge: ${command} ${args.join(' ')}`);
+    this.recordMainLog('INFO', `Starting MiQi bridge: ${command} ${args.join(' ')}`, 'bridge');
 
     let startedProcess: ChildProcess | null = null;
     let startedReader: Interface | null = null;
@@ -277,9 +286,18 @@ export class BridgeManager extends EventEmitter {
                   if (resp.code) (err as Error & { code?: string }).code = resp.code;
                   pending.reject(err);
                 } else {
-                  // final / aborted: call onEvent then resolve
-                  pending.onEvent?.(resp.eventType, resp.data);
-                  pending.resolve(resp.data);
+                  // final / aborted: call onEvent then resolve.
+                  // Wrap onEvent in try/catch so a thrown error in the
+                  // callback does not skip pending.resolve (#331).
+                  try {
+                    pending.onEvent?.(resp.eventType, resp.data);
+                  } catch (onEventErr) {
+                    this.addLog(
+                      `[Bridge] onEvent threw for terminal event ${resp.eventType}: ${onEventErr}`
+                    );
+                  } finally {
+                    pending.resolve(resp.data);
+                  }
                 }
                 // Terminal: skip bridge-event
                 return;
@@ -289,6 +307,7 @@ export class BridgeManager extends EventEmitter {
               // delivers to the IPC handler. bridge-event is only for
               // global events without a tracked request (e.g. fs/changed).
               if (pending) {
+                pending.refreshTimeout?.();
                 pending.onEvent?.(resp.eventType, resp.data);
                 return;
               }
@@ -332,22 +351,24 @@ export class BridgeManager extends EventEmitter {
             pending.reject(err);
           } else if (pending.onEvent) {
             // Streaming mode: notify via onEvent, keep pending alive for future events
+            pending.refreshTimeout?.();
             pending.onEvent('response', resp.result);
           } else {
             pending.resolve(resp.result);
           }
-        } catch {
-          this.addLog(`[Bridge] Ignoring non-JSON stdout line: ${line}`);
+        } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          this.addLog(`[Bridge] Error processing stdout line: ${errMsg} — raw: ${line}`);
         }
       });
 
       bridgeProcess.stderr!.on('data', (data: Buffer) => {
-        const text = data.toString().trim();
-        if (text) {
-          const msg = `[MIQI BRIDGE STDERR] ${text}`;
-          console.log(msg);
-          this.addLog(text);
-          this.recordMainLog('WARN', msg);
+        const rawText = data.toString().trim();
+        if (rawText) {
+          const text = stripAnsi(rawText);
+          // Python libraries (loguru, warnings, etc.) often write normal
+          // output to stderr — use INFO, not WARN, to avoid false alarms.
+          this.recordMainLog('INFO', text, 'bridge');
         }
       });
 
@@ -434,10 +455,13 @@ export class BridgeManager extends EventEmitter {
           const normalized = normalizeBridgeMessage(resp);
           const pending = normalized.requestId ? this.pending.get(normalized.requestId) : undefined;
 
-          if (!pending && resp.type && resp.data) {
+          if (!pending && normalized.eventType && resp.data) {
             // Orphan event (e.g. subagent_result after main agent finished)
             // Forward to all renderer windows so late events are not dropped.
-            const eventKey = `CHAT_${resp.type.toUpperCase()}`;
+            // Use normalized.eventType (not raw resp.type) so events sent via
+            // the "event" field are handled correctly — consistent with the
+            // primary handler (#335).
+            const eventKey = `CHAT_${normalized.eventType.toUpperCase()}`;
             const channel = IPC_EVENTS[eventKey as keyof typeof IPC_EVENTS];
             if (channel) {
               const allWindows = BrowserWindow.getAllWindows();
@@ -583,8 +607,7 @@ export class BridgeManager extends EventEmitter {
       proc.kill('SIGTERM');
     });
 
-    this.addLog('Bridge stopping');
-    this.recordMainLog('INFO', 'Bridge stopping');
+    this.recordMainLog('INFO', 'Bridge stopping', 'bridge');
     await this.stoppingPromise;
   }
 
@@ -636,6 +659,12 @@ export class BridgeManager extends EventEmitter {
 
     if (this.state !== 'running' || !this.initialized || this.restartInProgress) {
       this.addLog(`[Hot Reload] Ignoring change while bridge is ${this.state}`);
+      return;
+    }
+
+    // Don't restart if there are active requests — avoid killing sessions
+    if (this.pending.size > 0) {
+      this.addLog(`[Hot Reload] Skipping restart — ${this.pending.size} pending request(s)`);
       return;
     }
 
@@ -721,8 +750,7 @@ export class BridgeManager extends EventEmitter {
       return await this.send(method, params, onEvent);
     } catch (e: any) {
       const errMsg = e?.message ?? String(e);
-      this.addLog(`[Bridge] sendSafe ${method} swallowed: ${errMsg}`);
-      this.recordMainLog('WARN', `sendSafe ${method} failed: ${errMsg}`);
+      this.recordMainLog('WARN', `sendSafe ${method} failed: ${errMsg}`, 'bridge');
       return null;
     }
   }
@@ -739,8 +767,7 @@ export class BridgeManager extends EventEmitter {
       return { ok: true, value };
     } catch (e: any) {
       const msg = e?.message ?? String(e ?? 'Unknown bridge error');
-      this.addLog(`[Bridge] sendSafeWithError ${method} failed: ${msg}`);
-      this.recordMainLog('WARN', `sendSafeWithError ${method} failed: ${msg}`);
+      this.recordMainLog('WARN', `sendSafeWithError ${method} failed: ${msg}`, 'bridge');
       return { ok: false, error: msg, code: e?.code };
     }
   }
@@ -773,12 +800,28 @@ export class BridgeManager extends EventEmitter {
 
     const id = randomUUID();
     const request: BridgeRequest = { id, method, params };
-    // Methods that may be slow during first-time auto-export/install
-    // (2-5 min): chat.send, thread/start, sandbox.setEnabled
-    const SLOW_METHODS = new Set(['chat.send', 'thread/start', 'sandbox.setEnabled']);
-    const timeoutMs = options.timeoutMs ?? (
-      SLOW_METHODS.has(method) ? CHAT_SEND_TIMEOUT_MS : 30_000
-    );
+    // Methods that may be slow during first-time auto-export/install (2-5 minutes)
+    // or while the sandbox is initializing in the background.
+    // When a request hits SLOW_METHODS, it gets the extended CHAT_SEND_TIMEOUT_MS
+    // instead of the default 30s IPC timeout to avoid sendSafe swallowing
+    // failures.  The Python side (#266) already dispatches these concurrently,
+    // so a slow method no longer blocks fast ones.
+    const SLOW_METHODS = new Set([
+      'chat.send',
+      'config.get',
+      'plugins.list',
+      'sandbox.setEnabled',
+      'sessions.archive',
+      'sessions.get',
+      'sessions.get_tracked_files',
+      'sessions.list',
+      'sessions.list_archived',
+      'sessions.unarchive',
+      'thread/start',
+    ]);
+    const timeoutMs =
+      options.timeoutMs ?? (SLOW_METHODS.has(method) ? CHAT_SEND_TIMEOUT_MS : 30_000);
+    const timeoutMode = options.timeoutMode ?? (method === 'chat.send' ? 'inactivity' : 'total');
     const startMs = Date.now();
 
     const logSlow = () => {
@@ -786,16 +829,29 @@ export class BridgeManager extends EventEmitter {
       if (method === 'chat.send' || method === 'turn/start') return;
       const duration = Date.now() - startMs;
       if (duration > 1000) {
-        this.recordMainLog('INFO', `IPC ${method} took ${duration}ms`);
+        this.recordMainLog('INFO', `IPC ${method} took ${duration}ms`, 'bridge');
       }
     };
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pending.delete(id);
-        logSlow();
-        reject(new Error(`Request ${method} timed out`));
-      }, timeoutMs);
+      let timeout: ReturnType<typeof setTimeout>;
+      const timeoutMessage =
+        timeoutMode === 'inactivity'
+          ? `Request ${method} timed out after ${timeoutMs}ms without bridge events`
+          : `Request ${method} timed out`;
+      const armTimeout = () => {
+        timeout = setTimeout(() => {
+          this.pending.delete(id);
+          logSlow();
+          reject(new Error(timeoutMessage));
+        }, timeoutMs);
+      };
+      const refreshTimeout = () => {
+        if (timeoutMode !== 'inactivity') return;
+        clearTimeout(timeout);
+        armTimeout();
+      };
+      armTimeout();
 
       this.pending.set(id, {
         resolve: (value: unknown) => {
@@ -811,10 +867,12 @@ export class BridgeManager extends EventEmitter {
           reject(err);
         },
         onEvent,
+        refreshTimeout,
       });
 
       const stdin = this.process!.stdin!;
       if (!stdin.writable || stdin.destroyed) {
+        clearTimeout(timeout);
         this.pending.delete(id);
         reject(new Error('Bridge not running'));
         return;
@@ -822,11 +880,13 @@ export class BridgeManager extends EventEmitter {
       try {
         stdin.write(JSON.stringify(request) + '\n', (err) => {
           if (err) {
+            clearTimeout(timeout);
             this.pending.delete(id);
             reject(err);
           }
         });
       } catch (err) {
+        clearTimeout(timeout);
         this.pending.delete(id);
         reject(err instanceof Error ? err : new Error(String(err)));
       }

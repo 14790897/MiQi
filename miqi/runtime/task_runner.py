@@ -465,6 +465,7 @@ class TaskRunner:
             workspace=self.services.workspace,
             model=self.services.model_settings.model,
             provider=self.services.provider,
+            execution_policy=msg.mode or "edit",
             temperature=self.services.model_settings.temperature,
             max_tokens=self.services.model_settings.max_tokens,
             client_id=client_id,
@@ -480,6 +481,59 @@ class TaskRunner:
             tools = capabilities.tool_definitions
         else:
             tools = self.services.tool_registry.get_definitions()
+
+        # ── Execution Policy ──────────────────────────────────────────
+        # Three-layer: system prompt + tool set + approval flags.
+        # Mode = Agent role, not permission preset.
+        # Plan:   strategist — read-only, proposes approach
+        # Manual: collaborator — all tools, each step confirmed by user
+        # Edit:   developer  — all tools, safe auto, dangerous ask
+        # Auto:   agent      — all tools, bypass approval entirely
+
+        from miqi.runtime.tool_policy import PLAN_BLOCKED_TOOLS
+
+        if turn.execution_policy == "plan":
+            tools = [t for t in tools if t.get("name") not in PLAN_BLOCKED_TOOLS]
+            # NOTE: Plan mode only exposes read-only tools (write/exec/spawn
+            # removed by PLAN_BLOCKED_TOOLS above).  Setting bypass_approval
+            # here skips approval prompts for safe read operations — it does
+            # NOT grant write/execute permission.  Tool filtering (above) is
+            # the security boundary.  The permission engine's deny-list still
+            # wins in all modes.
+            turn.bypass_approval = True
+
+        if turn.execution_policy == "auto":
+            turn.bypass_approval = True
+        elif turn.execution_policy == "manual":
+            turn.force_approval = True
+        # edit: both flags False → normal approval flow
+
+        _MODE_PROMPTS = {
+            "plan": (
+                "【Agent 模式：规划 — 只读分析】你的角色是分析助手。"
+                "你可以使用只读工具（搜索、读文件、查看代码）获取信息、分析问题、提供方案和建议。\n"
+                "限制：不能修改文件，不能执行会改变环境的命令，不能创建或删除资源。\n"
+                "请在回答中充分利用搜索、阅读等只读工具来获取信息并给出分析。"
+                "如果用户请求修改，请描述修改方案和步骤，"
+                "等待用户切换到「允许编辑」或「自动」模式后再执行。\n\n"
+            ),
+            "manual": (
+                "【Agent 模式：手动】你的角色是协作者。你有全部工具，但每个操作需要用户确认。"
+                "请逐步说明你打算做什么（改哪个文件、执行什么命令），等待用户逐一批准后再动手。\n\n"
+            ),
+            "edit": (
+                "【Agent 模式：允许编辑】你的角色是工程师。直接修改文件，安全操作自动放行。"
+                "危险操作（执行命令、网络请求、删除文件）需要用户确认。高效工作。\n\n"
+            ),
+            "auto": (
+                "【Agent 模式：自动】你的角色是全权代理。完全自主执行，不中断询问。"
+                "直接完成任务，注意安全底线。用户信任你的判断。\n\n"
+            ),
+        }
+        mode_prompt = _MODE_PROMPTS.get(turn.execution_policy, "")
+        effective_system_prompt = mode_prompt + metadata.system_prompt if mode_prompt else metadata.system_prompt
+
+        # ── End Execution Policy ─────────────────────────────────────
 
         # Phase 13: attach permission profile for orchestrator
         from miqi.runtime.permission_profile import PermissionProfile
@@ -508,7 +562,7 @@ class TaskRunner:
             ctx_runtime = getattr(self.services, "context_runtime", None)
             auto_limit = getattr(self.services.model_settings, "context_limit_chars", 0)
             if history_runtime is not None and ctx_runtime is not None and auto_limit:
-                token_limit = max(1, int(auto_limit) // 4)
+                token_limit = max(1, int(int(auto_limit) / 2.5))
                 if ctx_runtime.should_auto_compact(history, token_limit):
                     try:
                         compact_result = await ctx_runtime.compact_thread(
@@ -605,7 +659,7 @@ class TaskRunner:
             result = await self.services.turn_runner.run(
                 turn=turn,
                 user_content=msg.content,
-                system_prompt=metadata.system_prompt,
+                system_prompt=effective_system_prompt,
                 tools=tools,
                 history=history,
                 cancel_event=cancel_evt,
@@ -739,7 +793,7 @@ class TaskRunner:
             # message; everything else (transient/fatal/unknown) keeps the
             # generic message to avoid leaking internal details.
             logger.error("Agent processing error in turn {}: {}", turn_id, exc, exc_info=True)
-            user_message = "An internal error occurred while processing your message."
+            user_message = "处理消息时发生内部错误，请重试。"
             if prov_err is not None and prov_err.kind is ErrorKind.AUTH:
                 # AUTH is sensitive — surface a fixed, non-leaking message
                 # instead of the raw provider exception text (Plan 58.2).

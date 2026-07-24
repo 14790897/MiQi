@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from miqi.agent.tools.base import Tool
+from miqi.agent.tools.filesystem import _persist_tracked_file
 
 
 def _raw_output_path(kwargs: dict[str, Any]) -> str:
@@ -221,6 +222,7 @@ class XlsxReadTool(Tool):
         }
 
     async def execute(self, **kwargs: Any) -> str:
+        _sess_key = kwargs.pop("_session_key", None)
         raw_path = _raw_output_path(kwargs)
         if not raw_path.strip():
             return "Error: filename is required"
@@ -246,13 +248,14 @@ class XlsxReadTool(Tool):
             else:
                 ws = wb.active
 
-            lines = [f"Sheet: {ws.title} ({ws.max_row} rows x {ws.max_column} cols)", ""]
-            for row in ws.iter_rows(values_only=True, max_row=min(ws.max_row, 200)):
+            lines = [f"Sheet: {ws.title} ({ws.max_row or '?'} rows x {ws.max_column or '?'} cols)", ""]
+            max_row = ws.max_row or 2000
+            for row in ws.iter_rows(values_only=True, max_row=min(max_row, 200)):
                 cells = [str(c) if c is not None else "" for c in row]
                 lines.append(" | ".join(cells))
 
-            if ws.max_row > 200:
-                lines.append(f"\n... ({ws.max_row - 200} more rows)")
+            if max_row > 200:
+                lines.append(f"\n... ({max_row - 200} more rows)")
 
             wb.close()
             return "\n".join(lines)
@@ -329,6 +332,7 @@ class CreateXlsxTool(Tool):
     async def execute(self, **kwargs: Any) -> str:
         from openpyxl import Workbook
 
+        _sess_key = kwargs.pop("_session_key", None)
         raw_path = _raw_output_path(kwargs)
         sheets = kwargs.get("sheets")
         rows = kwargs.get("rows")
@@ -392,6 +396,7 @@ class CreateXlsxTool(Tool):
 
             file_path.parent.mkdir(parents=True, exist_ok=True)
             wb.save(str(file_path))
+            _persist_tracked_file(self._workspace, file_path, op="write", session_key=_sess_key)
             return f"Created: {file_path} ({len(wb.sheetnames)} sheet(s))"
         except Exception as e:
             return f"Error writing {raw_path}: {e}"
@@ -462,6 +467,7 @@ class AppendXlsxTool(Tool):
     async def execute(self, **kwargs: Any) -> str:
         from openpyxl import load_workbook
 
+        _sess_key = kwargs.pop("_session_key", None)
         raw_path = _raw_output_path(kwargs)
         if not raw_path.strip():
             return "Error: filename is required"
@@ -503,6 +509,7 @@ class AppendXlsxTool(Tool):
 
             wb.save(str(file_path))
             wb.close()
+            _persist_tracked_file(self._workspace, file_path, op="edit", session_key=_sess_key)
             return f"Appended: {file_path} ({len(rows)} row(s) to {ws.title})"
         except Exception as e:
             return f"Error editing {raw_path}: {e}"

@@ -158,6 +158,21 @@ class FeishuChannelConfig(Base):
     require_mention_in_groups: bool = True  # If true, only respond when @mentioned in group chats
 
 
+class FeedbackConfig(Base):
+    """User feedback collection configuration (submit to Feishu Bitable).
+
+    Hardcoded defaults ship with the application so that end users can
+    submit feedback with zero configuration.  The Feishu App permissions
+    are scoped to the single target Bitable table only.
+    """
+
+    enabled: bool = True
+    feishu_app_id: str = "cli_aaea960221b8dbea"
+    feishu_app_secret: str = "0mutMgBMlqCOH4xoR2vkTcxSFQvrRIWk"
+    bitable_app_token: str = "XdLzbs2cUaLubKsDisBcVnXknrf"
+    bitable_table_id: str = "tblXphMl4M8vjyco"
+
+
 class ChannelsConfig(Base):
     """Configuration for chat channels."""
 
@@ -165,6 +180,7 @@ class ChannelsConfig(Base):
     send_tool_hints: bool = False  # stream tool-call hints (e.g. read_file("…"))
     send_queue_notifications: bool = True  # Notify users about their position in the task queue
     feishu: FeishuChannelConfig = Field(default_factory=FeishuChannelConfig)
+    feedback: FeedbackConfig = Field(default_factory=FeedbackConfig)
 
 
 class FallbackChainEntry(Base):
@@ -181,7 +197,7 @@ class AgentDefaults(Base):
     model: str = "anthropic/claude-opus-4-5"
     max_tokens: int = 8192
     temperature: float = 0.1
-    max_tool_iterations: int = 100
+    max_tool_iterations: int = 500
     memory_window: int = 100
     reflect_after_tool_calls: bool = True
     # Maximum characters kept per tool result in the live prompt.

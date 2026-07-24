@@ -19,6 +19,9 @@ from typing import Any
 from loguru import logger
 
 
+CHAT_DRAIN_IDLE_TIMEOUT_SECONDS = 600
+
+
 class BridgeRuntimeLoop:
     """Persistent asyncio event loop for the bridge transport.
 
@@ -385,6 +388,12 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("files.revert", files_revert_handler)
         self._app_server.register_method("files.accept", files_accept_handler)
 
+        # Register documents.* handlers
+        from miqi.documents.documents_parse_handler import (
+            documents_parse_handler,
+        )
+        self._app_server.register_method("documents.parse", documents_parse_handler)
+
         # Register Phase 35.2: providers.* handlers
         from miqi.runtime.provider_handlers import (
             providers_list_handler,
@@ -501,7 +510,15 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("experience:toggle", experience_toggle_handler)
         self._app_server.register_method("experience:search", experience_search_handler)
 
-        # Register Phase 35.8: diagnostic handlers
+        # Register Phase 35.8: feedback handlers
+        from miqi.runtime.feedback_handlers import (
+            feedback_list_handler,
+            feedback_submit_handler,
+        )
+        self._app_server.register_method("feedback:submit", feedback_submit_handler)
+        self._app_server.register_method("feedback:list", feedback_list_handler)
+
+        # Register Phase 35.9: diagnostic handlers
         from miqi.runtime.diagnostic_handlers import python_check_handler
         self._app_server.register_method("python.check", python_check_handler, spec=protocol_specs.PYTHON_CHECK)
 
@@ -631,7 +648,15 @@ class BridgeRuntimeLoop:
             config = self._bridge_state.load_config()
             from miqi.providers.factory import make_provider
 
-            provider = make_provider(config)
+            try:
+                provider = make_provider(config)
+            except ValueError as exc:
+                from miqi.runtime.app_server import AppServerError
+                logger.warning("make_provider failed during chat.send: {}", exc)
+                raise AppServerError(
+                    "No API key configured — set one in Settings > Models",
+                    code="NO_API_KEY",
+                ) from exc
             self._bridge_state._ensure_sandbox_manager()
             sandbox_manager = getattr(self._bridge_state, "_sandbox_manager", None)
             if sandbox_manager == "disabled":
@@ -645,17 +670,132 @@ class BridgeRuntimeLoop:
                 sandbox_manager=sandbox_manager,
             )
 
+        # ── Parse document attachments before submitting ────────────────
+        # Extract text from uploaded documents (PDF/Office/MD) and inject
+        # into the message content so the LLM can immediately understand them.
+        attachments_raw = params.get("attachments") or []
+        if attachments_raw:
+            # Ensure config is available (may not be set if session already existed)
+            try:
+                _ = config
+            except NameError:
+                config = self._bridge_state.load_config() if self._bridge_state else None
+            if config is None:
+                from miqi.runtime.app_server import AppServerError
+                raise AppServerError("Config not available for attachment save", code="INTERNAL")
+            import asyncio as _asyncio
+            import base64 as _b64
+            import re as _re
+            from pathlib import Path as _Path
+
+            ws_root = config.workspace_path
+            # Save to session files directory so tools + documents.parse find it
+            safe_key = session_key.replace(":", "_")
+            dest_dir = ws_root / "sessions" / safe_key / "files"
+            dest_dir.mkdir(parents=True, exist_ok=True)
+
+            async def _emit_doc_progress(name: str, stage: str, message: str) -> None:
+                try:
+                    await self._app_server.emit_client_event(client_id, "progress", {
+                        "type": "doc_progress",
+                        "file": name,
+                        "stage": stage,
+                        "message": message,
+                    })
+                except Exception:
+                    pass
+
+            async def _decode_and_parse(att: dict) -> tuple[str, str] | None:
+                """Decode attachment, save to disk, parse content."""
+                name = (att.get("name") or "").strip()
+                data_b64 = (att.get("data_base64") or "").strip()
+                if not name or not data_b64:
+                    return None
+                try:
+                    raw = _b64.b64decode(data_b64)
+                except Exception as exc:
+                    logger.warning("chat.send: base64 decode failed for %s: %s", name, exc)
+                    return None
+
+                safe_name = _re.sub(r'[<>:"/\\\\|?*]', '_', name)
+                dest = dest_dir / safe_name
+                counter = 0
+                while dest.exists():
+                    stem, ext = (safe_name.rsplit(".", 1) + [""])[:2]
+                    counter += 1
+                    dest = dest_dir / f"{stem}_{counter}.{ext}" if ext else dest_dir / f"{stem}_{counter}"
+                dest.write_bytes(raw)
+                await _emit_doc_progress(name, "saved", f"Saved ({len(raw) // 1024} KB)")
+
+                # Parse document and extract text (offload to thread to avoid
+                # blocking the persistent bridge event-loop).
+                try:
+                    from miqi.documents.document_parser import parse_document, is_supported_document
+                    if is_supported_document(dest):
+                        await _emit_doc_progress(name, "extracting", "Extracting text...")
+                        result = await _asyncio.to_thread(parse_document, dest, max_chars=100_000)
+                        text = result["text"]
+                        ocr = result.get("ocr_used", False)
+                        tag = " (OCR)" if ocr else ""
+                        await _emit_doc_progress(name, "extracted",
+                            f"Extracted {len(text):,} chars{tag}")
+                        logger.info(
+                            "chat.send: extracted {} chars from {} ocr={}",
+                            len(text), name, ocr,
+                        )
+                        return (name, text)
+                except Exception as exc:
+                    logger.warning("chat.send: parse failed for %s: %s", name, exc)
+                return (name, "")
+
+            tasks = [_decode_and_parse(att) for att in attachments_raw]
+            parsed = await _asyncio.gather(*tasks)
+
+            doc_texts = []
+            for r in parsed:
+                if r is None:
+                    continue
+                doc_name, doc_text = r
+                if doc_text:
+                    doc_texts.append(
+                        f"\n\n--- Document: {doc_name} ---\n{doc_text}\n--- End of {doc_name} ---"
+                    )
+                else:
+                    doc_texts.append(
+                        f"\n\n[Uploaded: {doc_name} — use pdf_read or read_file tool to access]"
+                    )
+                _emit_doc_progress(doc_name, "ready", "Ready")
+
+            if doc_texts:
+                content = content + "\n".join(doc_texts)
+
         # Submit the user message
-        await runtime.submit(UserMessage(content=content, thread_id=thread_id))
+        mode = params.get("mode", "edit")
+        logger.info(f"chat.send received mode={mode}")
+        await runtime.submit(UserMessage(
+            content=content,
+            thread_id=thread_id,
+            mode=mode,
+        ))
 
-        # Subscribe client to session events so emit_event delivers to the sink
-        self._app_server.subscribe(client_id, runtime_id)
-
-        # Cancel any still-running drain for this session so the new one
-        # doesn't compete for events on the shared _events queue.
-        old = self._session_drain_tasks.pop(runtime_id, None)
+        # Reject duplicate turns for the same session: cancelling the old
+        # drain task leaves abandoned sandbox creation running (WSL
+        # subprocesses don't respond to asyncio cancellation), which
+        # poisons the _creating flag and causes the next turn's tool
+        # calls to fall back to local (non-sandboxed) execution.
+        old = self._session_drain_tasks.get(runtime_id)
         if old is not None and not old.done():
-            old.cancel()
+            from miqi.runtime.app_server import AppServerError
+
+            raise AppServerError(
+                "A turn is already in progress for this session",
+                code="TURN_IN_PROGRESS",
+            )
+
+        # Subscribe client to session events so emit_event delivers to the sink.
+        # Must happen AFTER the TURN_IN_PROGRESS check to avoid leaking a
+        # subscription when the duplicate-turn error is raised (#326).
+        self._app_server.subscribe(client_id, runtime_id)
 
         # Spawn background drain task
         app_server = self._app_server
@@ -744,6 +884,9 @@ class BridgeRuntimeLoop:
                 AgentReasoningEvent,
                 ApprovalResolvedEvent,
                 ErrorEvent,
+                ExecCommandBeginEvent,
+                ExecCommandEndEvent,
+                ExecCommandOutputDeltaEvent,
                 ToolCallBeginEvent,
                 ToolCallEndEvent,
                 TurnAbortedEvent,
@@ -754,11 +897,22 @@ class BridgeRuntimeLoop:
             while True:
                 # Keep in sync with CHAT_BACKEND_DRAIN_TIMEOUT_MS in
                 # apps/desktop/src/main/bridge.ts.
-                event = await runtime.next_event(timeout=300)
+                event = await runtime.next_event(timeout=CHAT_DRAIN_IDLE_TIMEOUT_SECONDS)
                 if event is None:
-                    # Timeout — no response from agent
+                    logger.warning(
+                        "chat.send drain idle timeout after {}s "
+                        "(request={} session={} thread={})",
+                        CHAT_DRAIN_IDLE_TIMEOUT_SECONDS,
+                        request_id,
+                        session_id,
+                        thread_id,
+                    )
                     await _emit_terminal("error", {
-                        "message": "Turn timed out after 300s",
+                        "code": "TIMEOUT",
+                        "message": (
+                            f"Turn 超时（"
+                            f"{CHAT_DRAIN_IDLE_TIMEOUT_SECONDS}s）"
+                        ),
                     })
                     break
 
@@ -782,6 +936,7 @@ class BridgeRuntimeLoop:
                 if isinstance(event, ErrorEvent):
                     await _emit_terminal("error", {
                         "message": event.message,
+                        "code": event.error_kind or "ERROR",
                     })
                     break
 
@@ -796,6 +951,17 @@ class BridgeRuntimeLoop:
                         })
                     break
 
+                # Exec output deltas: forward with the top-level shape that
+                # ChatConsole.tsx expects (stream / delta / tool_call_id)
+                # so inline terminal output updates in real time.
+                if isinstance(event, ExecCommandOutputDeltaEvent):
+                    await _emit("progress", {
+                        "stream": event.stream,
+                        "delta": event.delta,
+                        "tool_call_id": event.tool_call_id,
+                    })
+                    continue
+
                 # Internal runtime events that should never appear in
                 # the chat message stream.  See Issue #35.
                 if isinstance(event, (
@@ -803,6 +969,8 @@ class BridgeRuntimeLoop:
                     AgentReasoningEvent,       # model reasoning; no user-visible rendering target yet
                     TurnStartedEvent,          # turn lifecycle; not chat content
                     ApprovalResolvedEvent,     # approval lifecycle; not chat content
+                    ExecCommandBeginEvent,     # exec lifecycle; rendered via ToolCallBeginEvent
+                    ExecCommandEndEvent,       # exec lifecycle; rendered via ToolCallEndEvent
                 )):
                     continue
 
@@ -846,7 +1014,7 @@ class BridgeRuntimeLoop:
             if len(raw) > 300:
                 raw = raw[:300] + "…"
             await _emit_terminal("error", {
-                "message": f"Bridge drain error: {raw}",
+                "message": f"Bridge 事件循环错误：{raw}",
             })
 
     # ── agent.spawn / agent.kill handlers ──────────────────────────────────
@@ -1307,7 +1475,7 @@ class BridgeRuntimeLoop:
         """
         logger.info(
             "BridgeRuntimeLoop: starting graceful shutdown "
-            "(%d active chat tasks)",
+            "({} active chat tasks)",
             len(self._active_chat_tasks),
         )
 

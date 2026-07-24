@@ -93,6 +93,7 @@ export const IPC = {
   FILES_ACCEPT: 'files:accept',
   FILES_OPEN_EXTERNAL: 'files:openExternal',
   FILES_OPEN_CONTAINING_FOLDER: 'files:openContainingFolder',
+  DOCUMENTS_PARSE: 'documents:parse',
 
   // Python check
   PYTHON_CHECK: 'python:check',
@@ -132,6 +133,8 @@ export const IPC = {
   PLUGINS_INSTALL: 'plugins:install',
   PLUGINS_UNINSTALL: 'plugins:uninstall',
   PLUGINS_TOGGLE: 'plugins:toggle',
+  FEEDBACK_SUBMIT: 'feedback:submit',
+  FEEDBACK_LIST: 'feedback:list',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -167,6 +170,12 @@ export const ChatSendInput = z.object({
   content: z.string().min(1),
   session_key: z.string().optional(),
   thread_id: z.string().optional(),
+  mode: z.enum(['plan', 'manual', 'edit', 'auto']).optional(),
+  attachments: z.array(z.object({
+    name: z.string(),
+    data_base64: z.string().optional(),
+    mime_type: z.string().optional(),
+  })).optional(),
 });
 
 export const SessionGetInput = z.object({
@@ -648,12 +657,14 @@ export const McpDeleteInput = z.object({
 
 export const FilesReadInput = z.object({
   path: z.string().min(1),
+  session_key: z.string().optional(),
 });
 
 export const FilesWriteInput = z.object({
   path: z.string().min(1),
   content: z.string(),
   session_key: z.string().optional(),
+  data_base64: z.string().optional(),
 });
 
 export interface FileNode {
@@ -709,6 +720,16 @@ export interface FilesOpenContainingFolderResult {
   error?: string;
 }
 
+export interface DocumentsParseResult {
+  path: string;
+  text: string;
+  page_count: number;
+  size_bytes: number;
+  mime_type: string;
+  ocr_used: boolean;
+  parse_ms: number;
+}
+
 export interface TrackedFileInfo {
   path: string;
   op: 'read' | 'write' | 'edit' | 'delete';
@@ -726,11 +747,13 @@ export interface ChatProgress {
   stream?: 'stdout' | 'stderr';
   delta?: string;
   tool_call_id?: string;
-  /** Session key for frontend-side event filtering (fix #212).
-   *  Optional for backward compatibility with backends that don't yet
-   *  emit this field.  Should become required once all backends are
-   *  updated. */
+  /** Session key for frontend-side event filtering (fix #212). */
   session_key?: string;
+  /** Document progress events from server-side parsing */
+  type?: 'doc_progress';
+  file?: string;
+  stage?: string;
+  message?: string;
 }
 
 export interface ChatFinal {
@@ -744,6 +767,8 @@ export interface ChatFinal {
 
 export interface ChatError {
   message: string;
+  /** Error code from backend (e.g. NO_API_KEY, INTERNAL) */
+  code?: string;
   /** Session key for frontend-side event filtering (fix #212).  Optional
    *  for backward compatibility; see ChatProgress.session_key. */
   session_key?: string;
@@ -970,4 +995,64 @@ export interface SandboxSetEnabledResult {
   destroyed?: number;
   already?: boolean;
   initializing?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Feedback schemas
+// ---------------------------------------------------------------------------
+
+// Per-screenshot validator: must be a `data:image/<mime>;base64,<...>`
+// URL whose decoded byte size is within the documented 10 MB limit.
+// Mirrors the server-side check in miqi/runtime/feedback_handlers.py
+// _decode_data_url so oversized/malformed payloads are rejected at the
+// IPC boundary before they reach the bridge.
+const MAX_DATA_URL_BYTES = 10 * 1024 * 1024;
+const dataUrlScreenshot = z
+  .string()
+  .refine(
+    (s) => s.startsWith('data:image/') && s.includes(';base64,'),
+    'Screenshot must be a base64-encoded data URL with image MIME type',
+  )
+  .refine(
+    (s) => {
+      const comma = s.indexOf(',');
+      if (comma < 0) return false;
+      const b64 = s.slice(comma + 1);
+      // base64 inflates ~4/3, so 14 MB encoded → ~10.5 MB decoded
+      return b64.length * 3 <= MAX_DATA_URL_BYTES * 4 + 4;
+    },
+    'Screenshot exceeds 10 MB limit',
+  );
+
+export const FeedbackSubmitInput = z.object({
+  category: z.enum(['bug', 'question', 'suggestion', 'other']),
+  title: z.string().min(1).max(200),
+  content: z.string().min(1).max(10000),
+  contact: z.string().max(200).optional(),
+  app_version: z.string().max(50).optional(),
+  screenshots: z.array(dataUrlScreenshot).max(5).optional(),
+  prompt_used: z.string().max(10000).optional(),
+  repro_frequency: z.string().max(200).optional(),
+});
+
+export interface FeedbackEntry {
+  id: string;
+  category: 'bug' | 'question' | 'suggestion' | 'other';
+  title: string;
+  content: string;
+  contact: string;
+  app_version: string;
+  os: string;
+  python_version: string;
+  feishu_record_id: string;
+  created_at: string;
+}
+
+export interface FeedbackListResult {
+  entries: FeedbackEntry[];
+}
+
+export interface FeedbackSubmitResult {
+  ok: boolean;
+  record_id: string;
 }

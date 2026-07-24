@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from miqi.agent.tools.base import Tool
+from miqi.agent.tools.filesystem import _persist_tracked_file
 
 
 _MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$")
@@ -553,6 +554,7 @@ class CreateDocxTool(Tool):
     async def execute(self, **kwargs: Any) -> str:
         from docx import Document
 
+        _sess_key = kwargs.pop("_session_key", None)
         raw_path = _raw_output_path(kwargs)
         content = kwargs.get("content", "")
         if not raw_path.strip():
@@ -594,6 +596,7 @@ class CreateDocxTool(Tool):
 
             file_path.parent.mkdir(parents=True, exist_ok=True)
             doc.save(str(file_path))
+            _persist_tracked_file(self._workspace, file_path, op="write", session_key=_sess_key)
             return f"Created: {file_path}"
         except Exception as e:
             return f"Error writing {raw_path}: {e}"
@@ -706,6 +709,7 @@ class EditDocxTool(Tool):
     async def execute(self, **kwargs: Any) -> str:
         from docx import Document
 
+        _sess_key = kwargs.pop("_session_key", None)
         raw_path = _raw_output_path(kwargs)
         if not raw_path.strip():
             return "Error: filename is required"

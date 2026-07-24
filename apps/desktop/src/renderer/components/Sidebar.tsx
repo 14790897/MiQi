@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '../lib/utils';
 import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, Trash2 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -64,6 +64,17 @@ export function Sidebar({
   const sidebarRef = useRef<HTMLDivElement>(null);
 
   const { getStatus, getStatusDisplay, setStatus, clearStatus } = useSessionStatus();
+
+  // ── Lazy rendering ──────────────────────────────────────────────────
+  const PER_PAGE = 20;
+  const [displayCount, setDisplayCount] = useState(PER_PAGE);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const listContainerRef = useRef<HTMLDivElement>(null);
+
+  // Reset display count when sessions list or filter changes
+  useEffect(() => {
+    setDisplayCount(PER_PAGE);
+  }, [sessions, filter]);
 
   // Resize handler
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -137,6 +148,32 @@ export function Sidebar({
     return { filterCounts: counts, filteredSessions: filtered };
   }, [sessions, filter, getStatus]);
 
+  // IntersectionObserver: load next page when sentinel enters viewport
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const container = listContainerRef.current;
+    if (!sentinel || !container) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setDisplayCount((prev) => {
+            const next = prev + PER_PAGE;
+            return next > filteredSessions.length ? filteredSessions.length : next;
+          });
+        }
+      },
+      {
+        root: container,
+        rootMargin: '300px',
+        threshold: 0,
+      }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [filteredSessions.length]);
+
   return (
     <div
       ref={sidebarRef}
@@ -175,7 +212,7 @@ export function Sidebar({
         {FILTER_TABS.map((tab) => {
           const isActive = filter === tab.value;
           const count = filterCounts[tab.value];
-          return (
+          const tabButton = (
             <button
               key={tab.value}
               role="tab"
@@ -208,12 +245,47 @@ export function Sidebar({
               )}
             </button>
           );
+          // Right-click on the 全部 tab: bulk delete / archive all
+          if (tab.value === 'ALL') {
+            return (
+              <ContextMenu
+                key={tab.value}
+                items={[
+                  {
+                    label: '删除全部任务',
+                    icon: <Trash2 size={13} />,
+                    danger: true,
+                    onSelect: async () => {
+                      if (!window.confirm(`确认删除全部 ${count} 个任务？此操作不可撤销。`)) return;
+                      for (const s of sessions) {
+                        try { await window.miqi.sessions.delete(s.key); } catch { /* ignore */ }
+                      }
+                      loadSessions();
+                    },
+                  },
+                  {
+                    label: '归档全部任务',
+                    icon: <Archive size={13} />,
+                    onSelect: async () => {
+                      for (const s of sessions) {
+                        try { await window.miqi.sessions.archive(s.key); } catch { /* ignore */ }
+                      }
+                      loadSessions();
+                    },
+                  },
+                ]}
+              >
+                {({ onContextMenu }) => React.cloneElement(tabButton as React.ReactElement, { onContextMenu })}
+              </ContextMenu>
+            );
+          }
+          return tabButton;
         })}
         </div>
       </div>
 
       {/* Session list — card style with left border + description */}
-      <div className="flex-1 overflow-y-auto px-3 pt-1 pb-2">
+      <div ref={listContainerRef} className="flex-1 overflow-y-auto px-3 pt-1 pb-2">
         {initialLoading && sessions.length === 0 ? (
           <div className="flex items-center justify-center py-6">
             <div className="w-4 h-4 border-2 border-[var(--border)] border-t-[var(--accent)] rounded-full animate-spin" />
@@ -227,7 +299,7 @@ export function Sidebar({
           </div>
         ) : (
           <div className="space-y-2">
-            {filteredSessions.slice(0, 20).map((s) => {
+            {filteredSessions.slice(0, displayCount).map((s) => {
               const isActive = currentSession === s.key;
               const displayName = s.title || formatTimestampKey(s.key);
               const sessionStatus = getStatus(s.key);
@@ -342,6 +414,10 @@ export function Sidebar({
                 </ContextMenu>
               );
             })}
+            {/* Sentinel element for lazy-load intersection detection */}
+            {displayCount < filteredSessions.length && (
+              <div ref={sentinelRef} className="h-1" />
+            )}
           </div>
         )}
       </div>
