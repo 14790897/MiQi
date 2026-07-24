@@ -17,7 +17,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { cn } from '../../lib/utils';
 import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
-import type { WslCheckResult } from '../../../shared/ipc';
+import type { WslCheckResult, WslInstallProgress } from '../../../shared/ipc';
 
 type Step = 'welcome' | 'provider';
 type CheckState<T> = {
@@ -199,6 +199,48 @@ export function SetupWizard({
   const [saveError, setSaveError] = useState('');
   const [pythonCheck, setPythonCheck] = useState<CheckState<PythonStatus>>({ status: 'idle' });
   const [wslCheck, setWslCheck] = useState<CheckState<WslCheckResult>>({ status: 'idle' });
+
+  // ── WSL one-click install state (new in #373) ──────────────────────
+  const [wslInstalling, setWslInstalling] = useState(false);
+  const [wslInstallPhase, setWslInstallPhase] = useState<WslInstallProgress['phase'] | null>(null);
+  const [wslInstallMessage, setWslInstallMessage] = useState('');
+  const [wslInstallReboot, setWslInstallReboot] = useState(false);
+
+  const handleWslInstall = useCallback(async () => {
+    setWslInstalling(true);
+    setWslInstallReboot(false);
+    setWslInstallPhase('checking');
+    setWslInstallMessage('正在检测 WSL 状态...');
+    try {
+      const result = await window.miqi.wsl.installAndProvision();
+      if (result.success && result.rebootRequired) {
+        setWslInstallReboot(true);
+        setWslInstallMessage(result.nextStep ?? '请重启系统后继续');
+      } else if (result.success) {
+        setWslInstallPhase('complete');
+        setWslInstallMessage('WSL2 安装配置完成！');
+      } else {
+        setWslInstallPhase('error');
+        setWslInstallMessage(result.error ?? '安装失败');
+      }
+      await runEnvironmentChecks();
+    } catch (e: any) {
+      setWslInstallPhase('error');
+      setWslInstallMessage(e?.message ?? '安装过程出错');
+    } finally {
+      setWslInstalling(false);
+    }
+  }, []);
+
+  // Listen for WSL install progress events from main process
+  useEffect(() => {
+    const unsub = window.miqi.wsl.onInstallProgress((data: WslInstallProgress) => {
+      setWslInstallPhase(data.phase);
+      setWslInstallMessage(data.message);
+      if (data.rebootRequired) setWslInstallReboot(true);
+    });
+    return unsub;
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -464,6 +506,68 @@ export function SetupWizard({
       );
     };
 
+    const WSL_STEPS = [
+      { phase: 'enabling_features', label: '启用功能' },
+      { phase: 'installing_wsl', label: '安装内核' },
+      { phase: 'installing_distro', label: '安装 Ubuntu' },
+    ] as const;
+    const WSL_PHASE_IDX: Record<string, number> = {
+      checking: -1, enabling_features: 0, installing_wsl: 1, installing_distro: 2, complete: 3, error: -1,
+    };
+
+    const renderWslProgress = () => {
+      if (!wslInstallPhase) return null;
+      const currentIdx = WSL_PHASE_IDX[wslInstallPhase] ?? -1;
+      return (
+        <div className="mt-3 pt-3 border-t border-[var(--border-subtle)]">
+          <div className="flex items-center justify-between mb-2">
+            {WSL_STEPS.map((step, i) => {
+              const isComplete = wslInstallPhase === 'complete' || currentIdx > i;
+              const isCurrent = currentIdx === i;
+              const isError = wslInstallPhase === 'error' && currentIdx === i;
+              return (
+                <div key={step.phase} className="flex flex-col items-center gap-1">
+                  <div
+                    className={cn(
+                      'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold',
+                      isComplete && 'bg-[var(--accent)] text-[#1a1a1a]',
+                      isCurrent && !isError && 'bg-[var(--accent)]/15 text-[var(--accent)] ring-2 ring-[var(--accent)]/30',
+                      isError && 'bg-[var(--danger)]/15 text-[var(--danger)] ring-2 ring-[var(--danger)]/30',
+                      !isComplete && !isCurrent && !isError && 'bg-[var(--surface-muted)] text-[var(--text-faint)]',
+                    )}
+                  >
+                    {isComplete ? '✓' : isCurrent && !isError ? <Loader2 size={10} className="animate-spin" /> : isError ? '⚠' : '○'}
+                  </div>
+                  <span className="text-[9px] text-[var(--text-faint)]">{step.label}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="relative h-1 bg-[var(--surface-muted)] rounded-full mb-2 mx-3">
+            {currentIdx >= 0 && (
+              <div
+                className="absolute inset-y-0 left-0 bg-[var(--accent)] rounded-full transition-all duration-500"
+                style={{ width: `${Math.min((currentIdx / (WSL_STEPS.length - 1)) * 100, 100)}%` }}
+              />
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
+            {wslInstalling && wslInstallPhase !== 'complete' && wslInstallPhase !== 'error' && (
+              <Loader2 size={10} className="animate-spin text-[var(--accent)] shrink-0" />
+            )}
+            {wslInstallPhase === 'complete' && <Check size={10} className="text-[var(--accent)] shrink-0" />}
+            {wslInstallPhase === 'error' && <AlertTriangle size={10} className="text-[var(--danger)] shrink-0" />}
+            {wslInstallMessage}
+          </div>
+          {wslInstallReboot && (
+            <div className="mt-2 px-2.5 py-2 rounded-md bg-[var(--warning)]/10 border border-[var(--warning)]/20 text-[10px]">
+              <span className="flex items-center gap-1"><AlertTriangle size={10} className="text-[var(--warning)]" />需要重启系统以完成安装</span>
+            </div>
+          )}
+        </div>
+      );
+    };
+
     const renderWslGuidance = () => {
       if (wslCheck.status !== 'warning') return null;
 
@@ -471,27 +575,49 @@ export function SetupWizard({
       if (result && !result.isWindows) return null;
 
       const featureState = result?.featureState;
+      const showAction = featureState === 'not-enabled' || featureState === 'not-installed'
+        || (featureState === 'installed-but-not-initialized' && result?.distros.length === 0);
 
-      // not-enabled: features not turned on
-      if (featureState === 'not-enabled' || (!result?.installed && featureState !== 'not-installed')) {
+      // ── States that can run one-click install ──
+      if (showAction) {
+        const titles: Record<string, string> = {
+          'not-enabled': '⚡ 一键安装 WSL2',
+          'not-installed': '⚡ 安装 WSL2 内核',
+          'installed-but-not-initialized': '⚡ 安装 Ubuntu 发行版',
+        };
+        const descs: Record<string, string> = {
+          'not-enabled': '需要启用「Windows 子系统」和「虚拟机平台」两个可选功能。点击下方按钮自动完成，安装过程需重启一次。',
+          'not-installed': 'Windows 可选功能已启用，还需安装 WSL2 内核。点击按钮自动完成，需重启一次。',
+          'installed-but-not-initialized': 'WSL2 内核就绪，还需安装 Ubuntu 发行版。点击按钮自动完成（约 2-5 分钟），无需重启。',
+        };
+        const title = titles[featureState ?? ''] ?? '⚡ 安装 WSL2';
+        const desc = descs[featureState ?? ''] ?? '点击一键安装自动完成 WSL2 配置。';
+
         return (
-          <div className="mt-2 rounded-md border border-[var(--warning)]/25 bg-[var(--warning)]/5 p-3">
-            <p className="text-xs font-medium text-[var(--text)]">可选：启用 WSL2</p>
-            <p className="mt-1 text-xs text-[var(--text-muted)] leading-relaxed">
-              Windows 可选功能「适用于 Linux 的 Windows 子系统」和「虚拟机平台」未启用。你可以：
-            </p>
+          <div className={cn(
+            'mt-2 rounded-md border p-3',
+            wslInstalling ? 'border-[var(--accent)]/30 bg-[var(--accent)]/3' : 'border-[var(--warning)]/25 bg-[var(--warning)]/5',
+          )}>
+            <p className="text-xs font-medium text-[var(--text)]">{title}</p>
+            <p className="mt-1 text-xs text-[var(--text-muted)] leading-relaxed">{desc}</p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
+              {wslInstalling ? (
+                <Button variant="ghost" size="sm" disabled>
+                  <Loader2 size={12} className="animate-spin" /> 安装中...
+                </Button>
+              ) : (
+                <Button variant="ghost" size="sm" onClick={handleWslInstall}>
+                  一键安装
+                </Button>
+              )}
               <Button variant="ghost" size="sm" onClick={() => void runEnvironmentChecks()}>
                 重新检查
               </Button>
             </div>
-            <div className="mt-2 space-y-1.5 text-xs text-[var(--text-muted)]">
-              <p>以管理员身份打开 PowerShell，运行以下命令并重启电脑：</p>
-              {renderCommand('wsl --install')}
-            </div>
+            {renderWslProgress()}
             <div className="mt-3 pt-2 border-t border-[var(--border-subtle)] flex items-center justify-between">
               <p className="text-xs text-[var(--text-faint)]">
-                ⚡ 沙箱等功能在 WSL2 上更稳定，也可以跳过稍后在设置中一键安装。
+                ⚡ 沙箱等功能在 WSL2 上更稳定，也可以跳过稍后在设置中安装。
               </p>
               <Button variant="ghost" size="sm" onClick={handleUseDefaults}>
                 跳过
@@ -501,45 +627,13 @@ export function SetupWizard({
         );
       }
 
-      // not-installed: WSL kernel not installed
-      if (featureState === 'not-installed') {
-        return (
-          <div className="mt-2 rounded-md border border-[var(--warning)]/25 bg-[var(--warning)]/5 p-3">
-            <p className="text-xs font-medium text-[var(--text)]">安装 WSL2 内核</p>
-            <p className="mt-1 text-xs text-[var(--text-muted)]">
-              Windows 功能已启用，但 WSL2 内核未安装。可稍后到「设置 → WSL 状态监控」中一键安装。
-            </p>
-            <div className="mt-2">
-              <Button variant="ghost" size="sm" onClick={() => void runEnvironmentChecks()}>
-                重新检查
-              </Button>
-            </div>
-          </div>
-        );
-      }
-
-      // installed-but-not-initialized
+      // ── installed-but-not-initialized (has distros) ──
       if (featureState === 'installed-but-not-initialized') {
-        if (result?.distros.length === 0) {
-          return (
-            <div className="mt-2 rounded-md border border-[var(--warning)]/25 bg-[var(--warning)]/5 p-3">
-              <p className="text-xs font-medium text-[var(--text)]">安装 Linux 发行版</p>
-              <p className="mt-1 text-xs text-[var(--text-muted)]">
-                WSL 已安装，但还没有可用的 Linux 发行版。可稍后到「设置 → WSL 状态监控」中一键安装 Ubuntu。
-              </p>
-              <div className="mt-2">
-                {renderCommand('wsl --install -d Ubuntu')}
-              </div>
-            </div>
-          );
-        }
-        // Has distros but not initialized
         return (
           <div className="mt-2 rounded-md border border-[var(--warning)]/25 bg-[var(--warning)]/5 p-3">
-            <p className="text-xs font-medium text-[var(--text)]">初始化 Linux 发行版</p>
+            <p className="text-xs font-medium text-[var(--text)]">发行版已安装</p>
             <p className="mt-1 text-xs text-[var(--text-muted)]">
-              发行版 {result?.defaultDistro || result?.distros?.[0]} 已安装，但尚未完成首次初始化（需创建用户）。
-              可稍后到「设置 → WSL 状态监控」中一键完成。
+              发行版 {result?.defaultDistro || result?.distros?.[0]} 已安装。MiQi 将自动从中导出沙箱环境，无需额外操作。
             </p>
             <div className="mt-2">
               <Button variant="ghost" size="sm" onClick={() => void runEnvironmentChecks()}>
@@ -550,7 +644,7 @@ export function SetupWizard({
         );
       }
 
-      // Version mismatch
+      // ── Version mismatch ──
       if (result?.version && result.version !== '2') {
         return (
           <div className="mt-2 rounded-md border border-[var(--warning)]/25 bg-[var(--warning)]/5 p-3">
