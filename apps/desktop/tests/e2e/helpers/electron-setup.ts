@@ -87,12 +87,18 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
   // added new output), then remain stable for two consecutive polls
   // (400ms).  Without the "grown" guard, an AI call that silently fails
   // would return true after ~400ms — a false positive.
+  //
+  // Baseline is captured in Phase 0; the fallback guards against edge
+  // cases where the state was cleared between phases (e.g. page reload).
   await page.waitForFunction(() => {
     const main = document.querySelector('main');
     if (!main) return false;
     const text = main.textContent || '';
     const s = (window as any).__miqi_stream_state;
-    // s is always initialized in Phase 0 above
+    if (!s) {
+      (window as any).__miqi_stream_state = { base: text.length, stable: 0, grown: false };
+      return false;
+    }
     if (text.length > s.base) {
       s.base = text.length;
       s.stable = 0;
