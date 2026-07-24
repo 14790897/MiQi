@@ -270,6 +270,11 @@ test.describe('WSL One-Click Install E2E', () => {
 
           // Call installAndProvision to trigger events
           await (window as any).miqi.wsl.installAndProvision();
+
+          // Wait briefly for async IPC events to be delivered.
+          // On non-Windows the handler returns synchronously without
+          // sending progress events, so this is a no-op in that case.
+          await new Promise((r) => setTimeout(r, 500));
         } catch (e: any) {
           collected.push({ _error: e?.message ?? String(e) });
         } finally {
@@ -284,11 +289,14 @@ test.describe('WSL One-Click Install E2E', () => {
         console.log(`[test]   event: phase=${e.phase}, message=${e.message}`);
       }
 
-      // The 'checking' phase should always fire first
+      // On non-Windows or WSL-already-ready, 0 events is expected
+      // (short-circuit return before any progress event fires).
       if (events.length > 0) {
         expect(events[0]).toHaveProperty('phase');
         expect(events[0]).toHaveProperty('message');
         console.log(`[test] ✅ First event phase: ${events[0].phase}`);
+      } else {
+        console.log('[test] ✅ 0 progress events (expected on non-Windows or WSL-already-ready)');
       }
 
       // If WSL is already ready, no further events fire.
@@ -329,17 +337,21 @@ test.describe('WSL One-Click Install E2E', () => {
       await reSetupBtn.click();
       await page.waitForTimeout(2000);
 
-      // In the welcome step, look for WSL status section
-      // PR #373 adds featureState-based guidance
+      // Setup Wizard is a full-screen overlay — no <main> element.
+      // Look for WSL-related text in the entire page body instead.
       const wslSection = page.getByText('WSL', { exact: false });
       const hasWslSection = await wslSection.first().isVisible({ timeout: 10_000 }).catch(() => false);
 
       if (hasWslSection) {
-        const wslText = await page.locator('main').textContent();
-        console.log(`[test] Setup Wizard WSL section text (first 300 chars): ${(wslText || '').substring(0, 300)}`);
+        // Use page-level textContent since SetupWizard doesn't use <main>
+        const bodyText = await page.locator('body').textContent({ timeout: 10_000 });
+        console.log(`[test] Setup Wizard WSL section text (first 300 chars): ${(bodyText || '').substring(0, 300)}`);
         console.log('[test] ✅ Setup Wizard shows WSL guidance');
       } else {
-        console.log('[test] WSL section not visible — may be in a different step');
+        console.log('[test] WSL section not visible — may be in a different step, verifying page has content');
+        const bodyText = await page.locator('body').textContent({ timeout: 10_000 });
+        expect(bodyText).toBeTruthy();
+        console.log('[test] ✅ Setup Wizard rendered (WSL guidance may be conditional on platform)');
       }
     },
   );
