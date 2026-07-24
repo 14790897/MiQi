@@ -694,9 +694,9 @@ class BridgeRuntimeLoop:
             dest_dir = ws_root / "sessions" / safe_key / "files"
             dest_dir.mkdir(parents=True, exist_ok=True)
 
-            def _emit_doc_progress(name: str, stage: str, message: str) -> None:
+            async def _emit_doc_progress(name: str, stage: str, message: str) -> None:
                 try:
-                    self._app_server.emit_client_event(client_id, "progress", {
+                    await self._app_server.emit_client_event(client_id, "progress", {
                         "type": "doc_progress",
                         "file": name,
                         "stage": stage,
@@ -725,18 +725,19 @@ class BridgeRuntimeLoop:
                     counter += 1
                     dest = dest_dir / f"{stem}_{counter}.{ext}" if ext else dest_dir / f"{stem}_{counter}"
                 dest.write_bytes(raw)
-                _emit_doc_progress(name, "saved", f"Saved ({len(raw) // 1024} KB)")
+                await _emit_doc_progress(name, "saved", f"Saved ({len(raw) // 1024} KB)")
 
-                # Parse document and extract text
+                # Parse document and extract text (offload to thread to avoid
+                # blocking the persistent bridge event-loop).
                 try:
                     from miqi.documents.document_parser import parse_document, is_supported_document
                     if is_supported_document(dest):
-                        _emit_doc_progress(name, "extracting", "Extracting text...")
-                        result = parse_document(dest, max_chars=100_000)
+                        await _emit_doc_progress(name, "extracting", "Extracting text...")
+                        result = await _asyncio.to_thread(parse_document, dest, max_chars=100_000)
                         text = result["text"]
                         ocr = result.get("ocr_used", False)
                         tag = " (OCR)" if ocr else ""
-                        _emit_doc_progress(name, "extracted",
+                        await _emit_doc_progress(name, "extracted",
                             f"Extracted {len(text):,} chars{tag}")
                         logger.info(
                             "chat.send: extracted {} chars from {} ocr={}",

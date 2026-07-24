@@ -11,6 +11,7 @@ import base64
 import io
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -242,36 +243,35 @@ def _pdf_ocr(file_path: Path) -> str:
     try:
         # Convert PDF pages to images
         pages_dir = tempfile.mkdtemp(prefix="miqi_ocr_")
-        subprocess.run(
-            ["pdftoppm", "-r", "200", "-png", str(file_path), f"{pages_dir}/page"],
-            capture_output=True, timeout=120,
-        )
+        try:
+            subprocess.run(
+                ["pdftoppm", "-r", "200", "-png", str(file_path), f"{pages_dir}/page"],
+                capture_output=True, timeout=120,
+            )
 
-        page_images = sorted(Path(pages_dir).glob("page-*.png"))
-        if not page_images:
-            logger.warning("pdftoppm produced no images")
-            return ""
+            page_images = sorted(Path(pages_dir).glob("page-*.png"))
+            if not page_images:
+                logger.warning("pdftoppm produced no images")
+                return ""
 
-        # OCR each page
-        full_text_parts = []
-        for img_path in page_images:
-            try:
-                result = subprocess.run(
-                    ["tesseract", str(img_path), "stdout", "-l", "chi_sim+eng"],
-                    capture_output=True, text=True, timeout=30,
-                    env=_env,
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    full_text_parts.append(result.stdout.strip())
-            except Exception as exc:
-                logger.warning(f"Tesseract OCR failed for {img_path}: {exc}")
+            # OCR each page
+            full_text_parts = []
+            for img_path in page_images:
+                try:
+                    result = subprocess.run(
+                        ["tesseract", str(img_path), "stdout", "-l", "chi_sim+eng"],
+                        capture_output=True, text=True, timeout=30,
+                        env=_env,
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        full_text_parts.append(result.stdout.strip())
+                except Exception as exc:
+                    logger.warning(f"Tesseract OCR failed for {img_path}: {exc}")
 
-        # Cleanup
-        for f in Path(pages_dir).iterdir():
-            f.unlink()
-        Path(pages_dir).rmdir()
-
-        return "\n\n".join(full_text_parts)
+            return "\n\n".join(full_text_parts)
+        finally:
+            # Guarantee cleanup on every exit path (including no-images + OCR failures)
+            shutil.rmtree(pages_dir, ignore_errors=True)
     except FileNotFoundError:
         logger.warning("pdftoppm or tesseract not found, OCR unavailable")
         return ""
@@ -529,7 +529,8 @@ def _parse_xlsx(file_path: Path, *, max_chars: int = MAX_CONTEXT_CHARS) -> dict[
             for row in ws.iter_rows(values_only=True):
                 row_count += 1
                 if row_count > max_rows:
-                    lines.append(f"... ({ws.max_row - max_rows} more rows)")
+                    remaining = ws.max_row - row_count if ws.max_row else 0
+                    lines.append(f"... ({remaining} more rows)")
                     break
                 cells = [str(cell) if cell is not None else "" for cell in row]
                 lines.append(" | ".join(cells))
