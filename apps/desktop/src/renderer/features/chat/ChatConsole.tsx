@@ -661,6 +661,17 @@ export function ChatConsole({
   const currentSessionRef = useRef(sessionKey);
   // Track the active thread ID for new-protocol thread-aware conversations
   const currentThreadIdRef = useRef<string | null>(null);
+  interface InFlightEvent {
+    type: "progress" | "final" | "error" | "aborted";
+    data: unknown;
+    timestamp: number;
+  }
+  interface InFlightSnapshot {
+    events: InFlightEvent[];
+    userMsgTimestamp: number;
+  }
+  const inFlightCacheRef = useRef<Map<string, InFlightSnapshot>>(new Map());
+  const fullContentRef = useRef('');
 
   // ── Thread tabs for multi-agent support ──
   interface ThreadTab {
@@ -746,10 +757,8 @@ export function ChatConsole({
   }, []);
 
   useEffect(() => {
-    // Tear down any in-flight stream listeners from a previous session
-    // before updating the ref.  This makes the per-handler session_key
-    // guard a defence-in-depth measure rather than the sole mechanism.
-    cleanupListeners();
+    setStreaming(false);
+    setCurrentReqId(null);
     currentSessionRef.current = sessionKey;
     currentThreadIdRef.current = null; // Reset on session change
     setHistoryLoaded(false);
@@ -765,6 +774,38 @@ export function ChatConsole({
         const rawMsgs: any[] = (detail as any)?.messages ?? [];
         const uiMsgs = sessionMsgsToUi(rawMsgs);
         setMessages(uiMsgs);
+        var cached = inFlightCacheRef.current.get(sessionKey);
+        if (cached && cached.events.length > 0) {
+          setStreaming(true);
+          for (var _j = 0; _j < cached.events.length; _j++) {
+            var _ev = cached.events[_j];
+            if (_ev.type === "progress") {
+              var _pd = _ev.data as any;
+              if (_pd?.text && !_pd?.stream) {
+                setMessages(function(_prev) { return _prev.concat([{ role: "progress", content: _pd.text, timestamp: Date.now() }]); });
+              }
+            } else if (_ev.type === "final") {
+              var _fd = _ev.data as any;
+              setMessages(function(_prev) {
+                var _cl = _prev.filter(function(_m) { return _m.role !== "progress" || _m.toolHint; });
+                var _lu = _cl[_cl.length - 1];
+                if (_lu?.role === "user" && _fd?.content) {
+                  return _cl.concat([{ role: "assistant", content: _fd.content, timestamp: _lu.timestamp + 1 }]);
+                }
+                return _cl;
+              });
+              setStreaming(false);
+            } else if (_ev.type === "error") {
+              var _ed = _ev.data as any;
+              setMessages(function(_prev) { return _prev.concat([{ role: "error", content: _ed?.message || "Unknown error", timestamp: Date.now() }]); });
+              setStreaming(false);
+            } else if (_ev.type === "aborted") {
+              setMessages(function(_prev) { return _prev.concat([{ role: "progress", content: "已停止。", timestamp: Date.now() }]); });
+              setStreaming(false);
+            }
+          }
+          inFlightCacheRef.current.delete(sessionKey);
+        }
         setSessionUpdatedAt((detail as any)?.updated_at ?? null);
         // Restore tracked files from dedicated tracked_files.json
         const tfResult = await window.miqi.sessions.getTrackedFiles(sessionKey);
@@ -823,7 +864,12 @@ export function ChatConsole({
   // when the main chat completes, because subagents finish asynchronously.
   useEffect(() => {
     const unsub = window.miqi.chat.onSubagentResult((data: ChatSubagentResult) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      if (data.session_key && data.session_key !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(data.session_key);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(data.session_key, buf); }
+        buf.events.push({ type: "progress", data, timestamp: Date.now() });
+        return;
+      }
       const statusIcon = data.status === 'ok' ? '✅' : '❌';
       const label = data.label || data.task_id;
       const content = `${statusIcon} Subagent "${label}" ${data.status === 'ok' ? 'completed' : 'failed'}:\n\n${data.result}`;
@@ -970,6 +1016,10 @@ export function ChatConsole({
       attachments: [...attachments],
       timestamp: Date.now(),
     };
+    inFlightCacheRef.current.set(currentSessionRef.current, {
+      events: [],
+      userMsgTimestamp: userMsg.timestamp,
+    });
     setMessages((prev) => [...prev, userMsg]);
     userScrolledUp.current = false; // user sent a message — resume auto-scroll
     setInput('');
@@ -984,6 +1034,7 @@ export function ChatConsole({
     cleanupListeners();
 
     let fullContent = '';
+    fullContentRef.current = '';
     let displayed = '';
     let animId: number | null = null;
     let finalDone = false;
@@ -1070,7 +1121,12 @@ export function ChatConsole({
     };
 
     const unsubProgress = window.miqi.chat.onProgress((data: ChatProgress) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      if (data.session_key && data.session_key !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(data.session_key);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(data.session_key, buf); }
+        buf.events.push({ type: "final", data, timestamp: Date.now() });
+        return;
+      }
       lastEventAt = Date.now();
       // Handle stream deltas from exec (Phase 7 inline tool progress)
       if (data.stream && data.delta && data.tool_call_id) {
@@ -1152,13 +1208,19 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      if (data.session_key && data.session_key !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(data.session_key);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(data.session_key, buf); }
+        buf.events.push({ type: "error", data, timestamp: Date.now() });
+        return;
+      }
       clearFinalCleanupTimer();
       if (animId !== null) {
         cancelAnimationFrame(animId);
         animId = null;
       }
       fullContent = data.content;
+      fullContentRef.current = fullContent;
       displayed = '';
       finalDone = true;
       setCurrentReqId(null);
@@ -1251,7 +1313,12 @@ export function ChatConsole({
     });
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
-      if (_data.session_key && _data.session_key !== currentSessionRef.current) return;
+      if (_data.session_key && _data.session_key !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(_data.session_key);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(_data.session_key, buf); }
+        buf.events.push({ type: "aborted", data: _data, timestamp: Date.now() });
+        return;
+      }
       if (animId !== null) cancelAnimationFrame(animId);
       setStreaming(false);
       setCurrentReqId(null);
@@ -2029,7 +2096,7 @@ export function ChatConsole({
           >
             {/* Resize handle — left edge */}
             <div
-              onMouseDown={handlePanelResizeStart}
+            onMouseDown={handlePanelResizeStart}
               className="absolute top-0 left-0 w-1.5 h-full cursor-col-resize hover:bg-[var(--accent)]/30 transition-colors z-10"
               style={{ marginLeft: -2 }}
             />
@@ -2729,7 +2796,7 @@ function MessageBubble({
             >
               <Settings size={13} />
               {msg.actionLabel ?? '配置 Provider'}
-            </button>
+              </button>
           )}
         </div>
       </div>
