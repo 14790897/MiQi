@@ -913,7 +913,7 @@ export function ChatConsole({
     label: string;
   }
   const [threads, setThreads] = useState<ThreadTab[]>([
-    { threadId: 'main', agentType: 'main', label: 'Main' },
+    { threadId: 'main', agentType: 'main', label: '主线程' },
   ]);
   const [activeThreadId, setActiveThreadId] = useState('main');
 
@@ -1226,7 +1226,7 @@ export function ChatConsole({
   const handleDeleteSession = useCallback(async () => {
     const key = currentSessionRef.current;
     if (!key) return;
-    if (!window.confirm('Delete this conversation? This cannot be undone.')) return;
+    if (!window.confirm('确定删除此对话？此操作不可撤销。')) return;
     try {
       await window.miqi.sessions.delete(key);
     } catch {
@@ -1383,10 +1383,10 @@ export function ChatConsole({
       const elapsed = Date.now() - lastEventAt;
       if (elapsed >= NO_PROGRESS_STRONG_MS) {
         appendWatchdogMsg(
-          '⚠️ No response from backend for 60s. You can abort and check runtime logs.'
+          '⚠️ 后端 60s 无响应，可中止并检查运行日志。'
         );
       } else if (elapsed >= NO_PROGRESS_WARN_MS) {
-        appendWatchdogMsg('⏳ Still waiting for backend response…');
+        appendWatchdogMsg('⏳ 正在等待后端响应…');
       }
     }, 5_000); // check every 5s
 
@@ -1682,7 +1682,7 @@ export function ChatConsole({
         cleanupListeners();
         return;
       }
-      const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? 'Unknown error'));
+      const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? '未知错误'));
       if (isProviderConfigurationProblem(errMsg, e?.code)) {
         setMessages((prev) => [...prev, createProviderConfigMessage(errMsg)]);
       } else if (e?.code) {
@@ -2180,7 +2180,7 @@ export function ChatConsole({
                     await window.miqi.sessions.delete(sessionKey);
                     handleNewSession();
                   } catch (e) {
-                    console.error('Delete failed:', e);
+                    console.error('删除失败:', e);
                   }
                 },
               },
@@ -2908,7 +2908,7 @@ export function ChatConsole({
                     title="Revert to HEAD (undo changes)"
                   >
                     <Undo2 size={12} className={reverting ? 'animate-spin' : ''} />
-                    {reverting ? 'Reverting...' : 'Revert'}
+                    {reverting ? '正在还原…' : '还原'}
                   </button>
                 )}
                 <button
@@ -2974,8 +2974,8 @@ export function ChatConsole({
                 <div className="flex items-center justify-center h-48">
                   <span className="text-sm" style={{ color: 'var(--text-faint)' }}>
                     {diffFile.original_content === null && diffFile.current_content === null
-                      ? 'No snapshot available — file was not modified in this session'
-                      : 'No changes detected'}
+                      ? '无快照可用 — 此文件未在本会话中修改'
+                      : '未检测到变更'}
                   </span>
                 </div>
               )}
@@ -3146,7 +3146,7 @@ function TrackedFileCard({
                 opacity: isOfficeFile ? 0.55 : 1,
               }}
               title={
-                'Diff is not available for Office binary files'
+                'Office 二进制文件不支持差异对比'
               }
             >
               <GitCompare size={10} />
@@ -3596,7 +3596,7 @@ function MarkdownContent({ content }: { content: string }) {
                   color: 'var(--text-muted)',
                 }}
               >
-                {copiedCode === code ? 'Copied' : 'Copy'}
+                {copiedCode === code ? '已复制' : '复制'}
               </button>
               {code}
             </code>
