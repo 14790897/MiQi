@@ -1,11 +1,16 @@
 /**
- * E2E: File Attachment — PDF/Office upload chip verification with screenshots
+ * E2E: File Attachment — PDF/Office upload chip verification with screenshots.
+ *
+ * Fixtures are generated as **valid minimal files** so the parser can verify
+ * "successful parsed" state, not just filename visibility.  PDF is hand-crafted;
+ * OOXML files are built as proper multi-entry ZIP archives with format-specific
+ * XML parts (word/document.xml, xl/workbook.xml, ppt/presentation.xml).
+ *
  * Run: cd apps/desktop && npx playwright test --config=playwright.config.ts --project=electron attachment.spec.ts
  */
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import {
-  waitForInputReady,
   launchElectronApp,
   closeElectronApp,
 } from './helpers/electron-setup';
@@ -13,9 +18,267 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 
-// ── Test fixture files (created at setup, cleaned after) ────────────────
+// ── Test fixture directory ─────────────────────────────────────────────
 const FIXTURE_DIR = path.join(os.tmpdir(), 'miqi-e2e-attachment-fixtures');
 
+// ── CRC-32 (used by ZIP) ───────────────────────────────────────────────
+function crc32(buf: Buffer): number {
+  let crc = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) {
+    crc ^= buf[i];
+    for (let j = 0; j < 8; j++) {
+      crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+// ── Minimal valid PDF ──────────────────────────────────────────────────
+function minimalPdf(): Buffer {
+  return Buffer.from(
+    '%PDF-1.4\n' +
+      '1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n' +
+      '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
+      '3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R>>endobj\n' +
+      'xref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n' +
+      'trailer<</Size 4/Root 1 0 R>>\nstartxref\n190\n%%EOF',
+    'utf-8',
+  );
+}
+
+// ── Minimal valid OOXML (ZIP container) ────────────────────────────────
+interface ZipEntry {
+  name: string;
+  data: Buffer;
+}
+
+/** Build a valid stored ZIP with the given entries. */
+function buildZip(entries: ZipEntry[]): Buffer {
+  const chunks: Buffer[] = [];
+  const localHeaders: { offset: number; crc: number; size: number; name: string }[] = [];
+
+  for (const entry of entries) {
+    const nameBuf = Buffer.from(entry.name, 'utf-8');
+    const crc = crc32(entry.data);
+    const size = entry.data.length;
+
+    const offset = chunks.reduce((s, c) => s + c.length, 0);
+    localHeaders.push({ offset, crc, size, name: entry.name });
+
+    // Local file header
+    chunks.push(Buffer.from([0x50, 0x4b, 0x03, 0x04])); // signature
+    chunks.push(Buffer.from([0x14, 0x00])); // version needed (2.0)
+    chunks.push(Buffer.from([0x00, 0x00])); // flags
+    chunks.push(Buffer.from([0x00, 0x00])); // compression: stored
+    chunks.push(Buffer.from([0x00, 0x00])); // mod time
+    chunks.push(Buffer.from([0x00, 0x00])); // mod date
+    const crcBuf = Buffer.alloc(4);
+    crcBuf.writeUInt32LE(crc, 0);
+    chunks.push(crcBuf);
+    const sizeBuf = Buffer.alloc(4);
+    sizeBuf.writeUInt32LE(size, 0);
+    chunks.push(sizeBuf); // compressed size
+    chunks.push(sizeBuf); // uncompressed size
+    const nameLen = nameBuf.length;
+    chunks.push(Buffer.from([nameLen & 0xff, (nameLen >> 8) & 0xff]));
+    chunks.push(Buffer.from([0x00, 0x00])); // extra field length
+    chunks.push(nameBuf);
+    chunks.push(entry.data);
+  }
+
+  // Central directory
+  const cdOffset = chunks.reduce((s, c) => s + c.length, 0);
+  for (const lh of localHeaders) {
+    const nameBuf = Buffer.from(lh.name, 'utf-8');
+    chunks.push(Buffer.from([0x50, 0x4b, 0x01, 0x02])); // signature
+    chunks.push(Buffer.from([0x14, 0x00])); // version made by
+    chunks.push(Buffer.from([0x14, 0x00])); // version needed
+    chunks.push(Buffer.from([0x00, 0x00])); // flags
+    chunks.push(Buffer.from([0x00, 0x00])); // compression
+    chunks.push(Buffer.from([0x00, 0x00])); // mod time
+    chunks.push(Buffer.from([0x00, 0x00])); // mod date
+    const crcBuf = Buffer.alloc(4);
+    crcBuf.writeUInt32LE(lh.crc, 0);
+    chunks.push(crcBuf);
+    const sizeBuf = Buffer.alloc(4);
+    sizeBuf.writeUInt32LE(lh.size, 0);
+    chunks.push(sizeBuf);
+    chunks.push(sizeBuf);
+    const nameLen = nameBuf.length;
+    chunks.push(Buffer.from([nameLen & 0xff, (nameLen >> 8) & 0xff]));
+    chunks.push(Buffer.from([0x00, 0x00])); // extra
+    chunks.push(Buffer.from([0x00, 0x00])); // comment
+    chunks.push(Buffer.from([0x00, 0x00])); // disk
+    chunks.push(Buffer.from([0x00, 0x00])); // internal attrs
+    chunks.push(Buffer.from([0x00, 0x00, 0x00, 0x00])); // external attrs
+    const offBuf = Buffer.alloc(4);
+    offBuf.writeUInt32LE(lh.offset, 0);
+    chunks.push(offBuf);
+    chunks.push(nameBuf);
+  }
+
+  // End of central directory
+  const cdSize = chunks.reduce((s, c) => s + c.length, 0) - cdOffset;
+  const entryCount = localHeaders.length;
+  chunks.push(Buffer.from([0x50, 0x4b, 0x05, 0x06])); // signature
+  chunks.push(Buffer.from([0x00, 0x00])); // disk
+  chunks.push(Buffer.from([0x00, 0x00])); // start disk
+  chunks.push(Buffer.from([entryCount & 0xff, (entryCount >> 8) & 0xff]));
+  chunks.push(Buffer.from([entryCount & 0xff, (entryCount >> 8) & 0xff]));
+  const cdSizeBuf = Buffer.alloc(4);
+  cdSizeBuf.writeUInt32LE(cdSize, 0);
+  chunks.push(cdSizeBuf);
+  const cdOffBuf = Buffer.alloc(4);
+  cdOffBuf.writeUInt32LE(cdOffset, 0);
+  chunks.push(cdOffBuf);
+  chunks.push(Buffer.from([0x00, 0x00])); // comment length
+
+  return Buffer.concat(chunks);
+}
+
+const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+
+function makeDocx(): Buffer {
+  return buildZip([
+    {
+      name: '[Content_Types].xml',
+      data: Buffer.from(
+        `${XML_DECL}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+          `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+          `<Default Extension="xml" ContentType="application/xml"/>` +
+          `<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>` +
+          `</Types>`,
+        'utf-8',
+      ),
+    },
+    {
+      name: '_rels/.rels',
+      data: Buffer.from(
+        `${XML_DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+          `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>` +
+          `</Relationships>`,
+        'utf-8',
+      ),
+    },
+    {
+      name: 'word/document.xml',
+      data: Buffer.from(
+        `${XML_DECL}<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
+          `<w:body><w:p><w:r><w:t>Hello DOCX</w:t></w:r></w:p></w:body>` +
+          `</w:document>`,
+        'utf-8',
+      ),
+    },
+  ]);
+}
+
+function makeXlsx(): Buffer {
+  return buildZip([
+    {
+      name: '[Content_Types].xml',
+      data: Buffer.from(
+        `${XML_DECL}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+          `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+          `<Default Extension="xml" ContentType="application/xml"/>` +
+          `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
+          `<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` +
+          `</Types>`,
+        'utf-8',
+      ),
+    },
+    {
+      name: '_rels/.rels',
+      data: Buffer.from(
+        `${XML_DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+          `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>` +
+          `</Relationships>`,
+        'utf-8',
+      ),
+    },
+    {
+      name: 'xl/workbook.xml',
+      data: Buffer.from(
+        `${XML_DECL}<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+          `<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>` +
+          `</workbook>`,
+        'utf-8',
+      ),
+    },
+    {
+      name: 'xl/_rels/workbook.xml.rels',
+      data: Buffer.from(
+        `${XML_DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+          `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>` +
+          `</Relationships>`,
+        'utf-8',
+      ),
+    },
+    {
+      name: 'xl/worksheets/sheet1.xml',
+      data: Buffer.from(
+        `${XML_DECL}<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+          `<sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Hello</t></is></c></row></sheetData>` +
+          `</worksheet>`,
+        'utf-8',
+      ),
+    },
+  ]);
+}
+
+function makePptx(): Buffer {
+  return buildZip([
+    {
+      name: '[Content_Types].xml',
+      data: Buffer.from(
+        `${XML_DECL}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+          `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+          `<Default Extension="xml" ContentType="application/xml"/>` +
+          `<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>` +
+          `<Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>` +
+          `</Types>`,
+        'utf-8',
+      ),
+    },
+    {
+      name: '_rels/.rels',
+      data: Buffer.from(
+        `${XML_DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+          `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>` +
+          `</Relationships>`,
+        'utf-8',
+      ),
+    },
+    {
+      name: 'ppt/presentation.xml',
+      data: Buffer.from(
+        `${XML_DECL}<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">` +
+          `<p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst>` +
+          `</p:presentation>`,
+        'utf-8',
+      ),
+    },
+    {
+      name: 'ppt/_rels/presentation.xml.rels',
+      data: Buffer.from(
+        `${XML_DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+          `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/>` +
+          `</Relationships>`,
+        'utf-8',
+      ),
+    },
+    {
+      name: 'ppt/slides/slide1.xml',
+      data: Buffer.from(
+        `${XML_DECL}<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">` +
+          `<p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="Title"/><p:cNvSpPr><p:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr></p:sp></p:spTree></p:cSld>` +
+          `</p:sld>`,
+        'utf-8',
+      ),
+    },
+  ]);
+}
+
+// ── Fixture management ─────────────────────────────────────────────────
 interface FixtureFiles {
   pdf: string;
   docx: string;
@@ -27,87 +290,6 @@ interface FixtureFiles {
 function createFixtureFiles(): FixtureFiles {
   fs.mkdirSync(FIXTURE_DIR, { recursive: true });
 
-  // Minimal valid PDF (hand-crafted — 1 blank page)
-  const minimalPdf = Buffer.from(
-    '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R>>endobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n190\n%%EOF',
-    'utf-8',
-  );
-
-  // Minimal valid DOCX/XLSX/PPTX: ZIP with empty [Content_Types].xml
-  function makeMinimalOoxml(): Buffer {
-    // Valid ZIP local file header + central directory for a minimal OOXML file
-    const contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>';
-    const buf = Buffer.from(contentTypes, 'utf-8');
-    const crc = crc32(buf);
-    
-    // Simple ZIP with one stored file
-    const chunks: Buffer[] = [];
-    // Local file header
-    chunks.push(Buffer.from([0x50, 0x4B, 0x03, 0x04])); // signature
-    chunks.push(Buffer.from([0x14, 0x00])); // version needed
-    chunks.push(Buffer.from([0x00, 0x00])); // flags
-    chunks.push(Buffer.from([0x00, 0x00])); // compression (stored)
-    chunks.push(Buffer.from([0x00, 0x00])); // mod time
-    chunks.push(Buffer.from([0x00, 0x00])); // mod date
-    // CRC-32
-    chunks.push(Buffer.from([crc & 0xFF, (crc >> 8) & 0xFF, (crc >> 16) & 0xFF, (crc >> 24) & 0xFF]));
-    chunks.push(Buffer.from([buf.length & 0xFF, (buf.length >> 8) & 0xFF, 0x00, 0x00])); // compressed size
-    chunks.push(Buffer.from([buf.length & 0xFF, (buf.length >> 8) & 0xFF, 0x00, 0x00])); // uncompressed size
-    const nameLen = '[Content_Types].xml'.length;
-    chunks.push(Buffer.from([nameLen & 0xFF, (nameLen >> 8) & 0xFF])); // filename length
-    chunks.push(Buffer.from([0x00, 0x00])); // extra field length
-    chunks.push(Buffer.from('[Content_Types].xml', 'utf-8'));
-    chunks.push(buf);
-    
-    // Central directory
-    const cdOffset = chunks.reduce((s, c) => s + c.length, 0);
-    chunks.push(Buffer.from([0x50, 0x4B, 0x01, 0x02])); // central dir signature
-    chunks.push(Buffer.from([0x14, 0x00])); // version made by
-    chunks.push(Buffer.from([0x14, 0x00])); // version needed
-    chunks.push(Buffer.from([0x00, 0x00])); // flags
-    chunks.push(Buffer.from([0x00, 0x00])); // compression
-    chunks.push(Buffer.from([0x00, 0x00])); // mod time
-    chunks.push(Buffer.from([0x00, 0x00])); // mod date
-    chunks.push(Buffer.from([crc & 0xFF, (crc >> 8) & 0xFF, (crc >> 16) & 0xFF, (crc >> 24) & 0xFF]));
-    chunks.push(Buffer.from([buf.length & 0xFF, (buf.length >> 8) & 0xFF, 0x00, 0x00]));
-    chunks.push(Buffer.from([buf.length & 0xFF, (buf.length >> 8) & 0xFF, 0x00, 0x00]));
-    chunks.push(Buffer.from([nameLen & 0xFF, (nameLen >> 8) & 0xFF]));
-    chunks.push(Buffer.from([0x00, 0x00])); // extra field
-    chunks.push(Buffer.from([0x00, 0x00])); // comment
-    chunks.push(Buffer.from([0x00, 0x00])); // disk
-    chunks.push(Buffer.from([0x00, 0x00])); // internal attrs
-    chunks.push(Buffer.from([0x00, 0x00, 0x00, 0x00])); // external attrs
-    chunks.push(Buffer.from([0x00, 0x00, 0x00, 0x00])); // local header offset
-    chunks.push(Buffer.from('[Content_Types].xml', 'utf-8'));
-    
-    // End of central directory
-    chunks.push(Buffer.from([0x50, 0x4B, 0x05, 0x06])); // eocd signature
-    chunks.push(Buffer.from([0x00, 0x00])); // disk number
-    chunks.push(Buffer.from([0x00, 0x00])); // start disk
-    chunks.push(Buffer.from([0x01, 0x00])); // entries on disk
-    chunks.push(Buffer.from([0x01, 0x00])); // total entries
-    const cdSize = cdOffset - buf.length - 30 - nameLen;
-    chunks.push(Buffer.from([cdSize & 0xFF, (cdSize >> 8) & 0xFF, 0x00, 0x00]));
-    chunks.push(Buffer.from([cdOffset & 0xFF, (cdOffset >> 8) & 0xFF, 0x00, 0x00]));
-    chunks.push(Buffer.from([0x00, 0x00])); // comment length
-    
-    return Buffer.concat(chunks);
-  }
-
-  function crc32(buf: Buffer): number {
-    let crc = 0xFFFFFFFF;
-    for (let i = 0; i < buf.length; i++) {
-      crc ^= buf[i];
-      for (let j = 0; j < 8; j++) {
-        if (crc & 1) crc = (crc >>> 1) ^ 0xEDB88320;
-        else crc >>>= 1;
-      }
-    }
-    return (crc ^ 0xFFFFFFFF) >>> 0;
-  }
-
-  const minimalOoxml = makeMinimalOoxml();
-
   const files: FixtureFiles = {
     pdf: path.join(FIXTURE_DIR, 'board_report.pdf'),
     docx: path.join(FIXTURE_DIR, 'bug_fix.docx'),
@@ -116,11 +298,11 @@ function createFixtureFiles(): FixtureFiles {
     largePdf: path.join(FIXTURE_DIR, 'AI_in_Agriculture_Survey.pdf'),
   };
 
-  fs.writeFileSync(files.pdf, minimalPdf);
-  fs.writeFileSync(files.docx, minimalOoxml);
-  fs.writeFileSync(files.xlsx, minimalOoxml);
-  fs.writeFileSync(files.pptx, minimalOoxml);
-  fs.writeFileSync(files.largePdf, minimalPdf);
+  fs.writeFileSync(files.pdf, minimalPdf());
+  fs.writeFileSync(files.docx, makeDocx());
+  fs.writeFileSync(files.xlsx, makeXlsx());
+  fs.writeFileSync(files.pptx, makePptx());
+  fs.writeFileSync(files.largePdf, minimalPdf());
 
   return files;
 }
@@ -129,17 +311,16 @@ function cleanupFixtureFiles() {
   try {
     fs.rmSync(FIXTURE_DIR, { recursive: true, force: true });
   } catch {
-    // ignore cleanup errors
+    // ignore
   }
 }
 
-// Create once at module load, but regenerate before each test
-// (MiQi may consume/move uploaded files, so we need fresh copies per test)
 function ensureFixtureFiles(): FixtureFiles {
   cleanupFixtureFiles();
   return createFixtureFiles();
 }
 
+// ── Helpers ─────────────────────────────────────────────────────────────
 let FILES: FixtureFiles;
 
 async function attachFile(page: Page, filePath: string) {
@@ -147,6 +328,7 @@ async function attachFile(page: Page, filePath: string) {
   await fileInput.setInputFiles(filePath);
 }
 
+// ── Tests ───────────────────────────────────────────────────────────────
 test.describe('File Attachment Chips', () => {
   let electronApp: ElectronApplication;
   let page: Page;
@@ -159,7 +341,7 @@ test.describe('File Attachment Chips', () => {
   });
 
   test.beforeEach(async () => {
-    // Regenerate fixture files — MiQi may consume/move uploaded files
+    // Regenerate fixtures: MiQi may consume/move uploaded files
     FILES = ensureFixtureFiles();
   });
 
@@ -169,7 +351,10 @@ test.describe('File Attachment Chips', () => {
   });
 
   test.afterEach(async () => {
-    await page.screenshot({ path: `test-results/attachment-${test.info().title.replace(/\s+/g, '-')}.png`, fullPage: true });
+    await page.screenshot({
+      path: `test-results/attachment-${test.info().title.replace(/\s+/g, '-')}.png`,
+      fullPage: true,
+    });
   });
 
   test('PDF upload shows chip with checkmark', async () => {
@@ -201,11 +386,8 @@ test.describe('File Attachment Chips', () => {
   });
 
   test('Send button disabled while extracting', async () => {
-    // Attach a PDF that takes time to extract
     await attachFile(page, FILES.largePdf);
-    // The send button should not be immediately clickable while extracting
     const sendBtn = page.locator('button').filter({ has: page.locator('svg') }).last();
-    // Just verify send button exists — it should be disabled while extracting
     await expect(sendBtn).toBeAttached({ timeout: 5_000 });
   });
 });
