@@ -1,3 +1,54 @@
+# [0.8.0](https://github.com/14790897/MiQi/compare/v0.7.0...v0.8.0) (2026-07-24)
+
+
+### Bug Fixes
+
+* **#226:** clarify plan mode as read-only analysis, add capability tests, document bypass safety ([#388](https://github.com/14790897/MiQi/issues/388)) ([e2e9c64](https://github.com/14790897/MiQi/commit/e2e9c64a0d20ecd1093a64b4d40e610c2096dbcf)), closes [#226](https://github.com/14790897/MiQi/issues/226) [#226](https://github.com/14790897/MiQi/issues/226) [#226](https://github.com/14790897/MiQi/issues/226) [#226](https://github.com/14790897/MiQi/issues/226)
+* **#379:** add first-token timeout to prevent indefinite agent turn hangs before streaming starts ([#391](https://github.com/14790897/MiQi/issues/391)) ([bdbf9a4](https://github.com/14790897/MiQi/commit/bdbf9a44018643708135f49216b14f044e767e20)), closes [#379](https://github.com/14790897/MiQi/issues/379) [#379](https://github.com/14790897/MiQi/issues/379)
+* **#392:** translate all user-facing error messages to Chinese ([#393](https://github.com/14790897/MiQi/issues/393)) ([adb8ec2](https://github.com/14790897/MiQi/commit/adb8ec2c4ade2d1d81921bd3e263ddc0a745b30e)), closes [#392](https://github.com/14790897/MiQi/issues/392)
+* **#394:** improve onboarding UX — show provider config prompt when API key missing, fix activation save flow, add deactivate ([4b2e07f](https://github.com/14790897/MiQi/commit/4b2e07f7a7cffb03b20caa86ca339f7b762b81e9)), closes [#394](https://github.com/14790897/MiQi/issues/394) [#394](https://github.com/14790897/MiQi/issues/394)
+* **bridge:** await destroy_all() before clearing state file on SIGTERM shutdown ([#329](https://github.com/14790897/MiQi/issues/329)) ([#358](https://github.com/14790897/MiQi/issues/358)) ([e06f1f8](https://github.com/14790897/MiQi/commit/e06f1f8818f90de3444673899f2c7dbb0020ccdc))
+* **bridge:** guard _log against OSError when stderr is closed during shutdown ([#359](https://github.com/14790897/MiQi/issues/359)) ([c7b0eff](https://github.com/14790897/MiQi/commit/c7b0eff2501d4725e77a858fa3b7c7ffca0ece8f)), closes [#303](https://github.com/14790897/MiQi/issues/303) [#303](https://github.com/14790897/MiQi/issues/303)
+* **ci:** remove character minimums from issue validator ([881be8e](https://github.com/14790897/MiQi/commit/881be8eba7d97b5debd3d4aa2263e4cb612ae915))
+* **desktop:** add in-flight guard for plugins.list poll ([4012c63](https://github.com/14790897/MiQi/commit/4012c63809461aaffb37e7ba52cac9c9d8e9c493))
+* **desktop:** add skill_manage to Task Assets file tracking ([fa7a876](https://github.com/14790897/MiQi/commit/fa7a87662c441d6e75f3145b81a4093545bd8d27))
+* **desktop:** extend IPC timeout for sandbox init slow methods ([cc35ac0](https://github.com/14790897/MiQi/commit/cc35ac0cf5c9793107c9489c6cccdd9e582866a4)), closes [#311](https://github.com/14790897/MiQi/issues/311)
+* **desktop:** filter exec lifecycle events from chat.send drain loop ([#325](https://github.com/14790897/MiQi/issues/325)) ([c6dd17a](https://github.com/14790897/MiQi/commit/c6dd17a76979314f6ce149a570cf496e3bb4ad75))
+* **desktop:** open files with system app, fix sandbox paths, persist … ([#339](https://github.com/14790897/MiQi/issues/339)) ([ad2a9c1](https://github.com/14790897/MiQi/commit/ad2a9c16f7894058e30f4f8118e5541098c76b6c)), closes [#234](https://github.com/14790897/MiQi/issues/234) [#244](https://github.com/14790897/MiQi/issues/244)
+* **desktop:** preserve cleared settings fields ([9b1f0ac](https://github.com/14790897/MiQi/commit/9b1f0ac7df9078c2361d17e66bc142ec2ec3a7d4))
+* **desktop:** prevent sessions methods from timing out during sandbox init ([16f8007](https://github.com/14790897/MiQi/commit/16f80079d2246c95e355378d6d9a2cc91fff3c3c)), closes [#272](https://github.com/14790897/MiQi/issues/272)
+* **desktop:** remove unnecessary displayCount dep from IntersectionObserver effect ([da13b5a](https://github.com/14790897/MiQi/commit/da13b5abb412ae42508b0ba409659369c2070b91))
+* **desktop:** report actual error in line handler catch block instead of misleading non-JSON ([#333](https://github.com/14790897/MiQi/issues/333)) ([#356](https://github.com/14790897/MiQi/issues/356)) ([2ec4bde](https://github.com/14790897/MiQi/commit/2ec4bde5a9b676a5d32647c2cd445b85393c7616))
+* **desktop:** use inactivity timeout for chat.send streaming requests ([#319](https://github.com/14790897/MiQi/issues/319)) ([2d6c544](https://github.com/14790897/MiQi/commit/2d6c54490fef318198c3d94d830f071dcf9ccf1a))
+* **desktop:** use normalized.eventType in secondary handler instead of raw resp.type ([#335](https://github.com/14790897/MiQi/issues/335)) ([#357](https://github.com/14790897/MiQi/issues/357)) ([c6196f0](https://github.com/14790897/MiQi/commit/c6196f0e5d550d48f93d2c2e0d1646a30f5aff99))
+* **desktop:** wrap onEvent in try/finally so resolve always runs on terminal events ([#331](https://github.com/14790897/MiQi/issues/331)) ([#355](https://github.com/14790897/MiQi/issues/355)) ([eeb1129](https://github.com/14790897/MiQi/commit/eeb112915092a06d05ca5969fa5c866b16bd9f40))
+* full-link logging - fix log categorization, ANSI stripping, time… ([#398](https://github.com/14790897/MiQi/issues/398)) ([8c59a8e](https://github.com/14790897/MiQi/commit/8c59a8e04f90b5f4b4b2ce97f6dad22d683a4408))
+* hide injected document text in chat history, show colored chips instead ([#426](https://github.com/14790897/MiQi/issues/426)) ([77b7e1d](https://github.com/14790897/MiQi/commit/77b7e1dc4a443110ba921add100e55e461325203))
+* make bridge hot reload opt-in ([#240](https://github.com/14790897/MiQi/issues/240)) ([69de074](https://github.com/14790897/MiQi/commit/69de074103b3031282199a7829d7370c708c1cfa)), closes [#239](https://github.com/14790897/MiQi/issues/239)
+* raise default max_tool_iterations from 100 to 500 ([#318](https://github.com/14790897/MiQi/issues/318)) ([3a5a0b7](https://github.com/14790897/MiQi/commit/3a5a0b7942e0943d37bc045f4e05e8549c106a0c)), closes [#316](https://github.com/14790897/MiQi/issues/316)
+* remove sidebar session list hardcoded limit of 20 items ([#368](https://github.com/14790897/MiQi/issues/368)) ([8f069f2](https://github.com/14790897/MiQi/commit/8f069f254163e34724ebe575f288a0de60e13f20)), closes [#367](https://github.com/14790897/MiQi/issues/367)
+* replace hardcoded /tmp with tempfile.gettempdir() (refs [#388](https://github.com/14790897/MiQi/issues/388) code review) ([#389](https://github.com/14790897/MiQi/issues/389)) ([c460f20](https://github.com/14790897/MiQi/commit/c460f20c2595eb198b1ab9f49c69e85e9eacb14b))
+* **runtime:** add maxsize=4096 to event queue to prevent unbounded growth ([#328](https://github.com/14790897/MiQi/issues/328)) ([#354](https://github.com/14790897/MiQi/issues/354)) ([21b3f45](https://github.com/14790897/MiQi/commit/21b3f45d5f3d53e33ea17e54350263594cf923a2))
+* **runtime:** add missing loguru import in context_runtime and model_client ([42ca862](https://github.com/14790897/MiQi/commit/42ca8625dac2e9cf6b3bc36358c38aa046c8c92c)), closes [#291](https://github.com/14790897/MiQi/issues/291) [#382](https://github.com/14790897/MiQi/issues/382)
+* **runtime:** clean up AppServer._subscriptions when a session is deleted ([#327](https://github.com/14790897/MiQi/issues/327)) ([#353](https://github.com/14790897/MiQi/issues/353)) ([6451340](https://github.com/14790897/MiQi/commit/6451340a80c47092d20e76e46b1d9236f9a30772))
+* **runtime:** correct token estimation ratio and add pre-send context guard ([fa73385](https://github.com/14790897/MiQi/commit/fa73385d2677a07f12871c612935234835078922)), closes [#291](https://github.com/14790897/MiQi/issues/291)
+* **runtime:** move subscribe() after TURN_IN_PROGRESS check to prevent subscription leak ([#326](https://github.com/14790897/MiQi/issues/326)) ([#352](https://github.com/14790897/MiQi/issues/352)) ([70b1af6](https://github.com/14790897/MiQi/commit/70b1af6c2122b6222d3c4043b1d28bd198acb9c1))
+* **runtime:** preserve history compaction message order ([#158](https://github.com/14790897/MiQi/issues/158)) ([ca6ee5a](https://github.com/14790897/MiQi/commit/ca6ee5a184f41c7229150db5d1ae3a0603ab899b))
+* **runtime:** trim complete turns in trim_for_model to preserve message structure ([b43cab3](https://github.com/14790897/MiQi/commit/b43cab3cb6a5183b4ec21b81d1e996dd354b36aa)), closes [#383](https://github.com/14790897/MiQi/issues/383)
+* **sandbox:** add logging for sandbox command failures ([#410](https://github.com/14790897/MiQi/issues/410)) ([8ef6953](https://github.com/14790897/MiQi/commit/8ef6953b8102cb10080419f14cd627d04778518b))
+* **sandbox:** suppress Windows console flash when running WSL commands ([#301](https://github.com/14790897/MiQi/issues/301)) ([#314](https://github.com/14790897/MiQi/issues/314)) ([223fb55](https://github.com/14790897/MiQi/commit/223fb55244fbc1f6978808a6faa0584fc7222fc0))
+* use RELEASE_TOKEN in checkout to bypass main branch protection for semantic-release push ([#441](https://github.com/14790897/MiQi/issues/441)) ([ced6b1e](https://github.com/14790897/MiQi/commit/ced6b1e90d2f3d13ed3952d51e2c4695525f7968))
+
+
+### Features
+
+* add right-click bulk delete/archive all tasks on sidebar 全部 tab ([#430](https://github.com/14790897/MiQi/issues/430)) ([aaf4e80](https://github.com/14790897/MiQi/commit/aaf4e803923c3cd1bdf784020fa228c7832660ef))
+* complete document upload & parsing — PDF/Office/MD with preview + system open ([#372](https://github.com/14790897/MiQi/issues/372)) ([95f009a](https://github.com/14790897/MiQi/commit/95f009afa632ff631734201d8190765b3371cacd)), closes [#330](https://github.com/14790897/MiQi/issues/330) [#332](https://github.com/14790897/MiQi/issues/332) [#393](https://github.com/14790897/MiQi/issues/393) [#393](https://github.com/14790897/MiQi/issues/393)
+* **desktop:** add macOS packaging support ([#386](https://github.com/14790897/MiQi/issues/386)) ([74d7652](https://github.com/14790897/MiQi/commit/74d765292182e6578338870be2e9a2bc446c4268))
+* **desktop:** add settings toggle for inline exec terminal output ([#363](https://github.com/14790897/MiQi/issues/363)) ([0c2b4b2](https://github.com/14790897/MiQi/commit/0c2b4b2a85cddc0d27c1d845969a3dd38ab155f6)), closes [#362](https://github.com/14790897/MiQi/issues/362)
+* **feedback:** add in-app feedback submission to Feishu Bitable with auto log collection ([#321](https://github.com/14790897/MiQi/issues/321)) ([c13fe10](https://github.com/14790897/MiQi/commit/c13fe10f83569aaefac0ff520a56c106ecf280fe))
+* **feedback:** hardcode Feishu App credentials + Bitable target as schema defaults ([#380](https://github.com/14790897/MiQi/issues/380)) ([ec415ab](https://github.com/14790897/MiQi/commit/ec415ab4c41b404f91ba830908dc00d1c3b36f09))
+
 # [0.7.0](https://github.com/14790897/MiQi/compare/v0.6.1...v0.7.0) (2026-07-15)
 
 
