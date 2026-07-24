@@ -16,6 +16,7 @@ from typing import Any
 import requests
 from loguru import logger
 
+from miqi.config.schema import FeedbackConfig
 from miqi.runtime.app_server import AppServerError
 
 
@@ -359,15 +360,16 @@ async def feedback_submit_handler(
     if not fb_cfg.enabled:
         raise AppServerError("反馈功能未启用，请在配置中开启", code="FEEDBACK_DISABLED")
 
-    # --- Resolve credentials in order (most specific → global fallback → built-in defaults) ---
+    # --- Resolve credentials: user-config value → schema field default fallback ---
+    #
+    # Pydantic preserves explicit empty strings from old config files, which would
+    # override the new hardcoded schema defaults.  ``model_fields[...].default``
+    # reads the Python-class default regardless of what the user's JSON carries.
 
-    # 1. App Id / Secret: try FeedbackConfig overrides first, then channels.feishu, then schema default
-    app_id = fb_cfg.feishu_app_id or config.channels.feishu.app_id
-    app_secret = fb_cfg.feishu_app_secret or config.channels.feishu.app_secret
-
-    # 2. Bitable target: FeedbackConfig always has hardcoded defaults from schema
-    bitable_app_token = fb_cfg.bitable_app_token
-    bitable_table_id = fb_cfg.bitable_table_id
+    app_id = fb_cfg.feishu_app_id or FeedbackConfig.model_fields["feishu_app_id"].default
+    app_secret = fb_cfg.feishu_app_secret or FeedbackConfig.model_fields["feishu_app_secret"].default
+    bitable_app_token = fb_cfg.bitable_app_token or FeedbackConfig.model_fields["bitable_app_token"].default
+    bitable_table_id = fb_cfg.bitable_table_id or FeedbackConfig.model_fields["bitable_table_id"].default
 
     # Only fail when the resolved values are truly blank (would be a broken schema build)
     if not app_id or not app_secret:
