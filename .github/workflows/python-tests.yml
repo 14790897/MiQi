@@ -165,6 +165,7 @@ jobs:
         run: npx playwright install chromium --with-deps
 
       - name: Build renderer
+        id: build
         run: npm run build
 
       - name: Generate config.json
@@ -211,7 +212,7 @@ jobs:
         timeout-minutes: 20
 
       - name: Run WSL one-click-install E2E tests (WSL)
-        if: always()
+        if: always() && steps.build.outcome == 'success'  # skip only if build failed
         run: |
           npx playwright test --config=playwright.config.ts --project=electron wsl-one-click-install.spec.ts --workers=1
         env:
