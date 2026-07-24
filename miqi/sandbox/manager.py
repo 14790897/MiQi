@@ -44,12 +44,17 @@ from miqi.sandbox.bwrap import BwrapSandbox, BwrapSandboxError
 
 
 class SandboxManager:
-    """Manages per-session bwrap sandboxes.
+    """Manages per-session sandboxes.
 
-    On Windows, automatically detects WSL and runs bwrap inside WSL.
+    Supports two providers (configurable via ``sandbox_provider``):
+
+    * ``bwrap`` — lightweight bubblewrap isolation (default)
+    * ``opensandbox`` — Docker/OpenSandbox container isolation (experimental)
+
+    On Windows, bwrap is automatically routed through WSL.
 
     State is persisted to disk so that:
-    - Crashed/killed bridge instances don't leave orphaned WSL directories
+    - Crashed/killed bridge instances don't leave orphaned directories
     - On restart, stale sandboxes are automatically cleaned up
     """
 
@@ -65,6 +70,8 @@ class SandboxManager:
         wsl_base_dir: str = "/tmp/miqi-sandboxes",
         sandbox_distro_name: str = "AIShadowSandbox",
         auto_install_deps: bool = True,
+        sandbox_provider: str = "bwrap",
+        opensandbox_image: str = "miqi-sandbox:latest",
     ):
         self.workspace = workspace
         self.sandbox_base_dir = sandbox_base_dir or workspace / "sandboxes"
@@ -76,6 +83,8 @@ class SandboxManager:
         self.wsl_base_dir = wsl_base_dir
         self.sandbox_distro_name = sandbox_distro_name
         self.auto_install_deps = auto_install_deps
+        self.sandbox_provider = sandbox_provider
+        self.opensandbox_image = opensandbox_image
 
         self._sandboxes: dict[str, BwrapSandbox] = {}
         self._active_key: str | None = None
@@ -227,7 +236,11 @@ class SandboxManager:
     # ── Lifecycle ──────────────────────────────────────────────────────
 
     async def initialize(self) -> bool:
-        """Check if bwrap is available and initialize the manager.
+        """Check sandbox availability and initialize the manager.
+
+        Detects availability based on the configured ``sandbox_provider``:
+        - ``bwrap``: checks for bubblewrap (native or via WSL)
+        - ``opensandbox``: checks for Docker Engine
 
         Also cleans up any stale sandboxes from a previous bridge run.
 
@@ -241,18 +254,40 @@ class SandboxManager:
             self._initialized = True
             return False
 
-        available = await BwrapSandbox.is_available(
-            wsl_distro=self.wsl_distro,
-            auto_install_deps=self.auto_install_deps,
-        )
-        if not available:
-            logger.warning(
-                "bwrap not found — sandbox isolation is NOT available. "
-                "Install bubblewrap: apt install bubblewrap"
+        if self.sandbox_provider == "opensandbox":
+            from miqi.sandbox.docker_sandbox import DockerSandbox, _auto_install_opensandbox
+
+            # Auto-install the opensandbox SDK if missing
+            if self.auto_install_deps:
+                sdk_ready = await _auto_install_opensandbox()
+                if not sdk_ready:
+                    logger.warning(
+                        "Failed to auto-install opensandbox SDK. "
+                        "Install manually: pip install opensandbox"
+                    )
+
+            available = await DockerSandbox.is_available()
+            if not available:
+                logger.warning(
+                    "Docker not found — OpenSandbox isolation is NOT available. "
+                    "Install Docker Engine 20.10+ or switch to sandbox_provider=bwrap."
+                )
+                self._initialized = True
+                self.enabled = False
+                return False
+        else:
+            available = await BwrapSandbox.is_available(
+                wsl_distro=self.wsl_distro,
+                auto_install_deps=self.auto_install_deps,
             )
-            self._initialized = True
-            self.enabled = False
-            return False
+            if not available:
+                logger.warning(
+                    "bwrap not found — sandbox isolation is NOT available. "
+                    "Install bubblewrap: apt install bubblewrap"
+                )
+                self._initialized = True
+                self.enabled = False
+                return False
 
         self._initialized = True
 
@@ -348,16 +383,27 @@ class SandboxManager:
                     if sandbox.is_running:
                         return sandbox
 
-            sandbox = BwrapSandbox(
-                session_key=sandbox_key,
-                workspace=self.workspace,
-                sandbox_base_dir=self.sandbox_base_dir if not self.wsl_distro else None,
-                share_net=self.share_net,
-                wsl_distro=self.wsl_distro,
-                wsl_base_dir=self.wsl_base_dir,
-                sandbox_distro_name=self.sandbox_distro_name,
-                auto_install_deps=self.auto_install_deps,
-            )
+            # Instantiate the appropriate sandbox type based on provider config
+            if self.sandbox_provider == "opensandbox":
+                from miqi.sandbox.docker_sandbox import DockerSandbox
+                sandbox = DockerSandbox(
+                    session_key=sandbox_key,
+                    workspace=self.workspace,
+                    sandbox_base_dir=self.sandbox_base_dir,
+                    share_net=self.share_net,
+                    image=self.opensandbox_image,
+                )
+            else:
+                sandbox = BwrapSandbox(
+                    session_key=sandbox_key,
+                    workspace=self.workspace,
+                    sandbox_base_dir=self.sandbox_base_dir if not self.wsl_distro else None,
+                    share_net=self.share_net,
+                    wsl_distro=self.wsl_distro,
+                    wsl_base_dir=self.wsl_base_dir,
+                    sandbox_distro_name=self.sandbox_distro_name,
+                    auto_install_deps=self.auto_install_deps,
+                )
 
             try:
                 await sandbox.start()

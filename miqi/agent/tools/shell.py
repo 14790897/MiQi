@@ -578,6 +578,26 @@ class ExecTool(Tool):
             )
             return result
 
+        # ── OPEN_SANDBOX: Docker/OpenSandbox container isolation ─────────
+        if st == SandboxType.OPEN_SANDBOX:
+            sandbox = None
+            if self._sandbox_manager is not None:
+                if session_key:
+                    sandbox = await self._sandbox_manager.get_or_create(session_key)
+                else:
+                    sandbox = self._sandbox_manager.active_sandbox
+            if sandbox is not None and sandbox.is_running:
+                return await self._execute_in_sandbox(
+                    sandbox, command, cwd, **common,
+                )
+            # Docker not available — fall back to host with warning
+            result = await self._execute_direct(command, cwd, **common)
+            result.output = (
+                "[sandbox not available — running on host]\n"
+                + result.output
+            )
+            return result
+
         # ── LANDLOCK: not yet implemented ───────────────────────────────
         if st == SandboxType.LANDLOCK:
             return _ExecResult(

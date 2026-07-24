@@ -428,6 +428,7 @@ class SandboxConfig(Base):
     auto_cleanup: bool = True  # Clean up sandbox on session archive/delete
     auto_install_deps: bool = True  # Auto-install bwrap/coreutils/rsync in WSL if missing
     wsl_distro: str = "AIShadowSandbox"  # WSL distribution name (e.g. "AIShadowSandbox"). Auto-detected if empty on Windows.
+    sandbox_provider: str = "bwrap"  # Sandbox provider: "bwrap" (default) or "opensandbox" (Docker/OpenSandbox)
 
     wsl_base_dir: str = "/tmp/miqi-sandboxes"  # Sandbox directory inside WSL filesystem
     sandbox_distro_name: str = "AIShadowSandbox"  # Dedicated sandbox distro name (imported from the default distro)

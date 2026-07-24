@@ -28,7 +28,11 @@ async function sendAndWait(page: Page, text: string, loopTimeout = 180_000) {
   await inputX.fill('');
   await inputX.type(text);
   await inputX.press('Enter');
-  await page.waitForTimeout(1500);
+  // Wait for AI to start processing before running approval loop
+  // (e2e-test-workflow: two-phase wait — appear first, then disappear)
+  await page.getByText('Thinking…').waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {
+    console.log('[test] Thinking… did not appear within 30s');
+  });
   await approveLoop(page, loopTimeout);
 }
 
@@ -122,6 +126,32 @@ test.describe('Session Key Path Mapping E2E', () => {
     { timeout: LLM_TIMEOUT },
     async () => {
       test.skip(SKIP_SANDBOX_ON_CI, 'CI lacks bwrap');
+
+      // ── e2e-test-workflow: bridge ready guard (NOT_INITIALIZED race) ──
+      await page.evaluate(async () => {
+        for (let i = 0; i < 60; i++) {
+          const s = await (window as any).miqi.runtime.status();
+          if (s?.state === 'running' && s?.initialized) return;
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      });
+
+      // ── e2e-test-workflow: *:* wildcard pre-approve ─────────────
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
+      );
+
+      // ── e2e-test-workflow: page.evaluate diagnostic ─────────────
+      const runtimeState = await page.evaluate(async () => {
+        try {
+          const s = await (window as any).miqi.runtime.status();
+          return `status:${JSON.stringify(s)}`;
+        } catch (e: any) {
+          return `reject:${e?.message ?? String(e)}`;
+        }
+      });
+      console.log(`[debug] runtime.status → ${runtimeState}`);
+
       await createNewConversation(page);
       const pwdMarker = `PWD_${Date.now()}`;
       await sendAndWait(page, `用 exec 执行: pwd && whoami && echo ${pwdMarker}`, 120_000);
