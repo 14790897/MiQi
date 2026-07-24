@@ -33,6 +33,11 @@ import {
   ListChecks,
   Settings,
   ExternalLink,
+  FileSpreadsheet,
+  FileBarChart,
+  AlertCircle,
+  FileType,
+  Loader,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -51,10 +56,80 @@ import PaperSearchResult, {
 
 interface Attachment {
   name: string;
-  type: 'image' | 'text';
+  type: 'image' | 'text' | 'document';
   dataUrl?: string;
   content?: string;
   size: number;
+  dataBase64?: string;
+  mimeType?: string;
+  /** Parse status: pending → parsing → done | error */
+  status?: 'pending' | 'parsing' | 'done' | 'error';
+  /** Server-parsed text content, shown inline after send */
+  parsedContent?: string;
+  /** Parse error message if status === 'error' */
+  parseError?: string;
+}
+
+const DOCUMENT_SUFFIXES_RE = /\.(docx|doc|pptx|ppt|xlsx|xls|pdf|odt|odp|ods|md|markdown|mdown)$/i;
+
+function getDocCategory(name: string): { label: string; color: string; bg: string } {
+  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  const map: Record<string, { label: string; color: string; bg: string }> = {
+    pdf:  { label: 'PDF',  color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
+    docx: { label: 'DOC',  color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+    doc:  { label: 'DOC',  color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+    pptx: { label: 'PPT',  color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
+    ppt:  { label: 'PPT',  color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
+    xlsx: { label: 'XLS',  color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
+    xls:  { label: 'XLS',  color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
+    md:   { label: 'MD',   color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
+    markdown: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
+    mdown: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
+    odt:  { label: 'DOC',  color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+    odp:  { label: 'PPT',  color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
+    ods:  { label: 'XLS',  color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
+  };
+  return map[ext] ?? { label: ext.toUpperCase() || 'FILE', color: 'var(--text-faint)', bg: 'var(--surface-muted)' };
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Parse embedded document content from message body so the UI shows
+ * coloured chips instead of raw injection text.  Handles three formats:
+ *   1. Client-side preview:  [File: name]\n```\n...\n```
+ *   2. Binary/scanned placeholder: [name: binary file, ...] / [name: scanned PDF ...]
+ *   3. Server-side parsed:   --- Document: name ---\n...\n--- End of name ---
+ *
+ * The LLM still receives the full content; only the display is cleaned.
+ */
+const FILE_BLOCK_RES = [
+  /\[File: ([^\]]+)\]\n```\n[\s\S]*?\n```/g,
+  /\[([^\]:]+):\s*(?:binary file|scanned PDF)[^\]]*\]/g,
+  /--- Document: ([^\n]+) ---\n[\s\S]*?\n--- End of \1 ---/g,
+];
+
+interface FileChip {
+  name: string;
+  category: ReturnType<typeof getDocCategory>;
+}
+
+function extractFileChips(content: string): { cleanContent: string; chips: FileChip[] } {
+  const chips: FileChip[] = [];
+  let clean = content;
+  for (const re of FILE_BLOCK_RES) {
+    clean = clean.replace(re, (_full: string, name: string) => {
+      if (!chips.some(c => c.name === name)) {
+        chips.push({ name, category: getDocCategory(name) });
+      }
+      return '';
+    });
+  }
+  return { cleanContent: clean.trim(), chips };
 }
 
 interface Message {
@@ -116,7 +191,59 @@ interface TrackedFile {
   truncated?: boolean;
 }
 
-const OFFICE_FILE_RE = /\.(docx|xlsx|pptx|ppt)$/i;
+const OFFICE_FILE_RE = /\.(docx|xlsx|pptx|ppt|xls|doc|odt|odp|ods)$/i;
+const PDF_FILE_RE = /\.pdf$/i;
+const TEXT_SUFFIXES_RE = /\.(md|markdown|mdown|txt|csv|json|yaml|yml|xml|log)$/i;
+const OFFICE_FILE_RE_LEGACY = /\.(docx|xlsx|pptx|ppt)$/i;
+
+/** Extract text from a PDF buffer by parsing BT/ET text blocks.
+ *  Fast client-side extraction — handles text-based PDFs (not scanned). */
+function extractPdfText(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer), limit = Math.min(bytes.length, 2_000_000);
+  let raw = '';
+  for (let i = 0; i < limit; i++) raw += String.fromCharCode(bytes[i]);
+  const results: string[] = [];
+  let pos = 0;
+  while (pos < raw.length) {
+    const bt = raw.indexOf('BT', pos);
+    if (bt === -1) break;
+    const et = raw.indexOf('ET', bt + 2);
+    if (et === -1) break;
+    const block = raw.slice(bt + 2, et);
+    for (const m of block.matchAll(/\(([^)]*)\)\s*Tj/g)) if (m[1].trim()) results.push(m[1]);
+    for (const m of block.matchAll(/\[([^\]]*)\]\s*TJ/g))
+      for (const im of m[1].matchAll(/\(([^)]*)\)/g)) if (im[1].trim()) results.push(im[1]);
+    pos = et + 2;
+  }
+  return results.join(' ') || '';
+}
+
+function getMimeTypeFromName(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase();
+  const mimeMap: Record<string, string> = {
+    pdf: 'application/pdf',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    doc: 'application/msword',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    ppt: 'application/vnd.ms-powerpoint',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    xls: 'application/vnd.ms-excel',
+    odt: 'application/vnd.oasis.opendocument.text',
+    odp: 'application/vnd.oasis.opendocument.presentation',
+    ods: 'application/vnd.oasis.opendocument.spreadsheet',
+  };
+  return ext ? mimeMap[ext] || 'application/octet-stream' : 'application/octet-stream';
+}
+
+function getDocIcon(name: string) {
+  const ext = name.split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'pdf': return FileText;
+    case 'xlsx': case 'xls': case 'csv': case 'ods': return FileSpreadsheet;
+    case 'pptx': case 'ppt': case 'odp': return FileBarChart;
+    default: return FileType;
+  }
+}
 
 function relativeTimeLabel(timestamp?: number | string | null, now = Date.now()): string {
   if (timestamp === undefined || timestamp === null) return '尚未更新';
@@ -715,7 +842,7 @@ export function ChatConsole({
   /** files touched by the agent during this session */
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([]);
   /** preview modal */
-  const [previewFile, setPreviewFile] = useState<{ path: string; content: string } | null>(null);
+  const [previewFile, setPreviewFile] = useState<{ path: string; content: string; dataBase64?: string } | null>(null);
   /** diff modal */
   const [diffFile, setDiffFile] = useState<{
     path: string;
@@ -771,6 +898,7 @@ export function ChatConsole({
   const justOpened = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const previewJustClosed = useRef(false);
   const unsubsRef = useRef<Array<() => void>>([]);
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shareFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1000,8 +1128,57 @@ export function ChatConsole({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     Array.from(e.target.files ?? []).forEach((file) => {
       const isImage = file.type.startsWith('image/');
-      const reader = new FileReader();
-      if (isImage) {
+      const isDocument = DOCUMENT_SUFFIXES_RE.test(file.name);
+      const isTextLike = TEXT_SUFFIXES_RE.test(file.name) || file.type.startsWith('text/');
+
+      if (isTextLike && !isDocument) {
+        // Plain text files — read directly as text
+        const reader = new FileReader();
+        reader.onload = () =>
+          setAttachments((prev) => [
+            ...prev,
+            { name: file.name, type: 'text', content: reader.result as string, size: file.size },
+          ]);
+        reader.readAsText(file);
+      } else if (isTextLike && isDocument) {
+        // Markdown/text files detected as documents — read as text AND as base64 for server fallback
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(',')[1];
+          const textContent = new TextDecoder().decode(Uint8Array.from(atob(base64), c => c.charCodeAt(0)));
+          setAttachments((prev) => [
+            ...prev,
+            {
+              name: file.name, type: 'document', dataBase64: base64,
+              content: textContent, dataUrl: reader.result as string,
+              size: file.size, mimeType: file.type || getMimeTypeFromName(file.name),
+              status: 'pending' as const,
+            },
+          ]);
+        };
+        reader.readAsDataURL(file);
+      } else if (isDocument) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(',')[1];
+          const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+          // PDF/MD/text parse instantly client-side → done; Office needs server → pending
+          const isOffice = /^(docx|doc|pptx|ppt|xlsx|xls|odt|odp|ods)$/i.test(ext);
+          const parseStatus: Attachment['status'] = isOffice ? 'pending' : 'done';
+
+          setAttachments((prev) => [
+            ...prev,
+            {
+              name: file.name, type: 'document', dataUrl: reader.result as string,
+              dataBase64: base64, size: file.size,
+              mimeType: file.type || getMimeTypeFromName(file.name),
+              status: parseStatus,
+            },
+          ]);
+        };
+        reader.readAsDataURL(file);
+      } else if (isImage) {
+        const reader = new FileReader();
         reader.onload = () =>
           setAttachments((prev) => [
             ...prev,
@@ -1091,10 +1268,39 @@ export function ChatConsole({
     setCurrentReqId(reqId);
 
     let content = text;
+
+    // Build message content with embedded document text
     for (const att of attachments) {
-      if (att.type === 'text' && att.content)
-        content += `\n\n[Attachment: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\``;
-      else if (att.type === 'image' && att.dataUrl) content += `\n\n[Image: ${att.name}]`;
+      if (att.type === 'text' && att.content) {
+        content += `\n\n[File: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\``;
+      } else if (att.type === 'image' && att.dataUrl) {
+        content += `\n\n[Image: ${att.name}]`;
+      } else if (att.type === 'document' && att.dataBase64) {
+        // Decode and extract text client-side
+        try {
+          const raw = Uint8Array.from(atob(att.dataBase64), c => c.charCodeAt(0));
+          let extracted = '';
+          const ext = att.name.split('.').pop()?.toLowerCase() ?? '';
+
+          if (ext === 'pdf') {
+            extracted = extractPdfText(raw.buffer);
+          } else if (ext === 'md' || ext === 'markdown' || ext === 'mdown' || ext === 'txt') {
+            extracted = new TextDecoder().decode(raw);
+          } else if (ext === 'csv' || ext === 'json' || ext === 'yaml' || ext === 'yml' || ext === 'xml') {
+            extracted = new TextDecoder().decode(raw);
+          }
+
+          if (extracted && extracted.trim()) {
+            content += `\n\n--- ${att.name} ---\n${extracted.slice(0, 50000)}\n--- End of ${att.name} ---`;
+          } else if (ext === 'pdf') {
+            content += `\n\n[${att.name}: scanned PDF — OCR will be attempted by the server]`;
+          } else {
+            content += `\n\n[${att.name}: binary file, server will parse]`;
+          }
+        } catch {
+          content += `\n\n[${att.name}: ${formatFileSize(att.size)} — parsing on server]`;
+        }
+      }
     }
 
     const userMsg: Message = {
@@ -1113,6 +1319,8 @@ export function ChatConsole({
       }
     }, 0);
     setAttachments([]);
+    // Save a snapshot before clearing — chat.send needs it later
+    const sentAttachments = [...attachments];
     setStreaming(true);
     cleanupListeners();
 
@@ -1205,6 +1413,22 @@ export function ChatConsole({
     const unsubProgress = window.miqi.chat.onProgress((data: ChatProgress) => {
       if (data.session_key && data.session_key !== currentSessionRef.current) return;
       lastEventAt = Date.now();
+
+      // ── Document progress events ───────────────────────────────
+      if (data.type === 'doc_progress' && data.file) {
+        setAttachments((prev) =>
+          prev.map((a) => {
+            if (a.name !== data.file || a.type !== 'document') return a;
+            const stage = data.stage ?? 'parsing';
+            const status = stage === 'ready' || stage === 'done' ? 'done'
+              : stage === 'error' ? 'error'
+              : 'parsing';
+            return { ...a, status, parseError: status === 'error' ? (data.message ?? '') : a.parseError };
+          })
+        );
+        return;
+      }
+
       // Handle stream deltas from exec (Phase 7 inline tool progress)
       if (data.stream && data.delta && data.tool_call_id) {
         const stream = data.stream;
@@ -1411,7 +1635,45 @@ export function ChatConsole({
 
       const key =
         activeThreadId === 'main' ? currentSessionRef.current : `desktop:${activeThreadId}`;
-      await window.miqi.chat.send(content, key, threadId ?? undefined, executionPolicy);
+      const chatAttachments = sentAttachments
+        .filter(a => a.type === 'document' && a.dataBase64)
+        .map(a => ({ name: a.name, data_base64: a.dataBase64, mime_type: a.mimeType }));
+
+      // Mark all doc attachments as parsing
+      if (sentAttachments.some(a => a.type === 'document')) {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role === 'user' && last.attachments) {
+            const updated = last.attachments.map(a =>
+              a.type === 'document' ? { ...a, status: 'parsing' as const } : a
+            );
+            return [...prev.slice(0, -1), { ...last, attachments: updated }];
+          }
+          return prev;
+        });
+      }
+
+      // Fire send — server parses synchronously in _chat_send_handler
+      const sendPromise = window.miqi.chat.send(content, key, threadId ?? undefined, executionPolicy,
+        chatAttachments.length > 0 ? chatAttachments : undefined);
+
+      // Mark as done after a tick — server parsing is synchronous, already complete
+      if (sentAttachments.some(a => a.type === 'document')) {
+        setTimeout(() => {
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === 'user' && last.attachments) {
+              const updated = last.attachments.map(a =>
+                a.type === 'document' && a.status === 'parsing' ? { ...a, status: 'done' as const } : a
+              );
+              return [...prev.slice(0, -1), { ...last, attachments: updated }];
+            }
+            return prev;
+          });
+        }, 100);
+      }
+
+      await sendPromise;
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
       if (streamErrorHandled) {
@@ -1483,14 +1745,35 @@ export function ChatConsole({
   };
 
   const handlePreview = useCallback(async (path: string) => {
-    // Open all files with the system default application — no in-app preview modal.
+    // For document files, try to parse and show in-app preview first
+    const isDocFile = DOCUMENT_SUFFIXES_RE.test(path);
+    if (isDocFile) {
+      try {
+        const result = await window.miqi.documents.parse(
+          path,
+          currentSessionRef.current,
+          { preview: true }
+        );
+        setPreviewFile({ path, content: result.text });
+        return;
+      } catch {
+        // Fall through to system open
+      }
+    }
+    // Open with system default application as fallback
     const result = await window.miqi.files.openExternal(path);
     if (!result?.opened) {
       setPreviewFile({ path, content: `(Could not open file: ${path})` });
     }
   }, []);
 
-  const closePreview = () => setPreviewFile(null);
+  const closePreview = useCallback((e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    e?.preventDefault();
+    previewJustClosed.current = true;
+    setPreviewFile(null);
+    setTimeout(() => { previewJustClosed.current = false; }, 300);
+  }, []);
 
   const handleShowDiff = useCallback(async (path: string) => {
     setDiffLoading(true);
@@ -1576,6 +1859,39 @@ export function ChatConsole({
     fileInputRef.current.files = dt.files;
     fileInputRef.current.dispatchEvent(new Event('change', { bubbles: true }));
   };
+
+  // Handle clipboard paste for files and images (Ctrl+V)
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind !== 'file') continue;
+      const file = item.getAsFile();
+      if (!file) continue;
+      const isDocument = DOCUMENT_SUFFIXES_RE.test(file.name);
+      if (isDocument) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(',')[1];
+          const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+          const isOffice = /^(docx|doc|pptx|ppt|xlsx|xls|odt|odp|ods)$/i.test(ext);
+          const parseStatus: Attachment['status'] = isOffice ? 'pending' : 'done';
+          setAttachments((prev) => [...prev, {
+            name: file.name, type: 'document', dataBase64: base64,
+            size: file.size, mimeType: file.type || getMimeTypeFromName(file.name),
+            status: parseStatus,
+          }]);
+        };
+        reader.readAsDataURL(file);
+      } else if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = () =>
+          setAttachments((prev) => [...prev, { name: file.name || 'pasted-image.png', type: 'image', dataUrl: reader.result as string, size: file.size }]);
+        reader.readAsDataURL(file);
+      }
+    }
+  }, []);
 
   const handleCopy = (text: string, idx: number) => {
     navigator.clipboard.writeText(text);
@@ -1710,12 +2026,13 @@ export function ChatConsole({
       className="flex flex-col h-full"
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
+      onPaste={handlePaste}
     >
       <input
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*,text/*,.md,.txt,.py,.ts,.js,.json,.csv,.yaml,.yml,.toml"
+        accept="image/*,text/*,.md,.markdown,.mdown,.txt,.py,.ts,.js,.json,.csv,.yaml,.yml,.toml,.pdf,.docx,.pptx,.xlsx,.doc,.ppt,.xls,.odt,.odp,.ods"
         className="hidden"
         onChange={handleFileChange}
       />
@@ -2041,34 +2358,95 @@ export function ChatConsole({
             <div className="max-w-[760px] mx-auto">
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
-                  {attachments.map((att, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs max-w-[200px]"
-                      style={{
-                        background: 'var(--surface-muted)',
-                        border: '1px solid var(--border-subtle)',
-                        color: 'var(--text-muted)',
-                      }}
-                    >
-                      {att.type === 'image' ? (
-                        <Image size={12} className="shrink-0" style={{ color: 'var(--info)' }} />
-                      ) : (
-                        <FileText
-                          size={12}
-                          className="shrink-0"
-                          style={{ color: 'var(--text-faint)' }}
-                        />
-                      )}
-                      <span className="truncate">{att.name}</span>
-                      <button
-                        onClick={() => removeAttachment(i)}
-                        className="shrink-0 hover:text-[var(--danger)]"
+                  {attachments.map((att, i) => {
+                    const isDoc = att.type === 'document';
+                    const cat = isDoc ? getDocCategory(att.name) : null;
+                    const isPending = isDoc && (!att.status || att.status === 'pending');
+                    const isParsing = isDoc && att.status === 'parsing';
+                    const isDone = isDoc && att.status === 'done';
+                    const isError = isDoc && att.status === 'error';
+
+                    return (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 rounded-lg pl-2 pr-1.5 py-1.5 text-xs group max-w-[240px] cursor-pointer hover:brightness-95 transition-all"
+                        style={{
+                          background: (isDoc && cat) ? cat.bg : 'var(--surface-muted)',
+                          border: `1px solid ${(isDoc && cat) ? cat.color + '40' : 'var(--border-subtle)'}`,
+                        }}
+                        onClick={async () => {
+                          if (previewJustClosed.current) return;
+                          if (!isDoc || !att.dataBase64) return;
+                          const ext = att.name.split('.').pop()?.toLowerCase() ?? '';
+                          let previewText = '';
+
+                          // Client-side extraction only (fast, no server round-trip)
+                          try {
+                            const raw = Uint8Array.from(atob(att.dataBase64), c => c.charCodeAt(0));
+                            if (ext === 'pdf') {
+                              previewText = extractPdfText(raw.buffer);
+                            } else if (/^(md|markdown|mdown|txt|csv|json|ya?ml|xml|py|ts|js|log)$/i.test(ext)) {
+                              previewText = new TextDecoder().decode(raw);
+                            } else {
+                              previewText = '(Office 文件 —— 发送后服务端解析)';
+                            }
+                          } catch {
+                            previewText = '(无法预览)';
+                          }
+                          if (!previewText || !previewText.trim()) {
+                            previewText = '(扫描件或二进制文件，无文本内容)';
+                          }
+                          setPreviewFile({ path: att.name, content: previewText.slice(0, 50000), dataBase64: att.dataBase64 });
+                        }}
                       >
-                        <X size={11} />
-                      </button>
-                    </div>
-                  ))}
+                        {/* File type badge */}
+                        {isDoc && cat ? (
+                          <span
+                            className="shrink-0 rounded font-bold text-[10px] px-1.5 py-0.5 leading-none"
+                            style={{ background: cat.color, color: '#fff' }}
+                          >
+                            {cat.label}
+                          </span>
+                        ) : att.type === 'image' ? (
+                          <Image size={14} className="shrink-0" style={{ color: 'var(--info)' }} />
+                        ) : (
+                          <FileText size={14} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
+                        )}
+
+                        {/* Name + size */}
+                        <div className="flex flex-col min-w-0 leading-tight">
+                          <span className="truncate font-medium" style={{ color: 'var(--text)' }}>
+                            {att.name.length > 28 ? att.name.slice(0, 25) + '…' + att.name.slice(-4) : att.name}
+                          </span>
+                          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                            {formatFileSize(att.size)}
+                            {isDoc && isParsing && ' · 解析中…'}
+                            {isDoc && isDone && ' · 已就绪'}
+                            {isDoc && isError && ' · 解析失败'}
+                          </span>
+                        </div>
+
+                        {/* Status icon — only after send */}
+                        {isDoc && isParsing && (
+                          <Loader2 size={13} className="shrink-0 animate-spin" style={{ color: cat?.color ?? 'var(--text-faint)' }} />
+                        )}
+                        {isDoc && isDone && (
+                          <CheckCircle size={13} className="shrink-0" style={{ color: '#22c55e' }} />
+                        )}
+                        {isDoc && isError && (
+                          <AlertCircle size={13} className="shrink-0" style={{ color: '#ef4444' }} />
+                        )}
+
+                        {/* Remove */}
+                        <button
+                          onClick={() => removeAttachment(i)}
+                          className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[rgba(0,0,0,0.1)] rounded p-0.5"
+                        >
+                          <X size={11} style={{ color: 'var(--text-faint)' }} />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
@@ -2383,8 +2761,8 @@ export function ChatConsole({
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
-              width: 680,
-              maxHeight: '80vh',
+              width: 780,
+              maxHeight: '85vh',
               background: 'var(--surface-elevated)',
               border: '1px solid var(--border)',
             }}
@@ -2395,7 +2773,15 @@ export function ChatConsole({
               style={{ borderColor: 'var(--border-subtle)' }}
             >
               <div className="flex items-center gap-2 min-w-0 flex-1">
-                <FileText size={14} style={{ color: 'var(--info)' }} className="shrink-0" />
+                {PDF_FILE_RE.test(previewFile.path) ? (
+                  <FileText size={14} style={{ color: '#ef4444' }} className="shrink-0" />
+                ) : /\.(xlsx|xls|csv|ods)$/i.test(previewFile.path) ? (
+                  <FileSpreadsheet size={14} style={{ color: '#22c55e' }} className="shrink-0" />
+                ) : /\.(pptx|ppt|odp)$/i.test(previewFile.path) ? (
+                  <FileBarChart size={14} style={{ color: '#f97316' }} className="shrink-0" />
+                ) : (
+                  <FileType size={14} style={{ color: 'var(--info)' }} className="shrink-0" />
+                )}
                 <span
                   className="text-[11px] font-mono break-all leading-relaxed"
                   style={{ color: 'var(--text-muted)' }}
@@ -2406,9 +2792,19 @@ export function ChatConsole({
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <button
-                  onClick={() => window.miqi.files.openExternal(previewFile.path)}
+                  onClick={async () => {
+                    if (previewFile.dataBase64) {
+                      const tmp = `_open_${Date.now()}_${previewFile.path}`;
+                      try {
+                        await window.miqi.files.write(tmp, '', undefined, previewFile.dataBase64);
+                        await window.miqi.files.openExternal(tmp);
+                      } catch { /* fallback */ }
+                    } else {
+                      window.miqi.files.openExternal(previewFile.path);
+                    }
+                  }}
                   className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors"
-                  title="Open with system default application"
+                  title="用系统默认应用打开"
                 >
                   <ExternalLink size={12} />
                   <span>系统应用打开</span>
@@ -2681,7 +3077,7 @@ function TrackedFileCard({
   };
   const OpIcon = file.op === 'read' ? BookOpen : file.op === 'delete' ? X : Pencil;
   const displayPath = file.path.replace(/\\/g, '/');
-  const isOfficeFile = OFFICE_FILE_RE.test(file.path);
+  const isOfficeFile = OFFICE_FILE_RE_LEGACY.test(file.path);
 
   return (
     <div
@@ -2750,7 +3146,7 @@ function TrackedFileCard({
                 opacity: isOfficeFile ? 0.55 : 1,
               }}
               title={
-                isOfficeFile ? 'Diff is not available for Office binary files' : 'Compare diff'
+                'Diff is not available for Office binary files'
               }
             >
               <GitCompare size={10} />
@@ -2764,7 +3160,7 @@ function TrackedFileCard({
               border: '1px solid var(--border)',
               color: 'var(--text-muted)',
             }}
-            title={isOfficeFile ? '不支持预览 Office 文件' : '预览文件'}
+            title={'预览文件'}
             data-testid="file-preview-btn"
           >
             <Eye size={10} />
@@ -2982,6 +3378,58 @@ function MessageBubble({
                   <span>{att.name}</span>
                 </div>
               ))}
+            {/* document attachments */}
+            {msg.attachments
+              ?.filter((a) => a.type === 'document')
+              .map((att, i) => {
+                const cat = getDocCategory(att.name);
+                const isDone = !att.status || att.status === 'done';
+                const isParsing = att.status === 'parsing';
+                return (
+                <div
+                  key={i}
+                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-500"
+                  style={{
+                    background: (isDone && cat) ? cat.bg : 'var(--surface-muted)',
+                    border: `1px solid ${(isDone && cat) ? cat.color + '40' : 'var(--border-subtle)'}`,
+                    color: (isDone && cat) ? cat.color : 'var(--text-muted)',
+                    opacity: isDone ? 1 : 0.7,
+                  }}
+                >
+                  <span className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white" style={{ background: (isDone && cat) ? cat.color : 'var(--text-faint)' }}>
+                    {cat ? cat.label : 'FILE'}
+                  </span>
+                  <span>{att.name} ({formatFileSize(att.size)})</span>
+                  {isParsing && <Loader2 size={11} className="shrink-0 animate-spin" style={{ color: 'var(--text-muted)' }} />}
+                  {isDone && <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />}
+                </div>
+                );
+              })}
+            {/* Historical file chips — extracted from [File: ...] blocks when attachments are missing */}
+            {isUser && (!msg.attachments || msg.attachments.length === 0) && (() => {
+              const { cleanContent, chips } = extractFileChips(msg.content);
+              if (chips.length === 0) return null;
+              // Store clean content for the bubble below
+              (msg as any).__cleanContent = cleanContent;
+              return chips.map((chip, i) => (
+                <div
+                  key={`hist-${i}`}
+                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+                  style={{
+                    background: chip.category.bg,
+                    border: `1px solid ${chip.category.color}40`,
+                    color: chip.category.color,
+                  }}
+                >
+                  <span className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
+                    style={{ background: chip.category.color }}>
+                    {chip.category.label}
+                  </span>
+                  <span>{chip.name}</span>
+                  <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
+                </div>
+              ));
+            })()}
 
             {/* Main bubble */}
             <div
@@ -3001,7 +3449,7 @@ function MessageBubble({
               ) : msg.role === 'assistant' ? (
                 <MarkdownContent content={msg.content} />
               ) : (
-                renderContent(msg.content)
+                renderContent((msg as any).__cleanContent || msg.content)
               )}
             </div>
 
