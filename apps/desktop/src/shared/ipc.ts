@@ -101,6 +101,7 @@ export const IPC = {
   // WSL2 check & install (Windows only, no bridge needed)
   WSL_CHECK: 'wsl:check',
   WSL_INSTALL: 'wsl:install',
+  WSL_INSTALL_AND_PROVISION: 'wsl:installAndProvision',
   WSL_EXPORT_DISTRO: 'wsl:export_distro',
   WSL_IMPORT_DISTRO: 'wsl:import_distro',
   WSL_GET_STATS: 'wsl:getStats',
@@ -160,6 +161,10 @@ export const IPC_EVENTS = {
   TURN_STARTED: 'turn:started',
   TURN_COMPLETED: 'turn:completed',
   THREAD_STARTED: 'thread:started',
+
+  // WSL install progress events
+  WSL_INSTALL_PROGRESS: 'wsl:installProgress',
+  WSL_CHECK_UPDATED: 'wsl:checkUpdated',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -805,6 +810,14 @@ export interface PythonCheckResult {
 // WSL2 check result
 // ---------------------------------------------------------------------------
 
+/** Granular WSL feature states detected during check */
+export type WslFeatureState =
+  | 'not-supported'           // Non-Windows or WSL not available
+  | 'not-enabled'             // Windows Optional Features not turned on
+  | 'not-installed'           // WSL kernel/package not installed
+  | 'installed-but-not-initialized' // WSL installed but no distro launched
+  | 'ready';                  // Fully functional
+
 export interface WslCheckResult {
   isWindows: boolean;
   installed: boolean;
@@ -812,6 +825,11 @@ export interface WslCheckResult {
   distros: string[]; // e.g. ["Ubuntu"]
   defaultDistro: string | null;
   running: boolean; // whether WSL is currently active
+
+  /** Granular feature state (new in #361) */
+  featureState: WslFeatureState;
+  /** Whether a system reboot is required before WSL can be used */
+  rebootRequired: boolean;
 }
 export interface WslExportDistroResult {
   exported: boolean;
@@ -851,6 +869,32 @@ export interface WslStatsResult {
     used_pct: number;
   };
   uptime_sec: number;
+}
+
+// ---------------------------------------------------------------------------
+// WSL install & provision progress (new in #361)
+// ---------------------------------------------------------------------------
+
+export interface WslInstallProgress {
+  phase:
+    | 'checking'
+    | 'enabling_features'
+    | 'installing_wsl'
+    | 'installing_distro'
+    | 'complete'
+    | 'error';
+  message: string;
+  error?: string;
+  rebootRequired?: boolean;
+}
+
+export interface WslInstallAndProvisionResult {
+  success: boolean;
+  phase: string;
+  rebootRequired?: boolean;
+  error?: string;
+  errorCode?: string;
+  nextStep?: string;
 }
 
 // ---------------------------------------------------------------------------

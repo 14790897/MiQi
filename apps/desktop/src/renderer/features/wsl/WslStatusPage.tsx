@@ -8,9 +8,11 @@ import {
   TriangleAlert,
   CheckCircle2,
   Activity,
+  Download,
+  Circle,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import type { WslStatsResult } from '../../../shared/ipc';
+import type { WslStatsResult, WslInstallProgress, WslInstallAndProvisionResult } from '../../../shared/ipc';
 
 const REFRESH_MS = 3_000;
 
@@ -61,6 +63,22 @@ function CircleRing({ pct, size = 112 }: { pct: number; size?: number }) {
 
 const AISHADOW_PREFIX = 'AIShadow';
 
+// ── Install phase definitions for the state machine ──────────────────
+const INSTALL_STEPS: { phase: string; label: string; icon: typeof CheckCircle2 }[] = [
+  { phase: 'enabling_features', label: '启用功能', icon: Cpu },
+  { phase: 'installing_wsl', label: '安装 WSL', icon: Download },
+  { phase: 'installing_distro', label: '安装发行版', icon: Download },
+];
+
+const PHASE_INDEX: Record<string, number> = {
+  checking: -1,
+  enabling_features: 0,
+  installing_wsl: 1,
+  installing_distro: 2,
+  complete: 3,
+  error: -1,
+};
+
 export default function WslStatusPage() {
   const [stats, setStats] = useState<WslStatsResult | null>(null);
   const [fetching, setFetching] = useState(false);
@@ -69,6 +87,14 @@ export default function WslStatusPage() {
   const [selected, setSelected] = useState('');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const initialFetch = useRef(false);
+
+  // ── Install state (new in #361) ────────────────────────────────────
+  const [installing, setInstalling] = useState(false);
+  const [installPhase, setInstallPhase] = useState<WslInstallProgress['phase'] | null>(null);
+  const [installMessage, setInstallMessage] = useState('');
+  const [installRebootRequired, setInstallRebootRequired] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
+  const [installNextStep, setInstallNextStep] = useState<string | null>(null);
 
   const fetchDistros = useCallback(async () => {
     try {
@@ -102,6 +128,59 @@ export default function WslStatusPage() {
     }
   }, [selected]);
 
+  // ── One-click install flow ─────────────────────────────────────────
+  const handleInstall = useCallback(async () => {
+    setInstalling(true);
+    setInstallError(null);
+    setInstallRebootRequired(false);
+    setInstallNextStep(null);
+    setInstallPhase('checking');
+    setInstallMessage('正在检测 WSL 状态...');
+
+    try {
+      const result = await window.miqi.wsl.installAndProvision();
+      if (result.success) {
+        if (result.rebootRequired) {
+          setInstallRebootRequired(true);
+          setInstallNextStep(result.nextStep ?? null);
+        } else {
+          setInstallPhase('complete');
+          setInstallMessage('WSL2 安装配置完成！');
+        }
+      } else {
+        setInstallError(result.error ?? '安装失败');
+        setInstallNextStep(result.nextStep ?? null);
+        setInstallPhase('error');
+      }
+      // Refresh distro list
+      await fetchDistros();
+    } catch (e: any) {
+      setInstallError(e?.message ?? '安装过程出错');
+      setInstallPhase('error');
+    } finally {
+      setInstalling(false);
+    }
+  }, [fetchDistros]);
+
+  // ── Listen for install progress events ─────────────────────────────
+  useEffect(() => {
+    const unsub = window.miqi.wsl.onInstallProgress((data: WslInstallProgress) => {
+      setInstallPhase(data.phase);
+      setInstallMessage(data.message);
+      if (data.rebootRequired) setInstallRebootRequired(true);
+      if (data.error) setInstallError(data.error);
+    });
+
+    const unsub2 = window.miqi.wsl.onCheckUpdated(() => {
+      fetchDistros();
+    });
+
+    return () => {
+      unsub();
+      unsub2();
+    };
+  }, [fetchDistros]);
+
   useEffect(() => { fetchDistros(); }, [fetchDistros]);
   useEffect(() => {
     if (selected) {
@@ -120,6 +199,102 @@ export default function WslStatusPage() {
   const cpu = stats?.cpu;
   const dsk = stats?.disk;
 
+  // ── Render install progress ────────────────────────────────────────
+  const renderInstallProgress = () => {
+    if (!installPhase && !installing) return null;
+
+    const currentIdx = installPhase ? (PHASE_INDEX[installPhase] ?? -1) : -1;
+
+    return (
+      <div className="mx-6 mt-4 p-4 rounded-xl border bg-[var(--surface)] border-[var(--border-subtle)]">
+        {/* Progress steps */}
+        <div className="flex items-center justify-between mb-3">
+          {INSTALL_STEPS.map((step, i) => {
+            const isComplete = installPhase === 'complete' || (currentIdx > i);
+            const isCurrent = currentIdx === i;
+            const isError = installPhase === 'error' && currentIdx === i;
+
+            return (
+              <div key={step.phase} className="flex flex-col items-center gap-1">
+                <div
+                  className={cn(
+                    'w-8 h-8 rounded-full flex items-center justify-center text-xs',
+                    isComplete && 'bg-[var(--accent)] text-white',
+                    isCurrent && !isError && 'bg-[var(--accent)]/20 text-[var(--accent)] ring-2 ring-[var(--accent)]/40',
+                    isError && 'bg-[var(--danger)]/20 text-[var(--danger)] ring-2 ring-[var(--danger)]/40',
+                    !isComplete && !isCurrent && !isError && 'bg-[var(--surface-muted)] text-[var(--text-faint)]',
+                  )}
+                >
+                  {isComplete ? (
+                    <CheckCircle2 size={14} />
+                  ) : isCurrent && !isError ? (
+                    <RefreshCw size={14} className="animate-spin" />
+                  ) : isError ? (
+                    <TriangleAlert size={14} />
+                  ) : (
+                    <Circle size={10} />
+                  )}
+                </div>
+                <span className="text-[10px] text-[var(--text-muted)]">{step.label}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Connecting lines between steps */}
+        <div className="relative h-1 bg-[var(--surface-muted)] rounded-full mb-3 mx-4 -mt-1">
+          {currentIdx >= 0 && (
+            <div
+              className="absolute inset-y-0 left-0 bg-[var(--accent)] rounded-full transition-all duration-500"
+              style={{ width: `${Math.min((currentIdx / (INSTALL_STEPS.length - 1)) * 100, 100)}%` }}
+            />
+          )}
+        </div>
+
+        {/* Message */}
+        <div className="flex items-center gap-2">
+          {installing && installPhase !== 'complete' && installPhase !== 'error' && (
+            <RefreshCw size={14} className="animate-spin text-[var(--accent)] shrink-0" />
+          )}
+          {installPhase === 'complete' && (
+            <CheckCircle2 size={14} className="text-[var(--accent)] shrink-0" />
+          )}
+          {installPhase === 'error' && (
+            <TriangleAlert size={14} className="text-[var(--danger)] shrink-0" />
+          )}
+          <span
+            className={cn(
+              'text-xs',
+              installPhase === 'error' ? 'text-[var(--danger)]' : 'text-[var(--text-muted)]'
+            )}
+          >
+            {installMessage}
+          </span>
+        </div>
+
+        {/* Reboot notice */}
+        {installRebootRequired && (
+          <div className="mt-3 p-2.5 rounded-lg bg-[var(--warning)]/10 border border-[var(--warning)]/25">
+            <p className="text-xs text-[var(--text)] flex items-center gap-1.5">
+              <TriangleAlert size={12} className="text-[var(--warning)]" />
+              需要重启系统以完成安装
+            </p>
+            {installNextStep && (
+              <p className="text-xs text-[var(--text-muted)] mt-1">{installNextStep}</p>
+            )}
+          </div>
+        )}
+
+        {/* Error with next step */}
+        {installPhase === 'error' && installNextStep && (
+          <div className="mt-3 p-2.5 rounded-lg bg-[var(--surface-muted)]">
+            <p className="text-xs text-[var(--text-muted)]">{installNextStep}</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col h-full bg-[var(--background)] overflow-y-auto">
       <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] bg-[var(--surface)] shrink-0">
@@ -136,7 +311,29 @@ export default function WslStatusPage() {
 
         <div className="flex items-center gap-3">
           {distros.length === 0 ? (
-            <span className="text-xs text-[var(--text-faint)]">加载发行版列表...</span>
+            <>
+              {/* Install button when no distros available */}
+              <button
+                onClick={handleInstall}
+                disabled={installing}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[var(--accent)] text-white hover:bg-[var(--accent)]/85 disabled:opacity-50 transition-colors"
+              >
+                {installing ? (
+                  <RefreshCw size={12} className="animate-spin" />
+                ) : (
+                  <Download size={12} />
+                )}
+                一键安装 WSL2
+              </button>
+              <button
+                onClick={() => fetchDistros()}
+                disabled={installing}
+                className="p-2 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors disabled:opacity-40"
+                title="重新检查"
+              >
+                <RefreshCw size={14} />
+              </button>
+            </>
           ) : distros.length > 1 ? (
             <select
               value={selected}
@@ -150,16 +347,21 @@ export default function WslStatusPage() {
           ) : (
             <span className="text-xs text-[var(--text-faint)]">未检测到 WSL 发行版</span>
           )}
-          <button
-            onClick={() => fetchStats()}
-            disabled={fetching || !selected}
-            className="p-2 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors disabled:opacity-40"
-            title="刷新"
-          >
-            <RefreshCw size={14} className={fetching ? 'animate-spin' : ''} />
-          </button>
+          {distros.length > 0 && (
+            <button
+              onClick={() => fetchStats()}
+              disabled={fetching || !selected}
+              className="p-2 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors disabled:opacity-40"
+              title="刷新"
+            >
+              <RefreshCw size={14} className={fetching ? 'animate-spin' : ''} />
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Install progress */}
+      {renderInstallProgress()}
 
       <div className="flex-1 p-6">
         {error && (
@@ -193,7 +395,7 @@ export default function WslStatusPage() {
               <>
                 <Cpu size={20} style={{ color: 'var(--text-faint)' }} />
                 <p className="text-sm text-[var(--text-muted)]">未检测到 WSL 发行版</p>
-                <p className="text-xs text-[var(--text-faint)]">请确保已安装 WSL2</p>
+                <p className="text-xs text-[var(--text-faint)]">点击上方「一键安装 WSL2」自动完成安装和配置</p>
               </>
             )}
           </div>
