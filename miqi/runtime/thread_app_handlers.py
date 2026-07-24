@@ -14,6 +14,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_state
 from miqi.runtime.stored_runtime import (
     StoredRuntimeReader,
@@ -388,7 +390,14 @@ async def _get_or_create_session(registry: Any, client_id: str, params: dict) ->
     state = get_bridge_state(registry)
     config = state.load_config()
     from miqi.providers.factory import make_provider
-    provider = make_provider(config)
+    try:
+        provider = make_provider(config)
+    except ValueError as exc:
+        logger.warning("make_provider failed: {}", exc)
+        raise AppServerError(
+            "No API key configured — set one in Settings > Models",
+            code="NO_API_KEY",
+        ) from exc
     workspace = config.workspace_path
 
     _ensure_sm = getattr(state, '_ensure_sandbox_manager', None)

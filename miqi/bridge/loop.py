@@ -12,6 +12,7 @@ import asyncio
 import json
 import sys
 import threading
+import time
 import traceback
 import uuid
 from typing import Any
@@ -177,27 +178,35 @@ class BridgeRuntimeLoop:
         # get_or_create() still returns None because _initialized is
         # still False, so tools keep running locally until the end
         # of this method.
+        #
+        # IMPORTANT: We set enabled=True in memory now (required for
+        # initialize() to proceed), but we do NOT persist it to config
+        # until initialize() succeeds.  If initialize() fails, the
+        # config stays enabled=False so the sandbox retries on next
+        # bridge restart instead of being permanently stuck.
         need_auto_enable = not sandbox_mgr.enabled
         if need_auto_enable:
             sandbox_mgr.enabled = True
-            try:
-                from miqi.config.loader import save_config
-                config = self._bridge_state.load_config()
-                config.tools.sandbox.enabled = True
-                save_config(config)
-            except Exception as exc:
-                logger.warning(
-                    "sandbox auto-enable: config save failed: {}", exc,
-                )
 
         try:
+            _init_start = time.monotonic()
+            logger.info("Sandbox manager initialization starting (cold start may take 2-5 min)...")
             res = sandbox_mgr.initialize()
             if hasattr(res, "__await__"):
                 ok = await res
             else:
                 ok = False  # mock in tests — initialize() is not async
+            _elapsed = time.monotonic() - _init_start
+            logger.info(
+                "Sandbox manager initialization finished in {:.1f}s: success={}",
+                _elapsed, ok,
+            )
         except Exception as exc:
             logger.warning("Sandbox manager initialization failed: {}", exc)
+            # If we auto-enabled in memory but init failed, reset so
+            # the next bridge restart retries instead of skipping.
+            if need_auto_enable:
+                sandbox_mgr.enabled = False
             if self._app_server is not None:
                 try:
                     await self._app_server.emit_client_event(
@@ -213,6 +222,19 @@ class BridgeRuntimeLoop:
             log_msg = "Sandbox manager initialized"
             if need_auto_enable:
                 log_msg += " (auto-enabled after first-time install)"
+                # Persist enabled=True NOW that init succeeded.
+                # This avoids the one-way-door: if we save enabled=True
+                # before initialize() and it fails, the config is stuck
+                # in an inconsistent state forever.
+                try:
+                    from miqi.config.loader import save_config
+                    config = self._bridge_state.load_config()
+                    config.tools.sandbox.enabled = True
+                    save_config(config)
+                except Exception as exc:
+                    logger.warning(
+                        "sandbox auto-enable: config save failed: {}", exc,
+                    )
             logger.info(log_msg)
         else:
             logger.info(
@@ -387,6 +409,12 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("files.diff", files_diff_handler)
         self._app_server.register_method("files.revert", files_revert_handler)
         self._app_server.register_method("files.accept", files_accept_handler)
+
+        # Register documents.* handlers
+        from miqi.documents.documents_parse_handler import (
+            documents_parse_handler,
+        )
+        self._app_server.register_method("documents.parse", documents_parse_handler)
 
         # Register Phase 35.2: providers.* handlers
         from miqi.runtime.provider_handlers import (
@@ -642,7 +670,15 @@ class BridgeRuntimeLoop:
             config = self._bridge_state.load_config()
             from miqi.providers.factory import make_provider
 
-            provider = make_provider(config)
+            try:
+                provider = make_provider(config)
+            except ValueError as exc:
+                from miqi.runtime.app_server import AppServerError
+                logger.warning("make_provider failed during chat.send: {}", exc)
+                raise AppServerError(
+                    "No API key configured — set one in Settings > Models",
+                    code="NO_API_KEY",
+                ) from exc
             self._bridge_state._ensure_sandbox_manager()
             sandbox_manager = getattr(self._bridge_state, "_sandbox_manager", None)
             if sandbox_manager == "disabled":
@@ -656,6 +692,105 @@ class BridgeRuntimeLoop:
                 sandbox_manager=sandbox_manager,
             )
 
+        # ── Parse document attachments before submitting ────────────────
+        # Extract text from uploaded documents (PDF/Office/MD) and inject
+        # into the message content so the LLM can immediately understand them.
+        attachments_raw = params.get("attachments") or []
+        if attachments_raw:
+            # Ensure config is available (may not be set if session already existed)
+            try:
+                _ = config
+            except NameError:
+                config = self._bridge_state.load_config() if self._bridge_state else None
+            if config is None:
+                from miqi.runtime.app_server import AppServerError
+                raise AppServerError("Config not available for attachment save", code="INTERNAL")
+            import asyncio as _asyncio
+            import base64 as _b64
+            import re as _re
+            from pathlib import Path as _Path
+
+            ws_root = config.workspace_path
+            # Save to session files directory so tools + documents.parse find it
+            safe_key = session_key.replace(":", "_")
+            dest_dir = ws_root / "sessions" / safe_key / "files"
+            dest_dir.mkdir(parents=True, exist_ok=True)
+
+            async def _emit_doc_progress(name: str, stage: str, message: str) -> None:
+                try:
+                    await self._app_server.emit_client_event(client_id, "progress", {
+                        "type": "doc_progress",
+                        "file": name,
+                        "stage": stage,
+                        "message": message,
+                    })
+                except Exception:
+                    pass
+
+            async def _decode_and_parse(att: dict) -> tuple[str, str] | None:
+                """Decode attachment, save to disk, parse content."""
+                name = (att.get("name") or "").strip()
+                data_b64 = (att.get("data_base64") or "").strip()
+                if not name or not data_b64:
+                    return None
+                try:
+                    raw = _b64.b64decode(data_b64)
+                except Exception as exc:
+                    logger.warning("chat.send: base64 decode failed for %s: %s", name, exc)
+                    return None
+
+                safe_name = _re.sub(r'[<>:"/\\\\|?*]', '_', name)
+                dest = dest_dir / safe_name
+                counter = 0
+                while dest.exists():
+                    stem, ext = (safe_name.rsplit(".", 1) + [""])[:2]
+                    counter += 1
+                    dest = dest_dir / f"{stem}_{counter}.{ext}" if ext else dest_dir / f"{stem}_{counter}"
+                dest.write_bytes(raw)
+                await _emit_doc_progress(name, "saved", f"Saved ({len(raw) // 1024} KB)")
+
+                # Parse document and extract text (offload to thread to avoid
+                # blocking the persistent bridge event-loop).
+                try:
+                    from miqi.documents.document_parser import parse_document, is_supported_document
+                    if is_supported_document(dest):
+                        await _emit_doc_progress(name, "extracting", "Extracting text...")
+                        result = await _asyncio.to_thread(parse_document, dest, max_chars=100_000)
+                        text = result["text"]
+                        ocr = result.get("ocr_used", False)
+                        tag = " (OCR)" if ocr else ""
+                        await _emit_doc_progress(name, "extracted",
+                            f"Extracted {len(text):,} chars{tag}")
+                        logger.info(
+                            "chat.send: extracted {} chars from {} ocr={}",
+                            len(text), name, ocr,
+                        )
+                        return (name, text)
+                except Exception as exc:
+                    logger.warning("chat.send: parse failed for %s: %s", name, exc)
+                return (name, "")
+
+            tasks = [_decode_and_parse(att) for att in attachments_raw]
+            parsed = await _asyncio.gather(*tasks)
+
+            doc_texts = []
+            for r in parsed:
+                if r is None:
+                    continue
+                doc_name, doc_text = r
+                if doc_text:
+                    doc_texts.append(
+                        f"\n\n--- Document: {doc_name} ---\n{doc_text}\n--- End of {doc_name} ---"
+                    )
+                else:
+                    doc_texts.append(
+                        f"\n\n[Uploaded: {doc_name} — use pdf_read or read_file tool to access]"
+                    )
+                _emit_doc_progress(doc_name, "ready", "Ready")
+
+            if doc_texts:
+                content = content + "\n".join(doc_texts)
+
         # Submit the user message
         mode = params.get("mode", "edit")
         logger.info(f"chat.send received mode={mode}")
@@ -664,9 +799,6 @@ class BridgeRuntimeLoop:
             thread_id=thread_id,
             mode=mode,
         ))
-
-        # Subscribe client to session events so emit_event delivers to the sink
-        self._app_server.subscribe(client_id, runtime_id)
 
         # Reject duplicate turns for the same session: cancelling the old
         # drain task leaves abandoned sandbox creation running (WSL
@@ -681,6 +813,11 @@ class BridgeRuntimeLoop:
                 "A turn is already in progress for this session",
                 code="TURN_IN_PROGRESS",
             )
+
+        # Subscribe client to session events so emit_event delivers to the sink.
+        # Must happen AFTER the TURN_IN_PROGRESS check to avoid leaking a
+        # subscription when the duplicate-turn error is raised (#326).
+        self._app_server.subscribe(client_id, runtime_id)
 
         # Spawn background drain task
         app_server = self._app_server
@@ -793,9 +930,10 @@ class BridgeRuntimeLoop:
                         thread_id,
                     )
                     await _emit_terminal("error", {
+                        "code": "TIMEOUT",
                         "message": (
-                            f"Turn timed out after "
-                            f"{CHAT_DRAIN_IDLE_TIMEOUT_SECONDS}s"
+                            f"Turn 超时（"
+                            f"{CHAT_DRAIN_IDLE_TIMEOUT_SECONDS}s）"
                         ),
                     })
                     break
@@ -820,6 +958,7 @@ class BridgeRuntimeLoop:
                 if isinstance(event, ErrorEvent):
                     await _emit_terminal("error", {
                         "message": event.message,
+                        "code": event.error_kind or "ERROR",
                     })
                     break
 
@@ -897,7 +1036,7 @@ class BridgeRuntimeLoop:
             if len(raw) > 300:
                 raw = raw[:300] + "…"
             await _emit_terminal("error", {
-                "message": f"Bridge drain error: {raw}",
+                "message": f"Bridge 事件循环错误：{raw}",
             })
 
     # ── agent.spawn / agent.kill handlers ──────────────────────────────────
@@ -1358,7 +1497,7 @@ class BridgeRuntimeLoop:
         """
         logger.info(
             "BridgeRuntimeLoop: starting graceful shutdown "
-            "(%d active chat tasks)",
+            "({} active chat tasks)",
             len(self._active_chat_tasks),
         )
 

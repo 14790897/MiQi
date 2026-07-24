@@ -17,10 +17,11 @@ let bridgeManager: BridgeManager | null = null;
 
 /** Resolve the app icon path for both dev (source) and packaged (resources) modes. */
 function getIconPath(): string {
+  const iconName = process.platform === 'darwin' ? 'icon.icns' : 'icon.ico';
   if (app.isPackaged) {
-    return join(process.resourcesPath, 'icon.ico');
+    return join(process.resourcesPath, iconName);
   }
-  return join(__dirname, '../../src/renderer/assets/icon.ico');
+  return join(__dirname, '../../src/renderer/assets', iconName);
 }
 
 function createWindow(): void {
@@ -78,10 +79,13 @@ function createWindow(): void {
       level = (first as number) ?? 0;
       message = (args[1] as string) ?? '';
     }
+    // Strip %c CSS format specifiers — Electron does not resolve them,
+    // so they appear as literal text in the log (e.g. React DevTools banner).
+    const cleanMessage = message.replace(/%c/g, '');
     // Map Electron console-message level to log level string
     // 0=verbose, 1=info(log), 2=warning, 3=error
     const levelStr = level >= 3 ? 'ERROR' : level >= 2 ? 'WARN' : 'INFO';
-    writeMainProcessLog(levelStr, message, bridgeManager?.getProjectRoot(), 'renderer');
+    writeMainProcessLog(levelStr, cleanMessage, bridgeManager?.getProjectRoot(), 'renderer');
   });
 
   // 添加右键菜单，支持打开开发者工具

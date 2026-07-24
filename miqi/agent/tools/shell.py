@@ -414,14 +414,19 @@ class ExecTool(Tool):
         duration_ms = int((time.monotonic() - start) * 1000)
         exit_code = handle.returncode if handle.returncode is not None else -1
 
+        # Log sandbox command failures
+        cmd_summary = command[:200] + "…" if len(command) > 200 else command
+
         # ── Build result text ─────────────────────────────────────────
         if cancelled:
+            logger.info("Sandbox command cancelled after {}ms: {}", duration_ms, cmd_summary)
             return _ExecResult(
                 output="Error: Command cancelled by user.",
                 exit_code=exit_code, duration_ms=duration_ms,
                 cancelled=True,
             )
         if timed_out:
+            logger.error("Sandbox command timed out after {}ms: {}", duration_ms, cmd_summary)
             return _ExecResult(
                 output=(
                     f"Error: Command timed out after "
@@ -430,6 +435,10 @@ class ExecTool(Tool):
                 exit_code=exit_code, duration_ms=duration_ms,
                 timed_out=True,
             )
+
+        if exit_code != 0:
+            cmd_short = command[:100] + "…" if len(command) > 100 else command
+            logger.warning("Sandbox command failed exit={} duration={}ms: {}", exit_code, duration_ms, cmd_short)
 
         trunc_note = ""
         if stdout_trunc or stderr_trunc:
@@ -571,6 +580,10 @@ class ExecTool(Tool):
             # Sandbox not available — fall back to direct execution
             # (e.g. during first-time install when bwrap isn't ready yet).
             # Attach a note so the AI knows it's running without isolation.
+            logger.warning(
+                "BWRAP sandbox not available for session_key={} — falling back to host execution",
+                session_key,
+            )
             result = await self._execute_direct(command, cwd, **common)
             result.output = (
                 "[sandbox not available — running on host]\n"
@@ -1035,14 +1048,19 @@ class ExecTool(Tool):
         duration_ms = int((time.monotonic() - start) * 1000)
         exit_code = process.returncode if process.returncode is not None else -1
 
+        # Log direct command failures
+        cmd_summary = command[:200] + "…" if len(command) > 200 else command
+
         # ── Build result text ─────────────────────────────────────────
         if cancelled:
+            logger.info("Direct command cancelled after {}ms: {}", duration_ms, cmd_summary)
             return _ExecResult(
                 output="Error: Command cancelled by user.",
                 exit_code=exit_code, duration_ms=duration_ms,
                 cancelled=True,
             )
         if timed_out:
+            logger.error("Direct command timed out after {}ms: {}", duration_ms, cmd_summary)
             return _ExecResult(
                 output=(
                     f"Error: Command timed out after "
@@ -1051,6 +1069,10 @@ class ExecTool(Tool):
                 exit_code=exit_code, duration_ms=duration_ms,
                 timed_out=True,
             )
+
+        if exit_code != 0:
+            cmd_short = command[:100] + "…" if len(command) > 100 else command
+            logger.warning("Direct command failed exit={} duration={}ms: {}", exit_code, duration_ms, cmd_short)
 
         trunc_note = ""
         if stdout_trunc or stderr_trunc:

@@ -45,6 +45,7 @@ import type {
   FilesRevertResult,
   FilesOpenExternalResult,
   FilesOpenContainingFolderResult,
+  DocumentsParseResult,
   TrackedFileInfo,
   ChatProgress,
   ChatFinal,
@@ -108,8 +109,8 @@ const api = {
 
   // -- Chat -------------------------------------------------------------------
   chat: {
-    send: (content: string, sessionKey?: string, threadId?: string, mode?: string): Promise<unknown> =>
-      ipcRenderer.invoke(IPC.CHAT_SEND, { content, session_key: sessionKey, thread_id: threadId, mode }),
+    send: (content: string, sessionKey?: string, threadId?: string, mode?: string, attachments?: Array<{name: string, data_base64?: string, mime_type?: string}>): Promise<unknown> =>
+      ipcRenderer.invoke(IPC.CHAT_SEND, { content, session_key: sessionKey, thread_id: threadId, mode, attachments }),
     abort: (sessionKey?: string): Promise<unknown> =>
       ipcRenderer.invoke(IPC.CHAT_ABORT, { session_key: sessionKey }),
     onProgress: (callback: (data: ChatProgress) => void) => {
@@ -346,6 +347,17 @@ const api = {
       ipcRenderer.invoke(IPC.FILES_OPEN_EXTERNAL, { path }),
     openContainingFolder: (path: string): Promise<FilesOpenContainingFolderResult> =>
       ipcRenderer.invoke(IPC.FILES_OPEN_CONTAINING_FOLDER, { path }),
+  },
+
+  // -- Document parsing ----------------------------------------------------
+  documents: {
+    parse: (path: string, sessionKey?: string, options?: { forceOcr?: boolean; preview?: boolean }): Promise<DocumentsParseResult> =>
+      ipcRenderer.invoke(IPC.DOCUMENTS_PARSE, {
+        path,
+        session_key: sessionKey,
+        force_ocr: options?.forceOcr ?? false,
+        preview: options?.preview ?? false,
+      }),
   },
 
   // -- Python check -----------------------------------------------------------

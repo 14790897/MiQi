@@ -46,7 +46,7 @@ def test_orchestrator_denies_shell_metacharacters():
     result = asyncio.run(orchestrator.execute(ctx))
     assert result.result is not None
     output = (result.result or "").lower()
-    assert any(word in output for word in ("denied", "blocked", "rejected"))
+    assert any(word in output for word in ("denied", "blocked", "rejected", "权限被拒绝", "拒绝"))
 
 
 def test_orchestrator_allows_whitelisted_command():
@@ -92,4 +92,4 @@ def test_orchestrator_deny_patterns():
     result = asyncio.run(orchestrator.execute(ctx))
     assert result.result is not None
     output = (result.result or "").lower()
-    assert any(word in output for word in ("denied", "blocked", "rejected"))
+    assert any(word in output for word in ("denied", "blocked", "rejected", "权限被拒绝", "拒绝"))

@@ -364,9 +364,10 @@ async def providers_update_handler(
             _provider_fingerprint(new_pc, config.agents.defaults.model),
             "Provider settings changed; test again to verify",
         )
-        # When user explicitly provides their own API key, clear the built-in
-        # activation flag so the UI defaults to "own key" next time.
-        if update.get("api_key"):
+        # When user explicitly provides an API key (including empty to clear
+        # built-in activation), clear the built-in activation flag so the UI
+        # defaults to "own key" next time.
+        if "api_key" in update:
             activation_store = _provider_activation_store(config)
             activation_store.pop(provider_name, None)
 

@@ -16,6 +16,7 @@ from typing import Any
 import requests
 from loguru import logger
 
+from miqi.config.schema import FeedbackConfig
 from miqi.runtime.app_server import AppServerError
 
 
@@ -76,23 +77,22 @@ def _collect_all_logs(log_dir: Path) -> str:
         return "[无日志文件]"
 
     combined = "\n\n".join(parts)
-    # Cap by UTF-8 byte size — Feishu Bitable text-field limit is 100k bytes,
-    # not 100k chars (Chinese characters can be 3+ bytes each).  Encode once,
+    # Cap by UTF-8 byte size — Feishu Bitable text-field limit is 196,608 bytes.
+    # Not 100k chars (Chinese characters can be 3+ bytes each).  Encode once,
     # then slice the tail bytes directly to avoid repeatedly re-encoding.
+    MAX_LOG_BYTES = 196_608
     encoded = combined.encode("utf-8")
     total_bytes = len(encoded)
-    if total_bytes > 100_000:
-        # Reserve 100 bytes for the marker text (incl. the digit count).
-        keep_bytes = 100_000 - 100
+    if total_bytes > MAX_LOG_BYTES:
+        # Reserve 120 bytes for the marker text plus extra headroom
+        keep_bytes = MAX_LOG_BYTES - 120
         retained = encoded[-keep_bytes:].decode("utf-8", errors="ignore")
         retained_bytes = len(retained.encode("utf-8"))
         dropped = total_bytes - retained_bytes
         marker = f"...(总日志超出 {dropped} 字节，已截断)\n"
-        # If the marker pushed us over (rare; depends on dropped digit count),
-        # trim the tail further to fit exactly within the cap.
         candidate = marker + retained
-        if len(candidate.encode("utf-8")) > 100_000:
-            excess = len(candidate.encode("utf-8")) - 100_000
+        if len(candidate.encode("utf-8")) > MAX_LOG_BYTES:
+            excess = len(candidate.encode("utf-8")) - MAX_LOG_BYTES
             retained = retained.encode("utf-8")[:-excess].decode("utf-8", errors="ignore")
             return marker + retained
         return candidate
@@ -359,20 +359,42 @@ async def feedback_submit_handler(
     if not fb_cfg.enabled:
         raise AppServerError("反馈功能未启用，请在配置中开启", code="FEEDBACK_DISABLED")
 
-    app_id = fb_cfg.feishu_app_id or config.channels.feishu.app_id
-    app_secret = fb_cfg.feishu_app_secret or config.channels.feishu.app_secret
+    # --- Resolve credentials: user-config value → schema field default fallback ---
+    #
+    # Pydantic preserves explicit empty strings from old config files, which would
+    # override the new hardcoded schema defaults.  ``model_fields[...].default``
+    # reads the Python-class default regardless of what the user's JSON carries.
+
+    app_id = fb_cfg.feishu_app_id or FeedbackConfig.model_fields["feishu_app_id"].default
+    app_secret = fb_cfg.feishu_app_secret or FeedbackConfig.model_fields["feishu_app_secret"].default
+    bitable_app_token = fb_cfg.bitable_app_token or FeedbackConfig.model_fields["bitable_app_token"].default
+    bitable_table_id = fb_cfg.bitable_table_id or FeedbackConfig.model_fields["bitable_table_id"].default
+
+    # Only fail when the resolved values are truly blank (would be a broken schema build)
     if not app_id or not app_secret:
         raise AppServerError(
             "飞书 App ID / App Secret 未配置", code="FEISHU_NOT_CONFIGURED",
         )
-    if not fb_cfg.bitable_app_token or not fb_cfg.bitable_table_id:
+    if not bitable_app_token or not bitable_table_id:
         raise AppServerError(
             "飞书多维表格 app_token / table_id 未配置", code="BITABLE_NOT_CONFIGURED",
         )
 
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    # 4. Build Bitable fields
+    # 4. Build Bitable fields — cap per-field text sizes to stay within
+    #    Feishu per-cell limits (multiline text ≈ 196,608 bytes per cell).
+    MAX_CELL_BYTES = 196_000  # 196 KiB with headroom for JSON escaping overhead
+
+    def _cap_text(value: str, max_bytes: int = MAX_CELL_BYTES) -> str:
+        """Truncate *value* so its UTF-8 encoding fits within *max_bytes*."""
+        encoded = value.encode("utf-8")
+        if len(encoded) <= max_bytes:
+            return value
+        tail = encoded[-max_bytes:].decode("utf-8", errors="ignore")
+        marker = f"...(截断 {len(encoded) - len(tail.encode('utf-8'))} 字节)\n"
+        return marker + tail
+
     fields: dict[str, Any] = {
         "类别": category,
         "标题": title,
@@ -381,9 +403,9 @@ async def feedback_submit_handler(
         "应用版本": app_version,
         "操作系统": os_str,
         "Python版本": sys_info["python_version"],
-        "日志内容（设置界面日志栏目-复制日志）": log_content,
+        "日志内容（设置界面日志栏目-复制日志）": _cap_text(log_content),
         "提交时间": now_iso,
-        "使用的提示词": prompt_used,
+        "使用的提示词": _cap_text(prompt_used),
         "复现频率": repro_frequency,
     }
 
@@ -416,14 +438,14 @@ async def feedback_submit_handler(
                     filename=filename,
                     content_type=mime,
                     data=raw,
-                    parent_node=fb_cfg.bitable_app_token,
+                    parent_node=bitable_app_token,
                 )
                 file_tokens.append({"file_token": file_token})
             fields["附件"] = file_tokens
 
         # 5b. Add the Bitable record (with attachment references)
         record_id = _add_bitable_record(
-            token, fb_cfg.bitable_app_token, fb_cfg.bitable_table_id, fields,
+            token, bitable_app_token, bitable_table_id, fields,
         )
     except AppServerError:
         raise

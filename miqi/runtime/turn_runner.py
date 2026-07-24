@@ -393,9 +393,9 @@ class TurnRunner:
 
         # Exhausted iterations
         content = (
-            f"Reached maximum iterations ({self._max_iterations}). "
-            f"Tools used: {', '.join(dict.fromkeys(tools_used)) or 'none'}. "
-            f"Try breaking your task into smaller steps."
+            f"已达到最大迭代次数（{self._max_iterations}）。"
+            f"已使用工具：{', '.join(dict.fromkeys(tools_used)) or '无'}。"
+            f"请将任务拆分为更小的步骤重试。"
         )
         messages_delta.append({"role": "assistant", "content": content})
         return TurnResult(

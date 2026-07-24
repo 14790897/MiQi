@@ -111,6 +111,9 @@ jobs:
         run: uv run pytest -q -m "sandbox and bwrap" --tb=short
 
   wsl-e2e:
+    concurrency:
+      group: wsl-e2e-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:

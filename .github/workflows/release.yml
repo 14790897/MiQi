@@ -19,9 +19,9 @@ jobs:
       new_release: ${{ steps.check.outputs.new_release }}
       tag_name: ${{ steps.check.outputs.tag_name }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
+          token: ${{ secrets.RELEASE_TOKEN }}
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -43,7 +43,7 @@ jobs:
 
       - name: Run semantic-release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: npx semantic-release
 
       - name: Detect new release
@@ -62,8 +62,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ── Job 2: Build Desktop App (only when a new release exists) ──────
-  build:
+  # ── Job 2: Build Desktop App (Windows) ────────────────────────────
+  build-win:
     needs: release
     if: needs.release.outputs.new_release == 'true'
     runs-on: windows-latest
@@ -72,7 +72,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ needs.release.outputs.tag_name }}
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -117,5 +118,63 @@ jobs:
             dist-new/*.exe
             dist-new/*.msi
             dist-new/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Job 3: Build Desktop App (macOS) ─────────────────────────────
+  build-mac:
+    needs: release
+    if: needs.release.outputs.new_release == 'true'
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.release.outputs.tag_name }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install Python dependencies
+        run: uv sync --all-extras
+
+      - name: Build miqi-bridge
+        run: uv run pyinstaller miqi.spec
+
+      - name: Install Electron dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Build Electron app
+        working-directory: apps/desktop
+        run: npm run build
+
+      - name: Package Electron app
+        working-directory: apps/desktop
+        run: npx electron-builder --mac --publish never
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.release.outputs.tag_name }}
+          files: |
+            dist-new/*.dmg
+            dist-new/*-mac.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
