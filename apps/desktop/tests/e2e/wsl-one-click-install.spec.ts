@@ -322,12 +322,16 @@ test.describe('WSL One-Click Install E2E', () => {
       await settingsBtn.click();
       await page.waitForTimeout(1500);
 
-      // Scroll to bottom of General tab — the re-setup button is in Danger Zone
-      // below the sandbox section. Use scrollIntoViewIfNeeded to bring it on screen.
-      await page.locator('[data-testid="settings-sandbox-section-title"]')
-        .scrollIntoViewIfNeeded()
-        .catch(() => {});
-      await page.waitForTimeout(500);
+      // Ensure on General tab (may not be default after WSL tab in Test 2)
+      const generalTab = page.getByRole('tab', { name: '通用' });
+      if (await generalTab.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await generalTab.click();
+        await page.waitForTimeout(500);
+      }
+
+      // Scroll to Danger Zone at bottom to reveal re-setup button
+      await page.getByText('重新配置').scrollIntoViewIfNeeded().catch(() => {});
+      await page.waitForTimeout(300);
 
       // Click "重新运行配置向导" button
       const reSetupBtn = page.getByRole('button', {
