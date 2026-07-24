@@ -70,7 +70,7 @@ interface Attachment {
   parseError?: string;
 }
 
-const DOCUMENT_SUFFIXES_RE = /\.(docx|doc|pptx|ppt|xlsx|xls|pdf|odt|odp|ods|md|markdown|mdown)$/i;
+const DOCUMENT_SUFFIXES_RE = /\.(docx|doc|pptx|ppt|xlsx|xls|pdf|odt|odp|ods|md|markdown|mdown|html|htm)$/i;
 
 function getDocCategory(name: string): { label: string; color: string; bg: string } {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
@@ -85,6 +85,8 @@ function getDocCategory(name: string): { label: string; color: string; bg: strin
     md:   { label: 'MD',   color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
     markdown: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
     mdown: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
+    html:  { label: 'HTML', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+    htm:   { label: 'HTML', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
     odt:  { label: 'DOC',  color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
     odp:  { label: 'PPT',  color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
     ods:  { label: 'XLS',  color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
@@ -2032,7 +2034,7 @@ export function ChatConsole({
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*,text/*,.md,.markdown,.mdown,.txt,.py,.ts,.js,.json,.csv,.yaml,.yml,.toml,.pdf,.docx,.pptx,.xlsx,.doc,.ppt,.xls,.odt,.odp,.ods"
+        accept="image/*,text/*,.md,.markdown,.mdown,.txt,.py,.ts,.js,.json,.csv,.yaml,.yml,.toml,.pdf,.docx,.pptx,.xlsx,.doc,.ppt,.xls,.odt,.odp,.ods,.html,.htm"
         className="hidden"
         onChange={handleFileChange}
       />
