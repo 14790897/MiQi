@@ -43,6 +43,7 @@ import platform
 import signal
 import subprocess
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
@@ -434,7 +435,7 @@ class BwrapSandbox:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                await proc.communicate()
+                await asyncio.wait_for(proc.communicate(), timeout=15.0)
                 if proc.returncode == 0:
                     return preferred
             except Exception:
@@ -447,7 +448,7 @@ class BwrapSandbox:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout_data, _ = await proc.communicate()
+            stdout_data, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
             if proc.returncode != 0:
                 return None
 
@@ -468,7 +469,7 @@ class BwrapSandbox:
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
-                    await check.communicate()
+                    await asyncio.wait_for(check.communicate(), timeout=15.0)
                     if check.returncode == 0:
                         return distro
                 except Exception:
@@ -581,6 +582,7 @@ class BwrapSandbox:
             os.close(fd)
 
             # Export source distro
+            _t0 = time.monotonic()
             export_proc = await _create_subprocess_exec(
                 "wsl.exe", "--export", source, tar_path,
                 stdout=asyncio.subprocess.PIPE,
@@ -589,6 +591,7 @@ class BwrapSandbox:
             _, export_stderr = await asyncio.wait_for(
                 export_proc.communicate(), timeout=300.0,
             )
+            logger.info("  wsl --export completed in {:.0f}s", time.monotonic() - _t0)
             if export_proc.returncode != 0:
                 err = (
                     export_stderr.decode("utf-8", errors="replace")[:200]
@@ -619,6 +622,7 @@ class BwrapSandbox:
             _, import_stderr = await asyncio.wait_for(
                 import_proc.communicate(), timeout=120.0,
             )
+            logger.info("  wsl --import completed in {:.0f}s", time.monotonic() - _t0)
             if import_proc.returncode != 0:
                 err = (
                     import_stderr.decode("utf-8", errors="replace")[:200]
@@ -729,6 +733,7 @@ class BwrapSandbox:
             return False
 
         try:
+            _t0 = time.monotonic()
             logger.info(
                 "Auto-installing sandbox dependencies in WSL distro '{}'...",
                 distro,
@@ -785,6 +790,10 @@ class BwrapSandbox:
                 )
 
                 if proc.returncode != 0:
+                    logger.info(
+                        "  apt-get install completed in {:.0f}s (failed)",
+                        time.monotonic() - _t0,
+                    )
                     err_msg = (
                         stderr.decode("utf-8", errors="replace")[:300]
                         if stderr else "unknown error"
@@ -823,8 +832,8 @@ class BwrapSandbox:
             await asyncio.wait_for(verify.communicate(), timeout=30.0)
             if verify.returncode == 0:
                 logger.info(
-                    "Successfully installed sandbox dependencies in WSL distro '{}'",
-                    distro,
+                    "Successfully installed sandbox dependencies in WSL distro "
+                    "'{}' (total {:.0f}s)", distro, time.monotonic() - _t0,
                 )
                 return True
         except (asyncio.TimeoutError, OSError):

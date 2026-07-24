@@ -71,25 +71,27 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
   }
 
   // Phase 3: wait for textContent to have changed AND stabilized.
-  // The length must increase at least once, then remain stable for
-  // two consecutive polls (400ms).  This prevents false positives
-  // when streaming never started (AI call failed silently).
+  // The length must increase at least once (proving streaming happened),
+  // then remain stable for two consecutive polls (400ms).  Without the
+  // "grown" guard, an AI call that silently fails (empty response) would
+  // immediately return true after ~400ms — a false positive.
   await page.waitForFunction(() => {
     const main = document.querySelector('main');
     if (!main) return false;
     const text = main.textContent || '';
     const s = (window as any).__miqi_stream_state;
     if (!s) {
-      (window as any).__miqi_stream_state = { base: text.length, stable: 0 };
+      (window as any).__miqi_stream_state = { base: text.length, stable: 0, grown: false };
       return false;
     }
     if (text.length > s.base) {
       s.base = text.length;
       s.stable = 0;
+      s.grown = true;
       return false;
     }
     s.stable++;
-    return s.stable >= 2;
+    return s.grown && s.stable >= 2;
   }, { timeout: 5000, polling: 200 });
 }
 
@@ -206,6 +208,38 @@ export async function waitForBridgeInitialized(page: Page, timeoutS = 30) {
       await new Promise((r) => setTimeout(r, 1000));
     }
   }, timeoutS);
+}
+
+/** Poll for sandbox manager to finish initialization.
+ *
+ *  On first-run (cold CI), the sandbox manager may spend 3-5 minutes
+ *  doing wsl export → import → apt-get install.  Tests that use exec
+ *  tools should wait here so they don't fire LLM queries into a
+ *  half-initialized sandbox (which silently falls back to local exec).
+ *
+ *  Returns true when sandbox is ready, false on timeout. */
+export async function waitForSandboxReady(page: Page, timeoutMs = 300_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  let lastLog = 0;
+  while (Date.now() < deadline) {
+    try {
+      const status = await page.evaluate(() => (window as any).miqi.runtime.status());
+      if (status?.sandbox_available === true) {
+        const elapsed = Math.round((timeoutMs - (deadline - Date.now())) / 1000);
+        console.log(`[test] Sandbox ready after ${elapsed}s`);
+        return true;
+      }
+      // Log progress every 30s so CI logs show we're not hung
+      const elapsed = Math.round((timeoutMs - (deadline - Date.now())) / 1000);
+      if (elapsed - lastLog >= 30) {
+        console.log(`[test] Waiting for sandbox... ${elapsed}s elapsed (state: ${status?.state}, sandbox_available: ${status?.sandbox_available})`);
+        lastLog = elapsed;
+      }
+    } catch { /* bridge not ready yet */ }
+    await page.waitForTimeout(2000);
+  }
+  console.log('[test] Warning: sandbox not ready within timeout');
+  return false;
 }
 
 // ─── App lifecycle ──────────────────────────────────────────────────

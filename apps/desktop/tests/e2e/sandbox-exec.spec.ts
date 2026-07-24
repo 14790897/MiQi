@@ -20,6 +20,7 @@ import {
   approveLoop,
   launchElectronApp,
   closeElectronApp,
+  waitForSandboxReady,
 } from './helpers/electron-setup';
 
 const SKIP_SANDBOX_ON_CI =
@@ -35,6 +36,11 @@ test.describe('Sandbox Exec E2E', () => {
     electronApp = fixture.electronApp;
     page = fixture.page;
     miqiHome = fixture.miqiHome;
+
+    // Wait for sandbox to finish cold-start initialization (export/import/apt).
+    // On a cold CI runner this can take 3-5 minutes.  Without this wait,
+    // exec commands silently fall back to local execution.
+    await waitForSandboxReady(page, 300_000);
   }, 120_000);
 
   test.afterAll(async () => {

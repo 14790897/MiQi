@@ -12,6 +12,7 @@ import asyncio
 import json
 import sys
 import threading
+import time
 import traceback
 import uuid
 from typing import Any
@@ -177,27 +178,35 @@ class BridgeRuntimeLoop:
         # get_or_create() still returns None because _initialized is
         # still False, so tools keep running locally until the end
         # of this method.
+        #
+        # IMPORTANT: We set enabled=True in memory now (required for
+        # initialize() to proceed), but we do NOT persist it to config
+        # until initialize() succeeds.  If initialize() fails, the
+        # config stays enabled=False so the sandbox retries on next
+        # bridge restart instead of being permanently stuck.
         need_auto_enable = not sandbox_mgr.enabled
         if need_auto_enable:
             sandbox_mgr.enabled = True
-            try:
-                from miqi.config.loader import save_config
-                config = self._bridge_state.load_config()
-                config.tools.sandbox.enabled = True
-                save_config(config)
-            except Exception as exc:
-                logger.warning(
-                    "sandbox auto-enable: config save failed: {}", exc,
-                )
 
         try:
+            _init_start = time.monotonic()
+            logger.info("Sandbox manager initialization starting (cold start may take 2-5 min)...")
             res = sandbox_mgr.initialize()
             if hasattr(res, "__await__"):
                 ok = await res
             else:
                 ok = False  # mock in tests — initialize() is not async
+            _elapsed = time.monotonic() - _init_start
+            logger.info(
+                "Sandbox manager initialization finished in {:.1f}s: success={}",
+                _elapsed, ok,
+            )
         except Exception as exc:
             logger.warning("Sandbox manager initialization failed: {}", exc)
+            # If we auto-enabled in memory but init failed, reset so
+            # the next bridge restart retries instead of skipping.
+            if need_auto_enable:
+                sandbox_mgr.enabled = False
             if self._app_server is not None:
                 try:
                     await self._app_server.emit_client_event(
@@ -213,6 +222,19 @@ class BridgeRuntimeLoop:
             log_msg = "Sandbox manager initialized"
             if need_auto_enable:
                 log_msg += " (auto-enabled after first-time install)"
+                # Persist enabled=True NOW that init succeeded.
+                # This avoids the one-way-door: if we save enabled=True
+                # before initialize() and it fails, the config is stuck
+                # in an inconsistent state forever.
+                try:
+                    from miqi.config.loader import save_config
+                    config = self._bridge_state.load_config()
+                    config.tools.sandbox.enabled = True
+                    save_config(config)
+                except Exception as exc:
+                    logger.warning(
+                        "sandbox auto-enable: config save failed: {}", exc,
+                    )
             logger.info(log_msg)
         else:
             logger.info(
