@@ -160,7 +160,7 @@ apps/desktop/src/
   "tools": {
     "sandbox": {
       "enabled": true,
-      "share_net": true,
+      "share_net": false,
       "max_sandboxes": 10,
       "auto_cleanup": true,
       "wsl_distro": "AIShadowSandbox",
@@ -174,7 +174,7 @@ apps/desktop/src/
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `enabled` | bool | true | 启用沙箱隔离 |
-| `share_net` | bool | true | 共享宿主机网络（true=容器可联网） |
+| `share_net` | bool | false | 共享宿主机网络（true=容器可联网） |
 | `max_sandboxes` | int | 10 | 最大并发沙箱数 |
 | `auto_cleanup` | bool | true | 会话结束时自动清理沙箱 |
 | `wsl_distro` | str | "AIShadowSandbox" | WSL 发行版名称 |
