@@ -208,6 +208,7 @@ jobs:
         timeout-minutes: 20
 
       - name: Run WSL one-click-install E2E tests (WSL)
+        if: always()
         run: |
           npx playwright test --config=playwright.config.ts --project=electron wsl-one-click-install.spec.ts --workers=1
         env:
