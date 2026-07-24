@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '../lib/utils';
 import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, Trash2 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -212,7 +212,7 @@ export function Sidebar({
         {FILTER_TABS.map((tab) => {
           const isActive = filter === tab.value;
           const count = filterCounts[tab.value];
-          return (
+          const tabButton = (
             <button
               key={tab.value}
               role="tab"
@@ -245,6 +245,41 @@ export function Sidebar({
               )}
             </button>
           );
+          // Right-click on the 全部 tab: bulk delete / archive all
+          if (tab.value === 'ALL') {
+            return (
+              <ContextMenu
+                key={tab.value}
+                items={[
+                  {
+                    label: '删除全部任务',
+                    icon: <Trash2 size={13} />,
+                    danger: true,
+                    onSelect: async () => {
+                      if (!window.confirm(`确认删除全部 ${count} 个任务？此操作不可撤销。`)) return;
+                      for (const s of sessions) {
+                        try { await window.miqi.sessions.delete(s.key); } catch { /* ignore */ }
+                      }
+                      loadSessions();
+                    },
+                  },
+                  {
+                    label: '归档全部任务',
+                    icon: <Archive size={13} />,
+                    onSelect: async () => {
+                      for (const s of sessions) {
+                        try { await window.miqi.sessions.archive(s.key); } catch { /* ignore */ }
+                      }
+                      loadSessions();
+                    },
+                  },
+                ]}
+              >
+                {({ onContextMenu }) => React.cloneElement(tabButton as React.ReactElement, { onContextMenu })}
+              </ContextMenu>
+            );
+          }
+          return tabButton;
         })}
         </div>
       </div>
