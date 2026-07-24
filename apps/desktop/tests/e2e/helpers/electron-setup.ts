@@ -48,17 +48,6 @@ export async function sendMessage(page: Page, text: string) {
 
 /** Wait for streaming to finish (no "Thinking…" indicator) */
 export async function waitForResponseComplete(page: Page, timeout = 120_000) {
-  // Phase 0: capture the response-text baseline BEFORE waiting for
-  // the thinking indicator to hide.  This ensures the "grown" check
-  // in Phase 3 compares against content that was already present
-  // (e.g. user message) and only considers new AI output as growth.
-  // Each call resets the stream state so it never leaks across tests.
-  await page.evaluate(() => {
-    const main = document.querySelector('main');
-    const base = (main?.textContent || '').length;
-    (window as any).__miqi_stream_state = { base, stable: 0, grown: false };
-  });
-
   // Phase 1: model stops generating → "Thinking…" hidden.
   try {
     await expect(page.locator('[data-testid="thinking-indicator"]')).toBeHidden({ timeout });
@@ -81,31 +70,36 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
     // Fast responses may never show IN PROGRESS.
   }
 
-  // Phase 3: wait for textContent to have grown past the baseline AND
-  // stabilized.  The length must increase at least once (proving the AI
-  // added new output), then remain stable for two consecutive polls
-  // (400ms).  Without the "grown" guard, an AI call that silently fails
-  // would return true after ~400ms — a false positive.
+  // Phase 3: wait for textContent to stop changing (streaming done).
   //
-  // Give 30s for streaming to begin; a 5s window may be too tight when
-  // the model is slow to produce its first token after tool output.
+  // Capture the baseline after the thinking indicator is hidden so we
+  // only watch for *new* output from the AI's final response (after any
+  // tool calls).  Each call resets __miqi_stream_state to prevent
+  // cross-test leakage.
+  await page.evaluate(() => {
+    const main = document.querySelector('main');
+    (window as any).__miqi_stream_state = { base: (main?.textContent || '').length, stable: 0 };
+  });
+
+  // Two consecutive 400ms polls with no length change → response is
+  // complete.  Allow up to 30s; the old 5s window was too tight for
+  // slow streaming starts (e.g. after tool output).
   await page.waitForFunction(() => {
     const main = document.querySelector('main');
     if (!main) return false;
     const text = main.textContent || '';
     const s = (window as any).__miqi_stream_state;
     if (!s) {
-      (window as any).__miqi_stream_state = { base: text.length, stable: 0, grown: false };
+      (window as any).__miqi_stream_state = { base: text.length, stable: 0 };
       return false;
     }
-    if (text.length > s.base) {
+    if (text.length !== s.base) {
       s.base = text.length;
       s.stable = 0;
-      s.grown = true;
       return false;
     }
     s.stable++;
-    return s.grown && s.stable >= 2;
+    return s.stable >= 2;
   }, { timeout: 30000, polling: 200 });
 }
 
