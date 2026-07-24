@@ -439,8 +439,12 @@ class BwrapSandbox:
                     await asyncio.wait_for(proc.communicate(), timeout=15.0)
                 except asyncio.TimeoutError:
                     proc.kill()
-                    await proc.communicate()
-                    raise
+                    try:
+                        await asyncio.wait_for(proc.communicate(), timeout=5.0)
+                    except (asyncio.TimeoutError, ProcessLookupError):
+                        pass
+                    # Already timed out — fall through to the outer except
+                    # clause which swallows this distro probe and continues.
                 if proc.returncode == 0:
                     return preferred
             except (asyncio.TimeoutError, Exception):
@@ -459,7 +463,12 @@ class BwrapSandbox:
                 )
             except asyncio.TimeoutError:
                 proc.kill()
-                await proc.communicate()
+                try:
+                    await asyncio.wait_for(proc.communicate(), timeout=5.0)
+                except (asyncio.TimeoutError, ProcessLookupError):
+                    pass
+                # Fall through — the outer try/except below handles the
+                # case where the process timed out and we can't read stdout.
                 raise
             if proc.returncode != 0:
                 return None
@@ -485,8 +494,12 @@ class BwrapSandbox:
                         await asyncio.wait_for(check.communicate(), timeout=15.0)
                     except asyncio.TimeoutError:
                         check.kill()
-                        await check.communicate()
-                        raise
+                        try:
+                            await asyncio.wait_for(check.communicate(), timeout=5.0)
+                        except (asyncio.TimeoutError, ProcessLookupError):
+                            pass
+                        # Fall through — outer except swallows this distro
+                        # probe and continues to the next one.
                     if check.returncode == 0:
                         return distro
                 except Exception:
@@ -636,10 +649,11 @@ class BwrapSandbox:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+            _import_t0 = time.monotonic()
             _, import_stderr = await asyncio.wait_for(
                 import_proc.communicate(), timeout=120.0,
             )
-            logger.info("  wsl --import completed in {:.0f}s", time.monotonic() - _t0)
+            logger.info("  wsl --import completed in {:.0f}s", time.monotonic() - _import_t0)
             if import_proc.returncode != 0:
                 err = (
                     import_stderr.decode("utf-8", errors="replace")[:200]
