@@ -1,3 +1,11 @@
+## [0.8.1](https://github.com/14790897/MiQi/compare/v0.8.0...v0.8.1) (2026-07-24)
+
+
+### Bug Fixes
+
+* **feedback:** fall back to schema field defaults when user config has empty values ([#447](https://github.com/14790897/MiQi/issues/447)) ([94734d7](https://github.com/14790897/MiQi/commit/94734d75c830505bd6963cb20dcae8d93b534670))
+* **sandbox:** add logging for sandbox command failures ([#444](https://github.com/14790897/MiQi/issues/444)) ([57cfc1c](https://github.com/14790897/MiQi/commit/57cfc1c33f410fbeba39c78c2298cad6bd847a5c))
+
 # [0.8.0](https://github.com/14790897/MiQi/compare/v0.7.0...v0.8.0) (2026-07-24)
 
 
