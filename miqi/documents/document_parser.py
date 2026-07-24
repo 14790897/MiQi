@@ -14,10 +14,17 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+
+try:
+    from lxml import html as _lxml_html
+    _HAS_LXML_HTML = True
+except ImportError:
+    _HAS_LXML_HTML = False
 
 
 # ── Configuration ──────────────────────────────────────────────────────────
@@ -62,6 +69,8 @@ def parse_document(
         return _parse_xlsx(file_path, max_chars=max_chars)
     elif suffix in _MD_SUFFIXES:
         return _parse_markdown(file_path, max_chars=max_chars)
+    elif suffix in _HTML_SUFFIXES:
+        return _parse_html(file_path, max_chars=max_chars)
     else:
         raise ValueError(f"Unsupported document format: {suffix}")
 
@@ -90,8 +99,12 @@ _DOCX_SUFFIXES = {".docx", ".doc", ".odt"}
 _PPTX_SUFFIXES = {".pptx", ".ppt", ".odp"}
 _XLSX_SUFFIXES = {".xlsx", ".xls", ".ods"}
 _MD_SUFFIXES = {".md", ".markdown", ".mdown"}
+_HTML_SUFFIXES = {".html", ".htm"}
 
-_ALL_DOCUMENT_SUFFIXES = _PDF_SUFFIXES | _DOCX_SUFFIXES | _PPTX_SUFFIXES | _XLSX_SUFFIXES | _MD_SUFFIXES
+_ALL_DOCUMENT_SUFFIXES = (
+    _PDF_SUFFIXES | _DOCX_SUFFIXES | _PPTX_SUFFIXES |
+    _XLSX_SUFFIXES | _MD_SUFFIXES | _HTML_SUFFIXES
+)
 
 
 # ── MIME types ─────────────────────────────────────────────────────────────
@@ -680,3 +693,67 @@ def _parse_markdown(file_path: Path, *, max_chars: int = MAX_CONTEXT_CHARS) -> d
         result["code_blocks"] = code_blocks[:20]
 
     return result
+
+
+# ── HTML Parser ──────────────────────────────────────────────────────────
+
+def _parse_html(file_path: Path, max_chars: int = 50000) -> dict:
+    """Extract text from HTML files using lxml."""
+    if not _HAS_LXML_HTML:
+        raise RuntimeError("lxml is required for HTML parsing")
+
+    t0 = time.perf_counter()
+    raw = file_path.read_text(encoding="utf-8", errors="replace")
+
+    try:
+        doc = _lxml_html.document_fromstring(raw)
+    except Exception:
+        # Fallback: plain text stripping
+        stem = Path(file_path.stem).stem if file_path.stem else "HTML"
+        from html.parser import HTMLParser as _StdlibParser
+        class _Stripper(_StdlibParser):
+            def __init__(self):
+                super().__init__()
+                self.text: list[str] = []
+            def handle_data(self, data):
+                self.text.append(data)
+        s = _Stripper()
+        s.feed(raw)
+        text = " ".join(s.text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return {
+            "text": text[:max_chars],
+            "page_count": 1,
+            "size_bytes": file_path.stat().st_size,
+            "mime_type": "text/html",
+            "ocr_used": False,
+            "parse_ms": round((time.perf_counter() - t0) * 1000),
+        }
+
+    # Remove script/style/noscript tags
+    for tag in doc.xpath("//script|//style|//noscript|//head|//meta|//link"):
+        tag.getparent().remove(tag)
+
+    title_el = doc.xpath("//title/text()")
+    title = title_el[0].strip() if title_el else ""
+
+    # Get visible text from body
+    body = doc.xpath("//body")
+    body_text = " ".join(body[0].itertext()) if body else ""
+    body_text = re.sub(r"\s+", " ", body_text).strip()
+
+    parts = []
+    if title:
+        parts.append(f"Title: {title}")
+    if body_text:
+        parts.append(body_text)
+
+    text = "\n\n".join(parts)
+    return {
+        "text": text[:max_chars],
+        "page_count": 1,
+        "size_bytes": file_path.stat().st_size,
+        "mime_type": "text/html",
+        "ocr_used": False,
+        "parse_ms": round((time.perf_counter() - t0) * 1000),
+    }
