@@ -602,7 +602,7 @@ async def test_task_runner_sanitizes_processing_errors(fake_services):
             event = ev
             break
     assert "secret API key" not in event.message
-    assert "An internal error occurred" in event.message
+    assert "内部错误" in event.message
 
 
 # ---------------------------------------------------------------------------

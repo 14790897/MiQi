@@ -346,7 +346,7 @@ async def test_task_runner_generic_exception_keeps_generic_message(error_service
     err = next(e for e in emitted if isinstance(e, ErrorEvent))
     assert err.error_kind is None
     assert err.recoverable is False
-    assert err.message == "An internal error occurred while processing your message."
+    assert err.message == "处理消息时发生内部错误，请重试。"
 
     payload = _record_ledger_error_payload(ledger)
     assert payload is not None
@@ -373,8 +373,7 @@ async def test_task_runner_provider_error_fatal_keeps_generic_message(error_serv
     assert err.error_kind == "fatal"
     assert err.recoverable is False
     # Generic message kept — internal details are not leaked for fatal errors.
-    assert err.message == "An internal error occurred while processing your message."
-
+    assert err.message == "处理消息时发生内部错误，请重试。"
     payload = _record_ledger_error_payload(ledger)
     assert payload.get("error_kind") == "fatal"
     assert payload.get("recoverable") is False

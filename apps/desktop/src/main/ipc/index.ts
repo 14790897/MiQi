@@ -293,6 +293,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         session_key: input.session_key ?? 'desktop:default',
         thread_id: (input as any).thread_id ?? undefined,
         mode: input.mode,
+        attachments: input.attachments,
       },
       (type: string, data: unknown) => {
         if (type === 'progress') {
@@ -1371,6 +1372,11 @@ for m in ("pydantic", "httpx", "loguru"):
     } catch (e: any) {
       return { revealed: false, path: raw, error: e?.message ?? String(e) };
     }
+  });
+
+  // -- Document parsing -----------------------------------------------------
+  ipcMain.handle(IPC.DOCUMENTS_PARSE, async (_event, payload: unknown) => {
+    return bridge.sendSafe('documents.parse', payload as Record<string, unknown>);
   });
 
   // -- MCP -----------------------------------------------------------------
