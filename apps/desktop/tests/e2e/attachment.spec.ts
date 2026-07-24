@@ -198,7 +198,7 @@ function makeXlsx(): Buffer {
     {
       name: 'xl/workbook.xml',
       data: Buffer.from(
-        `${XML_DECL}<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+        `${XML_DECL}<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
           `<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>` +
           `</workbook>`,
         'utf-8',
@@ -251,7 +251,7 @@ function makePptx(): Buffer {
     {
       name: 'ppt/presentation.xml',
       data: Buffer.from(
-        `${XML_DECL}<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">` +
+        `${XML_DECL}<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
           `<p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst>` +
           `</p:presentation>`,
         'utf-8',
