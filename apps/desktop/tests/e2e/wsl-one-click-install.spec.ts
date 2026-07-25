@@ -314,6 +314,24 @@ test.describe('WSL One-Click Install E2E', () => {
       // If install was needed, we'd see enabling_features, installing_wsl, etc.
       const phases = events.map((e: any) => e.phase);
       console.log(`[test] Phase sequence: ${phases.join(' → ')}`);
+
+      // Verify post-install state: re-check WSL
+      const postCheck = await page.evaluate(() =>
+        (window as any).miqi.wsl.check(),
+      );
+      console.log('[test] Post-install WSL check:', JSON.stringify(postCheck));
+
+      // If we started with no distros, we should now have distros
+      // (or at minimum the check result should be valid)
+      if (postCheck && typeof postCheck === 'object') {
+        const pc = postCheck as Record<string, unknown>;
+        expect(pc).toHaveProperty('installed');
+        if (pc.distros && Array.isArray(pc.distros) && (pc.distros as any[]).length > 0) {
+          console.log(`[test] ✅ Post-install: ${(pc.distros as any[]).length} distro(s) installed`);
+        } else {
+          console.log(`[test] ℹ️ Post-install: featureState=${pc.featureState}, distros=${JSON.stringify(pc.distros)}`);
+        }
+      }
     },
   );
 
