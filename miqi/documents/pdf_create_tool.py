@@ -328,7 +328,9 @@ def _register_fonts() -> dict[str, str]:
     """Register discovered Chinese fonts with reportlab.
 
     Returns a mapping {logical_name: font_name} for use in Paragraph styles.
-    Handles both .ttf and .ttc (TrueType Collection) font files.
+    Handles both .ttf and .ttc (TrueType Collection) font files.  If
+    registration fails (e.g. fontNumber kwarg missing in older reportlab),
+    falls back to using a built-in PDF font so CJK text is not catastrophic.
     """
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
@@ -336,24 +338,27 @@ def _register_fonts() -> dict[str, str]:
     registered = {}
     cn_name, cn_path = _get_chinese_font()
     if cn_path:
-        # TTC files need fontNumber=0 to reference the first face
+        # TTC files may need fontNumber=0 to reference the first face,
+        # but only newer reportlab supports it.  Try with then without.
         is_ttc = cn_path.lower().endswith(".ttc")
-        try:
-            kwargs = {"fontNumber": 0} if is_ttc else {}
-            pdfmetrics.registerFont(TTFont(cn_name, cn_path, **kwargs))
-            registered["default_cjk"] = cn_name
-            logger.info(f"PDF: registered font '{cn_name}' from {cn_path}")
-        except Exception as exc:
-            logger.warning(f"PDF: failed to register font '{cn_name}': {exc}")
-            # Try registering with a safer name
-            for safe_name in ("CJKFont", "CJK"):
+        candidates = [cn_name, "CJKFont", "CJK"]
+        last_exc = None
+        for fnt_name in candidates:
+            for kwargs in ({"fontNumber": 0} if is_ttc else {}, {}):
                 try:
-                    pdfmetrics.registerFont(TTFont(safe_name, cn_path, **kwargs))
-                    registered["default_cjk"] = safe_name
-                    logger.info(f"PDF: registered font as '{safe_name}' from {cn_path}")
+                    pdfmetrics.registerFont(TTFont(fnt_name, cn_path, **kwargs))
+                    registered["default_cjk"] = fnt_name
+                    logger.info(f"PDF: registered font '{fnt_name}' from {cn_path}")
+                    return registered
+                except TypeError as exc:
+                    # kwarg not supported by this reportlab — try next variant
+                    last_exc = exc
+                    continue
+                except Exception as exc:
+                    logger.warning(f"PDF: failed to register font '{fnt_name}': {exc}")
+                    last_exc = exc
                     break
-                except Exception as exc2:
-                    logger.warning(f"PDF: failed to register font as '{safe_name}': {exc2}")
+        logger.warning(f"PDF: all font registration failed ({last_exc}); falling back to Helvetica")
     return registered
 
 

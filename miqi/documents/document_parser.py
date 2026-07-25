@@ -730,12 +730,13 @@ def _parse_html(file_path: Path, max_chars: int = 50000) -> dict:
             "parse_ms": round((time.perf_counter() - t0) * 1000),
         }
 
-    # Remove script/style/noscript tags
-    for tag in doc.xpath("//script|//style|//noscript|//head|//meta|//link"):
-        tag.getparent().remove(tag)
-
+    # Extract title BEFORE removing head (the title lives inside <head>)
     title_el = doc.xpath("//title/text()")
     title = title_el[0].strip() if title_el else ""
+
+    # Remove script/style/noscript tags and head/meta/link elements
+    for tag in doc.xpath("//script|//style|//noscript|//head|//meta|//link"):
+        tag.getparent().remove(tag)
 
     # Get visible text from body
     body = doc.xpath("//body")
