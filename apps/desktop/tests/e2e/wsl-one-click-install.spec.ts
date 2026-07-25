@@ -262,19 +262,30 @@ test.describe('WSL One-Click Install E2E', () => {
         let unsubscribe: (() => void) | null = null;
 
         try {
-          unsubscribe = (window as any).miqi.wsl.onInstallProgress(
-            (data: any) => {
-              collected.push({ ...data });
-            },
-          );
+          // Collect events until we receive 'complete' or timeout
+          const done = await new Promise<void>((resolve) => {
+            let timer: any = null;
 
-          // Call installAndProvision to trigger events
-          await (window as any).miqi.wsl.installAndProvision();
+            unsubscribe = (window as any).miqi.wsl.onInstallProgress(
+              (data: any) => {
+                if (!collected.some((e: any) => e.phase === data.phase)) {
+                  collected.push({ ...data });
+                }
+                if (data.phase === 'complete' || data.phase === 'error') {
+                  if (timer) clearTimeout(timer);
+                  resolve();
+                }
+              },
+            );
 
-          // Wait briefly for async IPC events to be delivered.
-          // On non-Windows the handler returns synchronously without
-          // sending progress events, so this is a no-op in that case.
-          await new Promise((r) => setTimeout(r, 3000));
+            // Fire installAndProvision after listener is registered
+            (window as any).miqi.wsl.installAndProvision().then(() => {
+              // Fallback: resolve after 10s if no complete/error event
+              timer = setTimeout(resolve, 10000);
+            }).catch(() => {
+              timer = setTimeout(resolve, 10000);
+            });
+          });
         } catch (e: any) {
           collected.push({ _error: e?.message ?? String(e) });
         } finally {
