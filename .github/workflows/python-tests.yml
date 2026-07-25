@@ -82,7 +82,6 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-
       - name: Install WSL Ubuntu distro
         shell: pwsh
         run: |
@@ -93,20 +92,15 @@ jobs:
           wsl -d Ubuntu -- bash -c "mkdir -p /tmp/miqi-sandboxes && chmod 777 /tmp/miqi-sandboxes"
           Write-Host "WSL distro list:"
           wsl -l -v
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install uv
         run: python -m pip install uv
-
       - name: Install dependencies
         run: uv sync --all-extras
-
       - name: Run WSL sandbox tests (auto-install)
         run: uv run pytest -q -m "wsl" --tb=short
-
       - name: Run WSL sandbox tests (bwrap integration)
         run: uv run pytest -q -m "sandbox and bwrap" --tb=short
 
@@ -124,27 +118,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install WSL Ubuntu distro
-        shell: pwsh
-        run: |
-          Write-Host "Installing WSL Ubuntu..."
-          wsl --install -d Ubuntu --no-launch
-          Write-Host "Initializing WSL user..."
-          wsl -d Ubuntu -- bash -c "id -u miqi 2>/dev/null || useradd -m miqi"
-          wsl -d Ubuntu -- bash -c "mkdir -p /tmp/miqi-sandboxes && chmod 777 /tmp/miqi-sandboxes"
-          Write-Host "WSL distro list:"
-          wsl -l -v
-
-      - name: Clean sandbox state (force auto-export)
-        shell: pwsh
-        run: |
-          Write-Host "Removing bubblewrap from Ubuntu..."
-          wsl -d Ubuntu -u root -- bash -c "apt-get remove -y -qq bubblewrap 2>/dev/null; echo done"
-          Write-Host "Unregistering AIShadowSandbox if exists..."
-          wsl --unregister AIShadowSandbox 2>$null; echo "cleaned"
-          Write-Host "WSL after cleanup:"
-          wsl -l -v
-
+      # ── Build environment (before WSL — MiQi will install it) ────
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -201,7 +175,41 @@ jobs:
           }
           CONFEOF
 
+      # ── E2E: MiQi auto-installs WSL via installAndProvision ───────
+      - name: Run WSL one-click-install E2E (MiQi auto-installs WSL)
+        if: steps.build.outcome == 'success'
+        run: |
+          npx playwright test --config=playwright.config.ts --project=electron wsl-one-click-install.spec.ts --workers=1
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_API_BASE: ${{ secrets.DEEPSEEK_API_BASE }}
+        timeout-minutes: 10
+
+      # ── Fallback: ensure WSL + sandbox distro ready ──────────────
+      - name: Install WSL Ubuntu distro (fallback)
+        shell: pwsh
+        run: |
+          Write-Host "Installing WSL Ubuntu..."
+          wsl --install -d Ubuntu --no-launch
+          Write-Host "Initializing WSL user..."
+          wsl -d Ubuntu -- bash -c "id -u miqi 2>/dev/null || useradd -m miqi"
+          wsl -d Ubuntu -- bash -c "mkdir -p /tmp/miqi-sandboxes && chmod 777 /tmp/miqi-sandboxes"
+          Write-Host "WSL distro list:"
+          wsl -l -v
+
+      - name: Clean sandbox state (force auto-export)
+        shell: pwsh
+        run: |
+          Write-Host "Removing bubblewrap from Ubuntu..."
+          wsl -d Ubuntu -u root -- bash -c "apt-get remove -y -qq bubblewrap 2>/dev/null; echo done"
+          Write-Host "Unregistering AIShadowSandbox if exists..."
+          wsl --unregister AIShadowSandbox 2>$null; echo "cleaned"
+          Write-Host "WSL after cleanup:"
+          wsl -l -v
+
+      # ── Sandbox E2E (WSL must be ready after our tests) ──────────
       - name: Run sandbox E2E tests (WSL)
+        if: always()
         run: |
           npx playwright test --config=playwright.config.ts --project=electron sandbox-exec.spec.ts session-key-mapping.spec.ts sandbox-toggle.spec.ts --workers=1
         env:
@@ -210,15 +218,6 @@ jobs:
           DEEPSEEK_API_BASE: ${{ secrets.DEEPSEEK_API_BASE }}
           BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
         timeout-minutes: 20
-
-      - name: Run WSL one-click-install E2E tests (WSL)
-        if: always() && steps.build.outcome == 'success'  # skip only if build failed
-        run: |
-          npx playwright test --config=playwright.config.ts --project=electron wsl-one-click-install.spec.ts --workers=1
-        env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          DEEPSEEK_API_BASE: ${{ secrets.DEEPSEEK_API_BASE }}
-        timeout-minutes: 10
 
       - name: Upload Playwright report (WSL E2E)
         if: failure()
