@@ -58,6 +58,13 @@ async function bridgeWslCheck(page: Page): Promise<Record<string, unknown>> {
   return page.evaluate(() => (window as any).miqi.wsl.check());
 }
 
+/** Filter out docker-desktop from distro list (not a usable user distro) */
+function getUserDistros(distros: string[]): string[] {
+  return (distros ?? []).filter(
+    (d: string) => !/^docker[-_]desktop/i.test(d),
+  );
+}
+
 // ─── Test Suite ─────────────────────────────────────────────────────
 
 test.describe('WSL One-Click Install E2E', () => {
@@ -146,8 +153,13 @@ test.describe('WSL One-Click Install E2E', () => {
 
       // Run WSL check to determine current state
       const check = await bridgeWslCheck(page);
-      const distros = (check as any)?.distros ?? [];
-      console.log(`[test] WSL check: distros=${JSON.stringify(distros)}`);
+      const rawDistros: string[] = (check as any)?.distros ?? [];
+      const distros = getUserDistros(rawDistros);
+      if (rawDistros.length !== distros.length) {
+        console.log(`[test] Filtered out ${rawDistros.length - distros.length} docker distro(s), effective: ${JSON.stringify(distros)}`);
+      } else {
+        console.log(`[test] WSL check: distros=${JSON.stringify(distros)}`);
+      }
 
       if (distros.length === 0) {
         // PR #373: when no distros, the install button should appear
@@ -324,10 +336,12 @@ test.describe('WSL One-Click Install E2E', () => {
       // If we started with no distros, we should now have distros
       // (or at minimum the check result should be valid)
       if (postCheck && typeof postCheck === 'object') {
-        const pc = postCheck as Record<string, unknown>;
+        let pc = postCheck as Record<string, unknown>;
         expect(pc).toHaveProperty('installed');
-        if (pc.distros && Array.isArray(pc.distros) && (pc.distros as any[]).length > 0) {
-          console.log(`[test] ✅ Post-install: ${(pc.distros as any[]).length} distro(s) installed`);
+        const postDistros: string[] = Array.isArray(pc.distros) ? pc.distros as string[] : [];
+        const userDistros = getUserDistros(postDistros);
+        if (userDistros.length > 0) {
+          console.log(`[test] ✅ Post-install: ${userDistros.length} user distro(s) installed: ${JSON.stringify(userDistros)}`);
         } else {
           console.log(`[test] ℹ️ Post-install: featureState=${pc.featureState}, distros=${JSON.stringify(pc.distros)}`);
         }
