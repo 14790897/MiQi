@@ -274,7 +274,7 @@ test.describe('WSL One-Click Install E2E', () => {
           // Wait briefly for async IPC events to be delivered.
           // On non-Windows the handler returns synchronously without
           // sending progress events, so this is a no-op in that case.
-          await new Promise((r) => setTimeout(r, 500));
+          await new Promise((r) => setTimeout(r, 3000));
         } catch (e: any) {
           collected.push({ _error: e?.message ?? String(e) });
         } finally {
