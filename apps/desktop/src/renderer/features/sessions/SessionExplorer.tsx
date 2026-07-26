@@ -132,11 +132,7 @@ export function SessionExplorer({
     loadSessions();
   };
 
-  const formatTime = (iso?: string) => {
-    if (!iso) return '';
-    const d = new Date(iso);
-    return d.toLocaleString();
-  };
+import { formatAbsoluteTime } from '../../lib/formatTime';
 
   return (
     <div className="flex h-full">
@@ -244,7 +240,7 @@ export function SessionExplorer({
                         {s.updated_at && (
                           <div className="flex items-center gap-1 text-xs text-[var(--text-faint)] mt-0.5">
                             <Clock size={10} />
-                            {formatTime(s.updated_at)}
+                            {formatAbsoluteTime(s.updated_at)}
                           </div>
                         )}
                       </div>

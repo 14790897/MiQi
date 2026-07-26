@@ -13,25 +13,7 @@ const MIN_WIDTH = 180;
 const MAX_WIDTH = 480;
 const DEFAULT_WIDTH = 260;
 
-function formatTimestampKey(key: string): string {
-  const ts = parseInt(key, 10);
-  if (isNaN(ts)) return key;
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  }).format(new Date(ts));
-}
-
-function relativeTime(iso?: string): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60_000) return '刚刚';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
-  if (diff < 2 * 86_400_000) return '昨天';
-  return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
-}
+import { formatRelativeTime, formatShortDateTime } from '../lib/formatTime';
 
 interface SidebarProps {
   currentSession?: string;
@@ -301,7 +283,7 @@ export function Sidebar({
           <div className="space-y-2">
             {filteredSessions.slice(0, displayCount).map((s) => {
               const isActive = currentSession === s.key;
-              const displayName = s.title || formatTimestampKey(s.key);
+              const displayName = s.title || formatShortDateTime(parseInt(s.key, 10));
               const sessionStatus = getStatus(s.key);
               const status = getStatusDisplay(sessionStatus);
               const StatusIcon = STATUS_ICONS[sessionStatus];
@@ -389,7 +371,7 @@ export function Sidebar({
                           </span>
                         </div>
                         <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
-                          {relativeTime(s.updated_at)}
+                          {formatRelativeTime(s.updated_at)}
                         </span>
                       </div>
                       {/* Title — large bold, one line */}
