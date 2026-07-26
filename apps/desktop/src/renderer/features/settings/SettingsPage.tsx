@@ -983,7 +983,7 @@ function LogsTab() {
                         className="px-4 py-1.5 text-[var(--text-faint)] whitespace-nowrap"
                         title={entry.timestamp}
                       >
-                        {formatAbsoluteTime(entry.timestamp)}
+                        {formatTime(entry.timestamp)}
                       </td>
                       <td className="px-2 py-1.5 whitespace-nowrap">{levelBadge(entry.level)}</td>
                       <td
@@ -1055,6 +1055,17 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
     }
   };
 
+  function formatTime(iso?: string): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleString('zh-CN', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
   return (
     <div className="p-4 max-w-2xl flex flex-col gap-4">
       <div className="flex items-center justify-between">
@@ -1096,7 +1107,7 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
                   {s.title || s.key}
                 </p>
                 <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
-                  {formatAbsoluteTime(s.updated_at)}
+                  {formatTime(s.updated_at)}
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -1356,7 +1367,7 @@ export function SettingsPage({
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="mcps" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ MCP 服务设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ MCP服务设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
             <MCPsPage />
           </ErrorBoundary>
         </Tabs.Content>
@@ -1381,12 +1392,12 @@ export function SettingsPage({
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="wsl" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ WSL 设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ WSL设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
             <WslStatusPage />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="webtools" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 网页工具设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ Web工具设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
             <WebToolsTab />
           </ErrorBoundary>
         </Tabs.Content>
@@ -1396,22 +1407,20 @@ export function SettingsPage({
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="logs" className="flex-1 min-h-0 flex flex-col">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 日志加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 日志设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
             <LogsTab />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="archived" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 归档加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
-            <ArchivedTab />
-          </ErrorBoundary>
+          <ArchivedTab />
         </Tabs.Content>
         <Tabs.Content value="docs" className="flex-1 min-h-0 flex flex-col">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 文档加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 文档设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
             <DocsTab />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="feedback" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 反馈页面加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 反馈设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
             <FeedbackPage />
           </ErrorBoundary>
         </Tabs.Content>
