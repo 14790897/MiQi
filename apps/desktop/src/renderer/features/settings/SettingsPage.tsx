@@ -1075,8 +1075,7 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
         <button
           onClick={load}
           disabled={loading}
-          className="p-1.5 rounded-md hover:bg-[var(--surface-muted)] transition-colors"
-          style={{ color: 'var(--text-faint)' }}
+          className="p-1.5 rounded-md hover:bg-[var(--surface-muted)] transition-colors text-text-faint"
           title="刷新"
         >
           <RefreshCw size={14} className={cn(loading && 'animate-spin')} />
@@ -1085,8 +1084,8 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
 
       {sessions.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 px-4 rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-muted)]/30">
-          <div className="w-10 h-10 rounded-full bg-[var(--surface-muted)] flex items-center justify-center mb-3">
-            <Archive size={18} style={{ color: 'var(--text-faint)' }} />
+          <div className="w-10 h-10 rounded-full bg-[var(--surface-muted)] flex items-center justify-center mb-3 text-text-faint">
+            <Archive size={18} />
           </div>
           <p className="text-[13px] font-medium text-[var(--text-muted)] mb-1">暂无已归档的对话</p>
           <p className="text-[11px] text-[var(--text-faint)]">
@@ -1102,18 +1101,17 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
               style={{ borderBottom: '1px solid var(--border-subtle)' }}
             >
               <div className="flex-1 min-w-0">
-                <p className="text-[13px] truncate font-medium" style={{ color: 'var(--text)' }}>
+                <p className="text-[13px] truncate font-medium text-text">
                   {s.title || s.key}
                 </p>
-                <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+                <p className="text-[11px] text-text-faint">
                   {formatTime(s.updated_at)}
                 </p>
               </div>
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => handleRestore(s.key, s.title || s.key)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition duration-150 hover:bg-[var(--surface)] hover:shadow-sm"
-                  style={{ color: 'var(--text-muted)' }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition duration-150 hover:bg-[var(--surface)] hover:shadow-sm text-text-muted"
                   title="恢复对话"
                 >
                   <Unarchive size={13} />
@@ -1121,8 +1119,7 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
                 </button>
                 <button
                   onClick={() => handleDelete(s.key, s.title || s.key)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition duration-150 hover:bg-[var(--danger-bg)]"
-                  style={{ color: 'var(--text-faint)' }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition duration-150 hover:bg-[var(--danger-bg)] text-text-faint"
                   title="永久删除"
                 >
                   <Trash2 size={13} />

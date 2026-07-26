@@ -124,7 +124,7 @@ export function PermissionsPage() {
                 <option value="write">写入</option>
                 <option value="none">禁止</option>
               </select>
-              <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: 'var(--text-muted)' }}>
+              <label className="flex items-center gap-1.5 text-xs cursor-pointer text-text-muted">
                 <input
                   type="checkbox"
                   checked={rule.recursive}

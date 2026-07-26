@@ -182,15 +182,15 @@ function AppShell() {
             </span>
           </div>
           <div>
-            <h2 className="text-base font-semibold mb-1" style={{ color: 'var(--text)' }}>
+            <h2 className="text-base font-semibold mb-1 text-text">
               预加载桥接不可用
             </h2>
-            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+            <p className="text-sm text-text-muted">
               应用预加载脚本注入失败。 <br />
               请重启应用。如问题持续，请检查预加载脚本路径或重新安装。{' '}
             </p>
           </div>
-          <div className="text-xs" style={{ color: 'var(--text-faint)' }}>
+          <div className="text-xs text-text-faint">
             按 Ctrl+Shift+I 打开 DevTools 查看错误。
           </div>
         </div>
