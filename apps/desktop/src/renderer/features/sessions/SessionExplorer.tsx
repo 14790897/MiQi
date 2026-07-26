@@ -3,8 +3,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '../../components/ui/Button';
 import { ScrollArea } from '../../components/ui/ScrollArea';
-import { ContextMenu } from '../../components/ContextMenu';
 import { cn } from '../../lib/utils';
+import { formatAbsoluteTime } from '../../lib/formatTime';
 import {
   MessageSquare,
   Trash2,
@@ -131,8 +131,6 @@ export function SessionExplorer({
     }
     loadSessions();
   };
-
-import { formatAbsoluteTime } from '../../lib/formatTime';
 
   return (
     <div className="flex h-full">

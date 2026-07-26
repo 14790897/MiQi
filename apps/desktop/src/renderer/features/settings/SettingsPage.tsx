@@ -759,7 +759,18 @@ function LogsTab() {
     });
   };
 
-import { formatAbsoluteTime } from '../../lib/formatTime';
+  const formatTime = (iso: string) => {
+    const d = new Date(iso);
+    // new Date() never throws — invalid input produces NaN getTime()
+    if (isNaN(d.getTime())) return iso;
+    const date = d.toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const time = d.toLocaleTimeString('zh-CN', { hour12: false });
+    return `${date} ${time}`;
+  };
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(

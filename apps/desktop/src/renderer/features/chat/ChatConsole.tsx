@@ -6,6 +6,7 @@ import { Textarea } from '../../components/ui/Textarea';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { ContextMenu, type ContextMenuAction } from '../../components/ContextMenu';
 import { cn } from '../../lib/utils';
+import { formatRelativeTime } from '../../lib/formatTime';
 import {
   ExecutionPolicySelector,
   type ExecutionPolicy,
