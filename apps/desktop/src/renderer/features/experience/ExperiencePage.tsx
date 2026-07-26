@@ -41,81 +41,7 @@ function fileScope(path: string): 'agent' | 'workspace' {
   return path.includes('agent-memory') ? 'agent' : 'workspace';
 }
 
-// ── Sub-components ──────────────────────────────────────────────────────────
-
-function SaveConfirmDialog({
-  path,
-  onConfirm,
-  onCancel,
-}: {
-  path: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-6 max-w-md mx-4 shadow-xl">
-        <h3 className="text-lg font-semibold mb-2">确认保存</h3>
-        <p className="text-sm text-[var(--muted-foreground)] mb-4">
-          文件 <code className="text-[var(--accent)] text-xs">{path}</code> 已经存在。
-          <br />
-          确定要覆盖保存吗？
-        </p>
-        <div className="flex gap-3 justify-end">
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 text-sm rounded-md border border-[var(--border)] hover:bg-[var(--muted)]/30"
-          >
-            取消
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-4 py-2 text-sm rounded-md bg-[var(--accent)] text-white hover:opacity-90"
-          >
-            覆盖保存
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ConfirmDialog({
-  title,
-  message,
-  confirmLabel,
-  onConfirm,
-  onCancel,
-}: {
-  title: string;
-  message: string;
-  confirmLabel?: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-6 max-w-md mx-4 shadow-xl">
-        <h3 className="text-lg font-semibold mb-2">{title}</h3>
-        <p className="text-sm text-[var(--muted-foreground)] mb-4">{message}</p>
-        <div className="flex gap-3 justify-end">
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 text-sm rounded-md border border-[var(--border)] hover:bg-[var(--muted)]/30"
-          >
-            取消
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-4 py-2 text-sm rounded-md bg-red-600 text-white hover:opacity-90"
-          >
-            {confirmLabel || '删除'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { ConfirmDialog, SaveConfirmDialog } from '../../components/shared';
 
 // ── Facts Tab ────────────────────────────────────────────────────────────────
 function FactsTab() {
@@ -377,7 +303,7 @@ function FactsTab() {
       {/* Dialogs */}
       {showSaveConfirm && (
         <SaveConfirmDialog
-          path={activeFile!}
+          filePath={activeFile!}
           onConfirm={() => {
             setShowSaveConfirm(false);
             save();
