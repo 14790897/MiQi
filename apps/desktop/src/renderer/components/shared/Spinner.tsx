@@ -14,6 +14,8 @@ const SIZE_CLASSES = {
 export function Spinner({ size = 'md', className }: SpinnerProps) {
   return (
     <div
+      role="status"
+      aria-label="加载中"
       className={cn(
         'border-2 border-[var(--border)] border-t-[var(--accent)] rounded-full animate-spin',
         SIZE_CLASSES[size],

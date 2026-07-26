@@ -301,9 +301,9 @@ function FactsTab() {
       </div>
 
       {/* Dialogs */}
-      {showSaveConfirm && (
+      {showSaveConfirm && activeFile && (
         <SaveConfirmDialog
-          filePath={activeFile!}
+          filePath={activeFile}
           onConfirm={() => {
             setShowSaveConfirm(false);
             save();

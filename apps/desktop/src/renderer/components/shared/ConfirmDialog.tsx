@@ -25,7 +25,7 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
       <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[400px]">
         <div className="flex items-center gap-2 px-5 py-4 border-b border-[var(--border-subtle)]">
           <Icon

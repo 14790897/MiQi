@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
 /**
  * Provides a `saved` state and a `markSaved()` trigger with auto-reset.
@@ -7,7 +7,14 @@ import { useState, useCallback, useRef } from 'react';
  */
 export function useSaveFeedback(resetDelay = 2000) {
   const [saved, setSaved] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear pending timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
+    };
+  }, []);
 
   const markSaved = useCallback(() => {
     setSaved(true);
