@@ -1327,7 +1327,7 @@ export function ChatConsole({
 
           if (ext === 'pdf') {
             extracted = extractPdfText(raw.buffer);
-          } else if (ext === 'md' || ext === 'markdown' || ext === 'mdown' || ext === 'txt') {
+          } else if (ext === 'md' || ext === 'markdown' || ext === 'mdown' || ext === 'txt' || ext === 'html' || ext === 'htm') {
             extracted = new TextDecoder().decode(raw);
           } else if (
             ext === 'csv' ||
@@ -2478,7 +2478,7 @@ export function ChatConsole({
                             if (ext === 'pdf') {
                               previewText = extractPdfText(raw.buffer);
                             } else if (
-                              /^(md|markdown|mdown|txt|csv|json|ya?ml|xml|py|ts|js|log)$/i.test(ext)
+                              /^(md|markdown|mdown|txt|csv|json|ya?ml|xml|py|ts|js|log|html|htm)$/i.test(ext)
                             ) {
                               previewText = new TextDecoder().decode(raw);
                             } else {
