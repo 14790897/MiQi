@@ -4,27 +4,7 @@ import { cn } from '../../../lib/utils';
 import { sanitizeUiMessage } from '../../../lib/sanitizeUiMessage';
 import { useRestartRequired } from '../../../contexts/RestartRequiredContext';
 import type { ProviderInfo } from '../../../../shared/ipc';
-
-const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  openrouter: 'OpenRouter', aihubmix: 'AiHubMix', siliconflow: 'SiliconFlow · 硅基流动',
-  volcengine: 'VolcEngine · 火山引擎', custom: '自定义端点',
-  anthropic: 'Anthropic', openai: 'OpenAI', deepseek: 'DeepSeek',
-  gemini: 'Google Gemini', groq: 'Groq',
-  zhipu: 'Zhipu AI · 智谱', dashscope: 'DashScope · 通义千问',
-  moonshot: 'Moonshot · 月之暗面', minimax: 'MiniMax',
-  ollama_cloud: 'Ollama Cloud', ollama_local: 'Ollama Local', vllm: 'vLLM / 本地部署',
-};
-
-const PROVIDER_SUGGESTED_MODELS: Record<string, string[]> = {
-  openrouter: ['anthropic/claude-opus-4-5', 'google/gemini-2.5-pro', 'deepseek/deepseek-r1'],
-  anthropic: ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'],
-  openai: ['gpt-4o', 'gpt-4o-mini', 'o3', 'o4-mini'],
-  deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'],
-  gemini: ['gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.5-flash'],
-  dashscope: ['qwen-max', 'qwen-plus', 'qwen-turbo', 'qwen3-235b-a22b'],
-  zhipu: ['glm-4-plus', 'glm-z1-flash', 'glm-4-long'],
-  moonshot: ['kimi-k2.5', 'moonshot-v1-32k', 'moonshot-v1-128k'],
-};
+import { PROVIDER_DISPLAY_NAMES, PROVIDER_SUGGESTED_MODELS } from '../../../lib/providers';
 
 export function ExtraHeadersField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
