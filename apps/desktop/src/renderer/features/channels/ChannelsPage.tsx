@@ -4,14 +4,6 @@ import { cn } from '../../lib/utils';
 import { useRestartRequired } from '../../contexts/RestartRequiredContext';
 import type { ChannelsConfig } from '../../../shared/ipc';
 
-// ─── Feature flags ───────────────────────────────────────────────────────────
-// Toggle frontend exposure of experimental / deprecated features.
-// Code modules are kept for future re-enabling or backend use.
-const FEATURES = {
-  /** Feishu/Lark gateway — frontend UI hidden (backend module retained) */
-  FEISHU_ENABLED: false,
-} as const;
-
 // ─── Toggle row ──────────────────────────────────────────────────────────────
 function ToggleRow({
   label,
@@ -90,116 +82,6 @@ function FieldRow({
         )}
       </div>
       {description && <p className="text-xs text-[var(--text-faint)]">{description}</p>}
-    </div>
-  );
-}
-
-// ─── Feishu section ───────────────────────────────────────────────────────────
-interface FeishuSectionProps {
-  config: ChannelsConfig['feishu'];
-  onChange: (v: ChannelsConfig['feishu']) => void;
-}
-
-function FeishuSection({ config, onChange }: FeishuSectionProps) {
-  const set = <K extends keyof ChannelsConfig['feishu']>(
-    key: K,
-    val: ChannelsConfig['feishu'][K]
-  ) => onChange({ ...config, [key]: val });
-
-  return (
-    <div className="settings-hover-card bg-[var(--surface)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
-      {/* Channel header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)]">
-        <div className="flex items-center gap-2">
-          <Radio
-            size={14}
-            className={config.enabled ? 'text-[var(--success)]' : 'text-[var(--border)]'}
-          />
-          <span className="text-sm font-medium text-[var(--text)]">Feishu / Lark</span>
-          <span
-            className={cn(
-              'text-xs px-2 py-0.5 rounded-full',
-              config.enabled
-                ? 'bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]'
-                : 'bg-[var(--surface-muted)] text-[var(--text-faint)]'
-            )}
-          >
-            {config.enabled ? '已启用' : '已禁用'}
-          </span>
-        </div>
-        <button
-          onClick={() => set('enabled', !config.enabled)}
-          className={cn(
-            'transition-colors',
-            config.enabled ? 'text-[var(--accent)]' : 'text-[var(--border)]'
-          )}
-        >
-          {config.enabled ? <ToggleRight size={22} /> : <ToggleLeft size={22} />}
-        </button>
-      </div>
-
-      <div className="px-5 py-2 divide-y divide-[var(--border-subtle)]">
-        <FieldRow
-          label="App ID"
-          value={config.app_id}
-          onChange={(v) => set('app_id', v)}
-          placeholder="cli_xxxxxxxxxxxxxxxx"
-          description="开发者控制台 App ID"
-        />
-        <FieldRow
-          label="App Secret"
-          value={config.app_secret}
-          onChange={(v) => set('app_secret', v)}
-          placeholder="请输入 App Secret"
-          secret
-          description="开发者控制台 App Secret"
-        />
-        <div className="py-2 flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
-            允许来自{' '}
-            <span className="font-normal text-[var(--text-faint)]">
-              （open_id，每行一个，留空表示允许所有人）
-            </span>
-          </label>
-          <textarea
-            value={config.allow_from.join('\n')}
-            onChange={(e) =>
-              set(
-                'allow_from',
-                e.target.value
-                  .split('\n')
-                  .map((s) => s.trim())
-                  .filter(Boolean)
-              )
-            }
-            rows={3}
-            placeholder="ou_xxxxxxxxxxxxxxxx"
-            className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono resize-none"
-            spellCheck={false}
-          />
-        </div>
-        <div className="py-2 flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
-            回复延迟（毫秒）
-          </label>
-          <input
-            type="number"
-            min={0}
-            value={config.reply_delay_ms}
-            onChange={(e) => set('reply_delay_ms', Number(e.target.value))}
-            className="w-40 px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] focus:outline-none focus:border-[var(--accent)] tabular-nums"
-          />
-          <p className="text-xs text-[var(--text-faint)]">消息合并窗口时间，0 表示关闭</p>
-        </div>
-        <div className="py-1">
-          <ToggleRow
-            label="群组中需要被@提及"
-            description="在群聊中仅响应@提及的消息"
-            checked={config.require_mention_in_groups}
-            onChange={(v) => set('require_mention_in_groups', v)}
-          />
-        </div>
-      </div>
     </div>
   );
 }
@@ -305,14 +187,6 @@ export function ChannelsPage() {
                 onChange={(v) => setConfig({ ...config, send_queue_notifications: v })}
               />
             </div>
-
-            {/* Feishu — frontend hidden, backend module retained */}
-            {FEATURES.FEISHU_ENABLED && (
-              <FeishuSection
-                config={config.feishu}
-                onChange={(feishu) => setConfig({ ...config, feishu })}
-              />
-            )}
           </>
         )}
       </div>
