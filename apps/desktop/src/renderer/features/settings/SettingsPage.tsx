@@ -89,13 +89,16 @@ function SandboxToggle() {
 }
 
 function InlineExecOutputToggle() {
+  const toggle = async (next: boolean) => {
+    await window.miqi.config.update({ desktop: { ui: { inlineExecOutput: next } } });
+  };
   return (
     <SettingsToggle
       icon={Terminal}
       testId="inline-exec-output-toggle"
       label="已开启"
       getInitial={(cfg) => cfg?.desktop?.ui?.inlineExecOutput === true}
-      onToggle={async (next) => { await window.miqi.config.update({ desktop: { ui: { inlineExecOutput: next } }); }}
+      onToggle={toggle}
     />
   );
 }
