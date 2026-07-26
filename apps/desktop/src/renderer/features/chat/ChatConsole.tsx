@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { ErrorBoundary } from '../../components/ErrorBoundary';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '../../components/ui/Button';
@@ -268,7 +269,6 @@ function relativeTimeLabel(timestamp?: number | string | null, now = Date.now())
   if (timestamp === undefined || timestamp === null) return '尚未更新';
   const value = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp);
   if (!Number.isFinite(value)) return '尚未更新';
-
   const diff = now - value;
   if (diff < 60_000) return '刚刚更新';
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前更新`;
@@ -3575,6 +3575,14 @@ function MessageBubble({
                     }
               }
             >
+            <ErrorBoundary
+              fallback={(error, reset) => (
+                <div className="text-xs p-2 rounded" style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}>
+                  ⚠ 消息渲染失败
+                  <button onClick={reset} className="ml-2 underline" style={{ color: 'var(--accent)' }}>重试</button>
+                </div>
+              )}
+            >
               {msg.role === 'assistant' && msg.content === '' ? (
                 <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
               ) : msg.role === 'assistant' ? (
@@ -3582,6 +3590,7 @@ function MessageBubble({
               ) : (
                 renderContent((msg as any).__cleanContent || msg.content)
               )}
+            </ErrorBoundary>
             </div>
 
             {/* copy button */}
