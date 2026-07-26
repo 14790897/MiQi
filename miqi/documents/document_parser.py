@@ -735,8 +735,9 @@ def _parse_html(file_path: Path, max_chars: int = 50000) -> dict:
     title = title_el[0].strip() if title_el else ""
 
     # Remove script/style/noscript tags and head/meta/link elements
+    # Use drop_tree() — safer than parent.remove() which can fail if parent is None
     for tag in doc.xpath("//script|//style|//noscript|//head|//meta|//link"):
-        tag.getparent().remove(tag)
+        tag.drop_tree()
 
     # Get visible text from body
     body = doc.xpath("//body")

@@ -344,7 +344,10 @@ def _register_fonts() -> dict[str, str]:
         candidates = [cn_name, "CJKFont", "CJK"]
         last_exc = None
         for fnt_name in candidates:
-            for kwargs in ({"fontNumber": 0} if is_ttc else {}, {}):
+            # TTC files: try with fontNumber=0 first, then without
+            # TTF files: single attempt with no kwargs
+            kwarg_sets = ({"fontNumber": 0}, {}) if is_ttc else ({},)
+            for kwargs in kwarg_sets:
                 try:
                     pdfmetrics.registerFont(TTFont(fnt_name, cn_path, **kwargs))
                     registered["default_cjk"] = fnt_name
@@ -398,11 +401,15 @@ def _build_pdf(
     # Resolve font names: if a CJK font was registered, use it for any
     # Chinese-oriented font name (SimSun, SimHei, MsYaHei, 宋体, 黑体, etc.)
     # so the style presets work regardless of which font was actually discovered.
+    # If NO CJK font could be registered, force EVERYTHING to Helvetica —
+    # passing an unregistered Chinese name to reportlab crashes with "Can't map".
+    _CN_NAMES = ("sim", "song", "hei", "kai", "fang", "yahei", "ming", "cjk", "chinese", "noto", "wenquan")
     def _resolve_font(name: str | None) -> str:
         if not name or name == "Helvetica":
-            return cjk_font if _has_cjk else (name or "Helvetica")
-        if _has_cjk and any(cn in name.lower() for cn in ("sim", "song", "hei", "kai", "fang", "yahei", "ming", "cjk", "chinese", "noto", "wenquan")):
-            return cjk_font
+            return cjk_font if _has_cjk else "Helvetica"
+        is_cn = any(cn in name.lower() for cn in _CN_NAMES)
+        if is_cn:
+            return cjk_font if _has_cjk else "Helvetica"
         return name
 
     # Page size
