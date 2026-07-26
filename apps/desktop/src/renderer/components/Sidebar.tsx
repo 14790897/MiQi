@@ -11,7 +11,8 @@ type FilterTab = 'ALL' | 'IN-PROGRESS' | 'REVIEW' | 'COMPLETED';
 
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 480;
-const DEFAULT_WIDTH = 260;
+
+import { usePanelResize } from '../hooks/usePanelResize';
 
 function formatTimestampKey(key: string): string {
   const ts = parseInt(key, 10);
@@ -59,9 +60,12 @@ export function Sidebar({
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [filter, setFilter] = useState<FilterTab>('ALL');
-  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
-  const isResizing = useRef(false);
-  const sidebarRef = useRef<HTMLDivElement>(null);
+  const { width: sidebarWidth, containerRef: sidebarRef, handleMouseDown } = usePanelResize({
+    minWidth: MIN_WIDTH,
+    maxWidth: MAX_WIDTH,
+    defaultWidth: 260,
+    computeWidth: (e, rect) => e.clientX - rect.left,
+  });
 
   const { getStatus, getStatusDisplay, setStatus, clearStatus } = useSessionStatus();
 
@@ -75,39 +79,6 @@ export function Sidebar({
   useEffect(() => {
     setDisplayCount(PER_PAGE);
   }, [sessions, filter]);
-
-  // Resize handler
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    isResizing.current = true;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  }, []);
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing.current) return;
-      const newWidth = e.clientX - (sidebarRef.current?.getBoundingClientRect().left ?? 0);
-      setSidebarWidth(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth)));
-    };
-    const handleMouseUp = () => {
-      if (isResizing.current) {
-        isResizing.current = false;
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-      }
-    };
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      // cleanup if unmounted during drag
-      isResizing.current = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, []);
 
   const loadSessions = useCallback(async () => {
     try {

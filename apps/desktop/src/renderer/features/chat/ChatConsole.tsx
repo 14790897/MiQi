@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { usePanelResize } from '../../hooks/usePanelResize';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '../../components/ui/Button';
@@ -788,8 +789,12 @@ export function ChatConsole({
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [downloadingPaperId, setDownloadingPaperId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
-  const [panelWidth, setPanelWidth] = useState(280);
-  const panelResizing = useRef(false);
+  const { width: panelWidth, containerRef: panelRef, handleMouseDown: handlePanelResizeStart } = usePanelResize({
+    minWidth: 200,
+    maxWidth: 500,
+    defaultWidth: 280,
+    computeWidth: (e) => window.innerWidth - e.clientX,
+  });
 
   useEffect(() => {
     const timer = window.setInterval(() => setClockTick(Date.now()), 60_000);
@@ -825,42 +830,7 @@ export function ChatConsole({
     };
   }, []);
 
-  // Task Assets panel resize
-  const handlePanelResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    panelResizing.current = true;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  }, []);
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!panelResizing.current) return;
-      // panel is on the right, so new width = window width - mouse x
-      const newWidth = window.innerWidth - e.clientX;
-      setPanelWidth(Math.max(200, Math.min(500, newWidth)));
-    };
-    const handleMouseUp = () => {
-      if (panelResizing.current) {
-        panelResizing.current = false;
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-      }
-    };
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      // cleanup if unmounted during drag
-      panelResizing.current = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, []);
-  /** Current in-flight request ID (for abort) */
   const [currentReqId, setCurrentReqId] = useState<string | null>(null);
-  /** files touched by the agent during this session */
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([]);
   /** preview modal */
   const [previewFile, setPreviewFile] = useState<{
