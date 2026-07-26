@@ -71,184 +71,32 @@ function getNestedStr(obj: Record<string, unknown>, ...keys: string[]): string {
   return cur == null ? '' : String(cur);
 }
 
-// ---- Sandbox Toggle ----
+import { SettingsToggle } from './components/SettingsToggle';
+
 function SandboxToggle() {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [ready, setReady] = useState<boolean | null>(null);
-  const [toggling, setToggling] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Poll runtime status to detect when sandbox becomes available
-  useEffect(() => {
-    const check = () => {
-      window.miqi.runtime
-        .status()
-        .then((s: any) => {
-          setReady(s?.sandbox_available === true);
-        })
-        .catch(() => {});
-    };
-    check();
-    const interval = setInterval(check, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    window.miqi.config
-      .get()
-      .then((cfg: any) => {
-        setEnabled(cfg?.tools?.sandbox?.enabled ?? true);
-      })
-      .catch(() => setEnabled(false));
-  }, []);
-
-  const handleToggle = async () => {
-    if (enabled === null) return;
-    const next = !enabled;
-    setToggling(true);
-    setError(null);
-    try {
-      const result: any = await window.miqi.sandbox.setEnabled(next);
-      if (result && !result.error) {
-        setEnabled(next);
-      } else {
-        setError(result?.error || '切换失败');
-      }
-    } catch (err: any) {
-      const msg = err?.message || String(err);
-      // If bridge doesn't know sandbox.setEnabled yet (old code,
-      // not restarted), fall back to config.update only — it won't
-      // take effect until bridge restart, but at least persists.
-      if (msg.includes('Unknown method') || msg.includes('Bridge not running')) {
-        try {
-          await window.miqi.config.update({
-            tools: { sandbox: { enabled: next } },
-          });
-          setEnabled(next);
-          setError(next ? '已保存，重启后生效' : '已保存，重启后生效');
-          setTimeout(() => setError(null), 4000);
-          return;
-        } catch {
-          /* fall through to error display */
-        }
-      }
-      setError(msg || 'Bridge 通信失败');
-    }
-    setToggling(false);
-  };
-
   return (
-    <div className="flex items-center gap-3">
-      <button
-        onClick={handleToggle}
-        disabled={toggling || enabled === null}
-        data-testid="sandbox-toggle-btn"
-        className={cn(
-          'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-          'disabled:opacity-50',
-          enabled ? 'bg-[var(--accent)]' : 'bg-[var(--border)]'
-        )}
-      >
-        <span
-          className={cn(
-            'inline-block h-4 w-4 rounded-full bg-white transition-transform',
-            enabled ? 'translate-x-6' : 'translate-x-1'
-          )}
-        />
-      </button>
-      <div className="flex items-center gap-1.5">
-        {enabled ? (
-          <Shield size={14} className="text-[var(--accent)]" />
-        ) : (
-          <ShieldOff size={14} className="text-[var(--warning)]" />
-        )}
-        <span
-          className={cn(
-            'text-xs font-medium',
-            enabled ? (ready ? 'text-[var(--accent)]' : 'text-amber-400') : 'text-[var(--warning)]'
-          )}
-          data-testid="sandbox-toggle-label"
-        >
-          {toggling
-            ? enabled
-              ? '正在关闭…'
-              : '正在开启…'
-            : enabled
-              ? ready
-                ? '已开启（推荐）'
-                : '正在安装依赖…'
-              : '已关闭'}
-        </span>
-      </div>
-      {error && <p className="text-xs text-[var(--warning)] mt-1 ml-1">{error}</p>}
-    </div>
+    <SettingsToggle
+      icon={Shield}
+      testId="sandbox-toggle"
+      label="沙箱"
+      getInitial={(cfg) => cfg?.tools?.sandbox?.enabled ?? true}
+      onToggle={async (next) => { const r: any = await window.miqi.sandbox.setEnabled(next); if (r?.error) throw new Error(r.error); }}
+      pollReady
+      readyLabel="已开启（推荐）"
+      togglingLabel="正在安装依赖…"
+    />
   );
 }
 
-// ---- Inline Exec Output Toggle ----
-// Controls whether tool-call exec results render in an inline terminal box.
-// Added in #339 follow-up: lets users suppress the dark bordered container
-// (which appears empty when the sandbox path policy strips stdout/stderr).
 function InlineExecOutputToggle() {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    window.miqi.config
-      .get()
-      .then((cfg: any) => {
-        // Default off — the terminal box is purely cosmetic and was the
-        // source of the "红边空盒" complaints before this toggle landed.
-        setEnabled(cfg?.desktop?.ui?.inlineExecOutput === true);
-      })
-      .catch(() => setEnabled(false));
-  }, []);
-
-  const handleToggle = async () => {
-    if (enabled === null) return;
-    const next = !enabled;
-    setSaving(true);
-    try {
-      await window.miqi.config.update({ desktop: { ui: { inlineExecOutput: next } } });
-      setEnabled(next);
-    } catch {
-      /* ignore — keep prior state */
-    }
-    setSaving(false);
-  };
-
   return (
-    <div className="flex items-center gap-3">
-      <button
-        onClick={handleToggle}
-        disabled={saving || enabled === null}
-        data-testid="inline-exec-output-toggle-btn"
-        className={cn(
-          'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-          'disabled:opacity-50',
-          enabled ? 'bg-[var(--accent)]' : 'bg-[var(--border)]',
-        )}
-      >
-        <span
-          className={cn(
-            'inline-block h-4 w-4 rounded-full bg-white transition-transform',
-            enabled ? 'translate-x-6' : 'translate-x-1',
-          )}
-        />
-      </button>
-      <div className="flex items-center gap-1.5">
-        <Terminal size={14} className={enabled ? 'text-[var(--accent)]' : 'text-[var(--muted-foreground)]'} />
-        <span
-          className={cn(
-            'text-xs font-medium',
-            enabled ? 'text-[var(--accent)]' : 'text-[var(--muted-foreground)]',
-          )}
-          data-testid="inline-exec-output-toggle-label"
-        >
-          {enabled ? '已开启' : '已关闭'}
-        </span>
-      </div>
-    </div>
+    <SettingsToggle
+      icon={Terminal}
+      testId="inline-exec-output-toggle"
+      label="已开启"
+      getInitial={(cfg) => cfg?.desktop?.ui?.inlineExecOutput === true}
+      onToggle={async (next) => { await window.miqi.config.update({ desktop: { ui: { inlineExecOutput: next } }); }}
+    />
   );
 }
 
