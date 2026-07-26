@@ -45,12 +45,11 @@ export function formatRelativeTime(
   if (diff < 60_000) return `刚刚${suffix}`;
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前${suffix}`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前${suffix}`;
-  if (diff < 2 * 86_400_000) return '昨天';
+  if (diff < 2 * 86_400_000) return `昨天${suffix}`;
 
-  return new Date(ts).toLocaleDateString('zh-CN', {
-    month: 'short',
-    day: 'numeric',
-  });
+  const d = new Date(ts);
+  const label = d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+  return `${label}${suffix}`;
 }
 
 /**
