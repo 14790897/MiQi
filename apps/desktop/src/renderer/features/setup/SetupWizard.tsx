@@ -53,22 +53,7 @@ interface StaticProvider {
 
 const DEFAULT_WORKSPACE = '~/.miqi/workspace';
 
-const PROVIDER_MODEL_SUGGESTIONS: Record<string, string[]> = {
-  openrouter: ['anthropic/claude-opus-4-5', 'google/gemini-2.5-pro', 'deepseek/deepseek-r1'],
-  anthropic: ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'],
-  openai: ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini'],
-  deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'],
-  gemini: ['gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.5-flash'],
-  moonshot: ['kimi-k2.5', 'moonshot-v1-32k', 'moonshot-v1-128k'],
-  dashscope: ['qwen-max', 'qwen-plus', 'qwen-turbo'],
-  zhipu: ['glm-4-plus', 'glm-z1-flash', 'glm-4-long'],
-  minimax: ['MiniMax-Text-01', 'abab6.5s-chat'],
-  aihubmix: ['claude-opus-4-5', 'gpt-4o', 'gemini-2.5-pro'],
-  siliconflow: ['Qwen/Qwen3-235B-A22B', 'deepseek-ai/DeepSeek-V3', 'deepseek-ai/DeepSeek-R1'],
-  vllm: ['meta-llama/Llama-3.1-8B-Instruct'],
-  ollama_local: ['llama3.2', 'qwen2.5:7b', 'deepseek-r1:7b'],
-  ollama_cloud: ['gpt-oss:20b-cloud'],
-};
+import { PROVIDER_SUGGESTED_MODELS } from '../../lib/providers';
 
 const STATIC_PROVIDERS: StaticProvider[] = [
   {
@@ -627,7 +612,7 @@ export function SetupWizard({
     const needsApiBase = providerMeta?.isLocal || providerMeta?.isOllamaCloud;
     const keyOptional = providerMeta?.isLocal && !providerMeta?.isOllamaCloud;
     const modelSuggestions = providerMeta
-      ? (PROVIDER_MODEL_SUGGESTIONS[providerMeta.name] ?? [providerMeta.defaultModel])
+      ? (PROVIDER_SUGGESTED_MODELS[providerMeta.name] ?? [providerMeta.defaultModel])
       : [];
 
     return (
