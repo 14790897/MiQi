@@ -287,8 +287,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
                     href={SKILL_URL(skill.name)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[10px] mt-2 transition-colors hover:underline"
-                    style={{ color: 'var(--text-faint)' }}
+                    className="inline-flex items-center gap-1 text-[10px] mt-2 transition-colors hover:underline text-text-faint"
                   >
                     <ExternalLink size={10} />
                     查看源文件
