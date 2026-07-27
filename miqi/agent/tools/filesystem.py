@@ -212,11 +212,23 @@ def _sandbox_to_host_path(sandbox_path: str, workspace: Path | None, sandbox) ->
     ``/home/miqi/workspace/report.md`` to their host-workspace equivalent
     (e.g. ``/home/user/.miqi/workspace/report.md``).
 
-    Returns *sandbox_path* unchanged when it does not start with the known
+    Also handles /mnt/<drive>/... paths from WSL sandbox that access the
+    host filesystem directly (issue #474).
+
+    Returns *sandbox_path* unchanged when it does not start with a known
     sandbox workspace prefix.
     """
+    import re as _re
+
     if not sandbox_path or not workspace:
         return sandbox_path
+
+    # Handle /mnt/<drive>/... paths from WSL sandbox — convert to Windows path (issue #474)
+    mnt_match = _re.match(r"^/mnt/([a-z])/(.+)$", sandbox_path)
+    if mnt_match:
+        drive = mnt_match.group(1).upper()
+        rest = mnt_match.group(2)
+        return f"{drive}:/{rest}"
 
     # The sandbox-internal workspace prefix — hard-coded in bwrap's
     # --bind <host_dir> /home/miqi/workspace argument.
@@ -290,6 +302,11 @@ def _resolve_sandbox_path(path: str, workspace: Path | None, sandbox) -> str:
     if win_match:
         drive = win_match.group(1).lower()
         rest = win_match.group(2).replace("\\", "/")
+        # WSL sandbox: use /mnt/ for direct host filesystem access (issue #474)
+        if sandbox is not None and getattr(sandbox, "_use_wsl", False):
+            result = f"/mnt/{drive}/{rest}"
+            _log.debug("Sandbox path: %s → %s (WSL /mnt/ direct)", original_path, result)
+            return result
         # If the workspace matches this drive, compute relative path
         if workspace:
             ws_str = str(workspace).replace("\\", "/")
@@ -308,6 +325,16 @@ def _resolve_sandbox_path(path: str, workspace: Path | None, sandbox) -> str:
 
     # ── Relative path → resolve against sandbox workspace ──
     if not path.startswith("/"):
+        # WSL sandbox: resolve relative to host workspace via /mnt/ (issue #474)
+        if sandbox is not None and getattr(sandbox, "_use_wsl", False) and workspace:
+            ws_str = str(workspace.resolve()).replace("\\", "/")
+            ws_match = _re.match(r"^([A-Za-z]):/(.+)$", ws_str)
+            if ws_match:
+                drive = ws_match.group(1).lower()
+                ws_rest = ws_match.group(2).rstrip("/")
+                result = f"/mnt/{drive}/{ws_rest}/{path}"
+                _log.debug("Sandbox path: %s → %s (WSL relative /mnt/)", original_path, result)
+                return result
         # Compute the correct sandbox base path.
         # If the tool's workspace is a subdirectory of the sandbox's global
         # workspace (e.g. per-session dir), use the corresponding sandbox path
@@ -328,6 +355,10 @@ def _resolve_sandbox_path(path: str, workspace: Path | None, sandbox) -> str:
         ws_str = str(workspace)
         # Handle case where workspace is a Windows path but input is already /mnt/c/...
         if ws_str[1:2] == ":":
+            # WSL sandbox: /mnt/ paths already access host filesystem directly (issue #474)
+            if sandbox is not None and getattr(sandbox, "_use_wsl", False):
+                _log.debug("Sandbox path: %s → %s (WSL /mnt/ keep)", original_path, path)
+                return path
             drive = ws_str[0].lower()
             ws_rest = ws_str[2:].replace("\\", "/").lstrip("/")
             mnt_prefix = f"/mnt/{drive}/{ws_rest}"
