@@ -995,7 +995,7 @@ def _parse_rtf(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str,
         # Remove { and }
         text = text.replace("{", "").replace("}", "")
         # Remove \\'xx hex escapes
-        text = re.sub(r"\\\\'[0-9a-fA-F]{2}", " ", text)
+        text = re.sub(r"\\\'[0-9a-fA-F]{2}", " ", text)
         # Normalize whitespace
         text = re.sub(r"\s+", " ", text).strip()
         if len(text) < 50:
