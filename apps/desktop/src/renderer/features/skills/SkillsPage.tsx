@@ -20,6 +20,8 @@ import {
 import type { SkillSummary, SkillDetail } from '../../../shared/ipc';
 import { SkillHubPage } from './SkillHubPage';
 
+import { Modal } from '../../components/shared';
+
 function CreateSkillModal({
   open,
   onClose,
@@ -58,7 +60,7 @@ function CreateSkillModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <Modal open={open} onOpenChange={(o) => { if (!o) onClose(); }} hideClose>
       <div
         className="rounded-xl shadow-2xl w-full max-w-md mx-4 bg-surface"
       >
@@ -142,7 +144,7 @@ function CreateSkillModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
