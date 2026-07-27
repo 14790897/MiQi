@@ -129,6 +129,8 @@ const FILE_BLOCK_RES = [
   /\[File: ([^\]]+)\]\n```\n[\s\S]*?\n```/g,
   /\[([^\]:]+):\s*(?:binary file|scanned PDF)[^\]]*\]/g,
   /--- Document: ([^\n]+) ---\n[\s\S]*?\n--- End of \1 ---/g,
+  /--- ([^\n]+) ---\n[\s\S]*?\n--- End of \1 ---/g,   // legacy: client-side inject before fix
+  /\[Uploaded: ([^\]]+?)\s+[—\-]\s+use\s+pdf_read[^\]]*\]/g,  // backend fallback when parse returns empty
 ];
 
 interface FileChip {
@@ -1348,7 +1350,7 @@ export function ChatConsole({
           }
 
           if (extracted && extracted.trim()) {
-            content += `\n\n--- ${att.name} ---\n${extracted.slice(0, 50000)}\n--- End of ${att.name} ---`;
+            content += `\n\n--- Document: ${att.name} ---\n${extracted.slice(0, 50000)}\n--- End of ${att.name} ---`;
           } else if (ext === 'pdf') {
             content += `\n\n[${att.name}: scanned PDF — OCR will be attempted by the server]`;
           } else {
@@ -3430,7 +3432,7 @@ function MessageBubble({
               ) : msg.role === 'assistant' ? (
                 <MarkdownContent content={msg.content} />
               ) : (
-                renderContent((msg as any).__cleanContent || msg.content)
+                renderContent((msg as any).__cleanContent ?? msg.content)
               )}
             </ErrorBoundary>
             </div>
