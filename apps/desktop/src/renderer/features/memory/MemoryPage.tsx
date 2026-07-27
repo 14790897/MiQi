@@ -44,7 +44,7 @@ function formatSize(bytes: number): string {
 
 import { formatAbsoluteTime } from '../../lib/formatTime';
 
-import { ConfirmDialog, SaveConfirmDialog } from '../../components/shared';
+import { ConfirmDialog, SaveConfirmDialog, InputDialog } from '../../components/shared';
 
 // ---------------------------------------------------------------------------
 // Main page
@@ -64,7 +64,6 @@ export function MemoryPage() {
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
-  const [newFileName, setNewFileName] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
 
@@ -145,8 +144,8 @@ export function MemoryPage() {
   };
 
   // Create new file
-  const handleCreateFile = async () => {
-    const name = newFileName.trim();
+  const handleCreateFile = async (rawName: string) => {
+    const name = rawName.trim();
     if (!name) return;
     const path = name.endsWith('.md') ? name : `${name}.md`;
     try {
@@ -163,7 +162,6 @@ export function MemoryPage() {
       setError(err instanceof Error ? err.message : '创建文件失败');
     }
     setShowNewFileDialog(false);
-    setNewFileName('');
   };
 
   // Delete file
@@ -397,45 +395,13 @@ export function MemoryPage() {
 
       {/* New file dialog */}
       {showNewFileDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[360px]">
-            <div className="flex items-center gap-2 px-5 py-4 border-b border-[var(--border-subtle)]">
-              <Plus size={16} className="text-[var(--accent)]" />
-              <h2 className="text-sm font-semibold text-[var(--text)]">新建记忆文件</h2>
-            </div>
-            <div className="px-5 py-4">
-              <input
-                type="text"
-                value={newFileName}
-                onChange={(e) => setNewFileName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreateFile();
-                }}
-                placeholder="文件名（自动添加 .md）"
-                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)]"
-                autoFocus
-              />
-            </div>
-            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
-              <button
-                onClick={() => {
-                  setShowNewFileDialog(false);
-                  setNewFileName('');
-                }}
-                className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleCreateFile}
-                disabled={!newFileName.trim()}
-                className="px-4 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-all disabled:opacity-50"
-              >
-                创建
-              </button>
-            </div>
-          </div>
-        </div>
+        <InputDialog
+          open={showNewFileDialog}
+          onOpenChange={(o) => { if (!o) setShowNewFileDialog(false); }}
+          title="新建记忆文件"
+          label="文件名（自动添加 .md）"
+          onConfirm={handleCreateFile}
+        />
       )}
 
       {/* Delete confirm dialog */}

@@ -12,6 +12,7 @@ import { Textarea } from '../../components/ui/Textarea';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { ContextMenu, type ContextMenuAction } from '../../components/ContextMenu';
 import { cn } from '../../lib/utils';
+import { Modal } from '../../components/shared';
 import { formatRelativeTime } from '../../lib/formatTime';
 import {
   ExecutionPolicySelector,
@@ -2879,19 +2880,7 @@ export function ChatConsole({
 
       {/* ── File Preview Modal ── */}
       {previewFile && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.5)', pointerEvents: 'auto' }}
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            e.preventDefault();
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            closePreview(e);
-          }}
-        >
+        <Modal open={!!previewFile} onOpenChange={(o) => { if (!o) closePreview(); }} hideClose>
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
@@ -2965,16 +2954,12 @@ export function ChatConsole({
               </pre>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* ── Diff Modal ── */}
       {diffFile && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.6)' }}
-          onClick={closeDiff}
-        >
+        <Modal open={!!diffFile} onOpenChange={(o) => { if (!o) closeDiff(); }} hideClose>
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
@@ -3112,7 +3097,7 @@ export function ChatConsole({
               )}
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

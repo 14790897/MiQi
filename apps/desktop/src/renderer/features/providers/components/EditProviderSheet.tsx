@@ -39,6 +39,8 @@ interface EditSheetProps {
   onSaved: () => void;
 }
 
+import { Modal } from '../../../components/shared';
+
 export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
   const { markRestartRequired } = useRestartRequired();
   const [apiKey, setApiKey] = useState('');
@@ -198,7 +200,7 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+    <Modal open onOpenChange={onClose} hideClose>
       <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[480px] max-h-[80vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-subtle)]">
           <div>
@@ -518,6 +520,6 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

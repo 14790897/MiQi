@@ -56,6 +56,8 @@ import { formatRelativeTime } from '../../lib/formatTime';
 
 // ─── Submit Modal ────────────────────────────────────────────────────────────
 
+import { Modal } from '../../components/shared';
+
 function SubmitModal({
   onClose,
   onSubmitted,
@@ -206,12 +208,7 @@ function SubmitModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      onClick={() => {
-        if (!submitting) onClose();
-      }}
-    >
+    <Modal open onOpenChange={onClose} hideClose>
       <div
         onClick={(e) => e.stopPropagation()}
         className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-6 w-full max-w-lg mx-4 shadow-xl max-h-[90vh] overflow-y-auto"
@@ -431,7 +428,7 @@ function SubmitModal({
           </>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }
 
