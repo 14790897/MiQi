@@ -75,7 +75,7 @@ interface Attachment {
   parseError?: string;
 }
 
-const DOCUMENT_SUFFIXES_RE = /\.(docx|doc|pptx|ppt|xlsx|xls|pdf|odt|odp|ods|md|markdown|mdown)$/i;
+const DOCUMENT_SUFFIXES_RE = /\.(docx|doc|pptx|ppt|xlsx|xls|pdf|odt|odp|ods|md|markdown|mdown|html|htm)$/i;
 
 function getDocCategory(name: string): { label: string; color: string; bg: string } {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
@@ -90,6 +90,8 @@ function getDocCategory(name: string): { label: string; color: string; bg: strin
     md: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
     markdown: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
     mdown: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
+    html: { label: 'HTML', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+    htm: { label: 'HTML', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
     odt: { label: 'DOC', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
     odp: { label: 'PPT', color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
     ods: { label: 'XLS', color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
@@ -866,11 +868,18 @@ export function ChatConsole({
   /** files touched by the agent during this session */
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([]);
   /** preview modal */
-  const [previewFile, setPreviewFile] = useState<{
-    path: string;
-    content: string;
-    dataBase64?: string;
-  } | null>(null);
+  const [previewFile, setPreviewFile] = useState<{ path: string; content: string; dataBase64?: string } | null>(null);
+
+  // When preview is open, lock the entire page body so no clicks fall through
+  // to elements behind the modal (sidebar, chat area, etc.)
+  useEffect(() => {
+    if (previewFile) {
+      const prev = document.body.style.pointerEvents;
+      document.body.style.pointerEvents = 'none';
+      return () => { document.body.style.pointerEvents = prev; };
+    }
+  }, [previewFile]);
+
   /** diff modal */
   const [diffFile, setDiffFile] = useState<{
     path: string;
@@ -1321,7 +1330,7 @@ export function ChatConsole({
 
           if (ext === 'pdf') {
             extracted = extractPdfText(raw.buffer);
-          } else if (ext === 'md' || ext === 'markdown' || ext === 'mdown' || ext === 'txt') {
+          } else if (ext === 'md' || ext === 'markdown' || ext === 'mdown' || ext === 'txt' || ext === 'html' || ext === 'htm') {
             extracted = new TextDecoder().decode(raw);
           } else if (
             ext === 'csv' ||
@@ -2103,6 +2112,7 @@ export function ChatConsole({
   return (
     <div
       className="flex flex-col h-full"
+      style={previewFile ? { pointerEvents: 'none' } : undefined}
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
       onPaste={handlePaste}
@@ -2111,7 +2121,7 @@ export function ChatConsole({
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*,text/*,.md,.markdown,.mdown,.txt,.py,.ts,.js,.json,.csv,.yaml,.yml,.toml,.pdf,.docx,.pptx,.xlsx,.doc,.ppt,.xls,.odt,.odp,.ods"
+        accept="image/*,text/*,.md,.markdown,.mdown,.txt,.py,.ts,.js,.json,.csv,.yaml,.yml,.toml,.pdf,.docx,.pptx,.xlsx,.doc,.ppt,.xls,.odt,.odp,.ods,.html,.htm"
         className="hidden"
         onChange={handleFileChange}
       />
@@ -2450,7 +2460,9 @@ export function ChatConsole({
                           background: isDoc && cat ? cat.bg : 'var(--surface-muted)',
                           border: `1px solid ${isDoc && cat ? cat.color + '40' : 'var(--border-subtle)'}`,
                         }}
-                        onClick={async () => {
+                        onClick={async (e) => {
+                          // Ignore clicks that arrive right after closing preview
+                          // (the close button click can fall through to the chip behind)
                           if (previewJustClosed.current) return;
                           if (!isDoc || !att.dataBase64) return;
                           const ext = att.name.split('.').pop()?.toLowerCase() ?? '';
@@ -2464,7 +2476,7 @@ export function ChatConsole({
                             if (ext === 'pdf') {
                               previewText = extractPdfText(raw.buffer);
                             } else if (
-                              /^(md|markdown|mdown|txt|csv|json|ya?ml|xml|py|ts|js|log)$/i.test(ext)
+                              /^(md|markdown|mdown|txt|csv|json|ya?ml|xml|py|ts|js|log|html|htm)$/i.test(ext)
                             ) {
                               previewText = new TextDecoder().decode(raw);
                             } else {
@@ -2862,8 +2874,16 @@ export function ChatConsole({
       {previewFile && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.5)' }}
-          onClick={closePreview}
+          style={{ background: 'rgba(0,0,0,0.5)', pointerEvents: 'auto' }}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            closePreview(e);
+          }}
         >
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
@@ -2872,8 +2892,10 @@ export function ChatConsole({
               maxHeight: '85vh',
               background: 'var(--surface-elevated)',
               border: '1px solid var(--border)',
+              pointerEvents: 'auto',
             }}
             onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
           >
             <div
               className="flex items-center justify-between px-4 py-3 border-b shrink-0 border-border-subtle"
@@ -2917,7 +2939,11 @@ export function ChatConsole({
                   <span>系统应用打开</span>
                 </button>
                 <button
-                  onClick={closePreview}
+                  onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              closePreview(e);
+            }}
                   className="p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
                 >
                   <X size={14} style={{ color: 'var(--text-faint)' }} />
@@ -3510,35 +3536,30 @@ function MessageBubble({
                   </div>
                 );
               })}
-            {/* Historical file chips — extracted from [File: ...] blocks when attachments are missing */}
-            {isUser &&
-              (!msg.attachments || msg.attachments.length === 0) &&
-              (() => {
-                const { cleanContent, chips } = extractFileChips(msg.content);
-                if (chips.length === 0) return null;
-                // Store clean content for the bubble below
-                (msg as any).__cleanContent = cleanContent;
-                return chips.map((chip, i) => (
-                  <div
-                    key={`hist-${i}`}
-                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
-                    style={{
-                      background: chip.category.bg,
-                      border: `1px solid ${chip.category.color}40`,
-                      color: chip.category.color,
-                    }}
-                  >
-                    <span
-                      className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
-                      style={{ background: chip.category.color }}
-                    >
-                      {chip.category.label}
-                    </span>
-                    <span>{chip.name}</span>
-                    <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
-                  </div>
-                ));
-              })()}
+            {isUser && (!msg.attachments || msg.attachments.length === 0) && (() => {
+              const { cleanContent, chips } = extractFileChips(msg.content);
+              if (chips.length === 0) return null;
+              // Store clean content for the bubble below
+              (msg as any).__cleanContent = cleanContent;
+              return chips.map((chip, i) => (
+                <div
+                  key={`hist-${i}`}
+                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+                  style={{
+                    background: chip.category.bg,
+                    border: `1px solid ${chip.category.color}40`,
+                    color: chip.category.color,
+                  }}
+                >
+                  <span className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
+                    style={{ background: chip.category.color }}>
+                    {chip.category.label}
+                  </span>
+                  <span>{chip.name}</span>
+                  <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
+                </div>
+              ));
+            })()}
 
             {/* Main bubble */}
             <div
