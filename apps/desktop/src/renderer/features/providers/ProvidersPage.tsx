@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
+import { useRestartRequired } from '../../contexts/RestartRequiredContext';
 import type { ProviderInfo } from '../../../shared/ipc';
 
 const DOMESTIC_NAMES = new Set([
@@ -198,11 +199,7 @@ function ProviderRow({
               color: 'var(--info)',
             }}
           >
-            {isActivating ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : (
-              <Play size={13} />
-            )}
+            {isActivating ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
             启用
           </button>
         )}
@@ -348,13 +345,7 @@ export function ProvidersPage() {
     }
     setActivatingName(p.name);
     try {
-      await window.miqi.providers.update(
-        p.name,
-        undefined,
-        undefined,
-        undefined,
-        model
-      );
+      await window.miqi.providers.update(p.name, undefined, undefined, undefined, model);
       markRestartRequired();
       await load();
     } finally {
@@ -474,10 +465,23 @@ export function ProvidersPage() {
           fallback={(error, reset) => (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
               <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl p-6 max-w-sm">
-                <p className="text-sm text-[var(--danger)] mb-3">编辑面板加载失败: {error.message}</p>
+                <p className="text-sm text-[var(--danger)] mb-3">
+                  编辑面板加载失败: {error.message}
+                </p>
                 <div className="flex gap-2">
-                  <button onClick={reset} className="px-3 py-1.5 rounded-md bg-[var(--accent)] text-white text-xs">重试</button>
-                  <button onClick={() => setEditProvider(null)} className="px-3 py-1.5 rounded-md border border-[var(--border)] text-xs" style={{color:'var(--text-muted)'}}>关闭</button>
+                  <button
+                    onClick={reset}
+                    className="px-3 py-1.5 rounded-md bg-[var(--accent)] text-white text-xs"
+                  >
+                    重试
+                  </button>
+                  <button
+                    onClick={() => setEditProvider(null)}
+                    className="px-3 py-1.5 rounded-md border border-[var(--border)] text-xs"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    关闭
+                  </button>
                 </div>
               </div>
             </div>
