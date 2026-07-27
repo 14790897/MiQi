@@ -5,7 +5,7 @@ export function renderContent(text: string) {
     if (part.startsWith('```') && part.endsWith('```')) {
       const inner = part.slice(3, -3);
       const langEnd = inner.indexOf('\n');
-      const code = langEnd > 0 ? inner.slice(langEnd + 1) : inner;
+      const code = langEnd >= 0 ? inner.slice(langEnd + 1) : inner;
       return (
         <pre
           key={i}
