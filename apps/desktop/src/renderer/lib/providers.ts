@@ -1,13 +1,23 @@
 /** Shared provider display names and suggested models. */
 
 export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  openrouter: 'OpenRouter', aihubmix: 'AiHubMix', siliconflow: 'SiliconFlow · 硅基流动',
-  volcengine: 'VolcEngine · 火山引擎', custom: '自定义端点',
-  anthropic: 'Anthropic', openai: 'OpenAI', deepseek: 'DeepSeek',
-  gemini: 'Google Gemini', groq: 'Groq',
-  zhipu: 'Zhipu AI · 智谱', dashscope: 'DashScope · 通义千问',
-  moonshot: 'Moonshot · 月之暗面', minimax: 'MiniMax',
-  ollama_cloud: 'Ollama Cloud', ollama_local: 'Ollama Local', vllm: 'vLLM / 本地部署',
+  openrouter: 'OpenRouter',
+  aihubmix: 'AiHubMix',
+  siliconflow: 'SiliconFlow · 硅基流动',
+  volcengine: 'VolcEngine · 火山引擎',
+  custom: '自定义端点',
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  deepseek: 'DeepSeek',
+  gemini: 'Google Gemini',
+  groq: 'Groq',
+  zhipu: 'Zhipu AI · 智谱',
+  dashscope: 'DashScope · 通义千问',
+  moonshot: 'Moonshot · 月之暗面',
+  minimax: 'MiniMax',
+  ollama_cloud: 'Ollama Cloud',
+  ollama_local: 'Ollama Local',
+  vllm: 'vLLM / 本地部署',
 };
 
 export const PROVIDER_SUGGESTED_MODELS: Record<string, string[]> = {
