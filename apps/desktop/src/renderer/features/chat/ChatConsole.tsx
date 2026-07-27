@@ -3021,7 +3021,7 @@ export function ChatConsole({
                       color: reverting ? 'var(--text-faint)' : 'var(--danger)',
                       border: '1px solid var(--danger)',
                     }}
-                    title="Revert to HEAD (undo changes)"
+                    title="还原到 HEAD（撤销所有改动）"
                   >
                     <Undo2 size={12} className={reverting ? 'animate-spin' : ''} />
                     {reverting ? '正在还原…' : '还原'}
@@ -3261,7 +3261,7 @@ function TrackedFileCard({
                 color: isOfficeFile ? 'var(--text-faint)' : 'var(--warning)',
                 opacity: isOfficeFile ? 0.55 : 1,
               }}
-              title={'Office 二进制文件不支持差异对比'}
+              title={isOfficeFile ? 'Office 二进制文件不支持差异对比' : '查看差异'}
             >
               <GitCompare size={10} />
               Diff

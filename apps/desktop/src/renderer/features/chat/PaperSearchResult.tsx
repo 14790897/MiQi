@@ -278,7 +278,7 @@ export default function PaperSearchResult({
         className="flex items-center gap-2 mb-2 text-[11px]"
         style={{ color: 'var(--text-muted)' }}
       >
-        <span>{data.query ? `Results for "${data.query}"` : '搜索结果'}</span>
+        <span>{data.query ? `"${data.query}"的搜索结果` : '搜索结果'}</span>
         {data.total != null && (
           <span style={{ color: 'var(--text-faint)' }}>
             · {data.total} found · showing {items.length}
