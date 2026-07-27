@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Plug, Plus, Pencil, Trash2, X } from 'lucide-react';
 import type { McpServerInfo, McpServerConfig } from '../../../shared/ipc';
 
+import { Modal } from '../../components/shared';
+
 function MCPServerModal({
   open,
   onClose,
@@ -85,7 +87,7 @@ function MCPServerModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <Modal open={open} onOpenChange={(o) => { if (!o) onClose(); }} hideClose>
       <div
         className="rounded-xl shadow-2xl w-full max-w-lg mx-4 bg-surface"
       >
@@ -340,7 +342,7 @@ function MCPServerModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
