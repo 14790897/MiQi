@@ -87,7 +87,7 @@ async function waitForSubagentResult(
 
 // ─── Test Suite ───────────────────────────────────────────────────
 
-test.describe('Subagent E2E (#246)', () => {
+test.describe.serial('Subagent E2E (#246)', () => {
   let electronApp: ElectronApplication;
   let page: Page;
   let miqiHome: string;
