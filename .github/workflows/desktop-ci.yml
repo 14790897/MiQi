@@ -151,7 +151,96 @@ jobs:
           retention-days: 7
 
   # ────────────────────────────────────────────────────────────
-  # Job 3: macOS packaging smoke — 验证 Mac 包能否构建
+  # Job 3: macOS Electron E2E — 完整 macOS 桌面应用 + bridge + LLM
+  # ────────────────────────────────────────────────────────────
+  macos-e2e:
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}-macos-e2e
+      cancel-in-progress: true
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          pip install uv
+          uv sync
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Build renderer
+        run: npm run build -- --logLevel warn
+
+      - name: Generate config.json
+        run: |
+          mkdir -p ~/.miqi
+          cat > ~/.miqi/config.json << 'CONFEOF'
+          {
+            "providers": {
+              "siliconflow": {
+                "apiKey": "${{ secrets.DEEPSEEK_API_KEY }}",
+                "apiBase": "${{ secrets.DEEPSEEK_API_BASE }}",
+                "extraHeaders": null
+              }
+            },
+            "agents": {
+              "defaults": {
+                "model": "deepseek-v4-pro",
+                "maxTokens": 8000,
+                "temperature": 0.1,
+                "maxToolIterations": 10,
+                "runtime": "app_server"
+              },
+              "commandApproval": { "enabled": false }
+            },
+            "tools": {
+              "web": {
+                "search": {
+                  "provider": "brave",
+                  "apiKey": "${{ secrets.BRAVE_API_KEY }}",
+                  "maxResults": 3
+                },
+                "fetch": { "provider": "builtin" }
+              },
+              "exec": { "timeout": 30, "envPassthrough": [] }
+            }
+          }
+          CONFEOF
+
+      - name: Run Electron E2E (macOS)
+        run: |
+          npx playwright test --config=playwright.config.ts --project=electron \
+            --grep-invert "Sandbox Exec|session-key-mapping|PPTX Generator"
+        timeout-minutes: 30
+
+      - name: Upload Playwright report (macOS E2E)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-macos-e2e
+          path: apps/desktop/test-results/
+          retention-days: 7
+
+  # ────────────────────────────────────────────────────────────
+  # macOS packaging smoke — 验证 Mac 包能否构建
   # ────────────────────────────────────────────────────────────
   macos-build:
     permissions:
