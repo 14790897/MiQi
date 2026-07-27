@@ -93,6 +93,7 @@ test.describe.serial('Subagent E2E (#246)', () => {
   let miqiHome: string;
 
   test.beforeAll(async () => {
+    test.setTimeout(120_000);
     const fixture = await launchElectronApp();
     electronApp = fixture.electronApp;
     page = fixture.page;
@@ -103,7 +104,7 @@ test.describe.serial('Subagent E2E (#246)', () => {
       (window as any).miqi.approvals.addPermanent('*:*', 'always'),
     );
     console.log('[test] All tools pre-approved');
-  }, 120_000);
+  });
 
   test.afterAll(async () => {
     await closeElectronApp(electronApp, miqiHome);
@@ -112,6 +113,7 @@ test.describe.serial('Subagent E2E (#246)', () => {
   // ── Test 1: Subagent spawn → result ──────────────────────────
 
   test('AI spawns subagent and frontend renders result', async () => {
+    test.setTimeout(SUBAGENT_TIMEOUT);
     // Send a message that encourages the AI to spawn a subagent for
     // parallel work.  The exact prompt is designed to probe both
     // code-search and web-search capabilities concurrently so the
@@ -145,11 +147,12 @@ test.describe.serial('Subagent E2E (#246)', () => {
       .catch(() => false);
     expect(hasSubagentText).toBe(true);
     console.log('[test] ✅ Subagent message visible in chat area');
-  }, SUBAGENT_TIMEOUT);
+  });
 
   // ── Test 2: Subagent concurrent limit ─────────────────────────
 
   test('subagent enforces max concurrent limit (3)', async () => {
+    test.setTimeout(SUBAGENT_TIMEOUT);
     // Create a new conversation so we don't interfere with Test 1
     const plusBtn = page.locator('[data-testid="nav-new-session"]');
     await plusBtn.click();
@@ -185,13 +188,14 @@ test.describe.serial('Subagent E2E (#246)', () => {
     // asked to exceed the limit.
     expect(subagentMentions).toBeGreaterThan(0);
     console.log('[test] ✅ Concurrent subagent test completed without crash');
-  }, SUBAGENT_TIMEOUT);
+  });
 
   // ── Test 3: Subagent result persists across session reload ────
 
   test.fixme(
     'subagent result survives session restore',
     async () => {
+      test.setTimeout(SUBAGENT_TIMEOUT);
       // KNOWN ISSUE: Subagent results arrive via live IPC events and are
       // not persisted to the session store.  After page reload, they are
       // lost.  This test is marked fixme until persistence is implemented.
@@ -224,6 +228,5 @@ test.describe.serial('Subagent E2E (#246)', () => {
       expect(hasSubagentText).toBe(true);
       console.log('[test] ✅ Subagent result persisted after reload');
     },
-    SUBAGENT_TIMEOUT,
   );
 });
