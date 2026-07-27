@@ -420,29 +420,18 @@ export function WorkspacePage() {
 
       {/* Unsaved-switch confirmation dialog */}
       {showConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20">
-          <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-lg p-5 max-w-sm w-full mx-4">
-            <h3 className="text-sm font-semibold text-[var(--text)] mb-2">有未保存的更改</h3>
-            <p className="text-xs text-[var(--text-muted)] mb-4">
-              文件 <span className="font-mono">{currentPath}</span>{' '}
+        <ConfirmDialog
+          title="有未保存的更改"
+          message={
+            <span>
+              文件 <code className="text-[var(--text)] font-mono">{currentPath}</code>{' '}
               有未保存的更改，确认丢弃并打开其他文件？
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => confirmSwitch(false)}
-                className="px-3 py-1.5 text-xs rounded-lg text-[var(--text-muted)] hover:bg-[var(--surface-muted)] transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={() => confirmSwitch(true)}
-                className="px-3 py-1.5 text-xs rounded-lg bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition-colors"
-              >
-                丢弃并切换
-              </button>
-            </div>
-          </div>
-        </div>
+            </span>
+          }
+          confirmLabel="丢弃并切换"
+          onConfirm={() => confirmSwitch(true)}
+          onCancel={() => confirmSwitch(false)}
+        />
       )}
 
       {/* File operation dialogs */}

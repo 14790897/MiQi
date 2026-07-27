@@ -7,3 +7,4 @@ export type { EmptyStateProps } from './EmptyState';
 export { PageHeader } from './PageHeader';
 export type { PageHeaderProps } from './PageHeader';
 export { InputDialog } from './InputDialog';
+export { Modal } from './Modal';
