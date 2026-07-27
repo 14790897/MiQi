@@ -2497,7 +2497,7 @@ export function ChatConsole({
                             if (ext === 'pdf') {
                               previewText = extractPdfText(raw.buffer);
                             } else if (
-                              /^(md|markdown|mdown|txt|csv|json|ya?ml|xml|py|ts|js|log|html|htm)$/i.test(ext)
+                              /^(md|markdown|mdown|txt|text|csv|json|ya?ml|xml|py|ts|js|log|html|htm|env|sql|ini|toml|htaccess|sh|bash)$/i.test(ext)
                             ) {
                               previewText = new TextDecoder().decode(raw);
                             } else {

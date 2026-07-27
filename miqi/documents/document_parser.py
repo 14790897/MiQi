@@ -58,7 +58,7 @@ def parse_document(
         dict with keys: text, page_count, size_bytes, mime_type, ocr_used,
                         parse_ms, charts (if extract_charts=True)
     """
-    suffix = file_path.suffix.lower()
+    suffix = _get_suffix(file_path)
     if suffix in _PDF_SUFFIXES:
         return _parse_pdf(file_path, max_chars=max_chars, force_ocr=force_ocr,
                           extract_charts=extract_charts)
@@ -104,32 +104,51 @@ def parse_document(
 
 def is_supported_document(path: Path | str) -> bool:
     """Check if the file path is a supported document format."""
-    suffix = Path(path).suffix.lower()
+    suffix = _get_suffix(path)
     return suffix in _ALL_DOCUMENT_SUFFIXES
 
 
 def get_document_category(path: Path | str) -> str:
     """Get the document category (pdf, word, ppt, excel, markdown, unknown)."""
-    suffix = Path(path).suffix.lower()
-    if suffix in _PDF_SUFFIXES: return "pdf"
-    if suffix in _DOCX_SUFFIXES: return "word"
-    if suffix in _PPTX_SUFFIXES: return "ppt"
-    if suffix in _XLSX_SUFFIXES: return "excel"
-    if suffix in _MD_SUFFIXES: return "markdown"
-    if suffix in _HTML_SUFFIXES: return "html"
-    if suffix in _CSV_SUFFIXES: return "csv"
-    if suffix in _JSON_SUFFIXES: return "json"
-    if suffix in _XML_FILE_SUFFIXES: return "xml"
-    if suffix in _YAML_SUFFIXES: return "yaml"
-    if suffix in _ENV_SUFFIXES: return "env"
-    if suffix in _LOG_SUFFIXES: return "log"
-    if suffix in _SQL_SUFFIXES: return "sql"
-    if suffix in _INI_SUFFIXES: return "ini"
-    if suffix in _TOML_SUFFIXES: return "toml"
-    if suffix in _HTACCESS_SUFFIXES: return "htaccess"
-    if suffix in _SH_SUFFIXES: return "sh"
-    if suffix in _TXT_SUFFIXES: return "txt"
-    if suffix in _RTF_SUFFIXES: return "rtf"
+    suffix = _get_suffix(path)
+    if suffix in _PDF_SUFFIXES:
+        return "pdf"
+    if suffix in _DOCX_SUFFIXES:
+        return "word"
+    if suffix in _PPTX_SUFFIXES:
+        return "ppt"
+    if suffix in _XLSX_SUFFIXES:
+        return "excel"
+    if suffix in _MD_SUFFIXES:
+        return "markdown"
+    if suffix in _HTML_SUFFIXES:
+        return "html"
+    if suffix in _CSV_SUFFIXES:
+        return "csv"
+    if suffix in _JSON_SUFFIXES:
+        return "json"
+    if suffix in _XML_FILE_SUFFIXES:
+        return "xml"
+    if suffix in _YAML_SUFFIXES:
+        return "yaml"
+    if suffix in _ENV_SUFFIXES:
+        return "env"
+    if suffix in _LOG_SUFFIXES:
+        return "log"
+    if suffix in _SQL_SUFFIXES:
+        return "sql"
+    if suffix in _INI_SUFFIXES:
+        return "ini"
+    if suffix in _TOML_SUFFIXES:
+        return "toml"
+    if suffix in _HTACCESS_SUFFIXES:
+        return "htaccess"
+    if suffix in _SH_SUFFIXES:
+        return "sh"
+    if suffix in _TXT_SUFFIXES:
+        return "txt"
+    if suffix in _RTF_SUFFIXES:
+        return "rtf"
     return "unknown"
 
 
@@ -164,6 +183,26 @@ _ALL_DOCUMENT_SUFFIXES = (
     _HTACCESS_SUFFIXES | _SH_SUFFIXES | _TXT_SUFFIXES |
     _RTF_SUFFIXES
 )
+
+
+# ── Suffix normalization ──────────────────────────────────────────────────
+
+def _get_suffix(file_path: Path | str) -> str:
+    """Normalize suffix for dotfiles where Path.suffix returns empty.
+
+    Path(".env").suffix == ""  → _get_suffix(".env") == ".env"
+    Path(".htaccess").suffix == ""  → _get_suffix(".htaccess") == ".htaccess"
+    Path("test.csv").suffix == ".csv"  → unchanged.
+    """
+    p = Path(file_path)
+    suffix = p.suffix.lower()
+    if suffix:
+        return suffix
+    # Dotfile: name IS the suffix (e.g., ".env", ".htaccess")
+    name = p.name.lower()
+    if name.startswith("."):
+        return name
+    return ""
 
 
 # ── MIME types ─────────────────────────────────────────────────────────────
@@ -846,7 +885,7 @@ def _parse_csv(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str,
     t0 = time.perf_counter()
     try:
         raw = file_path.read_text(encoding="utf-8", errors="replace")
-        reader = _csv_mod.reader(raw.splitlines())
+        reader = _csv_mod.reader(io.StringIO(raw, newline=""))
         rows = list(reader)
         if not rows:
             return _make_text_result(file_path, raw, max_chars, t0, "text/csv")
@@ -989,17 +1028,23 @@ def _parse_rtf(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str,
     t0 = time.perf_counter()
     try:
         raw = file_path.read_text(encoding="utf-8", errors="replace")
-        # Strip RTF control words (\\rtf1, \\b, \\i, \\par, etc.)
-        # Remove \\ followed by word chars (control words) and optional space
-        text = re.sub(r"\\[a-zA-Z]+\s?", " ", raw)
+        # Decode RTF Unicode escapes (\uN with ANSI fallback) before stripping markup.
+        # \u233?  → é (U+00E9, decimal 233, fallback ?)
+        text = re.sub(
+            r"\\u(-?\d+)\s*\??",
+            lambda m: chr(int(m.group(1)) % 0x10000) if 0 < int(m.group(1)) <= 0x10FFFF else m.group(0),
+            raw,
+        )
+        # Decode \'xx hex byte escapes (code-page dependent; basic ASCII/Latin-1 pass-through)
+        text = re.sub(r"\\\'([0-9a-fA-F]{2})", lambda m: chr(int(m.group(1), 16)), text)
+        # Strip remaining RTF control words (rtf1, b, i, par, etc.)
+        text = re.sub(r"\\[a-zA-Z]+\s?", " ", text)
         # Remove { and }
         text = text.replace("{", "").replace("}", "")
-        # Remove \\'xx hex escapes
-        text = re.sub(r"\\\'[0-9a-fA-F]{2}", " ", text)
         # Normalize whitespace
         text = re.sub(r"\s+", " ", text).strip()
-        if len(text) < 50:
-            # Fallback: RTF parsing failed, return raw
+        if len(text.strip()) < 5:
+            # Fallback: RTF parsing produced too little text, return raw
             text = raw
     except Exception as exc:
         logger.warning(f"RTF parsing failed: {exc}")
