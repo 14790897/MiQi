@@ -60,20 +60,17 @@ function CreateSkillModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div
-        className="rounded-xl shadow-2xl w-full max-w-md mx-4"
-        style={{ background: 'var(--surface)' }}
+        className="rounded-xl shadow-2xl w-full max-w-md mx-4 bg-surface"
       >
         <div
-          className="flex items-center justify-between px-5 py-4 border-b"
-          style={{ borderColor: 'var(--border)' }}
+          className="flex items-center justify-between px-5 py-4 border-b border-border"
         >
-          <h2 className="text-base font-semibold" style={{ color: 'var(--text)' }}>
+          <h2 className="text-base font-semibold text-text">
             新建技能
           </h2>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-[var(--surface-muted)]"
-            style={{ color: 'var(--text-muted)' }}
+            className="p-1 rounded hover:bg-[var(--surface-muted)] text-text-muted"
           >
             <X size={16} />
           </button>
@@ -81,8 +78,7 @@ function CreateSkillModal({
         <div className="p-5 space-y-4">
           <div>
             <label
-              className="block text-xs font-medium mb-1"
-              style={{ color: 'var(--text-muted)' }}
+              className="block text-xs font-medium mb-1 text-text-muted"
             >
               技能名称
             </label>
@@ -101,8 +97,7 @@ function CreateSkillModal({
           </div>
           <div>
             <label
-              className="block text-xs font-medium mb-1"
-              style={{ color: 'var(--text-muted)' }}
+              className="block text-xs font-medium mb-1 text-text-muted"
             >
               描述 (可选)
             </label>
@@ -129,13 +124,11 @@ function CreateSkillModal({
           )}
         </div>
         <div
-          className="flex justify-end gap-2 px-5 py-4 border-t"
-          style={{ borderColor: 'var(--border)' }}
+          className="flex justify-end gap-2 px-5 py-4 border-t border-border"
         >
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--surface-muted)]"
-            style={{ color: 'var(--text-muted)' }}
+            className="px-4 py-2 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--surface-muted)] text-text-muted"
           >
             取消
           </button>

@@ -22,56 +22,7 @@ import {
 import { ContextMenu } from '../../components/ContextMenu';
 import type { FileNode } from '../../../shared/ipc';
 
-// ---------------------------------------------------------------------------
-// Confirm dialog
-// ---------------------------------------------------------------------------
-
-function ConfirmDialog({
-  title,
-  message,
-  onConfirm,
-  onCancel,
-  danger = false,
-}: {
-  title: string;
-  message: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-  danger?: boolean;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-      <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[400px]">
-        <div className="flex items-center gap-2 px-5 py-4 border-b border-[var(--border-subtle)]">
-          <AlertCircle
-            size={16}
-            className={danger ? 'text-[var(--danger)]' : 'text-[var(--warning)]'}
-          />
-          <h2 className="text-sm font-semibold text-[var(--text)]">{title}</h2>
-        </div>
-        <div className="px-5 py-4 text-sm text-[var(--text-muted)]">{message}</div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
-          <button
-            onClick={onCancel}
-            className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-          >
-            取消
-          </button>
-          <button
-            onClick={onConfirm}
-            className={`px-4 py-1.5 rounded-lg text-white text-sm font-medium transition-all ${
-              danger
-                ? 'bg-[var(--danger)] hover:brightness-110'
-                : 'bg-[var(--accent)] hover:bg-[var(--accent-hover)]'
-            }`}
-          >
-            确认
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { ConfirmDialog } from '../../components/shared';
 
 // ---------------------------------------------------------------------------
 // Input dialog (for new file/folder/rename)

@@ -31,6 +31,8 @@ import type {
   WslExportDistroResult,
   WslImportDistroResult,
   WslStatsResult,
+  WslInstallProgress,
+  WslInstallAndProvisionResult,
   SkillsListResult,
   SkillDetail,
   McpServerConfig,
@@ -368,6 +370,21 @@ const api = {
     check: (): Promise<WslCheckResult> => ipcRenderer.invoke(IPC.WSL_CHECK),
     install: (): Promise<{ launched: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.WSL_INSTALL),
+    installAndProvision: (): Promise<WslInstallAndProvisionResult> =>
+      ipcRenderer.invoke(IPC.WSL_INSTALL_AND_PROVISION),
+    onInstallProgress: (
+      callback: (data: WslInstallProgress) => void
+    ): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: WslInstallProgress) =>
+        callback(data);
+      ipcRenderer.on(IPC_EVENTS.WSL_INSTALL_PROGRESS, handler);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.WSL_INSTALL_PROGRESS, handler);
+    },
+    onCheckUpdated: (callback: () => void): (() => void) => {
+      const handler = () => callback();
+      ipcRenderer.on(IPC_EVENTS.WSL_CHECK_UPDATED, handler);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.WSL_CHECK_UPDATED, handler);
+    },
     exportDistro: (distroName: string): Promise<WslExportDistroResult> =>
       ipcRenderer.invoke(IPC.WSL_EXPORT_DISTRO, distroName),
     importDistro: (options: {
