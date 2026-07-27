@@ -242,6 +242,52 @@ def _sandbox_to_host_path(sandbox_path: str, workspace: Path | None, sandbox) ->
     return sandbox_path
 
 
+
+def _canonicalize_wsl_mnt_path(mnt_path: str, workspace: Path | None) -> str:
+    """Canonicalize a /mnt/<drive>/... path and verify workspace containment.
+
+    Converts to host path, resolves ``..`` traversal, checks the resolved
+    path stays within *workspace*, and returns the canonical /mnt/ path.
+    Raises PermissionError if the path escapes the workspace (issue #474).
+
+    Returns *mnt_path* unchanged for non-/mnt/ paths or when no workspace
+    is configured.
+    """
+    import re as _re
+
+    if workspace is None:
+        return mnt_path
+
+    m = _re.match(r"^/mnt/([a-z])/(.+)$", mnt_path)
+    if not m:
+        return mnt_path
+
+    drive = m.group(1).upper()
+    rest = m.group(2)
+    host_str = f"{drive}:/{rest}"
+
+    try:
+        resolved = Path(host_str).resolve()
+    except Exception:
+        _log.warning("_canonicalize_wsl_mnt_path: cannot resolve %s", host_str)
+        return mnt_path
+
+    ws_resolved = workspace.resolve()
+    try:
+        resolved.relative_to(ws_resolved)
+    except ValueError:
+        raise PermissionError(
+            f"Path '{host_str}' resolves to '{resolved}' which is outside "
+            f"the workspace '{ws_resolved}'"
+        )
+
+    resolved_str = str(resolved).replace("\\", "/")
+    rm = _re.match(r"^([A-Za-z]):/(.+)$", resolved_str)
+    if rm:
+        return f"/mnt/{rm.group(1).lower()}/{rm.group(2)}"
+    return mnt_path
+
+
 async def _ensure_sandbox(sandbox_manager, tool_name="file_tool", session_key=None):
     """Get or create a session-isolated sandbox.
 
@@ -305,6 +351,7 @@ def _resolve_sandbox_path(path: str, workspace: Path | None, sandbox) -> str:
         # WSL sandbox: use /mnt/ for direct host filesystem access (issue #474)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             result = f"/mnt/{drive}/{rest}"
+            result = _canonicalize_wsl_mnt_path(result, workspace)
             _log.debug("Sandbox path: %s → %s (WSL /mnt/ direct)", original_path, result)
             return result
         # If the workspace matches this drive, compute relative path
@@ -333,6 +380,7 @@ def _resolve_sandbox_path(path: str, workspace: Path | None, sandbox) -> str:
                 drive = ws_match.group(1).lower()
                 ws_rest = ws_match.group(2).rstrip("/")
                 result = f"/mnt/{drive}/{ws_rest}/{path}"
+                result = _canonicalize_wsl_mnt_path(result, workspace)
                 _log.debug("Sandbox path: %s → %s (WSL relative /mnt/)", original_path, result)
                 return result
         # Compute the correct sandbox base path.
@@ -357,8 +405,9 @@ def _resolve_sandbox_path(path: str, workspace: Path | None, sandbox) -> str:
         if ws_str[1:2] == ":":
             # WSL sandbox: /mnt/ paths already access host filesystem directly (issue #474)
             if sandbox is not None and getattr(sandbox, "_use_wsl", False):
-                _log.debug("Sandbox path: %s → %s (WSL /mnt/ keep)", original_path, path)
-                return path
+                result = _canonicalize_wsl_mnt_path(path, workspace)
+                _log.debug("Sandbox path: %s → %s (WSL /mnt/ keep)", original_path, result)
+                return result
             drive = ws_str[0].lower()
             ws_rest = ws_str[2:].replace("\\", "/").lstrip("/")
             mnt_prefix = f"/mnt/{drive}/{ws_rest}"
@@ -621,14 +670,17 @@ class WriteFileTool(Tool):
 
             # Mirror the file to the host workspace so that files.read
             # (which resolves against the host workspace) can find it.
+            # Skip mirror for /mnt/ paths: the sandbox already wrote directly
+            # to the host filesystem via the WSL bind-mount (issue #474).
             host_path = _sandbox_to_host_path(sandbox_path, self._workspace, sandbox)
-            try:
-                host_file = Path(host_path)
-                host_file.parent.mkdir(parents=True, exist_ok=True)
-                host_file.write_text(content, encoding="utf-8")
-                _log.info("write_file [mirror]: %s → %s", sandbox_path, host_path)
-            except Exception as exc:
-                _log.warning("write_file [mirror] failed for %s: %s", host_path, exc)
+            if not sandbox_path.startswith("/mnt/"):
+                try:
+                    host_file = Path(host_path)
+                    host_file.parent.mkdir(parents=True, exist_ok=True)
+                    host_file.write_text(content, encoding="utf-8")
+                    _log.info("write_file [mirror]: %s → %s", sandbox_path, host_path)
+                except Exception as exc:
+                    _log.warning("write_file [mirror] failed for %s: %s", host_path, exc)
 
             # Persist to tracked_files.json so the Task Assets panel
             # survives session switches.
@@ -739,15 +791,18 @@ class EditFileTool(Tool):
             except Exception as e:
                 return f"Error: Failed to write edited file in sandbox (path={sandbox_path}): {type(e).__name__}: {e}"
 
-            # Mirror the file to the host workspace so files.read can find it
+            # Mirror the file to the host workspace so files.read can find it.
+            # Skip mirror for /mnt/ paths: the sandbox already wrote directly
+            # to the host filesystem via the WSL bind-mount (issue #474).
             host_path = _sandbox_to_host_path(sandbox_path, self._workspace, sandbox)
-            try:
-                host_file = Path(host_path)
-                host_file.parent.mkdir(parents=True, exist_ok=True)
-                host_file.write_text(new_content, encoding="utf-8")
-                _log.info("edit_file [mirror]: %s → %s", sandbox_path, host_path)
-            except Exception as exc:
-                _log.warning("edit_file [mirror] failed for %s: %s", host_path, exc)
+            if not sandbox_path.startswith("/mnt/"):
+                try:
+                    host_file = Path(host_path)
+                    host_file.parent.mkdir(parents=True, exist_ok=True)
+                    host_file.write_text(new_content, encoding="utf-8")
+                    _log.info("edit_file [mirror]: %s → %s", sandbox_path, host_path)
+                except Exception as exc:
+                    _log.warning("edit_file [mirror] failed for %s: %s", host_path, exc)
 
             _persist_tracked_file(
                 self._workspace, host_path, op="edit", session_key=_sess_key,
