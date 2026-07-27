@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useRestartRequired } from '../../contexts/RestartRequiredContext';
+import { ErrorBoundary } from '../../components/ErrorBoundary';
 import {
   Zap,
   Server,
@@ -470,7 +470,21 @@ export function ProvidersPage() {
       </div>
 
       {editProvider && (
-        <EditSheet provider={editProvider} onClose={() => setEditProvider(null)} onSaved={load} />
+        <ErrorBoundary
+          fallback={(error, reset) => (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+              <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl p-6 max-w-sm">
+                <p className="text-sm text-[var(--danger)] mb-3">编辑面板加载失败: {error.message}</p>
+                <div className="flex gap-2">
+                  <button onClick={reset} className="px-3 py-1.5 rounded-md bg-[var(--accent)] text-white text-xs">重试</button>
+                  <button onClick={() => setEditProvider(null)} className="px-3 py-1.5 rounded-md border border-[var(--border)] text-xs" style={{color:'var(--text-muted)'}}>关闭</button>
+                </div>
+              </div>
+            </div>
+          )}
+        >
+          <EditSheet provider={editProvider} onClose={() => setEditProvider(null)} onSaved={load} />
+        </ErrorBoundary>
       )}
     </div>
   );
