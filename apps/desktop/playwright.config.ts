@@ -46,10 +46,12 @@ export default defineConfig({
   ],
 
   // ---- webServer (only needed by smoke project) ---------------------------
-  webServer: {
-    command: 'python -m http.server 3458 --directory out/renderer',
-    url: 'http://localhost:3458',
-    reuseExistingServer: true,
-    timeout: 180_000,  // macOS CI can be slow to start
-  },
+  webServer: process.env.PLAYWRIGHT_SKIP_WEB_SERVER === '1'
+    ? undefined
+    : {
+        command: 'python -m http.server 3458 --directory out/renderer',
+        url: 'http://localhost:3458',
+        reuseExistingServer: true,
+        timeout: 180_000,  // macOS CI can be slow to start
+      },
 });
