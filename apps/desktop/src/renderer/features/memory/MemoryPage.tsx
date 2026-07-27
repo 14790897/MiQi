@@ -42,10 +42,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function formatTime(ms: number): string {
-  const d = new Date(ms);
-  return d.toLocaleString();
-}
+import { formatAbsoluteTime } from '../../lib/formatTime';
 
 import { ConfirmDialog, SaveConfirmDialog } from '../../components/shared';
 
@@ -305,7 +302,7 @@ export function MemoryPage() {
                   {formatSize(activeFile.size)}
                 </span>
                 <span className="text-xs text-[var(--text-faint)]">
-                  {formatTime(activeFile.updatedAtMs)}
+                  {formatAbsoluteTime(activeFile.updatedAtMs)}
                 </span>
                 {dirty && (
                   <span className="text-xs text-[var(--warning)] font-medium ml-auto">未保存</span>

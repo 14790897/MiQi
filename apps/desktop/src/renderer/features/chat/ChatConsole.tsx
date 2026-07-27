@@ -7,6 +7,7 @@ import { Textarea } from '../../components/ui/Textarea';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { ContextMenu, type ContextMenuAction } from '../../components/ContextMenu';
 import { cn } from '../../lib/utils';
+import { formatRelativeTime } from '../../lib/formatTime';
 import {
   ExecutionPolicySelector,
   type ExecutionPolicy,
@@ -270,9 +271,11 @@ function relativeTimeLabel(timestamp?: number | string | null, now = Date.now())
   const value = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp);
   if (!Number.isFinite(value)) return '尚未更新';
   const diff = now - value;
-  if (diff < 60_000) return '刚刚更新';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前更新`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前更新`;
+  // For < 2 days, delegate to the shared relative formatter + "更新" suffix
+  if (diff < 2 * 86_400_000) {
+    return `${formatRelativeTime(timestamp, { suffix: '更新', now })}`;
+  }
+  // For older entries, keep the "X天前更新" format
   return `${Math.floor(diff / 86_400_000)} 天前更新`;
 }
 

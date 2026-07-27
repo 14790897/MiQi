@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/Button';
 import { ScrollArea } from '../../components/ui/ScrollArea';
 import { ContextMenu } from '../../components/ContextMenu';
 import { cn } from '../../lib/utils';
+import { formatAbsoluteTime } from '../../lib/formatTime';
 import {
   MessageSquare,
   Trash2,
@@ -132,12 +133,6 @@ export function SessionExplorer({
     loadSessions();
   };
 
-  const formatTime = (iso?: string) => {
-    if (!iso) return '';
-    const d = new Date(iso);
-    return d.toLocaleString();
-  };
-
   return (
     <div className="flex h-full">
       {/* Session list */}
@@ -235,7 +230,7 @@ export function SessionExplorer({
                         {s.updated_at && (
                           <div className="flex items-center gap-1 text-xs text-[var(--text-faint)] mt-0.5">
                             <Clock size={10} />
-                            {formatTime(s.updated_at)}
+                            {formatAbsoluteTime(s.updated_at)}
                           </div>
                         )}
                       </div>
