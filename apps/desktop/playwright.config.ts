@@ -50,5 +50,6 @@ export default defineConfig({
     command: 'python -m http.server 3458 --directory out/renderer',
     url: 'http://localhost:3458',
     reuseExistingServer: true,
+    timeout: 180_000,  // macOS CI can be slow to start
   },
 });
