@@ -125,6 +125,7 @@ const FILE_BLOCK_RES = [
   /\[([^\]:]+):\s*(?:binary file|scanned PDF)[^\]]*\]/g,
   /--- Document: ([^\n]+) ---\n[\s\S]*?\n--- End of \1 ---/g,
   /--- ([^\n]+) ---\n[\s\S]*?\n--- End of \1 ---/g,   // legacy: client-side inject before fix
+  /\[Uploaded: ([^\]]+?)\s*[—\-].*?\]/g,                // backend fallback when parse returns empty
 ];
 
 interface FileChip {
