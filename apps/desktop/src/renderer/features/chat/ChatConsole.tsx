@@ -3537,11 +3537,13 @@ function MessageBubble({
                   </div>
                 );
               })}
-            {isUser && (!msg.attachments || msg.attachments.length === 0) && (() => {
+            {/* Always clean injected document text from content — shown as chips only when attachments are missing */}
+            {isUser && (() => {
               const { cleanContent, chips } = extractFileChips(msg.content);
-              if (chips.length === 0) return null;
-              // Store clean content for the bubble below
+              // Always store cleaned content so the bubble renders without injected text
               (msg as any).__cleanContent = cleanContent;
+              // Only show historical chips when there are no real attachments (avoids duplicates)
+              if (chips.length === 0 || (msg.attachments && msg.attachments.length > 0)) return null;
               return chips.map((chip, i) => (
                 <div
                   key={`hist-${i}`}
