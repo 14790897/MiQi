@@ -219,23 +219,14 @@ export function SessionExplorer({
                                 s.key.includes(a.agent_id)
                             );
                             if (!agent) return null;
-                            const colors: Record<string, string> = {
-                              idle: 'bg-gray-400',
-                              thinking: 'bg-yellow-400 animate-pulse',
-                              executing: 'bg-blue-400 animate-pulse',
-                              waiting_approval: 'bg-purple-400 animate-pulse',
-                              completed: 'bg-green-500',
-                              error: 'bg-red-500',
-                              aborted: 'bg-orange-500',
-                            };
                             return (
                               <span
-                                className="flex items-center gap-1 shrink-0"
+                                className={cn('flex items-center gap-1 shrink-0')}
                                 title={`${agent.type}: ${agent.status}`}
                               >
                                 <Bot size={11} className="text-[var(--text-muted)]" />
                                 <span
-                                  className={`w-2 h-2 rounded-full ${colors[agent.status] || 'bg-gray-400'}`}
+                                  className={`w-2 h-2 rounded-full ${agentStatusColor(agent.status)}`}
                                 />
                               </span>
                             );
