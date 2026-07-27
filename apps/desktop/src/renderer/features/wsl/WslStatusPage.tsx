@@ -375,7 +375,7 @@ export default function WslStatusPage() {
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             {fetching ? (
               <>
-                <RefreshCw size={20} className="animate-spin" style={{ color: 'var(--text-faint)' }} />
+                <RefreshCw size={20} className="animate-spin text-text-faint" />
                 <p className="text-sm text-[var(--text-muted)]">正在获取 {selected || 'WSL'} 状态...</p>
                 <p className="text-xs text-[var(--text-faint)]">数据加载中，您可以切换发行版</p>
               </>

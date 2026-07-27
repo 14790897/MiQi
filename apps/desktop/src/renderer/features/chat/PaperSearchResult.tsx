@@ -115,8 +115,7 @@ function PaperCard({
           >
             <FileText
               size={14}
-              className="inline mr-1.5 shrink-0"
-              style={{ color: 'var(--text-muted)' }}
+              className="inline mr-1.5 shrink-0 text-text-muted"
             />
             {paper.title || 'Untitled'}
           </h4>
@@ -135,8 +134,7 @@ function PaperCard({
 
         {/* Authors + citation count */}
         <div
-          className="flex items-center gap-3 mt-1 flex-wrap text-xs"
-          style={{ color: 'var(--text-muted)' }}
+          className="flex items-center gap-3 mt-1 flex-wrap text-xs text-text-muted"
         >
           <span className="inline-flex items-center gap-1">
             <Users size={11} />
@@ -162,8 +160,7 @@ function PaperCard({
         <div className="px-4 pb-1">
           <button
             onClick={() => setShowAbstract((v) => !v)}
-            className="inline-flex items-center gap-1 text-xs mt-1 hover:underline"
-            style={{ color: 'var(--text-muted)' }}
+            className="inline-flex items-center gap-1 text-xs mt-1 hover:underline text-text-muted"
           >
             {showAbstract ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             {showAbstract ? 'Hide abstract' : 'Show abstract'}
@@ -200,8 +197,7 @@ function PaperCard({
             href={paper.source_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[10px] hover:underline"
-            style={{ color: 'var(--text-muted)' }}
+            className="inline-flex items-center gap-1 text-[10px] hover:underline text-text-muted"
           >
             <ExternalLink size={10} />
             Source
@@ -265,7 +261,7 @@ export default function PaperSearchResult({
 
   if (!items.length) {
     return (
-      <div className="my-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+      <div className="my-2 text-xs text-text-muted">
         No papers found{data.query ? ` for "${data.query}"` : ''}.
       </div>
     );
@@ -275,8 +271,7 @@ export default function PaperSearchResult({
     <div className="my-1">
       {/* Search meta */}
       <div
-        className="flex items-center gap-2 mb-2 text-[11px]"
-        style={{ color: 'var(--text-muted)' }}
+        className="flex items-center gap-2 mb-2 text-[11px] text-text-muted"
       >
         <span>{data.query ? `Results for "${data.query}"` : 'Search results'}</span>
         {data.total != null && (
