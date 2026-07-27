@@ -28,61 +28,7 @@ import { ConfirmDialog } from '../../components/shared';
 // Input dialog (for new file/folder/rename)
 // ---------------------------------------------------------------------------
 
-function InputDialog({
-  title,
-  label,
-  defaultValue = '',
-  onConfirm,
-  onCancel,
-}: {
-  title: string;
-  label: string;
-  defaultValue?: string;
-  onConfirm: (value: string) => void;
-  onCancel: () => void;
-}) {
-  const [value, setValue] = useState(defaultValue);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-      <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[380px]">
-        <div className="px-5 py-4 border-b border-[var(--border-subtle)]">
-          <h2 className="text-sm font-semibold text-[var(--text)]">{title}</h2>
-        </div>
-        <div className="px-5 py-4">
-          <input
-            type="text"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && value.trim()) onConfirm(value.trim());
-            }}
-            placeholder={label}
-            className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)]"
-            autoFocus
-          />
-        </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
-          <button
-            onClick={onCancel}
-            className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-          >
-            取消
-          </button>
-          <button
-            onClick={() => {
-              if (value.trim()) onConfirm(value.trim());
-            }}
-            disabled={!value.trim()}
-            className="px-4 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-all disabled:opacity-50"
-          >
-            确定
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { InputDialog } from '../../components/shared';
 
 // ---------------------------------------------------------------------------
 // Main page
@@ -502,18 +448,20 @@ export function WorkspacePage() {
       {/* File operation dialogs */}
       {actionTarget && actionTarget.type === 'rename' ? (
         <InputDialog
+          open={!!actionTarget}
+          onOpenChange={(o) => { if (!o) setActionTarget(null); }}
           title="重命名"
           label="新名称"
           defaultValue={actionTarget.currentName}
           onConfirm={handleRename}
-          onCancel={() => setActionTarget(null)}
         />
       ) : actionTarget && (actionTarget.type === 'newFile' || actionTarget.type === 'newFolder') ? (
         <InputDialog
+          open={!!actionTarget}
+          onOpenChange={(o) => { if (!o) setActionTarget(null); }}
           title={actionTarget.type === 'newFile' ? '新建文件' : '新建文件夹'}
           label={actionTarget.type === 'newFile' ? '文件名' : '文件夹名'}
           onConfirm={handleCreate}
-          onCancel={() => setActionTarget(null)}
         />
       ) : null}
 
