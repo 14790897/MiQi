@@ -193,7 +193,7 @@ export function Sidebar({
       {/* Header: glitch M logo + Tasks title */}
       <div className="flex items-center gap-2.5 px-4 py-3 shrink-0">
         <MiQiLogo size={28} />
-        <span className="text-sm font-semibold" style={{ color: 'var(--text)' }} data-testid="nav-tasks-title">
+        <span className="text-sm font-semibold text-text" data-testid="nav-tasks-title">
           任务
         </span>
         <button
@@ -293,7 +293,7 @@ export function Sidebar({
         ) : sessions.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-8 text-center">
             <ListChecks size={20} style={{ color: 'var(--text-faint)', opacity: 0.4 }} />
-            <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
+            <p className="text-xs text-text-faint">
               暂无任务
             </p>
           </div>
@@ -388,22 +388,20 @@ export function Sidebar({
                             {status.label}
                           </span>
                         </div>
-                        <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
+                        <span className="text-[10px] text-text-faint">
                           {relativeTime(s.updated_at)}
                         </span>
                       </div>
                       {/* Title — large bold, one line */}
                       <p
-                        className="text-sm font-bold truncate mb-1"
-                        style={{ color: 'var(--text)' }}
+                        className="text-sm font-bold truncate mb-1 text-text"
                         title={displayName}
                       >
                         {displayName}
                       </p>
                       {/* Description — small gray, multi-line */}
                       <p
-                        className="text-xs leading-relaxed"
-                        style={{ color: 'var(--text-muted)' }}
+                        className="text-xs leading-relaxed text-text-muted"
                       >
                         {s.message_count != null
                           ? `${s.message_count} 条消息`
@@ -428,8 +426,7 @@ export function Sidebar({
         style={{ borderColor: 'var(--sidebar-border)' }}
       >
         <button
-          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition duration-150 hover:scale-110 hover:text-[var(--text)] origin-left"
-          style={{ color: 'var(--text-faint)' }}
+          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition duration-150 hover:scale-110 hover:text-[var(--text)] origin-left text-text-faint"
           onClick={() => onNavChange?.('settings')}
           data-testid="nav-system-settings"
         >
@@ -437,8 +434,7 @@ export function Sidebar({
           <span>系统设置</span>
         </button>
         <span
-          className="text-[10px] font-mono"
-          style={{ color: 'var(--text-faint)' }}
+          className="text-[10px] font-mono text-text-faint"
         >
           PRO v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'}
         </span>
