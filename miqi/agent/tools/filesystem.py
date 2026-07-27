@@ -267,7 +267,9 @@ def _canonicalize_wsl_mnt_path(mnt_path: str, workspace: Path | None) -> str:
     host_str = f"{drive}:/{rest}"
 
     try:
-        resolved = Path(host_str).resolve()
+        import os as _os
+        normalized = _os.path.normpath(host_str)
+        resolved = Path(normalized).resolve()
     except Exception:
         _log.warning("_canonicalize_wsl_mnt_path: cannot resolve %s", host_str)
         return mnt_path
@@ -277,8 +279,8 @@ def _canonicalize_wsl_mnt_path(mnt_path: str, workspace: Path | None) -> str:
         resolved.relative_to(ws_resolved)
     except ValueError:
         raise PermissionError(
-            f"Path '{host_str}' resolves to '{resolved}' which is outside "
-            f"the workspace '{ws_resolved}'"
+            f"Path '{host_str}' (normalized: '{normalized}') resolves to '{resolved}' "
+            f"which is outside the workspace '{ws_resolved}'"
         )
 
     resolved_str = str(resolved).replace("\\", "/")

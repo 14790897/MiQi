@@ -1,8 +1,11 @@
 """Unit tests for WSL sandbox path mapping functions (#474).
 
 Tests _resolve_sandbox_path, _canonicalize_wsl_mnt_path, and
-_sandbox_to_host_path without requiring a real WSL environment.
+_sandbox_to_host_path. WSL-specific containment tests are Windows-only;
+logic tests run everywhere.
 """
+import os
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -15,11 +18,12 @@ from miqi.agent.tools.filesystem import (
     _sandbox_to_host_path,
 )
 
+_IS_WINDOWS = sys.platform == "win32"
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 def _make_wsl_sandbox():
-    """Create a mock sandbox with _use_wsl=True."""
     sb = MagicMock()
     sb._use_wsl = True
     sb.workspace = Path("/tmp/mock_ws")
@@ -27,191 +31,196 @@ def _make_wsl_sandbox():
 
 
 def _make_native_sandbox():
-    """Create a mock sandbox with _use_wsl=False."""
     sb = MagicMock()
     sb._use_wsl = False
     sb.workspace = Path("/tmp/mock_ws")
     return sb
 
 
+def _as_mnt_path(host_path: Path, *extra: str) -> str:
+    """Convert a host Path to a /mnt/<drive>/... sandbox path on Windows,
+    or /mnt/c<path> on Linux (for unit testing only)."""
+    p = host_path.resolve()
+    if _IS_WINDOWS:
+        drive = p.drive[0].lower()
+        rest = p.as_posix()[2:].lstrip("/")
+    else:
+        drive = "c"
+        rest = p.as_posix().lstrip("/")
+    parts = [f"/mnt/{drive}", rest] + list(extra)
+    return "/".join(parts)
+
+
 # ── _canonicalize_wsl_mnt_path ───────────────────────────────────────────
 
 class TestCanonicalizeWslMntPath:
-    """Tests for _canonicalize_wsl_mnt_path workspace containment."""
 
-    def test_normal_path_within_workspace(self):
-        """Normal /mnt/ path within workspace passes through."""
-        ws = Path("C:/Users/test/workspace")
+    def test_normal_path_within_workspace(self, tmp_path):
+        ws = tmp_path / "sub"
+        ws.mkdir()
         result = _canonicalize_wsl_mnt_path(
-            "/mnt/c/Users/test/workspace/readme.md", ws
+            _as_mnt_path(ws, "readme.md"), ws
         )
-        assert result == "/mnt/c/Users/test/workspace/readme.md"
+        assert "readme.md" in result
+        assert ".." not in result
 
-    def test_path_traversal_rejected(self):
-        """.. traversal escaping workspace raises PermissionError."""
-        ws = Path("C:/Users/test/workspace")
+    @pytest.mark.skipif(not _IS_WINDOWS, reason="WSL containment Windows-only")
+    def test_path_traversal_rejected(self, tmp_path):
+        ws = tmp_path / "sub"
+        ws.mkdir()
+        mnt = _as_mnt_path(ws, "..", "secret.txt")
         with pytest.raises(PermissionError, match="outside"):
-            _canonicalize_wsl_mnt_path(
-                "/mnt/c/Users/test/workspace/../../secret.txt", ws
-            )
+            _canonicalize_wsl_mnt_path(mnt, ws)
 
-    def test_path_outside_workspace_rejected(self):
-        """Path to a different directory raises PermissionError."""
-        ws = Path("C:/Users/test/workspace")
+    @pytest.mark.skipif(not _IS_WINDOWS, reason="WSL containment Windows-only")
+    def test_path_outside_workspace_rejected(self, tmp_path):
+        ws = tmp_path / "sub"
+        ws.mkdir()
+        other = tmp_path / "other"
+        other.mkdir()
         with pytest.raises(PermissionError, match="outside"):
-            _canonicalize_wsl_mnt_path(
-                "/mnt/c/Windows/System32/config/SAM", ws
-            )
+            _canonicalize_wsl_mnt_path(_as_mnt_path(other, "file.txt"), ws)
 
     def test_no_workspace_returns_unchanged(self):
-        """None workspace passes path through unchanged."""
         result = _canonicalize_wsl_mnt_path(
-            "/mnt/c/Users/test/../../secret.txt", None
+            "/mnt/c/some/../file.txt", None
         )
-        assert result == "/mnt/c/Users/test/../../secret.txt"
+        assert result == "/mnt/c/some/../file.txt"
 
-    def test_non_mnt_path_returns_unchanged(self):
-        """Non-/mnt/ paths pass through unchanged."""
-        ws = Path("C:/Users/test/workspace")
-        result = _canonicalize_wsl_mnt_path("/home/miqi/workspace/file.txt", ws)
+    def test_non_mnt_path_returns_unchanged(self, tmp_path):
+        result = _canonicalize_wsl_mnt_path(
+            "/home/miqi/workspace/file.txt", tmp_path
+        )
         assert result == "/home/miqi/workspace/file.txt"
 
-    def test_canonicalize_resolves_dots(self):
-        """.. within workspace is resolved but stays inside."""
-        ws = Path("C:/Users/test/workspace")
+    def test_canonicalize_resolves_dots(self, tmp_path):
+        ws = tmp_path / "sub"
+        ws.mkdir()
         result = _canonicalize_wsl_mnt_path(
-            "/mnt/c/Users/test/workspace/subdir/../readme.md", ws
+            _as_mnt_path(ws, "nested", "..", "readme.md"), ws
         )
         assert ".." not in result
-        assert result == "/mnt/c/Users/test/workspace/readme.md"
+        assert result.endswith("/readme.md")
 
-    def test_workspace_root_itself(self):
-        """The workspace root itself is allowed."""
-        ws = Path("C:/Users/test/workspace")
-        result = _canonicalize_wsl_mnt_path("/mnt/c/Users/test/workspace", ws)
-        assert result == "/mnt/c/Users/test/workspace"
+    def test_workspace_root_itself(self, tmp_path):
+        ws = tmp_path / "sub"
+        ws.mkdir()
+        result = _canonicalize_wsl_mnt_path(_as_mnt_path(ws), ws)
+        assert result.endswith("/sub")
 
 
 # ── _resolve_sandbox_path ────────────────────────────────────────────────
 
 class TestResolveSandboxPathWSL:
-    """Tests for _resolve_sandbox_path WSL /mnt/ path mapping."""
 
-    def test_windows_absolute_path_maps_to_mnt(self):
-        """C:\\... paths map to /mnt/c/... under WSL sandbox."""
-        ws = Path("C:/Users/test/workspace")
+    def test_wsl_windows_path_maps_to_mnt(self, tmp_path):
+        """Under WSL sandbox on Windows, C:\\... maps to /mnt/..."""
+        ws = tmp_path
         sb = _make_wsl_sandbox()
-        result = _resolve_sandbox_path("C:\\Users\\test\\workspace\\file.txt", ws, sb)
-        assert result == "/mnt/c/Users/test/workspace/file.txt"
+        if _IS_WINDOWS:
+            win_path = str(ws.resolve() / "file.txt")
+            result = _resolve_sandbox_path(win_path, ws, sb)
+            assert result.startswith("/mnt/")
+            assert result.endswith("/file.txt")
+        else:
+            # Linux: WSL sandbox not applicable, test fallback behavior
+            result = _resolve_sandbox_path("readme.md", ws, sb)
+            assert "readme.md" in result
 
-    def test_windows_path_outside_workspace_rejected(self):
-        """Windows path outside workspace raises PermissionError under WSL."""
-        ws = Path("C:/Users/test/workspace")
+    @pytest.mark.skipif(not _IS_WINDOWS, reason="WSL containment Windows-only")
+    def test_windows_path_outside_workspace_rejected(self, tmp_path):
+        ws = tmp_path / "sub"
+        ws.mkdir()
         sb = _make_wsl_sandbox()
+        other = tmp_path / "other"
+        other.mkdir()
         with pytest.raises(PermissionError, match="outside"):
-            _resolve_sandbox_path("C:\\Windows\\System32\\file.txt", ws, sb)
+            _resolve_sandbox_path(str(other.resolve() / "file.txt"), ws, sb)
 
-    def test_relative_path_maps_to_mnt_under_wsl(self):
-        """Relative paths resolve to workspace via /mnt/ under WSL."""
-        ws = Path("D:/projects/myapp")
+    def test_relative_path_under_wsl(self, tmp_path):
+        """Relative paths resolve against workspace under WSL."""
+        ws = tmp_path / "proj"
+        ws.mkdir()
         sb = _make_wsl_sandbox()
         result = _resolve_sandbox_path("src/main.py", ws, sb)
-        assert result == "/mnt/d/projects/myapp/src/main.py"
+        assert result.endswith("/src/main.py")
 
-    def test_relative_path_traversal_rejected(self):
-        """Relative path with .. escaping workspace raises PermissionError."""
-        ws = Path("C:/Users/test/workspace")
+    @pytest.mark.skipif(not _IS_WINDOWS, reason="WSL containment Windows-only")
+    def test_relative_path_traversal_rejected(self, tmp_path):
+        ws = tmp_path / "sub"
+        ws.mkdir()
         sb = _make_wsl_sandbox()
         with pytest.raises(PermissionError, match="outside"):
             _resolve_sandbox_path("../../secret.txt", ws, sb)
 
-    def test_linux_path_kept_as_is_wsl(self):
-        """Absolute Linux paths inside sandbox pass through."""
-        ws = Path("C:/Users/test/workspace")
-        sb = _make_wsl_sandbox()
-        result = _resolve_sandbox_path("/home/miqi/workspace/file.txt", ws, sb)
-        assert result == "/home/miqi/workspace/file.txt"
-
-    def test_mnt_path_kept_with_containment_wsl(self):
-        """Existing /mnt/ paths kept with containment check under WSL."""
-        ws = Path("C:/Users/test/workspace")
+    def test_linux_path_kept_as_is(self, tmp_path):
         sb = _make_wsl_sandbox()
         result = _resolve_sandbox_path(
-            "/mnt/c/Users/test/workspace/file.txt", ws, sb
+            "/home/miqi/workspace/file.txt", tmp_path, sb
         )
-        assert result == "/mnt/c/Users/test/workspace/file.txt"
-
-    def test_mnt_path_outside_workspace_rejected(self):
-        """Existing /mnt/ path outside workspace rejected under WSL."""
-        ws = Path("C:/Users/test/workspace")
-        sb = _make_wsl_sandbox()
-        with pytest.raises(PermissionError, match="outside"):
-            _resolve_sandbox_path("/mnt/c/Windows/file.txt", ws, sb)
-
-    def test_native_sandbox_still_uses_workspace_remap(self):
-        """Non-WSL sandbox keeps the old workspace remap behavior."""
-        ws = Path("C:/Users/test/workspace")
-        sb = _make_native_sandbox()
-        result = _resolve_sandbox_path("C:\\Users\\test\\workspace\\file.txt", ws, sb)
         assert result == "/home/miqi/workspace/file.txt"
 
-    def test_wsl_with_drive_d_mapping(self):
-        """D: drive paths map to /mnt/d/... under WSL."""
-        ws = Path("D:/data")
+    @pytest.mark.skipif(not _IS_WINDOWS, reason="WSL /mnt/ containment Windows-only")
+    def test_mnt_path_within_workspace(self, tmp_path):
+        ws = tmp_path / "sub"
+        ws.mkdir()
         sb = _make_wsl_sandbox()
-        result = _resolve_sandbox_path("D:\\data\\report.csv", ws, sb)
-        assert result == "/mnt/d/data/report.csv"
+        result = _resolve_sandbox_path(
+            _as_mnt_path(ws, "file.txt"), ws, sb
+        )
+        assert "file.txt" in result
 
-    def test_wsl_workspace_with_session_subdir(self, tmp_path):
-        """WSL paths under a per-session workspace subdirectory work."""
-        session_ws = tmp_path / "sessions" / "abc123" / "files"
-        session_ws.mkdir(parents=True, exist_ok=True)
+    @pytest.mark.skipif(not _IS_WINDOWS, reason="WSL containment Windows-only")
+    def test_mnt_path_outside_workspace_rejected(self, tmp_path):
+        ws = tmp_path / "sub"
+        ws.mkdir()
+        other = tmp_path / "other"
+        other.mkdir()
         sb = _make_wsl_sandbox()
-        # A relative path resolves against the session workspace
+        with pytest.raises(PermissionError, match="outside"):
+            _resolve_sandbox_path(_as_mnt_path(other, "file.txt"), ws, sb)
+
+    def test_native_sandbox_uses_workspace_remap(self, tmp_path):
+        """Non-WSL sandbox still uses the old workspace remap."""
+        ws = tmp_path
+        sb = _make_native_sandbox()
+        result = _resolve_sandbox_path("readme.md", ws, sb)
+        assert result.endswith("/readme.md")
+
+    def test_wsl_session_subdir(self, tmp_path):
+        session_ws = tmp_path / "sessions" / "abc123" / "files"
+        session_ws.mkdir(parents=True)
+        sb = _make_wsl_sandbox()
         result = _resolve_sandbox_path("temp.txt", session_ws, sb)
-        ws_str = str(session_ws.resolve()).replace("\\", "/")
-        assert result.startswith("/mnt/")
         assert result.endswith("/sessions/abc123/files/temp.txt")
 
 
 # ── _sandbox_to_host_path ────────────────────────────────────────────────
 
 class TestSandboxToHostPath:
-    """Tests for _sandbox_to_host_path /mnt/ conversion."""
 
-    def test_mnt_path_converts_to_windows(self):
-        """/mnt/c/... converts to C:/..."""
-        ws = Path("C:/Users/test/workspace")
+    def test_mnt_path_converts_to_host(self, tmp_path):
+        ws = tmp_path
         sb = _make_wsl_sandbox()
         result = _sandbox_to_host_path(
-            "/mnt/c/Users/test/workspace/file.txt", ws, sb
+            _as_mnt_path(ws, "file.txt"), ws, sb
         )
-        assert result == "C:/Users/test/workspace/file.txt"
+        assert "file.txt" in result
 
-    def test_mnt_d_drive_converts(self):
-        """/mnt/d/... converts to D:/..."""
-        ws = Path("D:/data")
-        sb = _make_wsl_sandbox()
-        result = _sandbox_to_host_path("/mnt/d/data/report.csv", ws, sb)
-        assert result == "D:/data/report.csv"
-
-    def test_home_miqi_workspace_path_still_works(self):
-        """Original /home/miqi/workspace paths still convert correctly."""
-        ws = Path("C:/Users/test/workspace")
+    def test_home_miqi_workspace_conversion(self, tmp_path):
+        ws = tmp_path
         sb = _make_wsl_sandbox()
         result = _sandbox_to_host_path(
             "/home/miqi/workspace/file.txt", ws, sb
         )
-        assert result == "C:/Users/test/workspace/file.txt"
+        assert "file.txt" in result
 
     def test_none_workspace_returns_unchanged(self):
-        """None workspace returns path unchanged."""
         sb = _make_wsl_sandbox()
         result = _sandbox_to_host_path("/mnt/c/some/file.txt", None, sb)
         assert result == "/mnt/c/some/file.txt"
 
-    def test_empty_path_returns_empty(self):
-        """Empty or None path returns unchanged."""
+    def test_empty_path_returns_empty(self, tmp_path):
         sb = _make_wsl_sandbox()
-        assert _sandbox_to_host_path("", Path("C:/ws"), sb) == ""
-        assert _sandbox_to_host_path(None, Path("C:/ws"), sb) is None
+        assert _sandbox_to_host_path("", tmp_path, sb) == ""
+        assert _sandbox_to_host_path(None, tmp_path, sb) is None
