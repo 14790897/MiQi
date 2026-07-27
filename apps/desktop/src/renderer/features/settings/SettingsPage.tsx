@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, startTransition, type ReactNode } from 'react';
+import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { ScrollArea } from '../../components/ui/ScrollArea';
@@ -71,184 +72,35 @@ function getNestedStr(obj: Record<string, unknown>, ...keys: string[]): string {
   return cur == null ? '' : String(cur);
 }
 
-// ---- Sandbox Toggle ----
+import { SettingsToggle } from './components/SettingsToggle';
+
 function SandboxToggle() {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [ready, setReady] = useState<boolean | null>(null);
-  const [toggling, setToggling] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Poll runtime status to detect when sandbox becomes available
-  useEffect(() => {
-    const check = () => {
-      window.miqi.runtime
-        .status()
-        .then((s: any) => {
-          setReady(s?.sandbox_available === true);
-        })
-        .catch(() => {});
-    };
-    check();
-    const interval = setInterval(check, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    window.miqi.config
-      .get()
-      .then((cfg: any) => {
-        setEnabled(cfg?.tools?.sandbox?.enabled ?? true);
-      })
-      .catch(() => setEnabled(false));
-  }, []);
-
-  const handleToggle = async () => {
-    if (enabled === null) return;
-    const next = !enabled;
-    setToggling(true);
-    setError(null);
-    try {
-      const result: any = await window.miqi.sandbox.setEnabled(next);
-      if (result && !result.error) {
-        setEnabled(next);
-      } else {
-        setError(result?.error || '切换失败');
-      }
-    } catch (err: any) {
-      const msg = err?.message || String(err);
-      // If bridge doesn't know sandbox.setEnabled yet (old code,
-      // not restarted), fall back to config.update only — it won't
-      // take effect until bridge restart, but at least persists.
-      if (msg.includes('Unknown method') || msg.includes('Bridge not running')) {
-        try {
-          await window.miqi.config.update({
-            tools: { sandbox: { enabled: next } },
-          });
-          setEnabled(next);
-          setError(next ? '已保存，重启后生效' : '已保存，重启后生效');
-          setTimeout(() => setError(null), 4000);
-          return;
-        } catch {
-          /* fall through to error display */
-        }
-      }
-      setError(msg || 'Bridge 通信失败');
-    }
-    setToggling(false);
-  };
-
   return (
-    <div className="flex items-center gap-3">
-      <button
-        onClick={handleToggle}
-        disabled={toggling || enabled === null}
-        data-testid="sandbox-toggle-btn"
-        className={cn(
-          'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-          'disabled:opacity-50',
-          enabled ? 'bg-[var(--accent)]' : 'bg-[var(--border)]'
-        )}
-      >
-        <span
-          className={cn(
-            'inline-block h-4 w-4 rounded-full bg-white transition-transform',
-            enabled ? 'translate-x-6' : 'translate-x-1'
-          )}
-        />
-      </button>
-      <div className="flex items-center gap-1.5">
-        {enabled ? (
-          <Shield size={14} className="text-[var(--accent)]" />
-        ) : (
-          <ShieldOff size={14} className="text-[var(--warning)]" />
-        )}
-        <span
-          className={cn(
-            'text-xs font-medium',
-            enabled ? (ready ? 'text-[var(--accent)]' : 'text-amber-400') : 'text-[var(--warning)]'
-          )}
-          data-testid="sandbox-toggle-label"
-        >
-          {toggling
-            ? enabled
-              ? '正在关闭…'
-              : '正在开启…'
-            : enabled
-              ? ready
-                ? '已开启（推荐）'
-                : '正在安装依赖…'
-              : '已关闭'}
-        </span>
-      </div>
-      {error && <p className="text-xs text-[var(--warning)] mt-1 ml-1">{error}</p>}
-    </div>
+    <SettingsToggle
+      icon={Shield}
+      testId="sandbox-toggle"
+      label="沙箱"
+      getInitial={(cfg) => cfg?.tools?.sandbox?.enabled ?? true}
+      onToggle={async (next) => { const r: any = await window.miqi.sandbox.setEnabled(next); if (r?.error) throw new Error(r.error); }}
+      pollReady
+      readyLabel="已开启（推荐）"
+      togglingLabel="正在安装依赖…"
+    />
   );
 }
 
-// ---- Inline Exec Output Toggle ----
-// Controls whether tool-call exec results render in an inline terminal box.
-// Added in #339 follow-up: lets users suppress the dark bordered container
-// (which appears empty when the sandbox path policy strips stdout/stderr).
 function InlineExecOutputToggle() {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    window.miqi.config
-      .get()
-      .then((cfg: any) => {
-        // Default off — the terminal box is purely cosmetic and was the
-        // source of the "红边空盒" complaints before this toggle landed.
-        setEnabled(cfg?.desktop?.ui?.inlineExecOutput === true);
-      })
-      .catch(() => setEnabled(false));
-  }, []);
-
-  const handleToggle = async () => {
-    if (enabled === null) return;
-    const next = !enabled;
-    setSaving(true);
-    try {
-      await window.miqi.config.update({ desktop: { ui: { inlineExecOutput: next } } });
-      setEnabled(next);
-    } catch {
-      /* ignore — keep prior state */
-    }
-    setSaving(false);
+  const toggle = async (next: boolean) => {
+    await window.miqi.config.update({ desktop: { ui: { inlineExecOutput: next } } });
   };
-
   return (
-    <div className="flex items-center gap-3">
-      <button
-        onClick={handleToggle}
-        disabled={saving || enabled === null}
-        data-testid="inline-exec-output-toggle-btn"
-        className={cn(
-          'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-          'disabled:opacity-50',
-          enabled ? 'bg-[var(--accent)]' : 'bg-[var(--border)]',
-        )}
-      >
-        <span
-          className={cn(
-            'inline-block h-4 w-4 rounded-full bg-white transition-transform',
-            enabled ? 'translate-x-6' : 'translate-x-1',
-          )}
-        />
-      </button>
-      <div className="flex items-center gap-1.5">
-        <Terminal size={14} className={enabled ? 'text-[var(--accent)]' : 'text-[var(--muted-foreground)]'} />
-        <span
-          className={cn(
-            'text-xs font-medium',
-            enabled ? 'text-[var(--accent)]' : 'text-[var(--muted-foreground)]',
-          )}
-          data-testid="inline-exec-output-toggle-label"
-        >
-          {enabled ? '已开启' : '已关闭'}
-        </span>
-      </div>
-    </div>
+    <SettingsToggle
+      icon={Terminal}
+      testId="inline-exec-output-toggle"
+      label="已开启"
+      getInitial={(cfg) => cfg?.desktop?.ui?.inlineExecOutput === true}
+      onToggle={toggle}
+    />
   );
 }
 
@@ -1075,8 +927,7 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
         <button
           onClick={load}
           disabled={loading}
-          className="p-1.5 rounded-md hover:bg-[var(--surface-muted)] transition-colors"
-          style={{ color: 'var(--text-faint)' }}
+          className="p-1.5 rounded-md hover:bg-[var(--surface-muted)] transition-colors text-text-faint"
           title="刷新"
         >
           <RefreshCw size={14} className={cn(loading && 'animate-spin')} />
@@ -1085,8 +936,8 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
 
       {sessions.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 px-4 rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-muted)]/30">
-          <div className="w-10 h-10 rounded-full bg-[var(--surface-muted)] flex items-center justify-center mb-3">
-            <Archive size={18} style={{ color: 'var(--text-faint)' }} />
+          <div className="w-10 h-10 rounded-full bg-[var(--surface-muted)] flex items-center justify-center mb-3 text-text-faint">
+            <Archive size={18} />
           </div>
           <p className="text-[13px] font-medium text-[var(--text-muted)] mb-1">暂无已归档的对话</p>
           <p className="text-[11px] text-[var(--text-faint)]">
@@ -1102,18 +953,17 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
               style={{ borderBottom: '1px solid var(--border-subtle)' }}
             >
               <div className="flex-1 min-w-0">
-                <p className="text-[13px] truncate font-medium" style={{ color: 'var(--text)' }}>
+                <p className="text-[13px] truncate font-medium text-text">
                   {s.title || s.key}
                 </p>
-                <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+                <p className="text-[11px] text-text-faint">
                   {formatTime(s.updated_at)}
                 </p>
               </div>
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => handleRestore(s.key, s.title || s.key)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition duration-150 hover:bg-[var(--surface)] hover:shadow-sm"
-                  style={{ color: 'var(--text-muted)' }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition duration-150 hover:bg-[var(--surface)] hover:shadow-sm text-text-muted"
                   title="恢复对话"
                 >
                   <Unarchive size={13} />
@@ -1121,8 +971,7 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
                 </button>
                 <button
                   onClick={() => handleDelete(s.key, s.title || s.key)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition duration-150 hover:bg-[var(--danger-bg)]"
-                  style={{ color: 'var(--text-faint)' }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition duration-150 hover:bg-[var(--danger-bg)] text-text-faint"
                   title="永久删除"
                 >
                   <Trash2 size={13} />
@@ -1331,61 +1180,97 @@ export function SettingsPage({
         </Tabs.List>
 
         <Tabs.Content value="general" className="flex-1 overflow-y-auto">
-          <GeneralTab onReopenSetup={onReopenSetup} />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 通用设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <GeneralTab onReopenSetup={onReopenSetup} />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="providers" className="flex-1 overflow-y-auto">
-          <ProvidersPage />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 模型设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <ProvidersPage />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="channels" className="flex-1 overflow-y-auto">
-          <ChannelsPage />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 渠道设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <ChannelsPage />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="approvals" className="flex-1 overflow-y-auto">
-          <ApprovalsPage />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 审批设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <ApprovalsPage />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="workspace" className="flex-1 overflow-y-auto">
-          <WorkspacePage />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 工作区设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <WorkspacePage />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="agents" className="flex-1 overflow-y-auto">
-          <AgentPanel />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 智能体设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <AgentPanel />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="skills" className="flex-1 overflow-y-auto">
-          <SkillsPage />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 技能设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <SkillsPage />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="mcps" className="flex-1 overflow-y-auto">
-          <MCPsPage />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ MCP服务设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <MCPsPage />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="memory" className="flex-1 overflow-y-auto">
-          <MemoryPage />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 记忆设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <MemoryPage />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="experience" className="flex-1 overflow-y-auto">
-          <ExperiencePage />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 经验设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <ExperiencePage />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="permissions" className="flex-1 overflow-y-auto">
-          <PermissionsPage />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 权限设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <PermissionsPage />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="plugins" className="flex-1 overflow-y-auto">
-          <PluginMarket />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 插件设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <PluginMarket />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="wsl" className="flex-1 overflow-y-auto">
-          <WslStatusPage />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ WSL设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <WslStatusPage />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="webtools" className="flex-1 overflow-y-auto">
-          <WebToolsTab />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ Web工具设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <WebToolsTab />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="appearance" className="flex-1 overflow-y-auto">
-          <AppearanceTab />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 外观设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <AppearanceTab />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="logs" className="flex-1 min-h-0 flex flex-col">
-          <LogsTab />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 日志设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <LogsTab />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="archived" className="flex-1 overflow-y-auto">
           <ArchivedTab />
         </Tabs.Content>
         <Tabs.Content value="docs" className="flex-1 min-h-0 flex flex-col">
-          <DocsTab />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 文档设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <DocsTab />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="feedback" className="flex-1 overflow-y-auto">
-          <FeedbackPage />
+          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 反馈设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+            <FeedbackPage />
+          </ErrorBoundary>
         </Tabs.Content>
       </Tabs.Root>
     </div>

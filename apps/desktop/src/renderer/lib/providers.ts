@@ -1,0 +1,31 @@
+/** Shared provider display names and suggested models. */
+
+export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  openrouter: 'OpenRouter', aihubmix: 'AiHubMix', siliconflow: 'SiliconFlow · 硅基流动',
+  volcengine: 'VolcEngine · 火山引擎', custom: '自定义端点',
+  anthropic: 'Anthropic', openai: 'OpenAI', deepseek: 'DeepSeek',
+  gemini: 'Google Gemini', groq: 'Groq',
+  zhipu: 'Zhipu AI · 智谱', dashscope: 'DashScope · 通义千问',
+  moonshot: 'Moonshot · 月之暗面', minimax: 'MiniMax',
+  ollama_cloud: 'Ollama Cloud', ollama_local: 'Ollama Local', vllm: 'vLLM / 本地部署',
+};
+
+export const PROVIDER_SUGGESTED_MODELS: Record<string, string[]> = {
+  openrouter: ['anthropic/claude-opus-4-5', 'google/gemini-2.5-pro', 'deepseek/deepseek-r1'],
+  aihubmix: ['claude-opus-4-5', 'gpt-4o', 'gemini-2.5-pro'],
+  siliconflow: ['Qwen/Qwen3-235B-A22B', 'deepseek-ai/DeepSeek-V3', 'deepseek-ai/DeepSeek-R1'],
+  volcengine: ['doubao-pro-32k', 'doubao-lite-32k', 'doubao-1-5-pro-32k'],
+  anthropic: ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'],
+  openai: ['gpt-4o', 'gpt-4o-mini', 'o3', 'o4-mini'],
+  deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'],
+  gemini: ['gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.5-flash'],
+  groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'moonshard-whisper-large-v3'],
+  zhipu: ['glm-4-plus', 'glm-z1-flash', 'glm-4-long'],
+  dashscope: ['qwen-max', 'qwen-plus', 'qwen-turbo', 'qwen3-235b-a22b'],
+  moonshot: ['kimi-k2.5', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+  minimax: ['MiniMax-Text-01', 'abab6.5s-chat'],
+  ollama_local: ['llama3.2', 'qwen2.5:7b', 'deepseek-r1:7b'],
+  ollama_cloud: ['llama3.2', 'qwen2.5'],
+  vllm: [],
+  custom: [],
+};

@@ -64,8 +64,8 @@ export default function AgentPanel() {
       </h2>
       {agents.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-10 px-4 rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-muted)]/30">
-          <div className="w-10 h-10 rounded-full bg-[var(--surface-muted)] flex items-center justify-center mb-3">
-            <Zap size={18} style={{ color: 'var(--text-faint)' }} />
+          <div className="w-10 h-10 rounded-full bg-[var(--surface-muted)] flex items-center justify-center mb-3 text-text-faint">
+            <Zap size={18} />
           </div>
           <p className="text-sm font-medium text-[var(--text-muted)] mb-1">暂无运行中的智能体</p>
           <p className="text-xs text-[var(--text-faint)]">发送消息即可自动启动智能体</p>
@@ -83,17 +83,17 @@ export default function AgentPanel() {
             >
               <div className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full shrink-0 ${statusColor(a.status)}`} />
-                <span className="text-xs font-medium" style={{ color: 'var(--text)' }}>
+                <span className="text-xs font-medium text-text">
                   {a.type}
                 </span>
-                <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
+                <span className="text-[10px] text-text-faint">
                   {statusLabel(a.status)}
                 </span>
               </div>
-              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+              <p className="text-xs mt-1 text-text-muted">
                 {a.label}
               </p>
-              <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-faint)' }}>
+              <p className="text-[10px] mt-0.5 text-text-faint">
                 {a.agent_id}
               </p>
             </div>

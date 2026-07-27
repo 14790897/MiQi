@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { usePanelResize } from '../../hooks/usePanelResize';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { ErrorBoundary } from '../../components/ErrorBoundary';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '../../components/ui/Button';
@@ -269,7 +269,6 @@ function relativeTimeLabel(timestamp?: number | string | null, now = Date.now())
   if (timestamp === undefined || timestamp === null) return '尚未更新';
   const value = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp);
   if (!Number.isFinite(value)) return '尚未更新';
-
   const diff = now - value;
   if (diff < 60_000) return '刚刚更新';
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前更新`;
@@ -789,12 +788,8 @@ export function ChatConsole({
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [downloadingPaperId, setDownloadingPaperId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
-  const { width: panelWidth, containerRef: panelRef, handleMouseDown: handlePanelResizeStart } = usePanelResize({
-    minWidth: 200,
-    maxWidth: 500,
-    defaultWidth: 280,
-    computeWidth: (e) => window.innerWidth - e.clientX,
-  });
+  const [panelWidth, setPanelWidth] = useState(280);
+  const panelResizing = useRef(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClockTick(Date.now()), 60_000);
@@ -830,7 +825,42 @@ export function ChatConsole({
     };
   }, []);
 
+  // Task Assets panel resize
+  const handlePanelResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    panelResizing.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!panelResizing.current) return;
+      // panel is on the right, so new width = window width - mouse x
+      const newWidth = window.innerWidth - e.clientX;
+      setPanelWidth(Math.max(200, Math.min(500, newWidth)));
+    };
+    const handleMouseUp = () => {
+      if (panelResizing.current) {
+        panelResizing.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      // cleanup if unmounted during drag
+      panelResizing.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, []);
+  /** Current in-flight request ID (for abort) */
   const [currentReqId, setCurrentReqId] = useState<string | null>(null);
+  /** files touched by the agent during this session */
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([]);
   /** preview modal */
   const [previewFile, setPreviewFile] = useState<{
@@ -908,7 +938,7 @@ export function ChatConsole({
     label: string;
   }
   const [threads, setThreads] = useState<ThreadTab[]>([
-    { threadId: 'main', agentType: 'main', label: 'Main' },
+    { threadId: 'main', agentType: 'main', label: '主线程' },
   ]);
   const [activeThreadId, setActiveThreadId] = useState('main');
 
@@ -1230,7 +1260,7 @@ export function ChatConsole({
   const handleDeleteSession = useCallback(async () => {
     const key = currentSessionRef.current;
     if (!key) return;
-    if (!window.confirm('Delete this conversation? This cannot be undone.')) return;
+    if (!window.confirm('确定删除此对话？此操作不可撤销。')) return;
     try {
       await window.miqi.sessions.delete(key);
     } catch {
@@ -1393,10 +1423,10 @@ export function ChatConsole({
       const elapsed = Date.now() - lastEventAt;
       if (elapsed >= NO_PROGRESS_STRONG_MS) {
         appendWatchdogMsg(
-          '⚠️ No response from backend for 60s. You can abort and check runtime logs.'
+          '⚠️ 后端 60s 无响应，可中止并检查运行日志。'
         );
       } else if (elapsed >= NO_PROGRESS_WARN_MS) {
-        appendWatchdogMsg('⏳ Still waiting for backend response…');
+        appendWatchdogMsg('⏳ 正在等待后端响应…');
       }
     }, 5_000); // check every 5s
 
@@ -1706,7 +1736,7 @@ export function ChatConsole({
         cleanupListeners();
         return;
       }
-      const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? 'Unknown error'));
+      const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? '未知错误'));
       if (isProviderConfigurationProblem(errMsg, e?.code)) {
         setMessages((prev) => [...prev, createProviderConfigMessage(errMsg)]);
       } else if (e?.code) {
@@ -2125,8 +2155,7 @@ export function ChatConsole({
       >
         {/* Left: Logo */}
         <span
-          className="text-sm font-bold whitespace-nowrap shrink-0"
-          style={{ color: 'var(--text)' }}
+          className="text-sm font-bold whitespace-nowrap shrink-0 text-text"
           data-testid="app-title"
         >
           MiQi Desktop
@@ -2160,8 +2189,7 @@ export function ChatConsole({
         <div className="flex items-center gap-2 shrink-0">
           {/* User avatar + name */}
           <div
-            className="flex items-center gap-1.5 pl-2 ml-1 border-l"
-            style={{ borderColor: 'var(--border-subtle)' }}
+            className="flex items-center gap-1.5 pl-2 ml-1 border-l border-border-subtle"
           >
             <div
               className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
@@ -2169,7 +2197,7 @@ export function ChatConsole({
             >
               A
             </div>
-            <span className="text-xs whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
+            <span className="text-xs whitespace-nowrap text-text-muted">
               Admin
             </span>
           </div>
@@ -2228,7 +2256,7 @@ export function ChatConsole({
                     await window.miqi.sessions.delete(sessionKey);
                     handleNewSession();
                   } catch (e) {
-                    console.error('Delete failed:', e);
+                    console.error('删除失败:', e);
                   }
                 },
               },
@@ -2264,8 +2292,7 @@ export function ChatConsole({
           >
             <div className="min-w-0 flex-1 flex items-center gap-2.5">
               <h2
-                className="text-[16px] font-semibold truncate leading-[1.35]"
-                style={{ color: 'var(--text)' }}
+                className="text-[16px] font-semibold truncate leading-[1.35] text-text"
               >
                 {sessionTitle}
               </h2>
@@ -2345,8 +2372,7 @@ export function ChatConsole({
                 <div className="flex items-center justify-center min-h-[300px]">
                   <Loader2
                     size={16}
-                    className="animate-spin"
-                    style={{ color: 'var(--text-faint)' }}
+                    className="animate-spin text-text-faint"
                   />
                 </div>
               ) : messages.length === 0 ? (
@@ -2358,10 +2384,10 @@ export function ChatConsole({
                     A
                   </div>
                   <div className="flex flex-col items-center gap-1">
-                    <p className="text-[15px] font-medium" style={{ color: 'var(--text-muted)' }}>
+                    <p className="text-[15px] font-medium text-text-muted">
                       从文件、问题或修改请求开始
                     </p>
-                    <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                    <p className="text-xs text-text-faint">
                       发起一段对话即可开始
                     </p>
                   </div>
@@ -2385,8 +2411,7 @@ export function ChatConsole({
               )}
               {streaming && (
                 <div
-                  className="flex items-center gap-2 text-xs px-1"
-                  style={{ color: 'var(--text-muted)' }}
+                  className="flex items-center gap-2 text-xs px-1 text-text-muted"
                   data-testid="thinking-indicator"
                 >
                   <Loader2 size={12} className="animate-spin" />
@@ -2468,19 +2493,18 @@ export function ChatConsole({
                         ) : (
                           <FileText
                             size={14}
-                            className="shrink-0"
-                            style={{ color: 'var(--text-faint)' }}
+                            className="shrink-0 text-text-faint"
                           />
                         )}
 
                         {/* Name + size */}
                         <div className="flex flex-col min-w-0 leading-tight">
-                          <span className="truncate font-medium" style={{ color: 'var(--text)' }}>
+                          <span className="truncate font-medium text-text">
                             {att.name.length > 28
                               ? att.name.slice(0, 25) + '…' + att.name.slice(-4)
                               : att.name}
                           </span>
-                          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                          <span className="text-[10px] text-text-muted">
                             {formatFileSize(att.size)}
                             {isDoc && isParsing && ' · 解析中…'}
                             {isDoc && isDone && ' · 已就绪'}
@@ -2646,17 +2670,16 @@ export function ChatConsole({
               className="flex items-center justify-between px-4 py-3 border-b shrink-0"
               style={{ borderColor: 'var(--panel-border)' }}
             >
-              <div className="flex items-center gap-1.5">
-                <LayoutGrid size={13} style={{ color: 'var(--text-muted)' }} />
+              <div className="flex items-center gap-1.5 text-text-muted">
+                <LayoutGrid size={13} />
                 <span
-                  className="text-xs font-semibold"
-                  style={{ color: 'var(--text)' }}
+                  className="text-xs font-semibold text-text"
                   data-testid="task-assets-title"
                 >
                   任务资产
                 </span>
               </div>
-              <span className="text-xs font-medium" style={{ color: 'var(--text-faint)' }}>
+              <span className="text-xs font-medium text-text-faint">
                 {trackedFiles.length}
               </span>
             </div>
@@ -2666,13 +2689,12 @@ export function ChatConsole({
                 <FileText size={28} style={{ color: 'var(--text-faint)', opacity: 0.35 }} />
                 <div className="flex flex-col items-center gap-1">
                   <p
-                    className="text-[13px] font-medium"
-                    style={{ color: 'var(--text-muted)' }}
+                    className="text-[13px] font-medium text-text-muted"
                     data-testid="task-assets-empty"
                   >
                     暂无文件
                   </p>
-                  <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+                  <p className="text-[11px] text-text-faint">
                     Agent 操作会显示在这里
                   </p>
                 </div>
@@ -2749,11 +2771,11 @@ export function ChatConsole({
                       className="w-1.5 h-1.5 rounded-full"
                       style={{ background: 'var(--warning)' }}
                     />
-                    <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
+                    <span className="text-xs font-semibold text-text">
                       修改建议
                     </span>
                   </div>
-                  <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
+                  <span className="text-[10px] text-text-faint">
                     {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length} 个文件
                   </span>
                 </div>
@@ -2772,8 +2794,7 @@ export function ChatConsole({
                       >
                         <FileText size={11} style={{ color: 'var(--info)' }} className="shrink-0" />
                         <span
-                          className="text-[11px] truncate flex-1"
-                          style={{ color: 'var(--text)' }}
+                          className="text-[11px] truncate flex-1 text-text"
                           title={f.path}
                         >
                           {f.name}
@@ -2789,8 +2810,7 @@ export function ChatConsole({
                         </span>
                         <button
                           onClick={() => handleShowDiff(f.path)}
-                          className="p-1 rounded transition-colors shrink-0"
-                          style={{ color: 'var(--text-faint)' }}
+                          className="p-1 rounded transition-colors shrink-0 text-text-faint"
                           title="Compare diff"
                         >
                           <GitCompare size={11} />
@@ -2825,7 +2845,7 @@ export function ChatConsole({
               </button>
               {trackedFiles.length === 0 && (
                 <div className="flex items-center justify-center mt-2 py-1.5">
-                  <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                  <span className="text-xs text-text-faint">
                     跟踪文件变更后将在此显示合并选项
                   </span>
                 </div>
@@ -2853,8 +2873,7 @@ export function ChatConsole({
             onClick={(e) => e.stopPropagation()}
           >
             <div
-              className="flex items-center justify-between px-4 py-3 border-b shrink-0"
-              style={{ borderColor: 'var(--border-subtle)' }}
+              className="flex items-center justify-between px-4 py-3 border-b shrink-0 border-border-subtle"
             >
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 {PDF_FILE_RE.test(previewFile.path) ? (
@@ -2867,8 +2886,7 @@ export function ChatConsole({
                   <FileType size={14} style={{ color: 'var(--info)' }} className="shrink-0" />
                 )}
                 <span
-                  className="text-[11px] font-mono break-all leading-relaxed"
-                  style={{ color: 'var(--text-muted)' }}
+                  className="text-[11px] font-mono break-all leading-relaxed text-text-muted"
                   title={previewFile.path}
                 >
                   {previewFile.path}
@@ -2905,8 +2923,7 @@ export function ChatConsole({
             </div>
             <div className="flex-1 overflow-auto p-4">
               <pre
-                className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all"
-                style={{ color: 'var(--text-muted)' }}
+                className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted"
               >
                 {previewFile.content}
               </pre>
@@ -2934,14 +2951,12 @@ export function ChatConsole({
           >
             {/* Header */}
             <div
-              className="flex items-center justify-between px-4 py-3 border-b shrink-0"
-              style={{ borderColor: 'var(--border-subtle)' }}
+              className="flex items-center justify-between px-4 py-3 border-b shrink-0 border-border-subtle"
             >
               <div className="flex items-center gap-2 min-w-0">
                 <GitCompare size={14} style={{ color: 'var(--warning)' }} className="shrink-0" />
                 <span
-                  className="text-sm font-medium truncate"
-                  style={{ color: 'var(--text)' }}
+                  className="text-sm font-medium truncate text-text"
                   title={diffFile.path}
                 >
                   {diffFile.path.split(/[/\\]/).pop()}
@@ -2991,10 +3006,10 @@ export function ChatConsole({
                       color: reverting ? 'var(--text-faint)' : 'var(--danger)',
                       border: '1px solid var(--danger)',
                     }}
-                    title="Revert to HEAD (undo changes)"
+                    title="还原到 HEAD（撤销所有改动）"
                   >
                     <Undo2 size={12} className={reverting ? 'animate-spin' : ''} />
-                    {reverting ? 'Reverting...' : 'Revert'}
+                    {reverting ? '正在还原…' : '还原'}
                   </button>
                 )}
                 <button
@@ -3012,10 +3027,9 @@ export function ChatConsole({
                 <div className="flex items-center justify-center h-48">
                   <Loader2
                     size={24}
-                    className="animate-spin"
-                    style={{ color: 'var(--text-faint)' }}
+                    className="animate-spin text-text-faint"
                   />
-                  <span className="ml-2 text-sm" style={{ color: 'var(--text-faint)' }}>
+                  <span className="ml-2 text-sm text-text-faint">
                     Loading diff...
                   </span>
                 </div>
@@ -3025,32 +3039,27 @@ export function ChatConsole({
                 /* No snapshot diff but we have both versions — show side by side */
                 <div className="flex h-full" style={{ minHeight: 400 }}>
                   <div
-                    className="flex-1 p-4 overflow-auto border-r"
-                    style={{ borderColor: 'var(--border-subtle)' }}
+                    className="flex-1 p-4 overflow-auto border-r border-border-subtle"
                   >
                     <div
-                      className="text-[10px] font-semibold uppercase tracking-wider mb-2"
-                      style={{ color: 'var(--text-faint)' }}
+                      className="text-[10px] font-semibold uppercase tracking-wider mb-2 text-text-faint"
                     >
                       Original
                     </div>
                     <pre
-                      className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all"
-                      style={{ color: 'var(--text-muted)' }}
+                      className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted"
                     >
                       {diffFile.original_content || '(empty)'}
                     </pre>
                   </div>
                   <div className="flex-1 p-4 overflow-auto">
                     <div
-                      className="text-[10px] font-semibold uppercase tracking-wider mb-2"
-                      style={{ color: 'var(--text-faint)' }}
+                      className="text-[10px] font-semibold uppercase tracking-wider mb-2 text-text-faint"
                     >
                       Current
                     </div>
                     <pre
-                      className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all"
-                      style={{ color: 'var(--text)' }}
+                      className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text"
                     >
                       {diffFile.current_content || '(empty)'}
                     </pre>
@@ -3058,10 +3067,10 @@ export function ChatConsole({
                 </div>
               ) : (
                 <div className="flex items-center justify-center h-48">
-                  <span className="text-sm" style={{ color: 'var(--text-faint)' }}>
+                  <span className="text-sm text-text-faint">
                     {diffFile.original_content === null && diffFile.current_content === null
-                      ? 'No snapshot available — file was not modified in this session'
-                      : 'No changes detected'}
+                      ? '无快照可用 — 此文件未在本会话中修改'
+                      : '未检测到变更'}
                   </span>
                 </div>
               )}
@@ -3082,8 +3091,7 @@ function DiffView({ diff }: { diff: string }) {
   const isNewFile = lines.some((l) => l.startsWith('--- /dev/null'));
   return (
     <div
-      className="overflow-x-auto text-xs font-mono leading-5"
-      style={{ background: 'var(--surface)' }}
+      className="overflow-x-auto text-xs font-mono leading-5 bg-surface"
     >
       {lines.map((line, i) => {
         let bg = 'transparent';
@@ -3137,8 +3145,7 @@ function SectionLabel({ label, sectionKey }: { label: string; sectionKey: string
   const testId = `section-label-${sectionKey}`;
   return (
     <div
-      className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest"
-      style={{ color: 'var(--text-faint)' }}
+      className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-text-faint"
       data-testid={testId}
     >
       {label}
@@ -3178,8 +3185,7 @@ function TrackedFileCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
             <span
-              className="text-[12px] font-medium truncate"
-              style={{ color: 'var(--text)' }}
+              className="text-[12px] font-medium truncate text-text"
               title={displayPath}
             >
               {file.name.length > 30 ? file.name.slice(0, 28) + '…' : file.name}
@@ -3231,7 +3237,7 @@ function TrackedFileCard({
                 color: isOfficeFile ? 'var(--text-faint)' : 'var(--warning)',
                 opacity: isOfficeFile ? 0.55 : 1,
               }}
-              title={'Diff is not available for Office binary files'}
+              title={isOfficeFile ? 'Office 二进制文件不支持差异对比' : '查看差异'}
             >
               <GitCompare size={10} />
               Diff
@@ -3312,9 +3318,9 @@ function MessageBubble({
         )}
         {msg.collapsed &&
           (isCollapsed ? (
-            <ChevronRight size={10} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
+            <ChevronRight size={10} className="shrink-0 text-text-faint" />
           ) : (
-            <ChevronDown size={10} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
+            <ChevronDown size={10} className="shrink-0 text-text-faint" />
           ))}
         {isCollapsed ? (
           <span>{msg.summary || msg.content}</span>
@@ -3458,7 +3464,7 @@ function MessageBubble({
                     color: 'var(--text-muted)',
                   }}
                 >
-                  <FileText size={12} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
+                  <FileText size={12} className="shrink-0 text-text-faint" />
                   <span>{att.name}</span>
                 </div>
               ))}
@@ -3492,8 +3498,7 @@ function MessageBubble({
                     {isParsing && (
                       <Loader2
                         size={11}
-                        className="shrink-0 animate-spin"
-                        style={{ color: 'var(--text-muted)' }}
+                        className="shrink-0 animate-spin text-text-muted"
                       />
                     )}
                     {isDone && (
@@ -3545,6 +3550,14 @@ function MessageBubble({
                     }
               }
             >
+            <ErrorBoundary
+              fallback={(error, reset) => (
+                <div className="text-xs p-2 rounded" style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}>
+                  ⚠ 消息渲染失败
+                  <button onClick={reset} className="ml-2 underline" style={{ color: 'var(--accent)' }}>重试</button>
+                </div>
+              )}
+            >
               {msg.role === 'assistant' && msg.content === '' ? (
                 <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
               ) : msg.role === 'assistant' ? (
@@ -3552,14 +3565,14 @@ function MessageBubble({
               ) : (
                 renderContent((msg as any).__cleanContent || msg.content)
               )}
+            </ErrorBoundary>
             </div>
 
             {/* copy button */}
             {!isUser && msg.content !== '' && (
               <button
                 onClick={() => onCopy(msg.content)}
-                className="self-start opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
-                style={{ color: 'var(--text-faint)' }}
+                className="self-start opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-text-faint"
               >
                 {isCopied ? <Check size={12} /> : <Copy size={12} />}
               </button>
@@ -3641,7 +3654,7 @@ function MarkdownContent({ content }: { content: string }) {
       ),
       strong: ({ children }: any) => <strong className="font-semibold">{children}</strong>,
       em: ({ children }: any) => <em className="italic">{children}</em>,
-      hr: () => <hr className="my-3" style={{ borderColor: 'var(--border-subtle)' }} />,
+      hr: () => <hr className="my-3 border-border-subtle" />,
       a: ({ href, children }: any) => (
         <a
           href={href}
@@ -3669,7 +3682,7 @@ function MarkdownContent({ content }: { content: string }) {
         </th>
       ),
       td: ({ children }: any) => (
-        <td className="border px-2 py-1.5" style={{ borderColor: 'var(--border-subtle)' }}>
+        <td className="border px-2 py-1.5 border-border-subtle">
           {children}
         </td>
       ),
@@ -3697,7 +3710,7 @@ function MarkdownContent({ content }: { content: string }) {
                   color: 'var(--text-muted)',
                 }}
               >
-                {copiedCode === code ? 'Copied' : 'Copy'}
+                {copiedCode === code ? '已复制' : '复制'}
               </button>
               {code}
             </code>
