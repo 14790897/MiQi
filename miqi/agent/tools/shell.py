@@ -264,7 +264,7 @@ class ExecTool(Tool):
                     command, _sandbox, _session_key,
                 )
             except Exception:
-                _log.warning("exec: file mirroring failed", exc_info=True)
+                logger.warning("exec: file mirroring failed", exc_info=True)
 
         return exec_result.output
 
@@ -1236,9 +1236,9 @@ class ExecTool(Tool):
             target = Path(host_path)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(content if isinstance(content, bytes) else content.encode('utf-8'))
-            _log.info("exec [mirror]: %s → %s", sandbox_path, host_path)
+            logger.info("exec [mirror]: {} → {}", sandbox_path, host_path)
         except Exception as exc:
-            _log.warning("exec [mirror] failed for %s: %s", sandbox_path, exc)
+            logger.warning("exec [mirror] failed for {}: {}", sandbox_path, exc)
             return
 
         _persist_tracked_file(self._workspace, host_path, op="write", session_key=session_key)
