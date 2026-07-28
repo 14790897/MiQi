@@ -709,6 +709,20 @@ class BridgeRuntimeLoop:
                     except Exception:
                         pass
 
+            # Fallback: when active_thread_id has no history (e.g. after
+            # restart or session switch), find the most recently active
+            # thread in the DB and use it instead.
+            if thread_id != active_tid:
+                history_runtime = getattr(runtime.services, "history_runtime", None)
+                if history_runtime is not None:
+                    try:
+                        recent = await history_runtime.find_recent_thread()
+                    except Exception:
+                        recent = None
+                    if recent is not None:
+                        session_state.active_thread_id = recent
+                        thread_id = recent
+
         # ── Parse document attachments before submitting ────────────────
         # Extract text from uploaded documents (PDF/Office/MD) and inject
         # into the message content so the LLM can immediately understand them.

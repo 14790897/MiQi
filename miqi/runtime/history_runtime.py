@@ -392,6 +392,29 @@ class HistoryRuntime:
 
         return context_messages
 
+    async def find_recent_thread(self) -> str | None:
+        """Return the thread_id with the most recent message in the DB.
+
+        Searches across ALL sessions (no session_id filter) so that when
+        the user restarts MiQi or switches sessions, we can recover the
+        thread they were last working on.
+
+        Returns None when the DB has no history items at all.
+        """
+        db = self._conn
+        cursor = await db.execute(
+            """SELECT thread_id, MAX(created_at) AS max_ts
+               FROM runtime_history_items
+               WHERE role IN ('user', 'assistant')
+               GROUP BY thread_id
+               ORDER BY max_ts DESC
+               LIMIT 1"""
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return row["thread_id"]
+
     # ── Phase 36: delete turn items for rollback ───────────────────────
 
     async def delete_turn_items(self, thread_id: str, turn_ids: list[str]) -> int:

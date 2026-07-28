@@ -404,3 +404,90 @@ async def test_replace_messages_with_compaction_skips_missing_role(tmp_path):
         assert "unknown" in roles, f"missing-role msg should default to 'unknown', got {roles}"
     finally:
         await runtime.close()
+
+
+# ── Issue #490: find_recent_thread for session recovery ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_find_recent_thread_returns_most_recent_thread(tmp_path):
+    """find_recent_thread() returns the thread with the most recent message."""
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+    await runtime.initialize()
+    try:
+        # Thread 1: older messages
+        await runtime.append_message(
+            thread_id="t1", turn_id="turn-a", role="user", content="hello"
+        )
+        await runtime.append_message(
+            thread_id="t1", turn_id="turn-a", role="assistant", content="hi there"
+        )
+
+        # Thread 2: newer message
+        await runtime.append_message(
+            thread_id="t2", turn_id="turn-b", role="user", content="newer message"
+        )
+
+        recent = await runtime.find_recent_thread()
+        assert recent == "t2", f"Expected t2 (newest), got {recent}"
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_find_recent_thread_ignores_system_messages(tmp_path):
+    """find_recent_thread() only considers user/assistant roles."""
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+    await runtime.initialize()
+    try:
+        # Thread with only system messages should not be found
+        await runtime.append_message(
+            thread_id="sys-only", turn_id="turn-a", role="system", content="setup"
+        )
+
+        # Another thread with actual conversation
+        await runtime.append_message(
+            thread_id="real", turn_id="turn-b", role="user", content="real msg"
+        )
+
+        recent = await runtime.find_recent_thread()
+        assert recent == "real", f"Expected 'real', got {recent}"
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_find_recent_thread_returns_none_when_empty(tmp_path):
+    """find_recent_thread() returns None when there are no messages."""
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+    await runtime.initialize()
+    try:
+        recent = await runtime.find_recent_thread()
+        assert recent is None
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_find_recent_thread_cross_session(tmp_path):
+    """find_recent_thread() finds threads from other sessions (no session_id filter)."""
+    # Write messages under session A
+    runtime_a = HistoryRuntime(tmp_path / "runtime.db", session_id="session-a")
+    await runtime_a.initialize()
+    try:
+        await runtime_a.append_message(
+            thread_id="t-a", turn_id="turn-1", role="user", content="from session A"
+        )
+    finally:
+        await runtime_a.close()
+
+    # Query from session B — should still find the thread
+    runtime_b = HistoryRuntime(tmp_path / "runtime.db", session_id="session-b")
+    await runtime_b.initialize()
+    try:
+        recent = await runtime_b.find_recent_thread()
+        assert recent == "t-a", (
+            f"Should find thread from session-a, got {recent}"
+        )
+    finally:
+        await runtime_b.close()
