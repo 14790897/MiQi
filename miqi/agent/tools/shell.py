@@ -256,6 +256,16 @@ class ExecTool(Tool):
                 },
             )
 
+        # Phase 47: mirror files created by curl/wget from sandbox to host
+        # so they survive sandbox cleanup and appear in Task Assets.
+        if _sandbox is not None and exec_result.exit_code == 0:
+            try:
+                await self._mirror_downloaded_files(
+                    command, _sandbox, _session_key,
+                )
+            except Exception:
+                _log.warning("exec: file mirroring failed", exc_info=True)
+
         return exec_result.output
 
     async def _execute_in_sandbox(
@@ -1172,3 +1182,63 @@ class ExecTool(Tool):
                     return "Error: Command blocked by safety guard (path outside working dir)"
 
         return None
+
+    async def _mirror_downloaded_files(
+        self, command: str, sandbox, session_key: str | None,
+    ) -> None:
+        """After a successful exec, mirror files created by curl/wget from the
+        sandbox workspace to the host workspace so they survive sandbox cleanup
+        and appear in the Task Assets panel."""
+        import re as _re
+        from pathlib import Path
+
+        # Parse the command for output filenames
+        filename = None
+        # curl -o <file>  or  wget -O <file>
+        m = _re.search(r'(?:^|\s)-(?:o|O)\s+(\S+)', command)
+        if m:
+            filename = m.group(1).strip('\'"')
+        else:
+            # shell redirect > or >>
+            m = _re.search(r'(?:^|\s)>{1,2}\s*(\S+)', command)
+            if m:
+                filename = m.group(1).strip('\'"')
+
+        if not filename:
+            return
+
+        # Resolve the sandbox workspace path
+        from miqi.agent.tools.filesystem import (
+            _persist_tracked_file,
+            _sandbox_to_host_path,
+            _resolve_sandbox_path,
+            _get_session_workspace,
+        )
+
+        session_ws = _get_session_workspace(self._workspace, sandbox)
+        sandbox_path = _resolve_sandbox_path(filename, session_ws, sandbox)
+        host_path = _sandbox_to_host_path(sandbox_path, self._workspace, sandbox)
+
+        # Check if the file exists inside the sandbox
+        try:
+            from miqi.agent.tools.filesystem import _sandbox_file_exists
+            exists = await _sandbox_file_exists(sandbox, sandbox_path)
+        except Exception:
+            exists = False
+
+        if not exists:
+            return
+
+        # Mirror to host
+        try:
+            from miqi.agent.tools.filesystem import _sandbox_read_file
+            content = await _sandbox_read_file(sandbox, sandbox_path)
+            target = Path(host_path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content if isinstance(content, bytes) else content.encode('utf-8'))
+            _log.info("exec [mirror]: %s → %s", sandbox_path, host_path)
+        except Exception as exc:
+            _log.warning("exec [mirror] failed for %s: %s", sandbox_path, exc)
+            return
+
+        _persist_tracked_file(self._workspace, host_path, op="write", session_key=session_key)

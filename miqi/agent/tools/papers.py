@@ -795,6 +795,14 @@ class PaperDownloadTool(Tool):
             return json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False)
 
         if save_path.exists() and not overwrite:
+            # File already exists — still signal the Task Assets panel
+            _sess_key = kwargs.get("_session_key", None)
+            if _sess_key:
+                try:
+                    from miqi.agent.tools.filesystem import _persist_tracked_file
+                    _persist_tracked_file(self.workspace, save_path, op="write", session_key=_sess_key)
+                except Exception:
+                    pass
             return json.dumps(
                 {
                     "ok": False,
@@ -956,6 +964,15 @@ class PaperDownloadTool(Tool):
             )
 
         tmp_path.replace(save_path)
+
+        # Signal the Task Assets panel: persist the workspace-relative path
+        _sess_key = kwargs.get("_session_key", None)
+        if _sess_key:
+            try:
+                from miqi.agent.tools.filesystem import _persist_tracked_file
+                _persist_tracked_file(self.workspace, save_path, op="write", session_key=_sess_key)
+            except Exception:
+                pass
 
         payload: dict[str, Any] = {
             "ok": True,

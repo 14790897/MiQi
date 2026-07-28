@@ -191,9 +191,15 @@ def _validate_file_path(
             # If ownership fails, still let the caller handle it explicitly
             raise
         resolved = (session_files / file_path).resolve()
-        if str(resolved).startswith(str(workspace) + str(Path("/"))) or resolved == workspace:
+        # Only return the session-scoped path if the file actually exists there;
+        # otherwise fall through to workspace-level resolution so files created
+        # at the workspace root (e.g. by create_pdf) are found.
+        if resolved.exists() and (
+            str(resolved).startswith(str(workspace) + str(Path("/"))) or resolved == workspace
+        ):
             return resolved
-        # If session files dir doesn't contain this path, fall through to workspace
+        # If the file isn't in the session dir (or path escapes workspace),
+        # fall through to workspace-scoped resolution below
 
     # Workspace-scoped path resolution
     resolved = (workspace / file_path).resolve()
