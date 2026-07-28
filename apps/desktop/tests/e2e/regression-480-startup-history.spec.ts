@@ -5,10 +5,8 @@
  *   1. After creating a session with messages, restarting the app
  *      shows the last session's message history immediately —
  *      without needing to switch sessions and switch back.
- *   2. Bridge-unready retry logic in ChatConsole.load() works:
- *      exponential-backoff retries allow messages to appear once
- *      the bridge becomes ready, rather than permanently showing
- *      the empty welcome screen.
+ *   2. Sidebar session switching loads history (was FIXME-skipped
+ *      due to #480's bridge-unready race).
  *
  * Run:
  *   cd apps/desktop
@@ -24,12 +22,24 @@ import {
   sendMessage,
   waitForResponseComplete,
   getSessionTitle,
+  getSidebarSessionItems,
+  createNewConversation,
   launchElectronApp,
   closeElectronApp,
   waitForBridgeInitialized,
-  createNewConversation,
-  switchToSessionWithMarker,
 } from './helpers/electron-setup';
+
+// ─── Helpers ──────────────────────────────────────────────────────
+
+/** Send a message + type in the chat textarea (triggers React onChange) */
+async function typeAndSend(page: Page, text: string) {
+  const textarea = await waitForInputReady(page);
+  await textarea.click();
+  await textarea.type(text);
+  await textarea.press('Enter');
+  // Wait for the user message to appear
+  await expect(page.locator('main').getByText(text).first()).toBeVisible({ timeout: 10_000 });
+}
 
 // ─── Test Suite ───────────────────────────────────────────────────
 
@@ -50,7 +60,7 @@ test.describe('Regression #480: Session loads on startup', () => {
     'session history visible on restart without switching sessions',
     { timeout: LLM_TIMEOUT * 3 },
     async () => {
-      // ── Phase 1: First launch, create a session with known content ──
+      // ── Phase 1: Launch, create a session with known content ──
       const fixture = await launchElectronApp();
       electronApp = fixture.electronApp;
       page = fixture.page;
@@ -62,17 +72,17 @@ test.describe('Regression #480: Session loads on startup', () => {
       );
 
       const marker = `REG480_${Date.now()}`;
-      await sendMessage(page, `只回答${marker}`);
+      await typeAndSend(page, `只回答${marker}`);
       await waitForResponseComplete(page, 240_000);
 
-      // Confirm marker is visible in the current session
+      // Confirm marker is visible
       await expect(
         page.locator('main').getByText(marker, { exact: false }).first(),
       ).toBeVisible({ timeout: 10_000 });
       console.log(`[test] ✅ Phase 1: Created session with marker "${marker}"`);
 
-      // ── Phase 2: Close and relaunch with same MIQI_HOME ──
-      await closeElectronApp(electronApp, miqiHome);
+      // ── Phase 2: Close WITHOUT deleting MIQI_HOME, then relaunch ──
+      await closeElectronApp(electronApp); // no miqiHome arg → keep data
       await new Promise((r) => setTimeout(r, 3000));
 
       const env: Record<string, string | undefined> = { ...process.env };
@@ -100,7 +110,7 @@ test.describe('Regression #480: Session loads on startup', () => {
               break;
             }
           } catch {
-            /* window may not be ready yet */
+            /* window not ready */
           }
         }
         if (page2) break;
@@ -109,10 +119,7 @@ test.describe('Regression #480: Session loads on startup', () => {
       if (!page2) page2 = await app2.firstWindow();
       await page2.waitForLoadState('domcontentloaded');
 
-      // ── Phase 3: Wait for the app to load ──────────────────────────
-      // The key assertion: the retry logic in ChatConsole.load() should
-      // have fetched session history even if the bridge was not immediately
-      // ready. Wait for input to be ready, then check for the marker.
+      // ── Phase 3: Wait for UI + bridge ready ─────────────────────
       try {
         await page2.getByText('MiQi Workbench').waitFor({ timeout: 30_000 });
       } catch {
@@ -120,46 +127,30 @@ test.describe('Regression #480: Session loads on startup', () => {
       }
       await waitForInputReady(page2, 60_000);
 
-      // Give the retry logic time to complete (max ~9s for full backoff)
-      await page2.waitForTimeout(12_000);
+      // The retry logic in ChatConsole.load() should fetch history
+      // even if the bridge wasn't ready on the first attempt.
+      await page2.waitForTimeout(15_000);
 
       // ── Phase 4: Verify marker is visible WITHOUT session switching ──
-      const markerVisible = await page2
-        .locator('main')
-        .getByText(marker, { exact: false })
-        .first()
-        .isVisible({ timeout: 10_000 })
-        .catch(() => false);
-
-      if (!markerVisible) {
-        // Dump diagnostic info before failing
-        const mainText = await page2.locator('main').textContent().catch(() => '(error)');
-        const titleText = await getSessionTitle(page2)
-          .textContent()
-          .catch(() => '(error)');
-        console.log('[test] DIAGNOSTIC: Session title:', titleText);
-        console.log(
-          '[test] DIAGNOSTIC: Main text (last 500 chars):',
-          (mainText || '').slice(-500),
-        );
-        // Check if the loading spinner is gone (historyLoaded should be true)
-        const hasSpinner = await page2
-          .locator('.animate-spin')
-          .first()
-          .isVisible()
-          .catch(() => false);
-        console.log('[test] DIAGNOSTIC: Loading spinner visible:', hasSpinner);
+      const mainText = await page2.locator('main').textContent().catch(() => '');
+      const markerIdx = mainText.indexOf(marker);
+      if (markerIdx === -1) {
+        console.log('[test] DIAGNOSTIC: main textContent (last 500):', mainText.slice(-500));
+        console.log('[test] DIAGNOSTIC: main textContent (first 500):', mainText.slice(0, 500));
       }
-
-      expect(markerVisible).toBe(true);
       console.log(
-        `[test] ✅ Phase 3: History loaded after restart — marker "${marker}" visible without session switch`,
+        `[test] Marker "${marker}" ${markerIdx >= 0 ? 'FOUND' : 'NOT FOUND'} at index ${markerIdx}`,
       );
 
-      // Clean up the second app instance
+      expect(markerIdx).toBeGreaterThanOrEqual(0);
+      console.log(`[test] ✅ Phase 3: History loaded after restart — no session switch needed`);
+
+      // Clean up: close second app, then delete miqiHome
       await closeElectronApp(app2).catch(() => {});
-      // Don't double-close miqiHome — set electronApp to dummy so afterAll no-ops
-      electronApp = app2;
+      await closeElectronApp(electronApp, miqiHome).catch(() => {});
+      // Prevent double-cleanup
+      // @ts-ignore
+      electronApp = undefined as any;
       miqiHome = '';
     },
   );
@@ -182,26 +173,69 @@ test.describe('Regression #480: Session loads on startup', () => {
         (window as any).miqi.approvals.addPermanent('*:*', 'always'),
       );
 
-      // Create first session with known marker
+      // ── Step 1: Create first session with known marker ─────────
+      // createNewConversation first to get a properly titled session
+      const sessionATitle = await createNewConversation(page);
+      console.log(`[test] Session A created: "${sessionATitle}"`);
+
       const marker = `SW_${Date.now()}`;
-      await sendMessage(page, `只回答${marker}`);
+      await typeAndSend(page, `只回答${marker}`);
       await waitForResponseComplete(page, 240_000);
 
-      // Create a second session so we have something to switch from
-      await createNewConversation(page);
-
-      // Switch back to the first session via sidebar
-      const found = await switchToSessionWithMarker(page, marker);
-      expect(found).toBe(true);
-
-      // Marker should be visible in the main chat area
+      // Verify marker is visible in session A
       await expect(
         page.locator('main').getByText(marker, { exact: false }).first(),
-      ).toBeVisible({ timeout: 15_000 });
+      ).toBeVisible({ timeout: 10_000 });
+      console.log(`[test] ✅ Session A has marker "${marker}"`);
 
-      console.log(
-        `[test] ✅ Sidebar switch back loaded history — marker "${marker}" visible`,
-      );
+      // ── Step 2: Create session B ──────────────────────────────
+      await createNewConversation(page);
+      // Wait for sidebar to show both sessions
+      await page.waitForTimeout(3000);
+      const count = await getSidebarSessionItems(page).count();
+      console.log(`[test] Sidebar session count: ${count}, expecting ≥2`);
+
+      // ── Step 3: Click the first session card (session A) in sidebar ──
+      // Session cards are button.rounded-xl elements in the sidebar.
+      // The first card in the list should be session A (sorted by updated_at).
+      // We verify by checking main content after clicking.
+      const sessionCards = getSidebarSessionItems(page);
+      const numCards = await sessionCards.count();
+      console.log(`[test] ${numCards} sidebar session cards found`);
+
+      let found = false;
+      for (let i = 0; i < numCards; i++) {
+        const card = sessionCards.nth(i);
+        await card.scrollIntoViewIfNeeded().catch(() => {});
+        await card.click({ force: true, timeout: 5000 });
+        console.log(`[test] Clicked sidebar card #${i}`);
+
+        // Wait for ChatConsole to remount and load history
+        await page.waitForTimeout(5000);
+
+        const hasMarker = await page
+          .locator('main')
+          .getByText(marker, { exact: false })
+          .first()
+          .isVisible()
+          .catch(() => false);
+
+        if (hasMarker) {
+          found = true;
+          console.log(`[test] ✅ Found marker in sidebar card #${i}`);
+          break;
+        }
+        console.log(`[test] Card #${i} does not contain marker`);
+      }
+
+      if (!found) {
+        // Dump diagnostic info
+        const mainText = await page.locator('main').textContent().catch(() => '(error)');
+        console.log('[test] DIAGNOSTIC: main text (last 500):', (mainText || '').slice(-500));
+      }
+
+      expect(found).toBe(true);
+      console.log(`[test] ✅ Sidebar switch back loaded history`);
     },
   );
 });
