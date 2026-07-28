@@ -12,6 +12,7 @@ import { Textarea } from '../../components/ui/Textarea';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { ContextMenu, type ContextMenuAction } from '../../components/ContextMenu';
 import { cn } from '../../lib/utils';
+import { Modal } from '../../components/shared';
 import { formatRelativeTime } from '../../lib/formatTime';
 import {
   ExecutionPolicySelector,
@@ -80,8 +81,7 @@ interface Attachment {
   parseError?: string;
 }
 
-const DOCUMENT_SUFFIXES_RE =
-  /\.(docx|doc|pptx|ppt|xlsx|xls|pdf|odt|odp|ods|md|markdown|mdown|html|htm)$/i;
+const DOCUMENT_SUFFIXES_RE = /\.(docx|doc|pptx|ppt|xlsx|xls|pdf|odt|odp|ods|md|markdown|mdown|html|htm|csv|json|xml|yaml|yml|env|log|sql|ini|toml|htaccess|sh|bash|txt|text|rtf)$/i;
 
 function getDocCategory(name: string): { label: string; color: string; bg: string } {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
@@ -98,6 +98,22 @@ function getDocCategory(name: string): { label: string; color: string; bg: strin
     mdown: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
     html: { label: 'HTML', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
     htm: { label: 'HTML', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+    csv: { label: 'CSV', color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
+    json: { label: 'JSON', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+    xml: { label: 'XML', color: '#6366f1', bg: 'rgba(99,102,241,0.12)' },
+    yaml: { label: 'YAML', color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
+    yml: { label: 'YAML', color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
+    env: { label: 'ENV', color: '#84cc16', bg: 'rgba(132,204,22,0.12)' },
+    log: { label: 'LOG', color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
+    sql: { label: 'SQL', color: '#0ea5e9', bg: 'rgba(14,165,233,0.12)' },
+    ini: { label: 'INI', color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
+    toml: { label: 'TOML', color: '#e11d48', bg: 'rgba(225,29,72,0.12)' },
+    htaccess: { label: 'HTA', color: '#d946ef', bg: 'rgba(217,70,239,0.12)' },
+    sh: { label: 'SH', color: '#14b8a6', bg: 'rgba(20,184,166,0.12)' },
+    bash: { label: 'SH', color: '#14b8a6', bg: 'rgba(20,184,166,0.12)' },
+    txt: { label: 'TXT', color: '#6b7280', bg: 'rgba(107,114,128,0.12)' },
+    text: { label: 'TXT', color: '#6b7280', bg: 'rgba(107,114,128,0.12)' },
+    rtf: { label: 'RTF', color: '#ec4899', bg: 'rgba(236,72,153,0.12)' },
     odt: { label: 'DOC', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
     odp: { label: 'PPT', color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
     ods: { label: 'XLS', color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
@@ -130,6 +146,8 @@ const FILE_BLOCK_RES = [
   /\[File: ([^\]]+)\]\n```\n[\s\S]*?\n```/g,
   /\[([^\]:]+):\s*(?:binary file|scanned PDF)[^\]]*\]/g,
   /--- Document: ([^\n]+) ---\n[\s\S]*?\n--- End of \1 ---/g,
+  /--- ([^\n]+) ---\n[\s\S]*?\n--- End of \1 ---/g,   // legacy: client-side inject before fix
+  /\[Uploaded: ([^\]]+?)\s+[—\-]\s+use\s+pdf_read[^\]]*\]/g,  // backend fallback when parse returns empty
 ];
 
 interface FileChip {
@@ -212,7 +230,7 @@ interface TrackedFile {
 
 const OFFICE_FILE_RE = /\.(docx|xlsx|pptx|ppt|xls|doc|odt|odp|ods)$/i;
 const PDF_FILE_RE = /\.pdf$/i;
-const TEXT_SUFFIXES_RE = /\.(md|markdown|mdown|txt|csv|json|yaml|yml|xml|log)$/i;
+const TEXT_SUFFIXES_RE = /\.(md|markdown|mdown|txt|text|csv|json|yaml|yml|xml|log|env|sql|ini|toml|htaccess|sh|bash|rtf)$/i;
 const OFFICE_FILE_RE_LEGACY = /\.(docx|xlsx|pptx|ppt)$/i;
 
 /** Extract text from a PDF buffer by parsing BT/ET text blocks.
@@ -1135,9 +1153,50 @@ export function ChatConsole({
     justOpened.current = true;
     userScrolledUp.current = false; // reset for new session
     const load = async () => {
-      try {
-        const detail = await window.miqi.sessions.get(sessionKey);
+      // ── Retry with exponential backoff ──────────────────────────
+      // On startup the bridge may not be running yet → sendSafe
+      // returns null.  Even when running, transient IPC failures
+      // can occur.  Retry so that a slow bridge start or a one-off
+      // error doesn't leave the session permanently blank (#480).
+      const MAX_RETRIES = 10;
+      const BASE_DELAY_MS = 500;
+      const MAX_DELAY_MS = 10_000;
+
+      let detail: unknown = null;
+      let lastErr: unknown = null;
+
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         if (currentSessionRef.current !== sessionKey) return;
+
+        try {
+          detail = await window.miqi.sessions.get(sessionKey);
+        } catch (err) {
+          lastErr = err;
+        }
+
+        if (detail != null) break; // got data — stop retrying
+
+        if (attempt < MAX_RETRIES - 1) {
+          const delay = Math.min(BASE_DELAY_MS * Math.pow(2, attempt), MAX_DELAY_MS);
+          console.warn(
+            `[ChatConsole] Load attempt ${attempt + 1}/${MAX_RETRIES} returned null, retrying in ${delay}ms…`
+          );
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
+
+      if (currentSessionRef.current !== sessionKey) return;
+
+      if (detail == null) {
+        console.warn(
+          '[ChatConsole] Failed to load session data after retries, last error:',
+          lastErr
+        );
+        setHistoryLoaded(true);
+        return;
+      }
+
+      try {
         const rawMsgs: any[] = (detail as any)?.messages ?? [];
         const uiMsgs = sessionMsgsToUi(rawMsgs);
         setMessages(uiMsgs);
@@ -1296,9 +1355,9 @@ export function ChatConsole({
         reader.onload = () => {
           const base64 = (reader.result as string).split(',')[1];
           const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-          // PDF/MD/text parse instantly client-side → done; Office needs server → pending
-          const isOffice = /^(docx|doc|pptx|ppt|xlsx|xls|odt|odp|ods)$/i.test(ext);
-          const parseStatus: Attachment['status'] = isOffice ? 'pending' : 'done';
+          // PDF/MD/text parse instantly client-side → done; Office/RTF needs server → pending
+          const isServerParsed = /^(docx|doc|pptx|ppt|xlsx|xls|odt|odp|ods|rtf)$/i.test(ext);
+          const parseStatus: Attachment['status'] = isServerParsed ? 'pending' : 'done';
 
           setAttachments((prev) => [
             ...prev,
@@ -1422,26 +1481,17 @@ export function ChatConsole({
           if (ext === 'pdf') {
             extracted = extractPdfText(raw.buffer);
           } else if (
-            ext === 'md' ||
-            ext === 'markdown' ||
-            ext === 'mdown' ||
-            ext === 'txt' ||
-            ext === 'html' ||
-            ext === 'htm'
-          ) {
-            extracted = new TextDecoder().decode(raw);
-          } else if (
-            ext === 'csv' ||
-            ext === 'json' ||
-            ext === 'yaml' ||
-            ext === 'yml' ||
-            ext === 'xml'
+            ext === 'md' || ext === 'markdown' || ext === 'mdown' || ext === 'txt' || ext === 'text' ||
+            ext === 'html' || ext === 'htm' || ext === 'csv' || ext === 'json' ||
+            ext === 'yaml' || ext === 'yml' || ext === 'xml' || ext === 'env' ||
+            ext === 'log' || ext === 'sql' || ext === 'ini' || ext === 'toml' ||
+            ext === 'htaccess' || ext === 'sh' || ext === 'bash'
           ) {
             extracted = new TextDecoder().decode(raw);
           }
 
           if (extracted && extracted.trim()) {
-            content += `\n\n--- ${att.name} ---\n${extracted.slice(0, 50000)}\n--- End of ${att.name} ---`;
+            content += `\n\n--- Document: ${att.name} ---\n${extracted.slice(0, 50000)}\n--- End of ${att.name} ---`;
           } else if (ext === 'pdf') {
             content += `\n\n[${att.name}: scanned PDF — OCR will be attempted by the server]`;
           } else {
@@ -2084,8 +2134,8 @@ export function ChatConsole({
         reader.onload = () => {
           const base64 = (reader.result as string).split(',')[1];
           const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-          const isOffice = /^(docx|doc|pptx|ppt|xlsx|xls|odt|odp|ods)$/i.test(ext);
-          const parseStatus: Attachment['status'] = isOffice ? 'pending' : 'done';
+          const isServerParsed = /^(docx|doc|pptx|ppt|xlsx|xls|odt|odp|ods|rtf)$/i.test(ext);
+          const parseStatus: Attachment['status'] = isServerParsed ? 'pending' : 'done';
           setAttachments((prev) => [
             ...prev,
             {
@@ -2256,7 +2306,7 @@ export function ChatConsole({
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*,text/*,.md,.markdown,.mdown,.txt,.py,.ts,.js,.json,.csv,.yaml,.yml,.toml,.pdf,.docx,.pptx,.xlsx,.doc,.ppt,.xls,.odt,.odp,.ods,.html,.htm"
+        accept="image/*,text/*,.md,.markdown,.mdown,.txt,.text,.py,.ts,.js,.json,.csv,.yaml,.yml,.toml,.xml,.env,.log,.sql,.ini,.htaccess,.sh,.bash,.rtf,.pdf,.docx,.pptx,.xlsx,.doc,.ppt,.xls,.odt,.odp,.ods,.html,.htm"
         className="hidden"
         onChange={handleFileChange}
       />
@@ -2600,9 +2650,7 @@ export function ChatConsole({
                             if (ext === 'pdf') {
                               previewText = extractPdfText(raw.buffer);
                             } else if (
-                              /^(md|markdown|mdown|txt|csv|json|ya?ml|xml|py|ts|js|log|html|htm)$/i.test(
-                                ext
-                              )
+                              /^(md|markdown|mdown|txt|text|csv|json|ya?ml|xml|py|ts|js|log|html|htm|env|sql|ini|toml|htaccess|sh|bash)$/i.test(ext)
                             ) {
                               previewText = new TextDecoder().decode(raw);
                             } else {
@@ -2981,19 +3029,7 @@ export function ChatConsole({
 
       {/* ── File Preview Modal ── */}
       {previewFile && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.5)', pointerEvents: 'auto' }}
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            e.preventDefault();
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            closePreview(e);
-          }}
-        >
+        <Modal open={!!previewFile} onOpenChange={(o) => { if (!o) closePreview(); }} hideClose>
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
@@ -3063,16 +3099,12 @@ export function ChatConsole({
               </pre>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* ── Diff Modal ── */}
       {diffFile && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.6)' }}
-          onClick={closeDiff}
-        >
+        <Modal open={!!diffFile} onOpenChange={(o) => { if (!o) closeDiff(); }} hideClose>
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
@@ -3190,7 +3222,7 @@ export function ChatConsole({
               )}
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
@@ -3498,31 +3530,22 @@ function MessageBubble({
                     }
               }
             >
-              <ErrorBoundary
-                fallback={(error, reset) => (
-                  <div
-                    className="text-xs p-2 rounded"
-                    style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}
-                  >
-                    ⚠ 消息渲染失败
-                    <button
-                      onClick={reset}
-                      className="ml-2 underline"
-                      style={{ color: 'var(--accent)' }}
-                    >
-                      重试
-                    </button>
-                  </div>
-                )}
-              >
-                {msg.role === 'assistant' && msg.content === '' ? (
-                  <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
-                ) : msg.role === 'assistant' ? (
-                  <MarkdownContent content={msg.content} />
-                ) : (
-                  renderContent((msg as any).__cleanContent || msg.content)
-                )}
-              </ErrorBoundary>
+            <ErrorBoundary
+              fallback={(error, reset) => (
+                <div className="text-xs p-2 rounded" style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}>
+                  ⚠ 消息渲染失败
+                  <button onClick={reset} className="ml-2 underline" style={{ color: 'var(--accent)' }}>重试</button>
+                </div>
+              )}
+            >
+              {msg.role === 'assistant' && msg.content === '' ? (
+                <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
+              ) : msg.role === 'assistant' ? (
+                <MarkdownContent content={msg.content} />
+              ) : (
+                renderContent((msg as any).__cleanContent ?? msg.content)
+              )}
+            </ErrorBoundary>
             </div>
 
             {/* copy button */}

@@ -141,6 +141,8 @@ jobs:
           xvfb-run --auto-servernum \
             npx playwright test --config=playwright.config.ts --project=electron
         timeout-minutes: 30
+        env:
+          PLAYWRIGHT_SKIP_WEB_SERVER: '1'
 
       - name: Upload Playwright report (E2E)
         if: failure()
@@ -230,6 +232,8 @@ jobs:
           npx playwright test --config=playwright.config.ts --project=electron \
             --grep-invert "Sandbox Exec|session-key-mapping|PPTX Generator"
         timeout-minutes: 30
+        env:
+          PLAYWRIGHT_SKIP_WEB_SERVER: '1'
 
       - name: Upload Playwright report (macOS E2E)
         if: failure()

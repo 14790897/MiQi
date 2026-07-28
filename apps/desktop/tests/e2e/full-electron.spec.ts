@@ -20,6 +20,7 @@ import {
   waitForResponseComplete,
   getSessionTitle,
   getSidebarSessionCount,
+  getSidebarSessionItems,
   createNewConversation,
   waitForSidebarRefresh,
   switchToSessionWithMarker,
@@ -257,34 +258,104 @@ test.describe('Native Electron E2E', () => {
 
   // ═══════════════════════════════════════════════════════════════
   //  SECTION 4: Sidebar Switching & History
+  //
+  //  Fixed in #480: ChatConsole.load() now uses exponential-backoff
+  //  retry so transient bridge-unready state doesn't permanently skip
+  //  history loading on session switch.
+  //
+  //  These tests share describe state with other tests that modify
+  //  session count/order via createNewConversation → sendMessage.
+  //  Gated behind MIQI_RUN_STATEFUL_SESSION_E2E=1 (same guard as
+  //  other stateful tests).  The dedicated regression spec at
+  //  tests/e2e/regression-480-startup-history.spec.ts always runs
+  //  both scenarios in isolated Electron instances.
   // ═══════════════════════════════════════════════════════════════
 
-  // FIXME: Skipped — application bug prevents sidebar session switching from
-  // loading chat history.  ChatConsole.tsx calls window.miqi.sessions.get(key)
-  // on mount, but the bridge returns null/empty, silently caught by sendSafe.
-  // "Brand Guideline Update" is a UI display hack (ChatConsole.tsx:1114), not
-  // real session data.  Full page reload works (see history-persists test)
-  // but sidebar click → ChatConsole remount does not.  Likely root cause:
-  // parameter naming mismatch between IPC handler (session_key/snake_case)
-  // and protocol types (sessionKey/camelCase), or sendSafe silently returning
-  // null when the bridge IPC fails on session switch.
-  test.skip('sidebar switch back loads history', { timeout: LLM_TIMEOUT }, async () => {
-    await createNewConversation(page);
-    const m = `M_${Date.now()}`;
-    await sendMessage(page, `只回答${m}`);
-    await waitForResponseComplete(page);
+  test.describe('sidebar switching', () => {
+    if (SKIP_STATEFUL_SESSION_E2E_ON_CI) {
+      test.skip();
+    }
+    test('sidebar switch back loads history', { timeout: LLM_TIMEOUT }, async () => {
+      await createNewConversation(page);
 
-    await createNewConversation(page);
-    await sendMessage(page, 'hi');
-    await waitForResponseComplete(page);
+      const m = `M_${Date.now()}`;
+      const textarea = await waitForInputReady(page);
+      await textarea.click();
+      await textarea.type(`只回答${m}`);
+      await textarea.press('Enter');
+      await expect(page.locator('main').getByText(m).first()).toBeVisible({ timeout: 10_000 });
+      await waitForResponseComplete(page);
 
-    // Switch back via sidebar — use dedicated helper that iterates
-    // all session cards and checks <main> area for the marker
-    const found = await switchToSessionWithMarker(page, m);
-    expect(found).toBe(true);
+      await createNewConversation(page);
+      await page.waitForTimeout(2000);
 
-    // Marker should be visible in the main chat area
-    await expect(page.locator('main').getByText(m).first()).toBeVisible({ timeout: 15000 });
+      const countAfter = await getSidebarSessionItems(page).count();
+      console.log(`[test] Sidebar sessions after new: ${countAfter}`);
+
+      const sessionCards = getSidebarSessionItems(page);
+      const numCards = await sessionCards.count();
+
+      let found = false;
+      for (let i = 0; i < numCards; i++) {
+        const card = sessionCards.nth(i);
+        await card.scrollIntoViewIfNeeded().catch(() => {});
+        await card.click({ force: true, timeout: 5000 });
+        await page.waitForTimeout(5000);
+
+        const hasMarker = await page.locator('main')
+          .getByText(m, { exact: false }).first()
+          .isVisible().catch(() => false);
+
+        if (hasMarker) { found = true; console.log(`[test] Found marker in card #${i}`); break; }
+        console.log(`[test] Card #${i} has no marker`);
+      }
+      expect(found).toBe(true);
+      await expect(page.locator('main').getByText(m).first()).toBeVisible({ timeout: 15000 });
+    });
+
+    test('switch back sees full multi-turn history', { timeout: LLM_TIMEOUT }, async () => {
+      await createNewConversation(page);
+
+      const markerA = `RED_${Date.now()}`;
+      const textarea1 = await waitForInputReady(page);
+      await textarea1.click();
+      await textarea1.type(`只回答${markerA}`);
+      await textarea1.press('Enter');
+      await expect(page.locator('main').getByText(markerA).first()).toBeVisible({ timeout: 10_000 });
+      await waitForResponseComplete(page);
+
+      const markerB = `BLUE_${Date.now()}`;
+      const textarea2 = await waitForInputReady(page);
+      await textarea2.click();
+      await textarea2.type(`只回答${markerB}`);
+      await textarea2.press('Enter');
+      await expect(page.locator('main').getByText(markerB).first()).toBeVisible({ timeout: 10_000 });
+      await waitForResponseComplete(page);
+
+      await createNewConversation(page);
+      await page.waitForTimeout(2000);
+
+      const sessionCards = getSidebarSessionItems(page);
+      const numCards = await sessionCards.count();
+      console.log(`[test] ${numCards} sidebar session cards`);
+
+      let found = false;
+      for (let i = 0; i < numCards; i++) {
+        const card = sessionCards.nth(i);
+        await card.scrollIntoViewIfNeeded().catch(() => {});
+        await card.click({ force: true, timeout: 5000 });
+        await page.waitForTimeout(5000);
+
+        const hasMarker = await page.locator('main')
+          .getByText(markerA, { exact: false }).first()
+          .isVisible().catch(() => false);
+
+        if (hasMarker) { found = true; console.log(`[test] Found markerA in card #${i}`); break; }
+        console.log(`[test] Card #${i} has no markerA`);
+      }
+      expect(found).toBe(true);
+      await expect(page.locator('main').getByText(markerB).first()).toBeVisible({ timeout: 15_000 });
+    });
   });
 
   test(
@@ -342,27 +413,6 @@ test.describe('Native Electron E2E', () => {
       page = fixture.page;
     },
   );
-
-  // FIXME: Skipped — same application bug as "sidebar switch back loads
-  // history" above.  See that test's comment for root cause analysis.
-  test.skip('switch back sees full multi-turn history', { timeout: LLM_TIMEOUT }, async () => {
-    await createNewConversation(page);
-
-    await sendMessage(page, '只回答红');
-    await waitForResponseComplete(page);
-    await sendMessage(page, '只回答蓝');
-    await waitForResponseComplete(page);
-
-    await createNewConversation(page);
-    await sendMessage(page, 'hi');
-    await waitForResponseComplete(page);
-
-    // Switch back via sidebar — iterate session cards, check <main> area
-    const found = await switchToSessionWithMarker(page, '红');
-    expect(found).toBe(true);
-
-    await expect(page.locator('main').getByText('蓝').first()).toBeVisible({ timeout: 15_000 });
-  });
 
   // ═══════════════════════════════════════════════════════════════
   //  SECTION 5: Multi-turn & Persistence

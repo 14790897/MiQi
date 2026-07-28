@@ -69,6 +69,8 @@ function emptyForm(): JobFormData {
   };
 }
 
+import { Modal } from '../../components/shared';
+
 function CreateEditModal({
   job,
   onClose,
@@ -153,7 +155,7 @@ function CreateEditModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+    <Modal open onOpenChange={onClose} hideClose>
       <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[520px] max-h-[80vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-subtle)]">
           <h2 className="text-sm font-semibold text-[var(--text)]">
@@ -312,7 +314,7 @@ function CreateEditModal({
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

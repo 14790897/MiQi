@@ -14,6 +14,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import type { ApprovalsListResult, ApprovalHistoryEntry } from '../../../shared/ipc';
+import { Modal } from '../../components/shared';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -879,10 +880,7 @@ export function ApprovalsPage() {
 
       {/* ── Add Dialog ────────────────────────────────────────────────── */}
       {showAdd && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/20"
-          onClick={() => setShowAdd(false)}
-        >
+        <Modal open={showAdd} onOpenChange={(o) => { if (!o) setShowAdd(false); }} hideClose>
           <div
             className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-full max-w-[420px] mx-4 overflow-hidden"
             onClick={(e) => e.stopPropagation()}
@@ -923,7 +921,7 @@ export function ApprovalsPage() {
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
