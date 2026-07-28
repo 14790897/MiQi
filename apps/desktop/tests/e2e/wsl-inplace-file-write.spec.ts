@@ -63,6 +63,12 @@ test.describe('WSL Sandbox In-Place File Write (#474)', () => {
   let page: Page;
   let miqiHome: string;
 
+  // Skip entire suite on CI before launching Electron (CodeRabbit feedback)
+  test.describe.skip(
+    () => SKIP_SANDBOX_E2E,
+    'Run with MIQI_RUN_SANDBOX_E2E=1 for manual verification.',
+  );
+
   test.beforeAll(async () => {
     const fixture = await launchElectronApp();
     electronApp = fixture.electronApp;
@@ -82,11 +88,6 @@ test.describe('WSL Sandbox In-Place File Write (#474)', () => {
     'write_file in WSL sandbox writes to host workspace in-place',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
-      test.skip(
-        SKIP_SANDBOX_E2E,
-        'Run with MIQI_RUN_SANDBOX_E2E=1 for manual verification.',
-      );
-
       // Wait for sandbox to be ready (cold start can take minutes)
       const ready = await waitForSandboxReady(page, 300_000);
       if (!ready) {
@@ -125,17 +126,11 @@ test.describe('WSL Sandbox In-Place File Write (#474)', () => {
       // Verify the file exists and contains the new content
       await page.waitForTimeout(5000); // Allow filesystem sync
 
-      if (existsSync(hostFilePath)) {
-        const actualContent = readFileSync(hostFilePath, 'utf-8');
-        console.log(`[test] File content on host: "${actualContent}"`);
-        expect(actualContent).toContain(content);
-        console.log('[test] ✅ write_file wrote in-place to host workspace');
-      } else {
-        // File might be in a session subdirectory
-        console.log('[test] File not at workspace root, checking session dirs...');
-        // This is also acceptable — the key is the file exists on host
-        // TODO: search for file in session subdirectories
-      }
+      expect(existsSync(hostFilePath), `Host file not found: ${hostFilePath}`).toBe(true);
+      const actualContent = readFileSync(hostFilePath, 'utf-8');
+      console.log(`[test] File content on host: "${actualContent}"`);
+      expect(actualContent).toContain(content);
+      console.log('[test] ✅ write_file wrote in-place to host workspace');
 
       // Cleanup
       try { unlinkSync(hostFilePath); } catch {}
@@ -153,11 +148,6 @@ test.describe('WSL Sandbox In-Place File Write (#474)', () => {
     'edit_file in WSL sandbox modifies host file in-place',
     { timeout: LLM_TIMEOUT * 2 },
     async () => {
-      test.skip(
-        SKIP_SANDBOX_E2E,
-        'Run with MIQI_RUN_SANDBOX_E2E=1 for manual verification.',
-      );
-
       const ready = await waitForSandboxReady(page, 300_000);
       if (!ready) {
         throw new Error('Sandbox manager did not become ready within 300s');
@@ -192,13 +182,12 @@ test.describe('WSL Sandbox In-Place File Write (#474)', () => {
       // Verify the modification persisted on host
       await page.waitForTimeout(5000);
 
-      if (existsSync(hostFilePath)) {
-        const actualContent = readFileSync(hostFilePath, 'utf-8');
-        console.log(`[test] File after edit: "${actualContent}"`);
-        expect(actualContent).toContain('MODIFIED by #474');
-        expect(actualContent).not.toContain(`Line 2: ${timestamp}`);
-        console.log('[test] ✅ edit_file modified host file in-place');
-      }
+      expect(existsSync(hostFilePath), `Host file not found after edit: ${hostFilePath}`).toBe(true);
+      const actualContent = readFileSync(hostFilePath, 'utf-8');
+      console.log(`[test] File after edit: "${actualContent}"`);
+      expect(actualContent).toContain('MODIFIED by #474');
+      expect(actualContent).not.toContain(`Line 2: ${timestamp}`);
+      console.log('[test] ✅ edit_file modified host file in-place');
 
       try { unlinkSync(hostFilePath); } catch {}
       await page.screenshot({
