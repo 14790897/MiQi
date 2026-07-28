@@ -188,6 +188,8 @@ class TestResolveSandboxPathWSL:
         assert result.endswith("/readme.md")
 
     def test_wsl_session_subdir(self, tmp_path):
+        if not _IS_WINDOWS:
+            pytest.skip("WSL session subdir mapping only meaningful on Windows")
         session_ws = tmp_path / "sessions" / "abc123" / "files"
         session_ws.mkdir(parents=True)
         sb = _make_wsl_sandbox()

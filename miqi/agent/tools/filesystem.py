@@ -268,7 +268,20 @@ def _canonicalize_wsl_mnt_path(mnt_path: str, workspace: Path | None) -> str:
 
     try:
         import os as _os
+        import sys as _sys
         normalized = _os.path.normpath(host_str)
+
+        # On non-Windows, drive-letter paths (C:/...) don't resolve
+        # meaningfully — Path.resolve() prepends CWD.  Use normpath
+        # for .. resolution and skip the host-filesystem containment
+        # check (WSL sandbox only exists on Windows anyway).
+        if _sys.platform != "win32":
+            # Resolve .. via normpath and convert back to /mnt/ format
+            nm = _re.match(r"^([A-Za-z]):/(.+)$", normalized)
+            if nm:
+                return f"/mnt/{nm.group(1).lower()}/{nm.group(2)}"
+            return mnt_path
+
         resolved = Path(normalized).resolve()
     except Exception:
         _log.warning("_canonicalize_wsl_mnt_path: cannot resolve %s", host_str)
