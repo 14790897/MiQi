@@ -985,9 +985,9 @@ async def _inject_fork_summary(
     parent_thread_id: str,
     child_thread_id: str,
     parent_title: str,
-    max_messages: int = 3,
-    max_chars_per_msg: int = 200,
-    max_total_chars: int = 1200,
+    max_messages: int = 2,
+    max_chars_per_msg: int = 100,
+    max_total_chars: int = 500,
 ) -> None:
     """Inject parent thread context as a system message into a forked thread.
 
