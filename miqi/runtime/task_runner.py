@@ -430,6 +430,13 @@ class TaskRunner:
         turn_id = msg.turn_id or str(uuid.uuid4())[:12]
         thread_id = msg.thread_id or "cli:default"
 
+        # Update session's active thread so future turns on the same
+        # session reuse this thread (Issue #490 — frontend may not
+        # track thread continuity).
+        session_state = getattr(self.services, "session_state", None)
+        if session_state is not None and hasattr(session_state, "active_thread_id"):
+            session_state.active_thread_id = thread_id
+
         # Phase 14 follow-up: register a cancel event so AbortTurn can
         # signal this specific turn to stop. Reuse existing event if a
         # previous turn on the same thread hasn't been cleaned up yet.
