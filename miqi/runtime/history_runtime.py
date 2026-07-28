@@ -319,6 +319,63 @@ class HistoryRuntime:
             messages.append(msg)
         return messages
 
+    # ── Session-level cross-thread context (Issue #490) ─────────────────
+
+    async def get_session_thread_ids(self) -> list[str]:
+        """Return all distinct thread IDs in this session.
+
+        Used for cross-thread context injection so that threads within the
+        same session can share conversation history awareness.
+        """
+        db = self._conn
+        cursor = await db.execute(
+            """SELECT DISTINCT thread_id FROM runtime_history_items
+               WHERE session_id = ?
+               ORDER BY thread_id""",
+            (self.session_id,),
+        )
+        rows = await cursor.fetchall()
+        return [row["thread_id"] for row in rows]
+
+    async def load_session_context(
+        self,
+        exclude_thread_id: str,
+        *,
+        max_messages_per_thread: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Load recent messages from other threads as session context.
+
+        Returns a list of provider-compatible message dicts from threads
+        other than *exclude_thread_id*, limited to
+        *max_messages_per_thread* most recent items per thread.
+
+        Used by TaskRunner to inject cross-thread awareness when starting
+        a new turn in a thread that has no (or limited) history of its own.
+        """
+        thread_ids = await self.get_session_thread_ids()
+        other_thread_ids = [t for t in thread_ids if t != exclude_thread_id]
+        if not other_thread_ids:
+            return []
+
+        context_messages: list[dict[str, Any]] = []
+        for tid in other_thread_ids:
+            items = await self.load_items(tid)
+            if not items:
+                continue
+            # Take the most recent messages, limited
+            recent = items[-max_messages_per_thread:]
+            for item in recent:
+                msg: dict[str, Any] = {
+                    "role": item.role,
+                    "content": item.content,
+                }
+                msg.update(item.payload.get("message_fields", {}))
+                # Attach metadata so downstream consumers know the source
+                msg["_miqi_cross_thread_id"] = tid
+                context_messages.append(msg)
+
+        return context_messages
+
     # ── Phase 36: delete turn items for rollback ───────────────────────
 
     async def delete_turn_items(self, thread_id: str, turn_ids: list[str]) -> int:
