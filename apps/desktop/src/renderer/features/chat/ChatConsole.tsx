@@ -1092,7 +1092,7 @@ export function ChatConsole({
         const rank: Record<TrackedFile['op'], number> = { read: 0, edit: 1, write: 2, delete: 3 };
         const nextOp = rank[op] > rank[existing.op] ? op : existing.op;
         return prev.map((f) =>
-          f.path === normPath
+          f.path === existing.path
             ? { ...f, op: nextOp, lastSeen: Date.now(), truncated: f.truncated && truncated }
             : f
         );
