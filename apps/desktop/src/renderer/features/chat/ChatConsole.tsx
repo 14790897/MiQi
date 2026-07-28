@@ -1934,13 +1934,11 @@ export function ChatConsole({
     const isDocFile = DOCUMENT_SUFFIXES_RE.test(path);
     if (isDocFile) {
       // Collect candidate paths: the tracked path, then try common subdirs
-      // (paper_search saves to workspace/papers/, office tools to workspace/ root,
-      //  session-isolated tools to sessions/<key>/files/).
+      // (paper_search saves to workspace/papers/, office tools to workspace/ root)
       const candidates = [path];
       const nameOnly = path.replace(/\\/g, '/').split('/').pop()!;
       if (nameOnly !== path) candidates.push(nameOnly);
       if (!path.startsWith('papers/')) candidates.push(`papers/${nameOnly}`);
-      if (!path.startsWith('sessions/')) candidates.push(`sessions/*/files/${nameOnly}`);
 
       for (const candidate of candidates) {
         try {
