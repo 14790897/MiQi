@@ -312,12 +312,49 @@ class HistoryRuntime:
     async def load_messages(self, thread_id: str) -> list[dict[str, Any]]:
         """Return provider-compatible message dicts for a thread."""
         items = await self.load_items(thread_id)
+        # Fallback: if session-scoped query returns nothing, try
+        # loading by thread_id alone.  Covers session restart and
+        # sidebar switching where the session_id may differ but
+        # the thread (UUID) is stable.
+        if not items:
+            items = await self._load_items_by_thread(thread_id)
         messages: list[dict[str, Any]] = []
         for item in items:
             msg: dict[str, Any] = {"role": item.role, "content": item.content}
             msg.update(item.payload.get("message_fields", {}))
             messages.append(msg)
         return messages
+
+    async def _load_items_by_thread(self, thread_id: str) -> list[HistoryItem]:
+        """Load history items by thread_id alone (no session_id filter)."""
+        db = self._conn
+        cursor = await db.execute(
+            """SELECT * FROM runtime_history_items
+               WHERE thread_id = ?
+               ORDER BY created_at ASC, rowid ASC""",
+            (thread_id,),
+        )
+        rows = await cursor.fetchall()
+        results = []
+        for row in rows:
+            try:
+                payload = json.loads(row["payload_json"])
+            except (json.JSONDecodeError, TypeError) as exc:
+                logger.warning(
+                    "Skipping corrupted payload_json for item %s in thread %s: %s",
+                    row["item_id"], thread_id, exc,
+                )
+                payload = {}
+            results.append(HistoryItem(
+                item_id=row["item_id"],
+                thread_id=row["thread_id"],
+                turn_id=row["turn_id"],
+                role=row["role"],
+                content=row["content"],
+                payload=payload,
+                created_at=row["created_at"],
+            ))
+        return results
 
     # ── Session-level cross-thread context (Issue #490) ─────────────────
 
