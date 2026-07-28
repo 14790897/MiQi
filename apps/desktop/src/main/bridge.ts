@@ -372,6 +372,7 @@ export class BridgeManager extends EventEmitter {
           const text = stripAnsi(rawText);
           // Python libraries (loguru, warnings, etc.) often write normal
           // output to stderr — use INFO, not WARN, to avoid false alarms.
+          console.log(`[bridge] ${text}`);
           this.recordMainLog('INFO', text, 'bridge');
         }
       });
