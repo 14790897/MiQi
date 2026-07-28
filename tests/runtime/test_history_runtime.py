@@ -440,14 +440,13 @@ async def test_find_recent_thread_ignores_system_messages(tmp_path):
     runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
     await runtime.initialize()
     try:
-        # Thread with only system messages should not be found
-        await runtime.append_message(
-            thread_id="sys-only", turn_id="turn-a", role="system", content="setup"
-        )
-
-        # Another thread with actual conversation
+        # Another thread with actual conversation (older)
         await runtime.append_message(
             thread_id="real", turn_id="turn-b", role="user", content="real msg"
+        )
+        # A newer system-only thread must still be ignored
+        await runtime.append_message(
+            thread_id="sys-only", turn_id="turn-a", role="system", content="setup"
         )
 
         recent = await runtime.find_recent_thread()

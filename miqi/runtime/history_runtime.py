@@ -395,9 +395,11 @@ class HistoryRuntime:
     async def find_recent_thread(self) -> str | None:
         """Return the thread_id with the most recent message in the DB.
 
-        Searches across ALL sessions (no session_id filter) so that when
-        the user restarts MiQi or switches sessions, we can recover the
-        thread they were last working on.
+        Searches across ALL sessions (no session_id filter). This is
+        intentional: thread_id is a global UUID and must be recoverable
+        after restart when the session_id changes. The owning session
+        already has the thread in its runtime_threads table; the
+        recovery merely reconnects the new session to the same thread.
 
         Returns None when the DB has no history items at all.
         """
@@ -421,6 +423,10 @@ class HistoryRuntime:
         """Delete all history items for given turn_ids in a thread.
 
         Returns the number of deleted rows.
+
+        Thread-level operation — deletes ALL rows for the thread
+        regardless of session, matching load_items() which also
+        operates across sessions since thread_id is a global UUID.
         """
         if not turn_ids:
             return 0
@@ -428,9 +434,9 @@ class HistoryRuntime:
         db = self._conn
         cursor = await db.execute(
             f"""DELETE FROM runtime_history_items
-                WHERE session_id = ? AND thread_id = ?
+                WHERE thread_id = ?
                 AND turn_id IN ({placeholders})""",
-            (self.session_id, thread_id, *turn_ids),
+            (thread_id, *turn_ids),
         )
         await db.commit()
         return int(cursor.rowcount or 0)
@@ -469,21 +475,18 @@ class HistoryRuntime:
     ) -> None:
         """Replace all history items for a thread with compacted messages.
 
-        Deletes existing items (scoped by session_id), inserts the
-        replacement messages, and records a compaction row with full
-        audit metadata.
+        Deletes existing items for the thread (regardless of session —
+        thread_id is a global UUID), inserts the replacement messages,
+        and records a compaction row with full audit metadata.
         """
         db = self._conn
         compaction_id = str(uuid.uuid4())
-        # Wrap in transaction so DELETE+INSERT+compaction record are atomic.
-        # If the process crashes between DELETE and commit, the transaction
-        # is rolled back and no history is lost.
         await db.execute("BEGIN")
         try:
-            # Delete existing items for this thread (session-scoped)
+            # Delete existing items for this thread (thread-scoped, not session)
             await db.execute(
-                "DELETE FROM runtime_history_items WHERE thread_id = ? AND session_id = ?",
-                (thread_id, self.session_id),
+                "DELETE FROM runtime_history_items WHERE thread_id = ?",
+                (thread_id,),
             )
             # Insert replacement messages
             for msg in replacement_messages:

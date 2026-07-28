@@ -698,26 +698,38 @@ class BridgeRuntimeLoop:
         session_state = getattr(runtime.services, "session_state", None)
         if session_state is not None and hasattr(session_state, "active_thread_id"):
             active_tid = session_state.active_thread_id
-            if thread_id != active_tid:
-                # Only override if the active thread has history
-                history_runtime = getattr(runtime.services, "history_runtime", None)
-                if history_runtime is not None:
-                    try:
-                        existing = await history_runtime.load_messages(active_tid)
-                        if existing:
-                            thread_id = active_tid
-                    except Exception:
-                        pass
+            history_runtime = getattr(runtime.services, "history_runtime", None)
+
+            # Check whether the active thread has history — this
+            # drives the fallback decision, not ID equality.
+            active_has_history = False
+            if history_runtime is not None:
+                try:
+                    existing = await history_runtime.load_messages(active_tid)
+                    if existing:
+                        active_has_history = True
+                        thread_id = active_tid
+                except Exception:
+                    logger.warning(
+                        "Failed to load messages for active thread %s, "
+                        "treating as empty",
+                        active_tid[:8],
+                        exc_info=True,
+                    )
 
             # Fallback: when active_thread_id has no history (e.g. after
             # restart or session switch), find the most recently active
             # thread in the DB and use it instead.
-            if thread_id != active_tid:
-                history_runtime = getattr(runtime.services, "history_runtime", None)
+            if not active_has_history:
                 if history_runtime is not None:
                     try:
                         recent = await history_runtime.find_recent_thread()
                     except Exception:
+                        logger.warning(
+                            "Failed to find recent thread, keeping "
+                            "current thread_id",
+                            exc_info=True,
+                        )
                         recent = None
                     if recent is not None:
                         session_state.active_thread_id = recent
