@@ -1651,6 +1651,20 @@ for m in ("pydantic", "httpx", "loguru"):
     if (process.platform === 'win32' && !existsSync(absolutePath)) {
       // Extract workspace-relative path for sandbox search
       const relPath = raw.replace(/\\/g, '/').replace(/^\/home\/miqi\/workspace\//, '');
+
+      // Security: reject absolute or traversal-containing paths from the
+      // renderer before they reach the WSL search script or the host copy.
+      // An attacker could send "../../../.ssh/id_rsa" to exfiltrate files.
+      const isSafe =
+        !relPath.startsWith('/') &&
+        !relPath.startsWith('\\') &&
+        !/^[A-Za-z]:\\/.test(relPath) &&
+        !relPath.includes('..');
+      if (!isSafe) {
+        // Fall through to host candidate only — WSL search skipped
+        return { opened: false, path: raw, error: 'Unsafe path rejected' };
+      }
+
       try {
         const found = await findFileInWsl(relPath);
         if (found) {
