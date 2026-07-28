@@ -88,16 +88,21 @@ test.describe('Task Assets — Download Tracking', () => {
       await expectFileInPanel(page, marker);
       console.log(`[test] ✅ "${filename}" in Task Assets`);
 
-      // Click Preview — should not crash
-      const card = page.getByTestId('task-assets-panel')
-        .locator('.rounded-lg.p-2\\.5')
-        .filter({ hasText: marker })
-        .first();
+      // Click Preview — should open preview modal with file content
       await card.getByRole('button', { name: 'Preview', exact: true }).click();
       await page.waitForTimeout(1_000);
 
-      await expect(page.getByTestId('task-assets-panel')).toBeVisible({ timeout: 5_000 });
-      console.log('[test] ✅ Preview clicked — app still responsive');
+      // Verify the preview modal opened (shows filename in header) or at
+      // minimum the app didn't crash (panel still visible)
+      const previewModal = page.locator('.fixed.inset-0.z-50');
+      const modalVisible = await previewModal.isVisible().catch(() => false);
+      if (modalVisible) {
+        await expect(previewModal).toContainText(marker, { timeout: 3_000 });
+        console.log('[test] ✅ Preview modal opened with file content');
+      } else {
+        await expect(page.getByTestId('task-assets-panel')).toBeVisible({ timeout: 5_000 });
+        console.log('[test] ✅ Preview click completed without crash');
+      }
     },
   );
 
@@ -139,10 +144,9 @@ test.describe('Task Assets — Download Tracking', () => {
         .locator('.rounded-lg.p-2\\.5')
         .filter({ hasText: marker });
 
-      const count = await cards.count();
-      // write_file tracks by path — overwriting same path should reuse the existing card
-      expect(count).toBeLessThanOrEqual(1);
-      console.log(`[test] ✅ Dedup: ${count} card(s) for same file (expected ≤1)`);
+      // write_file tracks by path — overwriting same path must retain one card
+      await expect(cards).toHaveCount(1);
+      console.log('[test] ✅ Dedup: exactly one card for same file');
     },
   );
 
@@ -172,17 +176,16 @@ test.describe('Task Assets — Download Tracking', () => {
       try {
         await expectFileInPanel(page, marker, 60_000);
         console.log(`[test] ✅ exec+curl file (${filename}) in Task Assets`);
-      } catch {
-        // Fallback: check panel text for any PDF
+      } catch (error) {
+        // Log diagnostics to help debug, then fail: missing tracking is a regression
         const panelText = await page.getByTestId('task-assets-panel').textContent();
         const pages = await page.locator('main').textContent();
         console.log(`[test] ⚠️ File not found. Panel: "${panelText?.slice(-200)}"`);
         console.log(`[test] ⚠️ Last response: "${pages?.slice(-300)}"`);
-        // If curl succeeded but tracking failed, log the AI response
         if (pages?.includes(marker)) {
           console.log('[test] ⚠️ curl succeeded (marker found) but file tracking missed it');
         }
-        test.skip();
+        throw error;
       }
     },
   );
