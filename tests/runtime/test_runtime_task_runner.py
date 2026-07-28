@@ -492,6 +492,11 @@ async def test_thread_command_fork_unknown_parent_rejected(fake_services):
 
     events = asyncio.Queue()
     fake_services.thread_runtime = MagicMock()
+    # Fork handler now calls get_thread() first to fetch parent title;
+    # both must fail for the test to exercise the KeyError path.
+    fake_services.thread_runtime.get_thread = AsyncMock(
+        side_effect=KeyError("parent thread not found"),
+    )
     fake_services.thread_runtime.fork_thread = AsyncMock(
         side_effect=KeyError("parent thread not found"),
     )

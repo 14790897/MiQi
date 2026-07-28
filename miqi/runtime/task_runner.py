@@ -549,34 +549,6 @@ class TaskRunner:
             else:
                 history = []
 
-            # Issue #490: inject cross-thread session context so threads
-            # within the same session share conversation awareness.
-            if history_runtime is not None:
-                try:
-                    session_context = await history_runtime.load_session_context(
-                        exclude_thread_id=thread_id,
-                        max_messages_per_thread=5,
-                    )
-                    if session_context:
-                        context_block = _format_cross_thread_context(
-                            session_context
-                        )
-                        effective_system_prompt = (
-                            context_block + "\n\n" + effective_system_prompt
-                        )
-                        logger.info(
-                            "Injected cross-thread session context: "
-                            "%d messages from %d other thread(s)",
-                            len(session_context),
-                            len({m.get("_miqi_cross_thread_id", "")
-                                 for m in session_context}),
-                        )
-                except Exception:
-                    logger.warning(
-                        "Failed to load cross-thread session context",
-                        exc_info=True,
-                    )
-
             # Phase 24: record turn start in ledger
             if ledger is not None:
                 await ledger.append_item(
@@ -953,6 +925,10 @@ class TaskRunner:
 
         if cmd.action == "fork":
             try:
+                # Fetch parent title before fork so we can label the summary
+                parent = await threads.get_thread(cmd.thread_id)
+                parent_title = parent.title if parent else "未知线程"
+
                 thread = await threads.fork_thread(
                     cmd.thread_id,
                     title=cmd.params.get("title", "Forked thread"),
@@ -964,6 +940,16 @@ class TaskRunner:
                     recoverable=False,
                 ))
                 return
+
+            # Issue #490: inject parent thread summary into forked thread
+            # so the user's existing context carries over on explicit fork.
+            await _inject_fork_summary(
+                history_runtime=history_runtime,
+                parent_thread_id=cmd.thread_id,
+                child_thread_id=thread.thread_id,
+                parent_title=parent_title,
+            )
+
             await self._events.put(ThreadCreatedEvent(
                 thread_id=thread.thread_id,
                 title=thread.title,
@@ -978,66 +964,80 @@ class TaskRunner:
         ))
 
 
-# ── Cross-thread context formatting (Issue #490) ────────────────────────
+# ── Fork-thread summary injection (Issue #490) ──────────────────────────
 
 
-def _format_cross_thread_context(
-    session_context: list[dict[str, Any]],
+async def _inject_fork_summary(
     *,
-    max_total_chars: int = 3000,
-) -> str:
-    """Format cross-thread session context as a system prompt block.
+    history_runtime: Any,
+    parent_thread_id: str,
+    child_thread_id: str,
+    parent_title: str,
+    max_messages: int = 10,
+) -> None:
+    """Inject parent thread context as a system message into a forked thread.
 
-    Groups messages by source thread and produces a structured summary
-    block that the LLM can use as background awareness of the broader
-    session conversation.
+    Called when the user explicitly forks a thread.  Loads the most recent
+    messages from the parent and prepends a structured summary so the LLM
+    in the forked thread has continuity with the original conversation.
 
-    *max_total_chars* caps the output to prevent cross-thread context
-    from consuming excessive prompt budget.
+    Silent injection is limited to explicit fork — new blank threads receive
+    no cross-thread context (see #490 design discussion).
     """
-    if not session_context:
-        return ""
+    if history_runtime is None:
+        return
 
-    # Group messages by their source thread id
-    thread_groups: dict[str, list[dict[str, Any]]] = {}
-    for msg in session_context:
-        tid = msg.get("_miqi_cross_thread_id", "__unknown__")
-        thread_groups.setdefault(tid, []).append(msg)
+    try:
+        messages = await history_runtime.load_messages(parent_thread_id)
+        if not messages:
+            return
 
-    lines: list[str] = []
-    lines.append("【跨线程会话上下文】")
-    lines.append(
-        "以下是同一会话中其他对话线程的近期内容，供你理解会话背景时参考："
-    )
-    lines.append("")
+        recent = messages[-max_messages:]
 
-    for i, (tid, messages) in enumerate(thread_groups.items(), start=1):
-        # Use a short label for each thread
-        short_id = tid[:8] if len(tid) > 8 else tid
-        lines.append(f"--- 线程 {i} ({short_id}…) ---")
-        for msg in messages:
-            role_label = _ROLE_LABEL_MAP.get(msg.get("role", ""), msg.get("role", "unknown"))
-            content = msg.get("content", "")
-            # Truncate very long messages to keep context compact
-            if len(content) > 500:
-                content = content[:500] + "…[已截断]"
-            lines.append(f"{role_label}: {content}")
+        lines: list[str] = []
+        lines.append(f"【派生对话 — 源线程：{parent_title}】")
+        lines.append(
+            "以下是从原线程继承的近期对话内容，供你理解对话背景："
+        )
         lines.append("")
 
-    lines.append("---")
-    lines.append(
-        "请结合以上跨线程上下文理解用户的背景和偏好，"
-        "但不要在当前回答中主动提及'其他线程'或上下文来源，"
-        "保持对话的自然流畅。"
-    )
+        for msg in recent:
+            role_label = _FORK_ROLE_LABEL.get(msg.get("role", ""), msg.get("role", "?"))
+            content = msg.get("content", "")
+            if len(content) > 500:
+                content = content[:500] + "…[截断]"
+            lines.append(f"{role_label}: {content}")
 
-    result = "\n".join(lines)
-    if len(result) > max_total_chars:
-        result = result[:max_total_chars] + "\n…[跨线程上下文已截断]"
-    return result
+        lines.append("")
+        lines.append("---")
+        lines.append(
+            "请基于以上背景继续对话。不要显式提及'派生'或'源线程'，"
+            "自然融入上下文即可。"
+        )
+
+        summary = "\n".join(lines)
+
+        # Write the summary as a system message into the new thread
+        await history_runtime.append_message(
+            thread_id=child_thread_id,
+            turn_id="fork-summary",
+            role="system",
+            content=summary,
+        )
+
+        logger.info(
+            "Injected fork summary: parent=%s → child=%s (%d messages)",
+            parent_thread_id[:8], child_thread_id[:8], len(recent),
+        )
+    except Exception:
+        logger.warning(
+            "Failed to inject fork summary for thread %s",
+            parent_thread_id[:8],
+            exc_info=True,
+        )
 
 
-_ROLE_LABEL_MAP: dict[str, str] = {
+_FORK_ROLE_LABEL: dict[str, str] = {
     "user": "👤 用户",
     "assistant": "🤖 助手",
     "system": "📋 系统",
