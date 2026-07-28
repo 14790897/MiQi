@@ -63,7 +63,7 @@ If **~~source control** is connected:
 - Pull the release diff and list of changes
 - Verify all PRs are approved and merged
 
-If **~~CI/CD** is connected:
+If **CI/CD pipeline — use `exec` to run deployment scripts or check build status** is connected:
 - Check build and test status automatically
 - Verify pipeline is green before deploy
 

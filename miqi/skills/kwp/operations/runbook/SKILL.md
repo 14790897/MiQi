@@ -76,7 +76,7 @@ If **No knowledge base connected — use `web_search` and `read_file` to find do
 - Search for existing runbooks to update rather than create from scratch
 - Publish the completed runbook to your ops wiki
 
-If **~~ITSM** is connected:
+If **ITSM platform — use `write_file` and `edit_file` to track changes locally** is connected:
 - Link the runbook to related incident types and change requests
 - Auto-populate escalation contacts from on-call schedules
 

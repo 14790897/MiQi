@@ -40,7 +40,7 @@ Test which MCP servers are connected by listing available tools. Group the resul
 
 **Visualization & AI:**
 - ~~scientific illustration — create scientific figures and diagrams
-- ~~AI research platform — AI for biology (histopathology, drug discovery)
+- AI research platform — use `web_search` for literature, `exec` for analysis scripts — AI for biology (histopathology, drug discovery)
 
 Report which servers are connected and which are not yet set up.
 

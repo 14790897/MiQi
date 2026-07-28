@@ -150,6 +150,15 @@ _PLACEHOLDER_RE = re.compile(
     r'\$\{CLAUDE_PLUGIN_ROOT\}'
 )
 
+# Additional tokens found in KWP skills that aren't in the main PLACEHOLDER_MAP.
+# These are resolved to MiQi-equivalent tool guidance.
+_EXTRA_PLACEHOLDERS = {
+    "~~CI/CD": "CI/CD pipeline — use `exec` to run deployment scripts or check build status",
+    "~~SEO tools": "SEO analysis tools — use `web_search` and `web_fetch` for SEO research",
+    "~~ITSM": "ITSM platform — use `write_file` and `edit_file` to track changes locally",
+    "~~AI research platform": "AI research platform — use `web_search` for literature, `exec` for analysis scripts",
+}
+
 # Skills that heavily depend on MCP connectors and should be filtered
 # because they make limited sense in standalone mode
 _FILTER_SKILLS = {
@@ -170,9 +179,10 @@ def _resolve_body_placeholders(text: str) -> str:
     Uses longest-first replacement so multi-word tokens like
     ``~~data warehouse`` match before ``~~data``.
     """
-    sorted_tokens = sorted(_PLACEHOLDER_MAP, key=len, reverse=True)
+    all_tokens = {**_PLACEHOLDER_MAP, **_EXTRA_PLACEHOLDERS}
+    sorted_tokens = sorted(all_tokens, key=len, reverse=True)
     for token in sorted_tokens:
-        text = text.replace(token, _PLACEHOLDER_MAP[token])
+        text = text.replace(token, all_tokens[token])
     return text
 
 

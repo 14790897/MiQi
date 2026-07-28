@@ -102,7 +102,7 @@ Apply the assess-plan-execute-sustain framework when building the request:
 
 ## If Connectors Available
 
-If **~~ITSM** is connected:
+If **ITSM platform — use `write_file` and `edit_file` to track changes locally** is connected:
 - Create the change request ticket automatically
 - Pull change advisory board schedule and approval workflows
 

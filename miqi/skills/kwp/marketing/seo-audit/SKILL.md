@@ -39,7 +39,7 @@ Gather the following from the user. If not provided, ask before proceeding:
 
 Research keywords related to the user's domain, topic, or target keywords.
 
-**If ~~SEO tools are connected:**
+**If SEO analysis tools — use `web_search` and `web_fetch` for SEO research are connected:**
 - Pull keyword data, search volume, keyword difficulty scores, and ranking positions automatically
 - Identify keywords the site currently ranks for and where it's gaining or losing ground
 
