@@ -40,6 +40,7 @@ MiQi Desktop 是一款基于 **Electron** 构建的桌面应用，为 MiQi AI �
 
 ### 快速链接
 
+- [功能总览](features.md) — 了解 MiQi 能做什么
 - [快速开始](getting-started.md) — 安装和运行
 - [系统架构](architecture.md) — 整体设计
 - [配置参考](configuration.md) — 完整配置项说明

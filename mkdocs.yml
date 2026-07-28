@@ -65,6 +65,7 @@ markdown_extensions:
 
 nav:
   - 首页: index.md
+  - 功能总览: features.md
   - 快速开始: getting-started.md
   - 系统架构:
       - 整体架构: architecture.md
