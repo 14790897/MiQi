@@ -1194,15 +1194,30 @@ class ExecTool(Tool):
 
         # Parse the command for output filenames
         filename = None
-        # curl -o <file>  or  wget -O <file>
-        m = _re.search(r'(?:^|\s)-(?:o|O)\s+(\S+)', command)
+        # curl -o <file> / --output <file>  (takes explicit path argument)
+        m = _re.search(r'(?:^|\s)-o\s+(\S+)', command)
         if m:
             filename = m.group(1).strip('\'"')
-        else:
-            # shell redirect > or >>
-            m = _re.search(r'(?:^|\s)>{1,2}\s*(\S+)', command)
+        elif '--output' in command:
+            m = _re.search(r'--output\s+(\S+)', command)
             if m:
                 filename = m.group(1).strip('\'"')
+        else:
+            # curl -O / --remote-name  (boolean flag — derive from URL basename)
+            m = _re.search(r'(?:^|\s)-O(?:\s+|$)', command)
+            if m:
+                # Extract the last download URL from the command and take its basename
+                urls = [t for t in command.split() if t.startswith('http://') or t.startswith('https://')]
+                if urls:
+                    from urllib.parse import urlparse
+                    parsed = urlparse(urls[-1])
+                    name = parsed.path.rstrip('/').split('/')[-1] or 'downloaded_file'
+                    filename = name
+            else:
+                # shell redirect > or >>
+                m = _re.search(r'(?:^|\s)>{1,2}\s*(\S+)', command)
+                if m:
+                    filename = m.group(1).strip('\'"')
 
         if not filename:
             return

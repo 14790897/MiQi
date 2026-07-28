@@ -735,9 +735,22 @@ function _extractPathFromArgs(argsStr: string): string | null {
     // exec: parse command string for output filenames
     const cmd: string = (args.command as string) || '';
     if (cmd) {
-      // Match: -o <file>  or  -O <file>  (curl/wget output flags)
-      const m1 = cmd.match(/(?:^|\s)-(?:o|O)\s+(\S+\.\w+)/);
+      // Match: -o <file>  (curl/wget explicit output path)
+      let m1 = cmd.match(/(?:^|\s)-o\s+(\S+\.\w+)/);
       if (m1) return m1[1].replace(/^["']|["']$/g, '');
+      // Match: --output <file>
+      m1 = cmd.match(/--output\s+(\S+\.\w+)/);
+      if (m1) return m1[1].replace(/^["']|["']$/g, '');
+      // Match: -O  (boolean flag — derive filename from last URL basename)
+      if (/(?:^|\s)-O(?:\s+|$)/.test(cmd)) {
+        const urls = cmd
+          .split(/\s+/)
+          .filter((t) => t.startsWith('http://') || t.startsWith('https://'));
+        if (urls.length) {
+          const name = urls[urls.length - 1].split('/').pop() || '';
+          if (name) return name;
+        }
+      }
       // Match: > <file>  or  >><file>  (shell redirect)
       const m2 = cmd.match(/(?:^|\s)>{1,2}\s*(\S+\.\w+)/);
       if (m2) return m2[1].replace(/^["']|["']$/g, '');
