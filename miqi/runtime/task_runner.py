@@ -975,7 +975,9 @@ async def _inject_fork_summary(
     parent_thread_id: str,
     child_thread_id: str,
     parent_title: str,
-    max_messages: int = 10,
+    max_messages: int = 3,
+    max_chars_per_msg: int = 200,
+    max_total_chars: int = 1200,
 ) -> None:
     """Inject parent thread context as a system message into a forked thread.
 
@@ -1006,8 +1008,8 @@ async def _inject_fork_summary(
         for msg in recent:
             role_label = _FORK_ROLE_LABEL.get(msg.get("role", ""), msg.get("role", "?"))
             content = msg.get("content", "")
-            if len(content) > 500:
-                content = content[:500] + "…[截断]"
+            if len(content) > max_chars_per_msg:
+                content = content[:max_chars_per_msg] + "…"
             lines.append(f"{role_label}: {content}")
 
         lines.append("")
@@ -1018,6 +1020,8 @@ async def _inject_fork_summary(
         )
 
         summary = "\n".join(lines)
+        if len(summary) > max_total_chars:
+            summary = summary[:max_total_chars] + "\n…[已截断]"
 
         # Write the summary as a system message into the new thread
         await history_runtime.append_message(
