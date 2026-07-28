@@ -849,6 +849,8 @@ class TaskRunner:
             ))
             return
 
+        history_runtime = getattr(self.services, "history_runtime", None)
+
         if cmd.action == "new":
             try:
                 thread = await threads.create_thread(
