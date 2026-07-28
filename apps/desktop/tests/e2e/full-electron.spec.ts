@@ -257,18 +257,13 @@ test.describe('Native Electron E2E', () => {
 
   // ═══════════════════════════════════════════════════════════════
   //  SECTION 4: Sidebar Switching & History
+  //
+  //  Fixed in #480: ChatConsole.load() now uses exponential-backoff
+  //  retry so transient bridge-unready state doesn't permanently skip
+  //  history loading on session switch.
   // ═══════════════════════════════════════════════════════════════
 
-  // FIXME: Skipped — application bug prevents sidebar session switching from
-  // loading chat history.  ChatConsole.tsx calls window.miqi.sessions.get(key)
-  // on mount, but the bridge returns null/empty, silently caught by sendSafe.
-  // "Brand Guideline Update" is a UI display hack (ChatConsole.tsx:1114), not
-  // real session data.  Full page reload works (see history-persists test)
-  // but sidebar click → ChatConsole remount does not.  Likely root cause:
-  // parameter naming mismatch between IPC handler (session_key/snake_case)
-  // and protocol types (sessionKey/camelCase), or sendSafe silently returning
-  // null when the bridge IPC fails on session switch.
-  test.skip('sidebar switch back loads history', { timeout: LLM_TIMEOUT }, async () => {
+  test('sidebar switch back loads history', { timeout: LLM_TIMEOUT }, async () => {
     await createNewConversation(page);
     const m = `M_${Date.now()}`;
     await sendMessage(page, `只回答${m}`);
@@ -343,9 +338,7 @@ test.describe('Native Electron E2E', () => {
     },
   );
 
-  // FIXME: Skipped — same application bug as "sidebar switch back loads
-  // history" above.  See that test's comment for root cause analysis.
-  test.skip('switch back sees full multi-turn history', { timeout: LLM_TIMEOUT }, async () => {
+  test('switch back sees full multi-turn history', { timeout: LLM_TIMEOUT }, async () => {
     await createNewConversation(page);
 
     await sendMessage(page, '只回答红');
