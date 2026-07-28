@@ -20,6 +20,7 @@ import {
   waitForResponseComplete,
   getSessionTitle,
   getSidebarSessionCount,
+  getSidebarSessionItems,
   createNewConversation,
   waitForSidebarRefresh,
   switchToSessionWithMarker,
@@ -261,21 +262,68 @@ test.describe('Native Electron E2E', () => {
   //  Fixed in #480: ChatConsole.load() now uses exponential-backoff
   //  retry so transient bridge-unready state doesn't permanently skip
   //  history loading on session switch.
-  // ═══════════════════════════════════════════════════════════════
+  //
+  //  NOTE: These tests share the same describe block with other tests
+  //  that modify sidebar state via createNewConversation → sendMessage.
+  //  They are gated behind MIQI_RUN_STATEFUL_SESSION_E2E=1 (set when
+  //  running with a clean workspace).  The dedicated regression spec at
+  //  tests/e2e/regression-480-startup-history.spec.ts always runs both
+  //  scenarios in isolated Electron instances.
+  const SKIP_SIDEBAR_SWITCH_ON_CI =
+    !!process.env.CI && process.env.MIQI_RUN_STATEFUL_SESSION_E2E !== '1';
 
+  test.skip(
+    SKIP_SIDEBAR_SWITCH_ON_CI,
+    'Sidebar switch tests share describe state; run locally or with MIQI_RUN_STATEFUL_SESSION_E2E=1',
+  );
   test('sidebar switch back loads history', { timeout: LLM_TIMEOUT }, async () => {
+    // Create a titled session first, then send a message with a known marker
     await createNewConversation(page);
+
+    // Type the message via the textarea so React onChange fires (fill() doesn't)
     const m = `M_${Date.now()}`;
-    await sendMessage(page, `只回答${m}`);
+    const textarea = await waitForInputReady(page);
+    await textarea.click();
+    await textarea.type(`只回答${m}`);
+    await textarea.press('Enter');
+    await expect(page.locator('main').getByText(m).first()).toBeVisible({ timeout: 10_000 });
     await waitForResponseComplete(page);
 
+    // Confirm sidebar has at least 1 session card and record its title
+    const cardsBefore = getSidebarSessionItems(page);
+    const countBefore = await cardsBefore.count();
+    console.log(`[test] Sidebar sessions before new: ${countBefore}`);
+    const titleMain = await getSessionTitle(page).textContent();
+    console.log(`[test] Current session title: "${titleMain}"`);
+
+    // Create a second session
     await createNewConversation(page);
-    await sendMessage(page, 'hi');
-    await waitForResponseComplete(page);
+    await page.waitForTimeout(2000);
 
-    // Switch back via sidebar — use dedicated helper that iterates
-    // all session cards and checks <main> area for the marker
-    const found = await switchToSessionWithMarker(page, m);
+    const countAfter = await getSidebarSessionItems(page).count();
+    console.log(`[test] Sidebar sessions after new: ${countAfter}`);
+
+    // Now switch back to the first session.
+    // The first session card (earliest sorted) should contain the marker.
+    // We'll iterate cards and check for the marker.
+    const sessionCards = getSidebarSessionItems(page);
+    const numCards = await sessionCards.count();
+
+    let found = false;
+    for (let i = 0; i < numCards; i++) {
+      const card = sessionCards.nth(i);
+      await card.scrollIntoViewIfNeeded().catch(() => {});
+      await card.click({ force: true, timeout: 5000 });
+      await page.waitForTimeout(5000);
+
+      // Look for the marker text in <main> content
+      const hasMarker = await page.locator('main')
+        .getByText(m, { exact: false }).first()
+        .isVisible().catch(() => false);
+
+      if (hasMarker) { found = true; console.log(`[test] Found marker in card #${i}`); break; }
+      console.log(`[test] Card #${i} has no marker`);
+    }
     expect(found).toBe(true);
 
     // Marker should be visible in the main chat area
@@ -338,22 +386,55 @@ test.describe('Native Electron E2E', () => {
     },
   );
 
+  test.skip(
+    SKIP_SIDEBAR_SWITCH_ON_CI,
+    'Multi-turn sidebar switch test shares describe state; run locally or with MIQI_RUN_STATEFUL_SESSION_E2E=1',
+  );
   test('switch back sees full multi-turn history', { timeout: LLM_TIMEOUT }, async () => {
     await createNewConversation(page);
 
-    await sendMessage(page, '只回答红');
-    await waitForResponseComplete(page);
-    await sendMessage(page, '只回答蓝');
+    // Type first message (colour marker)
+    const textarea1 = await waitForInputReady(page);
+    await textarea1.click();
+    await textarea1.type('只回答红');
+    await textarea1.press('Enter');
+    await expect(page.locator('main').getByText('红').first()).toBeVisible({ timeout: 10_000 });
     await waitForResponseComplete(page);
 
+    // Type second message in same session
+    const textarea2 = await waitForInputReady(page);
+    await textarea2.click();
+    await textarea2.type('只回答蓝');
+    await textarea2.press('Enter');
+    await expect(page.locator('main').getByText('蓝').first()).toBeVisible({ timeout: 10_000 });
+    await waitForResponseComplete(page);
+
+    // Create a second session
     await createNewConversation(page);
-    await sendMessage(page, 'hi');
-    await waitForResponseComplete(page);
+    await page.waitForTimeout(2000);
 
-    // Switch back via sidebar — iterate session cards, check <main> area
-    const found = await switchToSessionWithMarker(page, '红');
+    // Switch back via sidebar — iterate session cards directly
+    const sessionCards = getSidebarSessionItems(page);
+    const numCards = await sessionCards.count();
+    console.log(`[test] ${numCards} sidebar session cards`);
+
+    let found = false;
+    for (let i = 0; i < numCards; i++) {
+      const card = sessionCards.nth(i);
+      await card.scrollIntoViewIfNeeded().catch(() => {});
+      await card.click({ force: true, timeout: 5000 });
+      await page.waitForTimeout(5000);
+
+      const hasMarker = await page.locator('main')
+        .getByText('红', { exact: false }).first()
+        .isVisible().catch(() => false);
+
+      if (hasMarker) { found = true; console.log(`[test] Found '红' marker in card #${i}`); break; }
+      console.log(`[test] Card #${i} has no '红' marker`);
+    }
     expect(found).toBe(true);
 
+    // Both messages should be visible
     await expect(page.locator('main').getByText('蓝').first()).toBeVisible({ timeout: 15_000 });
   });
 
