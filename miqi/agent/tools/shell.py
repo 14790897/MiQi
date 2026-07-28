@@ -1184,13 +1184,25 @@ class ExecTool(Tool):
         return None
 
     async def _mirror_downloaded_files(
-        self, command: str, sandbox, session_key: str | None,
+        self, command: str, sandbox_selection, session_key: str | None,
     ) -> None:
         """After a successful exec, mirror files created by curl/wget from the
         sandbox workspace to the host workspace so they survive sandbox cleanup
         and appear in the Task Assets panel."""
         import re as _re
         from pathlib import Path
+
+        # Need both the real sandbox instance and the workspace path
+        if self._sandbox_manager is None or not session_key:
+            return
+        sandbox = await self._sandbox_manager.get_or_create(session_key)
+        if sandbox is None:
+            return
+        try:
+            from miqi.runtime.file_handlers import _get_workspace_path
+            workspace = _get_workspace_path()
+        except Exception:
+            return
 
         # Parse the command for output filenames
         filename = None
@@ -1230,9 +1242,9 @@ class ExecTool(Tool):
             _get_session_workspace,
         )
 
-        session_ws = _get_session_workspace(self._workspace, sandbox)
+        session_ws = _get_session_workspace(workspace, sandbox)
         sandbox_path = _resolve_sandbox_path(filename, session_ws, sandbox)
-        host_path = _sandbox_to_host_path(sandbox_path, self._workspace, sandbox)
+        host_path = _sandbox_to_host_path(sandbox_path, workspace, sandbox)
 
         # Check if the file exists inside the sandbox
         try:
@@ -1256,4 +1268,4 @@ class ExecTool(Tool):
             logger.warning("exec [mirror] failed for {}: {}", sandbox_path, exc)
             return
 
-        _persist_tracked_file(self._workspace, host_path, op="write", session_key=session_key)
+        _persist_tracked_file(workspace, host_path, op="write", session_key=session_key)
