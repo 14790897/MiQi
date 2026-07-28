@@ -698,29 +698,62 @@ def _parse_markdown(file_path: Path, *, max_chars: int = MAX_CONTEXT_CHARS) -> d
 # ── HTML Parser ──────────────────────────────────────────────────────────
 
 def _parse_html(file_path: Path, max_chars: int = 50000) -> dict:
-    """Extract text from HTML files using lxml."""
-    if not _HAS_LXML_HTML:
-        raise RuntimeError("lxml is required for HTML parsing")
-
+    """Extract text from HTML files using lxml.
+    
+    Falls back to a stdlib HTMLParser that strips script/style/head content
+    when lxml is unavailable or parsing fails.
+    """
     t0 = time.perf_counter()
-    raw = file_path.read_text(encoding="utf-8", errors="replace")
 
-    try:
-        doc = _lxml_html.document_fromstring(raw)
-    except Exception:
-        # Fallback: plain text stripping
-        stem = Path(file_path.stem).stem if file_path.stem else "HTML"
+    def _stdlib_fallback(raw: str) -> str:
+        """Extract plain text, skipping script/style/head content."""
         from html.parser import HTMLParser as _StdlibParser
         class _Stripper(_StdlibParser):
             def __init__(self):
                 super().__init__()
                 self.text: list[str] = []
+                self._skip = 0
+            def handle_starttag(self, tag, attrs):
+                if tag in ('script', 'style', 'head', 'noscript'):
+                    self._skip += 1
+            def handle_endtag(self, tag):
+                if tag in ('script', 'style', 'head', 'noscript') and self._skip > 0:
+                    self._skip -= 1
             def handle_data(self, data):
-                self.text.append(data)
+                if self._skip == 0:
+                    self.text.append(data)
         s = _Stripper()
         s.feed(raw)
-        text = " ".join(s.text)
-        text = re.sub(r"\s+", " ", text).strip()
+        return re.sub(r"\s+", " ", " ".join(s.text)).strip()
+
+    try:
+        raw = file_path.read_text(encoding="utf-8", errors="replace")
+    except (OSError, UnicodeDecodeError) as exc:
+        logger.warning(f"HTML parse: failed to read {file_path}: {exc}")
+        return {
+            "text": f"[文档解析失败: {exc}]",
+            "page_count": 0,
+            "size_bytes": 0,
+            "mime_type": "text/html",
+            "ocr_used": False,
+            "parse_ms": round((time.perf_counter() - t0) * 1000),
+        }
+
+    if not _HAS_LXML_HTML:
+        text = _stdlib_fallback(raw)
+        return {
+            "text": text[:max_chars],
+            "page_count": 1,
+            "size_bytes": file_path.stat().st_size,
+            "mime_type": "text/html",
+            "ocr_used": False,
+            "parse_ms": round((time.perf_counter() - t0) * 1000),
+        }
+
+    try:
+        doc = _lxml_html.document_fromstring(raw)
+    except Exception:
+        text = _stdlib_fallback(raw)
         return {
             "text": text[:max_chars],
             "page_count": 1,
