@@ -178,6 +178,15 @@ class SkillsLoader:
         This is used for progressive loading - the agent can read the full
         skill content using read_file when needed.
 
+        Follows Anthropic's progressive-disclosure design:
+        - Layer 1 (this summary): name + description + relative path
+        - Layer 2 (on demand): full SKILL.md via read_file
+        - Layer 3 (on demand): references/ siblings, scripts/, etc.
+
+        Paths are emitted relative to the workspace when possible, so the
+        agent can read them with relative paths. This matches the Claude
+        Code / Cowork convention of `pdf/SKILL.md`-style locations.
+
         Returns:
             XML-formatted skills summary.
         """
@@ -188,18 +197,48 @@ class SkillsLoader:
         def escape_xml(s: str) -> str:
             return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+        def relative_path(absolute: str) -> str:
+            """Convert absolute SKILL.md path to a short relative path.
+
+            Examples:
+              C:/.../miqi/skills/pdf/SKILL.md          -> pdf/SKILL.md
+              C:/.../miqi/skills/kwp/sales/call-prep/SKILL.md
+                                                    -> kwp/sales/call-prep/SKILL.md
+              <workspace>/skills/custom/SKILL.md       -> skills/custom/SKILL.md
+            """
+            p = Path(absolute)
+            try:
+                if self.builtin_skills:
+                    rel = p.relative_to(self.builtin_skills)
+                    if str(rel) != str(p.name):  # not the builtin root itself
+                        return str(rel).replace("\\", "/")
+                rel = p.relative_to(self.workspace)
+                return str(rel).replace("\\", "/")
+            except ValueError:
+                return p.name
+
         lines = ["<skills>"]
         for s in all_skills:
             name = escape_xml(s["name"])
-            path = s["path"]
+            rel_path = relative_path(s["path"])
             desc = escape_xml(self._get_skill_description(s["name"]))
             skill_meta = self._get_skill_meta(s["name"])
             available = self._check_requirements(skill_meta)
 
-            lines.append(f"  <skill available=\"{str(available).lower()}\">")
+            lines.append(f'  <skill available="{str(available).lower()}">')
             lines.append(f"    <name>{name}</name>")
             lines.append(f"    <description>{desc}</description>")
-            lines.append(f"    <location>{path}</location>")
+            lines.append(f"    <location>{rel_path}</location>")
+
+            # Surface references/ siblings so the agent knows there's a
+            # third layer (Anthropic's progressive-disclosure level 3).
+            skill_dir = Path(s["path"]).parent
+            refs = sorted(p.name for p in skill_dir.glob("*.md")
+                          if p.name.lower() != "skill.md")
+            if refs:
+                lines.append("    <references>" +
+                             ", ".join(escape_xml(r) for r in refs) +
+                             "</references>")
 
             # Show missing requirements for unavailable skills
             if not available:

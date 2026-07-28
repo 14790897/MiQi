@@ -250,6 +250,10 @@ class ContextBuilder:
                 parts.append(f"# Active Skills\n\n{always_content}")
 
         # 2. Available skills: only show summary (agent uses read_file to load)
+        # Following Anthropic's progressive-disclosure design:
+        #   Layer 1 — name + description + location (this summary, always loaded)
+        #   Layer 2 — full SKILL.md body (loaded via read_file on demand)
+        #   Layer 3 — references/ siblings (loaded on demand when mentioned)
         skills_summary = self.skills.build_skills_summary()
         if skills_summary:
             # Resolve KWP ~~placeholders so the agent sees MiQi-appropriate
@@ -257,8 +261,13 @@ class ContextBuilder:
             skills_summary = _resolve_placeholders(skills_summary)
             parts.append(f"""# Skills
 
-The following skills extend your capabilities. To use a skill, read its SKILL.md file using the read_file tool.
-Skills with available="false" need dependencies installed first - you can try installing them with apt/brew.
+The following skills extend your capabilities. **Progressive disclosure**:
+only the name and description are pre-loaded — read the SKILL.md file
+itself to see the full instructions before applying the skill.
+- Available skills: read the file at `<location>` with `read_file`
+- For deeper reference material listed under `<references>`, read those
+  files only when SKILL.md points you to them.
+- Skills with `available="false"` need missing dependencies installed first.
 
 {skills_summary}""")
 
