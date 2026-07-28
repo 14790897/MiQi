@@ -1042,12 +1042,12 @@ async def _inject_fork_summary(
         )
 
         logger.info(
-            "Injected fork summary: parent=%s → child=%s (%d messages)",
+            "Injected fork summary: parent={} → child={} ({} messages)",
             parent_thread_id[:8], child_thread_id[:8], len(recent),
         )
     except Exception:
         logger.warning(
-            "Failed to inject fork summary for thread %s",
+            "Failed to inject fork summary for thread {}",
             parent_thread_id[:8],
             exc_info=True,
         )
