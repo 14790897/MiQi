@@ -210,7 +210,6 @@ def error_services(fake_services):
     history = MagicMock()
     history.start_turn = AsyncMock(return_value=None)
     history.load_messages = AsyncMock(return_value=[])
-    history.find_recent_thread_with_history = AsyncMock(return_value=None)
     history.append_message = AsyncMock(return_value=None)
     history.complete_turn = AsyncMock(return_value=None)
     fake_services.history_runtime = history

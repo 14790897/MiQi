@@ -430,6 +430,13 @@ class TaskRunner:
         turn_id = msg.turn_id or str(uuid.uuid4())[:12]
         thread_id = msg.thread_id or "cli:default"
 
+        # Track active thread on session state so the frontend's
+        # random thread_id UUIDs don't fragment history across
+        # multiple threads (Issue #490).
+        session_state = getattr(self.services, "session_state", None)
+        if session_state is not None and hasattr(session_state, "active_thread_id"):
+            session_state.active_thread_id = thread_id
+
         # Phase 14 follow-up: register a cancel event so AbortTurn can
         # signal this specific turn to stop. Reuse existing event if a
         # previous turn on the same thread hasn't been cleaned up yet.
@@ -546,28 +553,6 @@ class TaskRunner:
             if history_runtime is not None:
                 await history_runtime.start_turn(turn_id, thread_id=thread_id)
                 history = await history_runtime.load_messages(thread_id)
-                if not history:
-                    # Issue #490: after restart or session switch, the
-                    # current thread may have no messages. Try to find
-                    # the most recent thread that DOES have history.
-                    recent_tid = await history_runtime.find_recent_thread_with_history()
-                    if recent_tid and recent_tid != thread_id:
-                        history = await history_runtime.load_messages(recent_tid)
-                        if history:
-                            thread_id = recent_tid
-                            # Update session state so future turns use this thread
-                            session_state = getattr(self.services, "session_state", None)
-                            if session_state is not None and hasattr(session_state, "active_thread_id"):
-                                session_state.active_thread_id = recent_tid
-                            logger.info(
-                                "TaskRunner: recovered history from thread=%s (%d msgs)",
-                                recent_tid[:12], len(history),
-                            )
-                    if not history:
-                        logger.warning(
-                            "TaskRunner: empty history for thread=%s turn=%s",
-                            thread_id[:12], turn_id,
-                        )
             else:
                 logger.warning(
                     "TaskRunner: history_runtime is None — history will be empty"
