@@ -546,7 +546,17 @@ class TaskRunner:
             if history_runtime is not None:
                 await history_runtime.start_turn(turn_id, thread_id=thread_id)
                 history = await history_runtime.load_messages(thread_id)
+                if not history:
+                    logger.warning(
+                        "TaskRunner: empty history for thread=%s turn=%s "
+                        "(history_runtime=%s)",
+                        thread_id[:12], turn_id,
+                        type(history_runtime).__name__,
+                    )
             else:
+                logger.warning(
+                    "TaskRunner: history_runtime is None — history will be empty"
+                )
                 history = []
 
             # Phase 24: record turn start in ledger
