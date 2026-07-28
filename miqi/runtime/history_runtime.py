@@ -356,6 +356,23 @@ class HistoryRuntime:
             ))
         return results
 
+    async def find_recent_thread_with_history(self) -> str | None:
+        """Return the thread_id with the most recent messages (any session).
+
+        Used after session restart to recover the active thread when the
+        session-scoped query returns empty.
+        """
+        db = self._conn
+        cursor = await db.execute(
+            """SELECT thread_id, MAX(created_at) as latest
+               FROM runtime_history_items
+               GROUP BY thread_id
+               ORDER BY latest DESC
+               LIMIT 1""",
+        )
+        row = await cursor.fetchone()
+        return row["thread_id"] if row else None
+
     # ── Session-level cross-thread context (Issue #490) ─────────────────
 
     async def get_session_thread_ids(self) -> list[str]:

@@ -692,15 +692,6 @@ class BridgeRuntimeLoop:
                 sandbox_manager=sandbox_manager,
             )
 
-        # Reuse the session's active thread so messages accumulate in the
-        # same thread across turns (Issue #490 — frontend may send a new
-        # thread_id on every message).
-        session_state = getattr(runtime.services, "session_state", None)
-        if session_state is not None and hasattr(session_state, "active_thread_id"):
-            active_tid = session_state.active_thread_id
-            if thread_id != active_tid:
-                thread_id = active_tid
-
         # ── Parse document attachments before submitting ────────────────
         # Extract text from uploaded documents (PDF/Office/MD) and inject
         # into the message content so the LLM can immediately understand them.
