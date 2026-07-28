@@ -1068,9 +1068,50 @@ export function ChatConsole({
     justOpened.current = true;
     userScrolledUp.current = false; // reset for new session
     const load = async () => {
-      try {
-        const detail = await window.miqi.sessions.get(sessionKey);
+      // ── Retry with exponential backoff ──────────────────────────
+      // On startup the bridge may not be running yet → sendSafe
+      // returns null.  Even when running, transient IPC failures
+      // can occur.  Retry so that a slow bridge start or a one-off
+      // error doesn't leave the session permanently blank (#480).
+      const MAX_RETRIES = 10;
+      const BASE_DELAY_MS = 500;
+      const MAX_DELAY_MS = 10_000;
+
+      let detail: unknown = null;
+      let lastErr: unknown = null;
+
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         if (currentSessionRef.current !== sessionKey) return;
+
+        try {
+          detail = await window.miqi.sessions.get(sessionKey);
+        } catch (err) {
+          lastErr = err;
+        }
+
+        if (detail != null) break; // got data — stop retrying
+
+        if (attempt < MAX_RETRIES - 1) {
+          const delay = Math.min(BASE_DELAY_MS * Math.pow(2, attempt), MAX_DELAY_MS);
+          console.warn(
+            `[ChatConsole] Load attempt ${attempt + 1}/${MAX_RETRIES} returned null, retrying in ${delay}ms…`
+          );
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
+
+      if (currentSessionRef.current !== sessionKey) return;
+
+      if (detail == null) {
+        console.warn(
+          '[ChatConsole] Failed to load session data after retries, last error:',
+          lastErr
+        );
+        setHistoryLoaded(true);
+        return;
+      }
+
+      try {
         const rawMsgs: any[] = (detail as any)?.messages ?? [];
         const uiMsgs = sessionMsgsToUi(rawMsgs);
         setMessages(uiMsgs);
