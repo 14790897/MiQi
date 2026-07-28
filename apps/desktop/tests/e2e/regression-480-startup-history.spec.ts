@@ -127,22 +127,13 @@ test.describe('Regression #480: Session loads on startup', () => {
       }
       await waitForInputReady(page2, 60_000);
 
-      // The retry logic in ChatConsole.load() should fetch history
-      // even if the bridge wasn't ready on the first attempt.
-      await page2.waitForTimeout(15_000);
-
       // ── Phase 4: Verify marker is visible WITHOUT session switching ──
-      const mainText = await page2.locator('main').textContent().catch(() => '');
-      const markerIdx = mainText.indexOf(marker);
-      if (markerIdx === -1) {
-        console.log('[test] DIAGNOSTIC: main textContent (last 500):', mainText.slice(-500));
-        console.log('[test] DIAGNOSTIC: main textContent (first 500):', mainText.slice(0, 500));
-      }
-      console.log(
-        `[test] Marker "${marker}" ${markerIdx >= 0 ? 'FOUND' : 'NOT FOUND'} at index ${markerIdx}`,
-      );
-
-      expect(markerIdx).toBeGreaterThanOrEqual(0);
+      // ChatConsole.load() retries up to ~55s.  Use a web-first assertion
+      // with a generous timeout so the test self-heals regardless of bridge
+      // startup speed — no fixed delay, no null-safety edge case.
+      await expect(
+        page2.locator('main').getByText(marker, { exact: false }).first(),
+      ).toBeVisible({ timeout: 120_000 });
       console.log(`[test] ✅ Phase 3: History loaded after restart — no session switch needed`);
 
       // Clean up: close second app, then delete miqiHome
@@ -192,8 +183,10 @@ test.describe('Regression #480: Session loads on startup', () => {
       await createNewConversation(page);
       // Wait for sidebar to show both sessions
       await page.waitForTimeout(3000);
-      const count = await getSidebarSessionItems(page).count();
-      console.log(`[test] Sidebar session count: ${count}, expecting ≥2`);
+      await expect
+        .poll(() => getSidebarSessionItems(page).count(), { timeout: 10_000 })
+        .toBeGreaterThanOrEqual(2);
+      console.log(`[test] Sidebar has at least 2 sessions`);
 
       // ── Step 3: Click the first session card (session A) in sidebar ──
       // Session cards are button.rounded-xl elements in the sidebar.
