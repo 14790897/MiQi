@@ -63,11 +63,8 @@ test.describe('WSL Sandbox In-Place File Write (#474)', () => {
   let page: Page;
   let miqiHome: string;
 
-  // Skip entire suite on CI before launching Electron (CodeRabbit feedback)
-  test.describe.skip(
-    () => SKIP_SANDBOX_E2E,
-    'Run with MIQI_RUN_SANDBOX_E2E=1 for manual verification.',
-  );
+  // Skip entire suite when WSL is not available (non-Windows / CI without flag)
+  test.skip(() => SKIP_SANDBOX_E2E || process.platform !== 'win32', 'WSL E2E tests require Windows + WSL sandbox');
 
   test.beforeAll(async () => {
     const fixture = await launchElectronApp();

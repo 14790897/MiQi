@@ -284,8 +284,10 @@ def _canonicalize_wsl_mnt_path(mnt_path: str, workspace: Path | None) -> str:
 
         resolved = Path(normalized).resolve()
     except Exception:
-        _log.warning("_canonicalize_wsl_mnt_path: cannot resolve %s", host_str)
-        return mnt_path
+        _log.warning("_canonicalize_wsl_mnt_path: cannot resolve %s, rejecting path", host_str)
+        raise PermissionError(
+            f"Cannot canonicalize path '{host_str}': resolution failed"
+        )
 
     ws_resolved = workspace.resolve()
     try:
