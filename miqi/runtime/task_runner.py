@@ -983,12 +983,17 @@ class TaskRunner:
 
 def _format_cross_thread_context(
     session_context: list[dict[str, Any]],
+    *,
+    max_total_chars: int = 3000,
 ) -> str:
     """Format cross-thread session context as a system prompt block.
 
     Groups messages by source thread and produces a structured summary
     block that the LLM can use as background awareness of the broader
     session conversation.
+
+    *max_total_chars* caps the output to prevent cross-thread context
+    from consuming excessive prompt budget.
     """
     if not session_context:
         return ""
@@ -996,7 +1001,7 @@ def _format_cross_thread_context(
     # Group messages by their source thread id
     thread_groups: dict[str, list[dict[str, Any]]] = {}
     for msg in session_context:
-        tid = msg.pop("_miqi_cross_thread_id", "__unknown__")
+        tid = msg.get("_miqi_cross_thread_id", "__unknown__")
         thread_groups.setdefault(tid, []).append(msg)
 
     lines: list[str] = []
@@ -1026,7 +1031,10 @@ def _format_cross_thread_context(
         "保持对话的自然流畅。"
     )
 
-    return "\n".join(lines)
+    result = "\n".join(lines)
+    if len(result) > max_total_chars:
+        result = result[:max_total_chars] + "\n…[跨线程上下文已截断]"
+    return result
 
 
 _ROLE_LABEL_MAP: dict[str, str] = {

@@ -342,12 +342,19 @@ class HistoryRuntime:
         exclude_thread_id: str,
         *,
         max_messages_per_thread: int = 5,
+        max_total_messages: int = 20,
+        max_threads: int = 5,
     ) -> list[dict[str, Any]]:
         """Load recent messages from other threads as session context.
 
         Returns a list of provider-compatible message dicts from threads
         other than *exclude_thread_id*, limited to
-        *max_messages_per_thread* most recent items per thread.
+        *max_messages_per_thread* most recent items per thread and
+        *max_total_messages* total across all threads.
+
+        *max_threads* bounds how many sibling threads are queried
+        (newest first) to prevent unbounded SQLite reads in large
+        sessions.
 
         Used by TaskRunner to inject cross-thread awareness when starting
         a new turn in a thread that has no (or limited) history of its own.
@@ -356,6 +363,11 @@ class HistoryRuntime:
         other_thread_ids = [t for t in thread_ids if t != exclude_thread_id]
         if not other_thread_ids:
             return []
+
+        # Bound number of threads queried (newest first; thread_id ordering
+        # is a reasonable stand-in for creation order in the absence of a
+        # dedicated created_at column on threads).
+        other_thread_ids = other_thread_ids[-max_threads:]
 
         context_messages: list[dict[str, Any]] = []
         for tid in other_thread_ids:
@@ -373,6 +385,10 @@ class HistoryRuntime:
                 # Attach metadata so downstream consumers know the source
                 msg["_miqi_cross_thread_id"] = tid
                 context_messages.append(msg)
+
+        # Enforce total message budget
+        if len(context_messages) > max_total_messages:
+            context_messages = context_messages[-max_total_messages:]
 
         return context_messages
 
