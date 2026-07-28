@@ -1,0 +1,19 @@
+{
+  "name": "kwp-product-management",
+  "version": "1.0.0",
+  "description": "Knowledge Work Plugins — Product Management (8 skills). Adapted from anthropics/knowledge-work-plugins for MiQi.",
+  "author": "Anthropic (adapted for MiQi)",
+  "skills": [
+    "competitive-brief",
+    "metrics-review",
+    "product-brainstorming",
+    "roadmap-update",
+    "sprint-planning",
+    "stakeholder-update",
+    "synthesize-research",
+    "write-spec"
+  ],
+  "mcp_servers": [],
+  "slash_commands": [],
+  "hooks": []
+}

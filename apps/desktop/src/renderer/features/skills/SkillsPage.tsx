@@ -197,6 +197,9 @@ export function SkillsPage() {
 
   const builtin = filtered.filter((s) => s.source === 'builtin');
   const workspace = filtered.filter((s) => s.source === 'workspace');
+  const kwp = filtered.filter(
+    (s) => s.source === 'builtin' && s.path.includes('/kwp/')
+  );
 
   const handleCopyContent = () => {
     if (!detail) return;
@@ -356,6 +359,14 @@ export function SkillsPage() {
                 <SkillGroup
                   label="内置"
                   skills={builtin}
+                  selectedName={selectedName}
+                  onSelect={setSelectedName}
+                />
+              )}
+              {kwp.length > 0 && (
+                <SkillGroup
+                  label="Knowledge Work"
+                  skills={kwp}
                   selectedName={selectedName}
                   onSelect={setSelectedName}
                 />

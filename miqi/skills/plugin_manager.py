@@ -201,9 +201,21 @@ class PluginManager:
             for plugin_dir in base_dir.iterdir():
                 if not plugin_dir.is_dir():
                     continue
-                manifest_path = plugin_dir / "plugin.json"
-                if not manifest_path.exists():
+
+                # Support both MiQi format (plugin.json) and KWP/Claude Code
+                # format (.claude-plugin/plugin.json)
+                manifest_path = None
+                for candidate in [
+                    plugin_dir / "plugin.json",
+                    plugin_dir / ".claude-plugin" / "plugin.json",
+                ]:
+                    if candidate.exists():
+                        manifest_path = candidate
+                        break
+
+                if manifest_path is None:
                     continue
+
                 try:
                     plugin = await self._load_plugin(
                         plugin_dir, manifest_path, scope
@@ -229,6 +241,19 @@ class PluginManager:
         """Load a single plugin from its directory."""
         import json
         manifest_data = json.loads(manifest_path.read_text())
+
+        # Auto-discover skills from filesystem for KWP-style plugins
+        # that don't declare skills explicitly in manifest
+        if not manifest_data.get("skills"):
+            skills_dir = plugin_dir / "skills"
+            if skills_dir.is_dir():
+                discovered: list[str] = []
+                for d in sorted(skills_dir.iterdir()):
+                    if d.is_dir() and (d / "SKILL.md").exists():
+                        discovered.append(d.name)
+                if discovered:
+                    manifest_data["skills"] = discovered
+
         manifest = PluginManifest(**manifest_data)
         plugin = LoadedPlugin(
             manifest=manifest, path=plugin_dir, scope=scope

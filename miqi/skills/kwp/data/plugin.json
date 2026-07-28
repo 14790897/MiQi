@@ -1,0 +1,21 @@
+{
+  "name": "kwp-data",
+  "version": "1.0.0",
+  "description": "Knowledge Work Plugins — Data (10 skills). Adapted from anthropics/knowledge-work-plugins for MiQi.",
+  "author": "Anthropic (adapted for MiQi)",
+  "skills": [
+    "analyze",
+    "build-dashboard",
+    "create-viz",
+    "data-context-extractor",
+    "data-visualization",
+    "explore-data",
+    "sql-queries",
+    "statistical-analysis",
+    "validate-data",
+    "write-query"
+  ],
+  "mcp_servers": [],
+  "slash_commands": [],
+  "hooks": []
+}
