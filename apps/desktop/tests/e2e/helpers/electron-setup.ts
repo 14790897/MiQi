@@ -19,7 +19,7 @@ import { existsSync, mkdtempSync, mkdirSync, cpSync, rmSync, readFileSync, write
 export const APPS_DESKTOP = resolve(__dirname, '../../..');
 
 /** Default timeout for real LLM calls */
-export const LLM_TIMEOUT = 180_000;
+export const LLM_TIMEOUT = 240_000;  // 4 min — gives LLM more time in CI
 
 // ─── Session path helpers ────────────────────────────────────────────
 
@@ -33,8 +33,30 @@ export function getMiqiSessionsDir(miqiHome: string): string {
 /** Wait for the chat input textarea to be present and enabled */
 export async function waitForInputReady(page: Page, timeout = 60_000) {
   const textarea = page.locator('[data-testid="chat-input-container"] textarea');
-  await expect(textarea).toBeEnabled({ timeout });
-  return textarea;
+
+  // Wait for textarea to exist first
+  await expect(page.locator('[data-testid="chat-input-container"]')).toBeVisible({ timeout });
+
+  // Retry with exponential backoff - input may briefly appear/disappear during UI transitions
+  const deadline = Date.now() + timeout;
+  let lastError: Error | null = null;
+
+  while (Date.now() < deadline) {
+    try {
+      await expect(textarea).toBeEnabled({ timeout: 5000 });
+      return textarea;
+    } catch (e) {
+      lastError = e as Error;
+      // Wait before retrying
+      await page.waitForTimeout(1000);
+    }
+  }
+
+  // Log diagnostic info before throwing
+  const count = await textarea.count();
+  const containerVisible = await page.locator('[data-testid="chat-input-container"]').isVisible();
+  console.log(`[diagnostic] waitForInputReady failed: textarea count=${count}, container visible=${containerVisible}`);
+  throw lastError;
 }
 
 /** Send a message and confirm it appears in the chat */
@@ -171,7 +193,28 @@ export async function switchToSessionWithMarker(
   const tasksHeader = page.locator('[data-testid="nav-tasks-title"]');
   await tasksHeader.scrollIntoViewIfNeeded().catch(() => {});
 
-  const items = getSidebarSessionItems(page);
+  // Get sidebar session items - try multiple selector patterns for robustness
+  const sidebarSelectors = [
+    'button.rounded-xl',
+    '[data-testid^="session-"]',
+    'div[role="button"][class*="session"]',
+  ];
+
+  let items: ReturnType<Page['locator']>;
+  for (const selector of sidebarSelectors) {
+    const count = await page.locator(selector).count();
+    if (count > 0) {
+      items = page.locator(selector);
+      console.log(`[test] Found ${count} session items with selector: ${selector}`);
+      break;
+    }
+  }
+
+  if (!items) {
+    console.log('[test] No session items found with any selector');
+    return false;
+  }
+
   const count = await items.count();
   console.log(
     `[test] Searching ${count} sidebar sessions for marker: ${marker}`,
@@ -179,11 +222,24 @@ export async function switchToSessionWithMarker(
 
   for (let i = 0; i < count; i++) {
     const btn = items.nth(i);
+    const isVisible = await btn.isVisible().catch(() => false);
+    if (!isVisible) continue;
+
     await btn.scrollIntoViewIfNeeded().catch(() => {});
-    await btn.click({ force: true, timeout: 5000 });
+    await btn.click({ force: true, timeout: 5000 }).catch(() => {});
+
+    // Wait for chat to update after click
+    await page.waitForTimeout(2000);
+
+    // Check if we're still in a loading state
+    const thinking = await page.locator('[data-testid="thinking-indicator"]').isVisible().catch(() => false);
+    if (thinking) {
+      // Wait for thinking to complete
+      await page.waitForTimeout(3000);
+    }
+
     const currentTitle = await getSessionTitle(page).textContent();
     console.log(`[test] Clicked session #${i} → title: ${currentTitle}`);
-    await page.waitForTimeout(4000);
 
     // Only check the <main> chat area, not the sidebar
     const markerVisible = await page
@@ -352,9 +408,7 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
     console.log('[test] App UI may still be loading — continuing');
   }
 
-  await waitForInputReady(page);
-
-  // Wait for bridge AppServer to finish registering methods
+  // Wait for bridge AppServer to finish registering methods before checking input
   const bridgeReady = await page.evaluate(async () => {
     for (let i = 0; i < 60; i++) {
       try {
@@ -369,6 +423,9 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
   });
   if (!bridgeReady)
     console.log('[test] Warning: bridge did not reach running state');
+
+  // Now wait for the input to be ready
+  await waitForInputReady(page, 60_000);
 
   console.log('[test] Ready');
   return { electronApp, page, miqiHome, miqiSessionsDir };

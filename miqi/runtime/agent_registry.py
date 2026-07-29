@@ -66,6 +66,7 @@ class AgentRegistry:
                 "xlsx_read", "xlsx_write",
                 "session_search", "task_begin", "task_end",
                 "skill_manage", "message", "spawn",
+                "paper_search", "paper_get", "paper_download",
             ],
         ))
 
