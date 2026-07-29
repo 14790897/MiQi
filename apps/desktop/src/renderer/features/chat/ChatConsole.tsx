@@ -81,7 +81,8 @@ interface Attachment {
   parseError?: string;
 }
 
-const DOCUMENT_SUFFIXES_RE = /\.(docx|doc|pptx|ppt|xlsx|xls|pdf|odt|odp|ods|md|markdown|mdown|html|htm|csv|json|xml|yaml|yml|env|log|sql|ini|toml|htaccess|sh|bash|txt|text|rtf)$/i;
+const DOCUMENT_SUFFIXES_RE =
+  /\.(docx|doc|pptx|ppt|xlsx|xls|pdf|odt|odp|ods|md|markdown|mdown|html|htm|csv|json|xml|yaml|yml|env|log|sql|ini|toml|htaccess|sh|bash|txt|text|rtf)$/i;
 
 function getDocCategory(name: string): { label: string; color: string; bg: string } {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
@@ -146,8 +147,8 @@ const FILE_BLOCK_RES = [
   /\[File: ([^\]]+)\]\n```\n[\s\S]*?\n```/g,
   /\[([^\]:]+):\s*(?:binary file|scanned PDF)[^\]]*\]/g,
   /--- Document: ([^\n]+) ---\n[\s\S]*?\n--- End of \1 ---/g,
-  /--- ([^\n]+) ---\n[\s\S]*?\n--- End of \1 ---/g,   // legacy: client-side inject before fix
-  /\[Uploaded: ([^\]]+?)\s+[—\-]\s+use\s+pdf_read[^\]]*\]/g,  // backend fallback when parse returns empty
+  /--- ([^\n]+) ---\n[\s\S]*?\n--- End of \1 ---/g, // legacy: client-side inject before fix
+  /\[Uploaded: ([^\]]+?)\s+[—\-]\s+use\s+pdf_read[^\]]*\]/g, // backend fallback when parse returns empty
 ];
 
 interface FileChip {
@@ -230,7 +231,8 @@ interface TrackedFile {
 
 const OFFICE_FILE_RE = /\.(docx|xlsx|pptx|ppt|xls|doc|odt|odp|ods)$/i;
 const PDF_FILE_RE = /\.pdf$/i;
-const TEXT_SUFFIXES_RE = /\.(md|markdown|mdown|txt|text|csv|json|yaml|yml|xml|log|env|sql|ini|toml|htaccess|sh|bash|rtf)$/i;
+const TEXT_SUFFIXES_RE =
+  /\.(md|markdown|mdown|txt|text|csv|json|yaml|yml|xml|log|env|sql|ini|toml|htaccess|sh|bash|rtf)$/i;
 const OFFICE_FILE_RE_LEGACY = /\.(docx|xlsx|pptx|ppt)$/i;
 
 /** Extract text from a PDF buffer by parsing BT/ET text blocks.
@@ -502,8 +504,16 @@ function parseToolHint(
     [/(?:edit_docx|append_xlsx)\s*\(\s*["'](.+?)["']\s*\)/i, 'edit'],
     // Office tool success: "Created: file.xlsx (3 sheet(s))"
     [/^(?:Created|Appended):\s+(.+?\.\w{1,6})(?:\s*\(.*\))?$/i, 'write'],
-    // Generic fallback: any mention of a path-like string after a colon
-    [/(?:file|path)[:\s]+([^\s,]+\.[a-zA-Z]{1,6})/i, 'read'],
+    // Generic fallback: only match clear file-path patterns like
+    // "Saved to: file.pdf", "Output: path/to/file.pdf" or "Downloading: file.pdf"
+    // where the prefix is a known verb and the path has a directory separator or
+    // a known extension.  This avoids false positives from arbitrary curl output.
+    [
+      /(?:Saving|Saved|Writing|Written|Downloading|Downloaded|Output|Result)(?:\s+to)?[:\s]\s*(.+?\.[a-zA-Z]{1,6})/i,
+      'write',
+    ],
+    // Also match the natural language "file/path: something.ext"
+    [/(?:file|path)[:\s]+((?:\S+\/)?\S+\.[a-zA-Z]{1,6})/i, 'read'],
   ];
   for (const [re, op] of patterns) {
     const m = text.match(re);
@@ -535,6 +545,16 @@ function parseToolHint(
 
 function basename(path: string): string {
   return path.replace(/\\/g, '/').split('/').pop() ?? path;
+}
+
+/** Normalise a sandbox-internal path to a workspace-relative path.
+ *  Strips /home/miqi/workspace/ prefix so the path resolves correctly on the
+ *  host filesystem.  Leaves relative paths and non-sandbox absolute paths
+ *  unchanged — the IPC handlers resolve them against the workspace root. */
+function normalizeSandboxPath(p: string): string {
+  if (p === '/home/miqi/workspace') return '.';
+  if (p.startsWith('/home/miqi/workspace/')) return p.slice('/home/miqi/workspace/'.length);
+  return p;
 }
 
 const DEFAULT_SESSION = 'desktop:default';
@@ -767,19 +787,60 @@ const _FILE_WRITE_TOOLS = [
   'edit_docx',
   'append_xlsx',
   'skill_manage',
+  'paper_download',
+  'exec',
 ];
 const _FILE_READ_TOOLS = ['read_file', 'pdf_read'];
 
 /** Extract a file path from a JSON-stringified tool args object.
- *  Checks common keys: path, file_path, filename.
- *  For skill_manage, derives the SKILL.md path from the skill name. */
+ *  Checks common keys: path, file_path, filename, outPath.
+ *  For skill_manage, derives the SKILL.md path from the skill name.
+ *  For exec, parses the command string for curl -o/-O, wget -O, or > redirect. */
 function _extractPathFromArgs(argsStr: string): string | null {
   try {
     const args = JSON.parse(argsStr);
+
+    // skill_manage: derive from name
     if (args.name && (args.action === 'create' || args.action === 'patch')) {
       return `skills/${args.name}/SKILL.md`;
     }
-    return (args.path as string) || (args.file_path as string) || (args.filename as string) || null;
+
+    // Direct path parameters
+    const directPath =
+      (args.path as string) ||
+      (args.file_path as string) ||
+      (args.filename as string) ||
+      (args.outPath as string) ||
+      (args.out_path as string) ||
+      (args.output as string);
+    if (directPath) return directPath;
+
+    // exec: parse command string for output filenames
+    const cmd: string = (args.command as string) || '';
+    if (cmd) {
+      // Match: -o <file>  (curl/wget explicit output path)
+      let m1 = cmd.match(/(?:^|\s)-o\s+(\S+\.\w+)/);
+      if (m1) return m1[1].replace(/^["']|["']$/g, '');
+      // Match: --output <file>
+      m1 = cmd.match(/--output\s+(\S+\.\w+)/);
+      if (m1) return m1[1].replace(/^["']|["']$/g, '');
+      // Match: -O  (boolean flag — derive filename from last URL basename)
+      // Must match O at argument boundary: -O, -LO, -fsSLO, etc.
+      if (/(?:^|\s)[a-zA-Z]*O(?:\s+|$)/.test(cmd)) {
+        const urls = cmd
+          .split(/\s+/)
+          .filter((t) => t.startsWith('http://') || t.startsWith('https://'));
+        if (urls.length) {
+          const name = urls[urls.length - 1].split('/').pop() || '';
+          if (name) return name;
+        }
+      }
+      // Match: > <file>  or  >><file>  (shell redirect)
+      const m2 = cmd.match(/(?:^|\s)>{1,2}\s*(\S+\.\w+)/);
+      if (m2) return m2[1].replace(/^["']|["']$/g, '');
+    }
+
+    return null;
   } catch {
     return null;
   }
@@ -796,7 +857,7 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
   const rank: Record<TrackedFile['op'], number> = { read: 0, edit: 1, write: 2, delete: 3 };
 
   const upsert = (path: string, op: TrackedFile['op'], timestamp?: string) => {
-    const key = path.replace(/\\/g, '/');
+    const key = normalizeSandboxPath(path).replace(/\\/g, '/');
     const existing = fileMap.get(key);
     if (!existing || rank[op] > rank[existing.op]) {
       fileMap.set(key, {
@@ -955,7 +1016,11 @@ export function ChatConsole({
   /** files touched by the agent during this session */
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([]);
   /** preview modal */
-  const [previewFile, setPreviewFile] = useState<{ path: string; content: string; dataBase64?: string } | null>(null);
+  const [previewFile, setPreviewFile] = useState<{
+    path: string;
+    content: string;
+    dataBase64?: string;
+  } | null>(null);
 
   // When preview is open, lock the entire page body so no clicks fall through
   // to elements behind the modal (sidebar, chat area, etc.)
@@ -963,7 +1028,9 @@ export function ChatConsole({
     if (previewFile) {
       const prev = document.body.style.pointerEvents;
       document.body.style.pointerEvents = 'none';
-      return () => { document.body.style.pointerEvents = prev; };
+      return () => {
+        document.body.style.pointerEvents = prev;
+      };
     }
   }, [previewFile]);
 
@@ -1097,19 +1164,40 @@ export function ChatConsole({
 
   /** Upsert a file into trackedFiles */
   const trackFile = useCallback((path: string, op: TrackedFile['op'], truncated = false) => {
+    // Normalise sandbox-internal paths before storing so Preview works
+    const normPath = normalizeSandboxPath(path);
+    // Strip surrounding quotes, trailing ellipsis, and leading ./ for dedup
+    const clean = normPath
+      .replace(/^["']|["']$/g, '')
+      .replace(/\.{3,}$/, '')
+      .replace(/[…]$/, '')
+      .replace(/^\.\//, '')
+      .trim();
     setTrackedFiles((prev) => {
-      const existing = prev.find((f) => f.path === path);
+      // Fuzzy match: compare cleaned base name, then exact path
+      const existing = prev.find((f) => {
+        const fc = f.path
+          .replace(/^["']|["']$/g, '')
+          .replace(/\.{3,}$/, '')
+          .replace(/[…]$/, '')
+          .replace(/^\.\//, '')
+          .trim();
+        return f.path === normPath || fc === clean || basename(f.path) === basename(clean);
+      });
       if (existing) {
         // Upgrade: read < edit < write
         const rank: Record<TrackedFile['op'], number> = { read: 0, edit: 1, write: 2, delete: 3 };
         const nextOp = rank[op] > rank[existing.op] ? op : existing.op;
         return prev.map((f) =>
-          f.path === path
+          f.path === existing.path
             ? { ...f, op: nextOp, lastSeen: Date.now(), truncated: f.truncated && truncated }
             : f
         );
       }
-      return [...prev, { path, name: basename(path), op, lastSeen: Date.now(), truncated }];
+      return [
+        ...prev,
+        { path: normPath, name: basename(normPath), op, lastSeen: Date.now(), truncated },
+      ];
     });
   }, []);
 
@@ -1233,10 +1321,7 @@ export function ChatConsole({
               session_key: currentSessionRef.current,
             }),
             new Promise<never>((_, reject) => {
-              resumeTimer = setTimeout(
-                () => reject(new Error('thread/list timeout')),
-                10_000,
-              );
+              resumeTimer = setTimeout(() => reject(new Error('thread/list timeout')), 10_000);
             }),
           ]);
           if (resumeTimer) clearTimeout(resumeTimer);
@@ -1510,11 +1595,26 @@ export function ChatConsole({
           if (ext === 'pdf') {
             extracted = extractPdfText(raw.buffer);
           } else if (
-            ext === 'md' || ext === 'markdown' || ext === 'mdown' || ext === 'txt' || ext === 'text' ||
-            ext === 'html' || ext === 'htm' || ext === 'csv' || ext === 'json' ||
-            ext === 'yaml' || ext === 'yml' || ext === 'xml' || ext === 'env' ||
-            ext === 'log' || ext === 'sql' || ext === 'ini' || ext === 'toml' ||
-            ext === 'htaccess' || ext === 'sh' || ext === 'bash'
+            ext === 'md' ||
+            ext === 'markdown' ||
+            ext === 'mdown' ||
+            ext === 'txt' ||
+            ext === 'text' ||
+            ext === 'html' ||
+            ext === 'htm' ||
+            ext === 'csv' ||
+            ext === 'json' ||
+            ext === 'yaml' ||
+            ext === 'yml' ||
+            ext === 'xml' ||
+            ext === 'env' ||
+            ext === 'log' ||
+            ext === 'sql' ||
+            ext === 'ini' ||
+            ext === 'toml' ||
+            ext === 'htaccess' ||
+            ext === 'sh' ||
+            ext === 'bash'
           ) {
             extracted = new TextDecoder().decode(raw);
           }
@@ -1611,9 +1711,7 @@ export function ChatConsole({
       }
       const elapsed = Date.now() - lastEventAt;
       if (elapsed >= NO_PROGRESS_STRONG_MS) {
-        appendWatchdogMsg(
-          '⚠️ 后端 60s 无响应，可中止并检查运行日志。'
-        );
+        appendWatchdogMsg('⚠️ 后端 60s 无响应，可中止并检查运行日志。');
       } else if (elapsed >= NO_PROGRESS_WARN_MS) {
         appendWatchdogMsg('⏳ 正在等待后端响应…');
       }
@@ -1772,6 +1870,29 @@ export function ChatConsole({
             trackFile(filePath, 'read', false);
           }
         }
+
+        // Reload tracked files from the backend — _persist_tracked_file saves the
+        // correct session-relative path (e.g. sessions/<key>/files/report.pdf) while
+        // _extractPathFromArgs only sees the bare filename from AI tool call args.
+        // Merge backend data on top: it wins when keys collide.
+        window.miqi.sessions.getTrackedFiles(currentSessionRef.current!).then(
+          (tfResult: any) => {
+            const tfList: any[] = tfResult?.tracked_files ?? [];
+            if (tfList.length) {
+              setTrackedFiles((prev) => {
+                const m = new Map(prev.map((f) => [f.path, f]));
+                for (const f of tfList) {
+                  const np = (f.path as string).replace(/\\/g, '/');
+                  m.set(np, { path: np, name: basename(np), op: f.op, lastSeen: Date.now() });
+                }
+                return Array.from(m.values());
+              });
+            }
+          },
+          () => {
+            /* non-fatal */
+          }
+        );
 
         setMessages((prev) => {
           const cleaned = removeTransientTurnMessagesSinceLastUser(prev);
@@ -1987,26 +2108,42 @@ export function ChatConsole({
     }
   };
 
-  const handlePreview = useCallback(async (path: string) => {
-    // For PDF files, open directly in the default browser
-    if (/\.pdf$/i.test(path)) {
-      const result = await window.miqi.files.openExternal(path);
-      if (!result?.opened) {
-        setPreviewFile({ path, content: `(Could not open file: ${path})` });
-      }
-      return;
-    }
-    // For document files, try to parse and show in-app preview first
+  /** Normalise a sandbox-internal path to a host path that can be opened.
+   *  Strips /home/miqi/workspace/ prefix so the path resolves correctly on the
+   *  host filesystem.  Leaves relative paths and non-sandbox absolute paths
+   *  unchanged — they are handled by the IPC handlers. */
+  const normalizePath = useCallback((p: string): string => {
+    return normalizeSandboxPath(p);
+  }, []);
+
+  const handlePreview = useCallback(async (rawPath: string) => {
+    const path = normalizePath(rawPath);
+
+    // For document files (PDF, Word, Excel, Markdown, etc.):
+    // try in-app parsing first — more reliable than system-open which
+    // depends on OS file associations.  Fall back to system default
+    // application only when parsing is unavailable.
     const isDocFile = DOCUMENT_SUFFIXES_RE.test(path);
     if (isDocFile) {
-      try {
-        const result = await window.miqi.documents.parse(path, currentSessionRef.current, {
-          preview: true,
-        });
-        setPreviewFile({ path, content: result.text });
-        return;
-      } catch {
-        // Fall through to system open
+      // Collect candidate paths: the tracked path, then try common subdirs
+      // (paper_search saves to workspace/papers/, office tools to workspace/ root)
+      const candidates = [path];
+      const nameOnly = path.replace(/\\/g, '/').split('/').pop()!;
+      if (nameOnly !== path) candidates.push(nameOnly);
+      if (!path.startsWith('papers/')) candidates.push(`papers/${nameOnly}`);
+
+      for (const candidate of candidates) {
+        try {
+          const result = await window.miqi.documents.parse(candidate, currentSessionRef.current, {
+            preview: true,
+          });
+          if (result?.text) {
+            setPreviewFile({ path: candidate, content: result.text });
+            return;
+          }
+        } catch {
+          continue; // try next candidate
+        }
       }
     }
     // Open with system default application as fallback
@@ -2378,18 +2515,14 @@ export function ChatConsole({
         {/* Right: Badges + user + actions */}
         <div className="flex items-center gap-2 shrink-0">
           {/* User avatar + name */}
-          <div
-            className="flex items-center gap-1.5 pl-2 ml-1 border-l border-border-subtle"
-          >
+          <div className="flex items-center gap-1.5 pl-2 ml-1 border-l border-border-subtle">
             <div
               className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
               style={{ background: 'var(--avatar-dark)' }}
             >
               A
             </div>
-            <span className="text-xs whitespace-nowrap text-text-muted">
-              Admin
-            </span>
+            <span className="text-xs whitespace-nowrap text-text-muted">Admin</span>
           </div>
 
           {/* More menu */}
@@ -2481,9 +2614,7 @@ export function ChatConsole({
             }}
           >
             <div className="min-w-0 flex-1 flex items-center gap-2.5">
-              <h2
-                className="text-[16px] font-semibold truncate leading-[1.35] text-text"
-              >
+              <h2 className="text-[16px] font-semibold truncate leading-[1.35] text-text">
                 {sessionTitle}
               </h2>
               <span className="tag-inprogress shrink-0">{'\u8fdb\u884c\u4e2d'}</span>
@@ -2560,10 +2691,7 @@ export function ChatConsole({
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
               {!historyLoaded ? (
                 <div className="flex items-center justify-center min-h-[300px]">
-                  <Loader2
-                    size={16}
-                    className="animate-spin text-text-faint"
-                  />
+                  <Loader2 size={16} className="animate-spin text-text-faint" />
                 </div>
               ) : messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center gap-4">
@@ -2577,9 +2705,7 @@ export function ChatConsole({
                     <p className="text-[15px] font-medium text-text-muted">
                       从文件、问题或修改请求开始
                     </p>
-                    <p className="text-xs text-text-faint">
-                      发起一段对话即可开始
-                    </p>
+                    <p className="text-xs text-text-faint">发起一段对话即可开始</p>
                   </div>
                 </div>
               ) : (
@@ -2653,7 +2779,9 @@ export function ChatConsole({
                             if (ext === 'pdf') {
                               previewText = extractPdfText(raw.buffer);
                             } else if (
-                              /^(md|markdown|mdown|txt|text|csv|json|ya?ml|xml|py|ts|js|log|html|htm|env|sql|ini|toml|htaccess|sh|bash)$/i.test(ext)
+                              /^(md|markdown|mdown|txt|text|csv|json|ya?ml|xml|py|ts|js|log|html|htm|env|sql|ini|toml|htaccess|sh|bash)$/i.test(
+                                ext
+                              )
                             ) {
                               previewText = new TextDecoder().decode(raw);
                             } else {
@@ -2683,10 +2811,7 @@ export function ChatConsole({
                         ) : att.type === 'image' ? (
                           <Image size={14} className="shrink-0" style={{ color: 'var(--info)' }} />
                         ) : (
-                          <FileText
-                            size={14}
-                            className="shrink-0 text-text-faint"
-                          />
+                          <FileText size={14} className="shrink-0 text-text-faint" />
                         )}
 
                         {/* Name + size */}
@@ -2864,16 +2989,11 @@ export function ChatConsole({
             >
               <div className="flex items-center gap-1.5 text-text-muted">
                 <LayoutGrid size={13} />
-                <span
-                  className="text-xs font-semibold text-text"
-                  data-testid="task-assets-title"
-                >
+                <span className="text-xs font-semibold text-text" data-testid="task-assets-title">
                   任务资产
                 </span>
               </div>
-              <span className="text-xs font-medium text-text-faint">
-                {trackedFiles.length}
-              </span>
+              <span className="text-xs font-medium text-text-faint">{trackedFiles.length}</span>
             </div>
 
             {trackedFiles.length === 0 ? (
@@ -2886,9 +3006,7 @@ export function ChatConsole({
                   >
                     暂无文件
                   </p>
-                  <p className="text-[11px] text-text-faint">
-                    Agent 操作会显示在这里
-                  </p>
+                  <p className="text-[11px] text-text-faint">Agent 操作会显示在这里</p>
                 </div>
               </div>
             ) : (
@@ -2963,9 +3081,7 @@ export function ChatConsole({
                       className="w-1.5 h-1.5 rounded-full"
                       style={{ background: 'var(--warning)' }}
                     />
-                    <span className="text-xs font-semibold text-text">
-                      修改建议
-                    </span>
+                    <span className="text-xs font-semibold text-text">修改建议</span>
                   </div>
                   <span className="text-[10px] text-text-faint">
                     {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length} 个文件
@@ -2985,10 +3101,7 @@ export function ChatConsole({
                         }}
                       >
                         <FileText size={11} style={{ color: 'var(--info)' }} className="shrink-0" />
-                        <span
-                          className="text-[11px] truncate flex-1 text-text"
-                          title={f.path}
-                        >
+                        <span className="text-[11px] truncate flex-1 text-text" title={f.path}>
                           {f.name}
                         </span>
                         <span
@@ -3037,9 +3150,7 @@ export function ChatConsole({
               </button>
               {trackedFiles.length === 0 && (
                 <div className="flex items-center justify-center mt-2 py-1.5">
-                  <span className="text-xs text-text-faint">
-                    跟踪文件变更后将在此显示合并选项
-                  </span>
+                  <span className="text-xs text-text-faint">跟踪文件变更后将在此显示合并选项</span>
                 </div>
               )}
             </div>
@@ -3049,7 +3160,13 @@ export function ChatConsole({
 
       {/* ── File Preview Modal ── */}
       {previewFile && (
-        <Modal open={!!previewFile} onOpenChange={(o) => { if (!o) closePreview(); }} hideClose>
+        <Modal
+          open={!!previewFile}
+          onOpenChange={(o) => {
+            if (!o) closePreview();
+          }}
+          hideClose
+        >
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
@@ -3062,9 +3179,7 @@ export function ChatConsole({
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div
-              className="flex items-center justify-between px-4 py-3 border-b shrink-0 border-border-subtle"
-            >
+            <div className="flex items-center justify-between px-4 py-3 border-b shrink-0 border-border-subtle">
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 {PDF_FILE_RE.test(previewFile.path) ? (
                   <FileText size={14} style={{ color: '#ef4444' }} className="shrink-0" />
@@ -3105,10 +3220,10 @@ export function ChatConsole({
                 </button>
                 <button
                   onClick={(e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              closePreview(e);
-            }}
+                    e.stopPropagation();
+                    e.preventDefault();
+                    closePreview(e);
+                  }}
                   className="p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
                 >
                   <X size={14} style={{ color: 'var(--text-faint)' }} />
@@ -3116,9 +3231,7 @@ export function ChatConsole({
               </div>
             </div>
             <div className="flex-1 overflow-auto p-4">
-              <pre
-                className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted"
-              >
+              <pre className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
                 {previewFile.content}
               </pre>
             </div>
@@ -3128,7 +3241,13 @@ export function ChatConsole({
 
       {/* ── Diff Modal ── */}
       {diffFile && (
-        <Modal open={!!diffFile} onOpenChange={(o) => { if (!o) closeDiff(); }} hideClose>
+        <Modal
+          open={!!diffFile}
+          onOpenChange={(o) => {
+            if (!o) closeDiff();
+          }}
+          hideClose
+        >
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
@@ -3140,15 +3259,10 @@ export function ChatConsole({
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div
-              className="flex items-center justify-between px-4 py-3 border-b shrink-0 border-border-subtle"
-            >
+            <div className="flex items-center justify-between px-4 py-3 border-b shrink-0 border-border-subtle">
               <div className="flex items-center gap-2 min-w-0">
                 <GitCompare size={14} style={{ color: 'var(--warning)' }} className="shrink-0" />
-                <span
-                  className="text-sm font-medium truncate text-text"
-                  title={diffFile.path}
-                >
+                <span className="text-sm font-medium truncate text-text" title={diffFile.path}>
                   {diffFile.path.split(/[/\\]/).pop()}
                 </span>
                 {!diffLoading && diffFile.has_diff && (
@@ -3215,42 +3329,27 @@ export function ChatConsole({
             <div className="flex-1 overflow-auto">
               {diffLoading ? (
                 <div className="flex items-center justify-center h-48">
-                  <Loader2
-                    size={24}
-                    className="animate-spin text-text-faint"
-                  />
-                  <span className="ml-2 text-sm text-text-faint">
-                    Loading diff...
-                  </span>
+                  <Loader2 size={24} className="animate-spin text-text-faint" />
+                  <span className="ml-2 text-sm text-text-faint">Loading diff...</span>
                 </div>
               ) : diffFile.diff ? (
                 <DiffView diff={diffFile.diff} />
               ) : diffFile.original_content !== null && diffFile.current_content !== null ? (
                 /* No snapshot diff but we have both versions — show side by side */
                 <div className="flex h-full" style={{ minHeight: 400 }}>
-                  <div
-                    className="flex-1 p-4 overflow-auto border-r border-border-subtle"
-                  >
-                    <div
-                      className="text-[10px] font-semibold uppercase tracking-wider mb-2 text-text-faint"
-                    >
+                  <div className="flex-1 p-4 overflow-auto border-r border-border-subtle">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider mb-2 text-text-faint">
                       Original
                     </div>
-                    <pre
-                      className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted"
-                    >
+                    <pre className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
                       {diffFile.original_content || '(empty)'}
                     </pre>
                   </div>
                   <div className="flex-1 p-4 overflow-auto">
-                    <div
-                      className="text-[10px] font-semibold uppercase tracking-wider mb-2 text-text-faint"
-                    >
+                    <div className="text-[10px] font-semibold uppercase tracking-wider mb-2 text-text-faint">
                       Current
                     </div>
-                    <pre
-                      className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text"
-                    >
+                    <pre className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text">
                       {diffFile.current_content || '(empty)'}
                     </pre>
                   </div>
@@ -3523,10 +3622,7 @@ function MessageBubble({
                       {att.name} ({formatFileSize(att.size)})
                     </span>
                     {isParsing && (
-                      <Loader2
-                        size={11}
-                        className="shrink-0 animate-spin text-text-muted"
-                      />
+                      <Loader2 size={11} className="shrink-0 animate-spin text-text-muted" />
                     )}
                     {isDone && (
                       <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
@@ -3535,31 +3631,35 @@ function MessageBubble({
                 );
               })}
             {/* Always clean injected document text from content — shown as chips only when attachments are missing */}
-            {isUser && (() => {
-              const { cleanContent, chips } = extractFileChips(msg.content);
-              // Always store cleaned content so the bubble renders without injected text
-              (msg as any).__cleanContent = cleanContent;
-              // Only show historical chips when there are no real attachments (avoids duplicates)
-              if (chips.length === 0 || (msg.attachments && msg.attachments.length > 0)) return null;
-              return chips.map((chip, i) => (
-                <div
-                  key={`hist-${i}`}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
-                  style={{
-                    background: chip.category.bg,
-                    border: `1px solid ${chip.category.color}40`,
-                    color: chip.category.color,
-                  }}
-                >
-                  <span className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
-                    style={{ background: chip.category.color }}>
-                    {chip.category.label}
-                  </span>
-                  <span>{chip.name}</span>
-                  <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
-                </div>
-              ));
-            })()}
+            {isUser &&
+              (() => {
+                const { cleanContent, chips } = extractFileChips(msg.content);
+                // Always store cleaned content so the bubble renders without injected text
+                (msg as any).__cleanContent = cleanContent;
+                // Only show historical chips when there are no real attachments (avoids duplicates)
+                if (chips.length === 0 || (msg.attachments && msg.attachments.length > 0))
+                  return null;
+                return chips.map((chip, i) => (
+                  <div
+                    key={`hist-${i}`}
+                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+                    style={{
+                      background: chip.category.bg,
+                      border: `1px solid ${chip.category.color}40`,
+                      color: chip.category.color,
+                    }}
+                  >
+                    <span
+                      className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
+                      style={{ background: chip.category.color }}
+                    >
+                      {chip.category.label}
+                    </span>
+                    <span>{chip.name}</span>
+                    <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
+                  </div>
+                ));
+              })()}
 
             {/* Main bubble */}
             <div
@@ -3574,22 +3674,31 @@ function MessageBubble({
                     }
               }
             >
-            <ErrorBoundary
-              fallback={(error, reset) => (
-                <div className="text-xs p-2 rounded" style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}>
-                  ⚠ 消息渲染失败
-                  <button onClick={reset} className="ml-2 underline" style={{ color: 'var(--accent)' }}>重试</button>
-                </div>
-              )}
-            >
-              {msg.role === 'assistant' && msg.content === '' ? (
-                <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
-              ) : msg.role === 'assistant' ? (
-                <MarkdownContent content={msg.content} />
-              ) : (
-                renderContent((msg as any).__cleanContent ?? msg.content)
-              )}
-            </ErrorBoundary>
+              <ErrorBoundary
+                fallback={(error, reset) => (
+                  <div
+                    className="text-xs p-2 rounded"
+                    style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}
+                  >
+                    ⚠ 消息渲染失败
+                    <button
+                      onClick={reset}
+                      className="ml-2 underline"
+                      style={{ color: 'var(--accent)' }}
+                    >
+                      重试
+                    </button>
+                  </div>
+                )}
+              >
+                {msg.role === 'assistant' && msg.content === '' ? (
+                  <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
+                ) : msg.role === 'assistant' ? (
+                  <MarkdownContent content={msg.content} />
+                ) : (
+                  renderContent((msg as any).__cleanContent ?? msg.content)
+                )}
+              </ErrorBoundary>
             </div>
 
             {/* copy button */}

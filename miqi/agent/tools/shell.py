@@ -256,6 +256,16 @@ class ExecTool(Tool):
                 },
             )
 
+        # Phase 47: mirror files created by curl/wget from sandbox to host
+        # so they survive sandbox cleanup and appear in Task Assets.
+        if _sandbox is not None and exec_result.exit_code == 0:
+            try:
+                await self._mirror_downloaded_files(
+                    command, _sandbox, _session_key,
+                )
+            except Exception:
+                logger.warning("exec: file mirroring failed", exc_info=True)
+
         return exec_result.output
 
     async def _execute_in_sandbox(
@@ -1172,3 +1182,125 @@ class ExecTool(Tool):
                     return "Error: Command blocked by safety guard (path outside working dir)"
 
         return None
+
+    async def _mirror_downloaded_files(
+        self, command: str, sandbox_selection, session_key: str | None,
+    ) -> None:
+        """After a successful exec, mirror files created by curl/wget from the
+        sandbox workspace to the host workspace so they survive sandbox cleanup
+        and appear in the Task Assets panel."""
+        import re as _re
+        from pathlib import Path
+
+        # Need both the real sandbox instance and the workspace path
+        if self._sandbox_manager is None or not session_key:
+            return
+        sandbox = await self._sandbox_manager.get_or_create(session_key)
+        if sandbox is None:
+            return
+        try:
+            from miqi.runtime.file_handlers import _get_workspace_path
+            workspace = _get_workspace_path()
+        except Exception:
+            return
+
+        # Parse the command for output filenames
+        filename = None
+        # wget -O <file> / --output-document=<file>  (takes explicit path argument)
+        if 'wget' in command:
+            m = _re.search(r'(?:^|\s)-O\s+(\S+)', command)
+            if m:
+                filename = m.group(1).strip('\'"')
+            elif '--output-document=' in command:
+                m = _re.search(r'--output-document=(\S+)', command)
+                if m:
+                    filename = m.group(1).strip('\'"')
+            if not filename:
+                # wget -o <file> / --output-file=<file>
+                m = _re.search(r'(?:^|\s)-o\s+(\S+)', command)
+                if m:
+                    filename = m.group(1).strip('\'"')
+                elif '--output-file=' in command:
+                    m = _re.search(r'--output-file=(\S+)', command)
+                    if m:
+                        filename = m.group(1).strip('\'"')
+        # curl -o <file> / --output <file>  (takes explicit path argument)
+        elif 'curl' in command:
+            m = _re.search(r'(?:^|\s)-o\s+(\S+)', command)
+            if m:
+                filename = m.group(1).strip('\'"')
+            elif '--output' in command:
+                m = _re.search(r'--output\s+(\S+)', command)
+                if m:
+                    filename = m.group(1).strip('\'"')
+            else:
+                # curl -O / --remote-name  (boolean flag — derive from URL basename)
+                # Match O in flag clusters: -O, -LO, -fsSLO, etc.
+                m = _re.search(r'(?:^|\s)[a-zA-Z]*O(?:\s+|$)', command)
+                if m:
+                    # Extract the last download URL from the command and take its basename
+                    urls = [t for t in command.split() if t.startswith('http://') or t.startswith('https://')]
+                    if urls:
+                        from urllib.parse import urlparse
+                        parsed = urlparse(urls[-1])
+                        name = parsed.path.rstrip('/').split('/')[-1] or 'downloaded_file'
+                        filename = name
+
+        # shell redirect > or >>
+        if not filename:
+            m = _re.search(r'(?:^|\s)>{1,2}\s*(\S+)', command)
+            if m:
+                filename = m.group(1).strip('\'"')
+
+        if not filename:
+            return
+
+        # Resolve the sandbox workspace path
+        from miqi.agent.tools.filesystem import (
+            _persist_tracked_file,
+            _sandbox_to_host_path,
+            _resolve_sandbox_path,
+            _get_session_workspace,
+        )
+
+        session_ws = _get_session_workspace(workspace, sandbox)
+        sandbox_path = _resolve_sandbox_path(filename, session_ws, sandbox)
+        host_path = _sandbox_to_host_path(sandbox_path, workspace, sandbox)
+
+        # Security: verify both paths remain under session workspace before writing.
+        # An attacker could craft a command like "curl -o ../../../etc/passwd" to
+        # escape the session directory. Canonicalize and verify containment.
+        try:
+            canonical_host = Path(host_path).resolve()
+            canonical_ws = Path(workspace).resolve()
+            # Ensure the canonical path is under workspace
+            if not str(canonical_host).startswith(str(canonical_ws)):
+                logger.warning("exec [mirror] rejected: path escapes workspace: {}", host_path)
+                return
+        except Exception as exc:
+            logger.warning("exec [mirror] path resolution failed: {}", exc)
+            return
+
+        # Check if the file exists inside the sandbox
+        try:
+            from miqi.agent.tools.filesystem import _sandbox_file_exists
+            exists = await _sandbox_file_exists(sandbox, sandbox_path)
+        except Exception:
+            exists = False
+
+        if not exists:
+            return
+
+        # Mirror to host
+        try:
+            from miqi.agent.tools.filesystem import _sandbox_read_file
+            content = await _sandbox_read_file(sandbox, sandbox_path)
+            target = Path(host_path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content if isinstance(content, bytes) else content.encode('utf-8'))
+            logger.info("exec [mirror]: {} → {}", sandbox_path, host_path)
+        except Exception as exc:
+            logger.warning("exec [mirror] failed for {}: {}", sandbox_path, exc)
+            return
+
+        _persist_tracked_file(workspace, host_path, op="write", session_key=session_key)
