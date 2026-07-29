@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { pickThreadToResume } from '../src/renderer/features/chat/ChatConsole';
+import {
+  extractThreadListRows,
+  pickThreadToResume,
+} from '../src/renderer/features/chat/ChatConsole';
 
 /**
  * Issue #490: when (re)entering a session the frontend must resume the
@@ -113,5 +116,69 @@ describe('pickThreadToResume', () => {
     ];
     // Number('abc') → NaN → 0; Number('10') → 10. b has more turns → picked.
     expect(pickThreadToResume(items)).toBe('b');
+  });
+});
+
+/**
+ * Wiring-level coverage: exercise the real `threads.list → extractThreadListRows
+ * → pickThreadToResume` flow the ChatConsole load effect runs, with payloads
+ * shaped like the actual backend response (Page.to_dict = { data, nextCursor },
+ * with the ThreadView camelCase fields). This catches a field-name or envelope
+ * mismatch between the backend and the resume helper that pure-helper tests
+ * (above) can't see — the failure that originally made #490's resume a no-op.
+ */
+describe('resume wiring: threads.list → pickThreadToResume', () => {
+  it('resumes the history-richest thread from a backend Page envelope', () => {
+    // Mirrors the real _thread_list response: { data: [ThreadView.to_dict...] }.
+    const backendResponse = {
+      data: [
+        { id: 'thread-empty-recap', title: 'recap', status: 'active', turnCount: 1, updatedAt: 9000, createdAt: 8500, archived: false, ephemeral: false },
+        { id: 'thread-real-convo', title: 'main', status: 'active', turnCount: 14, updatedAt: 2000, createdAt: 1000, archived: false, ephemeral: false },
+        { id: 'thread-archived-old', title: 'old', status: 'archived', turnCount: 99, updatedAt: 9999, createdAt: 1, archived: true, ephemeral: false },
+      ],
+      nextCursor: null,
+    };
+    const rows = extractThreadListRows(backendResponse);
+    expect(pickThreadToResume(rows)).toBe('thread-real-convo');
+  });
+
+  it('still resumes when the backend uses the legacy `items` envelope', () => {
+    const legacyResponse = {
+      items: [
+        { id: 'only-one', turnCount: 5, updatedAt: 1000, archived: false, ephemeral: false },
+      ],
+    };
+    expect(pickThreadToResume(extractThreadListRows(legacyResponse))).toBe(
+      'only-one',
+    );
+  });
+
+  it('returns null for an empty page (brand-new session resumes nothing)', () => {
+    expect(pickThreadToResume(extractThreadListRows({ data: [], nextCursor: null }))).toBeNull();
+  });
+
+  it('returns null when the envelope is malformed / unexpected shape', () => {
+    // Defends against a backend change that drops both `data` and `items`:
+    // resume must no-op (not throw) so the load effect still reaches
+    // setHistoryLoaded(true) and falls back to thread/start on first send.
+    expect(pickThreadToResume(extractThreadListRows(null))).toBeNull();
+    expect(pickThreadToResume(extractThreadListRows(undefined))).toBeNull();
+    expect(pickThreadToResume(extractThreadListRows({ unexpected: 'shape' }))).toBeNull();
+    expect(pickThreadToResume(extractThreadListRows({ data: 'not-an-array' }))).toBeNull();
+  });
+
+  it('exhibits no cross-session leakage: only the listed (own-session) threads are ever candidates', () => {
+    // Isolation guarantee for #490: the resume helper only ever sees threads
+    // for THIS session (threads.list is session-scoped server-side), so B/C
+    // ids can never appear as a selection here. Pin that only the supplied
+    // rows are considered — nothing is fetched or merged from elsewhere.
+    const ownSessionOnly = {
+      data: [
+        { id: 'A-thread', turnCount: 10, updatedAt: 1000, archived: false, ephemeral: false },
+      ],
+    };
+    expect(pickThreadToResume(extractThreadListRows(ownSessionOnly))).toBe(
+      'A-thread',
+    );
   });
 });

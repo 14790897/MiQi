@@ -412,6 +412,25 @@ export function getTaskShareDownloadName(title: string, timestamp = Date.now()):
 }
 
 /**
+ * Extract the thread rows from a `threads.list` result, defensively, so the
+ * resume path tolerates either backend page shape. The backend `Page.to_dict()`
+ * (thread_protocol.py:94) envelopes rows under `data`; the legacy TS
+ * `ThreadListResult` type declared them under `items`. Read both so a
+ * field-name mismatch between the running backend and this helper can't
+ * silently empty the list and force every session to mint a fresh thread.
+ *
+ * Pure + exported so the whole `threads.list → extractThreadListRows →
+ * pickThreadToResume` wiring is unit-tested with backend-shaped payloads
+ * without mounting the React component (see chatConsoleThreadResume.test.ts).
+ */
+export function extractThreadListRows(listResult: unknown): unknown[] {
+  if (Array.isArray(listResult)) return listResult;
+  const obj = listResult as Record<string, unknown> | null | undefined;
+  const rows = obj?.data ?? obj?.items;
+  return Array.isArray(rows) ? rows : [];
+}
+
+/**
  * Pick the best non-archived, non-ephemeral stored thread id from a
  * `thread/list` result, for resuming an existing conversation when
  * (re)entering a session (Issue #490).
@@ -1199,24 +1218,41 @@ export function ChatConsole({
         // stored threads → ref stays null → first send still creates one.
         // This keeps thread isolation intact (B/C content is never pulled
         // into A); only A's own history is reloaded.
+        // Guard with a short timeout (Promise.race, same shape as the
+        // thread/start guard below) so a slow/hung backend can't block the
+        // surrounding flow from reaching setHistoryLoaded(true). This is a
+        // best-effort optimization; on timeout or rejection we fall through to
+        // the existing first-send thread/start path (ref stays null) — the
+        // session still loads, just without thread reuse. 10s is far shorter
+        // than thread/start's 30s (which budgets sandbox first-init) because
+        // threads/list is a cheap SQLite read, not a sandbox spawn.
+        let resumeTimer: ReturnType<typeof setTimeout> | null = null;
         try {
-          const listRes = await window.miqi.threads.list({
-            session_key: currentSessionRef.current,
-          });
+          const listRes = await Promise.race([
+            window.miqi.threads.list({
+              session_key: currentSessionRef.current,
+            }),
+            new Promise<never>((_, reject) => {
+              resumeTimer = setTimeout(
+                () => reject(new Error('thread/list timeout')),
+                10_000,
+              );
+            }),
+          ]);
+          if (resumeTimer) clearTimeout(resumeTimer);
           if (currentSessionRef.current !== sessionKey) return; // switched away
-          // backend `Page.to_dict()` (thread_protocol.py:94) emits the page
-          // under `data` (camelCased to `data`), but the TS `ThreadListResult`
-          // type declares `items`. Read defensively from both so resume works
-          // regardless of which key the running backend uses.
-          const listRows =
-            (listRes as any)?.data ?? (listRes as any)?.items ?? [];
+          // backend `Page.to_dict()` (thread_protocol.py:94) envelopes rows
+          // under `data`; read via extractThreadListRows so resume matches
+          // the real backend shape (and is unit-tested end-to-end).
+          const listRows = extractThreadListRows(listRes);
           const resumeId = pickThreadToResume(listRows);
           if (resumeId) {
             currentThreadIdRef.current = resumeId;
           }
         } catch (err) {
-          // Non-fatal: if threads.list fails the fall-through is the
-          // existing first-send thread/start path. Don't block rendering.
+          // Non-fatal: timeout or rejection → ref stays null → first send
+          // still uses the thread/start path. Don't block rendering.
+          if (resumeTimer) clearTimeout(resumeTimer);
           console.warn('[ChatConsole] Failed to resume thread:', err);
         }
       } catch (err) {
