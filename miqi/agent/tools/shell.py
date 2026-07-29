@@ -1269,12 +1269,13 @@ class ExecTool(Tool):
 
         # Security: verify both paths remain under session workspace before writing.
         # An attacker could craft a command like "curl -o ../../../etc/passwd" to
-        # escape the session directory. Canonicalize and verify containment.
+        # escape the session directory. Use path-relative containment check.
         try:
             canonical_host = Path(host_path).resolve()
             canonical_ws = Path(workspace).resolve()
-            # Ensure the canonical path is under workspace
-            if not str(canonical_host).startswith(str(canonical_ws)):
+            # Allow exact match (workspace itself) or paths under workspace.
+            # Reject sibling directories like /workspace-evil/ that prefix-match.
+            if canonical_host != canonical_ws and canonical_ws not in canonical_host.parents:
                 logger.warning("exec [mirror] rejected: path escapes workspace: {}", host_path)
                 return
         except Exception as exc:
