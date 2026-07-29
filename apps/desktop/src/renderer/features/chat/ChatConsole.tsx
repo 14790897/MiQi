@@ -1,4 +1,10 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { AgentAvatar, UserAvatar } from './components/Avatars';
+import { MarkdownContent } from './components/MarkdownContent';
+import { DiffView } from './components/DiffView';
+import { renderContent } from './components/renderContent';
+import { TrackedFileCard } from './components/TrackedFileCard';
+import { ErrorBoundary } from '../../components/ErrorBoundary';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '../../components/ui/Button';
@@ -6,7 +12,12 @@ import { Textarea } from '../../components/ui/Textarea';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { ContextMenu, type ContextMenuAction } from '../../components/ContextMenu';
 import { cn } from '../../lib/utils';
-import { ExecutionPolicySelector, type ExecutionPolicy } from '../../components/ExecutionPolicySelector';
+import { Modal } from '../../components/shared';
+import { formatRelativeTime } from '../../lib/formatTime';
+import {
+  ExecutionPolicySelector,
+  type ExecutionPolicy,
+} from '../../components/ExecutionPolicySelector';
 import {
   Send,
   Square,
@@ -70,26 +81,50 @@ interface Attachment {
   parseError?: string;
 }
 
-const DOCUMENT_SUFFIXES_RE = /\.(docx|doc|pptx|ppt|xlsx|xls|pdf|odt|odp|ods|md|markdown|mdown)$/i;
+const DOCUMENT_SUFFIXES_RE = /\.(docx|doc|pptx|ppt|xlsx|xls|pdf|odt|odp|ods|md|markdown|mdown|html|htm|csv|json|xml|yaml|yml|env|log|sql|ini|toml|htaccess|sh|bash|txt|text|rtf)$/i;
 
 function getDocCategory(name: string): { label: string; color: string; bg: string } {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   const map: Record<string, { label: string; color: string; bg: string }> = {
-    pdf:  { label: 'PDF',  color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
-    docx: { label: 'DOC',  color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
-    doc:  { label: 'DOC',  color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
-    pptx: { label: 'PPT',  color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-    ppt:  { label: 'PPT',  color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-    xlsx: { label: 'XLS',  color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
-    xls:  { label: 'XLS',  color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
-    md:   { label: 'MD',   color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
+    pdf: { label: 'PDF', color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
+    docx: { label: 'DOC', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+    doc: { label: 'DOC', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+    pptx: { label: 'PPT', color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
+    ppt: { label: 'PPT', color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
+    xlsx: { label: 'XLS', color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
+    xls: { label: 'XLS', color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
+    md: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
     markdown: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
     mdown: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
-    odt:  { label: 'DOC',  color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
-    odp:  { label: 'PPT',  color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-    ods:  { label: 'XLS',  color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
+    html: { label: 'HTML', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+    htm: { label: 'HTML', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+    csv: { label: 'CSV', color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
+    json: { label: 'JSON', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+    xml: { label: 'XML', color: '#6366f1', bg: 'rgba(99,102,241,0.12)' },
+    yaml: { label: 'YAML', color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
+    yml: { label: 'YAML', color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
+    env: { label: 'ENV', color: '#84cc16', bg: 'rgba(132,204,22,0.12)' },
+    log: { label: 'LOG', color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
+    sql: { label: 'SQL', color: '#0ea5e9', bg: 'rgba(14,165,233,0.12)' },
+    ini: { label: 'INI', color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
+    toml: { label: 'TOML', color: '#e11d48', bg: 'rgba(225,29,72,0.12)' },
+    htaccess: { label: 'HTA', color: '#d946ef', bg: 'rgba(217,70,239,0.12)' },
+    sh: { label: 'SH', color: '#14b8a6', bg: 'rgba(20,184,166,0.12)' },
+    bash: { label: 'SH', color: '#14b8a6', bg: 'rgba(20,184,166,0.12)' },
+    txt: { label: 'TXT', color: '#6b7280', bg: 'rgba(107,114,128,0.12)' },
+    text: { label: 'TXT', color: '#6b7280', bg: 'rgba(107,114,128,0.12)' },
+    rtf: { label: 'RTF', color: '#ec4899', bg: 'rgba(236,72,153,0.12)' },
+    odt: { label: 'DOC', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+    odp: { label: 'PPT', color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
+    ods: { label: 'XLS', color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
   };
-  return map[ext] ?? { label: ext.toUpperCase() || 'FILE', color: 'var(--text-faint)', bg: 'var(--surface-muted)' };
+  return (
+    map[ext] ?? {
+      label: ext.toUpperCase() || 'FILE',
+      color: 'var(--text-faint)',
+      bg: 'var(--surface-muted)',
+    }
+  );
 }
 
 function formatFileSize(bytes: number): string {
@@ -111,6 +146,8 @@ const FILE_BLOCK_RES = [
   /\[File: ([^\]]+)\]\n```\n[\s\S]*?\n```/g,
   /\[([^\]:]+):\s*(?:binary file|scanned PDF)[^\]]*\]/g,
   /--- Document: ([^\n]+) ---\n[\s\S]*?\n--- End of \1 ---/g,
+  /--- ([^\n]+) ---\n[\s\S]*?\n--- End of \1 ---/g,   // legacy: client-side inject before fix
+  /\[Uploaded: ([^\]]+?)\s+[—\-]\s+use\s+pdf_read[^\]]*\]/g,  // backend fallback when parse returns empty
 ];
 
 interface FileChip {
@@ -123,7 +160,7 @@ function extractFileChips(content: string): { cleanContent: string; chips: FileC
   let clean = content;
   for (const re of FILE_BLOCK_RES) {
     clean = clean.replace(re, (_full: string, name: string) => {
-      if (!chips.some(c => c.name === name)) {
+      if (!chips.some((c) => c.name === name)) {
         chips.push({ name, category: getDocCategory(name) });
       }
       return '';
@@ -193,13 +230,14 @@ interface TrackedFile {
 
 const OFFICE_FILE_RE = /\.(docx|xlsx|pptx|ppt|xls|doc|odt|odp|ods)$/i;
 const PDF_FILE_RE = /\.pdf$/i;
-const TEXT_SUFFIXES_RE = /\.(md|markdown|mdown|txt|csv|json|yaml|yml|xml|log)$/i;
+const TEXT_SUFFIXES_RE = /\.(md|markdown|mdown|txt|text|csv|json|yaml|yml|xml|log|env|sql|ini|toml|htaccess|sh|bash|rtf)$/i;
 const OFFICE_FILE_RE_LEGACY = /\.(docx|xlsx|pptx|ppt)$/i;
 
 /** Extract text from a PDF buffer by parsing BT/ET text blocks.
  *  Fast client-side extraction — handles text-based PDFs (not scanned). */
 function extractPdfText(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer), limit = Math.min(bytes.length, 2_000_000);
+  const bytes = new Uint8Array(buffer),
+    limit = Math.min(bytes.length, 2_000_000);
   let raw = '';
   for (let i = 0; i < limit; i++) raw += String.fromCharCode(bytes[i]);
   const results: string[] = [];
@@ -238,10 +276,19 @@ function getMimeTypeFromName(name: string): string {
 function getDocIcon(name: string) {
   const ext = name.split('.').pop()?.toLowerCase();
   switch (ext) {
-    case 'pdf': return FileText;
-    case 'xlsx': case 'xls': case 'csv': case 'ods': return FileSpreadsheet;
-    case 'pptx': case 'ppt': case 'odp': return FileBarChart;
-    default: return FileType;
+    case 'pdf':
+      return FileText;
+    case 'xlsx':
+    case 'xls':
+    case 'csv':
+    case 'ods':
+      return FileSpreadsheet;
+    case 'pptx':
+    case 'ppt':
+    case 'odp':
+      return FileBarChart;
+    default:
+      return FileType;
   }
 }
 
@@ -249,11 +296,12 @@ function relativeTimeLabel(timestamp?: number | string | null, now = Date.now())
   if (timestamp === undefined || timestamp === null) return '尚未更新';
   const value = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp);
   if (!Number.isFinite(value)) return '尚未更新';
-
   const diff = now - value;
-  if (diff < 60_000) return '刚刚更新';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前更新`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前更新`;
+  // For < 2 days, delegate to the shared relative formatter + "更新" suffix
+  if (diff < 2 * 86_400_000) {
+    return `${formatRelativeTime(timestamp, { suffix: '更新', now })}`;
+  }
+  // For older entries, keep the "X天前更新" format
   return `${Math.floor(diff / 86_400_000)} 天前更新`;
 }
 
@@ -291,9 +339,7 @@ export function buildTaskShareText({
         })
       : ['- 暂无对话内容'];
   const fileLines =
-    files.length > 0
-      ? files.map((file) => `- ${file.name} (${file.op})`)
-      : ['- 暂无文件'];
+    files.length > 0 ? files.map((file) => `- ${file.name} (${file.op})`) : ['- 暂无文件'];
 
   return [
     `# ${title}`,
@@ -387,7 +433,7 @@ function parseToolHint(
     [/(?:write|edit|delete|read)_file\s*\(\s*["'](.+?)["']\s*\)/i, 'write'],
     // Office creation tools create files in the workspace.
     [
-      /(?:create_docx|create_xlsx|create_pptx|docx_write|xlsx_write|pptx_write)\s*\(\s*["'](.+?)["']\s*\)/i,
+      /(?:create_docx|create_xlsx|create_pptx|create_pdf|pdf_write|docx_write|xlsx_write|pptx_write)\s*\(\s*["'](.+?)["']\s*\)/i,
       'write',
     ],
     [/(?:edit_docx|append_xlsx)\s*\(\s*["'](.+?)["']\s*\)/i, 'edit'],
@@ -650,6 +696,8 @@ const _FILE_WRITE_TOOLS = [
   'create_docx',
   'create_xlsx',
   'create_pptx',
+  'create_pdf',
+  'pdf_write',
   'docx_write',
   'xlsx_write',
   'pptx_write',
@@ -657,7 +705,7 @@ const _FILE_WRITE_TOOLS = [
   'append_xlsx',
   'skill_manage',
 ];
-const _FILE_READ_TOOLS = ['read_file'];
+const _FILE_READ_TOOLS = ['read_file', 'pdf_read'];
 
 /** Extract a file path from a JSON-stringified tool args object.
  *  Checks common keys: path, file_path, filename.
@@ -787,7 +835,9 @@ export function ChatConsole({
         const result = await window.miqi.plugins.list();
         const plugins = (result as unknown as { plugins?: Array<{ status?: string }> })?.plugins;
         if (!cancelled) {
-          setActivePluginCount((plugins ?? []).filter((plugin) => plugin.status === 'active').length);
+          setActivePluginCount(
+            (plugins ?? []).filter((plugin) => plugin.status === 'active').length
+          );
         }
       } catch {
         if (!cancelled) setActivePluginCount(0);
@@ -843,6 +893,17 @@ export function ChatConsole({
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([]);
   /** preview modal */
   const [previewFile, setPreviewFile] = useState<{ path: string; content: string; dataBase64?: string } | null>(null);
+
+  // When preview is open, lock the entire page body so no clicks fall through
+  // to elements behind the modal (sidebar, chat area, etc.)
+  useEffect(() => {
+    if (previewFile) {
+      const prev = document.body.style.pointerEvents;
+      document.body.style.pointerEvents = 'none';
+      return () => { document.body.style.pointerEvents = prev; };
+    }
+  }, [previewFile]);
+
   /** diff modal */
   const [diffFile, setDiffFile] = useState<{
     path: string;
@@ -913,7 +974,7 @@ export function ChatConsole({
     label: string;
   }
   const [threads, setThreads] = useState<ThreadTab[]>([
-    { threadId: 'main', agentType: 'main', label: 'Main' },
+    { threadId: 'main', agentType: 'main', label: '主线程' },
   ]);
   const [activeThreadId, setActiveThreadId] = useState('main');
 
@@ -1007,9 +1068,50 @@ export function ChatConsole({
     justOpened.current = true;
     userScrolledUp.current = false; // reset for new session
     const load = async () => {
-      try {
-        const detail = await window.miqi.sessions.get(sessionKey);
+      // ── Retry with exponential backoff ──────────────────────────
+      // On startup the bridge may not be running yet → sendSafe
+      // returns null.  Even when running, transient IPC failures
+      // can occur.  Retry so that a slow bridge start or a one-off
+      // error doesn't leave the session permanently blank (#480).
+      const MAX_RETRIES = 10;
+      const BASE_DELAY_MS = 500;
+      const MAX_DELAY_MS = 10_000;
+
+      let detail: unknown = null;
+      let lastErr: unknown = null;
+
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         if (currentSessionRef.current !== sessionKey) return;
+
+        try {
+          detail = await window.miqi.sessions.get(sessionKey);
+        } catch (err) {
+          lastErr = err;
+        }
+
+        if (detail != null) break; // got data — stop retrying
+
+        if (attempt < MAX_RETRIES - 1) {
+          const delay = Math.min(BASE_DELAY_MS * Math.pow(2, attempt), MAX_DELAY_MS);
+          console.warn(
+            `[ChatConsole] Load attempt ${attempt + 1}/${MAX_RETRIES} returned null, retrying in ${delay}ms…`
+          );
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
+
+      if (currentSessionRef.current !== sessionKey) return;
+
+      if (detail == null) {
+        console.warn(
+          '[ChatConsole] Failed to load session data after retries, last error:',
+          lastErr
+        );
+        setHistoryLoaded(true);
+        return;
+      }
+
+      try {
         const rawMsgs: any[] = (detail as any)?.messages ?? [];
         const uiMsgs = sessionMsgsToUi(rawMsgs);
         setMessages(uiMsgs);
@@ -1145,13 +1247,19 @@ export function ChatConsole({
         const reader = new FileReader();
         reader.onload = () => {
           const base64 = (reader.result as string).split(',')[1];
-          const textContent = new TextDecoder().decode(Uint8Array.from(atob(base64), c => c.charCodeAt(0)));
+          const textContent = new TextDecoder().decode(
+            Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+          );
           setAttachments((prev) => [
             ...prev,
             {
-              name: file.name, type: 'document', dataBase64: base64,
-              content: textContent, dataUrl: reader.result as string,
-              size: file.size, mimeType: file.type || getMimeTypeFromName(file.name),
+              name: file.name,
+              type: 'document',
+              dataBase64: base64,
+              content: textContent,
+              dataUrl: reader.result as string,
+              size: file.size,
+              mimeType: file.type || getMimeTypeFromName(file.name),
               status: 'pending' as const,
             },
           ]);
@@ -1162,15 +1270,18 @@ export function ChatConsole({
         reader.onload = () => {
           const base64 = (reader.result as string).split(',')[1];
           const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-          // PDF/MD/text parse instantly client-side → done; Office needs server → pending
-          const isOffice = /^(docx|doc|pptx|ppt|xlsx|xls|odt|odp|ods)$/i.test(ext);
-          const parseStatus: Attachment['status'] = isOffice ? 'pending' : 'done';
+          // PDF/MD/text parse instantly client-side → done; Office/RTF needs server → pending
+          const isServerParsed = /^(docx|doc|pptx|ppt|xlsx|xls|odt|odp|ods|rtf)$/i.test(ext);
+          const parseStatus: Attachment['status'] = isServerParsed ? 'pending' : 'done';
 
           setAttachments((prev) => [
             ...prev,
             {
-              name: file.name, type: 'document', dataUrl: reader.result as string,
-              dataBase64: base64, size: file.size,
+              name: file.name,
+              type: 'document',
+              dataUrl: reader.result as string,
+              dataBase64: base64,
+              size: file.size,
               mimeType: file.type || getMimeTypeFromName(file.name),
               status: parseStatus,
             },
@@ -1226,7 +1337,7 @@ export function ChatConsole({
   const handleDeleteSession = useCallback(async () => {
     const key = currentSessionRef.current;
     if (!key) return;
-    if (!window.confirm('Delete this conversation? This cannot be undone.')) return;
+    if (!window.confirm('确定删除此对话？此操作不可撤销。')) return;
     try {
       await window.miqi.sessions.delete(key);
     } catch {
@@ -1278,20 +1389,24 @@ export function ChatConsole({
       } else if (att.type === 'document' && att.dataBase64) {
         // Decode and extract text client-side
         try {
-          const raw = Uint8Array.from(atob(att.dataBase64), c => c.charCodeAt(0));
+          const raw = Uint8Array.from(atob(att.dataBase64), (c) => c.charCodeAt(0));
           let extracted = '';
           const ext = att.name.split('.').pop()?.toLowerCase() ?? '';
 
           if (ext === 'pdf') {
             extracted = extractPdfText(raw.buffer);
-          } else if (ext === 'md' || ext === 'markdown' || ext === 'mdown' || ext === 'txt') {
-            extracted = new TextDecoder().decode(raw);
-          } else if (ext === 'csv' || ext === 'json' || ext === 'yaml' || ext === 'yml' || ext === 'xml') {
+          } else if (
+            ext === 'md' || ext === 'markdown' || ext === 'mdown' || ext === 'txt' || ext === 'text' ||
+            ext === 'html' || ext === 'htm' || ext === 'csv' || ext === 'json' ||
+            ext === 'yaml' || ext === 'yml' || ext === 'xml' || ext === 'env' ||
+            ext === 'log' || ext === 'sql' || ext === 'ini' || ext === 'toml' ||
+            ext === 'htaccess' || ext === 'sh' || ext === 'bash'
+          ) {
             extracted = new TextDecoder().decode(raw);
           }
 
           if (extracted && extracted.trim()) {
-            content += `\n\n--- ${att.name} ---\n${extracted.slice(0, 50000)}\n--- End of ${att.name} ---`;
+            content += `\n\n--- Document: ${att.name} ---\n${extracted.slice(0, 50000)}\n--- End of ${att.name} ---`;
           } else if (ext === 'pdf') {
             content += `\n\n[${att.name}: scanned PDF — OCR will be attempted by the server]`;
           } else {
@@ -1383,10 +1498,10 @@ export function ChatConsole({
       const elapsed = Date.now() - lastEventAt;
       if (elapsed >= NO_PROGRESS_STRONG_MS) {
         appendWatchdogMsg(
-          '⚠️ No response from backend for 60s. You can abort and check runtime logs.'
+          '⚠️ 后端 60s 无响应，可中止并检查运行日志。'
         );
       } else if (elapsed >= NO_PROGRESS_WARN_MS) {
-        appendWatchdogMsg('⏳ Still waiting for backend response…');
+        appendWatchdogMsg('⏳ 正在等待后端响应…');
       }
     }, 5_000); // check every 5s
 
@@ -1420,10 +1535,17 @@ export function ChatConsole({
           prev.map((a) => {
             if (a.name !== data.file || a.type !== 'document') return a;
             const stage = data.stage ?? 'parsing';
-            const status = stage === 'ready' || stage === 'done' ? 'done'
-              : stage === 'error' ? 'error'
-              : 'parsing';
-            return { ...a, status, parseError: status === 'error' ? (data.message ?? '') : a.parseError };
+            const status =
+              stage === 'ready' || stage === 'done'
+                ? 'done'
+                : stage === 'error'
+                  ? 'error'
+                  : 'parsing';
+            return {
+              ...a,
+              status,
+              parseError: status === 'error' ? (data.message ?? '') : a.parseError,
+            };
           })
         );
         return;
@@ -1636,15 +1758,15 @@ export function ChatConsole({
       const key =
         activeThreadId === 'main' ? currentSessionRef.current : `desktop:${activeThreadId}`;
       const chatAttachments = sentAttachments
-        .filter(a => a.type === 'document' && a.dataBase64)
-        .map(a => ({ name: a.name, data_base64: a.dataBase64, mime_type: a.mimeType }));
+        .filter((a) => a.type === 'document' && a.dataBase64)
+        .map((a) => ({ name: a.name, data_base64: a.dataBase64, mime_type: a.mimeType }));
 
       // Mark all doc attachments as parsing
-      if (sentAttachments.some(a => a.type === 'document')) {
+      if (sentAttachments.some((a) => a.type === 'document')) {
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === 'user' && last.attachments) {
-            const updated = last.attachments.map(a =>
+            const updated = last.attachments.map((a) =>
               a.type === 'document' ? { ...a, status: 'parsing' as const } : a
             );
             return [...prev.slice(0, -1), { ...last, attachments: updated }];
@@ -1654,17 +1776,24 @@ export function ChatConsole({
       }
 
       // Fire send — server parses synchronously in _chat_send_handler
-      const sendPromise = window.miqi.chat.send(content, key, threadId ?? undefined, executionPolicy,
-        chatAttachments.length > 0 ? chatAttachments : undefined);
+      const sendPromise = window.miqi.chat.send(
+        content,
+        key,
+        threadId ?? undefined,
+        executionPolicy,
+        chatAttachments.length > 0 ? chatAttachments : undefined
+      );
 
       // Mark as done after a tick — server parsing is synchronous, already complete
-      if (sentAttachments.some(a => a.type === 'document')) {
+      if (sentAttachments.some((a) => a.type === 'document')) {
         setTimeout(() => {
           setMessages((prev) => {
             const last = prev[prev.length - 1];
             if (last?.role === 'user' && last.attachments) {
-              const updated = last.attachments.map(a =>
-                a.type === 'document' && a.status === 'parsing' ? { ...a, status: 'done' as const } : a
+              const updated = last.attachments.map((a) =>
+                a.type === 'document' && a.status === 'parsing'
+                  ? { ...a, status: 'done' as const }
+                  : a
               );
               return [...prev.slice(0, -1), { ...last, attachments: updated }];
             }
@@ -1682,7 +1811,7 @@ export function ChatConsole({
         cleanupListeners();
         return;
       }
-      const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? 'Unknown error'));
+      const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? '未知错误'));
       if (isProviderConfigurationProblem(errMsg, e?.code)) {
         setMessages((prev) => [...prev, createProviderConfigMessage(errMsg)]);
       } else if (e?.code) {
@@ -1745,15 +1874,21 @@ export function ChatConsole({
   };
 
   const handlePreview = useCallback(async (path: string) => {
+    // For PDF files, open directly in the default browser
+    if (/\.pdf$/i.test(path)) {
+      const result = await window.miqi.files.openExternal(path);
+      if (!result?.opened) {
+        setPreviewFile({ path, content: `(Could not open file: ${path})` });
+      }
+      return;
+    }
     // For document files, try to parse and show in-app preview first
     const isDocFile = DOCUMENT_SUFFIXES_RE.test(path);
     if (isDocFile) {
       try {
-        const result = await window.miqi.documents.parse(
-          path,
-          currentSessionRef.current,
-          { preview: true }
-        );
+        const result = await window.miqi.documents.parse(path, currentSessionRef.current, {
+          preview: true,
+        });
         setPreviewFile({ path, content: result.text });
         return;
       } catch {
@@ -1772,7 +1907,9 @@ export function ChatConsole({
     e?.preventDefault();
     previewJustClosed.current = true;
     setPreviewFile(null);
-    setTimeout(() => { previewJustClosed.current = false; }, 300);
+    setTimeout(() => {
+      previewJustClosed.current = false;
+    }, 300);
   }, []);
 
   const handleShowDiff = useCallback(async (path: string) => {
@@ -1875,19 +2012,33 @@ export function ChatConsole({
         reader.onload = () => {
           const base64 = (reader.result as string).split(',')[1];
           const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-          const isOffice = /^(docx|doc|pptx|ppt|xlsx|xls|odt|odp|ods)$/i.test(ext);
-          const parseStatus: Attachment['status'] = isOffice ? 'pending' : 'done';
-          setAttachments((prev) => [...prev, {
-            name: file.name, type: 'document', dataBase64: base64,
-            size: file.size, mimeType: file.type || getMimeTypeFromName(file.name),
-            status: parseStatus,
-          }]);
+          const isServerParsed = /^(docx|doc|pptx|ppt|xlsx|xls|odt|odp|ods|rtf)$/i.test(ext);
+          const parseStatus: Attachment['status'] = isServerParsed ? 'pending' : 'done';
+          setAttachments((prev) => [
+            ...prev,
+            {
+              name: file.name,
+              type: 'document',
+              dataBase64: base64,
+              size: file.size,
+              mimeType: file.type || getMimeTypeFromName(file.name),
+              status: parseStatus,
+            },
+          ]);
         };
         reader.readAsDataURL(file);
       } else if (file.type.startsWith('image/')) {
         const reader = new FileReader();
         reader.onload = () =>
-          setAttachments((prev) => [...prev, { name: file.name || 'pasted-image.png', type: 'image', dataUrl: reader.result as string, size: file.size }]);
+          setAttachments((prev) => [
+            ...prev,
+            {
+              name: file.name || 'pasted-image.png',
+              type: 'image',
+              dataUrl: reader.result as string,
+              size: file.size,
+            },
+          ]);
         reader.readAsDataURL(file);
       }
     }
@@ -2024,6 +2175,7 @@ export function ChatConsole({
   return (
     <div
       className="flex flex-col h-full"
+      style={previewFile ? { pointerEvents: 'none' } : undefined}
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
       onPaste={handlePaste}
@@ -2032,7 +2184,7 @@ export function ChatConsole({
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*,text/*,.md,.markdown,.mdown,.txt,.py,.ts,.js,.json,.csv,.yaml,.yml,.toml,.pdf,.docx,.pptx,.xlsx,.doc,.ppt,.xls,.odt,.odp,.ods"
+        accept="image/*,text/*,.md,.markdown,.mdown,.txt,.text,.py,.ts,.js,.json,.csv,.yaml,.yml,.toml,.xml,.env,.log,.sql,.ini,.htaccess,.sh,.bash,.rtf,.pdf,.docx,.pptx,.xlsx,.doc,.ppt,.xls,.odt,.odp,.ods,.html,.htm"
         className="hidden"
         onChange={handleFileChange}
       />
@@ -2079,8 +2231,7 @@ export function ChatConsole({
       >
         {/* Left: Logo */}
         <span
-          className="text-sm font-bold whitespace-nowrap shrink-0"
-          style={{ color: 'var(--text)' }}
+          className="text-sm font-bold whitespace-nowrap shrink-0 text-text"
           data-testid="app-title"
         >
           MiQi Desktop
@@ -2114,8 +2265,7 @@ export function ChatConsole({
         <div className="flex items-center gap-2 shrink-0">
           {/* User avatar + name */}
           <div
-            className="flex items-center gap-1.5 pl-2 ml-1 border-l"
-            style={{ borderColor: 'var(--border-subtle)' }}
+            className="flex items-center gap-1.5 pl-2 ml-1 border-l border-border-subtle"
           >
             <div
               className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
@@ -2123,7 +2273,7 @@ export function ChatConsole({
             >
               A
             </div>
-            <span className="text-xs whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
+            <span className="text-xs whitespace-nowrap text-text-muted">
               Admin
             </span>
           </div>
@@ -2168,7 +2318,9 @@ export function ChatConsole({
                   try {
                     await window.miqi.sessions.archive(sessionKey);
                     handleNewSession();
-                  } catch { /* ignore */ }
+                  } catch {
+                    /* ignore */
+                  }
                 },
               },
               {
@@ -2180,7 +2332,7 @@ export function ChatConsole({
                     await window.miqi.sessions.delete(sessionKey);
                     handleNewSession();
                   } catch (e) {
-                    console.error('Delete failed:', e);
+                    console.error('删除失败:', e);
                   }
                 },
               },
@@ -2216,8 +2368,7 @@ export function ChatConsole({
           >
             <div className="min-w-0 flex-1 flex items-center gap-2.5">
               <h2
-                className="text-[16px] font-semibold truncate leading-[1.35]"
-                style={{ color: 'var(--text)' }}
+                className="text-[16px] font-semibold truncate leading-[1.35] text-text"
               >
                 {sessionTitle}
               </h2>
@@ -2297,8 +2448,7 @@ export function ChatConsole({
                 <div className="flex items-center justify-center min-h-[300px]">
                   <Loader2
                     size={16}
-                    className="animate-spin"
-                    style={{ color: 'var(--text-faint)' }}
+                    className="animate-spin text-text-faint"
                   />
                 </div>
               ) : messages.length === 0 ? (
@@ -2310,10 +2460,10 @@ export function ChatConsole({
                     A
                   </div>
                   <div className="flex flex-col items-center gap-1">
-                    <p className="text-[15px] font-medium" style={{ color: 'var(--text-muted)' }}>
+                    <p className="text-[15px] font-medium text-text-muted">
                       从文件、问题或修改请求开始
                     </p>
-                    <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                    <p className="text-xs text-text-faint">
                       发起一段对话即可开始
                     </p>
                   </div>
@@ -2337,8 +2487,7 @@ export function ChatConsole({
               )}
               {streaming && (
                 <div
-                  className="flex items-center gap-2 text-xs px-1"
-                  style={{ color: 'var(--text-muted)' }}
+                  className="flex items-center gap-2 text-xs px-1 text-text-muted"
                   data-testid="thinking-indicator"
                 >
                   <Loader2 size={12} className="animate-spin" />
@@ -2371,10 +2520,12 @@ export function ChatConsole({
                         key={i}
                         className="flex items-center gap-2 rounded-lg pl-2 pr-1.5 py-1.5 text-xs group max-w-[240px] cursor-pointer hover:brightness-95 transition-all"
                         style={{
-                          background: (isDoc && cat) ? cat.bg : 'var(--surface-muted)',
-                          border: `1px solid ${(isDoc && cat) ? cat.color + '40' : 'var(--border-subtle)'}`,
+                          background: isDoc && cat ? cat.bg : 'var(--surface-muted)',
+                          border: `1px solid ${isDoc && cat ? cat.color + '40' : 'var(--border-subtle)'}`,
                         }}
-                        onClick={async () => {
+                        onClick={async (e) => {
+                          // Ignore clicks that arrive right after closing preview
+                          // (the close button click can fall through to the chip behind)
                           if (previewJustClosed.current) return;
                           if (!isDoc || !att.dataBase64) return;
                           const ext = att.name.split('.').pop()?.toLowerCase() ?? '';
@@ -2382,10 +2533,14 @@ export function ChatConsole({
 
                           // Client-side extraction only (fast, no server round-trip)
                           try {
-                            const raw = Uint8Array.from(atob(att.dataBase64), c => c.charCodeAt(0));
+                            const raw = Uint8Array.from(atob(att.dataBase64), (c) =>
+                              c.charCodeAt(0)
+                            );
                             if (ext === 'pdf') {
                               previewText = extractPdfText(raw.buffer);
-                            } else if (/^(md|markdown|mdown|txt|csv|json|ya?ml|xml|py|ts|js|log)$/i.test(ext)) {
+                            } else if (
+                              /^(md|markdown|mdown|txt|text|csv|json|ya?ml|xml|py|ts|js|log|html|htm|env|sql|ini|toml|htaccess|sh|bash)$/i.test(ext)
+                            ) {
                               previewText = new TextDecoder().decode(raw);
                             } else {
                               previewText = '(Office 文件 —— 发送后服务端解析)';
@@ -2396,7 +2551,11 @@ export function ChatConsole({
                           if (!previewText || !previewText.trim()) {
                             previewText = '(扫描件或二进制文件，无文本内容)';
                           }
-                          setPreviewFile({ path: att.name, content: previewText.slice(0, 50000), dataBase64: att.dataBase64 });
+                          setPreviewFile({
+                            path: att.name,
+                            content: previewText.slice(0, 50000),
+                            dataBase64: att.dataBase64,
+                          });
                         }}
                       >
                         {/* File type badge */}
@@ -2410,15 +2569,20 @@ export function ChatConsole({
                         ) : att.type === 'image' ? (
                           <Image size={14} className="shrink-0" style={{ color: 'var(--info)' }} />
                         ) : (
-                          <FileText size={14} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
+                          <FileText
+                            size={14}
+                            className="shrink-0 text-text-faint"
+                          />
                         )}
 
                         {/* Name + size */}
                         <div className="flex flex-col min-w-0 leading-tight">
-                          <span className="truncate font-medium" style={{ color: 'var(--text)' }}>
-                            {att.name.length > 28 ? att.name.slice(0, 25) + '…' + att.name.slice(-4) : att.name}
+                          <span className="truncate font-medium text-text">
+                            {att.name.length > 28
+                              ? att.name.slice(0, 25) + '…' + att.name.slice(-4)
+                              : att.name}
                           </span>
-                          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                          <span className="text-[10px] text-text-muted">
                             {formatFileSize(att.size)}
                             {isDoc && isParsing && ' · 解析中…'}
                             {isDoc && isDone && ' · 已就绪'}
@@ -2428,13 +2592,25 @@ export function ChatConsole({
 
                         {/* Status icon — only after send */}
                         {isDoc && isParsing && (
-                          <Loader2 size={13} className="shrink-0 animate-spin" style={{ color: cat?.color ?? 'var(--text-faint)' }} />
+                          <Loader2
+                            size={13}
+                            className="shrink-0 animate-spin"
+                            style={{ color: cat?.color ?? 'var(--text-faint)' }}
+                          />
                         )}
                         {isDoc && isDone && (
-                          <CheckCircle size={13} className="shrink-0" style={{ color: '#22c55e' }} />
+                          <CheckCircle
+                            size={13}
+                            className="shrink-0"
+                            style={{ color: '#22c55e' }}
+                          />
                         )}
                         {isDoc && isError && (
-                          <AlertCircle size={13} className="shrink-0" style={{ color: '#ef4444' }} />
+                          <AlertCircle
+                            size={13}
+                            className="shrink-0"
+                            style={{ color: '#ef4444' }}
+                          />
                         )}
 
                         {/* Remove */}
@@ -2460,7 +2636,12 @@ export function ChatConsole({
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
-                <ExecutionPolicySelector policy={executionPolicy} onChange={setExecutionPolicy} disabled={streaming} onOpenApprovals={onOpenApprovals} />
+                <ExecutionPolicySelector
+                  policy={executionPolicy}
+                  onChange={setExecutionPolicy}
+                  disabled={streaming}
+                  onOpenApprovals={onOpenApprovals}
+                />
                 <button
                   onClick={handleAttachClick}
                   className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
@@ -2567,13 +2748,16 @@ export function ChatConsole({
               className="flex items-center justify-between px-4 py-3 border-b shrink-0"
               style={{ borderColor: 'var(--panel-border)' }}
             >
-              <div className="flex items-center gap-1.5">
-                <LayoutGrid size={13} style={{ color: 'var(--text-muted)' }} />
-                <span className="text-xs font-semibold" style={{ color: 'var(--text)' }} data-testid="task-assets-title">
+              <div className="flex items-center gap-1.5 text-text-muted">
+                <LayoutGrid size={13} />
+                <span
+                  className="text-xs font-semibold text-text"
+                  data-testid="task-assets-title"
+                >
                   任务资产
                 </span>
               </div>
-              <span className="text-xs font-medium" style={{ color: 'var(--text-faint)' }}>
+              <span className="text-xs font-medium text-text-faint">
                 {trackedFiles.length}
               </span>
             </div>
@@ -2582,10 +2766,13 @@ export function ChatConsole({
               <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center gap-4">
                 <FileText size={28} style={{ color: 'var(--text-faint)', opacity: 0.35 }} />
                 <div className="flex flex-col items-center gap-1">
-                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }} data-testid="task-assets-empty">
+                  <p
+                    className="text-[13px] font-medium text-text-muted"
+                    data-testid="task-assets-empty"
+                  >
                     暂无文件
                   </p>
-                  <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+                  <p className="text-[11px] text-text-faint">
                     Agent 操作会显示在这里
                   </p>
                 </div>
@@ -2662,11 +2849,11 @@ export function ChatConsole({
                       className="w-1.5 h-1.5 rounded-full"
                       style={{ background: 'var(--warning)' }}
                     />
-                    <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
+                    <span className="text-xs font-semibold text-text">
                       修改建议
                     </span>
                   </div>
-                  <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
+                  <span className="text-[10px] text-text-faint">
                     {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length} 个文件
                   </span>
                 </div>
@@ -2685,8 +2872,7 @@ export function ChatConsole({
                       >
                         <FileText size={11} style={{ color: 'var(--info)' }} className="shrink-0" />
                         <span
-                          className="text-[11px] truncate flex-1"
-                          style={{ color: 'var(--text)' }}
+                          className="text-[11px] truncate flex-1 text-text"
                           title={f.path}
                         >
                           {f.name}
@@ -2702,8 +2888,7 @@ export function ChatConsole({
                         </span>
                         <button
                           onClick={() => handleShowDiff(f.path)}
-                          className="p-1 rounded transition-colors shrink-0"
-                          style={{ color: 'var(--text-faint)' }}
+                          className="p-1 rounded transition-colors shrink-0 text-text-faint"
                           title="Compare diff"
                         >
                           <GitCompare size={11} />
@@ -2721,27 +2906,24 @@ export function ChatConsole({
                 disabled={merging || trackedFiles.length === 0}
                 className={cn(
                   'w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition duration-200',
-                  merging || trackedFiles.length === 0
-                    ? 'cursor-not-allowed'
-                    : 'hover:opacity-90',
+                  merging || trackedFiles.length === 0 ? 'cursor-not-allowed' : 'hover:opacity-90'
                 )}
                 style={{
                   background:
                     merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'var(--accent)',
-                  color: merging || trackedFiles.length === 0 ? 'var(--text-faint)' : 'var(--accent-text)',
+                  color:
+                    merging || trackedFiles.length === 0
+                      ? 'var(--text-faint)'
+                      : 'var(--accent-text)',
                   opacity: merging || trackedFiles.length === 0 ? 0.5 : 1,
                 }}
               >
-                {merging ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <GitMerge size={13} />
-                )}
+                {merging ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
                 {merging ? '合并中...' : '合并所有更改'}
               </button>
               {trackedFiles.length === 0 && (
                 <div className="flex items-center justify-center mt-2 py-1.5">
-                  <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                  <span className="text-xs text-text-faint">
                     跟踪文件变更后将在此显示合并选项
                   </span>
                 </div>
@@ -2753,11 +2935,7 @@ export function ChatConsole({
 
       {/* ── File Preview Modal ── */}
       {previewFile && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.5)' }}
-          onClick={closePreview}
-        >
+        <Modal open={!!previewFile} onOpenChange={(o) => { if (!o) closePreview(); }} hideClose>
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
@@ -2765,12 +2943,13 @@ export function ChatConsole({
               maxHeight: '85vh',
               background: 'var(--surface-elevated)',
               border: '1px solid var(--border)',
+              pointerEvents: 'auto',
             }}
             onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
           >
             <div
-              className="flex items-center justify-between px-4 py-3 border-b shrink-0"
-              style={{ borderColor: 'var(--border-subtle)' }}
+              className="flex items-center justify-between px-4 py-3 border-b shrink-0 border-border-subtle"
             >
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 {PDF_FILE_RE.test(previewFile.path) ? (
@@ -2783,8 +2962,7 @@ export function ChatConsole({
                   <FileType size={14} style={{ color: 'var(--info)' }} className="shrink-0" />
                 )}
                 <span
-                  className="text-[11px] font-mono break-all leading-relaxed"
-                  style={{ color: 'var(--text-muted)' }}
+                  className="text-[11px] font-mono break-all leading-relaxed text-text-muted"
                   title={previewFile.path}
                 >
                   {previewFile.path}
@@ -2798,7 +2976,9 @@ export function ChatConsole({
                       try {
                         await window.miqi.files.write(tmp, '', undefined, previewFile.dataBase64);
                         await window.miqi.files.openExternal(tmp);
-                      } catch { /* fallback */ }
+                      } catch {
+                        /* fallback */
+                      }
                     } else {
                       window.miqi.files.openExternal(previewFile.path);
                     }
@@ -2810,7 +2990,11 @@ export function ChatConsole({
                   <span>系统应用打开</span>
                 </button>
                 <button
-                  onClick={closePreview}
+                  onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              closePreview(e);
+            }}
                   className="p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
                 >
                   <X size={14} style={{ color: 'var(--text-faint)' }} />
@@ -2819,23 +3003,18 @@ export function ChatConsole({
             </div>
             <div className="flex-1 overflow-auto p-4">
               <pre
-                className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all"
-                style={{ color: 'var(--text-muted)' }}
+                className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted"
               >
                 {previewFile.content}
               </pre>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* ── Diff Modal ── */}
       {diffFile && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.6)' }}
-          onClick={closeDiff}
-        >
+        <Modal open={!!diffFile} onOpenChange={(o) => { if (!o) closeDiff(); }} hideClose>
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
@@ -2848,14 +3027,12 @@ export function ChatConsole({
           >
             {/* Header */}
             <div
-              className="flex items-center justify-between px-4 py-3 border-b shrink-0"
-              style={{ borderColor: 'var(--border-subtle)' }}
+              className="flex items-center justify-between px-4 py-3 border-b shrink-0 border-border-subtle"
             >
               <div className="flex items-center gap-2 min-w-0">
                 <GitCompare size={14} style={{ color: 'var(--warning)' }} className="shrink-0" />
                 <span
-                  className="text-sm font-medium truncate"
-                  style={{ color: 'var(--text)' }}
+                  className="text-sm font-medium truncate text-text"
                   title={diffFile.path}
                 >
                   {diffFile.path.split(/[/\\]/).pop()}
@@ -2905,10 +3082,10 @@ export function ChatConsole({
                       color: reverting ? 'var(--text-faint)' : 'var(--danger)',
                       border: '1px solid var(--danger)',
                     }}
-                    title="Revert to HEAD (undo changes)"
+                    title="还原到 HEAD（撤销所有改动）"
                   >
                     <Undo2 size={12} className={reverting ? 'animate-spin' : ''} />
-                    {reverting ? 'Reverting...' : 'Revert'}
+                    {reverting ? '正在还原…' : '还原'}
                   </button>
                 )}
                 <button
@@ -2926,10 +3103,9 @@ export function ChatConsole({
                 <div className="flex items-center justify-center h-48">
                   <Loader2
                     size={24}
-                    className="animate-spin"
-                    style={{ color: 'var(--text-faint)' }}
+                    className="animate-spin text-text-faint"
                   />
-                  <span className="ml-2 text-sm" style={{ color: 'var(--text-faint)' }}>
+                  <span className="ml-2 text-sm text-text-faint">
                     Loading diff...
                   </span>
                 </div>
@@ -2939,32 +3115,27 @@ export function ChatConsole({
                 /* No snapshot diff but we have both versions — show side by side */
                 <div className="flex h-full" style={{ minHeight: 400 }}>
                   <div
-                    className="flex-1 p-4 overflow-auto border-r"
-                    style={{ borderColor: 'var(--border-subtle)' }}
+                    className="flex-1 p-4 overflow-auto border-r border-border-subtle"
                   >
                     <div
-                      className="text-[10px] font-semibold uppercase tracking-wider mb-2"
-                      style={{ color: 'var(--text-faint)' }}
+                      className="text-[10px] font-semibold uppercase tracking-wider mb-2 text-text-faint"
                     >
                       Original
                     </div>
                     <pre
-                      className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all"
-                      style={{ color: 'var(--text-muted)' }}
+                      className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted"
                     >
                       {diffFile.original_content || '(empty)'}
                     </pre>
                   </div>
                   <div className="flex-1 p-4 overflow-auto">
                     <div
-                      className="text-[10px] font-semibold uppercase tracking-wider mb-2"
-                      style={{ color: 'var(--text-faint)' }}
+                      className="text-[10px] font-semibold uppercase tracking-wider mb-2 text-text-faint"
                     >
                       Current
                     </div>
                     <pre
-                      className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all"
-                      style={{ color: 'var(--text)' }}
+                      className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text"
                     >
                       {diffFile.current_content || '(empty)'}
                     </pre>
@@ -2972,16 +3143,16 @@ export function ChatConsole({
                 </div>
               ) : (
                 <div className="flex items-center justify-center h-48">
-                  <span className="text-sm" style={{ color: 'var(--text-faint)' }}>
+                  <span className="text-sm text-text-faint">
                     {diffFile.original_content === null && diffFile.current_content === null
-                      ? 'No snapshot available — file was not modified in this session'
-                      : 'No changes detected'}
+                      ? '无快照可用 — 此文件未在本会话中修改'
+                      : '未检测到变更'}
                   </span>
                 </div>
               )}
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
@@ -2990,184 +3161,15 @@ export function ChatConsole({
 /* ─── Sub-components ──────────────────────────────────────────────── */
 
 /** Renders a unified diff string with syntax-highlighted +/- lines. */
-function DiffView({ diff }: { diff: string }) {
-  const lines = diff.split('\n');
-  // Detect if this is a new file diff (starts with --- /dev/null)
-  const isNewFile = lines.some((l) => l.startsWith('--- /dev/null'));
-  return (
-    <div
-      className="overflow-x-auto text-xs font-mono leading-5"
-      style={{ background: 'var(--surface)' }}
-    >
-      {lines.map((line, i) => {
-        let bg = 'transparent';
-        let color = 'var(--text-muted)';
-        let prefix = ' ';
-
-        if (line.startsWith('+++ b/')) {
-          // New file: show +++ as green
-          bg = 'rgba(34,197,94,0.08)';
-          color = '#4ade80';
-        } else if (line.startsWith('--- /dev/null')) {
-          // New file: show --- /dev/null as gray (context for empty original)
-          color = 'var(--text-faint)';
-        } else if (line.startsWith('---')) {
-          color = 'var(--text-faint)';
-        } else if (line.startsWith('@@')) {
-          bg = isNewFile ? 'rgba(34,197,94,0.08)' : 'rgba(96,165,250,0.08)';
-          color = isNewFile ? '#4ade80' : 'var(--info)';
-        } else if (line.startsWith('+')) {
-          bg = 'rgba(34,197,94,0.10)';
-          color = '#4ade80';
-          prefix = '+';
-        } else if (line.startsWith('-')) {
-          bg = 'rgba(239,68,68,0.10)';
-          color = '#f87171';
-          prefix = '-';
-        }
-
-        return (
-          <div
-            key={i}
-            style={{
-              background: bg,
-              color,
-              paddingLeft: 12,
-              paddingRight: 12,
-              whiteSpace: 'pre',
-              minWidth: '100%',
-              display: 'block',
-            }}
-          >
-            {line || '\u00a0'}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 function SectionLabel({ label, sectionKey }: { label: string; sectionKey: string }) {
   const testId = `section-label-${sectionKey}`;
   return (
     <div
-      className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest"
-      style={{ color: 'var(--text-faint)' }}
+      className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-text-faint"
       data-testid={testId}
     >
       {label}
-    </div>
-  );
-}
-
-function TrackedFileCard({
-  file,
-  onPreview,
-  onDiff,
-}: {
-  file: TrackedFile;
-  onPreview: () => void;
-  onDiff?: () => void;
-}) {
-  const opColor: Record<TrackedFile['op'], string> = {
-    read: 'var(--info)',
-    edit: 'var(--warning)',
-    write: 'var(--accent)',
-    delete: 'var(--danger)',
-  };
-  const OpIcon = file.op === 'read' ? BookOpen : file.op === 'delete' ? X : Pencil;
-  const displayPath = file.path.replace(/\\/g, '/');
-  const isOfficeFile = OFFICE_FILE_RE_LEGACY.test(file.path);
-
-  return (
-    <div
-      className="rounded-lg p-2.5"
-      style={{
-        border: '1px solid var(--border-subtle)',
-        background: 'var(--surface)',
-      }}
-    >
-      <div className="flex items-start gap-2 mb-1">
-        <FileText size={14} className="shrink-0 mt-0.5" style={{ color: opColor[file.op] }} />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-            <span
-              className="text-[12px] font-medium truncate"
-              style={{ color: 'var(--text)' }}
-              title={displayPath}
-            >
-              {file.name.length > 30 ? file.name.slice(0, 28) + '…' : file.name}
-            </span>
-            <span
-              className="text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0"
-              style={{
-                background: `color-mix(in srgb, ${opColor[file.op]} 15%, transparent)`,
-                color: opColor[file.op],
-              }}
-            >
-              {file.op.toUpperCase()}
-            </span>
-            {isOfficeFile && (
-              <span
-                className="text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0"
-                style={{
-                  background: 'var(--surface-muted)',
-                  color: 'var(--text-faint)',
-                }}
-              >
-                OFFICE
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-      {file.truncated ? (
-        <div
-          className="w-full flex items-center justify-center gap-1 py-1 rounded-md text-[11px]"
-          style={{
-            border: '1px solid var(--border-subtle)',
-            color: 'var(--text-faint)',
-            background: 'var(--surface-muted)',
-          }}
-          title="Path was truncated in progress message"
-        >
-          <span className="text-[10px]">Path incomplete</span>
-        </div>
-      ) : (
-        <div className="flex gap-1.5">
-          {onDiff && (file.op === 'write' || file.op === 'edit') && (
-            <button
-              onClick={onDiff}
-              disabled={isOfficeFile}
-              className="flex-1 flex items-center justify-center gap-1 py-1 rounded-md text-[11px] transition-colors"
-              style={{
-                border: '1px solid var(--border)',
-                color: isOfficeFile ? 'var(--text-faint)' : 'var(--warning)',
-                opacity: isOfficeFile ? 0.55 : 1,
-              }}
-              title={
-                'Diff is not available for Office binary files'
-              }
-            >
-              <GitCompare size={10} />
-              Diff
-            </button>
-          )}
-          <button
-            onClick={onPreview}
-            className="flex-1 flex items-center justify-center gap-1 py-1 rounded-md text-[11px] transition-colors"
-            style={{
-              border: '1px solid var(--border)',
-              color: 'var(--text-muted)',
-            }}
-            title={'预览文件'}
-            data-testid="file-preview-btn"
-          >
-            <Eye size={10} />
-            Preview
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -3228,9 +3230,9 @@ function MessageBubble({
         )}
         {msg.collapsed &&
           (isCollapsed ? (
-            <ChevronRight size={10} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
+            <ChevronRight size={10} className="shrink-0 text-text-faint" />
           ) : (
-            <ChevronDown size={10} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
+            <ChevronDown size={10} className="shrink-0 text-text-faint" />
           ))}
         {isCollapsed ? (
           <span>{msg.summary || msg.content}</span>
@@ -3374,7 +3376,7 @@ function MessageBubble({
                     color: 'var(--text-muted)',
                   }}
                 >
-                  <FileText size={12} className="shrink-0" style={{ color: 'var(--text-faint)' }} />
+                  <FileText size={12} className="shrink-0 text-text-faint" />
                   <span>{att.name}</span>
                 </div>
               ))}
@@ -3386,31 +3388,44 @@ function MessageBubble({
                 const isDone = !att.status || att.status === 'done';
                 const isParsing = att.status === 'parsing';
                 return (
-                <div
-                  key={i}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-500"
-                  style={{
-                    background: (isDone && cat) ? cat.bg : 'var(--surface-muted)',
-                    border: `1px solid ${(isDone && cat) ? cat.color + '40' : 'var(--border-subtle)'}`,
-                    color: (isDone && cat) ? cat.color : 'var(--text-muted)',
-                    opacity: isDone ? 1 : 0.7,
-                  }}
-                >
-                  <span className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white" style={{ background: (isDone && cat) ? cat.color : 'var(--text-faint)' }}>
-                    {cat ? cat.label : 'FILE'}
-                  </span>
-                  <span>{att.name} ({formatFileSize(att.size)})</span>
-                  {isParsing && <Loader2 size={11} className="shrink-0 animate-spin" style={{ color: 'var(--text-muted)' }} />}
-                  {isDone && <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />}
-                </div>
+                  <div
+                    key={i}
+                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-500"
+                    style={{
+                      background: isDone && cat ? cat.bg : 'var(--surface-muted)',
+                      border: `1px solid ${isDone && cat ? cat.color + '40' : 'var(--border-subtle)'}`,
+                      color: isDone && cat ? cat.color : 'var(--text-muted)',
+                      opacity: isDone ? 1 : 0.7,
+                    }}
+                  >
+                    <span
+                      className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
+                      style={{ background: isDone && cat ? cat.color : 'var(--text-faint)' }}
+                    >
+                      {cat ? cat.label : 'FILE'}
+                    </span>
+                    <span>
+                      {att.name} ({formatFileSize(att.size)})
+                    </span>
+                    {isParsing && (
+                      <Loader2
+                        size={11}
+                        className="shrink-0 animate-spin text-text-muted"
+                      />
+                    )}
+                    {isDone && (
+                      <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
+                    )}
+                  </div>
                 );
               })}
-            {/* Historical file chips — extracted from [File: ...] blocks when attachments are missing */}
-            {isUser && (!msg.attachments || msg.attachments.length === 0) && (() => {
+            {/* Always clean injected document text from content — shown as chips only when attachments are missing */}
+            {isUser && (() => {
               const { cleanContent, chips } = extractFileChips(msg.content);
-              if (chips.length === 0) return null;
-              // Store clean content for the bubble below
+              // Always store cleaned content so the bubble renders without injected text
               (msg as any).__cleanContent = cleanContent;
+              // Only show historical chips when there are no real attachments (avoids duplicates)
+              if (chips.length === 0 || (msg.attachments && msg.attachments.length > 0)) return null;
               return chips.map((chip, i) => (
                 <div
                   key={`hist-${i}`}
@@ -3444,21 +3459,29 @@ function MessageBubble({
                     }
               }
             >
+            <ErrorBoundary
+              fallback={(error, reset) => (
+                <div className="text-xs p-2 rounded" style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}>
+                  ⚠ 消息渲染失败
+                  <button onClick={reset} className="ml-2 underline" style={{ color: 'var(--accent)' }}>重试</button>
+                </div>
+              )}
+            >
               {msg.role === 'assistant' && msg.content === '' ? (
                 <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
               ) : msg.role === 'assistant' ? (
                 <MarkdownContent content={msg.content} />
               ) : (
-                renderContent((msg as any).__cleanContent || msg.content)
+                renderContent((msg as any).__cleanContent ?? msg.content)
               )}
+            </ErrorBoundary>
             </div>
 
             {/* copy button */}
             {!isUser && msg.content !== '' && (
               <button
                 onClick={() => onCopy(msg.content)}
-                className="self-start opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
-                style={{ color: 'var(--text-faint)' }}
+                className="self-start opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-text-faint"
               >
                 {isCopied ? <Check size={12} /> : <Copy size={12} />}
               </button>
@@ -3472,202 +3495,6 @@ function MessageBubble({
   );
 }
 
-function AgentAvatar() {
-  return (
-    <div
-      className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold text-white mt-0.5"
-      style={{ background: 'var(--accent)' }}
-    >
-      A
-    </div>
-  );
-}
-
-function UserAvatar() {
-  return (
-    <div
-      className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold text-white mt-0.5"
-      style={{ background: 'var(--avatar-dark)' }}
-    >
-      U
-    </div>
-  );
-}
-
 /** Strip <think>...</think> reasoning blocks before rendering.
  *  Handles both complete blocks and cross-message orphans
  *  (tags split across streaming chunks). */
-function stripThinkBlocks(text: string): string {
-  // let result = text.replace(/<think>[\s\S]*?<\/think>/gi, '')  // complete blocks
-  let result = text.replace(/<\/?think>/gi, ''); // orphan tags
-  return result.trim();
-}
-
-function MarkdownContent({ content }: { content: string }) {
-  const [copiedCode, setCopiedCode] = useState<string | null>(null);
-  const displayContent = stripThinkBlocks(content);
-
-  const handleCopyCode = (code: string) => {
-    navigator.clipboard.writeText(code);
-    setCopiedCode(code);
-    setTimeout(() => setCopiedCode(null), 2000);
-  };
-
-  const components = useMemo(
-    () => ({
-      p: ({ children }: any) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
-      h1: ({ children }: any) => (
-        <h1 className="text-base font-bold mt-3 mb-1.5 first:mt-0">{children}</h1>
-      ),
-      h2: ({ children }: any) => (
-        <h2 className="text-sm font-bold mt-3 mb-1 first:mt-0">{children}</h2>
-      ),
-      h3: ({ children }: any) => (
-        <h3 className="text-sm font-semibold mt-2 mb-0.5 first:mt-0">{children}</h3>
-      ),
-      ul: ({ children }: any) => <ul className="list-disc pl-5 my-1.5 space-y-0.5">{children}</ul>,
-      ol: ({ children }: any) => (
-        <ol className="list-decimal pl-5 my-1.5 space-y-0.5">{children}</ol>
-      ),
-      li: ({ children }: any) => <li className="leading-relaxed">{children}</li>,
-      blockquote: ({ children }: any) => (
-        <blockquote
-          className="border-l-2 pl-3 my-2 italic"
-          style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
-        >
-          {children}
-        </blockquote>
-      ),
-      strong: ({ children }: any) => <strong className="font-semibold">{children}</strong>,
-      em: ({ children }: any) => <em className="italic">{children}</em>,
-      hr: () => <hr className="my-3" style={{ borderColor: 'var(--border-subtle)' }} />,
-      a: ({ href, children }: any) => (
-        <a
-          href={href}
-          className="underline cursor-pointer"
-          style={{ color: 'var(--accent)' }}
-          onClick={(e) => {
-            e.preventDefault();
-            if (href) window.open(href, '_blank');
-          }}
-        >
-          {children}
-        </a>
-      ),
-      table: ({ children }: any) => (
-        <div className="overflow-x-auto my-2">
-          <table className="text-xs w-full border-collapse">{children}</table>
-        </div>
-      ),
-      th: ({ children }: any) => (
-        <th
-          className="border px-2 py-1.5 text-left font-medium"
-          style={{ borderColor: 'var(--border)', background: 'var(--surface-muted)' }}
-        >
-          {children}
-        </th>
-      ),
-      td: ({ children }: any) => (
-        <td className="border px-2 py-1.5" style={{ borderColor: 'var(--border-subtle)' }}>
-          {children}
-        </td>
-      ),
-      pre: ({ children }: any) => (
-        <pre
-          className="relative group my-2 rounded-lg overflow-x-auto"
-          style={{ background: 'rgba(0,0,0,0.06)' }}
-        >
-          {children}
-        </pre>
-      ),
-      code: ({ className, children, ...props }: any) => {
-        const codeStr = String(children);
-        const isBlock = codeStr.endsWith('\n');
-        if (isBlock) {
-          const code = codeStr.replace(/\n$/, '');
-          return (
-            <code className={cn('block text-xs font-mono p-3', className)} {...props}>
-              <button
-                onClick={() => handleCopyCode(code)}
-                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity rounded px-1.5 py-0.5 text-[10px] leading-none"
-                style={{
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text-muted)',
-                }}
-              >
-                {copiedCode === code ? 'Copied' : 'Copy'}
-              </button>
-              {code}
-            </code>
-          );
-        }
-        return (
-          <code
-            className="text-xs font-mono px-1.5 py-0.5 rounded"
-            style={{ background: 'rgba(0,0,0,0.08)' }}
-            {...props}
-          >
-            {children}
-          </code>
-        );
-      },
-    }),
-    [copiedCode]
-  );
-
-  return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-      {displayContent}
-    </ReactMarkdown>
-  );
-}
-
-function renderContent(text: string) {
-  const parts = text.split(/(```[\s\S]*?```)/g);
-  return parts.map((part, i) => {
-    if (part.startsWith('```') && part.endsWith('```')) {
-      const inner = part.slice(3, -3);
-      const langEnd = inner.indexOf('\n');
-      const code = langEnd > 0 ? inner.slice(langEnd + 1) : inner;
-      return (
-        <pre
-          key={i}
-          className="my-2 text-xs rounded-lg px-3 py-2 overflow-x-auto"
-          style={{ background: 'rgba(0,0,0,0.06)' }}
-        >
-          <code>{code}</code>
-        </pre>
-      );
-    }
-    const segments = part.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
-    return (
-      <span key={i}>
-        {segments.map((seg, j) => {
-          if (seg.startsWith('**') && seg.endsWith('**'))
-            return <strong key={j}>{seg.slice(2, -2)}</strong>;
-          if (seg.startsWith('`') && seg.endsWith('`'))
-            return (
-              <code
-                key={j}
-                className="text-xs font-mono px-1 rounded"
-                style={{ background: 'rgba(0,0,0,0.08)' }}
-              >
-                {seg.slice(1, -1)}
-              </code>
-            );
-          return (
-            <span key={j}>
-              {seg.split('\n').map((line, k, arr) => (
-                <span key={k}>
-                  {line}
-                  {k < arr.length - 1 && <br />}
-                </span>
-              ))}
-            </span>
-          );
-        })}
-      </span>
-    );
-  });
-}

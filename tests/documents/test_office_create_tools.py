@@ -438,3 +438,138 @@ async def test_create_office_tools_reject_path_traversal(
 
     assert "Permission denied" in result
     assert not (tmp_path / expected_name).exists()
+
+
+@pytest.mark.asyncio
+async def test_create_pdf_simple(tmp_path):
+    """CreatePdfTool: simple text PDF."""
+    from miqi.documents.pdf_create_tool import CreatePdfTool
+
+    tool = CreatePdfTool(workspace=tmp_path, allowed_dir=tmp_path)
+    result = await tool.execute(
+        filename="simple.pdf",
+        title="Test Title",
+        content="Hello, PDF! 中文测试。",
+    )
+    path = tmp_path / "simple.pdf"
+    assert "Created:" in result
+    assert path.exists()
+    assert path.stat().st_size > 200
+    with open(path, "rb") as f:
+        assert f.read(5) == b"%PDF-"
+
+
+@pytest.mark.asyncio
+async def test_create_pdf_structured_content(tmp_path):
+    """CreatePdfTool: structured content blocks."""
+    from miqi.documents.pdf_create_tool import CreatePdfTool
+
+    tool = CreatePdfTool(workspace=tmp_path, allowed_dir=tmp_path)
+    result = await tool.execute(
+        filename="structured.pdf",
+        title="结构化文档",
+        content=[
+            {"type": "heading", "text": "第一章", "level": 1},
+            {"type": "paragraph", "text": "正文内容。"},
+            {"type": "table", "headers": ["姓名", "年龄"], "rows": [["张三", "28"]]},
+            {"type": "list", "items": ["第一项", "第二项"]},
+            {"type": "page_break"},
+            {"type": "paragraph", "text": "第二页内容。"},
+        ],
+        author="MiQi",
+        style_preset="chinese_document",
+    )
+    path = tmp_path / "structured.pdf"
+    assert "Created:" in result
+    assert path.exists()
+    assert path.stat().st_size > 500
+    with open(path, "rb") as f:
+        assert f.read(5) == b"%PDF-"
+
+
+@pytest.mark.asyncio
+async def test_create_pdf_report_preset(tmp_path):
+    """CreatePdfTool: report style preset."""
+    from miqi.documents.pdf_create_tool import CreatePdfTool
+
+    tool = CreatePdfTool(workspace=tmp_path, allowed_dir=tmp_path)
+    result = await tool.execute(
+        filename="report.pdf",
+        title="Annual Report",
+        content="This is the report body text.",
+        style_preset="report",
+        page_size="A4",
+    )
+    path = tmp_path / "report.pdf"
+    assert "Created:" in result
+    assert path.exists()
+    with open(path, "rb") as f:
+        assert f.read(5) == b"%PDF-"
+
+
+@pytest.mark.asyncio
+async def test_create_pdf_chinese_font_discovery(tmp_path):
+    """CreatePdfTool: font discovery finds a Chinese font."""
+    from pathlib import Path
+    from miqi.documents.pdf_create_tool import _get_chinese_font
+
+    name, path = _get_chinese_font()
+    assert name is not None
+    if path is None:
+        pytest.skip("no system CJK font available in this environment")
+    assert Path(path).exists()
+
+
+@pytest.mark.asyncio
+async def test_create_pdf_errors(tmp_path):
+    """CreatePdfTool: error handling."""
+    from miqi.documents.pdf_create_tool import CreatePdfTool
+
+    tool = CreatePdfTool(workspace=tmp_path, allowed_dir=tmp_path)
+
+    # Missing filename
+    result = await tool.execute(content="test")
+    assert "Error: filename is required" in result
+
+    # Missing content
+    result = await tool.execute(filename="empty.pdf")
+    assert "Error: provide at least a title or content" in result
+
+    # Permission denied (path traversal)
+    result = await tool.execute(filename="../../escape.pdf", content="test")
+    assert "Error: Permission denied" in result
+
+
+@pytest.mark.asyncio
+async def test_pdf_write_alias(tmp_path):
+    """PdfWriteTool alias works."""
+    from miqi.documents.pdf_create_tool import PdfWriteTool
+
+    tool = PdfWriteTool(workspace=tmp_path, allowed_dir=tmp_path)
+    result = await tool.execute(filename="alias.pdf", title="Alias Test", content="test")
+    assert "Created:" in result
+    path = tmp_path / "alias.pdf"
+    assert path.exists()
+    with open(path, "rb") as f:
+        assert f.read(5) == b"%PDF-"
+
+
+@pytest.mark.parametrize(
+    "tool_cls, kwargs, expected_name",
+    [
+        pytest.param("pdf", {"filename": "../escape", "content": "x"}, "escape.pdf"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_create_pdf_reject_path_traversal(
+    tmp_path, tool_cls, kwargs, expected_name,
+):
+    from miqi.documents.pdf_create_tool import CreatePdfTool as Tool
+
+    files_dir = tmp_path / "files"
+    tool = Tool(workspace=files_dir, allowed_dir=files_dir)
+
+    result = await tool.execute(**kwargs)
+
+    assert "Permission denied" in result
+    assert not (tmp_path / expected_name).exists()

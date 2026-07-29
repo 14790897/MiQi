@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Plug, Plus, Pencil, Trash2, X } from 'lucide-react';
 import type { McpServerInfo, McpServerConfig } from '../../../shared/ipc';
 
+import { Modal } from '../../components/shared';
+
 function MCPServerModal({
   open,
   onClose,
@@ -85,22 +87,19 @@ function MCPServerModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <Modal open={open} onOpenChange={(o) => { if (!o) onClose(); }} hideClose>
       <div
-        className="rounded-xl shadow-2xl w-full max-w-lg mx-4"
-        style={{ background: 'var(--surface)' }}
+        className="rounded-xl shadow-2xl w-full max-w-lg mx-4 bg-surface"
       >
         <div
-          className="flex items-center justify-between px-5 py-4 border-b"
-          style={{ borderColor: 'var(--border)' }}
+          className="flex items-center justify-between px-5 py-4 border-b border-border"
         >
-          <h2 className="text-base font-semibold" style={{ color: 'var(--text)' }}>
+          <h2 className="text-base font-semibold text-text">
             {isEdit ? '编辑 MCP 服务器' : '添加 MCP 服务器'}
           </h2>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-[var(--surface-muted)]"
-            style={{ color: 'var(--text-muted)' }}
+            className="p-1 rounded hover:bg-[var(--surface-muted)] text-text-muted"
           >
             <X size={16} />
           </button>
@@ -110,8 +109,7 @@ function MCPServerModal({
           {/* Name */}
           <div>
             <label
-              className="block text-xs font-medium mb-1"
-              style={{ color: 'var(--text-muted)' }}
+              className="block text-xs font-medium mb-1 text-text-muted"
             >
               名称
             </label>
@@ -133,8 +131,7 @@ function MCPServerModal({
           {/* Type toggle */}
           <div>
             <label
-              className="block text-xs font-medium mb-1"
-              style={{ color: 'var(--text-muted)' }}
+              className="block text-xs font-medium mb-1 text-text-muted"
             >
               连接类型
             </label>
@@ -160,8 +157,7 @@ function MCPServerModal({
             <>
               <div>
                 <label
-                  className="block text-xs font-medium mb-1"
-                  style={{ color: 'var(--text-muted)' }}
+                  className="block text-xs font-medium mb-1 text-text-muted"
                 >
                   Command
                 </label>
@@ -180,8 +176,7 @@ function MCPServerModal({
               </div>
               <div>
                 <label
-                  className="block text-xs font-medium mb-1"
-                  style={{ color: 'var(--text-muted)' }}
+                  className="block text-xs font-medium mb-1 text-text-muted"
                 >
                   Args (逗号分隔)
                 </label>
@@ -200,8 +195,7 @@ function MCPServerModal({
               </div>
               <div>
                 <label
-                  className="block text-xs font-medium mb-1"
-                  style={{ color: 'var(--text-muted)' }}
+                  className="block text-xs font-medium mb-1 text-text-muted"
                 >
                   Env (key=value, 每行一个)
                 </label>
@@ -226,8 +220,7 @@ function MCPServerModal({
             <>
               <div>
                 <label
-                  className="block text-xs font-medium mb-1"
-                  style={{ color: 'var(--text-muted)' }}
+                  className="block text-xs font-medium mb-1 text-text-muted"
                 >
                   URL
                 </label>
@@ -246,8 +239,7 @@ function MCPServerModal({
               </div>
               <div>
                 <label
-                  className="block text-xs font-medium mb-1"
-                  style={{ color: 'var(--text-muted)' }}
+                  className="block text-xs font-medium mb-1 text-text-muted"
                 >
                   Headers (key: value, 每行一个)
                 </label>
@@ -270,8 +262,7 @@ function MCPServerModal({
           {/* Description */}
           <div>
             <label
-              className="block text-xs font-medium mb-1"
-              style={{ color: 'var(--text-muted)' }}
+              className="block text-xs font-medium mb-1 text-text-muted"
             >
               描述 (可选)
             </label>
@@ -292,8 +283,7 @@ function MCPServerModal({
           {/* Tool timeout */}
           <div>
             <label
-              className="block text-xs font-medium mb-1"
-              style={{ color: 'var(--text-muted)' }}
+              className="block text-xs font-medium mb-1 text-text-muted"
             >
               工具超时 (秒)
             </label>
@@ -318,7 +308,7 @@ function MCPServerModal({
               onChange={(e) => setLazy(e.target.checked)}
               className="rounded"
             />
-            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            <span className="text-xs text-text-muted">
               网关模式 — 按需激活工具
             </span>
           </label>
@@ -334,13 +324,11 @@ function MCPServerModal({
         </div>
 
         <div
-          className="flex justify-end gap-2 px-5 py-4 border-t"
-          style={{ borderColor: 'var(--border)' }}
+          className="flex justify-end gap-2 px-5 py-4 border-t border-border"
         >
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--surface-muted)]"
-            style={{ color: 'var(--text-muted)' }}
+            className="px-4 py-2 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--surface-muted)] text-text-muted"
           >
             取消
           </button>
@@ -354,7 +342,7 @@ function MCPServerModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -403,10 +391,9 @@ export function MCPsPage() {
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
       <div
-        className="flex items-center justify-between px-6 py-4 border-b shrink-0"
-        style={{ borderColor: 'var(--border)' }}
+        className="flex items-center justify-between px-6 py-4 border-b shrink-0 border-border"
       >
-        <h1 className="text-lg font-semibold" style={{ color: 'var(--text)' }}>
+        <h1 className="text-lg font-semibold text-text">
           MCP 服务器
         </h1>
         <button
@@ -426,12 +413,12 @@ export function MCPsPage() {
             <div className="w-5 h-5 border-2 border-[var(--border)] border-t-[var(--accent)] rounded-full animate-spin" />
           </div>
         ) : servers.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <Plug size={36} style={{ color: 'var(--text-faint)' }} />
-            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+          <div className="flex flex-col items-center justify-center py-16 gap-3 text-text-faint">
+            <Plug size={36} />
+            <p className="text-sm text-text-muted">
               尚未配置 MCP 服务器
             </p>
-            <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
+            <p className="text-xs text-text-faint">
               点击「添加服务器」开始配置 MCP 连接
             </p>
           </div>
@@ -447,8 +434,7 @@ export function MCPsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span
-                        className="font-mono text-sm font-semibold"
-                        style={{ color: 'var(--text)' }}
+                        className="font-mono text-sm font-semibold text-text"
                       >
                         {srv.name}
                       </span>
@@ -463,13 +449,12 @@ export function MCPsPage() {
                       </span>
                     </div>
                     {srv.description && (
-                      <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
+                      <p className="text-xs mb-2 text-text-muted">
                         {srv.description}
                       </p>
                     )}
                     <p
-                      className="text-xs font-mono truncate"
-                      style={{ color: 'var(--text-faint)' }}
+                      className="text-xs font-mono truncate text-text-faint"
                     >
                       {srv.command
                         ? `${srv.command} ${(srv.args ?? []).join(' ')}`
@@ -479,8 +464,7 @@ export function MCPsPage() {
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       onClick={() => handleEdit(srv)}
-                      className="p-1.5 rounded-lg transition-colors hover:bg-[var(--surface-muted)]"
-                      style={{ color: 'var(--text-muted)' }}
+                      className="p-1.5 rounded-lg transition-colors hover:bg-[var(--surface-muted)] text-text-muted"
                       title="编辑"
                     >
                       <Pencil size={14} />

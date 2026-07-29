@@ -37,6 +37,7 @@ export default defineConfig({
       testDir: './tests/e2e',
       testMatch: ['*.spec.ts'],
       timeout: 600_000,  // 10 min — pptx-generator + LLM can be slow
+      retries: process.env.CI ? 2 : 0,  // CI: 3 attempts for transient WSL/LLM flakiness
       use: {
         video: 'on',
         screenshot: 'on',
@@ -45,9 +46,12 @@ export default defineConfig({
   ],
 
   // ---- webServer (only needed by smoke project) ---------------------------
-  webServer: {
-    command: 'python -m http.server 3458 --directory out/renderer',
-    url: 'http://localhost:3458',
-    reuseExistingServer: true,
-  },
+  webServer: process.env.PLAYWRIGHT_SKIP_WEB_SERVER === '1'
+    ? undefined
+    : {
+        command: 'python -m http.server 3458 --directory out/renderer',
+        url: 'http://localhost:3458',
+        reuseExistingServer: true,
+        timeout: 180_000,  // macOS CI can be slow to start
+      },
 });

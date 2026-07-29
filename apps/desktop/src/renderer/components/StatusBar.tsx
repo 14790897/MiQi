@@ -85,7 +85,7 @@ export function StatusBar() {
 
       {restartError && <span style={{ color: 'var(--danger)' }}>{restartError}</span>}
 
-      <span className="ml-auto" style={{ color: 'var(--text-faint)' }}>
+      <span className="ml-auto text-text-faint">
         MiQi Desktop v0.8
       </span>
     </div>
