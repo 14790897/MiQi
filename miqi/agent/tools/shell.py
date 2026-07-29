@@ -1235,8 +1235,8 @@ class ExecTool(Tool):
                     filename = m.group(1).strip('\'"')
             else:
                 # curl -O / --remote-name  (boolean flag — derive from URL basename)
-                # Match O in flag clusters: -O, -LO, -fsSLO, etc.
-                m = _re.search(r'(?:^|\s)[a-zA-Z]*O(?:\s+|$)', command)
+                # Match O in flag clusters: -O, -LO, -fsSLO, etc. Must start with dash.
+                m = _re.search(r'(?:^|\s)-[a-zA-Z]*O(?:\s+|$)', command)
                 if m:
                     # Extract the last download URL from the command and take its basename
                     urls = [t for t in command.split() if t.startswith('http://') or t.startswith('https://')]
