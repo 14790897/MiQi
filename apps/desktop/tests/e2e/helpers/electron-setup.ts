@@ -241,7 +241,6 @@ export async function switchToSessionWithMarker(
     const currentTitle = await getSessionTitle(page).textContent();
     console.log(`[test] Clicked session #${i} → title: ${currentTitle}`);
 
-<<<<<<< ours
     // Session load is async (sessions.get → thread resume → message render).
     // A fixed 4s wait races the load: main may still be empty when we check,
     // so the marker is missed and we wrong-move to the next session. Poll the
@@ -250,15 +249,6 @@ export async function switchToSessionWithMarker(
     const markerInMain = page.locator('main').getByText(marker, { exact: false });
     try {
       await markerInMain.first().waitFor({ state: 'visible', timeout: 15_000 });
-=======
-    // Only check the <main> chat area, not the sidebar
-    const markerVisible = await page
-      .locator('main')
-      .getByText(marker, { exact: false })
-      .isVisible()
-      .catch(() => false);
-    if (markerVisible) {
->>>>>>> theirs
       console.log(`[test] Found marker "${marker}" in session #${i}`);
       return true;
     } catch {
