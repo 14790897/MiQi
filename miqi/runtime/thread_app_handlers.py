@@ -20,6 +20,7 @@ from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_state
 from miqi.runtime.stored_runtime import (
     StoredRuntimeReader,
     StoredThreadAmbiguous,
+    StoredThreadBundle,
     StoredThreadError,
     StoredThreadNotFound,
     StoredThreadUnauthorized,
@@ -252,14 +253,33 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         )
         views = []
         for thread in threads:
-            bundle = await reader.load_bundle(thread.thread_id, session_id=thread.session_id)
-            # Number of distinct persisted turns — a richness signal so the
-            # frontend resume (issue #490) prefers the thread holding the most
-            # real history over the merely most-recently-touched one.
-            distinct_turns = {item.turn_id for item in bundle.ledger_items if getattr(item, "turn_id", None)}
+            # Count distinct turns directly from runtime_history_items (the
+            # SAME table the model reloads on resume — task_runner.load_messages),
+            # NOT from bundle.ledger_items (runtime_ledger_items), so the
+            # richness signal tracks what the model will actually see. Querying
+            # history_items per-thread via load_history_items(thread) is a single
+            # targeted SELECT keyed on (session_id, thread_id) — it does NOT
+            # re-resolve the thread (no full list_threads scan, no ambiguity
+            # throw), keeping the list path O(N) targeted reads rather than
+            # O(N) full-table rescans. Issue #490: prefer the thread holding
+            # the most real history over the merely most-recently-touched one.
+            try:
+                history_items = await reader.load_history_items(thread)
+                distinct_turns = len({
+                    item.turn_id for item in history_items if getattr(item, "turn_id", None)
+                })
+            except Exception:
+                logger.warning(
+                    "thread/list: failed to count turns for thread={} in session={}; "
+                    "falling back to turn_count=0",
+                    thread.thread_id, thread.session_id,
+                )
+                distinct_turns = 0
             views.append(
                 project_stored_thread(
-                    bundle, include_turns=False, turn_count=len(distinct_turns)
+                    StoredThreadBundle(thread=thread, ledger_items=[]),
+                    include_turns=False,
+                    turn_count=distinct_turns,
                 ).to_dict()
             )
         page = page_items(

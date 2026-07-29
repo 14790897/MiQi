@@ -117,10 +117,15 @@ async def test_thread_list_surfaces_turn_count_for_richness_resume(tmp_path):
     ``turnCount`` per thread reflecting the number of distinct persisted
     turns, so ``pickThreadToResume`` can rank by richness.
 
-    Seeds three threads in one session with 3, 1, and 0 turns and asserts
-    the emitted ``turnCount`` matches each, all under the same session_id
-    (isolation preserved — the bare session_key still resolves).
+    The count is derived from ``runtime_history_items`` — the SAME table
+    the model reloads on resume (task_runner.load_messages) — so the
+    richness signal tracks what the model will actually see. Seeds three
+    threads in one session with 3, 1, and 0 turns and asserts the emitted
+    ``turnCount`` matches each, all under the same session_id (isolation
+    preserved — the bare session_key still resolves).
     """
+    import aiosqlite as _aiosqlite
+
     db = tmp_path / ".miqi-runtime" / "runtime.db"
     session_id = "client-a:desktop:1789"
 
@@ -130,10 +135,29 @@ async def test_thread_list_surfaces_turn_count_for_richness_resume(tmp_path):
         await threads.initialize()
         await ledger.initialize()
         await threads.create_thread(title=thread_id, thread_id=thread_id)
-        for tid in turn_ids:
-            await ledger.append_item(thread_id=thread_id, turn_id=tid, item_type="turn_started")
-            await ledger.append_item(thread_id=thread_id, turn_id=tid, item_type="message", role="user", content="x")
-            await ledger.append_item(thread_id=thread_id, turn_id=tid, item_type="turn_completed")
+        # Create the runtime_history_items table + write to it (the table the
+        # _thread_list count reads from). Use a short-lived aiosqlite conn so
+        # the schema matches what StoredRuntimeReader.load_history_items queries.
+        db.parent.mkdir(parents=True, exist_ok=True)
+        async with _aiosqlite.connect(str(db), timeout=30) as hdb:
+            await hdb.execute(
+                """CREATE TABLE IF NOT EXISTS runtime_history_items (
+                    item_id TEXT PRIMARY KEY,
+                    thread_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    turn_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                )"""
+            )
+            for i, tid in enumerate(turn_ids):
+                await hdb.execute(
+                    "INSERT INTO runtime_history_items VALUES (?,?,?,?,?,?,?,?)",
+                    (f"{thread_id}-{tid}-{i}", thread_id, session_id, tid, "user", "x", "{}", float(i)),
+                )
+            await hdb.commit()
         await ledger.close()
         await threads.close()
 
