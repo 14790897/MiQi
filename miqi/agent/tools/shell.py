@@ -1207,6 +1207,7 @@ class ExecTool(Tool):
         # Parse the command for output filenames
         filename = None
         # wget -O <file> / --output-document=<file>  (takes explicit path argument)
+        # Note: wget -o / --output-file= writes to log file, not the download — intentionally skipped.
         if 'wget' in command:
             m = _re.search(r'(?:^|\s)-O\s+(\S+)', command)
             if m:
@@ -1215,15 +1216,6 @@ class ExecTool(Tool):
                 m = _re.search(r'--output-document=(\S+)', command)
                 if m:
                     filename = m.group(1).strip('\'"')
-            if not filename:
-                # wget -o <file> / --output-file=<file>
-                m = _re.search(r'(?:^|\s)-o\s+(\S+)', command)
-                if m:
-                    filename = m.group(1).strip('\'"')
-                elif '--output-file=' in command:
-                    m = _re.search(r'--output-file=(\S+)', command)
-                    if m:
-                        filename = m.group(1).strip('\'"')
         # curl -o <file> / --output <file>  (takes explicit path argument)
         elif 'curl' in command:
             m = _re.search(r'(?:^|\s)-o\s+(\S+)', command)
