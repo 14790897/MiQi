@@ -42,9 +42,105 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-import { formatAbsoluteTime } from '../../lib/formatTime';
+function formatTime(ms: number): string {
+  const d = new Date(ms);
+  return d.toLocaleString();
+}
 
-import { ConfirmDialog, SaveConfirmDialog, InputDialog } from '../../components/shared';
+// ---------------------------------------------------------------------------
+// Save confirm dialog
+// ---------------------------------------------------------------------------
+
+function SaveConfirmDialog({
+  filePath,
+  onConfirm,
+  onCancel,
+}: {
+  filePath: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+      <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[400px]">
+        <div className="flex items-center gap-2 px-5 py-4 border-b border-[var(--border-subtle)]">
+          <AlertTriangle size={16} className="text-[var(--warning)]" />
+          <h2 className="text-sm font-semibold text-[var(--text)]">覆盖文件</h2>
+        </div>
+        <div className="px-5 py-4 text-sm text-[var(--text-muted)]">
+          此操作将覆盖 <code className="text-[var(--text)] font-mono">{filePath}</code>{' '}
+          的内容，此操作不可撤销。
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+          >
+            取消
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-1.5 rounded-lg bg-[var(--warning)] hover:brightness-110 text-white text-sm font-medium transition-all"
+          >
+            确认覆盖
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Confirm dialog (generic)
+// ---------------------------------------------------------------------------
+
+function ConfirmDialog({
+  title,
+  message,
+  onConfirm,
+  onCancel,
+  danger = false,
+}: {
+  title: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+      <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[400px]">
+        <div className="flex items-center gap-2 px-5 py-4 border-b border-[var(--border-subtle)]">
+          <AlertTriangle
+            size={16}
+            className={danger ? 'text-[var(--danger)]' : 'text-[var(--warning)]'}
+          />
+          <h2 className="text-sm font-semibold text-[var(--text)]">{title}</h2>
+        </div>
+        <div className="px-5 py-4 text-sm text-[var(--text-muted)]">{message}</div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+          >
+            取消
+          </button>
+          <button
+            onClick={onConfirm}
+            className={cn(
+              'px-4 py-1.5 rounded-lg text-white text-sm font-medium transition-all',
+              danger
+                ? 'bg-[var(--danger)] hover:brightness-110'
+                : 'bg-[var(--accent)] hover:bg-[var(--accent-hover)]'
+            )}
+          >
+            确认
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Main page
@@ -64,6 +160,7 @@ export function MemoryPage() {
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
+  const [newFileName, setNewFileName] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
 
@@ -144,8 +241,8 @@ export function MemoryPage() {
   };
 
   // Create new file
-  const handleCreateFile = async (rawName: string) => {
-    const name = rawName.trim();
+  const handleCreateFile = async () => {
+    const name = newFileName.trim();
     if (!name) return;
     const path = name.endsWith('.md') ? name : `${name}.md`;
     try {
@@ -162,6 +259,7 @@ export function MemoryPage() {
       setError(err instanceof Error ? err.message : '创建文件失败');
     }
     setShowNewFileDialog(false);
+    setNewFileName('');
   };
 
   // Delete file
@@ -300,7 +398,7 @@ export function MemoryPage() {
                   {formatSize(activeFile.size)}
                 </span>
                 <span className="text-xs text-[var(--text-faint)]">
-                  {formatAbsoluteTime(activeFile.updatedAtMs)}
+                  {formatTime(activeFile.updatedAtMs)}
                 </span>
                 {dirty && (
                   <span className="text-xs text-[var(--warning)] font-medium ml-auto">未保存</span>
@@ -395,13 +493,45 @@ export function MemoryPage() {
 
       {/* New file dialog */}
       {showNewFileDialog && (
-        <InputDialog
-          open={showNewFileDialog}
-          onOpenChange={(o) => { if (!o) setShowNewFileDialog(false); }}
-          title="新建记忆文件"
-          label="文件名（自动添加 .md）"
-          onConfirm={handleCreateFile}
-        />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[360px]">
+            <div className="flex items-center gap-2 px-5 py-4 border-b border-[var(--border-subtle)]">
+              <Plus size={16} className="text-[var(--accent)]" />
+              <h2 className="text-sm font-semibold text-[var(--text)]">新建记忆文件</h2>
+            </div>
+            <div className="px-5 py-4">
+              <input
+                type="text"
+                value={newFileName}
+                onChange={(e) => setNewFileName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreateFile();
+                }}
+                placeholder="文件名（自动添加 .md）"
+                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)]"
+                autoFocus
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
+              <button
+                onClick={() => {
+                  setShowNewFileDialog(false);
+                  setNewFileName('');
+                }}
+                className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleCreateFile}
+                disabled={!newFileName.trim()}
+                className="px-4 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-all disabled:opacity-50"
+              >
+                创建
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Delete confirm dialog */}

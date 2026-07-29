@@ -5,7 +5,6 @@ import { Button } from '../../components/ui/Button';
 import { ScrollArea } from '../../components/ui/ScrollArea';
 import { ContextMenu } from '../../components/ContextMenu';
 import { cn } from '../../lib/utils';
-import { formatAbsoluteTime } from '../../lib/formatTime';
 import {
   MessageSquare,
   Trash2,
@@ -133,6 +132,12 @@ export function SessionExplorer({
     loadSessions();
   };
 
+  const formatTime = (iso?: string) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleString();
+  };
+
   return (
     <div className="flex h-full">
       {/* Session list */}
@@ -214,14 +219,23 @@ export function SessionExplorer({
                                 s.key.includes(a.agent_id)
                             );
                             if (!agent) return null;
+                            const colors: Record<string, string> = {
+                              idle: 'bg-gray-400',
+                              thinking: 'bg-yellow-400 animate-pulse',
+                              executing: 'bg-blue-400 animate-pulse',
+                              waiting_approval: 'bg-purple-400 animate-pulse',
+                              completed: 'bg-green-500',
+                              error: 'bg-red-500',
+                              aborted: 'bg-orange-500',
+                            };
                             return (
                               <span
-                                className={cn('flex items-center gap-1 shrink-0')}
+                                className="flex items-center gap-1 shrink-0"
                                 title={`${agent.type}: ${agent.status}`}
                               >
                                 <Bot size={11} className="text-[var(--text-muted)]" />
                                 <span
-                                  className={`w-2 h-2 rounded-full ${agentStatusColor(agent.status)}`}
+                                  className={`w-2 h-2 rounded-full ${colors[agent.status] || 'bg-gray-400'}`}
                                 />
                               </span>
                             );
@@ -230,7 +244,7 @@ export function SessionExplorer({
                         {s.updated_at && (
                           <div className="flex items-center gap-1 text-xs text-[var(--text-faint)] mt-0.5">
                             <Clock size={10} />
-                            {formatAbsoluteTime(s.updated_at)}
+                            {formatTime(s.updated_at)}
                           </div>
                         )}
                       </div>

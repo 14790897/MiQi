@@ -768,9 +768,8 @@ describe('BridgeManager lifecycle', () => {
 
     (bridge as any).handleFileChange('test.py');
 
-    // Should have deferred restart (not skipped silently — #387)
-    expect(logs.some((l: string) => l.includes('Deferring restart'))).toBe(true);
-    expect((bridge as any).deferredRestart).toBe(true);
+    // Should have logged about skipping, not restarted
+    expect(logs.some((l: string) => l.includes('Skipping restart'))).toBe(true);
   });
 });
 

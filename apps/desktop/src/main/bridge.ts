@@ -179,7 +179,6 @@ export class BridgeManager extends EventEmitter {
   private reloadCooldown: number = 1000; // 1 second cooldown between reloads
   private reloadTimer: ReturnType<typeof setTimeout> | null = null;
   private restartInProgress: boolean = false;
-  private deferredRestart: boolean = false;
   private initialized: boolean = false;
   private clientId: string = 'miqi-desktop';
   private stoppingPromise: Promise<void> | null = null;
@@ -300,9 +299,6 @@ export class BridgeManager extends EventEmitter {
                     pending.resolve(resp.data);
                   }
                 }
-                // After resolving a terminal event, check if a deferred
-                // restart was requested by the file watcher (#387).
-                this._checkDeferredRestart();
                 // Terminal: skip bridge-event
                 return;
               }
@@ -372,7 +368,6 @@ export class BridgeManager extends EventEmitter {
           const text = stripAnsi(rawText);
           // Python libraries (loguru, warnings, etc.) often write normal
           // output to stderr — use INFO, not WARN, to avoid false alarms.
-          console.log(`[bridge] ${text}`);
           this.recordMainLog('INFO', text, 'bridge');
         }
       });
@@ -667,13 +662,9 @@ export class BridgeManager extends EventEmitter {
       return;
     }
 
-    // Defer restart if there are active requests — avoid killing sessions.
-    // The restart will be triggered when the last pending request completes.
+    // Don't restart if there are active requests — avoid killing sessions
     if (this.pending.size > 0) {
-      this.addLog(
-        `[Hot Reload] Deferring restart due to ${this.pending.size} pending request(s)`,
-      );
-      this.deferredRestart = true;
+      this.addLog(`[Hot Reload] Skipping restart — ${this.pending.size} pending request(s)`);
       return;
     }
 
@@ -688,17 +679,6 @@ export class BridgeManager extends EventEmitter {
         this.addLog(`[Hot Reload] Restart error: ${err}`);
       });
     }, 500);
-  }
-
-  /** Trigger a deferred restart after pending requests complete (#387). */
-  private _checkDeferredRestart(): void {
-    if (!this.deferredRestart) return;
-    // Only fire when all pending requests have settled
-    if (this.pending.size > 0) return;
-    this.deferredRestart = false;
-    this.addLog('[Hot Reload] Triggering deferred restart after pending requests completed');
-    // Use handleFileChange's debounce + restart flow
-    this.handleFileChange('(deferred)');
   }
 
   private async restart(): Promise<void> {

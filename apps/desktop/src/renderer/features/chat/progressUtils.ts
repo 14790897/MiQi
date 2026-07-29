@@ -50,7 +50,7 @@ export function extractProgressMessage(
       data.error?.message ??
       data.reason ??
       payload.text ??
-      `${eventName || '错误'}`;
+      `${eventName || 'Error'}`;
     if (msg) return { message: String(msg), role: 'error' };
   }
 
