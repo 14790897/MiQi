@@ -386,9 +386,7 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
     console.log('[test] App UI may still be loading — continuing');
   }
 
-  await waitForInputReady(page);
-
-  // Wait for bridge AppServer to finish registering methods
+  // Wait for bridge AppServer to finish registering methods before checking input
   const bridgeReady = await page.evaluate(async () => {
     for (let i = 0; i < 60; i++) {
       try {
@@ -403,6 +401,9 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
   });
   if (!bridgeReady)
     console.log('[test] Warning: bridge did not reach running state');
+
+  // Now wait for the input to be ready
+  await waitForInputReady(page, 60_000);
 
   console.log('[test] Ready');
   return { electronApp, page, miqiHome, miqiSessionsDir };
