@@ -81,7 +81,8 @@ interface Attachment {
   parseError?: string;
 }
 
-const DOCUMENT_SUFFIXES_RE = /\.(docx|doc|pptx|ppt|xlsx|xls|pdf|odt|odp|ods|md|markdown|mdown|html|htm|csv|json|xml|yaml|yml|env|log|sql|ini|toml|htaccess|sh|bash|txt|text|rtf)$/i;
+const DOCUMENT_SUFFIXES_RE =
+  /\.(docx|doc|pptx|ppt|xlsx|xls|pdf|odt|odp|ods|md|markdown|mdown|html|htm|csv|json|xml|yaml|yml|env|log|sql|ini|toml|htaccess|sh|bash|txt|text|rtf)$/i;
 
 function getDocCategory(name: string): { label: string; color: string; bg: string } {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
@@ -146,8 +147,8 @@ const FILE_BLOCK_RES = [
   /\[File: ([^\]]+)\]\n```\n[\s\S]*?\n```/g,
   /\[([^\]:]+):\s*(?:binary file|scanned PDF)[^\]]*\]/g,
   /--- Document: ([^\n]+) ---\n[\s\S]*?\n--- End of \1 ---/g,
-  /--- ([^\n]+) ---\n[\s\S]*?\n--- End of \1 ---/g,   // legacy: client-side inject before fix
-  /\[Uploaded: ([^\]]+?)\s+[—\-]\s+use\s+pdf_read[^\]]*\]/g,  // backend fallback when parse returns empty
+  /--- ([^\n]+) ---\n[\s\S]*?\n--- End of \1 ---/g, // legacy: client-side inject before fix
+  /\[Uploaded: ([^\]]+?)\s+[—\-]\s+use\s+pdf_read[^\]]*\]/g, // backend fallback when parse returns empty
 ];
 
 interface FileChip {
@@ -230,7 +231,8 @@ interface TrackedFile {
 
 const OFFICE_FILE_RE = /\.(docx|xlsx|pptx|ppt|xls|doc|odt|odp|ods)$/i;
 const PDF_FILE_RE = /\.pdf$/i;
-const TEXT_SUFFIXES_RE = /\.(md|markdown|mdown|txt|text|csv|json|yaml|yml|xml|log|env|sql|ini|toml|htaccess|sh|bash|rtf)$/i;
+const TEXT_SUFFIXES_RE =
+  /\.(md|markdown|mdown|txt|text|csv|json|yaml|yml|xml|log|env|sql|ini|toml|htaccess|sh|bash|rtf)$/i;
 const OFFICE_FILE_RE_LEGACY = /\.(docx|xlsx|pptx|ppt)$/i;
 
 /** Extract text from a PDF buffer by parsing BT/ET text blocks.
@@ -760,7 +762,8 @@ function _extractPathFromArgs(argsStr: string): string | null {
       m1 = cmd.match(/--output\s+(\S+\.\w+)/);
       if (m1) return m1[1].replace(/^["']|["']$/g, '');
       // Match: -O  (boolean flag — derive filename from last URL basename)
-      if (/(?:^|\s)-O(?:\s+|$)/.test(cmd)) {
+      // Must match O at argument boundary: -O, -LO, -fsSLO, etc.
+      if (/(?:^|\s)[a-zA-Z]*O(?:\s+|$)/.test(cmd)) {
         const urls = cmd
           .split(/\s+/)
           .filter((t) => t.startsWith('http://') || t.startsWith('https://'));
@@ -1481,11 +1484,26 @@ export function ChatConsole({
           if (ext === 'pdf') {
             extracted = extractPdfText(raw.buffer);
           } else if (
-            ext === 'md' || ext === 'markdown' || ext === 'mdown' || ext === 'txt' || ext === 'text' ||
-            ext === 'html' || ext === 'htm' || ext === 'csv' || ext === 'json' ||
-            ext === 'yaml' || ext === 'yml' || ext === 'xml' || ext === 'env' ||
-            ext === 'log' || ext === 'sql' || ext === 'ini' || ext === 'toml' ||
-            ext === 'htaccess' || ext === 'sh' || ext === 'bash'
+            ext === 'md' ||
+            ext === 'markdown' ||
+            ext === 'mdown' ||
+            ext === 'txt' ||
+            ext === 'text' ||
+            ext === 'html' ||
+            ext === 'htm' ||
+            ext === 'csv' ||
+            ext === 'json' ||
+            ext === 'yaml' ||
+            ext === 'yml' ||
+            ext === 'xml' ||
+            ext === 'env' ||
+            ext === 'log' ||
+            ext === 'sql' ||
+            ext === 'ini' ||
+            ext === 'toml' ||
+            ext === 'htaccess' ||
+            ext === 'sh' ||
+            ext === 'bash'
           ) {
             extracted = new TextDecoder().decode(raw);
           }
@@ -2650,7 +2668,9 @@ export function ChatConsole({
                             if (ext === 'pdf') {
                               previewText = extractPdfText(raw.buffer);
                             } else if (
-                              /^(md|markdown|mdown|txt|text|csv|json|ya?ml|xml|py|ts|js|log|html|htm|env|sql|ini|toml|htaccess|sh|bash)$/i.test(ext)
+                              /^(md|markdown|mdown|txt|text|csv|json|ya?ml|xml|py|ts|js|log|html|htm|env|sql|ini|toml|htaccess|sh|bash)$/i.test(
+                                ext
+                              )
                             ) {
                               previewText = new TextDecoder().decode(raw);
                             } else {
@@ -3029,7 +3049,13 @@ export function ChatConsole({
 
       {/* ── File Preview Modal ── */}
       {previewFile && (
-        <Modal open={!!previewFile} onOpenChange={(o) => { if (!o) closePreview(); }} hideClose>
+        <Modal
+          open={!!previewFile}
+          onOpenChange={(o) => {
+            if (!o) closePreview();
+          }}
+          hideClose
+        >
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
@@ -3104,7 +3130,13 @@ export function ChatConsole({
 
       {/* ── Diff Modal ── */}
       {diffFile && (
-        <Modal open={!!diffFile} onOpenChange={(o) => { if (!o) closeDiff(); }} hideClose>
+        <Modal
+          open={!!diffFile}
+          onOpenChange={(o) => {
+            if (!o) closeDiff();
+          }}
+          hideClose
+        >
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
@@ -3530,22 +3562,31 @@ function MessageBubble({
                     }
               }
             >
-            <ErrorBoundary
-              fallback={(error, reset) => (
-                <div className="text-xs p-2 rounded" style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}>
-                  ⚠ 消息渲染失败
-                  <button onClick={reset} className="ml-2 underline" style={{ color: 'var(--accent)' }}>重试</button>
-                </div>
-              )}
-            >
-              {msg.role === 'assistant' && msg.content === '' ? (
-                <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
-              ) : msg.role === 'assistant' ? (
-                <MarkdownContent content={msg.content} />
-              ) : (
-                renderContent((msg as any).__cleanContent ?? msg.content)
-              )}
-            </ErrorBoundary>
+              <ErrorBoundary
+                fallback={(error, reset) => (
+                  <div
+                    className="text-xs p-2 rounded"
+                    style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}
+                  >
+                    ⚠ 消息渲染失败
+                    <button
+                      onClick={reset}
+                      className="ml-2 underline"
+                      style={{ color: 'var(--accent)' }}
+                    >
+                      重试
+                    </button>
+                  </div>
+                )}
+              >
+                {msg.role === 'assistant' && msg.content === '' ? (
+                  <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
+                ) : msg.role === 'assistant' ? (
+                  <MarkdownContent content={msg.content} />
+                ) : (
+                  renderContent((msg as any).__cleanContent ?? msg.content)
+                )}
+              </ErrorBoundary>
             </div>
 
             {/* copy button */}

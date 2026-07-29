@@ -11,6 +11,7 @@ from urllib.parse import quote, unquote, urlparse
 from xml.etree import ElementTree as ET
 
 import httpx
+from loguru import logger
 
 from miqi.agent.tools.base import Tool
 
@@ -801,8 +802,8 @@ class PaperDownloadTool(Tool):
                 try:
                     from miqi.agent.tools.filesystem import _persist_tracked_file
                     _persist_tracked_file(self.workspace, save_path, op="write", session_key=_sess_key)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("paper_download: _persist_tracked_file failed: {}", exc)
             return json.dumps(
                 {
                     "ok": False,
@@ -971,8 +972,8 @@ class PaperDownloadTool(Tool):
             try:
                 from miqi.agent.tools.filesystem import _persist_tracked_file
                 _persist_tracked_file(self.workspace, save_path, op="write", session_key=_sess_key)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("paper_download: _persist_tracked_file failed: {}", exc)
 
         payload: dict[str, Any] = {
             "ok": True,

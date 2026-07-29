@@ -1206,30 +1206,51 @@ class ExecTool(Tool):
 
         # Parse the command for output filenames
         filename = None
-        # curl -o <file> / --output <file>  (takes explicit path argument)
-        m = _re.search(r'(?:^|\s)-o\s+(\S+)', command)
-        if m:
-            filename = m.group(1).strip('\'"')
-        elif '--output' in command:
-            m = _re.search(r'--output\s+(\S+)', command)
+        # wget -O <file> / --output-document=<file>  (takes explicit path argument)
+        if 'wget' in command:
+            m = _re.search(r'(?:^|\s)-O\s+(\S+)', command)
             if m:
                 filename = m.group(1).strip('\'"')
-        else:
-            # curl -O / --remote-name  (boolean flag — derive from URL basename)
-            m = _re.search(r'(?:^|\s)-O(?:\s+|$)', command)
-            if m:
-                # Extract the last download URL from the command and take its basename
-                urls = [t for t in command.split() if t.startswith('http://') or t.startswith('https://')]
-                if urls:
-                    from urllib.parse import urlparse
-                    parsed = urlparse(urls[-1])
-                    name = parsed.path.rstrip('/').split('/')[-1] or 'downloaded_file'
-                    filename = name
-            else:
-                # shell redirect > or >>
-                m = _re.search(r'(?:^|\s)>{1,2}\s*(\S+)', command)
+            elif '--output-document=' in command:
+                m = _re.search(r'--output-document=(\S+)', command)
                 if m:
                     filename = m.group(1).strip('\'"')
+            if not filename:
+                # wget -o <file> / --output-file=<file>
+                m = _re.search(r'(?:^|\s)-o\s+(\S+)', command)
+                if m:
+                    filename = m.group(1).strip('\'"')
+                elif '--output-file=' in command:
+                    m = _re.search(r'--output-file=(\S+)', command)
+                    if m:
+                        filename = m.group(1).strip('\'"')
+        # curl -o <file> / --output <file>  (takes explicit path argument)
+        elif 'curl' in command:
+            m = _re.search(r'(?:^|\s)-o\s+(\S+)', command)
+            if m:
+                filename = m.group(1).strip('\'"')
+            elif '--output' in command:
+                m = _re.search(r'--output\s+(\S+)', command)
+                if m:
+                    filename = m.group(1).strip('\'"')
+            else:
+                # curl -O / --remote-name  (boolean flag — derive from URL basename)
+                # Match O in flag clusters: -O, -LO, -fsSLO, etc.
+                m = _re.search(r'(?:^|\s)[a-zA-Z]*O(?:\s+|$)', command)
+                if m:
+                    # Extract the last download URL from the command and take its basename
+                    urls = [t for t in command.split() if t.startswith('http://') or t.startswith('https://')]
+                    if urls:
+                        from urllib.parse import urlparse
+                        parsed = urlparse(urls[-1])
+                        name = parsed.path.rstrip('/').split('/')[-1] or 'downloaded_file'
+                        filename = name
+
+        # shell redirect > or >>
+        if not filename:
+            m = _re.search(r'(?:^|\s)>{1,2}\s*(\S+)', command)
+            if m:
+                filename = m.group(1).strip('\'"')
 
         if not filename:
             return
@@ -1245,6 +1266,20 @@ class ExecTool(Tool):
         session_ws = _get_session_workspace(workspace, sandbox)
         sandbox_path = _resolve_sandbox_path(filename, session_ws, sandbox)
         host_path = _sandbox_to_host_path(sandbox_path, workspace, sandbox)
+
+        # Security: verify both paths remain under session workspace before writing.
+        # An attacker could craft a command like "curl -o ../../../etc/passwd" to
+        # escape the session directory. Canonicalize and verify containment.
+        try:
+            canonical_host = Path(host_path).resolve()
+            canonical_ws = Path(workspace).resolve()
+            # Ensure the canonical path is under workspace
+            if not str(canonical_host).startswith(str(canonical_ws)):
+                logger.warning("exec [mirror] rejected: path escapes workspace: {}", host_path)
+                return
+        except Exception as exc:
+            logger.warning("exec [mirror] path resolution failed: {}", exc)
+            return
 
         # Check if the file exists inside the sandbox
         try:
