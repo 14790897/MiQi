@@ -38,11 +38,6 @@ async function expectFileInPanel(page: Page, text: string, timeout = 120_000) {
   return card;
 }
 
-/** Count all file cards currently in Task Assets panel */
-async function countPanelCards(page: Page): Promise<number> {
-  return page.getByTestId('task-assets-panel').locator('.rounded-lg.p-2\\.5').count();
-}
-
 // ─── Suite ────────────────────────────────────────────────────────────
 
 test.describe('Task Assets — Download Tracking', () => {
@@ -84,11 +79,11 @@ test.describe('Task Assets — Download Tracking', () => {
       );
       await waitForResponseComplete(page, LLM_TIMEOUT);
 
-      // File should appear in Task Assets
-      await expectFileInPanel(page, marker);
+      // Capture the card locator (reuse for Preview click below)
+      const card = await expectFileInPanel(page, marker);
       console.log(`[test] ✅ "${filename}" in Task Assets`);
 
-      // Click Preview — should open preview modal with file content
+      // Click Preview — should not crash
       await card.getByRole('button', { name: 'Preview', exact: true }).click();
       await page.waitForTimeout(1_000);
 
@@ -117,19 +112,14 @@ test.describe('Task Assets — Download Tracking', () => {
       const marker = `e2e_dedup_${Date.now()}`;
       const filename = `${marker}.txt`;
 
-      // Create file
       await sendMessage(
         page,
         `用 write_file 创建文件：path="${filename}"，content="${marker}"。只回复：完成`,
       );
       await waitForResponseComplete(page, LLM_TIMEOUT);
 
-      // Wait for file to appear
       await expectFileInPanel(page, marker);
-      const before = await countPanelCards(page);
-      console.log(`[test] After first write: ${before} card(s) total`);
 
-      // Overwrite same file
       await page.waitForTimeout(2_000);
       await sendMessage(
         page,
@@ -138,8 +128,6 @@ test.describe('Task Assets — Download Tracking', () => {
       await waitForResponseComplete(page, LLM_TIMEOUT);
 
       await page.waitForTimeout(2_000);
-
-      // Should still be exactly one card for this file
       const cards = page.getByTestId('task-assets-panel')
         .locator('.rounded-lg.p-2\\.5')
         .filter({ hasText: marker });
@@ -161,7 +149,6 @@ test.describe('Task Assets — Download Tracking', () => {
       test.setTimeout(600_000);
 
       const marker = `e2e_curl_${Date.now()}`;
-      // Use plain filename (no quotes) so _extractPathFromArgs regex matches cleanly
       const filename = `${marker}.pdf`;
 
       await sendMessage(
@@ -172,12 +159,10 @@ test.describe('Task Assets — Download Tracking', () => {
       );
       await waitForResponseComplete(page, 300_000);
 
-      // Check if file appeared (may take time for _mirror_downloaded_files + onFinal reload)
       try {
         await expectFileInPanel(page, marker, 60_000);
         console.log(`[test] ✅ exec+curl file (${filename}) in Task Assets`);
       } catch (error) {
-        // Log diagnostics to help debug, then fail: missing tracking is a regression
         const panelText = await page.getByTestId('task-assets-panel').textContent();
         const pages = await page.locator('main').textContent();
         console.log(`[test] ⚠️ File not found. Panel: "${panelText?.slice(-200)}"`);
