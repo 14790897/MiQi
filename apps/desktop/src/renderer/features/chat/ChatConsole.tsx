@@ -3456,6 +3456,7 @@ function MessageBubble({
         <div
           className={cn('flex items-start gap-3', isUser && 'justify-end')}
           onContextMenu={onContextMenu}
+          data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
           {!isUser && <AgentAvatar />}
 

@@ -183,17 +183,19 @@ export async function switchToSessionWithMarker(
     await btn.click({ force: true, timeout: 5000 });
     const currentTitle = await getSessionTitle(page).textContent();
     console.log(`[test] Clicked session #${i} → title: ${currentTitle}`);
-    await page.waitForTimeout(4000);
 
-    // Only check the <main> chat area, not the sidebar
-    const markerVisible = await page
-      .locator('main')
-      .getByText(marker, { exact: false })
-      .isVisible()
-      .catch(() => false);
-    if (markerVisible) {
+    // Session load is async (sessions.get → thread resume → message render).
+    // A fixed 4s wait races the load: main may still be empty when we check,
+    // so the marker is missed and we wrong-move to the next session. Poll the
+    // marker in <main> for up to 15s instead — resolves as soon as the prior
+    // turn's history renders, falls through if this isn't the right session.
+    const markerInMain = page.locator('main').getByText(marker, { exact: false });
+    try {
+      await markerInMain.first().waitFor({ state: 'visible', timeout: 15_000 });
       console.log(`[test] Found marker "${marker}" in session #${i}`);
       return true;
+    } catch {
+      // Marker not visible here — try the next sidebar session.
     }
   }
 
@@ -374,10 +376,112 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
   return { electronApp, page, miqiHome, miqiSessionsDir };
 }
 
-/** Close the Electron app and clean up the temporary MIQI_HOME. */
-export async function closeElectronApp(app: ElectronApplication, miqiHome?: string) {
+/** Relaunch Electron on an EXISTING miqiHome so the prior session's SQLite
+ *  history is present — for restart-recovery E2E (e.g. #490 recall-across-restart).
+ *
+ *  Differs from launchElectronApp only in that it reuses the given home dir
+ *  (with its persisted config + sessions + runtime.db) instead of mkdtemp-ing
+ *  a fresh one. Re-applies approval-bypass + disabled channels so the relaunched
+ *  run doesn't hang on dialogs or hit real feedback channels. */
+export async function relaunchElectronApp(
+  miqiHome: string,
+): Promise<ElectronFixture> {
+  const miqiSessionsDir = getMiqiSessionsDir(miqiHome);
+
+  // Re-apply the same test-safe config overrides as launchElectronApp.
+  const destConfigPath = join(miqiHome, 'config.json');
+  if (existsSync(destConfigPath)) {
+    const config = JSON.parse(readFileSync(destConfigPath, 'utf-8'));
+    config.approvals = { ...config.approvals, bypass_all: true };
+    config.channels = {
+      ...config.channels,
+      feishu: { ...(config.channels?.feishu ?? {}), enabled: false },
+      feedback: { enabled: false, bitableAppToken: '', bitableTableId: '' },
+    };
+    writeFileSync(destConfigPath, JSON.stringify(config, null, 2));
+  }
+
+  const env: Record<string, string | undefined> = { ...process.env };
+  env.MIQI_HOME = miqiHome;
+  delete env.ELECTRON_RUN_AS_NODE;
+
+  const electronApp = await electron.launch({
+    args: [APPS_DESKTOP],
+    executablePath: require('electron') as string,
+    env: env as Record<string, string>,
+    chromiumSandbox: false,
+  });
+
+  let page;
+  for (let i = 0; i < 100; i++) {
+    const windows = electronApp.windows();
+    for (const w of windows) {
+      try {
+        const info = await w.evaluate(() => ({ t: document.title, w: window.outerWidth }));
+        if (info.w > 500 && info.t === 'MiQi Desktop') { page = w; break; }
+      } catch {}
+    }
+    if (page) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  if (!page) page = await electronApp.firstWindow();
+  await page.waitForLoadState('domcontentloaded');
+
+  page.on('console', (msg) => {
+    const t = msg.text();
+    if (
+      msg.type() === 'error' ||
+      t.includes('[MIQI BRIDGE STDERR]') ||
+      t.includes('[miqi-bridge]') ||
+      t.includes('[Bridge]') ||
+      t.includes('[MiQi]') ||
+      t.includes('[e2e]')
+    ) {
+      console.log(`[e2e-console] ${t}`);
+    }
+  });
+
+  try {
+    await page.getByText('MiQi Workbench').waitFor({ timeout: 30_000 });
+    console.log('[test] App UI loaded (relaunch)');
+  } catch {
+    console.log('[test] App UI may still be loading — continuing');
+  }
+
+  await waitForInputReady(page);
+
+  const bridgeReady = await page.evaluate(async () => {
+    for (let i = 0; i < 60; i++) {
+      try {
+        const s = await (window as any).miqi.runtime.status();
+        if (s?.state === 'running') return true;
+      } catch {
+        /* preload not injected yet */
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    return false;
+  });
+  if (!bridgeReady)
+    console.log('[test] Warning: bridge did not reach running state (relaunch)');
+
+  console.log('[test] Ready (relaunch)');
+  return { electronApp, page, miqiHome, miqiSessionsDir };
+}
+
+/** Close the Electron app. By default also removes the temporary MIQI_HOME.
+ *
+ *  Pass `keepHome: true` to leave the home dir on disk — used by restart-recovery
+ *  E2E (#490), which closes the app mid-test and relaunches on the SAME home so
+ *  the persisted session history is present for the relaunch to recover.
+ *  Deleting it would destroy the very data the test is verifying survives. */
+export async function closeElectronApp(
+  app: ElectronApplication,
+  miqiHome?: string,
+  keepHome = false,
+) {
   await app?.close().catch(() => {});
-  if (miqiHome && existsSync(miqiHome)) {
+  if (miqiHome && !keepHome && existsSync(miqiHome)) {
     rmSync(miqiHome, { recursive: true, force: true });
     console.log(`[test] Cleaned up MIQI_HOME: ${miqiHome}`);
   }
