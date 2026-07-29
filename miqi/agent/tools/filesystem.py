@@ -11,7 +11,7 @@ import json as _json
 import logging
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from miqi.agent.tools.base import Tool
 
@@ -243,19 +243,31 @@ def _sandbox_to_host_path(sandbox_path: str, workspace: Path | None, sandbox) ->
 
 
 
-def _canonicalize_wsl_mnt_path(mnt_path: str, workspace: Path | None) -> str:
+def _canonicalize_wsl_mnt_path(
+    mnt_path: str,
+    workspace: Path | None,
+    extra_roots: Iterable[Path] | None = None,
+) -> str:
     """Canonicalize a /mnt/<drive>/... path and verify workspace containment.
 
     Converts to host path, resolves ``..`` traversal, checks the resolved
-    path stays within *workspace*, and returns the canonical /mnt/ path.
-    Raises PermissionError if the path escapes the workspace (issue #474).
+    path stays within *workspace* (or within any of the ``extra_roots``),
+    and returns the canonical /mnt/ path.  Raises PermissionError if the
+    path escapes every legal root (issue #474).
+
+    ``extra_roots`` lets callers broaden the whitelist beyond the per-session
+    workspace to host-global shared roots (issue #516) such as
+    ``~/.miqi/workspace/memory`` and ``~/.miqi/workspace/skills`` — the
+    directories the system prompt legitimately directs the agent to read and
+    write.  A path under another session's ``sessions/<other>/files`` is never
+    in any root, so per-session isolation is preserved.
 
     Returns *mnt_path* unchanged for non-/mnt/ paths or when no workspace
     is configured.
     """
     import re as _re
 
-    if workspace is None:
+    if workspace is None and not extra_roots:
         return mnt_path
 
     m = _re.match(r"^/mnt/([a-z])/(.+)$", mnt_path)
@@ -289,13 +301,31 @@ def _canonicalize_wsl_mnt_path(mnt_path: str, workspace: Path | None) -> str:
             f"Cannot canonicalize path '{host_str}': resolution failed"
         )
 
-    ws_resolved = workspace.resolve()
-    try:
-        resolved.relative_to(ws_resolved)
-    except ValueError:
+    # Build the list of legal roots: the per-session workspace plus any
+    # host-global shared roots (issue #516).  A path is accepted if it lives
+    # under ANY of them; only a path under none is rejected.  This keeps the
+    # default single-root behavior (extra_roots empty) identical to before.
+    roots: list[Path] = []
+    if workspace is not None:
+        roots.append(workspace.resolve())
+    if extra_roots:
+        for r in extra_roots:
+            try:
+                roots.append(Path(r).resolve())
+            except Exception:
+                _log.debug("_canonicalize_wsl_mnt_path: skipping unresolvable extra root %r", r)
+
+    for root in roots:
+        try:
+            resolved.relative_to(root)
+            break  # contained in this root — accept
+        except ValueError:
+            continue
+    else:
+        roots_str = ", ".join(str(r) for r in roots) if roots else "<none>"
         raise PermissionError(
             f"Path '{host_str}' (normalized: '{normalized}') resolves to '{resolved}' "
-            f"which is outside the workspace '{ws_resolved}'"
+            f"which is outside all legal roots [{roots_str}]"
         )
 
     resolved_str = str(resolved).replace("\\", "/")
@@ -349,7 +379,12 @@ def _get_session_workspace(base_workspace: Path | None, sandbox) -> Path | None:
     return session_ws
 
 
-def _resolve_sandbox_path(path: str, workspace: Path | None, sandbox) -> str:
+def _resolve_sandbox_path(
+    path: str,
+    workspace: Path | None,
+    sandbox,
+    extra_roots: Iterable[Path] | None = None,
+) -> str:
     """Resolve a path for use inside the sandbox.
 
     Returns a Linux-style absolute path inside the sandbox filesystem.
@@ -368,7 +403,7 @@ def _resolve_sandbox_path(path: str, workspace: Path | None, sandbox) -> str:
         # WSL sandbox: use /mnt/ for direct host filesystem access (issue #474)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             result = f"/mnt/{drive}/{rest}"
-            result = _canonicalize_wsl_mnt_path(result, workspace)
+            result = _canonicalize_wsl_mnt_path(result, workspace, extra_roots)
             _log.debug("Sandbox path: %s → %s (WSL /mnt/ direct)", original_path, result)
             return result
         # If the workspace matches this drive, compute relative path
@@ -397,7 +432,7 @@ def _resolve_sandbox_path(path: str, workspace: Path | None, sandbox) -> str:
                 drive = ws_match.group(1).lower()
                 ws_rest = ws_match.group(2).rstrip("/")
                 result = f"/mnt/{drive}/{ws_rest}/{path}"
-                result = _canonicalize_wsl_mnt_path(result, workspace)
+                result = _canonicalize_wsl_mnt_path(result, workspace, extra_roots)
                 _log.debug("Sandbox path: %s → %s (WSL relative /mnt/)", original_path, result)
                 return result
         # Compute the correct sandbox base path.
@@ -422,7 +457,7 @@ def _resolve_sandbox_path(path: str, workspace: Path | None, sandbox) -> str:
         if ws_str[1:2] == ":":
             # WSL sandbox: /mnt/ paths already access host filesystem directly (issue #474)
             if sandbox is not None and getattr(sandbox, "_use_wsl", False):
-                result = _canonicalize_wsl_mnt_path(path, workspace)
+                result = _canonicalize_wsl_mnt_path(path, workspace, extra_roots)
                 _log.debug("Sandbox path: %s → %s (WSL /mnt/ keep)", original_path, result)
                 return result
             drive = ws_str[0].lower()
@@ -557,10 +592,12 @@ class ReadFileTool(Tool):
         workspace: Path | None = None,
         allowed_dir: Path | None = None,
         sandbox_manager=None,
+        shared_roots: Iterable[Path] | None = None,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
         self._sandbox_manager = sandbox_manager
+        self._shared_roots = list(shared_roots or [])
 
     @property
     def name(self) -> str:
@@ -589,7 +626,9 @@ class ReadFileTool(Tool):
         session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
-            sandbox_path = _resolve_sandbox_path(path, session_ws, sandbox)
+            sandbox_path = _resolve_sandbox_path(
+                path, session_ws, sandbox, extra_roots=self._shared_roots
+            )
             _log.info("read_file [sandbox]: %s → %s", path, sandbox_path)
             try:
                 exists = await _sandbox_file_exists(sandbox, sandbox_path)
@@ -632,11 +671,13 @@ class WriteFileTool(Tool):
         allowed_dir: Path | None = None,
         snapshot_dir: Path | None = None,
         sandbox_manager=None,
+        shared_roots: Iterable[Path] | None = None,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
         self._snapshot_dir = snapshot_dir
         self._sandbox_manager = sandbox_manager
+        self._shared_roots = list(shared_roots or [])
 
     @property
     def name(self) -> str:
@@ -676,7 +717,9 @@ class WriteFileTool(Tool):
         session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
-            sandbox_path = _resolve_sandbox_path(path, session_ws, sandbox)
+            sandbox_path = _resolve_sandbox_path(
+                path, session_ws, sandbox, extra_roots=self._shared_roots
+            )
             _log.info("write_file [sandbox]: %s → %s", path, sandbox_path)
             try:
                 await _sandbox_write_file(sandbox, sandbox_path, content)
@@ -739,11 +782,13 @@ class EditFileTool(Tool):
         allowed_dir: Path | None = None,
         snapshot_dir: Path | None = None,
         sandbox_manager=None,
+        shared_roots: Iterable[Path] | None = None,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
         self._snapshot_dir = snapshot_dir
         self._sandbox_manager = sandbox_manager
+        self._shared_roots = list(shared_roots or [])
 
     @property
     def name(self) -> str:
@@ -780,7 +825,9 @@ class EditFileTool(Tool):
         session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
-            sandbox_path = _resolve_sandbox_path(path, session_ws, sandbox)
+            sandbox_path = _resolve_sandbox_path(
+                path, session_ws, sandbox, extra_roots=self._shared_roots
+            )
             _log.info("edit_file [sandbox]: %s → %s", path, sandbox_path)
             try:
                 exists = await _sandbox_file_exists(sandbox, sandbox_path)
@@ -894,10 +941,12 @@ class ListDirTool(Tool):
         workspace: Path | None = None,
         allowed_dir: Path | None = None,
         sandbox_manager=None,
+        shared_roots: Iterable[Path] | None = None,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
         self._sandbox_manager = sandbox_manager
+        self._shared_roots = list(shared_roots or [])
 
     @property
     def name(self) -> str:
@@ -926,7 +975,9 @@ class ListDirTool(Tool):
         session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
-            sandbox_path = _resolve_sandbox_path(path, session_ws, sandbox)
+            sandbox_path = _resolve_sandbox_path(
+                path, session_ws, sandbox, extra_roots=self._shared_roots
+            )
             _log.info("list_dir [sandbox]: %s → %s", path, sandbox_path)
             try:
                 exists = await _sandbox_dir_exists(sandbox, sandbox_path)
