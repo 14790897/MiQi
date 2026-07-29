@@ -51,20 +51,28 @@ def _resolve_session_id_for_stored(
     fresh orphaned thread_id.
 
     Prefer the dispatch-supplied ``session_id`` (already namespaced). When
-    falling back to an explicit ``sessionId``/``session_id`` param, namespace
-    it under ``{client_id}:`` whenever it is not already namespaced to this
-    client. This is generic — not specific to the desktop ``desktop:`` /
-    ``default`` keyspace markers — so a future client whose bare session keys
-    look like ``cli:user`` is resolved correctly rather than silently missing.
+    falling back to an explicit ``sessionId``/``session_id`` param, add the
+    ``{client_id}:`` prefix only when the value is this caller's own bare
+    session_key. The desktop frontend's session_keys always start with
+    ``desktop:`` (``desktop:default`` or ``desktop:{ts}`` — App.tsx:129) or are
+    the literal ``default``; that marker is the signal for "not yet
+    namespaced". Any other ``xxx:``-prefixed value is treated as an
+    already-namespaced (possibly foreign) session_id and returned UNCHANGED so
+    the downstream ownership check (``session_belongs_to_client``) can reject
+    it — preserving cross-client isolation.
 
-    Isolation is NOT weakened: the resolved value is only ever used to FILTER
-    rows, and the reader re-checks every row with ``session_belongs_to_client``
-    (``session_id == client_id or startswith(f"{client_id}:")``) before
-    returning it. A foreign value namespaced to this client (e.g.
-    ``miqi-desktop:client-b:default``) can only match a row stored under THAT
-    exact id — which is, by the ownership rule, this client's own row — never
-    the foreign ``client-b:default`` row. So a foreign session can never leak
-    into this client's results.
+    Why not namespace every non-``{client_id}:``-prefixed value generically
+    (as a prior revision tried): that breaks ``thread/import``'s foreign-
+    session rejection. A caller importing with ``sessionId="client-b:default"``
+    (foreign) must be rejected UNAUTHORIZED, but a blanket "namespace it under
+    the caller" rule would rewrite that to ``client-a:client-b:default`` —
+    which the ownership check then accepts (it belongs to client-a), so the
+    import would SUCCEED instead of being rejected
+    (``test_thread_import_rejects_foreign_session_id``). The only unambiguous
+    signal that a value is THIS client's own bare key (vs. a foreign
+    already-namespaced id) is the client's known keyspace marker; there is no
+    client registry to consult, so the marker stays explicit. Adding a new
+    client's keyspace means adding its marker here.
     """
     raw = params.get("sessionId") or params.get("session_id")
     candidate = session_id if session_id is not None else raw
@@ -72,12 +80,14 @@ def _resolve_session_id_for_stored(
         return candidate
     prefix = f"{client_id}:"
     if candidate.startswith(prefix) or candidate == client_id:
-        # Already namespaced to this client — use as-is.
         return candidate
-    # Bare or foreign-prefixed session key — namespace it under this client so
-    # the stored-row filter (which keys on the namespaced id) can match this
-    # client's own rows. The ownership check remains the final isolation guard.
-    return f"{prefix}{candidate}"
+    if candidate.startswith("desktop:") or candidate == "default":
+        # Desktop frontend's bare session_key — namespace it under this client.
+        return f"{prefix}{candidate}"
+    # Already namespaced (e.g. another client's "client-b:default"): pass
+    # through unchanged so the ownership check rejects it. Do NOT namespace —
+    # see docstring (would mask thread/import's foreign-session rejection).
+    return candidate
 
 
 def register_codex_thread_handlers(server: AppServer) -> None:

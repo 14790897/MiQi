@@ -208,11 +208,23 @@ async def test_thread_read_rejects_foreign_stored_thread(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_thread_list_namespaces_bare_non_desktop_session_key(tmp_path):
-    """``_resolve_session_id_for_stored`` namespaces ANY bare session key under
-    the caller's client — not just the desktop ``desktop:``/``default`` markers
-    (CodeRabbit review). A future client whose bare keys look like ``cli:user``
-    must still resolve to ``client-a:cli:user`` so resume finds its own thread.
+async def test_thread_list_leaves_unknown_namespaced_session_key_unmolested(tmp_path):
+    """``_resolve_session_id_for_stored`` only namespaces THIS client's known
+    bare keyspace markers (desktop's ``desktop:``/``default``). A value with an
+    UNKNOWN prefix (e.g. a hypothetical ``cli:user``) is passed through
+    unchanged so the downstream ownership check can reject it — it is NOT
+    force-namespaced under the caller.
+
+    Rationale: force-namespacing would mask ``thread/import``'s rejection of a
+    foreign session_id (``client-b:default`` → ``client-a:client-b:default``
+    passes the ownership check, so an import that should be UNAUTHORIZED would
+    instead succeed). There is no client registry to disambiguate "this
+    client's own bare key" from "a foreign already-namespaced id" for an
+    unknown prefix, so isolation safety wins. Adding a new client's keyspace
+    means registering its marker in ``_resolve_session_id_for_stored``.
+
+    Here ``cli:user`` is unknown to client-a → returned unchanged → matches no
+    stored row → empty list (safe no-op, no leak).
     """
     db = tmp_path / ".miqi-runtime" / "runtime.db"
     await _seed_thread(
@@ -222,18 +234,18 @@ async def test_thread_list_namespaces_bare_non_desktop_session_key(tmp_path):
     response = await server.dispatch(
         "1", "thread/list", {"sessionId": "cli:user"}, "client-a", None,
     )
+    # Unknown prefix is not namespaced → no match → empty, no leak.
     rows = response["result"]["data"]
-    assert len(rows) == 1, f"expected the namespaced cli:user thread, got {rows}"
-    assert rows[0]["id"] == "thread-cli"
+    assert rows == [], f"unknown-prefix key unexpectedly matched: {rows}"
 
 
 @pytest.mark.asyncio
 async def test_thread_list_foreign_namespaced_value_does_not_leak(tmp_path):
-    """Even when the resolver namespaces a foreign-prefixed value (e.g.
-    ``client-b:default`` → ``client-a:client-b:default``), only THIS client's
-    own rows can match — the foreign ``client-b:default`` row never leaks.
-    Pins that the generalized namespacing does not weaken cross-client
-    isolation.
+    """A foreign-prefixed session id (``client-b:default``) is passed through
+    unchanged — NOT namespaced under the caller — so only THIS client's own
+    rows can match. The foreign ``client-b:default`` row never leaks into
+    client-a's results. Pins that namespacing does not weaken cross-client
+    isolation, including for thread/import's foreign-session rejection.
     """
     db = tmp_path / ".miqi-runtime" / "runtime.db"
     # A foreign client's row — must never be returned to client-a.
