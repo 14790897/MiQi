@@ -1,3 +1,34 @@
+# [0.9.0](https://github.com/14790897/MiQi/compare/v0.8.2...v0.9.0) (2026-07-29)
+
+
+### Bug Fixes
+
+* **#387:** defer hot reload restart instead of silently skipping when pending requests exist ([#390](https://github.com/14790897/MiQi/issues/390)) ([317b7e9](https://github.com/14790897/MiQi/commit/317b7e90579a7b7b96928945ba917e4398b9c5c0)), closes [#387](https://github.com/14790897/MiQi/issues/387) [#387](https://github.com/14790897/MiQi/issues/387)
+* **#402:** reverse dual-write order — JSONL before SQLite ([#502](https://github.com/14790897/MiQi/issues/502)) ([b94da5e](https://github.com/14790897/MiQi/commit/b94da5e273af126427f22f091706bff7f75f2f0b)), closes [#402](https://github.com/14790897/MiQi/issues/402) [#402](https://github.com/14790897/MiQi/issues/402)
+* **#409:** add create_pdf tool so agent produces actual PDFs instead … ([#453](https://github.com/14790897/MiQi/issues/453)) ([fbc369a](https://github.com/14790897/MiQi/commit/fbc369a178c2647ef0263a174d2b026af913ee9d)), closes [#409](https://github.com/14790897/MiQi/issues/409) [#409](https://github.com/14790897/MiQi/issues/409) [#409](https://github.com/14790897/MiQi/issues/409)
+* **#412:** remove duplicate local definitions from ChatConsole — use extracted components ([#476](https://github.com/14790897/MiQi/issues/476)) ([d097e46](https://github.com/14790897/MiQi/commit/d097e468698139b9649394f656f7a73e3d4a2597)), closes [#412](https://github.com/14790897/MiQi/issues/412) [#412](https://github.com/14790897/MiQi/issues/412) [#460](https://github.com/14790897/MiQi/issues/460) [#460](https://github.com/14790897/MiQi/issues/460) [#412](https://github.com/14790897/MiQi/issues/412) [#412](https://github.com/14790897/MiQi/issues/412)
+* **#490:** inject cross-thread session context on thread switch ([#500](https://github.com/14790897/MiQi/issues/500)) ([45b2a30](https://github.com/14790897/MiQi/commit/45b2a30fe18a348dfe6671660aa1563a905d7144)), closes [#490](https://github.com/14790897/MiQi/issues/490) [#490](https://github.com/14790897/MiQi/issues/490) [#490](https://github.com/14790897/MiQi/issues/490)
+* add missing useRestartRequired import in ProvidersPage ([#479](https://github.com/14790897/MiQi/issues/479)) ([#481](https://github.com/14790897/MiQi/issues/481)) ([23829e7](https://github.com/14790897/MiQi/commit/23829e703801d1c556c5bbf8d40e818050e74d49))
+* cache load_config() in-process to eliminate startup IPC storm ([#406](https://github.com/14790897/MiQi/issues/406)) ([b764f3b](https://github.com/14790897/MiQi/commit/b764f3bc8c6525b4a01f396156bc415312eda8f3)), closes [#403](https://github.com/14790897/MiQi/issues/403) [#392](https://github.com/14790897/MiQi/issues/392) [#392](https://github.com/14790897/MiQi/issues/392)
+* **ci:** harden WSL E2E tests against cold-start init timeouts and transient failures ([#413](https://github.com/14790897/MiQi/issues/413)) ([a640e35](https://github.com/14790897/MiQi/commit/a640e3577df78c2ec9e680a90ac3b218eb5319ad))
+* **ci:** skip Playwright webServer for Electron E2E projects ([#492](https://github.com/14790897/MiQi/issues/492)) ([be73830](https://github.com/14790897/MiQi/commit/be738308ec64840dcc104b0fd41b5ec7ca70e440))
+* **desktop:** add retry logic for session loading on startup ([#496](https://github.com/14790897/MiQi/issues/496)) ([9d45920](https://github.com/14790897/MiQi/commit/9d459202ab907fb37d505a75479acebb46d5917b)), closes [#480](https://github.com/14790897/MiQi/issues/480) [#480](https://github.com/14790897/MiQi/issues/480) [#480](https://github.com/14790897/MiQi/issues/480) [#480](https://github.com/14790897/MiQi/issues/480) [#480](https://github.com/14790897/MiQi/issues/480)
+* **desktop:** resolve WSL /mnt/ paths and handle files.accept errors gracefully ([cdd547d](https://github.com/14790897/MiQi/commit/cdd547de976c7db6c140115351f0128b6b623743)), closes [#448](https://github.com/14790897/MiQi/issues/448)
+* **desktop:** restore bridge stderr terminal log output ([#495](https://github.com/14790897/MiQi/issues/495)) ([912afc2](https://github.com/14790897/MiQi/commit/912afc2d5b890833abb6fbc65f750fae65894392))
+* **feedback:** cap per-field text at 196 KiB to prevent TooLargeCell ([#449](https://github.com/14790897/MiQi/issues/449)) ([bb4d8d7](https://github.com/14790897/MiQi/commit/bb4d8d7f326c9145a39c044858f2caf21c310f57))
+* **feedback:** reduce modal backdrop opacity from 60% to 40% ([a6d1cc4](https://github.com/14790897/MiQi/commit/a6d1cc47164cf6029e27744bafbd61f457354d74))
+* hide HTML document injection text in chat — add missing Document: prefix ([#477](https://github.com/14790897/MiQi/issues/477)) ([537ee20](https://github.com/14790897/MiQi/commit/537ee20acfa5f2bb675238b47514ca659f272ae6)), closes [#476](https://github.com/14790897/MiQi/issues/476)
+* translate remaining English UI strings to Chinese ([#432](https://github.com/14790897/MiQi/issues/432)) ([1343b8c](https://github.com/14790897/MiQi/commit/1343b8c72ac2caa443d2b3d9b836730d1b2dff72))
+* WSL 沙箱文件修改直接使用 /mnt/ 路径实现原地修改 ([#493](https://github.com/14790897/MiQi/issues/493)) ([3916553](https://github.com/14790897/MiQi/commit/39165534083b403bd62af7fec7f5dae208a9d690)), closes [#474](https://github.com/14790897/MiQi/issues/474) [#474](https://github.com/14790897/MiQi/issues/474)
+
+
+### Features
+
+* **#361:** 一键自动安装 WSL2 并完成首次配置 ([#373](https://github.com/14790897/MiQi/issues/373)) ([62ad479](https://github.com/14790897/MiQi/commit/62ad479b87d51efe2f543982da88c6ad18d5380f)), closes [#361](https://github.com/14790897/MiQi/issues/361) [#361](https://github.com/14790897/MiQi/issues/361) [#361](https://github.com/14790897/MiQi/issues/361)
+* **#423:** add per-component ErrorBoundary wrappers to ChatConsole, SettingsPage, ProvidersPage ([#458](https://github.com/14790897/MiQi/issues/458)) ([c4a92a7](https://github.com/14790897/MiQi/commit/c4a92a75da9ba5c9d7f7205af3fd6f577431656c)), closes [#423](https://github.com/14790897/MiQi/issues/423) [#423](https://github.com/14790897/MiQi/issues/423) [#423](https://github.com/14790897/MiQi/issues/423)
+* **#484:** add 13 new file format parsers (CSV/JSON/XML/YAML/ENV/LOG/SQL/INI/TOML/HTACCESS/SH/TXT/RTF) ([#485](https://github.com/14790897/MiQi/issues/485)) ([14e6c99](https://github.com/14790897/MiQi/commit/14e6c990b01d741f49242882a810354e6810f630)), closes [#484](https://github.com/14790897/MiQi/issues/484) [#484](https://github.com/14790897/MiQi/issues/484) [#484](https://github.com/14790897/MiQi/issues/484)
+* add HTML document parsing support + preview click-through fix ([#435](https://github.com/14790897/MiQi/issues/435)) ([510fdb2](https://github.com/14790897/MiQi/commit/510fdb2bcf08640a5ad0a5fdef5618db56ca57be))
+
 ## [0.8.2](https://github.com/14790897/MiQi/compare/v0.8.1...v0.8.2) (2026-07-29)
 
 
