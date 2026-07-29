@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -300,7 +300,9 @@ export function SetupWizard({
 
     if (wslResult.status === 'fulfilled') {
       const result = wslResult.value as WslCheckResult;
-      const hasWarning = result.isWindows && result.featureState !== 'ready';
+      const hasWarning =
+        result.isWindows &&
+        result.featureState !== 'ready';
       setWslCheck({ status: hasWarning ? 'warning' : 'ok', result });
     } else {
       setWslCheck({
@@ -452,8 +454,7 @@ export function SetupWizard({
             if (result.distros.length === 0) return 'WSL 已安装，但还没有 Linux 发行版';
             return '发行版已安装，但尚未完成首次初始化';
           default:
-            if (result.version && result.version !== '2')
-              return `检测到 WSL ${result.version}，建议升级到 WSL2`;
+            if (result.version && result.version !== '2') return `检测到 WSL ${result.version}，建议升级到 WSL2`;
             return 'WSL2 状态需要确认';
         }
       }
@@ -496,12 +497,7 @@ export function SetupWizard({
       { phase: 'installing_distro', label: '安装 Ubuntu' },
     ] as const;
     const WSL_PHASE_IDX: Record<string, number> = {
-      checking: -1,
-      enabling_features: 0,
-      installing_wsl: 1,
-      installing_distro: 2,
-      complete: 3,
-      error: -1,
+      checking: -1, enabling_features: 0, installing_wsl: 1, installing_distro: 2, complete: 3, error: -1,
     };
 
     const renderWslProgress = () => {
@@ -520,26 +516,12 @@ export function SetupWizard({
                     className={cn(
                       'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold',
                       isComplete && 'bg-[var(--accent)] text-[#1a1a1a]',
-                      isCurrent &&
-                        !isError &&
-                        'bg-[var(--accent)]/15 text-[var(--accent)] ring-2 ring-[var(--accent)]/30',
-                      isError &&
-                        'bg-[var(--danger)]/15 text-[var(--danger)] ring-2 ring-[var(--danger)]/30',
-                      !isComplete &&
-                        !isCurrent &&
-                        !isError &&
-                        'bg-[var(--surface-muted)] text-[var(--text-faint)]'
+                      isCurrent && !isError && 'bg-[var(--accent)]/15 text-[var(--accent)] ring-2 ring-[var(--accent)]/30',
+                      isError && 'bg-[var(--danger)]/15 text-[var(--danger)] ring-2 ring-[var(--danger)]/30',
+                      !isComplete && !isCurrent && !isError && 'bg-[var(--surface-muted)] text-[var(--text-faint)]',
                     )}
                   >
-                    {isComplete ? (
-                      '✓'
-                    ) : isCurrent && !isError ? (
-                      <Loader2 size={10} className="animate-spin" />
-                    ) : isError ? (
-                      '⚠'
-                    ) : (
-                      '○'
-                    )}
+                    {isComplete ? '✓' : isCurrent && !isError ? <Loader2 size={10} className="animate-spin" /> : isError ? '⚠' : '○'}
                   </div>
                   <span className="text-[9px] text-[var(--text-faint)]">{step.label}</span>
                 </div>
@@ -558,20 +540,13 @@ export function SetupWizard({
             {wslInstalling && wslInstallPhase !== 'complete' && wslInstallPhase !== 'error' && (
               <Loader2 size={10} className="animate-spin text-[var(--accent)] shrink-0" />
             )}
-            {wslInstallPhase === 'complete' && (
-              <Check size={10} className="text-[var(--accent)] shrink-0" />
-            )}
-            {wslInstallPhase === 'error' && (
-              <AlertTriangle size={10} className="text-[var(--danger)] shrink-0" />
-            )}
+            {wslInstallPhase === 'complete' && <Check size={10} className="text-[var(--accent)] shrink-0" />}
+            {wslInstallPhase === 'error' && <AlertTriangle size={10} className="text-[var(--danger)] shrink-0" />}
             {wslInstallMessage}
           </div>
           {wslInstallReboot && (
             <div className="mt-2 px-2.5 py-2 rounded-md bg-[var(--warning)]/10 border border-[var(--warning)]/20 text-[10px]">
-              <span className="flex items-center gap-1">
-                <AlertTriangle size={10} className="text-[var(--warning)]" />
-                需要重启系统以完成安装
-              </span>
+              <span className="flex items-center gap-1"><AlertTriangle size={10} className="text-[var(--warning)]" />需要重启系统以完成安装</span>
             </div>
           )}
         </div>
@@ -585,10 +560,8 @@ export function SetupWizard({
       if (result && !result.isWindows) return null;
 
       const featureState = result?.featureState;
-      const showAction =
-        featureState === 'not-enabled' ||
-        featureState === 'not-installed' ||
-        (featureState === 'installed-but-not-initialized' && result?.distros.length === 0);
+      const showAction = featureState === 'not-enabled' || featureState === 'not-installed'
+        || (featureState === 'installed-but-not-initialized' && result?.distros.length === 0);
 
       // ── States that can run one-click install ──
       if (showAction) {
@@ -598,25 +571,18 @@ export function SetupWizard({
           'installed-but-not-initialized': '⚡ 安装 Ubuntu 发行版',
         };
         const descs: Record<string, string> = {
-          'not-enabled':
-            '需要启用「Windows 子系统」和「虚拟机平台」两个可选功能。点击下方按钮自动完成，安装过程需重启一次。',
-          'not-installed':
-            'Windows 可选功能已启用，还需安装 WSL2 内核。点击按钮自动完成，需重启一次。',
-          'installed-but-not-initialized':
-            'WSL2 内核就绪，还需安装 Ubuntu 发行版。点击按钮自动完成（约 2-5 分钟），无需重启。',
+          'not-enabled': '需要启用「Windows 子系统」和「虚拟机平台」两个可选功能。点击下方按钮自动完成，安装过程需重启一次。',
+          'not-installed': 'Windows 可选功能已启用，还需安装 WSL2 内核。点击按钮自动完成，需重启一次。',
+          'installed-but-not-initialized': 'WSL2 内核就绪，还需安装 Ubuntu 发行版。点击按钮自动完成（约 2-5 分钟），无需重启。',
         };
         const title = titles[featureState ?? ''] ?? '⚡ 安装 WSL2';
         const desc = descs[featureState ?? ''] ?? '点击一键安装自动完成 WSL2 配置。';
 
         return (
-          <div
-            className={cn(
-              'mt-2 rounded-md border p-3',
-              wslInstalling
-                ? 'border-[var(--accent)]/30 bg-[var(--accent)]/3'
-                : 'border-[var(--warning)]/25 bg-[var(--warning)]/5'
-            )}
-          >
+          <div className={cn(
+            'mt-2 rounded-md border p-3',
+            wslInstalling ? 'border-[var(--accent)]/30 bg-[var(--accent)]/3' : 'border-[var(--warning)]/25 bg-[var(--warning)]/5',
+          )}>
             <p className="text-xs font-medium text-[var(--text)]">{title}</p>
             <p className="mt-1 text-xs text-[var(--text-muted)] leading-relaxed">{desc}</p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -652,8 +618,7 @@ export function SetupWizard({
           <div className="mt-2 rounded-md border border-[var(--warning)]/25 bg-[var(--warning)]/5 p-3">
             <p className="text-xs font-medium text-[var(--text)]">发行版已安装</p>
             <p className="mt-1 text-xs text-[var(--text-muted)]">
-              发行版 {result?.defaultDistro || result?.distros?.[0]} 已安装。MiQi
-              将自动从中导出沙箱环境，无需额外操作。
+              发行版 {result?.defaultDistro || result?.distros?.[0]} 已安装。MiQi 将自动从中导出沙箱环境，无需额外操作。
             </p>
             <div className="mt-2">
               <Button variant="ghost" size="sm" onClick={() => void runEnvironmentChecks()}>
@@ -909,8 +874,7 @@ export function SetupWizard({
                 </div>
               )}
               <p className="text-xs text-[var(--text-faint)]">
-                当前连接测试会使用 {providerMeta.displayName} /{' '}
-                {modelName || providerMeta.defaultModel}
+                当前连接测试会使用 {providerMeta.displayName} / {modelName || providerMeta.defaultModel}
               </p>
             </div>
 
@@ -948,7 +912,10 @@ export function SetupWizard({
         )}
 
         <div className="flex gap-2 mt-2">
-          <Button variant="ghost" onClick={() => setStep('welcome')}>
+          <Button
+            variant="ghost"
+            onClick={() => setStep('welcome')}
+          >
             <ArrowLeft size={16} /> 返回
           </Button>
           <Button onClick={handleFinish} disabled={!canContinueProvider() || saving}>
