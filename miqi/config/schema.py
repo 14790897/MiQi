@@ -423,7 +423,7 @@ class SandboxConfig(Base):
     """Sandbox isolation configuration for per-session environments."""
 
     enabled: bool = True
-    share_net: bool = True  # Allow network access inside sandbox
+    share_net: bool = False  # Allow network access inside sandbox (disabled by default for security)
     max_sandboxes: int = 10  # Maximum concurrent sandboxes
     auto_cleanup: bool = True  # Clean up sandbox on session archive/delete
     auto_install_deps: bool = True  # Auto-install bwrap/coreutils/rsync in WSL if missing

@@ -52,19 +52,11 @@ const CATEGORY_ICONS: Record<string, typeof Bug> = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function relativeTime(iso: string): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60_000) return '刚刚';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
-  if (diff < 2 * 86_400_000) return '昨天';
-  return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
-}
+import { formatRelativeTime } from '../../lib/formatTime';
 
 // ─── Submit Modal ────────────────────────────────────────────────────────────
+
+import { Modal } from '../../components/shared';
 
 function SubmitModal({
   onClose,
@@ -216,12 +208,7 @@ function SubmitModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={() => {
-        if (!submitting) onClose();
-      }}
-    >
+    <Modal open onOpenChange={onClose} hideClose>
       <div
         onClick={(e) => e.stopPropagation()}
         className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-6 w-full max-w-lg mx-4 shadow-xl max-h-[90vh] overflow-y-auto"
@@ -441,7 +428,7 @@ function SubmitModal({
           </>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -548,7 +535,7 @@ export function FeedbackPage() {
                         {entry.content}
                       </p>
                       <div className="flex items-center gap-2 text-[11px] text-[var(--muted-foreground)]">
-                        <span>{relativeTime(entry.created_at)}</span>
+                        <span>{formatRelativeTime(entry.created_at)}</span>
                         {entry.contact && <span>· {entry.contact}</span>}
                         {entry.app_version && <span>· v{entry.app_version}</span>}
                       </div>

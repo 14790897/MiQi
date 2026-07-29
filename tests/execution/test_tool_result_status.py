@@ -75,7 +75,7 @@ async def test_pre_tool_use_block_sets_denied_by_policy():
 
     result_ctx = await orch.execute(_make_ctx())
 
-    assert result_ctx.result.startswith("权限被拒绝：")
+    assert result_ctx.result.startswith("权限被拒绝：")  # noqa: RUF001
     assert result_ctx.status is OrchestrationResult.DENIED_BY_POLICY
     assert result_ctx.status != OrchestrationResult.SUCCESS
 
@@ -93,7 +93,7 @@ async def test_permission_deny_sets_denied_by_policy():
 
     result_ctx = await orch.execute(_make_ctx())
 
-    assert result_ctx.result.startswith("权限被拒绝：")
+    assert result_ctx.result.startswith("权限被拒绝：")  # noqa: RUF001
     assert result_ctx.status is OrchestrationResult.DENIED_BY_POLICY
     assert result_ctx.status != OrchestrationResult.SUCCESS
 
@@ -121,7 +121,7 @@ async def test_user_denied_approval_sets_denied_by_user():
 
     result_ctx = await orch.execute(_make_ctx())
 
-    assert result_ctx.result.startswith("用户已拒绝：")
+    assert result_ctx.result.startswith("用户已拒绝：")  # noqa: RUF001
     assert result_ctx.status is OrchestrationResult.DENIED_BY_USER
     assert result_ctx.status != OrchestrationResult.SUCCESS
 
@@ -170,7 +170,7 @@ async def test_sandbox_max_retries_sets_sandbox_failed():
 
     result_ctx = await orch.execute(_make_ctx())
 
-    assert result_ctx.result.startswith("错误：沙箱重试次数已耗尽")
+    assert result_ctx.result.startswith("错误：沙箱重试次数已耗尽")  # noqa: RUF001
     assert result_ctx.status is OrchestrationResult.SANDBOX_FAILED
     assert result_ctx.status != OrchestrationResult.SUCCESS
 

@@ -549,6 +549,34 @@ class TaskRunner:
             else:
                 history = []
 
+            # Issue #490: inject cross-thread session context so threads
+            # within the same session share conversation awareness.
+            if history_runtime is not None:
+                try:
+                    session_context = await history_runtime.load_session_context(
+                        exclude_thread_id=thread_id,
+                        max_messages_per_thread=5,
+                    )
+                    if session_context:
+                        context_block = _format_cross_thread_context(
+                            session_context
+                        )
+                        effective_system_prompt = (
+                            context_block + "\n\n" + effective_system_prompt
+                        )
+                        logger.info(
+                            "Injected cross-thread session context: "
+                            "%d messages from %d other thread(s)",
+                            len(session_context),
+                            len({m.get("_miqi_cross_thread_id", "")
+                                 for m in session_context}),
+                        )
+                except Exception:
+                    logger.warning(
+                        "Failed to load cross-thread session context",
+                        exc_info=True,
+                    )
+
             # Phase 24: record turn start in ledger
             if ledger is not None:
                 await ledger.append_item(
@@ -610,6 +638,13 @@ class TaskRunner:
                 payload_fields["input_items"] = msg.input_items
             if msg.client_user_message_id:
                 payload_fields["client_user_message_id"] = msg.client_user_message_id
+            # Issue #402: write JSONL FIRST so sessions.get (which reads
+            # JSONL) sees the message even if a crash occurs before the
+            # SQLite write completes.  The JSONL store is the legacy
+            # single-source-of-truth for session overview; SQLite is
+            # thread-scoped and recoverable from JSONL if needed.
+            await self._save_to_session_manager(
+                role="user", content=msg.content)
             if history_runtime is not None:
                 await history_runtime.append_message(
                     thread_id=thread_id,
@@ -618,10 +653,6 @@ class TaskRunner:
                     content=msg.content,
                     payload={"message_fields": payload_fields},
                 )
-            # Dual-write to legacy SessionManager JSONL so sessions.get
-            # (which reads JSONL) finds messages created via AppServer flow.
-            await self._save_to_session_manager(
-                role="user", content=msg.content)
             # Phase 24: record user message in ledger
             if ledger is not None:
                 await ledger.append_item(
@@ -674,6 +705,14 @@ class TaskRunner:
                 content = message.get("content") or ""
                 extra_fields = {k: v for k, v in message.items() if k not in ("role", "content")}
 
+                # Issue #402: write JSONL FIRST so sessions.get sees the
+                # message even if SQLite write fails later.  Forward all
+                # extra fields (tool_calls, name, tool_call_id, etc.) so
+                # the frontend can reconstruct file operations.
+                await self._save_to_session_manager(
+                    role=role, content=content, **extra_fields,
+                )
+
                 if history_runtime is not None:
                     await history_runtime.append_message(
                         thread_id=thread_id,
@@ -682,14 +721,6 @@ class TaskRunner:
                         content=content,
                         payload={"message_fields": extra_fields},
                     )
-
-                # Dual-write to legacy SessionManager (independent of history_runtime
-                # so fallback JSONL is always populated). Forward all extra fields
-                # (tool_calls, name, tool_call_id, etc.) so get_history() preserves
-                # them and the frontend can reconstruct file operations.
-                await self._save_to_session_manager(
-                    role=role, content=content, **extra_fields,
-                )
 
                 if ledger is not None:
                     await ledger.append_item(
@@ -948,3 +979,71 @@ class TaskRunner:
             reason=f"Unknown thread action: {cmd.action}",
             recoverable=False,
         ))
+
+
+# ── Cross-thread context formatting (Issue #490) ────────────────────────
+
+
+def _format_cross_thread_context(
+    session_context: list[dict[str, Any]],
+    *,
+    max_total_chars: int = 3000,
+) -> str:
+    """Format cross-thread session context as a system prompt block.
+
+    Groups messages by source thread and produces a structured summary
+    block that the LLM can use as background awareness of the broader
+    session conversation.
+
+    *max_total_chars* caps the output to prevent cross-thread context
+    from consuming excessive prompt budget.
+    """
+    if not session_context:
+        return ""
+
+    # Group messages by their source thread id
+    thread_groups: dict[str, list[dict[str, Any]]] = {}
+    for msg in session_context:
+        tid = msg.get("_miqi_cross_thread_id", "__unknown__")
+        thread_groups.setdefault(tid, []).append(msg)
+
+    lines: list[str] = []
+    lines.append("【跨线程会话上下文】")
+    lines.append(
+        "以下是同一会话中其他对话线程的近期内容，供你理解会话背景时参考："
+    )
+    lines.append("")
+
+    for i, (tid, messages) in enumerate(thread_groups.items(), start=1):
+        # Use a short label for each thread
+        short_id = tid[:8] if len(tid) > 8 else tid
+        lines.append(f"--- 线程 {i} ({short_id}…) ---")
+        for msg in messages:
+            role_label = _ROLE_LABEL_MAP.get(msg.get("role", ""), msg.get("role", "unknown"))
+            content = msg.get("content", "")
+            # Truncate very long messages to keep context compact
+            if len(content) > 500:
+                content = content[:500] + "…[已截断]"
+            lines.append(f"{role_label}: {content}")
+        lines.append("")
+
+    lines.append("---")
+    lines.append(
+        "请结合以上跨线程上下文理解用户的背景和偏好，"
+        "但不要在当前回答中主动提及'其他线程'或上下文来源，"
+        "保持对话的自然流畅。"
+    )
+
+    result = "\n".join(lines)
+    if len(result) > max_total_chars:
+        result = result[:max_total_chars] + "\n…[跨线程上下文已截断]"
+    return result
+
+
+_ROLE_LABEL_MAP: dict[str, str] = {
+    "user": "👤 用户",
+    "assistant": "🤖 助手",
+    "system": "📋 系统",
+    "tool": "🔧 工具",
+    "developer": "💻 开发者",
+}

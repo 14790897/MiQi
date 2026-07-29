@@ -45,6 +45,7 @@ dependencies = [
     "cryptography>=46.0.7",
     "pypdfium2>=5.0.0",
     "pdfplumber>=0.11.0",
+    "reportlab>=4.0.0",
 ]
 
 [project.optional-dependencies]

@@ -22,116 +22,13 @@ import {
 import { ContextMenu } from '../../components/ContextMenu';
 import type { FileNode } from '../../../shared/ipc';
 
-// ---------------------------------------------------------------------------
-// Confirm dialog
-// ---------------------------------------------------------------------------
-
-function ConfirmDialog({
-  title,
-  message,
-  onConfirm,
-  onCancel,
-  danger = false,
-}: {
-  title: string;
-  message: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-  danger?: boolean;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-      <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[400px]">
-        <div className="flex items-center gap-2 px-5 py-4 border-b border-[var(--border-subtle)]">
-          <AlertCircle
-            size={16}
-            className={danger ? 'text-[var(--danger)]' : 'text-[var(--warning)]'}
-          />
-          <h2 className="text-sm font-semibold text-[var(--text)]">{title}</h2>
-        </div>
-        <div className="px-5 py-4 text-sm text-[var(--text-muted)]">{message}</div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
-          <button
-            onClick={onCancel}
-            className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-          >
-            取消
-          </button>
-          <button
-            onClick={onConfirm}
-            className={`px-4 py-1.5 rounded-lg text-white text-sm font-medium transition-all ${
-              danger
-                ? 'bg-[var(--danger)] hover:brightness-110'
-                : 'bg-[var(--accent)] hover:bg-[var(--accent-hover)]'
-            }`}
-          >
-            确认
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { ConfirmDialog } from '../../components/shared';
 
 // ---------------------------------------------------------------------------
 // Input dialog (for new file/folder/rename)
 // ---------------------------------------------------------------------------
 
-function InputDialog({
-  title,
-  label,
-  defaultValue = '',
-  onConfirm,
-  onCancel,
-}: {
-  title: string;
-  label: string;
-  defaultValue?: string;
-  onConfirm: (value: string) => void;
-  onCancel: () => void;
-}) {
-  const [value, setValue] = useState(defaultValue);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-      <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[380px]">
-        <div className="px-5 py-4 border-b border-[var(--border-subtle)]">
-          <h2 className="text-sm font-semibold text-[var(--text)]">{title}</h2>
-        </div>
-        <div className="px-5 py-4">
-          <input
-            type="text"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && value.trim()) onConfirm(value.trim());
-            }}
-            placeholder={label}
-            className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)]"
-            autoFocus
-          />
-        </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-subtle)]">
-          <button
-            onClick={onCancel}
-            className="px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-          >
-            取消
-          </button>
-          <button
-            onClick={() => {
-              if (value.trim()) onConfirm(value.trim());
-            }}
-            disabled={!value.trim()}
-            className="px-4 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-all disabled:opacity-50"
-          >
-            确定
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { InputDialog } from '../../components/shared';
 
 // ---------------------------------------------------------------------------
 // Main page
@@ -523,46 +420,37 @@ export function WorkspacePage() {
 
       {/* Unsaved-switch confirmation dialog */}
       {showConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20">
-          <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-lg p-5 max-w-sm w-full mx-4">
-            <h3 className="text-sm font-semibold text-[var(--text)] mb-2">有未保存的更改</h3>
-            <p className="text-xs text-[var(--text-muted)] mb-4">
-              文件 <span className="font-mono">{currentPath}</span>{' '}
+        <ConfirmDialog
+          title="有未保存的更改"
+          message={
+            <span>
+              文件 <code className="text-[var(--text)] font-mono">{currentPath}</code>{' '}
               有未保存的更改，确认丢弃并打开其他文件？
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => confirmSwitch(false)}
-                className="px-3 py-1.5 text-xs rounded-lg text-[var(--text-muted)] hover:bg-[var(--surface-muted)] transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={() => confirmSwitch(true)}
-                className="px-3 py-1.5 text-xs rounded-lg bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition-colors"
-              >
-                丢弃并切换
-              </button>
-            </div>
-          </div>
-        </div>
+            </span>
+          }
+          confirmLabel="丢弃并切换"
+          onConfirm={() => confirmSwitch(true)}
+          onCancel={() => confirmSwitch(false)}
+        />
       )}
 
       {/* File operation dialogs */}
       {actionTarget && actionTarget.type === 'rename' ? (
         <InputDialog
+          open={!!actionTarget}
+          onOpenChange={(o) => { if (!o) setActionTarget(null); }}
           title="重命名"
           label="新名称"
           defaultValue={actionTarget.currentName}
           onConfirm={handleRename}
-          onCancel={() => setActionTarget(null)}
         />
       ) : actionTarget && (actionTarget.type === 'newFile' || actionTarget.type === 'newFolder') ? (
         <InputDialog
+          open={!!actionTarget}
+          onOpenChange={(o) => { if (!o) setActionTarget(null); }}
           title={actionTarget.type === 'newFile' ? '新建文件' : '新建文件夹'}
           label={actionTarget.type === 'newFile' ? '文件名' : '文件夹名'}
           onConfirm={handleCreate}
-          onCancel={() => setActionTarget(null)}
         />
       ) : null}
 

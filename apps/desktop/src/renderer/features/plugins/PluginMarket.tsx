@@ -67,8 +67,8 @@ export function PluginMarket() {
       </h2>
       {plugins.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-10 px-4 rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-muted)]/30">
-          <div className="w-10 h-10 rounded-full bg-[var(--surface-muted)] flex items-center justify-center mb-3">
-            <Puzzle size={18} style={{ color: 'var(--text-faint)' }} />
+          <div className="w-10 h-10 rounded-full bg-[var(--surface-muted)] flex items-center justify-center mb-3 text-text-faint">
+            <Puzzle size={18} />
           </div>
           <p className="text-sm font-medium text-[var(--text-muted)] mb-1">暂无已安装插件</p>
           <p className="text-xs text-[var(--text-faint)] text-center leading-relaxed">
@@ -88,10 +88,10 @@ export function PluginMarket() {
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium" style={{ color: 'var(--text)' }}>
+                  <span className="text-xs font-medium text-text">
                     {p.name}
                   </span>
-                  <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
+                  <span className="text-[10px] text-text-faint">
                     v{p.version}
                   </span>
                   <span
@@ -122,7 +122,7 @@ export function PluginMarket() {
                 </div>
               </div>
               {p.description && (
-                <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                <p className="text-xs mt-1 text-text-muted">
                   {p.description}
                 </p>
               )}

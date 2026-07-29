@@ -41,81 +41,7 @@ function fileScope(path: string): 'agent' | 'workspace' {
   return path.includes('agent-memory') ? 'agent' : 'workspace';
 }
 
-// ── Sub-components ──────────────────────────────────────────────────────────
-
-function SaveConfirmDialog({
-  path,
-  onConfirm,
-  onCancel,
-}: {
-  path: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-6 max-w-md mx-4 shadow-xl">
-        <h3 className="text-lg font-semibold mb-2">确认保存</h3>
-        <p className="text-sm text-[var(--muted-foreground)] mb-4">
-          文件 <code className="text-[var(--accent)] text-xs">{path}</code> 已经存在。
-          <br />
-          确定要覆盖保存吗？
-        </p>
-        <div className="flex gap-3 justify-end">
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 text-sm rounded-md border border-[var(--border)] hover:bg-[var(--muted)]/30"
-          >
-            取消
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-4 py-2 text-sm rounded-md bg-[var(--accent)] text-white hover:opacity-90"
-          >
-            覆盖保存
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ConfirmDialog({
-  title,
-  message,
-  confirmLabel,
-  onConfirm,
-  onCancel,
-}: {
-  title: string;
-  message: string;
-  confirmLabel?: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-6 max-w-md mx-4 shadow-xl">
-        <h3 className="text-lg font-semibold mb-2">{title}</h3>
-        <p className="text-sm text-[var(--muted-foreground)] mb-4">{message}</p>
-        <div className="flex gap-3 justify-end">
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 text-sm rounded-md border border-[var(--border)] hover:bg-[var(--muted)]/30"
-          >
-            取消
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-4 py-2 text-sm rounded-md bg-red-600 text-white hover:opacity-90"
-          >
-            {confirmLabel || '删除'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { ConfirmDialog, SaveConfirmDialog, InputDialog } from '../../components/shared';
 
 // ── Facts Tab ────────────────────────────────────────────────────────────────
 function FactsTab() {
@@ -130,7 +56,6 @@ function FactsTab() {
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
-  const [newFileName, setNewFileName] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [copiedAll, setCopiedAll] = useState(false);
@@ -184,21 +109,17 @@ function FactsTab() {
     }
   }, [activeFile, editorContent]);
 
-  const createFile = useCallback(async () => {
-    if (!newFileName.trim()) return;
-    const name = newFileName.trim().endsWith('.md')
-      ? newFileName.trim()
-      : newFileName.trim() + '.md';
+  const createFile = useCallback(async (name: string) => {
+    const finalName = name.trim().endsWith('.md') ? name.trim() : name.trim() + '.md';
     setShowNewFileDialog(false);
-    setNewFileName('');
     try {
-      await window.miqi.memory.update(name, '');
+      await window.miqi.memory.update(finalName, '');
       await loadFiles();
-      selectFile(name);
+      selectFile(finalName);
     } catch (e: any) {
       setError(e?.message || '创建失败');
     }
-  }, [newFileName, loadFiles, selectFile]);
+  }, [loadFiles, selectFile]);
 
   const deleteFile = useCallback(
     async (path: string) => {
@@ -375,9 +296,9 @@ function FactsTab() {
       </div>
 
       {/* Dialogs */}
-      {showSaveConfirm && (
+      {showSaveConfirm && activeFile && (
         <SaveConfirmDialog
-          path={activeFile!}
+          filePath={activeFile}
           onConfirm={() => {
             setShowSaveConfirm(false);
             save();
@@ -394,37 +315,13 @@ function FactsTab() {
         />
       )}
       {showNewFileDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-6 max-w-md mx-4 shadow-xl">
-            <h3 className="text-lg font-semibold mb-4">新建笔记</h3>
-            <input
-              autoFocus
-              value={newFileName}
-              onChange={(e) => setNewFileName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && createFile()}
-              placeholder="文件名（如 notes.md）"
-              className="w-full px-3 py-2 text-sm bg-[var(--muted)]/20 rounded-md border border-[var(--border)]
-                         outline-none focus:border-[var(--accent)] mb-4"
-            />
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => {
-                  setShowNewFileDialog(false);
-                  setNewFileName('');
-                }}
-                className="px-4 py-2 text-sm rounded-md border border-[var(--border)] hover:bg-[var(--muted)]/30"
-              >
-                取消
-              </button>
-              <button
-                onClick={createFile}
-                className="px-4 py-2 text-sm rounded-md bg-[var(--accent)] text-white hover:opacity-90"
-              >
-                创建
-              </button>
-            </div>
-          </div>
-        </div>
+        <InputDialog
+          open={showNewFileDialog}
+          onOpenChange={(o) => { if (!o) setShowNewFileDialog(false); }}
+          title="新建笔记"
+          label="文件名（如 notes.md）"
+          onConfirm={createFile}
+        />
       )}
     </div>
   );

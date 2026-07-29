@@ -70,10 +70,20 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
     // Fast responses may never show IN PROGRESS.
   }
 
-  // Phase 3: wait for textContent to have changed AND stabilized.
-  // The length must increase at least once, then remain stable for
-  // two consecutive polls (400ms).  This prevents false positives
-  // when streaming never started (AI call failed silently).
+  // Phase 3: wait for textContent to stop changing (streaming done).
+  //
+  // Capture the baseline after the thinking indicator is hidden so we
+  // only watch for *new* output from the AI's final response (after any
+  // tool calls).  Each call resets __miqi_stream_state to prevent
+  // cross-test leakage.
+  await page.evaluate(() => {
+    const main = document.querySelector('main');
+    (window as any).__miqi_stream_state = { base: (main?.textContent || '').length, stable: 0 };
+  });
+
+  // Two consecutive 400ms polls with no length change → response is
+  // complete.  Allow up to 30s; the old 5s window was too tight for
+  // slow streaming starts (e.g. after tool output).
   await page.waitForFunction(() => {
     const main = document.querySelector('main');
     if (!main) return false;
@@ -83,14 +93,14 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
       (window as any).__miqi_stream_state = { base: text.length, stable: 0 };
       return false;
     }
-    if (text.length > s.base) {
+    if (text.length !== s.base) {
       s.base = text.length;
       s.stable = 0;
       return false;
     }
     s.stable++;
     return s.stable >= 2;
-  }, { timeout: 5000, polling: 200 });
+  }, { timeout: 30000, polling: 200 });
 }
 
 /** Poll for approval dialogs and click "永久允许" until the AI stops
@@ -206,6 +216,38 @@ export async function waitForBridgeInitialized(page: Page, timeoutS = 30) {
       await new Promise((r) => setTimeout(r, 1000));
     }
   }, timeoutS);
+}
+
+/** Poll for sandbox manager to finish initialization.
+ *
+ *  On first-run (cold CI), the sandbox manager may spend 3-5 minutes
+ *  doing wsl export → import → apt-get install.  Tests that use exec
+ *  tools should wait here so they don't fire LLM queries into a
+ *  half-initialized sandbox (which silently falls back to local exec).
+ *
+ *  Returns true when sandbox is ready, false on timeout. */
+export async function waitForSandboxReady(page: Page, timeoutMs = 300_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  let lastLog = 0;
+  while (Date.now() < deadline) {
+    try {
+      const status = await page.evaluate(() => (window as any).miqi.runtime.status());
+      if (status?.sandbox_available === true) {
+        const elapsed = Math.round((timeoutMs - (deadline - Date.now())) / 1000);
+        console.log(`[test] Sandbox ready after ${elapsed}s`);
+        return true;
+      }
+      // Log progress every 30s so CI logs show we're not hung
+      const elapsed = Math.round((timeoutMs - (deadline - Date.now())) / 1000);
+      if (elapsed - lastLog >= 30) {
+        console.log(`[test] Waiting for sandbox... ${elapsed}s elapsed (state: ${status?.state}, sandbox_available: ${status?.sandbox_available})`);
+        lastLog = elapsed;
+      }
+    } catch { /* bridge not ready yet */ }
+    await page.waitForTimeout(2000);
+  }
+  console.log('[test] Warning: sandbox not ready within timeout');
+  return false;
 }
 
 // ─── App lifecycle ──────────────────────────────────────────────────

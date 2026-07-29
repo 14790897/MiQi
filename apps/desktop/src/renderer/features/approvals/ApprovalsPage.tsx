@@ -14,6 +14,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import type { ApprovalsListResult, ApprovalHistoryEntry } from '../../../shared/ipc';
+import { Modal } from '../../components/shared';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -94,10 +95,7 @@ function ToggleSwitch({
   );
 }
 
-function formatTime(ts: number): string {
-  if (!ts) return '-';
-  return new Date(ts * 1000).toLocaleString('zh-CN');
-}
+import { formatAbsoluteTime } from '../../lib/formatTime';
 
 function decisionLabel(d: string): { text: string; color: string } {
   switch (d) {
@@ -659,7 +657,7 @@ export function ApprovalsPage() {
                                 <span className="text-[var(--text-faint)] shrink-0">
                                   添加时间：
                                 </span>
-                                <span>{entry.added_at ? formatTime(entry.added_at) : '未知'}</span>
+                                <span>{entry.added_at ? formatAbsoluteTime(entry.added_at * 1000) : '未知'}</span>
                               </div>
                             </div>
                           )}
@@ -706,7 +704,7 @@ export function ApprovalsPage() {
                               {h.description}
                             </code>
                             <span className="text-[10px] text-[var(--text-faint)] shrink-0">
-                              {formatTime(h.timestamp)}
+                              {formatAbsoluteTime(h.timestamp * 1000)}
                             </span>
                           </div>
                           {isExpanded && (
@@ -735,7 +733,7 @@ export function ApprovalsPage() {
                               </div>
                               <div className="flex gap-2">
                                 <span className="text-[var(--text-faint)] shrink-0">时间：</span>
-                                <span>{formatTime(h.timestamp)}</span>
+                                <span>{formatAbsoluteTime(h.timestamp * 1000)}</span>
                               </div>
                             </div>
                           )}
@@ -882,10 +880,7 @@ export function ApprovalsPage() {
 
       {/* ── Add Dialog ────────────────────────────────────────────────── */}
       {showAdd && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/20"
-          onClick={() => setShowAdd(false)}
-        >
+        <Modal open={showAdd} onOpenChange={(o) => { if (!o) setShowAdd(false); }} hideClose>
           <div
             className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-full max-w-[420px] mx-4 overflow-hidden"
             onClick={(e) => e.stopPropagation()}
@@ -926,7 +921,7 @@ export function ApprovalsPage() {
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
