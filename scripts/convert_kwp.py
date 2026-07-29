@@ -368,11 +368,52 @@ def get_skill_refs(plugin_name: str, skills_dir: Path) -> list[str]:
     return refs
 
 
+def _copy_commands_dir(
+    src: Path, dst: Path, dry_run: bool
+) -> int:
+    """Copy <plugin>/commands/*.md verbatim.
+
+    Slash command files use their own frontmatter (description,
+    argument-hint) which PluginManager parses directly — we don't
+    rewrite them the way we rewrite SKILL.md.
+    """
+    if not src.is_dir():
+        return 0
+    count = 0
+    for cmd_file in sorted(src.glob("*.md")):
+        if dry_run:
+            print(f"    [dry-run] Would copy: {dst / cmd_file.name}")
+        else:
+            dst.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(cmd_file, dst / cmd_file.name)
+        count += 1
+    return count
+
+
+def _parse_command_metadata(cmd_file: Path) -> dict | None:
+    """Return ``{name, description}`` from a KWP command file, or None."""
+    import re as _re
+
+    try:
+        raw = cmd_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    desc = ""
+    fm = _re.match(r"^---\n(.*?)\n---\n", raw, _re.DOTALL)
+    if fm:
+        for line in fm.group(1).split("\n"):
+            if line.startswith("description:"):
+                desc = line.split(":", 1)[1].strip().strip("\"'")
+    return {"name": cmd_file.stem, "description": desc}
+
+
 def generate_plugin_json(
     plugin_name: str,
     skills: list[str],
     output_dir: Path,
     dry_run: bool = False,
+    commands_metadata: list[dict] | None = None,
 ) -> None:
     """Generate a MiQi-compatible plugin.json for one KWP plugin."""
     manifest = {
@@ -386,7 +427,7 @@ def generate_plugin_json(
         "author": "Anthropic (adapted for MiQi)",
         "skills": skills,
         "mcp_servers": [],
-        "slash_commands": [],
+        "slash_commands": commands_metadata or [],
         "hooks": [],
     }
 
@@ -591,10 +632,34 @@ def main():
             except Exception as e:
                 print(f"    ✗  {skill_name}: {e}")
 
+        # Also copy slash commands from <plugin>/commands/*.md verbatim
+        # (KWP command files have a different, lighter frontmatter that we
+        # want to preserve intact so PluginManager can read description +
+        # body directly).
+        commands_metadata: list[dict] = []
+        commands_dir = plugin_path / "commands"
+        if commands_dir.is_dir():
+            cmd_count = _copy_commands_dir(
+                commands_dir, output_dir / plugin_name / "commands",
+                args.dry_run,
+            )
+            for cmd_file in sorted(commands_dir.glob("*.md")):
+                md = _parse_command_metadata(cmd_file)
+                if md:
+                    commands_metadata.append(md)
+            if cmd_count and not args.dry_run:
+                print(f"    + {cmd_count} slash command(s)")
+
         if converted > 0:
             total_skills += converted
             converted_plugins.append(plugin_name)
-            generate_plugin_json(plugin_name, skill_refs, output_dir, args.dry_run)
+            generate_plugin_json(
+                plugin_name,
+                skill_refs,
+                output_dir,
+                args.dry_run,
+                commands_metadata=commands_metadata,
+            )
 
     # Generate collection-level files
     if converted_plugins:

@@ -14,6 +14,11 @@
     "write-spec"
   ],
   "mcp_servers": [],
-  "slash_commands": [],
+  "slash_commands": [
+    {
+      "name": "brainstorm",
+      "description": "Brainstorm a product idea, problem space, or strategic question with a sharp thinking partner"
+    }
+  ],
   "hooks": []
 }

@@ -7,6 +7,23 @@
     "view-pdf"
   ],
   "mcp_servers": [],
-  "slash_commands": [],
+  "slash_commands": [
+    {
+      "name": "annotate",
+      "description": "Collaboratively annotate a PDF — propose markup, review together, iterate"
+    },
+    {
+      "name": "fill-form",
+      "description": "Fill PDF form fields interactively with live visual feedback"
+    },
+    {
+      "name": "open",
+      "description": "Open a PDF in the interactive viewer"
+    },
+    {
+      "name": "sign",
+      "description": "Place a signature or initials image on a PDF"
+    }
+  ],
   "hooks": []
 }
