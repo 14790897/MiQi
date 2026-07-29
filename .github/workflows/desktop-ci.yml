@@ -136,6 +136,15 @@ jobs:
           }
           CONFEOF
 
+      - name: AI connectivity probe — fail fast if provider unreachable
+        run: |
+          xvfb-run --auto-servernum \
+            npx playwright test --config=playwright.config.ts --project=electron \
+            --grep "AI Connectivity"
+        timeout-minutes: 10
+        env:
+          PLAYWRIGHT_SKIP_WEB_SERVER: '1'
+
       - name: Run Electron E2E
         run: |
           xvfb-run --auto-servernum \
@@ -226,6 +235,14 @@ jobs:
             }
           }
           CONFEOF
+
+      - name: AI connectivity probe (macOS) — fail fast if provider unreachable
+        run: |
+          npx playwright test --config=playwright.config.ts --project=electron \
+            --grep "AI Connectivity"
+        timeout-minutes: 10
+        env:
+          PLAYWRIGHT_SKIP_WEB_SERVER: '1'
 
       - name: Run Electron E2E (macOS)
         run: |

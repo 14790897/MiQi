@@ -638,6 +638,13 @@ class TaskRunner:
                 payload_fields["input_items"] = msg.input_items
             if msg.client_user_message_id:
                 payload_fields["client_user_message_id"] = msg.client_user_message_id
+            # Issue #402: write JSONL FIRST so sessions.get (which reads
+            # JSONL) sees the message even if a crash occurs before the
+            # SQLite write completes.  The JSONL store is the legacy
+            # single-source-of-truth for session overview; SQLite is
+            # thread-scoped and recoverable from JSONL if needed.
+            await self._save_to_session_manager(
+                role="user", content=msg.content)
             if history_runtime is not None:
                 await history_runtime.append_message(
                     thread_id=thread_id,
@@ -646,10 +653,6 @@ class TaskRunner:
                     content=msg.content,
                     payload={"message_fields": payload_fields},
                 )
-            # Dual-write to legacy SessionManager JSONL so sessions.get
-            # (which reads JSONL) finds messages created via AppServer flow.
-            await self._save_to_session_manager(
-                role="user", content=msg.content)
             # Phase 24: record user message in ledger
             if ledger is not None:
                 await ledger.append_item(
@@ -702,6 +705,14 @@ class TaskRunner:
                 content = message.get("content") or ""
                 extra_fields = {k: v for k, v in message.items() if k not in ("role", "content")}
 
+                # Issue #402: write JSONL FIRST so sessions.get sees the
+                # message even if SQLite write fails later.  Forward all
+                # extra fields (tool_calls, name, tool_call_id, etc.) so
+                # the frontend can reconstruct file operations.
+                await self._save_to_session_manager(
+                    role=role, content=content, **extra_fields,
+                )
+
                 if history_runtime is not None:
                     await history_runtime.append_message(
                         thread_id=thread_id,
@@ -710,14 +721,6 @@ class TaskRunner:
                         content=content,
                         payload={"message_fields": extra_fields},
                     )
-
-                # Dual-write to legacy SessionManager (independent of history_runtime
-                # so fallback JSONL is always populated). Forward all extra fields
-                # (tool_calls, name, tool_call_id, etc.) so get_history() preserves
-                # them and the frontend can reconstruct file operations.
-                await self._save_to_session_manager(
-                    role=role, content=content, **extra_fields,
-                )
 
                 if ledger is not None:
                     await ledger.append_item(
