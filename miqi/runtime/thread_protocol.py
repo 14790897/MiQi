@@ -67,6 +67,11 @@ class ThreadView:
     created_at: float
     updated_at: float
     items_view: ItemsView
+    # Optional richness hint: number of persisted turns/items in the thread.
+    # When negative/absent the caller did not compute it. Used by the frontend
+    # thread-resume (issue #490) to prefer the thread holding the most history
+    # over the merely most-recently-touched one on fragmented legacy sessions.
+    turn_count: int = -1
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -82,6 +87,9 @@ class ThreadView:
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
             "itemsView": self.items_view,
+            # Fall back to len(turns) when include_turns fetched them; otherwise
+            # use the explicit turn_count the list path populated.
+            "turnCount": self.turn_count if self.turn_count >= 0 else len(self.turns),
         }
 
 
