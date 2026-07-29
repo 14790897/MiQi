@@ -40,50 +40,17 @@ async function waitForResponseComplete(page: Page, timeout = 240_000) {
   }
 }
 
-/** Wait for a file card with the given filename to appear in Task Assets.
- *  Uses multiple selector strategies for robustness. */
+/** Wait for a file card with the given filename to appear in Task Assets */
 async function waitForFileInPanel(page: Page, filename: string, timeout = 30_000) {
   const assetsPanel = page.getByTestId('task-assets-panel');
-
-  // Strategy 1: Try the precise class selector
-  const cardSelector = assetsPanel.locator('.rounded-lg.p-2\\.5');
-  const card = cardSelector.filter({ hasText: filename }).first();
-
-  // Strategy 2: Fallback to more generic selectors
-  const fallbackCard = assetsPanel.locator('[class*="rounded"][class*="p-"]').filter({ hasText: filename }).first();
-
-  // Try primary selector first
-  try {
-    await expect(card).toBeVisible({ timeout });
-  } catch {
-    // Fallback to secondary selector
-    console.log('[test] Primary selector failed, trying fallback');
-    await expect(fallbackCard).toBeVisible({ timeout });
-    return fallbackCard;
-  }
-
+  const card = assetsPanel
+    .locator('.rounded-lg.p-2\\.5')
+    .filter({ hasText: filename })
+    .first();
+  await expect(card).toBeVisible({ timeout });
   // Panel should no longer show empty state
   await expect(page.locator('[data-testid="task-assets-empty"]')).not.toBeVisible({ timeout: 5_000 });
   return card;
-}
-
-/** Click Preview button on a file card with robust retry logic */
-async function clickPreviewButton(page: Page, card: ReturnType<Page['locator']>) {
-  const previewBtn = card.locator('[data-testid="file-preview-btn"]');
-
-  // Wait for the button to be visible and enabled
-  await expect(previewBtn).toBeVisible({ timeout: 10000 });
-
-  // Click with retry logic for flaky buttons
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      await previewBtn.click({ timeout: 5000 });
-      return; // Success
-    } catch (e) {
-      if (attempt === 2) throw e; // Last attempt failed
-      await page.waitForTimeout(500);
-    }
-  }
 }
 
 /** Get the session title text */
@@ -110,7 +77,7 @@ test.describe('Task Assets Preview & Persistence', () => {
       (window as any).miqi.approvals.addPermanent('*:*', 'always'),
     );
     console.log('[test] *:* wildcard pre-approved');
-  });
+  }, 180_000);
 
   test.afterAll(async () => {
     await closeElectronApp(electronApp, miqiHome);
@@ -120,9 +87,11 @@ test.describe('Task Assets Preview & Persistence', () => {
   //  Test 1: Preview opens file with system default app
   // ═══════════════════════════════════════════════════════════════════
 
-  test('Agent creates file → click Preview → dispatched to system app', async () => {
-    test.setTimeout(LLM_TIMEOUT * 2);
-    const filename = `e2e_preview_${Date.now()}.md`;
+  test(
+    'Agent creates file → click Preview → dispatched to system app',
+    { timeout: LLM_TIMEOUT * 2 },
+    async () => {
+      const filename = `e2e_preview_${Date.now()}.md`;
       const content = `# E2E Preview Test\n\nContent: ${Date.now()}`;
 
       // Ensure Task Assets panel is visible
@@ -135,7 +104,7 @@ test.describe('Task Assets Preview & Persistence', () => {
       );
       await waitForResponseComplete(page, 240_000);
 
-      // Verify file appears in Task Assets panel using robust helper
+      // Verify file appears in Task Assets panel
       const card = await waitForFileInPanel(page, filename);
       console.log(`[test] ✅ File "${filename}" appears in Task Assets`);
 
@@ -144,7 +113,7 @@ test.describe('Task Assets Preview & Persistence', () => {
       // found via openExternal, which triggers the error fallback
       // preview modal.  Both outcomes are valid — the important thing
       // is the click doesn't crash the app.
-      await clickPreviewButton(page, card);
+      await card.getByRole('button', { name: 'Preview', exact: true }).click();
       await page.waitForTimeout(500);
 
       // Verify app is still functional — panel still visible
@@ -157,9 +126,11 @@ test.describe('Task Assets Preview & Persistence', () => {
   //  Test 2: File list survives session switch
   // ═══════════════════════════════════════════════════════════════════
 
-  test('files persist in Task Assets after switching sessions and returning', async () => {
-    test.setTimeout(LLM_TIMEOUT * 2);
-    const persistMarker = `E2E_PERSIST_${Date.now()}`;
+  test(
+    'files persist in Task Assets after switching sessions and returning',
+    { timeout: LLM_TIMEOUT * 2 },
+    async () => {
+      const persistMarker = `E2E_PERSIST_${Date.now()}`;
       const filename = `e2e_persist_${Date.now()}.py`;
       const content = `# ${persistMarker}\nprint("E2E persistence test")`;
 
@@ -174,7 +145,7 @@ test.describe('Task Assets Preview & Persistence', () => {
       const sessionATitle = await getSessionTitle(page).textContent();
       console.log(`[test] Session A title: "${sessionATitle}"`);
 
-      // Verify file is in Task Assets using robust helper
+      // Verify file is in Task Assets
       await waitForFileInPanel(page, filename);
       const countBefore = await page.getByTestId('task-assets-panel')
         .locator('.rounded-lg.p-2\\.5').count();
@@ -207,7 +178,7 @@ test.describe('Task Assets Preview & Persistence', () => {
       await expect(page.locator('[data-testid="task-assets-empty"]')).toBeVisible({ timeout: 10_000 });
       console.log('[test] ✅ Session B shows empty state.');
 
-      // Step 3: switch back to Session A using improved helper
+      // Step 3: switch back to Session A
       const found = await switchToSessionWithMarker(page, persistMarker);
       if (!found) {
         console.log('[test] ⚠️ Could not find Session A via marker — skipping restore check');
@@ -219,7 +190,7 @@ test.describe('Task Assets Preview & Persistence', () => {
       await waitForInputReady(page, 15_000);
       await page.waitForTimeout(2000);
 
-      // File should STILL be in Task Assets using robust helper
+      // File should STILL be in Task Assets
       const card = await waitForFileInPanel(page, filename, 15_000);
       const countAfter = await page.getByTestId('task-assets-panel')
         .locator('.rounded-lg.p-2\\.5').count();
