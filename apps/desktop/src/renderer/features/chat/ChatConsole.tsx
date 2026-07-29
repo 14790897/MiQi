@@ -411,6 +411,42 @@ export function getTaskShareDownloadName(title: string, timestamp = Date.now()):
   return `${safeTitle}-${stamp}.md`;
 }
 
+/**
+ * Pick the most recently active, non-archived, non-ephemeral stored
+ * thread id from a `thread/list` result, for resuming an existing
+ * conversation when (re)entering a session (Issue #490).
+ *
+ * Returns the thread's `id` with the largest `updatedAt` (falling back to
+ * `createdAt`), or `null` when there is no resumable thread. `items` are
+ * the loose `Record<string, unknown>` rows from `ThreadListResult` (the
+ * `ThreadView.to_dict` camelCase shape: `id`, `updatedAt`, `createdAt`,
+ * `archived`, `ephemeral`).
+ *
+ * Pure + exported so the resume-selection rule is unit-tested without
+ * mounting the React component. The load `useEffect` calls this on the
+ * `threads.list` result and stores the returned id in
+ * `currentThreadIdRef` so subsequent `chat.send` reuses it instead of
+ * minting a fresh thread_id that would orphan prior history.
+ */
+export function pickThreadToResume(items: unknown): string | null {
+  const rows = (Array.isArray(items) ? items : []) as Array<Record<string, unknown>>;
+  const candidates = rows
+    .filter(
+      (t) =>
+        !!t &&
+        !t.archived &&
+        !t.ephemeral &&
+        typeof t.id === 'string' &&
+        (t.id as string).length > 0
+    )
+    .map((t) => ({
+      id: t.id as string,
+      ts: Number(t.updatedAt ?? t.createdAt ?? 0) || 0,
+    }))
+    .sort((a, b) => b.ts - a.ts);
+  return candidates.length > 0 ? candidates[0].id : null;
+}
+
 /** Extract file path + operation from a tool-hint progress text.
  *  Nanobot tool hints look like:
  *    "Read: /abs/path/to/file.ts"
@@ -1141,6 +1177,34 @@ export function ChatConsole({
           });
         }
         setTrackedFiles(Array.from(mergedMap.values()));
+
+        // ── Issue #490: resume this session's most-recent active thread ──
+        // currentThreadIdRef is reset to null on every sessionKey/remount
+        // (line above) and is never persisted, so without this the next
+        // send would call thread/start → mint a fresh random thread_id,
+        // orphaning the prior thread's SQLite history and making the model
+        // "forget" earlier turns even though the UI still shows them.
+        //
+        // Look up stored threads for this session and reuse the most
+        // recently updated one so chat.send continues accumulating into
+        // the SAME (session_id, thread_id). A brand-new session has no
+        // stored threads → ref stays null → first send still creates one.
+        // This keeps thread isolation intact (B/C content is never pulled
+        // into A); only A's own history is reloaded.
+        try {
+          const listRes = await window.miqi.threads.list({
+            session_key: currentSessionRef.current,
+          });
+          if (currentSessionRef.current !== sessionKey) return; // switched away
+          const resumeId = pickThreadToResume((listRes as any)?.items ?? []);
+          if (resumeId) {
+            currentThreadIdRef.current = resumeId;
+          }
+        } catch (err) {
+          // Non-fatal: if threads.list fails the fall-through is the
+          // existing first-send thread/start path. Don't block rendering.
+          console.warn('[ChatConsole] Failed to resume thread:', err);
+        }
       } catch (err) {
         console.warn('[ChatConsole] Failed to load session data:', err);
       }
