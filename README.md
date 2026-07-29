@@ -296,6 +296,22 @@ cd apps/desktop
 npm run test
 ```
 
+#### E2E Tests
+
+```bash
+# Electron E2E (full desktop app + bridge + LLM)
+cd apps/desktop
+npm run build && npx playwright test --config=playwright.config.ts --project=electron
+```
+
+| Platform | E2E Coverage | Notes |
+|---|---|---|
+| **Linux** (Ubuntu CI) | Full suite ✓ | bwrap sandbox + all specs |
+| **Windows** (WSL CI) | Full suite ✓ | WSL bwrap sandbox + all specs (needs `MIQI_RUN_SANDBOX_E2E=1`) |
+| **macOS** (CI) | Non-sandbox only | bwrap not available; sandbox specs excluded via `--grep-invert` |
+
+> **macOS known limitation**: The "restart recall" E2E test (`session-context-recall.spec.ts`) is skipped on macOS CI (`process.platform === 'darwin'`). After a full app restart on macOS ARM64 runners, session history (chat messages) fails to render in `<main>` even though the sidebar session title loads correctly and the bridge reports `running / initialized`. This is likely a bridge IPC timing issue or APFS/SQLite WAL checkpoint race on cold start — needs native debugging. The non-restart session-switch recall test still validates #490 behavior on macOS.
+
 ---
 
 ## Documentation
