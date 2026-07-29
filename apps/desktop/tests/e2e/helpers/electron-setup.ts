@@ -33,8 +33,30 @@ export function getMiqiSessionsDir(miqiHome: string): string {
 /** Wait for the chat input textarea to be present and enabled */
 export async function waitForInputReady(page: Page, timeout = 60_000) {
   const textarea = page.locator('[data-testid="chat-input-container"] textarea');
-  await expect(textarea).toBeEnabled({ timeout });
-  return textarea;
+
+  // Wait for textarea to exist first
+  await expect(page.locator('[data-testid="chat-input-container"]')).toBeVisible({ timeout });
+
+  // Retry with exponential backoff - input may briefly appear/disappear during UI transitions
+  const deadline = Date.now() + timeout;
+  let lastError: Error | null = null;
+
+  while (Date.now() < deadline) {
+    try {
+      await expect(textarea).toBeEnabled({ timeout: 5000 });
+      return textarea;
+    } catch (e) {
+      lastError = e as Error;
+      // Wait before retrying
+      await page.waitForTimeout(1000);
+    }
+  }
+
+  // Log diagnostic info before throwing
+  const count = await textarea.count();
+  const containerVisible = await page.locator('[data-testid="chat-input-container"]').isVisible();
+  console.log(`[diagnostic] waitForInputReady failed: textarea count=${count}, container visible=${containerVisible}`);
+  throw lastError;
 }
 
 /** Send a message and confirm it appears in the chat */
