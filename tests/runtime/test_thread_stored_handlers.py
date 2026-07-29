@@ -208,6 +208,47 @@ async def test_thread_read_rejects_foreign_stored_thread(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_thread_list_namespaces_bare_non_desktop_session_key(tmp_path):
+    """``_resolve_session_id_for_stored`` namespaces ANY bare session key under
+    the caller's client — not just the desktop ``desktop:``/``default`` markers
+    (CodeRabbit review). A future client whose bare keys look like ``cli:user``
+    must still resolve to ``client-a:cli:user`` so resume finds its own thread.
+    """
+    db = tmp_path / ".miqi-runtime" / "runtime.db"
+    await _seed_thread(
+        db, session_id="client-a:cli:user", thread_id="thread-cli"
+    )
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/list", {"sessionId": "cli:user"}, "client-a", None,
+    )
+    rows = response["result"]["data"]
+    assert len(rows) == 1, f"expected the namespaced cli:user thread, got {rows}"
+    assert rows[0]["id"] == "thread-cli"
+
+
+@pytest.mark.asyncio
+async def test_thread_list_foreign_namespaced_value_does_not_leak(tmp_path):
+    """Even when the resolver namespaces a foreign-prefixed value (e.g.
+    ``client-b:default`` → ``client-a:client-b:default``), only THIS client's
+    own rows can match — the foreign ``client-b:default`` row never leaks.
+    Pins that the generalized namespacing does not weaken cross-client
+    isolation.
+    """
+    db = tmp_path / ".miqi-runtime" / "runtime.db"
+    # A foreign client's row — must never be returned to client-a.
+    await _seed_thread(
+        db, session_id="client-b:default", thread_id="thread-foreign"
+    )
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/list", {"sessionId": "client-b:default"}, "client-a", None,
+    )
+    rows = response["result"]["data"]
+    assert rows == [], f"foreign thread leaked into client-a results: {rows}"
+
+
+@pytest.mark.asyncio
 async def test_thread_read_ambiguous_thread_requires_session_id(tmp_path):
     db = tmp_path / ".miqi-runtime" / "runtime.db"
     await _seed_thread(db, session_id="client-a:one", thread_id="same")
