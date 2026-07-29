@@ -42,12 +42,7 @@ import {
   TurnInterruptInput,
   FeedbackSubmitInput,
 } from '../../shared/ipc';
-import type {
-  WslCheckResult,
-  WslStatsResult,
-  WslInstallProgress,
-  WslInstallAndProvisionResult,
-} from '../../shared/ipc';
+import type { WslCheckResult, WslStatsResult, WslInstallProgress, WslInstallAndProvisionResult } from '../../shared/ipc';
 
 const { ipcMain, dialog, shell } = electron;
 
@@ -571,14 +566,9 @@ for m in ("pydantic", "httpx", "loguru"):
 
     if (!isWindows) {
       return {
-        isWindows: false,
-        installed: true,
-        version: null,
-        distros: [],
-        defaultDistro: null,
-        running: false,
-        featureState: 'not-supported' as const,
-        rebootRequired: false,
+        isWindows: false, installed: true, version: null,
+        distros: [], defaultDistro: null, running: false,
+        featureState: 'not-supported' as const, rebootRequired: false,
       } satisfies WslCheckResult;
     }
 
@@ -589,9 +579,7 @@ for m in ("pydantic", "httpx", "loguru"):
     try {
       const featureResult = spawnSync(
         'powershell.exe',
-        [
-          '-NoProfile',
-          '-Command',
+        ['-NoProfile', '-Command',
           [
             '(Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux).State',
             '(Get-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform).State',
@@ -608,35 +596,23 @@ for m in ("pydantic", "httpx", "loguru"):
       try {
         const rb = spawnSync(
           'powershell.exe',
-          [
-            '-NoProfile',
-            '-Command',
-            'Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager" -Name PendingFileRenameOperations -ErrorAction SilentlyContinue | Select-Object -ExpandProperty PendingFileRenameOperations',
-          ],
+          ['-NoProfile', '-Command',
+            'Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager" -Name PendingFileRenameOperations -ErrorAction SilentlyContinue | Select-Object -ExpandProperty PendingFileRenameOperations'],
           { timeout: 8000, encoding: 'utf8', windowsHide: true }
         );
         if (rb.status === 0 && rb.stdout?.trim()) rebootRequired = true;
-      } catch {
-        /* ignore */
-      }
+      } catch { /* ignore */ }
 
       try {
         const cbs = spawnSync(
           'powershell.exe',
-          [
-            '-NoProfile',
-            '-Command',
-            'Test-Path "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending"',
-          ],
+          ['-NoProfile', '-Command',
+            'Test-Path "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending"'],
           { timeout: 5000, encoding: 'utf8', windowsHide: true }
         );
         if (cbs.status === 0 && cbs.stdout?.trim() === 'True') rebootRequired = true;
-      } catch {
-        /* ignore */
-      }
-    } catch {
-      /* ignore */
-    }
+      } catch { /* ignore */ }
+    } catch { /* ignore */ }
 
     let featureState: WslCheckResult['featureState'] = 'not-supported';
     if (!featureWsl && !featureVmp) featureState = 'not-enabled';
@@ -649,9 +625,7 @@ for m in ("pydantic", "httpx", "loguru"):
 
     try {
       const statusResult = spawnSync('wsl', ['--status'], {
-        timeout: 8000,
-        encoding: 'buffer',
-        windowsHide: true,
+        timeout: 8000, encoding: 'buffer', windowsHide: true,
       });
       if (statusResult.status === 0) {
         installed = true;
@@ -674,16 +648,12 @@ for m in ("pydantic", "httpx", "loguru"):
         const verMatch = output.match(/(?:默认版本|Default Version)\s*[:：]\s*(\d+)/i);
         if (verMatch) version = verMatch[1];
       }
-    } catch {
-      /* WSL not installed */
-    }
+    } catch { /* WSL not installed */ }
 
     if (installed) {
       try {
         const listResult = spawnSync('wsl', ['--list', '--quiet'], {
-          timeout: 8000,
-          encoding: 'buffer',
-          windowsHide: true,
+          timeout: 8000, encoding: 'buffer', windowsHide: true,
         });
         if (listResult.status === 0) {
           const buf = listResult.stdout as Buffer | null;
@@ -693,27 +663,19 @@ for m in ("pydantic", "httpx", "loguru"):
             const nullRatio =
               buf.reduce((acc, b, i) => (i % 2 === 1 && b === 0 ? acc + 1 : acc), 0) /
               Math.floor(buf.length / 2);
-            raw =
-              hasBOM || nullRatio > 0.3
-                ? buf.toString('utf16le').replace(/^﻿/, '').replace(/\0/g, '')
-                : buf.toString('utf8').replace(/\0/g, '');
+            raw = (hasBOM || nullRatio > 0.3)
+              ? buf.toString('utf16le').replace(/^﻿/, '').replace(/\0/g, '')
+              : buf.toString('utf8').replace(/\0/g, '');
           }
-          const lines = raw
-            .split(/\r?\n/)
-            .map((l) => l.trim())
-            .filter(Boolean);
+          const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
           distros = lines;
           if (!defaultDistro && distros.length > 0) defaultDistro = distros[0];
         }
-      } catch {
-        /* ignore */
-      }
+      } catch { /* ignore */ }
 
       try {
         const psResult = spawnSync('wsl', ['--list', '--running'], {
-          timeout: 8000,
-          encoding: 'buffer',
-          windowsHide: true,
+          timeout: 8000, encoding: 'buffer', windowsHide: true,
         });
         if (psResult.status === 0) {
           const buf = psResult.stdout as Buffer | null;
@@ -723,20 +685,14 @@ for m in ("pydantic", "httpx", "loguru"):
             const nullRatio =
               buf.reduce((acc, b, i) => (i % 2 === 1 && b === 0 ? acc + 1 : acc), 0) /
               Math.floor(buf.length / 2);
-            raw =
-              hasBOM || nullRatio > 0.3
-                ? buf.toString('utf16le').replace(/^﻿/, '').replace(/\0/g, '')
-                : buf.toString('utf8').replace(/\0/g, '');
+            raw = (hasBOM || nullRatio > 0.3)
+              ? buf.toString('utf16le').replace(/^﻿/, '').replace(/\0/g, '')
+              : buf.toString('utf8').replace(/\0/g, '');
           }
-          const runningLines = raw
-            .split(/\r?\n/)
-            .map((l) => l.trim())
-            .filter(Boolean);
+          const runningLines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
           running = runningLines.length > 1;
         }
-      } catch {
-        /* ignore */
-      }
+      } catch { /* ignore */ }
 
       let initialized = false;
       if (distros.length > 0) {
@@ -751,26 +707,19 @@ for m in ("pydantic", "httpx", "loguru"):
             const uid = parseInt(idResult.stdout.trim(), 10);
             if (!Number.isNaN(uid) && uid >= 0) initialized = true;
           }
-        } catch {
-          /* ignore */
-        }
+        } catch { /* ignore */ }
       }
 
-      featureState =
-        distros.length === 0 || !initialized ? 'installed-but-not-initialized' : 'ready';
+      featureState = (distros.length === 0 || !initialized)
+        ? 'installed-but-not-initialized'
+        : 'ready';
     } else if (featureState !== 'not-enabled') {
       featureState = featureWsl || featureVmp ? 'not-installed' : 'not-enabled';
     }
 
     return {
-      isWindows: true,
-      installed,
-      version,
-      distros,
-      defaultDistro,
-      running,
-      featureState,
-      rebootRequired,
+      isWindows: true, installed, version, distros, defaultDistro, running,
+      featureState, rebootRequired,
     } satisfies WslCheckResult;
   }
 
@@ -812,10 +761,8 @@ for m in ("pydantic", "httpx", "loguru"):
 
     if (process.platform !== 'win32') {
       return {
-        success: false,
-        phase: 'error',
-        error: 'Not on Windows',
-        errorCode: 'NOT_WINDOWS',
+        success: false, phase: 'error',
+        error: 'Not on Windows', errorCode: 'NOT_WINDOWS',
         nextStep: '此功能仅适用于 Windows 系统',
       } satisfies WslInstallAndProvisionResult;
     }
@@ -824,33 +771,22 @@ for m in ("pydantic", "httpx", "loguru"):
     const statePath = join(homedir(), '.miqi', 'wsl_install_state.json');
 
     function readState(): { phase: string; at: number } | null {
-      try {
-        return JSON.parse(readFileSync(statePath, 'utf8'));
-      } catch {
-        return null;
-      }
+      try { return JSON.parse(readFileSync(statePath, 'utf8')); } catch { return null; }
     }
     function writeState(phase: string) {
       try {
         mkdirSync(join(homedir(), '.miqi'), { recursive: true });
         writeFileSync(statePath, JSON.stringify({ phase, at: Date.now() }));
-      } catch {
-        /* best-effort */
-      }
+      } catch { /* best-effort */ }
     }
     function clearState() {
-      try {
-        require('fs').unlinkSync(statePath);
-      } catch {
-        /* ignore */
-      }
+      try { require('fs').unlinkSync(statePath); } catch { /* ignore */ }
     }
 
     try {
       // ── Step 1: Check ───────────────────────────────────────────────
       safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
-        phase: 'checking',
-        message: '正在检测 WSL 状态...',
+        phase: 'checking', message: '正在检测 WSL 状态...',
       } satisfies WslInstallProgress);
 
       const check = runWslCheckInternal();
@@ -866,14 +802,11 @@ for m in ("pydantic", "httpx", "loguru"):
 
         const r = spawnSync(
           'powershell.exe',
-          [
-            '-NoProfile',
-            '-Command',
+          ['-NoProfile', '-Command',
             'Start-Process powershell -ArgumentList "-NoProfile -Command ' +
-              'Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux -NoRestart; ' +
-              'Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -NoRestart" ' +
-              '-Verb RunAs -Wait -PassThru | Select-Object -ExpandProperty ExitCode',
-          ],
+            'Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux -NoRestart; ' +
+            'Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -NoRestart" ' +
+            '-Verb RunAs -Wait -PassThru | Select-Object -ExpandProperty ExitCode'],
           { timeout: 120000, encoding: 'utf8', windowsHide: true }
         );
 
@@ -885,9 +818,7 @@ for m in ("pydantic", "httpx", "loguru"):
             error: `DISM exit ${exitCode || 'error'}`,
           } satisfies WslInstallProgress);
           return {
-            success: false,
-            phase: 'error',
-            errorCode: 'FEATURE_ENABLE_FAILED',
+            success: false, phase: 'error', errorCode: 'FEATURE_ENABLE_FAILED',
             error: '无法启用 Windows 可选功能',
             nextStep: '以管理员身份打开 PowerShell 并运行: wsl --install',
           } satisfies WslInstallAndProvisionResult;
@@ -896,15 +827,12 @@ for m in ("pydantic", "httpx", "loguru"):
         writeState('features_enabled');
 
         safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
-          phase: 'enabling_features',
-          rebootRequired: true,
+          phase: 'enabling_features', rebootRequired: true,
           message: 'Windows 功能已启用。需要重启系统，重启后 MiQi 将自动继续安装。',
         } satisfies WslInstallProgress);
 
         return {
-          success: true,
-          phase: 'enabling_features',
-          rebootRequired: true,
+          success: true, phase: 'enabling_features', rebootRequired: true,
           nextStep: '请重启系统，重新打开 MiQi 后向导将自动继续',
         } satisfies WslInstallAndProvisionResult;
       }
@@ -918,11 +846,8 @@ for m in ("pydantic", "httpx", "loguru"):
 
         const r = spawnSync(
           'powershell.exe',
-          [
-            '-NoProfile',
-            '-Command',
-            'Start-Process wsl -ArgumentList "--install --no-distribution --no-launch" -Verb RunAs -Wait -PassThru | Select-Object -ExpandProperty ExitCode',
-          ],
+          ['-NoProfile', '-Command',
+            'Start-Process wsl -ArgumentList "--install --no-distribution --no-launch" -Verb RunAs -Wait -PassThru | Select-Object -ExpandProperty ExitCode'],
           { timeout: 300000, encoding: 'utf8', windowsHide: true }
         );
 
@@ -934,9 +859,7 @@ for m in ("pydantic", "httpx", "loguru"):
             error: `wsl --install exit ${exitCode || 'error'}`,
           } satisfies WslInstallProgress);
           return {
-            success: false,
-            phase: 'error',
-            errorCode: 'KERNEL_INSTALL_FAILED',
+            success: false, phase: 'error', errorCode: 'KERNEL_INSTALL_FAILED',
             error: 'WSL2 内核安装失败',
             nextStep: '以管理员身份打开 PowerShell 并运行: wsl --install --no-distribution',
           } satisfies WslInstallAndProvisionResult;
@@ -945,15 +868,12 @@ for m in ("pydantic", "httpx", "loguru"):
         writeState('kernel_installed');
 
         safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
-          phase: 'installing_wsl',
-          rebootRequired: true,
+          phase: 'installing_wsl', rebootRequired: true,
           message: 'WSL2 内核安装完成。需要重启系统以继续。',
         } satisfies WslInstallProgress);
 
         return {
-          success: true,
-          phase: 'installing_wsl',
-          rebootRequired: true,
+          success: true, phase: 'installing_wsl', rebootRequired: true,
           nextStep: '请重启系统，重新打开 MiQi 后向导将自动继续',
         } satisfies WslInstallAndProvisionResult;
       }
@@ -967,11 +887,8 @@ for m in ("pydantic", "httpx", "loguru"):
 
         const r = spawnSync(
           'powershell.exe',
-          [
-            '-NoProfile',
-            '-Command',
-            'Start-Process wsl -ArgumentList "--install -d Ubuntu --no-launch" -Verb RunAs -Wait -PassThru | Select-Object -ExpandProperty ExitCode',
-          ],
+          ['-NoProfile', '-Command',
+            'Start-Process wsl -ArgumentList "--install -d Ubuntu --no-launch" -Verb RunAs -Wait -PassThru | Select-Object -ExpandProperty ExitCode'],
           { timeout: 300000, encoding: 'utf8', windowsHide: true }
         );
 
@@ -983,9 +900,7 @@ for m in ("pydantic", "httpx", "loguru"):
             error: 'DISTRO_INSTALL_FAILED',
           } satisfies WslInstallProgress);
           return {
-            success: false,
-            phase: 'error',
-            errorCode: 'DISTRO_INSTALL_FAILED',
+            success: false, phase: 'error', errorCode: 'DISTRO_INSTALL_FAILED',
             error: 'Ubuntu 发行版安装失败',
             nextStep: '以管理员身份打开 PowerShell 并运行: wsl --install -d Ubuntu',
           } satisfies WslInstallAndProvisionResult;
@@ -997,23 +912,19 @@ for m in ("pydantic", "httpx", "loguru"):
       // ── Done ────────────────────────────────────────────────────────
       clearState();
       safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
-        phase: 'complete',
-        message: 'WSL2 安装配置完成！',
+        phase: 'complete', message: 'WSL2 安装配置完成！',
       } satisfies WslInstallProgress);
       safeSend(IPC_EVENTS.WSL_CHECK_UPDATED, {});
 
       return { success: true, phase: 'complete' } satisfies WslInstallAndProvisionResult;
     } catch (e: any) {
       safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
-        phase: 'error',
-        message: `出错: ${e?.message ?? e}`,
+        phase: 'error', message: `出错: ${e?.message ?? e}`,
         error: e?.message ?? String(e),
       } satisfies WslInstallProgress);
       return {
-        success: false,
-        phase: 'error',
-        error: e?.message ?? String(e),
-        errorCode: 'UNKNOWN',
+        success: false, phase: 'error',
+        error: e?.message ?? String(e), errorCode: 'UNKNOWN',
         nextStep: 'https://learn.microsoft.com/windows/wsl/install',
       } satisfies WslInstallAndProvisionResult;
     }
@@ -1585,14 +1496,8 @@ for m in ("pydantic", "httpx", "loguru"):
       `for d in /tmp/miqi-sandboxes/*/home/miqi/workspace/; do\n` +
       `  if [ -f "$d$REL_PATH" ]; then echo "$d$REL_PATH"; exit 0; fi\n` +
       `  for s in "$d"sessions/*/files/; do\n` +
-      `    if [ -f "$s$REL_PATH" ]; then echo "$s$REL_PATH"; exit 0; fi\n` +
+      `    if [ -f "${s}$REL_PATH" ]; then echo "${s}$REL_PATH"; exit 0; fi\n` +
       `  done\n` +
-      `done\n` +
-      // Also search the WSL home workspace (where Python tools write files directly)
-      `ws="$HOME/.miqi/workspace"\n` +
-      `if [ -f "$ws/$REL_PATH" ]; then echo "$ws/$REL_PATH"; exit 0; fi\n` +
-      `for s in "$ws"/sessions/*/files/; do\n` +
-      `  if [ -f "$s$REL_PATH" ]; then echo "$s$REL_PATH"; exit 0; fi\n` +
       `done\n` +
       `exit 1\n`;
 
@@ -1651,20 +1556,6 @@ for m in ("pydantic", "httpx", "loguru"):
     if (process.platform === 'win32' && !existsSync(absolutePath)) {
       // Extract workspace-relative path for sandbox search
       const relPath = raw.replace(/\\/g, '/').replace(/^\/home\/miqi\/workspace\//, '');
-
-      // Security: reject absolute or traversal-containing paths from the
-      // renderer before they reach the WSL search script or the host copy.
-      // An attacker could send "../../../.ssh/id_rsa" to exfiltrate files.
-      const isSafe =
-        !relPath.startsWith('/') &&
-        !relPath.startsWith('\\') &&
-        !/^[A-Za-z]:\\/.test(relPath) &&
-        !relPath.includes('..');
-      if (!isSafe) {
-        // Fall through to host candidate only — WSL search skipped
-        return { opened: false, path: raw, error: 'Unsafe path rejected' };
-      }
-
       try {
         const found = await findFileInWsl(relPath);
         if (found) {

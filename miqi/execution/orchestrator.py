@@ -831,7 +831,6 @@ class ToolOrchestrator:
             "create_docx", "create_pptx", "create_xlsx",
             "create_pdf", "pdf_write", "pdf_read",
             "edit_docx", "append_xlsx",
-            "paper_download",
         })
         kwargs = {**ctx.arguments}
         if ctx.tool_name == "exec" or ctx.tool_name in _FILE_MUTATION_TOOLS:

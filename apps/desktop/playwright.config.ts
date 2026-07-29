@@ -38,10 +38,6 @@ export default defineConfig({
       testMatch: ['*.spec.ts'],
       timeout: 600_000,  // 10 min — pptx-generator + LLM can be slow
       retries: process.env.CI ? 2 : 0,  // CI: 3 attempts for transient WSL/LLM flakiness
-      // Electron tests must run serially — each launches a real desktop app
-      // which is CPU/memory intensive. Parallel runs cause OOM/timeouts in CI.
-      fullyParallel: false,
-      workers: 1,
       use: {
         video: 'on',
         screenshot: 'on',

@@ -40,23 +40,6 @@ export function classifySessionError(e: unknown): SessionLoadError {
   return { kind: 'generic', code, message: msg };
 }
 
-function agentStatusColor(status: string): string {
-  switch (status) {
-    case 'running':
-    case 'thinking':
-      return 'bg-blue-500 animate-pulse';
-    case 'tool_running':
-      return 'bg-amber-500 animate-pulse';
-    case 'idle':
-      return 'bg-emerald-500';
-    case 'error':
-    case 'failed':
-      return 'bg-red-500';
-    default:
-      return 'bg-gray-400';
-  }
-}
-
 export function SessionExplorer({
   onOpenSession,
   refreshKey,
