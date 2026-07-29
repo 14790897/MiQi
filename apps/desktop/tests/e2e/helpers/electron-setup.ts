@@ -180,7 +180,33 @@ export async function switchToSessionWithMarker(
   for (let i = 0; i < count; i++) {
     const btn = items.nth(i);
     await btn.scrollIntoViewIfNeeded().catch(() => {});
+
+    // Snapshot the current title before clicking so we can detect when
+    // the header actually updates to reflect the newly selected session.
+    const prevTitle = await getSessionTitle(page).textContent();
+
     await btn.click({ force: true, timeout: 5000 });
+
+    // Wait for the session title to change (or a short timeout).  On
+    // macOS the header can lag behind the click; reading textContent
+    // immediately may return the previous session's title and mislead
+    // the titleHasMarker calculation below.
+    try {
+      await page.waitForFunction(
+        (prev: string) => {
+          const el = document.querySelector('h2.font-semibold.truncate');
+          const text = el?.textContent || '';
+          return text !== prev && text.length > 0;
+        },
+        prevTitle ?? '',
+        { timeout: 5_000, polling: 200 },
+      );
+    } catch {
+      // Title didn't change — session may not have loaded, or this is
+      // the same session.  Fall through and use whatever textContent
+      // is present now.
+    }
+
     const currentTitle = await getSessionTitle(page).textContent();
     console.log(`[test] Clicked session #${i} → title: ${currentTitle}`);
 
