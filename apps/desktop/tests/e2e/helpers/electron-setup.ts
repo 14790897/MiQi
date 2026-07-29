@@ -171,7 +171,28 @@ export async function switchToSessionWithMarker(
   const tasksHeader = page.locator('[data-testid="nav-tasks-title"]');
   await tasksHeader.scrollIntoViewIfNeeded().catch(() => {});
 
-  const items = getSidebarSessionItems(page);
+  // Get sidebar session items - try multiple selector patterns for robustness
+  const sidebarSelectors = [
+    'button.rounded-xl',
+    '[data-testid^="session-"]',
+    'div[role="button"][class*="session"]',
+  ];
+
+  let items: ReturnType<Page['locator']>;
+  for (const selector of sidebarSelectors) {
+    const count = await page.locator(selector).count();
+    if (count > 0) {
+      items = page.locator(selector);
+      console.log(`[test] Found ${count} session items with selector: ${selector}`);
+      break;
+    }
+  }
+
+  if (!items) {
+    console.log('[test] No session items found with any selector');
+    return false;
+  }
+
   const count = await items.count();
   console.log(
     `[test] Searching ${count} sidebar sessions for marker: ${marker}`,
@@ -179,11 +200,24 @@ export async function switchToSessionWithMarker(
 
   for (let i = 0; i < count; i++) {
     const btn = items.nth(i);
+    const isVisible = await btn.isVisible().catch(() => false);
+    if (!isVisible) continue;
+
     await btn.scrollIntoViewIfNeeded().catch(() => {});
-    await btn.click({ force: true, timeout: 5000 });
+    await btn.click({ force: true, timeout: 5000 }).catch(() => {});
+
+    // Wait for chat to update after click
+    await page.waitForTimeout(2000);
+
+    // Check if we're still in a loading state
+    const thinking = await page.locator('[data-testid="thinking-indicator"]').isVisible().catch(() => false);
+    if (thinking) {
+      // Wait for thinking to complete
+      await page.waitForTimeout(3000);
+    }
+
     const currentTitle = await getSessionTitle(page).textContent();
     console.log(`[test] Clicked session #${i} → title: ${currentTitle}`);
-    await page.waitForTimeout(4000);
 
     // Only check the <main> chat area, not the sidebar
     const markerVisible = await page
