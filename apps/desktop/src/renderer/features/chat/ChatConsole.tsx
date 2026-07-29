@@ -412,15 +412,22 @@ export function getTaskShareDownloadName(title: string, timestamp = Date.now()):
 }
 
 /**
- * Pick the most recently active, non-archived, non-ephemeral stored
- * thread id from a `thread/list` result, for resuming an existing
- * conversation when (re)entering a session (Issue #490).
+ * Pick the best non-archived, non-ephemeral stored thread id from a
+ * `thread/list` result, for resuming an existing conversation when
+ * (re)entering a session (Issue #490).
  *
- * Returns the thread's `id` with the largest `updatedAt` (falling back to
- * `createdAt`), or `null` when there is no resumable thread. `items` are
- * the loose `Record<string, unknown>` rows from `ThreadListResult` (the
- * `ThreadView.to_dict` camelCase shape: `id`, `updatedAt`, `createdAt`,
- * `archived`, `ephemeral`).
+ * Selection rule (chosen over a plain most-recent sort to survive legacy
+ * fragmented sessions): prefer the thread holding the MOST persisted turns
+ * (`turnCount`, surfaced by backend `_thread_list`), ties broken by the
+ * largest `updatedAt` (fallback `createdAt`). Rationale — a fragmented
+ * session has several thread_ids; the most-recently-touched one may be
+ * nearly empty (e.g. a thread that only captured the user repeatedly
+ * asking "what did we do before"), while the thread with the most turns
+ * holds the real conversation the user expects to recall. On a clean
+ * single-thread session both heuristics agree. Returns `null` when there
+ * is no resumable thread. `items` are the loose rows from the
+ * `ThreadView.to_dict` camelCase shape: `id`, `turnCount`, `updatedAt`,
+ * `createdAt`, `archived`, `ephemeral`.
  *
  * Pure + exported so the resume-selection rule is unit-tested without
  * mounting the React component. The load `useEffect` calls this on the
@@ -441,9 +448,10 @@ export function pickThreadToResume(items: unknown): string | null {
     )
     .map((t) => ({
       id: t.id as string,
+      turns: Number(t.turnCount ?? 0) || 0,
       ts: Number(t.updatedAt ?? t.createdAt ?? 0) || 0,
     }))
-    .sort((a, b) => b.ts - a.ts);
+    .sort((a, b) => b.turns - a.turns || b.ts - a.ts);
   return candidates.length > 0 ? candidates[0].id : null;
 }
 

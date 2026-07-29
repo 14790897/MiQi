@@ -253,7 +253,15 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         views = []
         for thread in threads:
             bundle = await reader.load_bundle(thread.thread_id, session_id=thread.session_id)
-            views.append(project_stored_thread(bundle, include_turns=False).to_dict())
+            # Number of distinct persisted turns — a richness signal so the
+            # frontend resume (issue #490) prefers the thread holding the most
+            # real history over the merely most-recently-touched one.
+            distinct_turns = {item.turn_id for item in bundle.ledger_items if getattr(item, "turn_id", None)}
+            views.append(
+                project_stored_thread(
+                    bundle, include_turns=False, turn_count=len(distinct_turns)
+                ).to_dict()
+            )
         page = page_items(
             views,
             limit=typed.limit,

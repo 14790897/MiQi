@@ -110,6 +110,51 @@ async def test_thread_list_finds_threads_with_bare_session_key(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_thread_list_surfaces_turn_count_for_richness_resume(tmp_path):
+    """Issue #490 (fragmented legacy sessions): the frontend resume now
+    prefers the thread holding the MOST history over the merely
+    most-recently-touched one. ``_thread_list`` must therefore surface a
+    ``turnCount`` per thread reflecting the number of distinct persisted
+    turns, so ``pickThreadToResume`` can rank by richness.
+
+    Seeds three threads in one session with 3, 1, and 0 turns and asserts
+    the emitted ``turnCount`` matches each, all under the same session_id
+    (isolation preserved — the bare session_key still resolves).
+    """
+    db = tmp_path / ".miqi-runtime" / "runtime.db"
+    session_id = "client-a:desktop:1789"
+
+    async def _seed(thread_id, turn_ids):
+        threads = ThreadRuntime(db, session_id=session_id)
+        ledger = LedgerRuntime(db, session_id=session_id)
+        await threads.initialize()
+        await ledger.initialize()
+        await threads.create_thread(title=thread_id, thread_id=thread_id)
+        for tid in turn_ids:
+            await ledger.append_item(thread_id=thread_id, turn_id=tid, item_type="turn_started")
+            await ledger.append_item(thread_id=thread_id, turn_id=tid, item_type="message", role="user", content="x")
+            await ledger.append_item(thread_id=thread_id, turn_id=tid, item_type="turn_completed")
+        await ledger.close()
+        await threads.close()
+
+    await _seed("thread-rich", ["t1", "t2", "t3"])
+    await _seed("thread-thin", ["s1"])
+    await _seed("thread-empty", [])
+
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/list",
+        {"sessionId": "desktop:1789", "limit": 50, "sortDirection": "asc"},
+        "client-a",
+        None,
+    )
+    rows = {row["id"]: row for row in response["result"]["data"]}
+    assert rows["thread-rich"]["turnCount"] == 3
+    assert rows["thread-thin"]["turnCount"] == 1
+    assert rows["thread-empty"]["turnCount"] == 0
+
+
+@pytest.mark.asyncio
 async def test_thread_read_finds_thread_with_bare_session_key(tmp_path):
     """Issue #490: the stored read path must also namespace a bare
     session_key, otherwise reopening a thread in a session not currently
