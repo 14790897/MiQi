@@ -26,52 +26,6 @@ async function waitForResponseComplete(page: Page, timeout = 120_000) {
   await expect(page.locator('[data-testid="thinking-indicator"]')).toBeHidden({ timeout });
 }
 
-/** Wait for a file card with the given filename to appear in Task Assets.
- *  Uses multiple selector strategies for robustness. */
-async function waitForFileInPanel(page: Page, filename: string, timeout = 30_000) {
-  const assetsPanel = page.getByTestId('task-assets-panel');
-
-  // Strategy 1: Try the precise class selector
-  const cardSelector = assetsPanel.locator('.rounded-lg.p-2\\.5');
-  const card = cardSelector.filter({ hasText: filename }).first();
-
-  // Strategy 2: Fallback to more generic selectors
-  const fallbackCard = assetsPanel.locator('[class*="rounded"][class*="p-"]').filter({ hasText: filename }).first();
-
-  // Try primary selector first
-  try {
-    await expect(card).toBeVisible({ timeout });
-  } catch {
-    // Fallback to secondary selector
-    console.log('[test] Primary selector failed, trying fallback');
-    await expect(fallbackCard).toBeVisible({ timeout });
-    return fallbackCard;
-  }
-
-  // Panel should no longer show empty state
-  await expect(page.locator('[data-testid="task-assets-empty"]')).not.toBeVisible({ timeout: 5_000 });
-  return card;
-}
-
-/** Click Preview button on a file card with robust retry logic */
-async function clickPreviewButton(page: Page, card: ReturnType<Page['locator']>) {
-  const previewBtn = card.locator('[data-testid="file-preview-btn"]');
-
-  // Wait for the button to be visible and enabled
-  await expect(previewBtn).toBeVisible({ timeout: 10000 });
-
-  // Click with retry logic for flaky buttons
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      await previewBtn.click({ timeout: 5000 });
-      return; // Success
-    } catch (e) {
-      if (attempt === 2) throw e; // Last attempt failed
-      await page.waitForTimeout(500);
-    }
-  }
-}
-
 // ─── Test Suite ───────────────────────────────────────────────────
 
 test.describe('Task Assets Panel E2E', () => {
@@ -90,7 +44,7 @@ test.describe('Task Assets Panel E2E', () => {
       (window as any).miqi.approvals.addPermanent('*:*', 'always'),
     );
     console.log('[test] *:* wildcard pre-approved');
-  });
+  }, 120_000);
 
   test.afterAll(async () => {
     await closeElectronApp(electronApp, miqiHome);
@@ -100,9 +54,11 @@ test.describe('Task Assets Panel E2E', () => {
   //  Test 1: AI creates file → appears in Task Assets
   // ═══════════════════════════════════════════════════════════════
 
-  test('AI creates .txt file → appears in Task Assets panel', async () => {
-    test.setTimeout(LLM_TIMEOUT * 2);
-    await page.evaluate(async () => {
+  test(
+    'AI creates .txt file → appears in Task Assets panel',
+    { timeout: LLM_TIMEOUT * 2 },
+    async () => {
+      await page.evaluate(async () => {
         for (let i = 0; i < 30; i++) {
           try {
             const s = await (window as any).miqi.runtime.status();
@@ -135,13 +91,16 @@ test.describe('Task Assets Panel E2E', () => {
       console.log(`[test] ✅ File created: ${filename}`);
 
       // ── Verify Task Assets panel shows the file ──
-      const fileCard = await waitForFileInPanel(page, filename);
+      const assetsPanel = page.getByTestId('task-assets-panel');
+      const fileCard = assetsPanel.locator('.rounded-lg.p-2\\.5').filter({ hasText: filename }).first();
+      await expect(fileCard).toBeVisible({ timeout: 30_000 });
+      await expect(assetsPanel.locator('[data-testid="task-assets-empty"]')).not.toBeVisible({ timeout: 5_000 });
 
       // WRITE category should have the file
       await expect(page.locator('[data-testid="section-label-active-for-edit"]')).toBeVisible({ timeout: 10_000 });
 
       // Should show a WRITE op badge on the file
-      await expect(fileCard.getByText('WRITE')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText('WRITE').first()).toBeVisible({ timeout: 10_000 });
 
       console.log('[test] ✅ Task Assets panel shows the file');
     },
@@ -151,9 +110,11 @@ test.describe('Task Assets Panel E2E', () => {
   //  Test 2: Click Preview → see file content in modal
   // ═══════════════════════════════════════════════════════════════
 
-  test('click Preview on tracked file → content modal opens', async () => {
-    test.setTimeout(LLM_TIMEOUT * 2);
-    await page.evaluate(async () => {
+  test(
+    'click Preview on tracked file → content modal opens',
+    { timeout: LLM_TIMEOUT * 2 },
+    async () => {
+      await page.evaluate(async () => {
         for (let i = 0; i < 30; i++) {
           try {
             const s = await (window as any).miqi.runtime.status();
@@ -168,15 +129,19 @@ test.describe('Task Assets Panel E2E', () => {
 
       await sendMessage(
         page,
-        `Use write_file to create ${filename} with content="${content}"`,
+        `Use write_file to create ${filename} with content "${content}"`,
       );
       // *:* pre-approved — no approval dialog needed
       await waitForResponseComplete(page, 240_000);
       console.log(`[test] ✅ File created: ${filename}`);
 
-      // Find the file in Task Assets panel and click Preview using robust helpers
-      const fileCard = await waitForFileInPanel(page, filename);
-      await clickPreviewButton(page, fileCard);
+      // Find the file in Task Assets panel and click Preview
+      const assetsPanel = page.getByTestId('task-assets-panel');
+
+      // Use precise class selector to avoid matching Proposed Changes items
+      const fileCard = assetsPanel.locator('.rounded-lg.p-2\\.5').filter({ hasText: filename });
+      await expect(fileCard).toBeVisible({ timeout: 10_000 });
+      await fileCard.locator('[data-testid="file-preview-btn"]').click();
       console.log('[test] Clicked Preview on file card');
 
       // Preview button now opens files with system default application.
@@ -210,9 +175,11 @@ test.describe('Task Assets Panel E2E', () => {
   //  Test 3: AI creates .docx → appears in Task Assets → Preview shows Office message
   // ═══════════════════════════════════════════════════════════════
 
-  test.skip('AI creates .docx file → appears in Task Assets → Preview shows Office notice', async () => {
-    test.setTimeout(LLM_TIMEOUT * 2);
-    await page.evaluate(async () => {
+  test.skip(
+    'AI creates .docx file → appears in Task Assets → Preview shows Office notice',
+    { timeout: LLM_TIMEOUT * 2 },
+    async () => {
+      await page.evaluate(async () => {
         for (let i = 0; i < 30; i++) {
           try {
             const s = await (window as any).miqi.runtime.status();
