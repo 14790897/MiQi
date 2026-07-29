@@ -19,7 +19,7 @@ import { existsSync, mkdtempSync, mkdirSync, cpSync, rmSync, readFileSync, write
 export const APPS_DESKTOP = resolve(__dirname, '../../..');
 
 /** Default timeout for real LLM calls */
-export const LLM_TIMEOUT = 180_000;
+export const LLM_TIMEOUT = 240_000;  // 4 min — gives LLM more time in CI
 
 // ─── Session path helpers ────────────────────────────────────────────
 
