@@ -253,21 +253,16 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         )
         views = []
         for thread in threads:
-            # Count distinct turns directly from runtime_history_items (the
-            # SAME table the model reloads on resume — task_runner.load_messages),
-            # NOT from bundle.ledger_items (runtime_ledger_items), so the
-            # richness signal tracks what the model will actually see. Querying
-            # history_items per-thread via load_history_items(thread) is a single
-            # targeted SELECT keyed on (session_id, thread_id) — it does NOT
-            # re-resolve the thread (no full list_threads scan, no ambiguity
-            # throw), keeping the list path O(N) targeted reads rather than
-            # O(N) full-table rescans. Issue #490: prefer the thread holding
-            # the most real history over the merely most-recently-touched one.
+            # Count distinct turns via a COUNT(DISTINCT turn_id) aggregate on
+            # runtime_history_items — the SAME table the model reloads on resume
+            # (task_runner.load_messages), so the richness signal tracks what the
+            # model will actually see. The aggregate avoids materializing row
+            # content/payload (load_history_items SELECT *-es every item just to
+            # read turn_id); listing N threads is N cheap counts, not N full-
+            # content loads. Issue #490: prefer the thread holding the most real
+            # history over the merely most-recently-touched one.
             try:
-                history_items = await reader.load_history_items(thread)
-                distinct_turns = len({
-                    item.turn_id for item in history_items if getattr(item, "turn_id", None)
-                })
+                distinct_turns = await reader.count_distinct_turns(thread)
             except Exception:
                 logger.warning(
                     "thread/list: failed to count turns for thread={} in session={}; "
