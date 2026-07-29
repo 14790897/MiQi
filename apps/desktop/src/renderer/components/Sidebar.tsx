@@ -11,10 +11,27 @@ type FilterTab = 'ALL' | 'IN-PROGRESS' | 'REVIEW' | 'COMPLETED';
 
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 480;
+const DEFAULT_WIDTH = 260;
 
-import { usePanelResize } from '../hooks/usePanelResize';
+function formatTimestampKey(key: string): string {
+  const ts = parseInt(key, 10);
+  if (isNaN(ts)) return key;
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  }).format(new Date(ts));
+}
 
-import { formatRelativeTime, formatShortDateTime } from '../lib/formatTime';
+function relativeTime(iso?: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = now.getTime() - d.getTime();
+  if (diff < 60_000) return '刚刚';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  if (diff < 2 * 86_400_000) return '昨天';
+  return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+}
 
 interface SidebarProps {
   currentSession?: string;
@@ -42,12 +59,9 @@ export function Sidebar({
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [filter, setFilter] = useState<FilterTab>('ALL');
-  const { width: sidebarWidth, containerRef: sidebarRef, handleMouseDown } = usePanelResize({
-    minWidth: MIN_WIDTH,
-    maxWidth: MAX_WIDTH,
-    defaultWidth: 260,
-    computeWidth: (e, rect) => e.clientX - rect.left,
-  });
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
+  const isResizing = useRef(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
 
   const { getStatus, getStatusDisplay, setStatus, clearStatus } = useSessionStatus();
 
@@ -61,6 +75,39 @@ export function Sidebar({
   useEffect(() => {
     setDisplayCount(PER_PAGE);
   }, [sessions, filter]);
+
+  // Resize handler
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizing.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing.current) return;
+      const newWidth = e.clientX - (sidebarRef.current?.getBoundingClientRect().left ?? 0);
+      setSidebarWidth(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth)));
+    };
+    const handleMouseUp = () => {
+      if (isResizing.current) {
+        isResizing.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      // cleanup if unmounted during drag
+      isResizing.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, []);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -146,7 +193,7 @@ export function Sidebar({
       {/* Header: glitch M logo + Tasks title */}
       <div className="flex items-center gap-2.5 px-4 py-3 shrink-0">
         <MiQiLogo size={28} />
-        <span className="text-sm font-semibold text-text" data-testid="nav-tasks-title">
+        <span className="text-sm font-semibold" style={{ color: 'var(--text)' }} data-testid="nav-tasks-title">
           任务
         </span>
         <button
@@ -246,7 +293,7 @@ export function Sidebar({
         ) : sessions.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-8 text-center">
             <ListChecks size={20} style={{ color: 'var(--text-faint)', opacity: 0.4 }} />
-            <p className="text-xs text-text-faint">
+            <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
               暂无任务
             </p>
           </div>
@@ -254,7 +301,7 @@ export function Sidebar({
           <div className="space-y-2">
             {filteredSessions.slice(0, displayCount).map((s) => {
               const isActive = currentSession === s.key;
-              const displayName = s.title || formatShortDateTime(parseInt(s.key, 10));
+              const displayName = s.title || formatTimestampKey(s.key);
               const sessionStatus = getStatus(s.key);
               const status = getStatusDisplay(sessionStatus);
               const StatusIcon = STATUS_ICONS[sessionStatus];
@@ -341,20 +388,22 @@ export function Sidebar({
                             {status.label}
                           </span>
                         </div>
-                        <span className="text-[10px] text-text-faint">
-                          {formatRelativeTime(s.updated_at)}
+                        <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
+                          {relativeTime(s.updated_at)}
                         </span>
                       </div>
                       {/* Title — large bold, one line */}
                       <p
-                        className="text-sm font-bold truncate mb-1 text-text"
+                        className="text-sm font-bold truncate mb-1"
+                        style={{ color: 'var(--text)' }}
                         title={displayName}
                       >
                         {displayName}
                       </p>
                       {/* Description — small gray, multi-line */}
                       <p
-                        className="text-xs leading-relaxed text-text-muted"
+                        className="text-xs leading-relaxed"
+                        style={{ color: 'var(--text-muted)' }}
                       >
                         {s.message_count != null
                           ? `${s.message_count} 条消息`
@@ -379,7 +428,8 @@ export function Sidebar({
         style={{ borderColor: 'var(--sidebar-border)' }}
       >
         <button
-          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition duration-150 hover:scale-110 hover:text-[var(--text)] origin-left text-text-faint"
+          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition duration-150 hover:scale-110 hover:text-[var(--text)] origin-left"
+          style={{ color: 'var(--text-faint)' }}
           onClick={() => onNavChange?.('settings')}
           data-testid="nav-system-settings"
         >
@@ -387,7 +437,8 @@ export function Sidebar({
           <span>系统设置</span>
         </button>
         <span
-          className="text-[10px] font-mono text-text-faint"
+          className="text-[10px] font-mono"
+          style={{ color: 'var(--text-faint)' }}
         >
           PRO v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'}
         </span>

@@ -6,7 +6,7 @@
 
 ```
 ToolRegistry
-├── 内置工具 (Built-in) — 27 个工具
+├── 内置工具 (Built-in) — 16 个工具
 │   ├── filesystem:    read_file, write_file, edit_file, list_dir
 │   ├── apply_patch:   apply_patch (Unified Diff)
 │   ├── web:           web_search, web_fetch
@@ -19,9 +19,7 @@ ToolRegistry
 │   ├── papers:        paper_search, paper_get, paper_download
 │   ├── task_trace:    task_begin, task_end, trace_search
 │   ├── spawn:         agent_spawn
-│   ├── mcp:           MCP 工具代理
-│   └── documents:     docx_read, create_docx, edit_docx, pptx_read, create_pptx,
-│                      xlsx_read, create_xlsx, append_xlsx, pdf_read, create_pdf
+│   └── mcp:           MCP 工具代理
 └── MCP 工具 (External) — 通过 MCP Client 动态加载
     ├── raspa-mcp:     create_workspace, simulate, parse_output, ...
     ├── zeopp-backend: pore_analysis, ...
@@ -89,119 +87,6 @@ class ToolResult:
 | `edit_file` | 精确字符串替换 | 仅限工作区 |
 | `list_dir` | 列出目录 | 仅限工作区 |
 | `apply_patch` | Unified Diff 补丁应用 | 版本快照 |
-
-### 办公文档工具
-
-Office 文档工具统一位于 `miqi/documents/` 目录下，提供 Word、PowerPoint、Excel、PDF 四类文档的读写能力。所有写入操作默认限制在工作区目录内，并自动创建文件快照以支持回滚。
-
-#### Word 文档 (DOCX)
-
-| 工具 | 功能 | 实现 |
-|------|------|------|
-| `docx_read` | 读取 Word 文档文本内容 | `miqi/documents/docx_tool.py` — `DocxReadTool` |
-| `create_docx` | 创建 Word 文档 | `miqi/documents/docx_tool.py` — `CreateDocxTool` |
-| `docx_write` | `create_docx` 的向后兼容别名 | `miqi/documents/docx_tool.py` — `DocxWriteTool` |
-| `edit_docx` | 编辑已有 Word 文档 | `miqi/documents/docx_tool.py` — `EditDocxTool` |
-
-**创建文档支持**：
-- 结构化内容块：`paragraph`、`heading`、`table`、`image`
-- Markdown 风格文本输入（自动解析 `# heading`）
-- 内置中文排版预设：`chinese_document`、`chinese_essay`
-  - 标题：黑体三号加粗居中（16pt）
-  - 正文：宋体小四（12pt）、1.5 倍行距
-- 自然语言格式指令：如 `"正文宋体小四，段落1.5行距，标题黑体加粗三号字居中"`
-- 字号支持：中文号数（初号~小五）和 pt 值
-- 对齐方式：左对齐、居中、右对齐、两端对齐（含中文词）
-
-**编辑文档支持**：
-- 全文文本替换（段落 + 表格单元格）
-- 追加段落
-- 应用中文格式样式
-
-**底层依赖**：`python-docx`，通过 `w:eastAsia` XML 属性注册东亚字体。
-
-#### PowerPoint 演示文稿 (PPTX)
-
-| 工具 | 功能 | 实现 |
-|------|------|------|
-| `pptx_read` | 读取 PowerPoint 文本内容 | `miqi/documents/pptx_tool.py` — `PptxReadTool` |
-| `create_pptx` | 创建 PowerPoint 演示文稿 | `miqi/documents/pptx_tool.py` — `CreatePptxTool` |
-| `pptx_write` | `create_pptx` 的向后兼容别名 | `miqi/documents/pptx_tool.py` — `PptxWriteTool` |
-
-**创建演示文稿支持**：
-- 多张幻灯片，每张包含：`title`、`subtitle`、`content`（字符串或字符串数组）、`bullets`、`image_path`
-- 图片定位：可指定 left、top、width（英寸单位）
-- 使用默认幻灯片母版布局
-
-**底层依赖**：`python-pptx`
-
-#### Excel 电子表格 (XLSX)
-
-| 工具 | 功能 | 实现 |
-|------|------|------|
-| `xlsx_read` | 按工作表名称读取数据 | `miqi/documents/xlsx_tool.py` — `XlsxReadTool` |
-| `create_xlsx` | 创建多工作表工作簿 | `miqi/documents/xlsx_tool.py` — `CreateXlsxTool` |
-| `xlsx_write` | `create_xlsx` 的向后兼容别名 | `miqi/documents/xlsx_tool.py` — `XlsxWriteTool` |
-| `append_xlsx` | 向已有工作表追加行 | `miqi/documents/xlsx_tool.py` — `AppendXlsxTool` |
-
-**创建工作簿支持**：
-- 多工作表：支持 `{sheet_name: [[rows]]}` 字典格式和 `[{name, rows, charts}]` 数组格式
-- 公式：以 `=` 开头的字符串自动保留为公式（不转换为文本）
-- 内嵌图表：条形图 (`bar`)、折线图 (`line`)、饼图 (`pie`)，通过 `openpyxl.chart` 实现
-  - 支持 `data_range` 直接引用 和 `series[{name, values}]` 命名系列定位
-  - 支持 `category_range` 和 `categories` 数组
-
-**追加数据支持**：
-- 按工作表名称追加行
-- 支持 `create_sheet` 标志在目标工作表不存在时自动创建
-
-**底层依赖**：`openpyxl`
-
-#### PDF 文档
-
-| 工具 | 功能 | 实现 |
-|------|------|------|
-| `pdf_read` | 提取 PDF 文本，支持 OCR | `miqi/documents/pdf_read_tool.py` — `PdfReadTool` |
-| `create_pdf` | 创建 PDF 文档 | `miqi/documents/pdf_create_tool.py` — `CreatePdfTool` |
-| `pdf_write` | `create_pdf` 的向后兼容别名 | `miqi/documents/pdf_create_tool.py` — `PdfWriteTool` |
-
-**PDF 读取**：
-- 三层提取管道：pypdfium2（最快 ~1ms/页）→ pypdf（备用）→ Tesseract OCR（扫描件，支持 `chi_sim+eng` 语言）
-- 通过 pdfplumber 提取结构化表格和图表数据
-- 返回元数据：页数、是否使用 OCR、文件大小、解析耗时
-- 支持 `force_ocr` 参数跳过直接提取强制走 OCR
-
-**PDF 创建**：
-- 使用 reportlab 构建，支持完整的中文 CJK 字体自动发现
-  - 搜索路径覆盖：Linux/WSL 系统字体（`/usr/share/fonts/`）、Windows 字体（`C:/Windows/Fonts/`）、用户字体（`~/AppData/Local/Microsoft/Windows/Fonts/`）
-  - 回退机制：`fc-list :lang=zh` 命令扫描
-- 内置样式预设：`chinese_document`、`chinese_essay`、`report`
-- 内容块类型：`paragraph`、`heading`（支持 1-6 级）、`table`（含表头）、`list`、`spacer`、`page_break`
-- 页面大小：A4（默认）、Letter、A3，边距按中文公文规范（上下 2.54cm、左右 3.17cm）
-- 自然语言格式指令（与 DOCX 共用相同的解析逻辑）
-- 30 秒内相同路径自动去重，防止重复生成
-
-**底层依赖**：`reportlab`、`pypdfium2`（推荐）/ `pypdf`（备用）、`pdfplumber`（表格提取）、`tesseract` + `pdftoppm`（OCR）
-
-#### 统一文档解析服务
-
-`miqi/documents/document_parser.py` 提供跨所有格式的统一解析入口，服务于文件预览和 LLM 上下文注入：
-
-```python
-parse_document(path) → {"text": "...", "page_count": N, "ocr_used": bool, ...}
-is_supported_document(path) → bool
-get_document_category(path) → "pdf" | "word" | "ppt" | "excel" | ...
-```
-
-**支持 23 种文件格式**：
-- Office 文档：PDF、DOCX/DOC/ODT、PPTX/PPT/ODP、XLSX/XLS/ODS
-- 标记/代码：Markdown（提取 Mermaid 图、表格、代码块、标题大纲）、HTML（lxml 解析，stdlib 回退）
-- 数据/配置：CSV、JSON、XML、YAML/YML、ENV、LOG、SQL、INI、TOML、HTACCESS
-- 脚本/文本：SH/BASH、TXT、RTF（剥离 RTF 标记、解码 Unicode/hex 转义）
-
-安全限制：
-- 预览最大 50,000 字符，LLM 上下文最大 200,000 字符
-- 按需加载，不阻塞 UI
 
 ### 网络工具
 

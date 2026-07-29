@@ -359,16 +359,21 @@ def test_collect_all_logs_nonexistent_dir():
 
 
 def test_collect_all_logs_caps_combined_payload_at_100k_bytes(tmp_path):
-    """Combined log payload must be capped at 196,608 UTF-8 bytes for Bitable text-field."""
+    """Combined log payload must be capped at 100k UTF-8 bytes for Bitable text-field.
+
+    Feishu Bitable's text-field limit is 100k bytes (not chars).  Chinese
+    characters are 3+ bytes each in UTF-8, so a naive 100k-char cap can
+    still exceed the byte limit.  Verify the cap is enforced in bytes.
+    """
     from miqi.runtime.feedback_handlers import _collect_all_logs
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    # 400k ASCII chars -> ~400k bytes UTF-8
-    (log_dir / "big.log").write_text("a" * 400_000, encoding="utf-8")
+    # 200k ASCII chars -> ~200k bytes UTF-8 (1 byte each)
+    (log_dir / "big.log").write_text("a" * 200_000, encoding="utf-8")
     result = _collect_all_logs(log_dir)
-    # Must be at most 196,608 bytes
-    assert len(result.encode("utf-8")) <= 196_608, (
-        f"Expected <= 196608 bytes, got {len(result.encode('utf-8'))}"
+    # Result must be at most exactly 100,000 bytes
+    assert len(result.encode("utf-8")) <= 100_000, (
+        f"Expected <= 100k bytes, got {len(result.encode('utf-8'))}"
     )
     # And it must include the truncation marker
     assert "已截断" in result
@@ -379,21 +384,21 @@ def test_collect_all_logs_byte_cap_handles_multibyte_chars(tmp_path):
     from miqi.runtime.feedback_handlers import _collect_all_logs
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    # 80k CJK chars = ~240k bytes UTF-8, exceeds 196k byte cap
-    (log_dir / "cjk.log").write_text("中" * 80_000, encoding="utf-8")
+    # 50k CJK chars = ~150k bytes UTF-8, exceeds 100k byte cap
+    (log_dir / "cjk.log").write_text("中" * 50_000, encoding="utf-8")
     result = _collect_all_logs(log_dir)
-    assert len(result.encode("utf-8")) <= 196_608
+    assert len(result.encode("utf-8")) <= 100_000
 
 
 def test_collect_all_logs_byte_cap_exact_100k_bytes(tmp_path):
-    """Edge case: payload just over 196,608 bytes should be trimmed to fit."""
+    """Edge case: payload just over 100k bytes should be trimmed to exactly fit."""
     from miqi.runtime.feedback_handlers import _collect_all_logs
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    # 210k ASCII chars = 210k bytes, just over the cap
-    (log_dir / "edge.log").write_text("x" * 210_000, encoding="utf-8")
+    # 110k ASCII chars = 110k bytes, just over the cap
+    (log_dir / "edge.log").write_text("x" * 110_000, encoding="utf-8")
     result = _collect_all_logs(log_dir)
-    assert len(result.encode("utf-8")) <= 196_608
+    assert len(result.encode("utf-8")) <= 100_000
 
 
 def test_collect_system_info():

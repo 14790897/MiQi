@@ -43,7 +43,6 @@ import platform
 import signal
 import subprocess
 import tempfile
-import time
 import uuid
 from pathlib import Path
 
@@ -435,19 +434,10 @@ class BwrapSandbox:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                try:
-                    await asyncio.wait_for(proc.communicate(), timeout=15.0)
-                except asyncio.TimeoutError:
-                    proc.kill()
-                    try:
-                        await asyncio.wait_for(proc.communicate(), timeout=5.0)
-                    except (asyncio.TimeoutError, ProcessLookupError):
-                        pass
-                    # Already timed out — fall through to the outer except
-                    # clause which swallows this distro probe and continues.
+                await proc.communicate()
                 if proc.returncode == 0:
                     return preferred
-            except (asyncio.TimeoutError, OSError):
+            except Exception:
                 pass
 
         # List all distros and find one with bwrap
@@ -457,19 +447,7 @@ class BwrapSandbox:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            try:
-                stdout_data, _ = await asyncio.wait_for(
-                    proc.communicate(), timeout=30.0,
-                )
-            except asyncio.TimeoutError:
-                proc.kill()
-                try:
-                    await asyncio.wait_for(proc.communicate(), timeout=5.0)
-                except (asyncio.TimeoutError, ProcessLookupError):
-                    pass
-                # Fall through — the outer try/except below handles the
-                # case where the process timed out and we can't read stdout.
-                raise
+            stdout_data, _ = await proc.communicate()
             if proc.returncode != 0:
                 return None
 
@@ -490,16 +468,7 @@ class BwrapSandbox:
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
-                    try:
-                        await asyncio.wait_for(check.communicate(), timeout=15.0)
-                    except asyncio.TimeoutError:
-                        check.kill()
-                        try:
-                            await asyncio.wait_for(check.communicate(), timeout=5.0)
-                        except (asyncio.TimeoutError, ProcessLookupError):
-                            pass
-                        # Fall through — outer except swallows this distro
-                        # probe and continues to the next one.
+                    await check.communicate()
                     if check.returncode == 0:
                         return distro
                 except Exception:
@@ -531,7 +500,7 @@ class BwrapSandbox:
                 )
                 await asyncio.wait_for(proc.communicate(), timeout=30.0)
                 return proc.returncode == 0
-            except (asyncio.TimeoutError, OSError):
+            except (asyncio.TimeoutError, Exception):
                 if proc is not None:
                     proc.kill()
                 return False
@@ -612,7 +581,6 @@ class BwrapSandbox:
             os.close(fd)
 
             # Export source distro
-            _t0 = time.monotonic()
             export_proc = await _create_subprocess_exec(
                 "wsl.exe", "--export", source, tar_path,
                 stdout=asyncio.subprocess.PIPE,
@@ -621,7 +589,6 @@ class BwrapSandbox:
             _, export_stderr = await asyncio.wait_for(
                 export_proc.communicate(), timeout=300.0,
             )
-            logger.info("  wsl --export completed in {:.0f}s", time.monotonic() - _t0)
             if export_proc.returncode != 0:
                 err = (
                     export_stderr.decode("utf-8", errors="replace")[:200]
@@ -649,11 +616,9 @@ class BwrapSandbox:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            _import_t0 = time.monotonic()
             _, import_stderr = await asyncio.wait_for(
                 import_proc.communicate(), timeout=120.0,
             )
-            logger.info("  wsl --import completed in {:.0f}s", time.monotonic() - _import_t0)
             if import_proc.returncode != 0:
                 err = (
                     import_stderr.decode("utf-8", errors="replace")[:200]
@@ -764,7 +729,6 @@ class BwrapSandbox:
             return False
 
         try:
-            _t0 = time.monotonic()
             logger.info(
                 "Auto-installing sandbox dependencies in WSL distro '{}'...",
                 distro,
@@ -821,10 +785,6 @@ class BwrapSandbox:
                 )
 
                 if proc.returncode != 0:
-                    logger.info(
-                        "  apt-get install completed in {:.0f}s (failed)",
-                        time.monotonic() - _t0,
-                    )
                     err_msg = (
                         stderr.decode("utf-8", errors="replace")[:300]
                         if stderr else "unknown error"
@@ -863,8 +823,8 @@ class BwrapSandbox:
             await asyncio.wait_for(verify.communicate(), timeout=30.0)
             if verify.returncode == 0:
                 logger.info(
-                    "Successfully installed sandbox dependencies in WSL distro "
-                    "'{}' (total {:.0f}s)", distro, time.monotonic() - _t0,
+                    "Successfully installed sandbox dependencies in WSL distro '{}'",
+                    distro,
                 )
                 return True
         except (asyncio.TimeoutError, OSError):

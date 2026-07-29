@@ -1,9 +1,8 @@
-"""Document parsing service for PDF, Word, PowerPoint, Excel, Markdown, and HTML files.
+"""Document parsing service for PDF, Word, PowerPoint, Excel, and Markdown files.
 
 Provides text extraction for preview and LLM context. PDF parsing supports
 OCR fallback for scanned/image-based documents via Tesseract.
 Chart and table extraction via pdfplumber for structured data.
-HTML parsing via lxml with stdlib fallback.
 """
 
 from __future__ import annotations
@@ -15,17 +14,10 @@ import re
 import shutil
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
-
-try:
-    from lxml import html as _lxml_html
-    _HAS_LXML_HTML = True
-except ImportError:
-    _HAS_LXML_HTML = False
 
 
 # ── Configuration ──────────────────────────────────────────────────────────
@@ -58,7 +50,7 @@ def parse_document(
         dict with keys: text, page_count, size_bytes, mime_type, ocr_used,
                         parse_ms, charts (if extract_charts=True)
     """
-    suffix = _get_suffix(file_path)
+    suffix = file_path.suffix.lower()
     if suffix in _PDF_SUFFIXES:
         return _parse_pdf(file_path, max_chars=max_chars, force_ocr=force_ocr,
                           extract_charts=extract_charts)
@@ -70,85 +62,24 @@ def parse_document(
         return _parse_xlsx(file_path, max_chars=max_chars)
     elif suffix in _MD_SUFFIXES:
         return _parse_markdown(file_path, max_chars=max_chars)
-    elif suffix in _HTML_SUFFIXES:
-        return _parse_html(file_path, max_chars=max_chars)
-    elif suffix in _CSV_SUFFIXES:
-        return _parse_csv(file_path, max_chars=max_chars)
-    elif suffix in _JSON_SUFFIXES:
-        return _parse_json(file_path, max_chars=max_chars)
-    elif suffix in _XML_FILE_SUFFIXES:
-        return _parse_xml_file(file_path, max_chars=max_chars)
-    elif suffix in _YAML_SUFFIXES:
-        return _parse_yaml(file_path, max_chars=max_chars)
-    elif suffix in _ENV_SUFFIXES:
-        return _parse_env(file_path, max_chars=max_chars)
-    elif suffix in _LOG_SUFFIXES:
-        return _parse_log(file_path, max_chars=max_chars)
-    elif suffix in _SQL_SUFFIXES:
-        return _parse_sql(file_path, max_chars=max_chars)
-    elif suffix in _INI_SUFFIXES:
-        return _parse_ini(file_path, max_chars=max_chars)
-    elif suffix in _TOML_SUFFIXES:
-        return _parse_toml(file_path, max_chars=max_chars)
-    elif suffix in _HTACCESS_SUFFIXES:
-        return _parse_htaccess(file_path, max_chars=max_chars)
-    elif suffix in _SH_SUFFIXES:
-        return _parse_sh(file_path, max_chars=max_chars)
-    elif suffix in _TXT_SUFFIXES:
-        return _parse_txt(file_path, max_chars=max_chars)
-    elif suffix in _RTF_SUFFIXES:
-        return _parse_rtf(file_path, max_chars=max_chars)
     else:
         raise ValueError(f"Unsupported document format: {suffix}")
 
 
 def is_supported_document(path: Path | str) -> bool:
     """Check if the file path is a supported document format."""
-    suffix = _get_suffix(path)
+    suffix = Path(path).suffix.lower()
     return suffix in _ALL_DOCUMENT_SUFFIXES
 
 
 def get_document_category(path: Path | str) -> str:
     """Get the document category (pdf, word, ppt, excel, markdown, unknown)."""
-    suffix = _get_suffix(path)
-    if suffix in _PDF_SUFFIXES:
-        return "pdf"
-    if suffix in _DOCX_SUFFIXES:
-        return "word"
-    if suffix in _PPTX_SUFFIXES:
-        return "ppt"
-    if suffix in _XLSX_SUFFIXES:
-        return "excel"
-    if suffix in _MD_SUFFIXES:
-        return "markdown"
-    if suffix in _HTML_SUFFIXES:
-        return "html"
-    if suffix in _CSV_SUFFIXES:
-        return "csv"
-    if suffix in _JSON_SUFFIXES:
-        return "json"
-    if suffix in _XML_FILE_SUFFIXES:
-        return "xml"
-    if suffix in _YAML_SUFFIXES:
-        return "yaml"
-    if suffix in _ENV_SUFFIXES:
-        return "env"
-    if suffix in _LOG_SUFFIXES:
-        return "log"
-    if suffix in _SQL_SUFFIXES:
-        return "sql"
-    if suffix in _INI_SUFFIXES:
-        return "ini"
-    if suffix in _TOML_SUFFIXES:
-        return "toml"
-    if suffix in _HTACCESS_SUFFIXES:
-        return "htaccess"
-    if suffix in _SH_SUFFIXES:
-        return "sh"
-    if suffix in _TXT_SUFFIXES:
-        return "txt"
-    if suffix in _RTF_SUFFIXES:
-        return "rtf"
+    suffix = Path(path).suffix.lower()
+    if suffix in _PDF_SUFFIXES: return "pdf"
+    if suffix in _DOCX_SUFFIXES: return "word"
+    if suffix in _PPTX_SUFFIXES: return "ppt"
+    if suffix in _XLSX_SUFFIXES: return "excel"
+    if suffix in _MD_SUFFIXES: return "markdown"
     return "unknown"
 
 
@@ -159,50 +90,8 @@ _DOCX_SUFFIXES = {".docx", ".doc", ".odt"}
 _PPTX_SUFFIXES = {".pptx", ".ppt", ".odp"}
 _XLSX_SUFFIXES = {".xlsx", ".xls", ".ods"}
 _MD_SUFFIXES = {".md", ".markdown", ".mdown"}
-_HTML_SUFFIXES = {".html", ".htm"}
-_CSV_SUFFIXES = {".csv"}
-_JSON_SUFFIXES = {".json"}
-_XML_FILE_SUFFIXES = {".xml"}
-_YAML_SUFFIXES = {".yaml", ".yml"}
-_ENV_SUFFIXES = {".env"}
-_LOG_SUFFIXES = {".log"}
-_SQL_SUFFIXES = {".sql"}
-_INI_SUFFIXES = {".ini"}
-_TOML_SUFFIXES = {".toml"}
-_HTACCESS_SUFFIXES = {".htaccess"}
-_SH_SUFFIXES = {".sh", ".bash"}
-_TXT_SUFFIXES = {".txt", ".text"}
-_RTF_SUFFIXES = {".rtf"}
 
-_ALL_DOCUMENT_SUFFIXES = (
-    _PDF_SUFFIXES | _DOCX_SUFFIXES | _PPTX_SUFFIXES |
-    _XLSX_SUFFIXES | _MD_SUFFIXES | _HTML_SUFFIXES |
-    _CSV_SUFFIXES | _JSON_SUFFIXES | _XML_FILE_SUFFIXES |
-    _YAML_SUFFIXES | _ENV_SUFFIXES | _LOG_SUFFIXES |
-    _SQL_SUFFIXES | _INI_SUFFIXES | _TOML_SUFFIXES |
-    _HTACCESS_SUFFIXES | _SH_SUFFIXES | _TXT_SUFFIXES |
-    _RTF_SUFFIXES
-)
-
-
-# ── Suffix normalization ──────────────────────────────────────────────────
-
-def _get_suffix(file_path: Path | str) -> str:
-    """Normalize suffix for dotfiles where Path.suffix returns empty.
-
-    Path(".env").suffix == ""  → _get_suffix(".env") == ".env"
-    Path(".htaccess").suffix == ""  → _get_suffix(".htaccess") == ".htaccess"
-    Path("test.csv").suffix == ".csv"  → unchanged.
-    """
-    p = Path(file_path)
-    suffix = p.suffix.lower()
-    if suffix:
-        return suffix
-    # Dotfile: name IS the suffix (e.g., ".env", ".htaccess")
-    name = p.name.lower()
-    if name.startswith("."):
-        return name
-    return ""
+_ALL_DOCUMENT_SUFFIXES = _PDF_SUFFIXES | _DOCX_SUFFIXES | _PPTX_SUFFIXES | _XLSX_SUFFIXES | _MD_SUFFIXES
 
 
 # ── MIME types ─────────────────────────────────────────────────────────────
@@ -218,24 +107,6 @@ _SUFFIX_TO_MIME: dict[str, str] = {
     ".odt": "application/vnd.oasis.opendocument.text",
     ".odp": "application/vnd.oasis.opendocument.presentation",
     ".ods": "application/vnd.oasis.opendocument.spreadsheet",
-    ".html": "text/html",
-    ".htm": "text/html",
-    ".csv": "text/csv",
-    ".json": "application/json",
-    ".xml": "application/xml",
-    ".yaml": "text/yaml",
-    ".yml": "text/yaml",
-    ".env": "text/plain",
-    ".log": "text/plain",
-    ".sql": "text/x-sql",
-    ".ini": "text/plain",
-    ".toml": "text/plain",
-    ".htaccess": "text/plain",
-    ".sh": "text/x-shellscript",
-    ".bash": "text/x-shellscript",
-    ".txt": "text/plain",
-    ".text": "text/plain",
-    ".rtf": "text/rtf",
 }
 
 
@@ -809,264 +680,3 @@ def _parse_markdown(file_path: Path, *, max_chars: int = MAX_CONTEXT_CHARS) -> d
         result["code_blocks"] = code_blocks[:20]
 
     return result
-
-
-# ── HTML Parser ──────────────────────────────────────────────────────────
-
-def _parse_html(file_path: Path, max_chars: int = 50000) -> dict:
-    """Extract text from HTML files using lxml."""
-    if not _HAS_LXML_HTML:
-        raise RuntimeError("lxml is required for HTML parsing")
-
-    t0 = time.perf_counter()
-    raw = file_path.read_text(encoding="utf-8", errors="replace")
-
-    try:
-        doc = _lxml_html.document_fromstring(raw)
-    except Exception:
-        # Fallback: plain text stripping via stdlib
-        stem = Path(file_path.stem).stem if file_path.stem else "HTML"
-        from html.parser import HTMLParser as _StdlibParser
-        class _Stripper(_StdlibParser):
-            def __init__(self):
-                super().__init__()
-                self.text: list[str] = []
-            def handle_data(self, data):
-                self.text.append(data)
-        s = _Stripper()
-        s.feed(raw)
-        text = " ".join(s.text)
-        text = re.sub(r"\s+", " ", text).strip()
-        return {
-            "text": text[:max_chars],
-            "page_count": 1,
-            "size_bytes": file_path.stat().st_size,
-            "mime_type": "text/html",
-            "ocr_used": False,
-            "parse_ms": round((time.perf_counter() - t0) * 1000),
-        }
-
-    # Extract title BEFORE removing head (the title lives inside <head>)
-    title_el = doc.xpath("//title/text()")
-    title = title_el[0].strip() if title_el else ""
-
-    # Remove script/style/noscript tags and head/meta/link elements
-    # Use drop_tree() — safer than parent.remove() which can fail if parent is None
-    for tag in doc.xpath("//script|//style|//noscript|//head|//meta|//link"):
-        tag.drop_tree()
-
-    # Get visible text from body
-    body = doc.xpath("//body")
-    body_text = " ".join(body[0].itertext()) if body else ""
-    body_text = re.sub(r"\s+", " ", body_text).strip()
-
-    parts = []
-    if title:
-        parts.append(f"Title: {title}")
-    if body_text:
-        parts.append(body_text)
-
-    text = "\n\n".join(parts)
-    return {
-        "text": text[:max_chars],
-        "page_count": 1,
-        "size_bytes": file_path.stat().st_size,
-        "mime_type": "text/html",
-        "ocr_used": False,
-        "parse_ms": round((time.perf_counter() - t0) * 1000),
-    }
-
-
-# ── CSV Parser ────────────────────────────────────────────────────────────
-
-def _parse_csv(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str, Any]:
-    """Extract and format CSV data as readable text."""
-    import csv as _csv_mod
-    t0 = time.perf_counter()
-    try:
-        raw = file_path.read_text(encoding="utf-8", errors="replace")
-        reader = _csv_mod.reader(io.StringIO(raw, newline=""))
-        rows = list(reader)
-        if not rows:
-            return _make_text_result(file_path, raw, max_chars, t0, "text/csv")
-        # Format as table-like text
-        lines = []
-        headers = rows[0] if rows else []
-        if headers:
-            lines.append(" | ".join(str(h) for h in headers))
-            lines.append("-" * 40)
-        for row in rows[1:101]:  # max 100 data rows
-            lines.append(" | ".join(str(c) for c in row))
-        if len(rows) > 101:
-            lines.append(f"... ({len(rows) - 101} more rows)")
-        text = "\n".join(lines)
-    except Exception as exc:
-        logger.warning(f"CSV parsing failed: {exc}, falling back to raw text")
-        raw = file_path.read_text(encoding="utf-8", errors="replace")
-        text = raw
-    return _make_text_result(file_path, text, max_chars, t0, "text/csv")
-
-
-# ── JSON Parser ───────────────────────────────────────────────────────────
-
-def _parse_json(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str, Any]:
-    """Extract and format JSON data as readable text."""
-    import json as _json_mod
-    t0 = time.perf_counter()
-    try:
-        raw = file_path.read_text(encoding="utf-8", errors="replace")
-        data = _json_mod.loads(raw)
-        text = _json_mod.dumps(data, ensure_ascii=False, indent=2)
-    except Exception as exc:
-        logger.warning(f"JSON parsing failed: {exc}, falling back to raw text")
-        text = file_path.read_text(encoding="utf-8", errors="replace")
-    return _make_text_result(file_path, text, max_chars, t0, "application/json")
-
-
-# ── XML File Parser ───────────────────────────────────────────────────────
-
-def _parse_xml_file(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str, Any]:
-    """Extract text from XML files via lxml or plain-text fallback."""
-    t0 = time.perf_counter()
-    raw = file_path.read_text(encoding="utf-8", errors="replace")
-    if _HAS_LXML_HTML:
-        try:
-            doc = _lxml_html.document_fromstring(raw)
-            text = " ".join(doc.itertext())
-            text = re.sub(r"\s+", " ", text).strip()
-            return _make_text_result(file_path, text, max_chars, t0, "application/xml")
-        except Exception as exc:
-            logger.warning(f"lxml XML parsing failed: {exc}, falling back to raw text")
-    return _make_text_result(file_path, raw, max_chars, t0, "application/xml")
-
-
-# ── YAML Parser ───────────────────────────────────────────────────────────
-
-def _parse_yaml(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str, Any]:
-    """Read YAML file as plain text (structure preservation)."""
-    t0 = time.perf_counter()
-    raw = file_path.read_text(encoding="utf-8", errors="replace")
-    return _make_text_result(file_path, raw, max_chars, t0, "text/yaml")
-
-
-# ── ENV Parser ────────────────────────────────────────────────────────────
-
-def _parse_env(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str, Any]:
-    """Read .env file as plain text."""
-    t0 = time.perf_counter()
-    raw = file_path.read_text(encoding="utf-8", errors="replace")
-    return _make_text_result(file_path, raw, max_chars, t0, "text/plain")
-
-
-# ── LOG Parser ────────────────────────────────────────────────────────────
-
-def _parse_log(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str, Any]:
-    """Read log file as plain text."""
-    t0 = time.perf_counter()
-    raw = file_path.read_text(encoding="utf-8", errors="replace")
-    return _make_text_result(file_path, raw, max_chars, t0, "text/plain")
-
-
-# ── SQL Parser ────────────────────────────────────────────────────────────
-
-def _parse_sql(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str, Any]:
-    """Read SQL file as plain text."""
-    t0 = time.perf_counter()
-    raw = file_path.read_text(encoding="utf-8", errors="replace")
-    return _make_text_result(file_path, raw, max_chars, t0, "text/x-sql")
-
-
-# ── INI Parser ────────────────────────────────────────────────────────────
-
-def _parse_ini(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str, Any]:
-    """Read INI file as plain text."""
-    t0 = time.perf_counter()
-    raw = file_path.read_text(encoding="utf-8", errors="replace")
-    return _make_text_result(file_path, raw, max_chars, t0, "text/plain")
-
-
-# ── TOML Parser ───────────────────────────────────────────────────────────
-
-def _parse_toml(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str, Any]:
-    """Read TOML file as plain text."""
-    t0 = time.perf_counter()
-    raw = file_path.read_text(encoding="utf-8", errors="replace")
-    return _make_text_result(file_path, raw, max_chars, t0, "text/plain")
-
-
-# ── HTACCESS Parser ───────────────────────────────────────────────────────
-
-def _parse_htaccess(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str, Any]:
-    """Read .htaccess file as plain text."""
-    t0 = time.perf_counter()
-    raw = file_path.read_text(encoding="utf-8", errors="replace")
-    return _make_text_result(file_path, raw, max_chars, t0, "text/plain")
-
-
-# ── Shell Script Parser ───────────────────────────────────────────────────
-
-def _parse_sh(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str, Any]:
-    """Read shell script as plain text."""
-    t0 = time.perf_counter()
-    raw = file_path.read_text(encoding="utf-8", errors="replace")
-    return _make_text_result(file_path, raw, max_chars, t0, "text/x-shellscript")
-
-
-# ── TXT Parser ────────────────────────────────────────────────────────────
-
-def _parse_txt(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str, Any]:
-    """Read plain text file."""
-    t0 = time.perf_counter()
-    raw = file_path.read_text(encoding="utf-8", errors="replace")
-    return _make_text_result(file_path, raw, max_chars, t0, "text/plain")
-
-
-# ── RTF Parser ────────────────────────────────────────────────────────────
-
-def _parse_rtf(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str, Any]:
-    """Extract text from RTF files by stripping RTF markup."""
-    t0 = time.perf_counter()
-    try:
-        raw = file_path.read_text(encoding="utf-8", errors="replace")
-        # Decode RTF Unicode escapes (\uN with ANSI fallback) before stripping markup.
-        # \u233?  → é (U+00E9, decimal 233, fallback ?)
-        text = re.sub(
-            r"\\u(-?\d+)\s*\??",
-            lambda m: chr(int(m.group(1)) % 0x10000) if 0 < int(m.group(1)) <= 0x10FFFF else m.group(0),
-            raw,
-        )
-        # Decode \'xx hex byte escapes (code-page dependent; basic ASCII/Latin-1 pass-through)
-        text = re.sub(r"\\\'([0-9a-fA-F]{2})", lambda m: chr(int(m.group(1), 16)), text)
-        # Strip remaining RTF control words (rtf1, b, i, par, etc.)
-        text = re.sub(r"\\[a-zA-Z]+\s?", " ", text)
-        # Remove { and }
-        text = text.replace("{", "").replace("}", "")
-        # Normalize whitespace
-        text = re.sub(r"\s+", " ", text).strip()
-        if len(text.strip()) < 5:
-            # Fallback: RTF parsing produced too little text, return raw
-            text = raw
-    except Exception as exc:
-        logger.warning(f"RTF parsing failed: {exc}")
-        text = file_path.read_text(encoding="utf-8", errors="replace")
-    return _make_text_result(file_path, text, max_chars, t0, "text/rtf")
-
-
-# ── Shared helpers ────────────────────────────────────────────────────────
-
-def _make_text_result(
-    file_path: Path,
-    text: str,
-    max_chars: int,
-    t0: float,
-    mime_type: str = "text/plain",
-) -> dict[str, Any]:
-    """Build a standard result dict for text-based parsers."""
-    return {
-        "text": text[:max_chars],
-        "page_count": 1,
-        "size_bytes": file_path.stat().st_size,
-        "mime_type": mime_type,
-        "ocr_used": False,
-        "parse_ms": round((time.perf_counter() - t0) * 1000),
-    }
