@@ -1196,7 +1196,13 @@ export function ChatConsole({
             session_key: currentSessionRef.current,
           });
           if (currentSessionRef.current !== sessionKey) return; // switched away
-          const resumeId = pickThreadToResume((listRes as any)?.items ?? []);
+          // backend `Page.to_dict()` (thread_protocol.py:94) emits the page
+          // under `data` (camelCased to `data`), but the TS `ThreadListResult`
+          // type declares `items`. Read defensively from both so resume works
+          // regardless of which key the running backend uses.
+          const listRows =
+            (listRes as any)?.data ?? (listRes as any)?.items ?? [];
+          const resumeId = pickThreadToResume(listRows);
           if (resumeId) {
             currentThreadIdRef.current = resumeId;
           }

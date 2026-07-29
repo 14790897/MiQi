@@ -34,6 +34,47 @@ from miqi.runtime.thread_request_models import validate_thread_params
 import miqi.runtime.protocol_specs as protocol_specs
 
 
+def _resolve_session_id_for_stored(
+    params: dict[str, Any], client_id: str, session_id: str | None
+) -> str | None:
+    """Pick the session_id to filter stored threads by, namespaced to client.
+
+    Issue #490: stored ``runtime_threads`` rows carry the fully-namespaced
+    ``session_id`` (``{client_id}:{session_key}``, see ``create_session`` in
+    app_server.py). The dispatch layer (loop.py) namespaces the
+    ``session_key``/``session_id`` *params* but the frontend sends the bare
+    session_key under the camelCase ``sessionId`` param, which dispatch does
+    NOT namespace — so ``desktop:1739...`` reached ``list_threads`` and
+    matched no stored rows (they begin with ``miqi-desktop:``). That made the
+    resume path silently return an empty list → every chat.send minted a
+    fresh orphaned thread_id.
+
+    Prefer the dispatch-supplied ``session_id`` (already namespaced). When
+    falling back to an explicit ``sessionId``/``session_id`` param, add the
+    ``{client_id}:`` prefix only when the value is this caller's own bare
+    session_key. Desktop frontend session_keys always start with ``desktop:``
+    (``desktop:default`` or ``desktop:{ts}`` — App.tsx:129), so that prefix is
+    the marker for "not yet namespaced". A value already carrying any other
+    ``xxx:`` prefix is treated as already-namespaced (possibly a foreign
+    client's) and returned unchanged so the downstream ownership check
+    (``session_belongs_to_client``) rejects it — preserving cross-client
+    isolation.
+    """
+    raw = params.get("sessionId") or params.get("session_id")
+    candidate = session_id if session_id is not None else raw
+    if candidate is None or not client_id or not isinstance(candidate, str):
+        return candidate
+    prefix = f"{client_id}:"
+    if candidate.startswith(prefix) or candidate == client_id:
+        return candidate
+    if candidate.startswith("desktop:") or candidate == "default":
+        # Bare frontend session_key — namespace it under this client.
+        return f"{prefix}{candidate}"
+    # Already namespaced (e.g. another client's "client-b:default"): pass
+    # through so the ownership check can reject it.
+    return candidate
+
+
 def register_codex_thread_handlers(server: AppServer) -> None:
     """Register all Codex-style thread methods on an AppServer instance."""
 
@@ -115,7 +156,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
 
         # Stored fallback: fork without a live session.
         reader = _stored_reader(registry, client_id)
-        target_session_id = params.get("sessionId") or params.get("session_id") or session_id
+        target_session_id = _resolve_session_id_for_stored(params, client_id, session_id)
         try:
             bundle = await reader.fork_stored_thread(
                 source_id,
@@ -149,7 +190,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         try:
             bundle = await reader.load_bundle(
                 thread_id,
-                session_id=params.get("sessionId") or params.get("session_id") or session_id,
+                session_id=_resolve_session_id_for_stored(params, client_id, session_id),
             )
         except Exception as exc:
             raise _stored_error(exc) from exc
@@ -181,7 +222,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         try:
             bundle = await reader.load_bundle(
                 thread_id,
-                session_id=params.get("sessionId") or params.get("session_id") or session_id,
+                session_id=_resolve_session_id_for_stored(params, client_id, session_id),
             )
         except Exception as exc:
             raise _stored_error(exc) from exc
@@ -205,7 +246,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         reader = _stored_reader(registry, client_id)
         threads = await reader.list_threads(
             include_archived=typed.archived,
-            session_id=params.get("sessionId") or params.get("session_id"),
+            session_id=_resolve_session_id_for_stored(params, client_id, session_id),
             cwd=typed.cwd,
             search_term=typed.search_term,
         )
@@ -228,7 +269,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         try:
             bundle = await reader.load_bundle(
                 thread_id,
-                session_id=params.get("sessionId") or params.get("session_id") or session_id,
+                session_id=_resolve_session_id_for_stored(params, client_id, session_id),
             )
         except Exception as exc:
             raise _stored_error(exc) from exc
@@ -244,7 +285,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
     async def _thread_import(request_id, params, client_id, session_id, registry):
         typed = validate_thread_params("thread/import", params)
         document = typed.document
-        target_session_id = params.get("sessionId") or params.get("session_id") or session_id
+        target_session_id = _resolve_session_id_for_stored(params, client_id, session_id)
         if target_session_id is None:
             session_key = params.get("sessionKey") or params.get("session_key") or "default"
             if str(session_key).startswith(f"{client_id}:"):
@@ -313,7 +354,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
             bundle = await reader.rollback_stored_thread(
                 thread_id,
                 drop_last_turns=drop_last_turns,
-                session_id=params.get("sessionId") or params.get("session_id") or session_id,
+                session_id=_resolve_session_id_for_stored(params, client_id, session_id),
             )
         except Exception as exc:
             raise _stored_error(exc) from exc

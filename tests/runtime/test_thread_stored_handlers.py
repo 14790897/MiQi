@@ -82,6 +82,52 @@ async def test_thread_list_pages_stored_threads(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_thread_list_finds_threads_with_bare_session_key(tmp_path):
+    """Issue #490: frontend sends the loose, UN-namespaced session_key as
+    camelCase ``sessionId`` (e.g. ``desktop:1739...``), but stored
+    ``runtime_threads`` rows carry the namespaced id
+    (``miqi-desktop:desktop:1739...`` from create_session).
+
+    Before the fix, _thread_list passed the bare value straight to
+    list_threads, whose exact-match filter returned [] → the resume path
+    picked nothing → every chat.send minted a fresh orphaned thread.
+    This pins that the bare session_key is namespaced under the client
+    before filtering, so resume can find the prior thread.
+    """
+    db = tmp_path / ".miqi-runtime" / "runtime.db"
+    await _seed_thread(db, session_id="client-a:desktop:1739", thread_id="thread-resume")
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/list",
+        # Mirrors the FE/preload payload: session_key under camelCase sessionId.
+        {"sessionId": "desktop:1739"},
+        "client-a",
+        None,
+    )
+    rows = response["result"]["data"]
+    assert len(rows) == 1, f"expected the namespaced thread to be found, got {rows}"
+    assert rows[0]["id"] == "thread-resume"
+
+
+@pytest.mark.asyncio
+async def test_thread_read_finds_thread_with_bare_session_key(tmp_path):
+    """Issue #490: the stored read path must also namespace a bare
+    session_key, otherwise reopening a thread in a session not currently
+    live fails to load its history."""
+    db = tmp_path / ".miqi-runtime" / "runtime.db"
+    await _seed_thread(db, session_id="client-a:desktop:1739", thread_id="thread-resume")
+    server = _server(tmp_path)
+    response = await server.dispatch(
+        "1", "thread/read",
+        {"threadId": "thread-resume", "sessionId": "desktop:1739", "includeTurns": True},
+        "client-a",
+        None,
+    )
+    thread = response["result"]["thread"]
+    assert thread["id"] == "thread-resume"
+
+
+@pytest.mark.asyncio
 async def test_thread_read_rejects_foreign_stored_thread(tmp_path):
     db = tmp_path / ".miqi-runtime" / "runtime.db"
     await _seed_thread(db, session_id="client-b:default", thread_id="thread-b")
