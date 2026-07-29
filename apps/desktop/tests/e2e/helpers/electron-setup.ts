@@ -185,17 +185,37 @@ export async function switchToSessionWithMarker(
     console.log(`[test] Clicked session #${i} → title: ${currentTitle}`);
 
     // Session load is async (sessions.get → thread resume → message render).
-    // A fixed 4s wait races the load: main may still be empty when we check,
-    // so the marker is missed and we wrong-move to the next session. Poll the
-    // marker in <main> for up to 15s instead — resolves as soon as the prior
-    // turn's history renders, falls through if this isn't the right session.
+    // Poll the marker in <main> — the timeout depends on whether we're
+    // confident this is the right session.
+    //
+    // When the title itself contains the marker (the app sets the session
+    // title from the first user message), we KNOW we're on the correct
+    // session.  On macOS ARM64 runners the history load after a cold
+    // restart can take 30-60+ seconds (APFS + SQLite WAL recovery +
+    // Python bridge cold start), so we give it 120s here.
+    //
+    // When the title does NOT contain the marker, this might not be the
+    // right session — use a shorter timeout (15s) and move on.
+    const titleHasMarker = currentTitle?.includes(marker) ?? false;
+    const pollTimeout = titleHasMarker ? 120_000 : 15_000;
+    if (titleHasMarker) {
+      console.log(
+        `[test] Title confirms this is the right session — waiting up to ${pollTimeout / 1000}s for history to render`,
+      );
+    }
+
     const markerInMain = page.locator('main').getByText(marker, { exact: false });
     try {
-      await markerInMain.first().waitFor({ state: 'visible', timeout: 15_000 });
+      await markerInMain.first().waitFor({ state: 'visible', timeout: pollTimeout });
       console.log(`[test] Found marker "${marker}" in session #${i}`);
       return true;
     } catch {
       // Marker not visible here — try the next sidebar session.
+      if (titleHasMarker) {
+        console.log(
+          `[test] Session #${i} title matched but marker did not appear in ${pollTimeout / 1000}s — continuing search`,
+        );
+      }
     }
   }
 
