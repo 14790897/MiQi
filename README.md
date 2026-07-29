@@ -310,7 +310,7 @@ npm run build && npx playwright test --config=playwright.config.ts --project=ele
 | **Windows** (WSL CI) | Full suite ✓ | WSL bwrap sandbox + all specs (needs `MIQI_RUN_SANDBOX_E2E=1`) |
 | **macOS** (CI) | Non-sandbox only | bwrap not available; sandbox specs excluded via `--grep-invert` |
 
-> **macOS known limitation**: The "restart recall" E2E test (`session-context-recall.spec.ts`) is skipped on macOS CI (`process.platform === 'darwin'`). After a full app restart on macOS ARM64 runners, session history (chat messages) fails to render in `<main>` even though the sidebar session title loads correctly and the bridge reports `running / initialized`. This is likely a bridge IPC timing issue or APFS/SQLite WAL checkpoint race on cold start — needs native debugging. The non-restart session-switch recall test still validates #490 behavior on macOS.
+> **macOS known limitation**: The "restart recall" E2E test (`session-context-recall.spec.ts`) is skipped only when `process.env.CI && process.platform === 'darwin'` (local macOS runs still exercise the test). After a full app restart on macOS ARM64 CI runners, session history (chat messages) fails to render in `<main>` even though the sidebar session title loads correctly and the bridge reports `running / initialized`. This is likely a bridge IPC timing issue or APFS/SQLite WAL checkpoint race on cold start — needs native debugging. The non-restart session-switch recall test still validates #490 behavior on macOS.
 
 ---
 
