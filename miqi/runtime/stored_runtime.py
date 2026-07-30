@@ -239,6 +239,34 @@ class StoredRuntimeReader:
             for row in rows
         ]
 
+    async def count_distinct_turns(self, thread: RuntimeThread) -> int:
+        """Count distinct turn_id values in a thread's history — without
+        materializing row content/payload.
+
+        Used by thread/list to compute the resume richness signal
+        (``turnCount``). ``load_history_items`` would ``SELECT *`` and hydrate
+        every ``HistoryItem`` (including ``content``/``payload_json``) for every
+        listed thread just to throw all but the ``turn_id`` away; this aggregate
+        does one ``COUNT(DISTINCT turn_id)`` keyed on ``(session_id, thread_id)``
+        so listing N threads = N cheap counts, not N full-content loads.
+        Issue #490.
+        """
+        if await self._table_missing("runtime_history_items"):
+            return 0
+        async with aiosqlite.connect(str(self.db_path), timeout=30) as db:
+            cursor = await db.execute(
+                """SELECT COUNT(DISTINCT turn_id) AS c
+                   FROM runtime_history_items
+                   WHERE session_id = ? AND thread_id = ?
+                     AND turn_id IS NOT NULL""",
+                (thread.session_id, thread.thread_id),
+            )
+            row = await cursor.fetchone()
+        try:
+            return int(row[0]) if row is not None else 0
+        except (TypeError, ValueError):
+            return 0
+
     async def load_provider_messages(self, thread: RuntimeThread) -> list[dict[str, Any]]:
         """Return provider-compatible message dicts from stored history.
 

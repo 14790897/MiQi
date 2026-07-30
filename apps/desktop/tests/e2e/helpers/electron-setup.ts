@@ -180,20 +180,68 @@ export async function switchToSessionWithMarker(
   for (let i = 0; i < count; i++) {
     const btn = items.nth(i);
     await btn.scrollIntoViewIfNeeded().catch(() => {});
+
+    // Snapshot the current title before clicking so we can detect when
+    // the header actually updates to reflect the newly selected session.
+    const prevTitle = await getSessionTitle(page).textContent();
+
     await btn.click({ force: true, timeout: 5000 });
+
+    // Wait for the session title to change (or a short timeout).  On
+    // macOS the header can lag behind the click; reading textContent
+    // immediately may return the previous session's title and mislead
+    // the titleHasMarker calculation below.
+    try {
+      await page.waitForFunction(
+        (prev: string) => {
+          const el = document.querySelector('h2.font-semibold.truncate');
+          const text = el?.textContent || '';
+          return text !== prev && text.length > 0;
+        },
+        prevTitle ?? '',
+        { timeout: 5_000, polling: 200 },
+      );
+    } catch {
+      // Title didn't change — session may not have loaded, or this is
+      // the same session.  Fall through and use whatever textContent
+      // is present now.
+    }
+
     const currentTitle = await getSessionTitle(page).textContent();
     console.log(`[test] Clicked session #${i} → title: ${currentTitle}`);
-    await page.waitForTimeout(4000);
 
-    // Only check the <main> chat area, not the sidebar
-    const markerVisible = await page
-      .locator('main')
-      .getByText(marker, { exact: false })
-      .isVisible()
-      .catch(() => false);
-    if (markerVisible) {
+    // Session load is async (sessions.get → thread resume → message render).
+    // Poll the marker in <main> — the timeout depends on whether we're
+    // confident this is the right session.
+    //
+    // When the title itself contains the marker (the app sets the session
+    // title from the first user message), we KNOW we're on the correct
+    // session.  On macOS ARM64 runners the history load after a cold
+    // restart can take 30-60+ seconds (APFS + SQLite WAL recovery +
+    // Python bridge cold start), so we give it 120s here.
+    //
+    // When the title does NOT contain the marker, this might not be the
+    // right session — use a shorter timeout (15s) and move on.
+    const titleHasMarker = currentTitle?.includes(marker) ?? false;
+    const pollTimeout = titleHasMarker ? 120_000 : 15_000;
+    if (titleHasMarker) {
+      console.log(
+        `[test] Title confirms this is the right session — waiting up to ${pollTimeout / 1000}s for history to render`,
+      );
+    }
+
+    const markerInMain = page.locator('main').getByText(marker, { exact: false });
+    try {
+      await markerInMain.first().waitFor({ state: 'visible', timeout: pollTimeout });
       console.log(`[test] Found marker "${marker}" in session #${i}`);
       return true;
+    } catch {
+      // Marker not visible here — try the next sidebar session.
+      if (titleHasMarker) {
+        console.log(
+          `[test] Session #${i} title matched but marker did not appear in ${pollTimeout / 1000}s — continuing search`,
+        );
+      }
     }
   }
 
@@ -374,10 +422,112 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
   return { electronApp, page, miqiHome, miqiSessionsDir };
 }
 
-/** Close the Electron app and clean up the temporary MIQI_HOME. */
-export async function closeElectronApp(app: ElectronApplication, miqiHome?: string) {
+/** Relaunch Electron on an EXISTING miqiHome so the prior session's SQLite
+ *  history is present — for restart-recovery E2E (e.g. #490 recall-across-restart).
+ *
+ *  Differs from launchElectronApp only in that it reuses the given home dir
+ *  (with its persisted config + sessions + runtime.db) instead of mkdtemp-ing
+ *  a fresh one. Re-applies approval-bypass + disabled channels so the relaunched
+ *  run doesn't hang on dialogs or hit real feedback channels. */
+export async function relaunchElectronApp(
+  miqiHome: string,
+): Promise<ElectronFixture> {
+  const miqiSessionsDir = getMiqiSessionsDir(miqiHome);
+
+  // Re-apply the same test-safe config overrides as launchElectronApp.
+  const destConfigPath = join(miqiHome, 'config.json');
+  if (existsSync(destConfigPath)) {
+    const config = JSON.parse(readFileSync(destConfigPath, 'utf-8'));
+    config.approvals = { ...config.approvals, bypass_all: true };
+    config.channels = {
+      ...config.channels,
+      feishu: { ...(config.channels?.feishu ?? {}), enabled: false },
+      feedback: { enabled: false, bitableAppToken: '', bitableTableId: '' },
+    };
+    writeFileSync(destConfigPath, JSON.stringify(config, null, 2));
+  }
+
+  const env: Record<string, string | undefined> = { ...process.env };
+  env.MIQI_HOME = miqiHome;
+  delete env.ELECTRON_RUN_AS_NODE;
+
+  const electronApp = await electron.launch({
+    args: [APPS_DESKTOP],
+    executablePath: require('electron') as string,
+    env: env as Record<string, string>,
+    chromiumSandbox: false,
+  });
+
+  let page;
+  for (let i = 0; i < 100; i++) {
+    const windows = electronApp.windows();
+    for (const w of windows) {
+      try {
+        const info = await w.evaluate(() => ({ t: document.title, w: window.outerWidth }));
+        if (info.w > 500 && info.t === 'MiQi Desktop') { page = w; break; }
+      } catch {}
+    }
+    if (page) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  if (!page) page = await electronApp.firstWindow();
+  await page.waitForLoadState('domcontentloaded');
+
+  page.on('console', (msg) => {
+    const t = msg.text();
+    if (
+      msg.type() === 'error' ||
+      t.includes('[MIQI BRIDGE STDERR]') ||
+      t.includes('[miqi-bridge]') ||
+      t.includes('[Bridge]') ||
+      t.includes('[MiQi]') ||
+      t.includes('[e2e]')
+    ) {
+      console.log(`[e2e-console] ${t}`);
+    }
+  });
+
+  try {
+    await page.getByText('MiQi Workbench').waitFor({ timeout: 30_000 });
+    console.log('[test] App UI loaded (relaunch)');
+  } catch {
+    console.log('[test] App UI may still be loading — continuing');
+  }
+
+  await waitForInputReady(page);
+
+  const bridgeReady = await page.evaluate(async () => {
+    for (let i = 0; i < 60; i++) {
+      try {
+        const s = await (window as any).miqi.runtime.status();
+        if (s?.state === 'running') return true;
+      } catch {
+        /* preload not injected yet */
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    return false;
+  });
+  if (!bridgeReady)
+    console.log('[test] Warning: bridge did not reach running state (relaunch)');
+
+  console.log('[test] Ready (relaunch)');
+  return { electronApp, page, miqiHome, miqiSessionsDir };
+}
+
+/** Close the Electron app. By default also removes the temporary MIQI_HOME.
+ *
+ *  Pass `keepHome: true` to leave the home dir on disk — used by restart-recovery
+ *  E2E (#490), which closes the app mid-test and relaunches on the SAME home so
+ *  the persisted session history is present for the relaunch to recover.
+ *  Deleting it would destroy the very data the test is verifying survives. */
+export async function closeElectronApp(
+  app: ElectronApplication,
+  miqiHome?: string,
+  keepHome = false,
+) {
   await app?.close().catch(() => {});
-  if (miqiHome && existsSync(miqiHome)) {
+  if (miqiHome && !keepHome && existsSync(miqiHome)) {
     rmSync(miqiHome, { recursive: true, force: true });
     console.log(`[test] Cleaned up MIQI_HOME: ${miqiHome}`);
   }
