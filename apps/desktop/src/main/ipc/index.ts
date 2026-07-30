@@ -1658,10 +1658,9 @@ for m in ("pydantic", "httpx", "loguru"):
       const isSafe =
         !relPath.startsWith('/') &&
         !relPath.startsWith('\\') &&
-        !/^[A-Za-z]:\\/.test(relPath) &&
+        !/^[A-Za-z]:[/\\]/.test(relPath) &&
         !relPath.includes('..');
       if (!isSafe) {
-        // Fall through to host candidate only — WSL search skipped
         return { opened: false, path: raw, error: 'Unsafe path rejected' };
       }
 
