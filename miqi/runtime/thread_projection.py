@@ -125,14 +125,8 @@ def project_stored_thread(
     *,
     include_turns: bool,
     items_view: ItemsView = "summary",
-    turn_count: int = -1,
 ) -> ThreadView:
-    """Project a stored thread bundle into a Codex ThreadView.
-
-    ``turn_count`` lets the list path surface how many persisted turns the
-    thread holds (issue #490: the resume heuristic prefers the richest
-    thread over the merely most-recent one). Defaults to -1 (unknown).
-    """
+    """Project a stored thread bundle into a Codex ThreadView."""
     turns = (
         project_stored_turns(bundle.thread.thread_id, bundle.ledger_items, items_view=items_view)
         if include_turns
@@ -152,7 +146,6 @@ def project_stored_thread(
         created_at=bundle.thread.created_at,
         updated_at=bundle.thread.updated_at,
         items_view=items_view if include_turns else "notLoaded",
-        turn_count=turn_count,
     )
 
 
