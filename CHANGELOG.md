@@ -1,3 +1,21 @@
+# [0.10.0](https://github.com/14790897/MiQi/compare/v0.9.1...v0.10.0) (2026-07-30)
+
+
+### Bug Fixes
+
+* **#490:** 恢复 session 最近线程以保持上下文 ([#510](https://github.com/14790897/MiQi/issues/510)) ([3c2c637](https://github.com/14790897/MiQi/commit/3c2c637535b1983120ffb4fb43042d3e0cd8f8d6)), closes [#490](https://github.com/14790897/MiQi/issues/490) [#490](https://github.com/14790897/MiQi/issues/490) [#490](https://github.com/14790897/MiQi/issues/490) [#500](https://github.com/14790897/MiQi/issues/500) [#505](https://github.com/14790897/MiQi/issues/505) [#505](https://github.com/14790897/MiQi/issues/505) [#490](https://github.com/14790897/MiQi/issues/490) [#500](https://github.com/14790897/MiQi/issues/500) [#490](https://github.com/14790897/MiQi/issues/490) [#490](https://github.com/14790897/MiQi/issues/490) [#490](https://github.com/14790897/MiQi/issues/490) [#505](https://github.com/14790897/MiQi/issues/505) [#505](https://github.com/14790897/MiQi/issues/505)
+* **e2e:** increase session switch timeout when title confirms correct session ([#523](https://github.com/14790897/MiQi/issues/523)) ([ecaed54](https://github.com/14790897/MiQi/commit/ecaed54ff6b58ac6688c6e33f1d40d54daef4dd2)), closes [#490](https://github.com/14790897/MiQi/issues/490)
+
+
+### Features
+
+* **ci:** add PR title semantic consistency check ([#521](https://github.com/14790897/MiQi/issues/521)) ([d0af71c](https://github.com/14790897/MiQi/commit/d0af71cdefca1b67003b8a8f455ee152f7302f95))
+
+
+### Reverts
+
+* Revert "Fix/483 task assets pdf preview path ([#506](https://github.com/14790897/MiQi/issues/506))" ([#519](https://github.com/14790897/MiQi/issues/519)) ([34ee69b](https://github.com/14790897/MiQi/commit/34ee69b0bec219e0464a9772ac69aec7d3c03cdc))
+
 ## [0.9.1](https://github.com/14790897/MiQi/compare/v0.9.0...v0.9.1) (2026-07-30)
 
 
