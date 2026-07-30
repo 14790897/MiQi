@@ -404,3 +404,146 @@ async def test_replace_messages_with_compaction_skips_missing_role(tmp_path):
         assert "unknown" in roles, f"missing-role msg should default to 'unknown', got {roles}"
     finally:
         await runtime.close()
+
+
+# ── Issue #490: thread-scoped history isolation + restart recovery ──────
+#
+# The fix for #490 relies on two guarantees of the data layer that must
+# NOT regress (both prior PRs violated them):
+#
+#   1. Isolation: load_messages(thread_A) returns only A's rows, never
+#      messages written under thread_B. The #500 silent-injection path
+#      leaked sibling content across threads; the #505 approach dropped
+#      the session_id filter entirely. Both caused the "串" (crosstalk)
+#      the user rejected. The (thread_id, session_id) filter is the
+#      boundary and must stay intact.
+#
+#   2. Restart recovery: because session_id is a stable string
+#      (`{client_id}:{session_key}`, persisted client-side) and the DB
+#      file lives for the whole workspace, reopening the same session
+#      (close() + new HistoryRuntime bound to the SAME session_id) must
+#      see the prior rows. The frontend bug was regenerating thread_id;
+#      session_id-qualified reads must remain stable across reopen.
+
+
+@pytest.mark.asyncio
+async def test_load_messages_isolates_threads_within_session(tmp_path):
+    """load_messages(A) returns only A — sibling thread B/C content never leaks in.
+
+    Mirrors issue #490's user scenario at the data layer: one session,
+    three threads, each with distinct content. Switching back to A and
+    loading its history must yield exactly A's exchange.
+    """
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="miqi-desktop:desktop:1")
+    await runtime.initialize()
+    try:
+        # Thread A — the one we'll revisit.
+        await runtime.append_message(
+            thread_id="thread-a", turn_id="ta-1", role="user", content="my favorite number is 7",
+        )
+        await runtime.append_message(
+            thread_id="thread-a", turn_id="ta-1", role="assistant", content="got it, 7",
+        )
+        # Thread B — unrelated topic.
+        await runtime.append_message(
+            thread_id="thread-b", turn_id="tb-1", role="user", content="explain CSS flexbox",
+        )
+        await runtime.append_message(
+            thread_id="thread-b", turn_id="tb-1", role="assistant", content="flexbox is...",
+        )
+        # Thread C — another unrelated topic.
+        await runtime.append_message(
+            thread_id="thread-c", turn_id="tc-1", role="user", content="how to bake bread",
+        )
+
+        a_messages = await runtime.load_messages("thread-a")
+
+        # A returns exactly its own user+assistant pair, in order.
+        assert [m["content"] for m in a_messages] == ["my favorite number is 7", "got it, 7"]
+        # B and C content must never appear in A's history → no crosstalk.
+        a_blob = " ".join(m["content"] for m in a_messages)
+        assert "CSS" not in a_blob
+        assert "bread" not in a_blob
+
+        # Sanity: each thread loads only its own content.
+        assert [m["content"] for m in await runtime.load_messages("thread-b")] == [
+            "explain CSS flexbox", "flexbox is...",
+        ]
+        assert [m["content"] for m in await runtime.load_messages("thread-c")] == [
+            "how to bake bread",
+        ]
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_history_survives_reopen_with_stable_session_id(tmp_path):
+    """Reopening the same session (same session_id) recovers prior history.
+
+    This is the persistence guarantee the #490 frontend fix relies on:
+    after MiQi restart, a new HistoryRuntime bound to the identical
+    session_id string must see the rows the previous process wrote — no
+    data loss, no need to drop any filter.
+    """
+    db = tmp_path / "runtime.db"
+    session_id = "miqi-desktop:desktop:1700000000"
+
+    # First process: write a conversation under thread-a.
+    runtime1 = HistoryRuntime(db, session_id=session_id)
+    await runtime1.initialize()
+    try:
+        await runtime1.append_message(
+            thread_id="thread-a", turn_id="ta-1", role="user", content="we refactored the parser",
+        )
+        await runtime1.append_message(
+            thread_id="thread-a", turn_id="ta-1", role="assistant", content="noted, parser refactor",
+        )
+    finally:
+        await runtime1.close()
+
+    # Simulate restart: brand-new HistoryRuntime, SAME session_id, SAME db.
+    runtime2 = HistoryRuntime(db, session_id=session_id)
+    await runtime2.initialize()
+    try:
+        messages = await runtime2.load_messages("thread-a")
+        assert [m["content"] for m in messages] == [
+            "we refactored the parser", "noted, parser refactor",
+        ], "history must be recoverable across reopen with a stable session_id"
+    finally:
+        await runtime2.close()
+
+
+@pytest.mark.asyncio
+async def test_load_messages_isolates_different_sessions_same_thread_id(tmp_path):
+    """thread_id is scoped by session_id — the load filter must use both.
+
+    Guards against #505's regression: it removed the session_id filter on
+    the assumption that thread_id is globally unique. It is not — two
+    sessions can both have a 'thread-a'. The session_id filter is what
+    keeps session B from reading session A's rows.
+    """
+    db = tmp_path / "runtime.db"
+
+    # Session A writes to 'thread-a'.
+    runtime_a = HistoryRuntime(db, session_id="miqi-desktop:desktop:A")
+    await runtime_a.initialize()
+    try:
+        await runtime_a.append_message(
+            thread_id="thread-a", turn_id="1", role="user", content="secret of session A",
+        )
+    finally:
+        await runtime_a.close()
+
+    # Session B opens a DIFFERENT session but happens to use the same
+    # thread_id value 'thread-a'. It must see nothing — 'thread-a' here
+    # belongs to A, and B has its own session_id namespace.
+    runtime_b = HistoryRuntime(db, session_id="miqi-desktop:desktop:B")
+    await runtime_b.initialize()
+    try:
+        b_messages = await runtime_b.load_messages("thread-a")
+        assert b_messages == [], (
+            "session B must not read session A's rows even with a "
+            "colliding thread_id — session_id filter is the boundary"
+        )
+    finally:
+        await runtime_b.close()

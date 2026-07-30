@@ -84,6 +84,18 @@ def create_runtime_tool_registry(
     if _work_dir is not None:
         _write_workspace = _work_dir
 
+    # Host-global shared roots the system prompt legitimately directs the
+    # agent to read/write (issue #516): memory/ (MEMORY.md, LTM_SNAPSHOT, …)
+    # and skills/ (<name>/SKILL.md).  These live outside the per-session
+    # files dir, so without them the WSL sandbox containment check wrongly
+    # rejects memory/skill paths.  Per-session isolation is unaffected: only
+    # these two global dirs are whitelisted, never another session's files.
+    _shared_roots: list[Path] = []
+    for _sub in ("memory", "skills"):
+        _shared_dir = workspace / _sub
+        _shared_dir.mkdir(parents=True, exist_ok=True)
+        _shared_roots.append(_shared_dir)
+
     # Resolve config sections
     tools_cfg = getattr(config, "tools", None)
     restrict_to_workspace = getattr(tools_cfg, "restrict_to_workspace", False) if tools_cfg is not None else False
@@ -110,13 +122,14 @@ def create_runtime_tool_registry(
 
     # 1. Filesystem tools
     for cls in (ReadFileTool, ListDirTool):
-        registry.register(cls(workspace=workspace, allowed_dir=allowed_dir, sandbox_manager=_sbm))
+        registry.register(cls(workspace=workspace, allowed_dir=allowed_dir, sandbox_manager=_sbm, shared_roots=_shared_roots))
     registry.register(
         WriteFileTool(
             workspace=_write_workspace,
             allowed_dir=allowed_dir,
             snapshot_dir=_snap_dir,
             sandbox_manager=_sbm,
+            shared_roots=_shared_roots,
         )
     )
     registry.register(
@@ -125,6 +138,7 @@ def create_runtime_tool_registry(
             allowed_dir=allowed_dir,
             snapshot_dir=_snap_dir,
             sandbox_manager=_sbm,
+            shared_roots=_shared_roots,
         )
     )
     registry.register(
@@ -133,6 +147,7 @@ def create_runtime_tool_registry(
             allowed_dir=allowed_dir,
             snapshot_dir=_snap_dir,
             sandbox_manager=_sbm,
+            shared_roots=_shared_roots,
         )
     )
 
