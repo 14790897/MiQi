@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from loguru import logger
 
 
 @dataclass
@@ -78,7 +79,7 @@ class AgentRegistry:
                 continue
 
             # Parse YAML frontmatter
-            fm_match = _agent_re.match(r"^---\n(.*?)\n---", raw, re.DOTALL)
+            fm_match = _agent_re.match(r"^---\n(.*?)\n---", raw, _agent_re.DOTALL)
             if not fm_match:
                 continue
 
