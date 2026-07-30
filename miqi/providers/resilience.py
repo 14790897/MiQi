@@ -145,7 +145,11 @@ _PAYMENT_REQUIRED_SIGNALS = (
     "out of credits",
     "credit balance is too low",
     "exceeded your current quota",
-    "billing",
+    # CodeRabbit (#528): no bare "billing" — too broad. It misclassified
+    # AUTH-style messages like "Forbidden: billing access denied" as
+    # PAYMENT_REQUIRED (checked before the AUTH branch). Only balance/quota-
+    # specific phrases remain; a true 402 is still caught by the
+    # status-code layer (402 → PAYMENT_REQUIRED) regardless of wording.
 )
 
 

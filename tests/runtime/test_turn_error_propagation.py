@@ -474,16 +474,19 @@ async def test_task_runner_raw_payment_required_surfaces_billing_message(error_s
     class _PaymentRequired(Exception):
         status_code = 402
 
+    # Neutral body (no _PAYMENT_REQUIRED_SIGNALS match) so the
+    # classification must come from status_code == 402, not the message
+    # layer (CodeRabbit #528).
     emitted, _history, ledger = await _run_turn_expect_error(
         error_services,
-        _PaymentRequired("Insufficient balance"),
+        _PaymentRequired("upstream response"),
     )
 
     err = next(e for e in emitted if isinstance(e, ErrorEvent))
     assert err.error_kind == "payment_required"
     assert err.recoverable is False
     assert err.message == "模型服务账户余额不足或额度已用尽，请充值或检查账户额度后重试。"
-    assert "Insufficient balance" not in err.message
+    assert "upstream response" not in err.message
 
     payload = _record_ledger_error_payload(ledger)
     assert payload.get("error_kind") == "payment_required"

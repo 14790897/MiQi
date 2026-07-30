@@ -103,7 +103,10 @@ def test_classify_error_auth_message() -> None:
 
 
 def test_classify_error_payment_required_status_402() -> None:
-    assert classify_error(_StatusError("Payment Required", status_code=402)) == ErrorKind.PAYMENT_REQUIRED
+    # Neutral body (no _PAYMENT_REQUIRED_SIGNALS match) so this test
+    # actually exercises the explicit status_code == 402 mapping, not the
+    # message-keyword layer (CodeRabbit #528).
+    assert classify_error(_StatusError("upstream response", status_code=402)) == ErrorKind.PAYMENT_REQUIRED
 
 
 @pytest.mark.parametrize("message", [
@@ -117,7 +120,7 @@ def test_classify_error_payment_required_status_402() -> None:
     "quota exceeded - top up to continue",
     "credit exhausted",
     "out of credits",
-    "billing: account suspended",
+    "payment required - top up your account",
     "balance exceeded the limit",
 ])
 def test_classify_error_payment_required_message(message: str) -> None:
@@ -138,6 +141,16 @@ def test_classify_error_payment_required_preferred_over_auth_wording() -> None:
     assert classify_error(
         Exception("Forbidden: insufficient balance, payment required")
     ) == ErrorKind.PAYMENT_REQUIRED
+
+
+def test_bare_billing_word_is_not_payment_required() -> None:
+    """CodeRabbit regression (#528): a bare 'billing' substring in an
+    AUTH-style message ("Forbidden: billing access denied") must NOT be
+    misclassified as PAYMENT_REQUIRED — only balance/quota-specific phrases
+    match the message layer; a bare 'billing' was removed from the signals."""
+    assert classify_error(
+        Exception("Forbidden: billing access denied")
+    ) == ErrorKind.AUTH
 
 
 def test_classify_error_context_length_message() -> None:
