@@ -38,6 +38,29 @@ from miqi.protocol.events import (
 )
 
 
+def _classify_chain(exc: BaseException):
+    """Classify an exception, unwrapping a FATAL wrapper via __cause__/__context__.
+
+    Issue #529: an SDK error that escaped retry (or was re-wrapped by an
+    intermediate layer) reaches TaskRunner as a raw exception with no
+    ``ProviderError`` tag. ``classify_error`` on the outer wrapper may yield
+    ``FATAL`` while the real cause — in ``__cause__``/``__context__`` — still
+    carries a meaningful kind (TRANSIENT, RATE_LIMIT, ...). Only when the
+    direct classification lands on FATAL do we look one level down the chain;
+    a non-FATAL result (or no cause) is returned as-is.
+    """
+    from miqi.providers.resilience import ErrorKind, classify_error
+
+    kind = classify_error(exc)
+    if kind is ErrorKind.FATAL:
+        cause = exc.__cause__ or exc.__context__
+        if cause is not None and cause is not exc:
+            cause_kind = classify_error(cause)
+            if cause_kind is not ErrorKind.FATAL:
+                return cause_kind
+    return kind
+
+
 class TaskRunner:
     """Dispatches submissions and converts TurnRunner output to typed events.
 
@@ -766,12 +789,25 @@ class TaskRunner:
             # Phase 57: a ProviderError carries a classified error_kind from
             # the provider (rate_limit/auth/context_length/...). Surface the
             # category + recoverability and, for user-actionable kinds, the
-            # provider's own message. Non-ProviderError exceptions keep the
-            # original generic internal-error behavior.
+            # provider's own message.
+            #
+            # Issue #529: a raw SDK exception that escaped retry (e.g. via a
+            # streaming path that raised instead of yielding a terminal
+            # finish_reason="error" event) is NOT a ProviderError, so the old
+            # `prov_err = exc if isinstance(exc, ProviderError) else None`
+            # collapsed it to error_kind=None / recoverable=False and showed
+            # the generic message even for TRANSIENT (503/overload) failures.
+            # Re-classify at this final boundary so the category + a useful
+            # message survive — the metadata leak is fixed without changing
+            # with_retry's / providers' exception contract. Re-wrap into a
+            # ProviderError view so the mapping below stays uniform.
             from miqi.providers.resilience import ErrorKind, ProviderError
-            prov_err = exc if isinstance(exc, ProviderError) else None
-            error_kind = prov_err.kind.value if prov_err is not None else None
-            recoverable = prov_err.recoverable if prov_err is not None else False
+            if isinstance(exc, ProviderError):
+                prov_err = exc
+            else:
+                prov_err = ProviderError(kind=_classify_chain(exc), message=str(exc))
+            error_kind = prov_err.kind.value
+            recoverable = prov_err.recoverable
             if history_runtime is not None:
                 await history_runtime.complete_turn(
                     turn_id,
@@ -795,13 +831,22 @@ class TaskRunner:
             # invalid_request) are safe + actionable, so surface the provider
             # message; everything else (transient/fatal/unknown) keeps the
             # generic message to avoid leaking internal details.
+            #
+            # Issue #529: TRANSIENT (503/overload/conn-reset retries exhausted)
+            # is recoverable but the raw SDK text may leak URLs/paths/tokens,
+            # so surface a fixed, non-leaking message (same posture as AUTH)
+            # rather than prov_err.message. The wording avoids sanitizeUiMessage
+            # replacement keywords ("connection error"/"timed out") so it
+            # reaches the UI verbatim.
             logger.error("Agent processing error in turn {}: {}", turn_id, exc, exc_info=True)
             user_message = "处理消息时发生内部错误，请重试。"
-            if prov_err is not None and prov_err.kind is ErrorKind.AUTH:
+            if prov_err.kind is ErrorKind.AUTH:
                 # AUTH is sensitive — surface a fixed, non-leaking message
                 # instead of the raw provider exception text (Plan 58.2).
                 user_message = "模型服务认证失败，请检查 Provider 的 API Key、API Base 或当前模型配置。"
-            elif prov_err is not None and prov_err.kind in (
+            elif prov_err.kind is ErrorKind.TRANSIENT:
+                user_message = "模型服务暂时不可用或过载，请稍后重试。"
+            elif prov_err.kind in (
                 ErrorKind.RATE_LIMIT,
                 ErrorKind.CONTEXT_LENGTH,
                 ErrorKind.INVALID_REQUEST,

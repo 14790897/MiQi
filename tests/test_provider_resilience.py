@@ -654,3 +654,56 @@ def test_provider_error_is_an_exception() -> None:
     with pytest.raises(ProviderError):
         raise err
 
+
+# ---------------------------------------------------------------------------
+# Issue #529: _classify_chain (TaskRunner final-boundary re-classification)
+# ---------------------------------------------------------------------------
+
+
+def test_classify_chain_returns_direct_classification_when_not_fatal() -> None:
+    """A directly-classifiable TRANSIENT error is returned without walking
+    the cause chain."""
+    from miqi.runtime.task_runner import _classify_chain
+
+    assert _classify_chain(Exception("503 service unavailable")) == ErrorKind.TRANSIENT
+    assert _classify_chain(_RateLimitError("rate limited")) == ErrorKind.RATE_LIMIT
+
+
+def test_classify_chain_falls_back_to_cause_when_outer_is_fatal() -> None:
+    """A FATAL wrapper whose __cause__ carries a TRANSIENT SDK error unwraps
+    to the cause's kind — the leaked metadata is recovered at the boundary."""
+    from miqi.runtime.task_runner import _classify_chain
+
+    wrapped = RuntimeError("processing failed")
+    wrapped.__cause__ = Exception("503 service unavailable")
+    assert _classify_chain(wrapped) == ErrorKind.TRANSIENT
+
+
+def test_classify_chain_uses_context_when_no_cause() -> None:
+    """Implicit __context__ (from a bare raise inside an except) is also
+    walked when __cause__ is absent and the outer is FATAL."""
+    from miqi.runtime.task_runner import _classify_chain
+
+    wrapped = RuntimeError("processing failed")
+    wrapped.__context__ = Exception("overloaded")
+    assert _classify_chain(wrapped) == ErrorKind.TRANSIENT
+
+
+def test_classify_chain_stays_fatal_when_cause_is_also_fatal() -> None:
+    """If the cause chain yields no better classification, FATAL is kept
+    (no spurious recoverability)."""
+    from miqi.runtime.task_runner import _classify_chain
+
+    wrapped = RuntimeError("processing failed")
+    wrapped.__cause__ = Exception("something unrelated")
+    assert _classify_chain(wrapped) == ErrorKind.FATAL
+
+
+def test_classify_chain_ignores_self_referential_cause() -> None:
+    """A pathological self-referential __cause__ must not loop / misclassify."""
+    from miqi.runtime.task_runner import _classify_chain
+
+    wrapped = RuntimeError("processing failed")
+    wrapped.__cause__ = wrapped
+    assert _classify_chain(wrapped) == ErrorKind.FATAL
+

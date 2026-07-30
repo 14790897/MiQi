@@ -334,8 +334,11 @@ async def test_task_runner_provider_error_invalid_request_surfaces_message(
 
 @pytest.mark.asyncio
 async def test_task_runner_generic_exception_keeps_generic_message(error_services):
-    """A non-ProviderError exception keeps the original generic behavior:
-    generic message, recoverable=False, error_kind=None (regression guard)."""
+    """A non-ProviderError exception keeps the generic message (FATAL is not
+    user-actionable, so internal details are not leaked). After Issue #529 the
+    final boundary re-classifies it, so error_kind is now ``"fatal"`` rather
+    than ``None`` (regression: "unknown" failures still get a category), while
+    recoverable stays False and the message stays generic."""
     from miqi.protocol.events import ErrorEvent, TurnCompleteEvent
 
     emitted, _history, ledger = await _run_turn_expect_error(
@@ -344,18 +347,120 @@ async def test_task_runner_generic_exception_keeps_generic_message(error_service
     )
 
     err = next(e for e in emitted if isinstance(e, ErrorEvent))
-    assert err.error_kind is None
+    assert err.error_kind == "fatal"
     assert err.recoverable is False
     assert err.message == "处理消息时发生内部错误，请重试。"  # noqa: RUF001
 
     payload = _record_ledger_error_payload(ledger)
     assert payload is not None
-    assert payload.get("error_kind") is None
+    assert payload.get("error_kind") == "fatal"
     assert payload.get("recoverable") is False
     assert payload.get("source") == "task_runner"
     assert not any(
         isinstance(e, TurnCompleteEvent) and e.outcome == "success" for e in emitted
     )
+
+
+@pytest.mark.asyncio
+async def test_task_runner_raw_transient_exception_surfaces_recoverable_message(error_services):
+    """Issue #529: a raw SDK-style exception (NOT a ProviderError) that
+    classifies as TRANSIENT — e.g. an exhausted 503/overload retry that escaped
+    via a streaming path — must surface the transient message and
+    recoverable=True, not the generic internal-error fallback. This is the
+    core regression the issue fixes."""
+    from miqi.protocol.events import ErrorEvent
+
+    emitted, _history, ledger = await _run_turn_expect_error(
+        error_services,
+        Exception("503 Service Unavailable"),
+    )
+
+    err = next(e for e in emitted if isinstance(e, ErrorEvent))
+    assert err.error_kind == "transient"
+    assert err.recoverable is True
+    assert err.message == "模型服务暂时不可用或过载，请稍后重试。"
+
+    payload = _record_ledger_error_payload(ledger)
+    assert payload is not None
+    assert payload.get("error_kind") == "transient"
+    assert payload.get("recoverable") is True
+
+
+@pytest.mark.asyncio
+async def test_task_runner_raw_rate_limit_exception_surfaces_kind(error_services):
+    """Issue #529: a raw 429 exception reaching the final boundary is
+    re-classified to RATE_LIMIT with recoverable=True. (The provider message
+    falls back to the generic one because the raw exception has no clean
+    message — that's acceptable; the category + recoverability are what
+    matter for this path.)"""
+    from miqi.providers.resilience import ErrorKind  # noqa: F401  (clarity)
+    from miqi.protocol.events import ErrorEvent
+
+    class _RateLimit(Exception):
+        status_code = 429
+
+    emitted, _history, ledger = await _run_turn_expect_error(
+        error_services,
+        _RateLimit("rate limited"),
+    )
+
+    err = next(e for e in emitted if isinstance(e, ErrorEvent))
+    assert err.error_kind == "rate_limit"
+    assert err.recoverable is True
+
+    payload = _record_ledger_error_payload(ledger)
+    assert payload.get("error_kind") == "rate_limit"
+    assert payload.get("recoverable") is True
+
+
+@pytest.mark.asyncio
+async def test_task_runner_wrapped_transient_recovers_via_cause_chain(error_services):
+    """Issue #529 edge case (per review): if an intermediate layer re-wraps a
+    TRANSIENT SDK error into a plain RuntimeError with __cause__ set, the outer
+    classify_error yields FATAL but __cause__ still classifies as TRANSIENT.
+    The final boundary must walk the chain so the recoverable category is not
+    lost."""
+    from miqi.protocol.events import ErrorEvent
+
+    inner = Exception("503 Service Unavailable")
+    wrapped = RuntimeError("processing failed")
+    wrapped.__cause__ = inner
+
+    emitted, _history, ledger = await _run_turn_expect_error(error_services, wrapped)
+
+    err = next(e for e in emitted if isinstance(e, ErrorEvent))
+    assert err.error_kind == "transient"
+    assert err.recoverable is True
+    assert err.message == "模型服务暂时不可用或过载，请稍后重试。"
+
+    payload = _record_ledger_error_payload(ledger)
+    assert payload.get("error_kind") == "transient"
+
+
+@pytest.mark.asyncio
+async def test_task_runner_raw_auth_exception_surfaces_fixed_message(error_services):
+    """Issue #529: a raw 401 exception reaching the final boundary is
+    re-classified to AUTH. AUTH stays non-recoverable and surfaces the fixed
+    non-leaking message (never the raw exception text)."""
+    from miqi.protocol.events import ErrorEvent
+
+    class _Auth(Exception):
+        status_code = 401
+
+    emitted, _history, ledger = await _run_turn_expect_error(
+        error_services,
+        _Auth("invalid api key leaked: sk-xxxx"),
+    )
+
+    err = next(e for e in emitted if isinstance(e, ErrorEvent))
+    assert err.error_kind == "auth"
+    assert err.recoverable is False
+    assert err.message == "模型服务认证失败，请检查 Provider 的 API Key、API Base 或当前模型配置。"
+    assert "sk-xxxx" not in err.message
+
+    payload = _record_ledger_error_payload(ledger)
+    assert payload.get("error_kind") == "auth"
+    assert payload.get("recoverable") is False
 
 
 @pytest.mark.asyncio
