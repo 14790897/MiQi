@@ -1,0 +1,19 @@
+{
+  "name": "kwp-finance",
+  "version": "1.0.0",
+  "description": "Knowledge Work Plugins — Finance (8 skills). Adapted from anthropics/knowledge-work-plugins for MiQi.",
+  "author": "Anthropic (adapted for MiQi)",
+  "skills": [
+    "audit-support",
+    "close-management",
+    "financial-statements",
+    "journal-entry",
+    "journal-entry-prep",
+    "reconciliation",
+    "sox-testing",
+    "variance-analysis"
+  ],
+  "mcp_servers": [],
+  "slash_commands": [],
+  "hooks": []
+}

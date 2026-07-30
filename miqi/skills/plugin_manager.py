@@ -64,6 +64,9 @@ class LoadedPlugin:
     scope: str  # "user" | "workspace" | "system"
     status: str = "active"  # "active" | "error" | "disabled"
     error: str | None = None
+    # Slash commands discovered from filesystem <plugin>/commands/*.md
+    # Each entry: {name, description, argument_hint, body}
+    slash_command_files: list[dict[str, Any]] = field(default_factory=list)
 
 
 class PluginManager:
@@ -201,9 +204,21 @@ class PluginManager:
             for plugin_dir in base_dir.iterdir():
                 if not plugin_dir.is_dir():
                     continue
-                manifest_path = plugin_dir / "plugin.json"
-                if not manifest_path.exists():
+
+                # Support both MiQi format (plugin.json) and KWP/Claude Code
+                # format (.claude-plugin/plugin.json)
+                manifest_path = None
+                for candidate in [
+                    plugin_dir / "plugin.json",
+                    plugin_dir / ".claude-plugin" / "plugin.json",
+                ]:
+                    if candidate.exists():
+                        manifest_path = candidate
+                        break
+
+                if manifest_path is None:
                     continue
+
                 try:
                     plugin = await self._load_plugin(
                         plugin_dir, manifest_path, scope
@@ -229,12 +244,92 @@ class PluginManager:
         """Load a single plugin from its directory."""
         import json
         manifest_data = json.loads(manifest_path.read_text())
+
+        # Auto-discover skills from filesystem for KWP-style plugins
+        # that don't declare skills explicitly in manifest
+        if not manifest_data.get("skills"):
+            skills_dir = plugin_dir / "skills"
+            if skills_dir.is_dir():
+                discovered: list[str] = []
+                for d in sorted(skills_dir.iterdir()):
+                    if d.is_dir() and (d / "SKILL.md").exists():
+                        discovered.append(d.name)
+                if discovered:
+                    manifest_data["skills"] = discovered
+
         manifest = PluginManifest(**manifest_data)
         plugin = LoadedPlugin(
             manifest=manifest, path=plugin_dir, scope=scope
         )
+        self._attach_plugin_commands(plugin)
         self._register_plugin_hooks(plugin)
         return plugin
+
+    def _attach_plugin_commands(self, plugin: LoadedPlugin) -> None:
+        """Discover ``<plugin>/commands/*.md`` and populate slash command cache.
+
+        Called from both ``_load_plugin`` and ``load_plugin_from_dir`` so
+        the auto-discovery behaves identically across discovery and
+        post-install loading paths.
+        """
+        commands_dir = plugin.path / "commands"
+        if commands_dir.is_dir():
+            plugin.slash_command_files = self._load_command_files(
+                commands_dir, plugin_name=plugin.manifest.name
+            )
+
+    @staticmethod
+    def _load_command_files(
+        commands_dir: Path, plugin_name: str
+    ) -> list[dict[str, Any]]:
+        """Parse KWP-style ``commands/<name>.md`` files.
+
+        Returns a list of dicts with keys: name, plugin, description,
+        argument_hint, body, path. Body is the markdown content with
+        the YAML frontmatter stripped.
+        """
+        import re as _re
+
+        results: list[dict[str, Any]] = []
+        for cmd_file in sorted(commands_dir.glob("*.md")):
+            try:
+                raw = cmd_file.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+
+            description = ""
+            argument_hint = ""
+            body = raw
+
+            # Optional YAML frontmatter (KWP uses simple `key: value`
+            # lines, not full YAML). Same regex-based pattern used by
+            # miqi/agent/tools/skill_manage.py — fine for our needs.
+            fm = _re.match(r"^---\n(.*?)\n---\n", raw, _re.DOTALL)
+            if fm:
+                for line in fm.group(1).split("\n"):
+                    if ":" not in line:
+                        continue
+                    key, _, value = line.partition(":")
+                    value = value.strip().strip("\"'")
+                    if key.strip() == "description":
+                        description = value
+                    elif key.strip() == "argument-hint":
+                        argument_hint = value
+                body = raw[fm.end():].strip()
+
+            # Strip leading "# /<name>" → "# <name>" so the heading
+            # reads as a normal section title.
+            body = _re.sub(r"^#\s+/([^\n]+)", r"# \1", body, count=1, flags=_re.MULTILINE)
+
+            results.append({
+                "name": cmd_file.stem,
+                "plugin": plugin_name,
+                "description": description,
+                "argument_hint": argument_hint,
+                "body": body,
+                "path": str(cmd_file),
+            })
+        return results
 
     def get_mcp_servers(self) -> list[dict[str, Any]]:
         """Collect all MCP server configs from active plugins."""
@@ -250,14 +345,58 @@ class PluginManager:
         return servers
 
     def get_slash_commands(self) -> dict[str, str]:
-        """Collect all slash commands from active plugins."""
-        commands = {}
+        """Collect all slash commands from active plugins.
+
+        Sources (in order of preference):
+        1. ``commands/*.md`` files discovered at plugin load time
+           (KWP/Cowork convention — body + frontmatter content).
+        2. ``manifest.slash_commands`` list (legacy MiQi format).
+
+        Returns a ``{name: description}`` mapping suitable for the
+        plugin handler listing, *not* for command dispatch — use
+        :meth:`get_slash_command` to retrieve the full body.
+        """
+        commands: dict[str, str] = {}
+        for plugin in self._plugins.values():
+            if plugin.status != "active":
+                continue
+            for cmd in plugin.slash_command_files:
+                commands[cmd["name"]] = cmd["description"]
+            for cmd in plugin.manifest.slash_commands:
+                commands[cmd["name"]] = cmd["description"]
+        return commands
+
+    def get_slash_command(self, name: str) -> dict[str, Any] | None:
+        """Return a single slash command by name, or ``None`` if missing.
+
+        The returned dict contains ``name``, ``plugin``, ``description``,
+        ``argument_hint``, ``body``, ``path``, and ``status`` (copied
+        from the owning plugin's status so callers can check whether
+        the plugin is active).
+        """
+        name = (name or "").lstrip(":").strip().lower()
+        if not name:
+            return None
+        for plugin in self._plugins.values():
+            for cmd in plugin.slash_command_files:
+                if cmd["name"].lower() == name:
+                    return {**cmd, "status": plugin.status}
+        # Fall back to legacy manifest-declared commands (no body).
         for plugin in self._plugins.values():
             if plugin.status != "active":
                 continue
             for cmd in plugin.manifest.slash_commands:
-                commands[cmd["name"]] = cmd["description"]
-        return commands
+                if cmd.get("name") == name:
+                    return {
+                        "name": cmd["name"],
+                        "plugin": plugin.manifest.name,
+                        "description": cmd.get("description", ""),
+                        "argument_hint": "",
+                        "body": "",
+                        "path": "",
+                        "status": plugin.status,
+                    }
+        return None
 
     def list_plugins(self) -> list[LoadedPlugin]:
         """List all loaded plugins."""
@@ -392,6 +531,7 @@ class PluginManager:
         manifest = PluginManifest(**manifest_data)
         plugin = LoadedPlugin(manifest=manifest, path=plugin_dir, scope=scope)
         self._plugins[plugin.manifest.name] = plugin
+        self._attach_plugin_commands(plugin)
         self._register_plugin_hooks(plugin)
         return plugin
 

@@ -1,0 +1,20 @@
+{
+  "name": "kwp-human-resources",
+  "version": "1.0.0",
+  "description": "Knowledge Work Plugins — Human Resources (9 skills). Adapted from anthropics/knowledge-work-plugins for MiQi.",
+  "author": "Anthropic (adapted for MiQi)",
+  "skills": [
+    "comp-analysis",
+    "draft-offer",
+    "interview-prep",
+    "onboarding",
+    "org-planning",
+    "people-report",
+    "performance-review",
+    "policy-lookup",
+    "recruiting-pipeline"
+  ],
+  "mcp_servers": [],
+  "slash_commands": [],
+  "hooks": []
+}

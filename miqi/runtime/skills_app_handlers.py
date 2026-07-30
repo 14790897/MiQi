@@ -99,9 +99,15 @@ def register_skills_app_handlers(server: AppServer) -> None:
                 if skill["name"] in seen:
                     continue
                 seen.add(skill["name"])
+                # Normalize path separators so the renderer can use a
+                # single '/kwp/' substring filter on Windows (where
+                # Path values come back with backslashes). This matches
+                # what SkillsLoader.build_skills_summary() does for the
+                # agent-facing summary.
+                skill_path = skill["path"].replace("\\", "/")
                 result.append({
                     "name": skill["name"],
-                    "path": skill["path"],
+                    "path": skill_path,
                     "source": skill["source"],
                     "description": loader._get_skill_description(skill["name"]),
                     "available": loader._check_requirements(loader._get_skill_meta(skill["name"])),
