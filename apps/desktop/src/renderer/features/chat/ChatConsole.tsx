@@ -411,6 +411,69 @@ export function getTaskShareDownloadName(title: string, timestamp = Date.now()):
   return `${safeTitle}-${stamp}.md`;
 }
 
+/**
+ * Extract the thread rows from a `threads.list` result, defensively, so the
+ * resume path tolerates either backend page shape. The backend `Page.to_dict()`
+ * (thread_protocol.py:94) envelopes rows under `data`; the legacy TS
+ * `ThreadListResult` type declared them under `items`. Read both so a
+ * field-name mismatch between the running backend and this helper can't
+ * silently empty the list and force every session to mint a fresh thread.
+ *
+ * Pure + exported so the whole `threads.list → extractThreadListRows →
+ * pickThreadToResume` wiring is unit-tested with backend-shaped payloads
+ * without mounting the React component (see chatConsoleThreadResume.test.ts).
+ */
+export function extractThreadListRows(listResult: unknown): unknown[] {
+  if (Array.isArray(listResult)) return listResult;
+  const obj = listResult as Record<string, unknown> | null | undefined;
+  const rows = obj?.data ?? obj?.items;
+  return Array.isArray(rows) ? rows : [];
+}
+
+/**
+ * Pick the best non-archived, non-ephemeral stored thread id from a
+ * `thread/list` result, for resuming an existing conversation when
+ * (re)entering a session (Issue #490).
+ *
+ * Selection rule (chosen over a plain most-recent sort to survive legacy
+ * fragmented sessions): prefer the thread holding the MOST persisted turns
+ * (`turnCount`, surfaced by backend `_thread_list`), ties broken by the
+ * largest `updatedAt` (fallback `createdAt`). Rationale — a fragmented
+ * session has several thread_ids; the most-recently-touched one may be
+ * nearly empty (e.g. a thread that only captured the user repeatedly
+ * asking "what did we do before"), while the thread with the most turns
+ * holds the real conversation the user expects to recall. On a clean
+ * single-thread session both heuristics agree. Returns `null` when there
+ * is no resumable thread. `items` are the loose rows from the
+ * `ThreadView.to_dict` camelCase shape: `id`, `turnCount`, `updatedAt`,
+ * `createdAt`, `archived`, `ephemeral`.
+ *
+ * Pure + exported so the resume-selection rule is unit-tested without
+ * mounting the React component. The load `useEffect` calls this on the
+ * `threads.list` result and stores the returned id in
+ * `currentThreadIdRef` so subsequent `chat.send` reuses it instead of
+ * minting a fresh thread_id that would orphan prior history.
+ */
+export function pickThreadToResume(items: unknown): string | null {
+  const rows = (Array.isArray(items) ? items : []) as Array<Record<string, unknown>>;
+  const candidates = rows
+    .filter(
+      (t) =>
+        !!t &&
+        !t.archived &&
+        !t.ephemeral &&
+        typeof t.id === 'string' &&
+        (t.id as string).length > 0
+    )
+    .map((t) => ({
+      id: t.id as string,
+      turns: Number(t.turnCount ?? 0) || 0,
+      ts: Number(t.updatedAt ?? t.createdAt ?? 0) || 0,
+    }))
+    .sort((a, b) => b.turns - a.turns || b.ts - a.ts);
+  return candidates.length > 0 ? candidates[0].id : null;
+}
+
 /** Extract file path + operation from a tool-hint progress text.
  *  Nanobot tool hints look like:
  *    "Read: /abs/path/to/file.ts"
@@ -1141,6 +1204,57 @@ export function ChatConsole({
           });
         }
         setTrackedFiles(Array.from(mergedMap.values()));
+
+        // ── Issue #490: resume this session's most-recent active thread ──
+        // currentThreadIdRef is reset to null on every sessionKey/remount
+        // (line above) and is never persisted, so without this the next
+        // send would call thread/start → mint a fresh random thread_id,
+        // orphaning the prior thread's SQLite history and making the model
+        // "forget" earlier turns even though the UI still shows them.
+        //
+        // Look up stored threads for this session and reuse the most
+        // recently updated one so chat.send continues accumulating into
+        // the SAME (session_id, thread_id). A brand-new session has no
+        // stored threads → ref stays null → first send still creates one.
+        // This keeps thread isolation intact (B/C content is never pulled
+        // into A); only A's own history is reloaded.
+        // Guard with a short timeout (Promise.race, same shape as the
+        // thread/start guard below) so a slow/hung backend can't block the
+        // surrounding flow from reaching setHistoryLoaded(true). This is a
+        // best-effort optimization; on timeout or rejection we fall through to
+        // the existing first-send thread/start path (ref stays null) — the
+        // session still loads, just without thread reuse. 10s is far shorter
+        // than thread/start's 30s (which budgets sandbox first-init) because
+        // threads/list is a cheap SQLite read, not a sandbox spawn.
+        let resumeTimer: ReturnType<typeof setTimeout> | null = null;
+        try {
+          const listRes = await Promise.race([
+            window.miqi.threads.list({
+              session_key: currentSessionRef.current,
+            }),
+            new Promise<never>((_, reject) => {
+              resumeTimer = setTimeout(
+                () => reject(new Error('thread/list timeout')),
+                10_000,
+              );
+            }),
+          ]);
+          if (resumeTimer) clearTimeout(resumeTimer);
+          if (currentSessionRef.current !== sessionKey) return; // switched away
+          // backend `Page.to_dict()` (thread_protocol.py:94) envelopes rows
+          // under `data`; read via extractThreadListRows so resume matches
+          // the real backend shape (and is unit-tested end-to-end).
+          const listRows = extractThreadListRows(listRes);
+          const resumeId = pickThreadToResume(listRows);
+          if (resumeId) {
+            currentThreadIdRef.current = resumeId;
+          }
+        } catch (err) {
+          // Non-fatal: timeout or rejection → ref stays null → first send
+          // still uses the thread/start path. Don't block rendering.
+          if (resumeTimer) clearTimeout(resumeTimer);
+          console.warn('[ChatConsole] Failed to resume thread:', err);
+        }
       } catch (err) {
         console.warn('[ChatConsole] Failed to load session data:', err);
       }
@@ -3342,6 +3456,7 @@ function MessageBubble({
         <div
           className={cn('flex items-start gap-3', isUser && 'justify-end')}
           onContextMenu={onContextMenu}
+          data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
           {!isUser && <AgentAvatar />}
 
