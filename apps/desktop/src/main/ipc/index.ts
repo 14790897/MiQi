@@ -742,6 +742,10 @@ for m in ("pydantic", "httpx", "loguru"):
       if (distros.length > 0) {
         const probeDistro = defaultDistro || distros[0];
         try {
+          // Probe for a non-root user to verify the distribution has completed
+          // first-launch setup (username/password creation). A newly installed
+          // distribution can still execute `id -u` as root before that setup,
+          // so root-only access does not prove initialization is complete.
           const idResult = spawnSync(
             'wsl.exe',
             ['-d', probeDistro, '--', 'bash', '-c', 'id -u 2>/dev/null || echo ""'],
@@ -749,7 +753,8 @@ for m in ("pydantic", "httpx", "loguru"):
           );
           if (idResult.status === 0 && idResult.stdout?.trim()) {
             const uid = parseInt(idResult.stdout.trim(), 10);
-            if (!Number.isNaN(uid) && uid >= 0) initialized = true;
+            // Require non-root uid (> 0) as signal of user creation complete
+            if (!Number.isNaN(uid) && uid > 0) initialized = true;
           }
         } catch {
           /* ignore */
@@ -878,7 +883,7 @@ for m in ("pydantic", "httpx", "loguru"):
         );
 
         const exitCode = parseInt((r.stdout || '').trim(), 10);
-        if (r.error || (r.status === 0 && exitCode && exitCode !== 0)) {
+        if (r.error || r.status !== 0 || exitCode !== 0) {
           safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
             phase: 'error',
             message: `启用 Windows 功能失败 (code: ${exitCode || 'unknown'})`,
@@ -927,7 +932,7 @@ for m in ("pydantic", "httpx", "loguru"):
         );
 
         const exitCode = parseInt((r.stdout || '').trim(), 10);
-        if (r.error || (r.status === 0 && exitCode && exitCode !== 0)) {
+        if (r.error || r.status !== 0 || exitCode !== 0) {
           safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
             phase: 'error',
             message: `WSL2 内核安装失败 (code: ${exitCode || 'unknown'})`,
@@ -1580,19 +1585,22 @@ for m in ("pydantic", "httpx", "loguru"):
       return null;
     }
 
-    // Pass path as env var to prevent shell injection via interpolation
+    // Pass relPath inline as a positional argument to the bash script so
+    // WSL interop does not need to import it from the Windows environment.
+    const escapedRelPath = shellEscape(relPath);
     const searchScript =
+      `RP=$'${escapedRelPath}'\n` +
       `for d in /tmp/miqi-sandboxes/*/home/miqi/workspace/; do\n` +
-      `  if [ -f "$d$REL_PATH" ]; then echo "$d$REL_PATH"; exit 0; fi\n` +
+      `  if [ -f "$d$RP" ]; then echo "$d$RP"; exit 0; fi\n` +
       `  for s in "$d"sessions/*/files/; do\n` +
-      `    if [ -f "$s$REL_PATH" ]; then echo "$s$REL_PATH"; exit 0; fi\n` +
+      `    if [ -f "$s$RP" ]; then echo "$s$RP"; exit 0; fi\n` +
       `  done\n` +
       `done\n` +
       // Also search the WSL home workspace (where Python tools write files directly)
       `ws="$HOME/.miqi/workspace"\n` +
-      `if [ -f "$ws/$REL_PATH" ]; then echo "$ws/$REL_PATH"; exit 0; fi\n` +
+      `if [ -f "$ws/$RP" ]; then echo "$ws/$RP"; exit 0; fi\n` +
       `for s in "$ws"/sessions/*/files/; do\n` +
-      `  if [ -f "$s$REL_PATH" ]; then echo "$s$REL_PATH"; exit 0; fi\n` +
+      `  if [ -f "$s/$RP" ]; then echo "$s/$RP"; exit 0; fi\n` +
       `done\n` +
       `exit 1\n`;
 
@@ -1601,7 +1609,6 @@ for m in ("pydantic", "httpx", "loguru"):
         const { stdout } = await execFileAsync('wsl.exe', ['-d', distro, '--', 'bash'], {
           ...execOpts,
           input: searchScript,
-          env: { ...process.env, REL_PATH: relPath },
         });
         if (stdout?.trim()) return { wslAbsPath: stdout.trim(), distro };
       } catch {
@@ -1610,6 +1617,9 @@ for m in ("pydantic", "httpx", "loguru"):
     }
     return null;
   }
+
+  /** Escape a string for safe embedding in a single-quoted bash argument. */
+  const shellEscape = (s: string) => s.replace(/'/g, "'\\''");
 
   async function copyFromWsl(
     wslAbsPath: string,
@@ -1621,6 +1631,10 @@ for m in ("pydantic", "httpx", "loguru"):
       .replace(/\\/g, '/');
     const wslTargetDir = wslTarget.replace(/\/[^/]+$/, '');
     try {
+      // Use $'...' quoting so embedded single quotes are safely escaped.
+      const escapedDir = shellEscape(wslTargetDir);
+      const escapedSrc = shellEscape(wslAbsPath);
+      const escapedDst = shellEscape(wslTarget);
       await execFileAsync(
         'wsl.exe',
         [
@@ -1629,7 +1643,7 @@ for m in ("pydantic", "httpx", "loguru"):
           '--',
           'bash',
           '-c',
-          `mkdir -p '${wslTargetDir}' && cp '${wslAbsPath}' '${wslTarget}'`,
+          `mkdir -p $'${escapedDir}' && cp $'${escapedSrc}' $'${escapedDst}'`,
         ],
         { timeout: 10000, encoding: 'utf8', windowsHide: true }
       );
