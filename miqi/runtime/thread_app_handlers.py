@@ -20,7 +20,6 @@ from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_state
 from miqi.runtime.stored_runtime import (
     StoredRuntimeReader,
     StoredThreadAmbiguous,
-    StoredThreadBundle,
     StoredThreadError,
     StoredThreadNotFound,
     StoredThreadUnauthorized,
@@ -33,61 +32,6 @@ from miqi.runtime.thread_projection import (
 from miqi.runtime.thread_protocol import page_items
 from miqi.runtime.thread_request_models import validate_thread_params
 import miqi.runtime.protocol_specs as protocol_specs
-
-
-def _resolve_session_id_for_stored(
-    params: dict[str, Any], client_id: str, session_id: str | None
-) -> str | None:
-    """Pick the session_id to filter stored threads by, namespaced to client.
-
-    Issue #490: stored ``runtime_threads`` rows carry the fully-namespaced
-    ``session_id`` (``{client_id}:{session_key}``, see ``create_session`` in
-    app_server.py). The dispatch layer (loop.py) namespaces the
-    ``session_key``/``session_id`` *params* but the frontend sends the bare
-    session_key under the camelCase ``sessionId`` param, which dispatch does
-    NOT namespace — so ``desktop:1739...`` reached ``list_threads`` and
-    matched no stored rows (they begin with ``miqi-desktop:``). That made the
-    resume path silently return an empty list → every chat.send minted a
-    fresh orphaned thread_id.
-
-    Prefer the dispatch-supplied ``session_id`` (already namespaced). When
-    falling back to an explicit ``sessionId``/``session_id`` param, add the
-    ``{client_id}:`` prefix only when the value is this caller's own bare
-    session_key. The desktop frontend's session_keys always start with
-    ``desktop:`` (``desktop:default`` or ``desktop:{ts}`` — App.tsx:129) or are
-    the literal ``default``; that marker is the signal for "not yet
-    namespaced". Any other ``xxx:``-prefixed value is treated as an
-    already-namespaced (possibly foreign) session_id and returned UNCHANGED so
-    the downstream ownership check (``session_belongs_to_client``) can reject
-    it — preserving cross-client isolation.
-
-    Why not namespace every non-``{client_id}:``-prefixed value generically
-    (as a prior revision tried): that breaks ``thread/import``'s foreign-
-    session rejection. A caller importing with ``sessionId="client-b:default"``
-    (foreign) must be rejected UNAUTHORIZED, but a blanket "namespace it under
-    the caller" rule would rewrite that to ``client-a:client-b:default`` —
-    which the ownership check then accepts (it belongs to client-a), so the
-    import would SUCCEED instead of being rejected
-    (``test_thread_import_rejects_foreign_session_id``). The only unambiguous
-    signal that a value is THIS client's own bare key (vs. a foreign
-    already-namespaced id) is the client's known keyspace marker; there is no
-    client registry to consult, so the marker stays explicit. Adding a new
-    client's keyspace means adding its marker here.
-    """
-    raw = params.get("sessionId") or params.get("session_id")
-    candidate = session_id if session_id is not None else raw
-    if candidate is None or not client_id or not isinstance(candidate, str):
-        return candidate
-    prefix = f"{client_id}:"
-    if candidate.startswith(prefix) or candidate == client_id:
-        return candidate
-    if candidate.startswith("desktop:") or candidate == "default":
-        # Desktop frontend's bare session_key — namespace it under this client.
-        return f"{prefix}{candidate}"
-    # Already namespaced (e.g. another client's "client-b:default"): pass
-    # through unchanged so the ownership check rejects it. Do NOT namespace —
-    # see docstring (would mask thread/import's foreign-session rejection).
-    return candidate
 
 
 def register_codex_thread_handlers(server: AppServer) -> None:
@@ -171,7 +115,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
 
         # Stored fallback: fork without a live session.
         reader = _stored_reader(registry, client_id)
-        target_session_id = _resolve_session_id_for_stored(params, client_id, session_id)
+        target_session_id = params.get("sessionId") or params.get("session_id") or session_id
         try:
             bundle = await reader.fork_stored_thread(
                 source_id,
@@ -205,7 +149,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         try:
             bundle = await reader.load_bundle(
                 thread_id,
-                session_id=_resolve_session_id_for_stored(params, client_id, session_id),
+                session_id=params.get("sessionId") or params.get("session_id") or session_id,
             )
         except Exception as exc:
             raise _stored_error(exc) from exc
@@ -237,7 +181,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         try:
             bundle = await reader.load_bundle(
                 thread_id,
-                session_id=_resolve_session_id_for_stored(params, client_id, session_id),
+                session_id=params.get("sessionId") or params.get("session_id") or session_id,
             )
         except Exception as exc:
             raise _stored_error(exc) from exc
@@ -261,36 +205,14 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         reader = _stored_reader(registry, client_id)
         threads = await reader.list_threads(
             include_archived=typed.archived,
-            session_id=_resolve_session_id_for_stored(params, client_id, session_id),
+            session_id=params.get("sessionId") or params.get("session_id"),
             cwd=typed.cwd,
             search_term=typed.search_term,
         )
         views = []
         for thread in threads:
-            # Count distinct turns via a COUNT(DISTINCT turn_id) aggregate on
-            # runtime_history_items — the SAME table the model reloads on resume
-            # (task_runner.load_messages), so the richness signal tracks what the
-            # model will actually see. The aggregate avoids materializing row
-            # content/payload (load_history_items SELECT *-es every item just to
-            # read turn_id); listing N threads is N cheap counts, not N full-
-            # content loads. Issue #490: prefer the thread holding the most real
-            # history over the merely most-recently-touched one.
-            try:
-                distinct_turns = await reader.count_distinct_turns(thread)
-            except Exception:
-                logger.warning(
-                    "thread/list: failed to count turns for thread={} in session={}; "
-                    "falling back to turn_count=0",
-                    thread.thread_id, thread.session_id,
-                )
-                distinct_turns = 0
-            views.append(
-                project_stored_thread(
-                    StoredThreadBundle(thread=thread, ledger_items=[]),
-                    include_turns=False,
-                    turn_count=distinct_turns,
-                ).to_dict()
-            )
+            bundle = await reader.load_bundle(thread.thread_id, session_id=thread.session_id)
+            views.append(project_stored_thread(bundle, include_turns=False).to_dict())
         page = page_items(
             views,
             limit=typed.limit,
@@ -306,7 +228,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
         try:
             bundle = await reader.load_bundle(
                 thread_id,
-                session_id=_resolve_session_id_for_stored(params, client_id, session_id),
+                session_id=params.get("sessionId") or params.get("session_id") or session_id,
             )
         except Exception as exc:
             raise _stored_error(exc) from exc
@@ -322,7 +244,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
     async def _thread_import(request_id, params, client_id, session_id, registry):
         typed = validate_thread_params("thread/import", params)
         document = typed.document
-        target_session_id = _resolve_session_id_for_stored(params, client_id, session_id)
+        target_session_id = params.get("sessionId") or params.get("session_id") or session_id
         if target_session_id is None:
             session_key = params.get("sessionKey") or params.get("session_key") or "default"
             if str(session_key).startswith(f"{client_id}:"):
@@ -391,7 +313,7 @@ def register_codex_thread_handlers(server: AppServer) -> None:
             bundle = await reader.rollback_stored_thread(
                 thread_id,
                 drop_last_turns=drop_last_turns,
-                session_id=_resolve_session_id_for_stored(params, client_id, session_id),
+                session_id=params.get("sessionId") or params.get("session_id") or session_id,
             )
         except Exception as exc:
             raise _stored_error(exc) from exc

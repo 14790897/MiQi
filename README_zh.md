@@ -314,24 +314,8 @@ miqi-desktop/
 
 ### 测试
 
-#### E2E 端到端测试
-
 ```bash
-# Electron E2E（完整桌面应用 + bridge + LLM）
-cd apps/desktop
-npm run build && npx playwright test --config=playwright.config.ts --project=electron
-```
-
-| 平台 | E2E 覆盖范围 | 备注 |
-|---|---|---|
-| **Linux** (Ubuntu CI) | 全部 ✓ | bwrap 沙箱 + 所有 spec |
-| **Windows** (WSL CI) | 全部 ✓ | WSL bwrap 沙箱 + 所有 spec（需要 `MIQI_RUN_SANDBOX_E2E=1`） |
-| **macOS** (CI) | 仅非沙箱 | bwrap 不可用；沙箱 spec 通过 `--grep-invert` 排除 |
-
-> **macOS 已知限制**：「重启 recall」E2E 测试 (`session-context-recall.spec.ts`) 仅在 `process.env.CI && process.platform === 'darwin'` 时被跳过（本地 macOS 运行仍会执行该测试）。macOS ARM64 CI runner 上应用完全重启后，即使 sidebar 会话标题加载正确且 bridge 报告 `running / initialized`，会话历史（聊天消息）也无法在 `<main>` 中渲染。这很可能是 bridge IPC 时序问题或 APFS/SQLite WAL checkpoint 在冷启动时的竞态问题——需要原生调试。不涉及重启的会话切换 recall 测试仍然在 macOS 上验证 #490 行为。
-
-```bash
-# Python 后端测试（~1800+ 测试）
+# Python 后端测试 (~1800+ 测试)
 uv run pytest
 
 # 跳过沙箱/子进程测试以快速反馈
