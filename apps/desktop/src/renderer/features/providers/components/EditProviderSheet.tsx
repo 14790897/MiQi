@@ -200,8 +200,8 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
   };
 
   return (
-    <Modal open onOpenChange={onClose} hideClose>
-      <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-xl w-[480px] max-h-[80vh] overflow-y-auto">
+    <Modal open onOpenChange={onClose} hideClose className="max-w-[480px] w-[480px] p-0">
+      <div className="w-full max-h-[80vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-subtle)]">
           <div>
             <h2 className="text-sm font-semibold text-[var(--text)]">
