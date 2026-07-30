@@ -1182,7 +1182,17 @@ export function ChatConsole({
           .replace(/[…]$/, '')
           .replace(/^\.\//, '')
           .trim();
-        return f.path === normPath || fc === clean || basename(f.path) === basename(clean);
+        // Basename-only matching should only kick in when one side is a bare
+        // filename (no directory), e.g. a tool hint reporting just "foo.pdf"
+        // that needs to match an existing "papers/foo.pdf" entry. Two paths
+        // that both carry (different) directories must not be merged just
+        // because they share a filename.
+        const eitherIsBareFilename = !clean.includes('/') || !fc.includes('/');
+        return (
+          f.path === normPath ||
+          fc === clean ||
+          (eitherIsBareFilename && basename(f.path) === basename(clean))
+        );
       });
       if (existing) {
         // Upgrade: read < edit < write
