@@ -226,33 +226,68 @@ export async function switchToSessionWithMarker(
     if (!isVisible) continue;
 
     await btn.scrollIntoViewIfNeeded().catch(() => {});
-    await btn.click({ force: true, timeout: 5000 }).catch(() => {});
 
-    // Wait for chat to update after click
-    await page.waitForTimeout(2000);
+    // Snapshot the current title before clicking so we can detect when
+    // the header actually updates to reflect the newly selected session.
+    const prevTitle = await getSessionTitle(page).textContent();
 
-    // Check if we're still in a loading state
-    const thinking = await page.locator('[data-testid="thinking-indicator"]').isVisible().catch(() => false);
-    if (thinking) {
-      // Wait for thinking to complete
-      await page.waitForTimeout(3000);
+    await btn.click({ force: true, timeout: 5000 });
+
+    // Wait for the session title to change (or a short timeout).  On
+    // macOS the header can lag behind the click; reading textContent
+    // immediately may return the previous session's title and mislead
+    // the titleHasMarker calculation below.
+    try {
+      await page.waitForFunction(
+        (prev: string) => {
+          const el = document.querySelector('h2.font-semibold.truncate');
+          const text = el?.textContent || '';
+          return text !== prev && text.length > 0;
+        },
+        prevTitle ?? '',
+        { timeout: 5_000, polling: 200 },
+      );
+    } catch {
+      // Title didn't change — session may not have loaded, or this is
+      // the same session.  Fall through and use whatever textContent
+      // is present now.
     }
 
     const currentTitle = await getSessionTitle(page).textContent();
     console.log(`[test] Clicked session #${i} → title: ${currentTitle}`);
 
     // Session load is async (sessions.get → thread resume → message render).
-    // A fixed 4s wait races the load: main may still be empty when we check,
-    // so the marker is missed and we wrong-move to the next session. Poll the
-    // marker in <main> for up to 15s instead — resolves as soon as the prior
-    // turn's history renders, falls through if this isn't the right session.
+    // Poll the marker in <main> — the timeout depends on whether we're
+    // confident this is the right session.
+    //
+    // When the title itself contains the marker (the app sets the session
+    // title from the first user message), we KNOW we're on the correct
+    // session.  On macOS ARM64 runners the history load after a cold
+    // restart can take 30-60+ seconds (APFS + SQLite WAL recovery +
+    // Python bridge cold start), so we give it 120s here.
+    //
+    // When the title does NOT contain the marker, this might not be the
+    // right session — use a shorter timeout (15s) and move on.
+    const titleHasMarker = currentTitle?.includes(marker) ?? false;
+    const pollTimeout = titleHasMarker ? 120_000 : 15_000;
+    if (titleHasMarker) {
+      console.log(
+        `[test] Title confirms this is the right session — waiting up to ${pollTimeout / 1000}s for history to render`,
+      );
+    }
+
     const markerInMain = page.locator('main').getByText(marker, { exact: false });
     try {
-      await markerInMain.first().waitFor({ state: 'visible', timeout: 15_000 });
+      await markerInMain.first().waitFor({ state: 'visible', timeout: pollTimeout });
       console.log(`[test] Found marker "${marker}" in session #${i}`);
       return true;
     } catch {
       // Marker not visible here — try the next sidebar session.
+      if (titleHasMarker) {
+        console.log(
+          `[test] Session #${i} title matched but marker did not appear in ${pollTimeout / 1000}s — continuing search`,
+        );
+      }
     }
   }
 
