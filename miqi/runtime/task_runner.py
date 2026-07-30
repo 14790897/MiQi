@@ -844,6 +844,11 @@ class TaskRunner:
                 # AUTH is sensitive — surface a fixed, non-leaking message
                 # instead of the raw provider exception text (Plan 58.2).
                 user_message = "模型服务认证失败，请检查 Provider 的 API Key、API Base 或当前模型配置。"
+            elif prov_err.kind is ErrorKind.PAYMENT_REQUIRED:
+                # Issue #528: 402 / balance / quota exhausted — account
+                # status, not auth. Fixed non-leaking billing hint
+                # (never the raw text), recoverable=False.
+                user_message = "模型服务账户余额不足或额度已用尽，请充值或检查账户额度后重试。"
             elif prov_err.kind is ErrorKind.TRANSIENT:
                 user_message = "模型服务暂时不可用或过载，请稍后重试。"
             elif prov_err.kind in (

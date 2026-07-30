@@ -464,6 +464,53 @@ async def test_task_runner_raw_auth_exception_surfaces_fixed_message(error_servi
 
 
 @pytest.mark.asyncio
+async def test_task_runner_raw_payment_required_surfaces_billing_message(error_services):
+    """Issue #528: a raw 402 error reaching the final boundary is re-classified
+    to PAYMENT_REQUIRED. It surfaces the fixed billing hint (never the raw text,
+    which may leak account details) and recoverable=False — retrying won't add
+    balance."""
+    from miqi.protocol.events import ErrorEvent
+
+    class _PaymentRequired(Exception):
+        status_code = 402
+
+    emitted, _history, ledger = await _run_turn_expect_error(
+        error_services,
+        _PaymentRequired("Insufficient balance"),
+    )
+
+    err = next(e for e in emitted if isinstance(e, ErrorEvent))
+    assert err.error_kind == "payment_required"
+    assert err.recoverable is False
+    assert err.message == "模型服务账户余额不足或额度已用尽，请充值或检查账户额度后重试。"
+    assert "Insufficient balance" not in err.message
+
+    payload = _record_ledger_error_payload(ledger)
+    assert payload.get("error_kind") == "payment_required"
+    assert payload.get("recoverable") is False
+
+
+@pytest.mark.asyncio
+async def test_task_runner_raw_quota_exhausted_message_classifies_payment(error_services):
+    """Issue #528: even without an explicit 402 status, a quota-exhausted
+    message body classifies as PAYMENT_REQUIRED via the message keyword path."""
+    from miqi.protocol.events import ErrorEvent
+
+    emitted, _history, ledger = await _run_turn_expect_error(
+        error_services,
+        Exception("You exceeded your current quota, please check your plan and billing"),
+    )
+
+    err = next(e for e in emitted if isinstance(e, ErrorEvent))
+    assert err.error_kind == "payment_required"
+    assert err.recoverable is False
+    assert err.message == "模型服务账户余额不足或额度已用尽，请充值或检查账户额度后重试。"
+
+    payload = _record_ledger_error_payload(ledger)
+    assert payload.get("error_kind") == "payment_required"
+
+
+@pytest.mark.asyncio
 async def test_task_runner_provider_error_fatal_keeps_generic_message(error_services):
     """A FATAL ProviderError is NOT user-actionable, so the generic message
     is kept even though error_kind is recorded."""

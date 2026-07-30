@@ -99,6 +99,47 @@ def test_classify_error_auth_message() -> None:
     assert classify_error(Exception("invalid api key")) == ErrorKind.AUTH
 
 
+# ── Issue #528: 402 / balance / quota → PAYMENT_REQUIRED ───────────────────
+
+
+def test_classify_error_payment_required_status_402() -> None:
+    assert classify_error(_StatusError("Payment Required", status_code=402)) == ErrorKind.PAYMENT_REQUIRED
+
+
+@pytest.mark.parametrize("message", [
+    # OpenAI style
+    "You exceeded your current quota, please check your plan and billing details",
+    # Anthropic style
+    "Error: credit balance is too low",
+    # Gateway / proxy wording
+    "Insufficient balance",
+    "payment required",
+    "quota exceeded - top up to continue",
+    "credit exhausted",
+    "out of credits",
+    "billing: account suspended",
+    "balance exceeded the limit",
+])
+def test_classify_error_payment_required_message(message: str) -> None:
+    assert classify_error(Exception(message)) == ErrorKind.PAYMENT_REQUIRED
+
+
+def test_classify_error_payment_required_is_not_retryable() -> None:
+    """402 is non-retryable — retrying won't add balance."""
+    assert is_retryable(ErrorKind.PAYMENT_REQUIRED) is False
+    assert ProviderError(
+        kind=ErrorKind.PAYMENT_REQUIRED, message="insufficient balance"
+    ).recoverable is False
+
+
+def test_classify_error_payment_required_preferred_over_auth_wording() -> None:
+    """A 402 body that also says 'forbidden' must not be misread as AUTH —
+    billing is checked before the auth keyword branch."""
+    assert classify_error(
+        Exception("Forbidden: insufficient balance, payment required")
+    ) == ErrorKind.PAYMENT_REQUIRED
+
+
 def test_classify_error_context_length_message() -> None:
     assert classify_error(Exception("context length exceeded")) == ErrorKind.CONTEXT_LENGTH
 
@@ -158,6 +199,7 @@ def test_is_retryable() -> None:
     assert is_retryable(ErrorKind.TRANSIENT) is True
     assert is_retryable(ErrorKind.RATE_LIMIT) is True
     assert is_retryable(ErrorKind.AUTH) is False
+    assert is_retryable(ErrorKind.PAYMENT_REQUIRED) is False
     assert is_retryable(ErrorKind.CONTEXT_LENGTH) is False
     assert is_retryable(ErrorKind.INVALID_REQUEST) is False
     assert is_retryable(ErrorKind.FATAL) is False
@@ -634,6 +676,7 @@ def test_provider_error_recoverable_true_for_retryable_kinds() -> None:
 
 def test_provider_error_recoverable_false_for_non_retryable_kinds() -> None:
     assert ProviderError(kind=ErrorKind.AUTH, message="x").recoverable is False
+    assert ProviderError(kind=ErrorKind.PAYMENT_REQUIRED, message="x").recoverable is False
     assert ProviderError(kind=ErrorKind.CONTEXT_LENGTH, message="x").recoverable is False
     assert (
         ProviderError(kind=ErrorKind.INVALID_REQUEST, message="x").recoverable is False
