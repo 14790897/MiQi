@@ -1,3 +1,10 @@
+## [0.9.1](https://github.com/14790897/MiQi/compare/v0.9.0...v0.9.1) (2026-07-30)
+
+
+### Reverts
+
+* Revert "chore(release): merge develop into main for 0.10.0 ([#525](https://github.com/14790897/MiQi/issues/525))" ([#526](https://github.com/14790897/MiQi/issues/526)) ([0d46dd3](https://github.com/14790897/MiQi/commit/0d46dd36794c99f364636a7a16d7262e2c3613fe))
+
 # [0.9.0](https://github.com/14790897/MiQi/compare/v0.8.2...v0.9.0) (2026-07-29)
 
 
