@@ -2802,16 +2802,8 @@ export function ChatConsole({
             }}
           >
             <div className="max-w-[760px] mx-auto">
-              {/* Top row: mode selector + attachment chips (never blocks input) */}
-              <div className="flex flex-wrap items-center gap-2 mb-2">
-                <ExecutionPolicySelector
-                  policy={executionPolicy}
-                  onChange={setExecutionPolicy}
-                  disabled={streaming}
-                  onOpenApprovals={onOpenApprovals}
-                />
               {attachments.length > 0 && (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 mb-2">
                   {attachments.map((att, i) => {
                     const isDoc = att.type === 'document';
                     const cat = isDoc ? getDocCategory(att.name) : null;
@@ -2929,7 +2921,6 @@ export function ChatConsole({
                   })}
                 </div>
               )}
-              </div>
 
               <ContextMenu items={inputContextItems} minWidth={160}>
                 {({ onContextMenu }) => (
@@ -2944,6 +2935,12 @@ export function ChatConsole({
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
+                <ExecutionPolicySelector
+                  policy={executionPolicy}
+                  onChange={setExecutionPolicy}
+                  disabled={streaming}
+                  onOpenApprovals={onOpenApprovals}
+                />
                 <button
                   onClick={handleAttachClick}
                   className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
