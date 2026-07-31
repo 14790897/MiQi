@@ -1,3 +1,42 @@
+# [0.11.0](https://github.com/14790897/MiQi/compare/v0.10.0...v0.11.0) (2026-07-31)
+
+
+### Bug Fixes
+
+* **#483:** task assets PDF preview path alignment ([#520](https://github.com/14790897/MiQi/issues/520)) ([2b17232](https://github.com/14790897/MiQi/commit/2b172328c4a188ecff3881736f40c29bf25dfc98)), closes [#483](https://github.com/14790897/MiQi/issues/483) [#483](https://github.com/14790897/MiQi/issues/483) [#483](https://github.com/14790897/MiQi/issues/483)
+* **#516:** whitelist host-global memory/ & skills/ in WSL sandbox path check ([9c33c6b](https://github.com/14790897/MiQi/commit/9c33c6bf1df66d1f9b71a1a56245140632db8a08)), closes [#516](https://github.com/14790897/MiQi/issues/516)
+* **provider:** 消除编辑弹窗的双重白色面板 ([#534](https://github.com/14790897/MiQi/issues/534)) ([a8afb06](https://github.com/14790897/MiQi/commit/a8afb06d9dac3cfbcce5c041ad107e59ef48dbb1)), closes [#533](https://github.com/14790897/MiQi/issues/533)
+
+
+### Features
+
+* **agent:** embed anthropics/knowledge-work-plugins for domain-specific skills ([#504](https://github.com/14790897/MiQi/issues/504)) ([9f45098](https://github.com/14790897/MiQi/commit/9f450984a7868a1e0e456f18acc70774f1df556b)), closes [#373](https://github.com/14790897/MiQi/issues/373)
+
+# [0.10.0](https://github.com/14790897/MiQi/compare/v0.9.1...v0.10.0) (2026-07-30)
+
+
+### Bug Fixes
+
+* **#490:** 恢复 session 最近线程以保持上下文 ([#510](https://github.com/14790897/MiQi/issues/510)) ([3c2c637](https://github.com/14790897/MiQi/commit/3c2c637535b1983120ffb4fb43042d3e0cd8f8d6)), closes [#490](https://github.com/14790897/MiQi/issues/490) [#490](https://github.com/14790897/MiQi/issues/490) [#490](https://github.com/14790897/MiQi/issues/490) [#500](https://github.com/14790897/MiQi/issues/500) [#505](https://github.com/14790897/MiQi/issues/505) [#505](https://github.com/14790897/MiQi/issues/505) [#490](https://github.com/14790897/MiQi/issues/490) [#500](https://github.com/14790897/MiQi/issues/500) [#490](https://github.com/14790897/MiQi/issues/490) [#490](https://github.com/14790897/MiQi/issues/490) [#490](https://github.com/14790897/MiQi/issues/490) [#505](https://github.com/14790897/MiQi/issues/505) [#505](https://github.com/14790897/MiQi/issues/505)
+* **e2e:** increase session switch timeout when title confirms correct session ([#523](https://github.com/14790897/MiQi/issues/523)) ([ecaed54](https://github.com/14790897/MiQi/commit/ecaed54ff6b58ac6688c6e33f1d40d54daef4dd2)), closes [#490](https://github.com/14790897/MiQi/issues/490)
+
+
+### Features
+
+* **ci:** add PR title semantic consistency check ([#521](https://github.com/14790897/MiQi/issues/521)) ([d0af71c](https://github.com/14790897/MiQi/commit/d0af71cdefca1b67003b8a8f455ee152f7302f95))
+
+
+### Reverts
+
+* Revert "Fix/483 task assets pdf preview path ([#506](https://github.com/14790897/MiQi/issues/506))" ([#519](https://github.com/14790897/MiQi/issues/519)) ([34ee69b](https://github.com/14790897/MiQi/commit/34ee69b0bec219e0464a9772ac69aec7d3c03cdc))
+
+## [0.9.1](https://github.com/14790897/MiQi/compare/v0.9.0...v0.9.1) (2026-07-30)
+
+
+### Reverts
+
+* Revert "chore(release): merge develop into main for 0.10.0 ([#525](https://github.com/14790897/MiQi/issues/525))" ([#526](https://github.com/14790897/MiQi/issues/526)) ([0d46dd3](https://github.com/14790897/MiQi/commit/0d46dd36794c99f364636a7a16d7262e2c3613fe))
+
 # [0.9.0](https://github.com/14790897/MiQi/compare/v0.8.2...v0.9.0) (2026-07-29)
 
 
