@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, type MutableRefObject } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
 import { DiffView } from './components/DiffView';
@@ -52,7 +52,6 @@ import {
   Scissors,
   ClipboardPaste,
   Pin,
-  Flag,
   Clock,
   Code2,
   Braces,
@@ -3563,7 +3562,7 @@ function MessageBubble({
   onTogglePin: (idx: number) => void;
   onSaveToMemory?: (idx: number, content: string) => void;
   onQuoteReply?: (content: string) => void;
-  messageRefs?: React.MutableRefObject<Map<number, HTMLDivElement>>;
+  messageRefs?: MutableRefObject<Map<number, HTMLDivElement>>;
 }) {
   const [expanded, setExpanded] = useState(false);
 
