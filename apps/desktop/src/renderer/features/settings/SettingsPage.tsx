@@ -841,8 +841,11 @@ function LogsTab() {
           </thead>
         </table>
 
-        {/* Scrollable body with virtualizer and custom scrollbar */}
-        <ScrollArea className="flex-1" ref={scrollContainerRef}>
+        {/* Scrollable body with virtualizer */}
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 overflow-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--border)] hover:[&::-webkit-scrollbar-thumb]:bg-[var(--text-faint)]"
+        >
           {filtered.length === 0 ? (
             <div className="flex items-center justify-center text-[var(--text-muted)] py-16 text-xs">
               暂无匹配日志。请调整过滤条件或先启动运行时。
@@ -910,7 +913,7 @@ function LogsTab() {
               </table>
             </div>
           )}
-        </ScrollArea>
+        </div>
       </div>
     </div>
   );
