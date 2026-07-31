@@ -2319,7 +2319,7 @@ export function ChatConsole({
       if (streaming) return;
       cleanupListeners();
       const idx = messages.indexOf(msg);
-      if (idx >= 0) setMessages((prev) => prev.slice(0, idx));
+      if (idx >= 0) setMessages((prev) => prev.slice(0, idx + 1)); // keep the retried message
       setInput(msg.content);
       setAttachments(msg.attachments ?? []);
     },
@@ -2960,7 +2960,7 @@ export function ChatConsole({
                   placeholder="输入消息或拖入文件..."
                   rows={1}
                   allowResize={true}
-                  className="flex-1 border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 text-sm"
+                  className="flex-1 border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 max-h-32 text-sm"
                   disabled={streaming}
                   style={{ color: 'var(--text)' }}
                 />
@@ -3473,6 +3473,7 @@ function MessageBubble({
   downloadingPaperId?: string | null;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const bubbleRef = useRef<HTMLDivElement>(null);
 
   if (msg.role === 'progress') {
     // ── Paper search result: render formatted cards ──────────────
@@ -3587,9 +3588,19 @@ function MessageBubble({
   const hasCodeBlock = /```[\s\S]*?```/.test(msg.content);
 
   const copyWithSelection = () => {
-    const sel = window.getSelection()?.toString().trim();
-    if (sel) { navigator.clipboard.writeText(sel); return; }
+    // If user has manually selected text, copy that
+    const sel = window.getSelection();
+    const selText = sel?.toString().trim();
+    if (selText) { navigator.clipboard.writeText(selText); return; }
+    // Flash-select the message text so user sees what's being copied
+    if (bubbleRef.current) {
+      const range = document.createRange();
+      range.selectNodeContents(bubbleRef.current);
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    }
     onCopy(msg.content);
+    setTimeout(() => window.getSelection()?.removeAllRanges(), 1200);
   };
 
   const contextItems: ContextMenuAction[] = isUser
@@ -3622,6 +3633,7 @@ function MessageBubble({
     <ContextMenu items={contextItems}>
       {({ onContextMenu }) => (
         <div
+          ref={bubbleRef}
           className={cn('flex items-start gap-3', isUser && 'justify-end')}
           onContextMenu={onContextMenu}
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
