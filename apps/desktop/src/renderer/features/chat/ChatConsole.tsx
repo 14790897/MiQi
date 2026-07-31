@@ -2925,7 +2925,7 @@ export function ChatConsole({
               <ContextMenu items={inputContextItems} minWidth={160}>
                 {({ onContextMenu }) => (
               <div
-                className="flex items-end gap-2 rounded-xl px-4 py-3.5 focus-within:ring-2 transition-all"
+                className="flex flex-col gap-2 rounded-xl px-4 py-3 focus-within:ring-2 transition-all"
                 data-testid="chat-input-container"
                 onContextMenu={onContextMenu}
                 style={{
@@ -2935,12 +2935,18 @@ export function ChatConsole({
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
-                <ExecutionPolicySelector
-                  policy={executionPolicy}
-                  onChange={setExecutionPolicy}
-                  disabled={streaming}
-                  onOpenApprovals={onOpenApprovals}
-                />
+                {/* Toolbar row: mode selector + spacer */}
+                <div className="flex items-center gap-2">
+                  <ExecutionPolicySelector
+                    policy={executionPolicy}
+                    onChange={setExecutionPolicy}
+                    disabled={streaming}
+                    onOpenApprovals={onOpenApprovals}
+                  />
+                  <div className="flex-1" />
+                </div>
+                {/* Input row: attach + textarea + send */}
+                <div className="flex items-end gap-2">
                 <button
                   onClick={handleAttachClick}
                   className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
@@ -2981,6 +2987,7 @@ export function ChatConsole({
                     <Send size={13} style={{ color: '#fff' }} />
                   </button>
                 )}
+                </div>
               </div>
                 )}
               </ContextMenu>
@@ -3604,10 +3611,8 @@ function MessageBubble({
   const copyWithSelection = () => {
     const selText = window.getSelection()?.toString().trim();
     if (selText) { navigator.clipboard.writeText(selText); deselectMessageText(); return; }
-    // No selection — copy full message with flash
-    selectMessageText();
+    // No manual selection — copy full message
     onCopy(msg.content);
-    setTimeout(deselectMessageText, 1000);
   };
 
   const contextItems: ContextMenuAction[] = isUser
