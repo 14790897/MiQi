@@ -3592,15 +3592,18 @@ function MessageBubble({
     const sel = window.getSelection();
     const selText = sel?.toString().trim();
     if (selText) { navigator.clipboard.writeText(selText); return; }
-    // Flash-select the message text so user sees what's being copied
-    if (bubbleRef.current) {
-      const range = document.createRange();
-      range.selectNodeContents(bubbleRef.current);
-      sel?.removeAllRanges();
-      sel?.addRange(range);
-    }
     onCopy(msg.content);
-    setTimeout(() => window.getSelection()?.removeAllRanges(), 1200);
+    // Flash-select after context menu overlay is dismissed
+    requestAnimationFrame(() => {
+      const textEl = bubbleRef.current?.querySelector('[class*="leading-relaxed"]') as HTMLElement | null;
+      if (textEl) {
+        const range = document.createRange();
+        range.selectNodeContents(textEl);
+        window.getSelection()?.removeAllRanges();
+        window.getSelection()?.addRange(range);
+        setTimeout(() => window.getSelection()?.removeAllRanges(), 1200);
+      }
+    });
   };
 
   const contextItems: ContextMenuAction[] = isUser
