@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
 import { DiffView } from './components/DiffView';
@@ -944,8 +944,10 @@ export function ChatConsole({
   const [executionPolicy, setExecutionPolicy] = useState<ExecutionPolicy>('edit');
   const [streaming, setStreaming] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
-  /** Pinned chapter message indices (visual markers in conversation) */
-  const [pinnedChapters, setPinnedChapters] = useState<Set<number>>(new Set());
+  /** Pinned chapter message indices (ordered, for navigation bar) */
+  const [pinnedChapters, setPinnedChapters] = useState<number[]>([]);
+  /** Refs for scrolling to messages */
+  const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [downloadingPaperId, setDownloadingPaperId] = useState<string | null>(null);
@@ -2322,14 +2324,41 @@ export function ChatConsole({
 
   const handleTogglePin = useCallback((idx: number) => {
     setPinnedChapters((prev) => {
-      const next = new Set(prev);
-      if (next.has(idx)) {
-        next.delete(idx);
-      } else {
-        next.add(idx);
+      const existing = prev.indexOf(idx);
+      if (existing >= 0) {
+        return prev.filter((i) => i !== idx);
       }
-      return next;
+      return [...prev, idx];
     });
+  }, []);
+
+  const scrollToMessage = useCallback((idx: number) => {
+    const el = messageRefs.current.get(idx);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, []);
+
+  const handleSaveToMemory = useCallback(async (idx: number, content: string) => {
+    try {
+      const ts = new Date().toISOString().slice(0, 10);
+      await window.miqi.memory.update(
+        `chat-chapter-${ts}-${idx}`,
+        `# 来自对话的记忆\n\n> ${content.slice(0, 500)}\n\n保存时间：${new Date().toLocaleString('zh-CN')}\n\n会话：${sessionKey}`
+      );
+      // Show brief feedback via the existing copiedIdx mechanism
+      setCopiedIdx(-1); // use -1 as "saved to memory" signal
+      setTimeout(() => setCopiedIdx(null), 2000);
+    } catch {
+      // Silently fail — memory API may not be available
+    }
+  }, [sessionKey]);
+
+  const handleQuoteReply = useCallback((content: string) => {
+    const quote = content
+      .split('\n')
+      .map((line) => `> ${line}`)
+      .join('\n');
+    setInput((prev) => (prev ? `${prev}\n\n${quote}\n\n` : `${quote}\n\n`));
+    textareaRef.current?.focus();
   }, []);
 
   const handleRetry = useCallback(
@@ -2752,6 +2781,39 @@ export function ChatConsole({
               </button>
             </Tooltip>
           </div>
+          {/* Chapter navigation bar */}
+          {pinnedChapters.length > 0 && (
+            <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]">
+              <div className="max-w-[760px] mx-auto px-4 py-1.5 flex items-center gap-1.5 overflow-x-auto">
+                <span className="text-[10px] font-semibold text-[var(--text-faint)] shrink-0 mr-1">
+                  章节
+                </span>
+                {pinnedChapters.map((chapterIdx, i) => {
+                  const chapterMsg = messages[chapterIdx];
+                  if (!chapterMsg) return null;
+                  const preview = chapterMsg.content.replace(/\n/g, ' ').slice(0, 30);
+                  return (
+                    <button
+                      key={chapterIdx}
+                      onClick={() => scrollToMessage(chapterIdx)}
+                      className="flex items-center gap-1 shrink-0 rounded-full px-2.5 py-0.5 text-[10px] transition-colors hover:brightness-95"
+                      style={{
+                        background: 'var(--accent-bg)',
+                        color: 'var(--accent)',
+                        border: '1px solid var(--accent-border)',
+                      }}
+                    >
+                      <Pin size={9} />
+                      <span className="max-w-[120px] truncate">
+                        {i + 1}. {preview || '(空消息)'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Messages */}
           <div
             ref={scrollRef}
@@ -2795,6 +2857,9 @@ export function ChatConsole({
                     downloadingPaperId={downloadingPaperId}
                     pinnedChapters={pinnedChapters}
                     onTogglePin={handleTogglePin}
+                    onSaveToMemory={handleSaveToMemory}
+                    onQuoteReply={handleQuoteReply}
+                    messageRefs={messageRefs}
                   />
                 ))
               )}
@@ -3479,6 +3544,9 @@ function MessageBubble({
   downloadingPaperId,
   pinnedChapters,
   onTogglePin,
+  onSaveToMemory,
+  onQuoteReply,
+  messageRefs,
 }: {
   msg: Message;
   msgIndex: number;
@@ -3491,8 +3559,11 @@ function MessageBubble({
   onOpenProviderSettings?: () => void;
   onDownloadPaper?: (paper: PaperItem) => void;
   downloadingPaperId?: string | null;
-  pinnedChapters: Set<number>;
+  pinnedChapters: number[];
   onTogglePin: (idx: number) => void;
+  onSaveToMemory?: (idx: number, content: string) => void;
+  onQuoteReply?: (content: string) => void;
+  messageRefs?: React.MutableRefObject<Map<number, HTMLDivElement>>;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -3607,7 +3678,7 @@ function MessageBubble({
 
   const isUser = msg.role === 'user';
   const hasCodeBlock = /```[\s\S]*?```/.test(msg.content);
-  const isPinned = pinnedChapters.has(msgIndex);
+  const isPinned = pinnedChapters.includes(msgIndex);
 
   const buildAttachContext = () => {
     const role = isUser ? '用户' : 'MiQi';
@@ -3621,6 +3692,7 @@ ${msg.content.trim()}
     {
       label: '复制文本',
       icon: <Copy size={14} />,
+      shortcut: 'Ctrl+C',
       onSelect: () => onCopy(msg.content),
     },
     {
@@ -3648,18 +3720,32 @@ ${msg.content.trim()}
         ]
       : []),
     {
+      label: '引用回复',
+      icon: <Undo2 size={14} />,
+      divider: true,
+      onSelect: () => onQuoteReply?.(msg.content),
+    },
+    {
       label: '附加为上下文',
       icon: <ClipboardPaste size={14} />,
-      divider: true,
       onSelect: () => {
         const ctx = buildAttachContext();
         navigator.clipboard.writeText(ctx).catch(() => {});
       },
     },
     {
-      label: isPinned ? '取消固定章节' : '固定为章节 🚩',
+      label: isPinned ? '取消固定章节' : '固定为章节 📌',
       icon: <Pin size={14} />,
       onSelect: () => onTogglePin(msgIndex),
+    },
+    {
+      label: '保存到记忆',
+      icon: <BookOpen size={14} />,
+      divider: true,
+      onSelect: () => {
+        const summary = msg.content.slice(0, 200).replace(/\n/g, ' ');
+        onSaveToMemory?.(msgIndex, summary);
+      },
     },
     ...(isUser
       ? [
@@ -3675,7 +3761,6 @@ ${msg.content.trim()}
       label: '查看原始消息',
       icon: <Braces size={14} />,
       divider: true,
-      danger: false,
       onSelect: () => {
         const raw = JSON.stringify(
           {
@@ -3707,25 +3792,16 @@ ${msg.content.trim()}
     <ContextMenu items={contextItems}>
       {({ onContextMenu }) => (
         <div
+          ref={(el) => {
+            if (el && messageRefs) {
+              messageRefs.current.set(msgIndex, el);
+            }
+          }}
           className={cn('flex items-start gap-3', isUser && 'justify-end')}
           onContextMenu={onContextMenu}
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
           {!isUser && <AgentAvatar />}
-
-          {/* Pinned chapter indicator */}
-          {isPinned && (
-            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium"
-              style={{
-                background: 'var(--accent-bg)',
-                color: 'var(--accent)',
-                border: '1px solid var(--accent-border)',
-              }}
-            >
-              <Pin size={10} />
-              <span>章节</span>
-            </div>
-          )}
 
           <div
             className={cn(
