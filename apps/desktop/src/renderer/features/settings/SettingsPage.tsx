@@ -632,13 +632,22 @@ function LogsTab() {
         : undefined,
   });
 
+  // Keep latest virtualizer in a ref so effects can use it without re-running
+  // when the virtualizer instance changes (avoiding flushSync-in-render errors).
+  const virtualizerRef = useRef(virtualizer);
+  virtualizerRef.current = virtualizer;
+
   // Auto-scroll to bottom when new entries arrive
   useEffect(() => {
     if (autoScroll && filtered.length > 0) {
       programmaticScroll.current = true;
-      virtualizer.scrollToIndex(filtered.length - 1, { align: 'end' });
+      // Defer to microtask: virtualizer.scrollToIndex calls flushSync, which
+      // cannot run inside a React lifecycle / render phase.
+      queueMicrotask(() => {
+        virtualizerRef.current.scrollToIndex(filtered.length - 1, { align: 'end' });
+      });
     }
-  }, [filtered.length, autoScroll, virtualizer]);
+  }, [filtered.length, autoScroll]);
 
   // When user manually scrolls up, turn off auto-scroll (tail -f behavior)
   useEffect(() => {
