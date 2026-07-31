@@ -3587,32 +3587,36 @@ function MessageBubble({
   const isUser = msg.role === 'user';
   const hasCodeBlock = /```[\s\S]*?```/.test(msg.content);
 
-  const copyWithSelection = () => {
-    // If user has manually selected text, copy that
+  const selectMessageText = () => {
+    const textEl = bubbleRef.current?.querySelector('[class*="leading-relaxed"]') as HTMLElement | null;
+    if (!textEl) return;
+    const range = document.createRange();
+    range.selectNodeContents(textEl);
     const sel = window.getSelection();
-    const selText = sel?.toString().trim();
-    if (selText) { navigator.clipboard.writeText(selText); return; }
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  };
+
+  const deselectMessageText = () => {
+    window.getSelection()?.removeAllRanges();
+  };
+
+  const copyWithSelection = () => {
+    const selText = window.getSelection()?.toString().trim();
+    if (selText) { navigator.clipboard.writeText(selText); deselectMessageText(); return; }
+    // No selection — copy full message with flash
+    selectMessageText();
     onCopy(msg.content);
-    // Flash-select after context menu overlay is dismissed
-    requestAnimationFrame(() => {
-      const textEl = bubbleRef.current?.querySelector('[class*="leading-relaxed"]') as HTMLElement | null;
-      if (textEl) {
-        const range = document.createRange();
-        range.selectNodeContents(textEl);
-        window.getSelection()?.removeAllRanges();
-        window.getSelection()?.addRange(range);
-        setTimeout(() => window.getSelection()?.removeAllRanges(), 1200);
-      }
-    });
+    setTimeout(deselectMessageText, 1000);
   };
 
   const contextItems: ContextMenuAction[] = isUser
     ? [
-        { label: '复制文本', icon: <Copy size={14} />, onSelect: copyWithSelection },
+        { label: '复制文本', icon: <Copy size={14} />, onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
         { label: '重试', icon: <Undo2 size={14} />, divider: true, onSelect: () => onRetry?.() },
       ]
     : [
-        { label: '复制文本', icon: <Copy size={14} />, onSelect: copyWithSelection },
+        { label: '复制文本', icon: <Copy size={14} />, onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
         ...(hasCodeBlock
           ? [
               {
