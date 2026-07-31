@@ -1,3 +1,17 @@
+# [0.11.0](https://github.com/14790897/MiQi/compare/v0.10.0...v0.11.0) (2026-07-31)
+
+
+### Bug Fixes
+
+* **#483:** task assets PDF preview path alignment ([#520](https://github.com/14790897/MiQi/issues/520)) ([2b17232](https://github.com/14790897/MiQi/commit/2b172328c4a188ecff3881736f40c29bf25dfc98)), closes [#483](https://github.com/14790897/MiQi/issues/483) [#483](https://github.com/14790897/MiQi/issues/483) [#483](https://github.com/14790897/MiQi/issues/483)
+* **#516:** whitelist host-global memory/ & skills/ in WSL sandbox path check ([9c33c6b](https://github.com/14790897/MiQi/commit/9c33c6bf1df66d1f9b71a1a56245140632db8a08)), closes [#516](https://github.com/14790897/MiQi/issues/516)
+* **provider:** 消除编辑弹窗的双重白色面板 ([#534](https://github.com/14790897/MiQi/issues/534)) ([a8afb06](https://github.com/14790897/MiQi/commit/a8afb06d9dac3cfbcce5c041ad107e59ef48dbb1)), closes [#533](https://github.com/14790897/MiQi/issues/533)
+
+
+### Features
+
+* **agent:** embed anthropics/knowledge-work-plugins for domain-specific skills ([#504](https://github.com/14790897/MiQi/issues/504)) ([9f45098](https://github.com/14790897/MiQi/commit/9f450984a7868a1e0e456f18acc70774f1df556b)), closes [#373](https://github.com/14790897/MiQi/issues/373)
+
 # [0.10.0](https://github.com/14790897/MiQi/compare/v0.9.1...v0.10.0) (2026-07-30)
 
 
