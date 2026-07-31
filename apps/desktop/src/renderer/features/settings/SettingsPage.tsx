@@ -620,16 +620,15 @@ function LogsTab() {
       });
   }, [entries, logTab, level, source, sessionKey, keyword]);
 
-  // Virtualizer — only render rows visible in the viewport
+  // Virtualizer — only render rows visible in the viewport.
+  // No measureElement: log rows are all single-line (py-1.5 + text-xs),
+  // so the static estimate is accurate. A ResizeObserver-based measurer
+  // would fire during render and trigger internal flushSync calls.
   const virtualizer = useVirtualizer({
     count: filtered.length,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => LOG_ROW_ESTIMATE,
     overscan: 15,
-    measureElement:
-      typeof window !== 'undefined' && typeof window.ResizeObserver !== 'undefined'
-        ? (el) => el.getBoundingClientRect().height
-        : undefined,
   });
 
   // Keep latest virtualizer in a ref so effects can use it without re-running
@@ -912,7 +911,6 @@ function LogsTab() {
                       <tr
                         key={entry.id}
                         data-index={virtualRow.index}
-                        ref={virtualizer.measureElement}
                         onClick={() => toggleRow(entry.id)}
                         className={cn(
                           'border-b border-[var(--border-subtle)] cursor-pointer transition-colors',
