@@ -2937,6 +2937,15 @@ export function ChatConsole({
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
+                <div className="flex items-end gap-2">
+                <button
+                  onClick={handleAttachClick}
+                  className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
+                  title="Attach file or image"
+                  aria-label="Attach file or image"
+                >
+                  <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
+                </button>
                 <Textarea
                   ref={textareaRef}
                   value={input}
@@ -2948,48 +2957,40 @@ export function ChatConsole({
                   placeholder="输入消息或拖入文件..."
                   rows={1}
                   allowResize={true}
-                  className="w-full border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 max-h-[200px] text-sm"
+                  className="flex-1 border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 max-h-[200px] text-sm"
                   disabled={streaming}
                   style={{ color: 'var(--text)' }}
                 />
-                {/* Bottom toolbar (Claude Desktop style): mode left, attach+send right */}
-                <div className="flex items-center gap-2 pt-2">
-                  <ExecutionPolicySelector
-                    policy={executionPolicy}
-                    onChange={setExecutionPolicy}
-                    disabled={streaming}
-                    onOpenApprovals={onOpenApprovals}
-                  />
-                  <div className="flex-1" />
+                {streaming ? (
                   <button
-                    onClick={handleAttachClick}
-                    className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
-                    title="Attach file or image"
-                    aria-label="Attach file or image"
+                    onClick={handleAbort}
+                    className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-[var(--surface-muted)]"
                   >
-                    <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
+                    <Square size={14} style={{ color: 'var(--text-muted)' }} />
                   </button>
-                  {streaming ? (
-                    <button
-                      onClick={handleAbort}
-                      className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-[var(--surface-muted)]"
-                    >
-                      <Square size={14} style={{ color: 'var(--text-muted)' }} />
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleSend}
-                      disabled={!input.trim() && attachments.length === 0}
-                      className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors disabled:opacity-30"
-                      style={{ background: 'var(--accent)' }}
-                    >
-                      <Send size={13} style={{ color: '#fff' }} />
-                    </button>
-                  )}
+                ) : (
+                  <button
+                    onClick={handleSend}
+                    disabled={!input.trim() && attachments.length === 0}
+                    className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors disabled:opacity-30"
+                    style={{ background: 'var(--accent)' }}
+                  >
+                    <Send size={13} style={{ color: '#fff' }} />
+                  </button>
+                )}
                 </div>
               </div>
                 )}
               </ContextMenu>
+              {/* Mode selector — BELOW the input box, outside its container */}
+              <div className="flex items-center justify-center mt-2">
+                <ExecutionPolicySelector
+                  policy={executionPolicy}
+                  onChange={setExecutionPolicy}
+                  disabled={streaming}
+                  onOpenApprovals={onOpenApprovals}
+                />
+              </div>
             </div>
           </div>
         </div>
