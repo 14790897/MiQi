@@ -49,6 +49,13 @@ import {
   AlertCircle,
   FileType,
   Loader,
+  Scissors,
+  ClipboardPaste,
+  Pin,
+  Flag,
+  Clock,
+  Code2,
+  Braces,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -937,6 +944,8 @@ export function ChatConsole({
   const [executionPolicy, setExecutionPolicy] = useState<ExecutionPolicy>('edit');
   const [streaming, setStreaming] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  /** Pinned chapter message indices (visual markers in conversation) */
+  const [pinnedChapters, setPinnedChapters] = useState<Set<number>>(new Set());
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [downloadingPaperId, setDownloadingPaperId] = useState<string | null>(null);
@@ -2311,6 +2320,18 @@ export function ChatConsole({
     setTimeout(() => setCopiedIdx(null), 2000);
   };
 
+  const handleTogglePin = useCallback((idx: number) => {
+    setPinnedChapters((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) {
+        next.delete(idx);
+      } else {
+        next.add(idx);
+      }
+      return next;
+    });
+  }, []);
+
   const handleRetry = useCallback(
     async (msg: Message) => {
       if (streaming) return;
@@ -2418,6 +2439,45 @@ export function ChatConsole({
       },
     ],
     [handleCopyReproContext, handleCopyTaskSummary, handleExportTaskMarkdown, messages]
+  );
+
+  const inputContextItems = useMemo<ContextMenuAction[]>(
+    () => [
+      {
+        label: '剪切',
+        icon: <Scissors size={14} />,
+        shortcut: 'Ctrl+X',
+        onSelect: () => {
+          document.execCommand('cut');
+        },
+      },
+      {
+        label: '复制',
+        icon: <Copy size={14} />,
+        shortcut: 'Ctrl+C',
+        onSelect: () => {
+          document.execCommand('copy');
+        },
+      },
+      {
+        label: '粘贴',
+        icon: <ClipboardPaste size={14} />,
+        shortcut: 'Ctrl+V',
+        onSelect: () => {
+          document.execCommand('paste');
+        },
+      },
+      {
+        label: '全选',
+        icon: <CheckCircle size={14} />,
+        shortcut: 'Ctrl+A',
+        divider: true,
+        onSelect: () => {
+          document.execCommand('selectAll');
+        },
+      },
+    ],
+    []
   );
 
   const shareButtonLabel =
@@ -2723,6 +2783,7 @@ export function ChatConsole({
                   <MessageBubble
                     key={`${msg.timestamp}-${i}`}
                     msg={msg}
+                    msgIndex={i}
                     execOutputs={execOutputs}
                     inlineExecOutput={inlineExecOutput}
                     isLast={i === messages.length - 1}
@@ -2732,6 +2793,8 @@ export function ChatConsole({
                     onOpenProviderSettings={onOpenProviderSettings}
                     onDownloadPaper={handleDownloadPaper}
                     downloadingPaperId={downloadingPaperId}
+                    pinnedChapters={pinnedChapters}
+                    onTogglePin={handleTogglePin}
                   />
                 ))
               )}
@@ -2875,9 +2938,12 @@ export function ChatConsole({
                 </div>
               )}
 
+              <ContextMenu items={inputContextItems} minWidth={160}>
+                {({ onContextMenu }) => (
               <div
                 className="flex items-end gap-2 rounded-xl px-4 py-3.5 focus-within:ring-2 transition-all"
                 data-testid="chat-input-container"
+                onContextMenu={onContextMenu}
                 style={{
                   background: 'var(--surface)',
                   border: '1px solid var(--border)',
@@ -2932,6 +2998,8 @@ export function ChatConsole({
                   </button>
                 )}
               </div>
+                )}
+              </ContextMenu>
             </div>
           </div>
         </div>
@@ -3399,6 +3467,7 @@ function SectionLabel({ label, sectionKey }: { label: string; sectionKey: string
 
 function MessageBubble({
   msg,
+  msgIndex,
   execOutputs,
   inlineExecOutput,
   isLast,
@@ -3408,8 +3477,11 @@ function MessageBubble({
   onOpenProviderSettings,
   onDownloadPaper,
   downloadingPaperId,
+  pinnedChapters,
+  onTogglePin,
 }: {
   msg: Message;
+  msgIndex: number;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
   inlineExecOutput: boolean;
   isLast: boolean;
@@ -3419,6 +3491,8 @@ function MessageBubble({
   onOpenProviderSettings?: () => void;
   onDownloadPaper?: (paper: PaperItem) => void;
   downloadingPaperId?: string | null;
+  pinnedChapters: Set<number>;
+  onTogglePin: (idx: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -3533,31 +3607,101 @@ function MessageBubble({
 
   const isUser = msg.role === 'user';
   const hasCodeBlock = /```[\s\S]*?```/.test(msg.content);
+  const isPinned = pinnedChapters.has(msgIndex);
 
-  const contextItems: ContextMenuAction[] = isUser
-    ? [
-        { label: '复制文本', onSelect: () => onCopy(msg.content) },
-        { label: '重试', onSelect: () => onRetry?.() },
-      ]
-    : [
-        { label: '复制文本', onSelect: () => onCopy(msg.content) },
-        ...(hasCodeBlock
-          ? [
-              {
-                label: '复制代码',
-                onSelect: () => {
-                  const codeMatch = msg.content.match(/```[\s\S]*?```/g);
-                  if (codeMatch) {
-                    const code = codeMatch
-                      .map((b) => b.replace(/```\w*\n?/g, '').replace(/```$/g, ''))
-                      .join('\n\n');
-                    navigator.clipboard.writeText(code).catch(() => {});
-                  }
-                },
-              },
-            ]
-          : []),
-      ];
+  const buildAttachContext = () => {
+    const role = isUser ? '用户' : 'MiQi';
+    const ts = new Date(msg.timestamp).toLocaleString('zh-CN');
+    return `--- ${role} 消息上下文 (${ts}) ---
+${msg.content.trim()}
+--- 结束 ---`;
+  };
+
+  const baseContextItems: ContextMenuAction[] = [
+    {
+      label: '复制文本',
+      icon: <Copy size={14} />,
+      onSelect: () => onCopy(msg.content),
+    },
+    {
+      label: '复制为 Markdown',
+      icon: <Braces size={14} />,
+      onSelect: () => {
+        navigator.clipboard.writeText(msg.content).catch(() => {});
+      },
+    },
+    ...(hasCodeBlock && !isUser
+      ? [
+          {
+            label: '复制代码',
+            icon: <Code2 size={14} />,
+            onSelect: () => {
+              const codeMatch = msg.content.match(/```[\s\S]*?```/g);
+              if (codeMatch) {
+                const code = codeMatch
+                  .map((b) => b.replace(/```\w*\n?/g, '').replace(/```$/g, ''))
+                  .join('\n\n');
+                navigator.clipboard.writeText(code).catch(() => {});
+              }
+            },
+          },
+        ]
+      : []),
+    {
+      label: '附加为上下文',
+      icon: <ClipboardPaste size={14} />,
+      divider: true,
+      onSelect: () => {
+        const ctx = buildAttachContext();
+        navigator.clipboard.writeText(ctx).catch(() => {});
+      },
+    },
+    {
+      label: isPinned ? '取消固定章节' : '固定为章节 🚩',
+      icon: <Pin size={14} />,
+      onSelect: () => onTogglePin(msgIndex),
+    },
+    ...(isUser
+      ? [
+          {
+            label: '重试',
+            icon: <Undo2 size={14} />,
+            divider: true,
+            onSelect: () => onRetry?.(),
+          },
+        ]
+      : []),
+    {
+      label: '查看原始消息',
+      icon: <Braces size={14} />,
+      divider: true,
+      danger: false,
+      onSelect: () => {
+        const raw = JSON.stringify(
+          {
+            role: msg.role,
+            content: msg.content.slice(0, 500),
+            ...(msg.toolCallId && { toolCallId: msg.toolCallId }),
+            ...(msg.toolName && { toolName: msg.toolName }),
+            timestamp: new Date(msg.timestamp).toISOString(),
+          },
+          null,
+          2
+        );
+        navigator.clipboard.writeText(raw).catch(() => {});
+      },
+    },
+    {
+      label: '复制时间戳',
+      icon: <Clock size={14} />,
+      onSelect: () => {
+        const ts = new Date(msg.timestamp).toLocaleString('zh-CN');
+        navigator.clipboard.writeText(ts).catch(() => {});
+      },
+    },
+  ];
+
+  const contextItems: ContextMenuAction[] = baseContextItems;
 
   return (
     <ContextMenu items={contextItems}>
@@ -3568,6 +3712,20 @@ function MessageBubble({
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
           {!isUser && <AgentAvatar />}
+
+          {/* Pinned chapter indicator */}
+          {isPinned && (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium"
+              style={{
+                background: 'var(--accent-bg)',
+                color: 'var(--accent)',
+                border: '1px solid var(--accent-border)',
+              }}
+            >
+              <Pin size={10} />
+              <span>章节</span>
+            </div>
+          )}
 
           <div
             className={cn(
