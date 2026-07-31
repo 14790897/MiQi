@@ -59,7 +59,9 @@ test.describe('KWP Commands & Skill Auto-trigger E2E', () => {
       const s = await (window as any).miqi.runtime.status();
       return { state: s?.state, initialized: s?.initialized };
     });
+    console.log(`[test] beforeAll bridge state: ${JSON.stringify(skillsCheck)}`);
     if (skillsCheck.initialized !== true) {
+      console.log('[test] Bridge not initialized — skipping KWP E2E');
       test.skip(true, 'Bridge not initialized — skipping KWP E2E');
     }
   }, 60_000);
@@ -167,5 +169,37 @@ test.describe('KWP Commands & Skill Auto-trigger E2E', () => {
     // Account-research should be visible among the converted skills.
     await expect(page.getByText('account-research', { exact: false }).first())
       .toBeVisible({ timeout: 5_000 });
+  });
+
+  // ──────── Test 5: slash command is detected without LLM round-trip ───
+
+  // Verifies that `/brainstorm <args>` reaches the slash-command
+  // detector in the bridge — observed via the user-message bubble in
+  // <main>:
+  //   • On detection, TaskRunner strips the `/brainstorm` prefix and
+  //     sends only the args to the LLM (slash_content is prepended
+  //     to the system prompt instead).
+  //   • Without detection, the bubble shows the full `/brainstorm foo`.
+  // We assert the bubble contains the args but NOT the literal
+  // `/brainstorm` token — that confirms the bridge handled the slash
+  // command.  Crucially, we do NOT wait for the LLM response, so
+  // the test runs in < 5s and doesn't depend on provider availability.
+  test('/brainstorm <args> strips the slash prefix before the LLM', async () => {
+    const marker = `STRIP_PROBE_${Date.now()}`;
+    const textarea = await waitForInputReady(page);
+    await textarea.fill(`/brainstorm ${marker}`);
+    await textarea.press('Enter');
+
+    // User message bubble must contain the args…
+    await expect(page.getByText(marker, { exact: false }).first()).toBeVisible({
+      timeout: 10_000,
+    });
+    // …and must NOT contain the bare `/brainstorm` token (which would
+    // mean the slash detector never ran and the raw text was sent
+    // through to the LLM as the user message).
+    const userBubble = page
+      .locator('main')
+      .getByText('/brainstorm', { exact: false });
+    await expect(userBubble).toHaveCount(0);
   });
 });
