@@ -578,6 +578,7 @@ function LogsTab() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const wasAutoScroll = useRef(autoScroll);
   wasAutoScroll.current = autoScroll;
+  const programmaticScroll = useRef(false);
 
   // Reset expanded rows whenever filters change
   useEffect(() => {
@@ -634,15 +635,20 @@ function LogsTab() {
   // Auto-scroll to bottom when new entries arrive
   useEffect(() => {
     if (autoScroll && filtered.length > 0) {
+      programmaticScroll.current = true;
       virtualizer.scrollToIndex(filtered.length - 1, { align: 'end' });
     }
-  }, [filtered.length, autoScroll]);
+  }, [filtered.length, autoScroll, virtualizer]);
 
   // When user manually scrolls up, turn off auto-scroll (tail -f behavior)
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
     const onScroll = () => {
+      if (programmaticScroll.current) {
+        programmaticScroll.current = false;
+        return;
+      }
       if (!wasAutoScroll.current) return;
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 4;
       if (!atBottom) {
