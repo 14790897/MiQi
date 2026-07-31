@@ -2425,11 +2425,45 @@ export function ChatConsole({
 
   const inputContextItems = useMemo<ContextMenuAction[]>(
     () => [
-      { label: '剪切', icon: <Scissors size={14} />, shortcut: 'Ctrl+X', onSelect: () => document.execCommand('cut') },
-      { label: '复制', icon: <Copy size={14} />, shortcut: 'Ctrl+C', onSelect: () => document.execCommand('copy') },
-      { label: '粘贴', icon: <ClipboardPaste size={14} />, shortcut: 'Ctrl+V', onSelect: () => document.execCommand('paste') },
-      { label: '全选', icon: <CheckCircle size={14} />, shortcut: 'Ctrl+A', divider: true, onSelect: () => document.execCommand('selectAll') },
+      {
+        label: '剪切', icon: <Scissors size={14} />, shortcut: 'Ctrl+X',
+        onSelect: () => {
+          const el = textareaRef.current; if (!el) return;
+          const s = el.selectionStart, e = el.selectionEnd;
+          if (s === e) return;
+          navigator.clipboard.writeText(el.value.slice(s, e));
+          el.setRangeText('', s, e, 'end');
+          setInput(el.value);
+          el.focus();
+        },
+      },
+      {
+        label: '复制', icon: <Copy size={14} />, shortcut: 'Ctrl+C',
+        onSelect: () => {
+          const el = textareaRef.current; if (!el) return;
+          const txt = el.value.slice(el.selectionStart, el.selectionEnd);
+          if (txt) navigator.clipboard.writeText(txt);
+        },
+      },
+      {
+        label: '粘贴', icon: <ClipboardPaste size={14} />, shortcut: 'Ctrl+V',
+        onSelect: () => {
+          const el = textareaRef.current; if (!el) return;
+          navigator.clipboard.readText().then((text) => {
+            if (!text) return;
+            const s = el.selectionStart, e = el.selectionEnd;
+            el.setRangeText(text, s, e, 'end');
+            setInput(el.value);
+            el.focus();
+          }).catch(() => {});
+        },
+      },
+      {
+        label: '全选', icon: <CheckCircle size={14} />, shortcut: 'Ctrl+A', divider: true,
+        onSelect: () => textareaRef.current?.select(),
+      },
     ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 
@@ -3552,13 +3586,19 @@ function MessageBubble({
   const isUser = msg.role === 'user';
   const hasCodeBlock = /```[\s\S]*?```/.test(msg.content);
 
+  const copyWithSelection = () => {
+    const sel = window.getSelection()?.toString().trim();
+    if (sel) { navigator.clipboard.writeText(sel); return; }
+    onCopy(msg.content);
+  };
+
   const contextItems: ContextMenuAction[] = isUser
     ? [
-        { label: '复制文本', icon: <Copy size={14} />, onSelect: () => onCopy(msg.content) },
+        { label: '复制文本', icon: <Copy size={14} />, onSelect: copyWithSelection },
         { label: '重试', icon: <Undo2 size={14} />, divider: true, onSelect: () => onRetry?.() },
       ]
     : [
-        { label: '复制文本', icon: <Copy size={14} />, onSelect: () => onCopy(msg.content) },
+        { label: '复制文本', icon: <Copy size={14} />, onSelect: copyWithSelection },
         ...(hasCodeBlock
           ? [
               {
