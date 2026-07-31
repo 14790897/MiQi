@@ -2,17 +2,16 @@ import { useState, useEffect, useCallback, useRef, type MouseEvent, type ReactNo
 
 export interface ContextMenuAction {
   label: string;
-  /** Optional keyboard shortcut hint */
   shortcut?: string;
-  /** Optional disabled state */
   disabled?: boolean;
-  /** Danger action (renders in red) */
   danger?: boolean;
-  /** Divider before this item */
   divider?: boolean;
-  /** Optional icon to show before label */
   icon?: ReactNode;
   onSelect: () => void;
+  /** Called when mouse enters this item (for preview/highlight) */
+  onEnter?: () => void;
+  /** Called when mouse leaves this item */
+  onLeave?: () => void;
 }
 
 interface Position {
@@ -120,9 +119,12 @@ export function ContextMenu({ children, items, minWidth = 180 }: Props) {
                   onMouseDown={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
+                    item.onLeave?.(); // clear preview before action
                     item.onSelect();
                     close();
                   }}
+                  onMouseEnter={() => item.onEnter?.()}
+                  onMouseLeave={() => item.onLeave?.()}
                   disabled={item.disabled}
                   className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between gap-4 ${
                     item.disabled
