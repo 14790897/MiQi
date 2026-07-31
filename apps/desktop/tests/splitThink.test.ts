@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { splitThink } from '../src/renderer/features/chat/components/MarkdownContent';
+import { splitThink } from '../src/renderer/features/chat/components/splitThink';
 
 // Construct think tags programmatically so the literal tags don't get
 // mangled by tooling / escaping when editing this file.
@@ -67,5 +67,26 @@ describe('splitThink', () => {
 
   it('preserves an empty think block as an empty think segment (no trailing text)', () => {
     expect(splitThink(tag(''))).toEqual([{ type: 'think', value: '' }]);
+  });
+
+  it('does not duplicate content for nested think tags', () => {
+    // Nested/overlapping opens: the inner  sits inside the outer span
+    // already consumed, so "inner" must NOT appear twice. The outer opening
+    // tag is paired with the FIRST closing tag (inner's), which leaves the
+    // outer's own closing tag unconsumed — it falls through into the trailing
+    // text segment. react-markdown drops raw HTML tags by default, so this
+    // residual is not user-visible; the regression we guard against here is
+    // the content-duplication ("inner" appearing twice) that the
+    // `open.idx < cursor` skip prevents.
+    const nested = `pre${OPEN}outer ${OPEN}inner${CLOSE}${CLOSE}post`;
+    const segs = splitThink(nested);
+    expect(segs.some((s) => s.type === 'think' && s.value.includes('inner'))).toBe(true);
+    // "inner" must appear in exactly ONE think segment (no duplication).
+    const thinkCount = segs.filter(
+      (s) => s.type === 'think' && s.value.includes('inner')
+    ).length;
+    expect(thinkCount).toBe(1);
+    // "post" survives in a trailing text segment.
+    expect(segs.some((s) => s.type === 'text' && s.value.includes('post'))).toBe(true);
   });
 });

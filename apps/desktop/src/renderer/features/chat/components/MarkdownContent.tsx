@@ -3,59 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '../../../lib/utils';
-
-type Segment = { type: 'text'; value: string } | { type: 'think'; value: string };
-
-/** Split content into ordered text/think segments.
- *  Handles complete `…` blocks (case-insensitive) and a trailing
- *  unclosed `<think>` (orphan from streaming chunks) by treating the rest
- *  as an in-progress reasoning block. */
-export function splitThink(content: string): Segment[] {
-  if (!content) return [];
-  const segments: Segment[] = [];
-  // Global, case-insensitive, match  opening tag and  closing tag.
-  const openRe = /<think(?:\s[^>]*)?>/gi;
-  const closeRe = /<\/think\s*>/gi;
-
-  let cursor = 0;
-  // We walk through opening tags; each opening tag starts a think span that
-  // ends at the next closing tag (or end-of-string if orphaned).
-  const opens: { idx: number; len: number }[] = [];
-  let m: RegExpExecArray | null;
-  openRe.lastIndex = 0;
-  while ((m = openRe.exec(content)) !== null) {
-    opens.push({ idx: m.index, len: m[0].length });
-  }
-
-  let thinkIdx = 0;
-  for (const open of opens) {
-    // text before this  tag
-    if (open.idx > cursor) {
-      segments.push({ type: 'text', value: content.slice(cursor, open.idx) });
-    }
-    const thinkStart = open.idx + open.len;
-    // find the next closing tag at or after thinkStart
-    closeRe.lastIndex = thinkStart;
-    const cm = closeRe.exec(content);
-    if (cm) {
-      segments.push({ type: 'think', value: content.slice(thinkStart, cm.index) });
-      cursor = cm.index + cm[0].length;
-    } else {
-      // orphaned opening tag (streaming, not yet closed): rest is in-progress think
-      segments.push({ type: 'think', value: content.slice(thinkStart) });
-      cursor = content.length;
-    }
-    thinkIdx++;
-  }
-  // trailing text after the last think block (or the whole string if no think tags)
-  if (cursor < content.length) {
-    segments.push({ type: 'text', value: content.slice(cursor) });
-  }
-  if (segments.length === 0 && content.length > 0) {
-    segments.push({ type: 'text', value: content });
-  }
-  return segments;
-}
+import { splitThink } from './splitThink';
 
 function ThinkBlock({ value }: { value: string }) {
   const [open, setOpen] = useState(false);
