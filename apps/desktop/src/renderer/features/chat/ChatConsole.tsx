@@ -2573,6 +2573,13 @@ export function ChatConsole({
 
         {/* Right: Badges + user + actions */}
         <div className="flex items-center gap-2 shrink-0">
+          {/* Execution mode selector — top bar, keeps input pure */}
+          <ExecutionPolicySelector
+            policy={executionPolicy}
+            onChange={setExecutionPolicy}
+            disabled={streaming}
+            onOpenApprovals={onOpenApprovals}
+          />
           {/* User avatar + name */}
           <div className="flex items-center gap-1.5 pl-2 ml-1 border-l border-border-subtle">
             <div
@@ -2927,7 +2934,7 @@ export function ChatConsole({
               <ContextMenu items={inputContextItems} minWidth={160}>
                 {({ onContextMenu }) => (
               <div
-                className="flex flex-col rounded-xl px-4 py-2.5 focus-within:ring-2 transition-all"
+                className="flex items-end gap-2 rounded-xl px-4 py-3 focus-within:ring-2 transition-all"
                 data-testid="chat-input-container"
                 onContextMenu={onContextMenu}
                 style={{
@@ -2937,17 +2944,6 @@ export function ChatConsole({
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
-                {/* Mode selector — inside input, doesn't eat textarea width */}
-                <div className="flex items-center pb-1.5">
-                  <ExecutionPolicySelector
-                    policy={executionPolicy}
-                    onChange={setExecutionPolicy}
-                    disabled={streaming}
-                    onOpenApprovals={onOpenApprovals}
-                  />
-                </div>
-                {/* Input row — textarea gets full width like ChatGPT/DeepSeek */}
-                <div className="flex items-end gap-2">
                 <button
                   onClick={handleAttachClick}
                   className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
@@ -2988,7 +2984,6 @@ export function ChatConsole({
                     <Send size={13} style={{ color: '#fff' }} />
                   </button>
                 )}
-                </div>
               </div>
                 )}
               </ContextMenu>
