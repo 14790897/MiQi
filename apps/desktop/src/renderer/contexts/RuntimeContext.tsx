@@ -105,6 +105,16 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       }
 
       const allLines = [...bridgeLogs, ...fileLines];
+
+      // Debug: log breakdown of log sources for troubleshooting filter issues
+      const debugCounts: Record<string, number> = {};
+      for (const _line of allLines) {
+        try {
+          const parsed = parseLogLine(_line);
+          debugCounts[parsed.source] = (debugCounts[parsed.source] ?? 0) + 1;
+        } catch { /* not a parseable line */ }
+      }
+      console.log('[RuntimeContext] refreshLogs — source breakdown:', debugCounts, '| bridge:', bridgeLogs.length, '| file:', fileLines.length);
       setEntries(
         allLines.map((msg: string) => ({
           id: _nextLogId++,
