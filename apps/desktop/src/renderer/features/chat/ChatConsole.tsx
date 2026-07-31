@@ -52,7 +52,6 @@ import {
   Scissors,
   ClipboardPaste,
   Code2,
-  Braces,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -3556,12 +3555,10 @@ function MessageBubble({
   const contextItems: ContextMenuAction[] = isUser
     ? [
         { label: '复制文本', icon: <Copy size={14} />, onSelect: () => onCopy(msg.content) },
-        { label: '复制为 Markdown', icon: <Braces size={14} />, onSelect: () => { navigator.clipboard.writeText(msg.content).catch(() => {}); } },
         { label: '重试', icon: <Undo2 size={14} />, divider: true, onSelect: () => onRetry?.() },
       ]
     : [
         { label: '复制文本', icon: <Copy size={14} />, onSelect: () => onCopy(msg.content) },
-        { label: '复制为 Markdown', icon: <Braces size={14} />, onSelect: () => { navigator.clipboard.writeText(msg.content).catch(() => {}); } },
         ...(hasCodeBlock
           ? [
               {
