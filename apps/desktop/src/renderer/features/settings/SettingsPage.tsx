@@ -564,7 +564,6 @@ const LOG_ROW_ESTIMATE = 28; // estimated height for a single-line row (py-1.5 +
 
 function LogsTab() {
   const { logs, entries, refreshLogs } = useRuntime();
-  const [autoScroll, setAutoScroll] = useState(true);
   const hasInitialScroll = useRef(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [copiedLogs, setCopiedLogs] = useState(false);
@@ -577,9 +576,6 @@ function LogsTab() {
   const [keyword, setKeyword] = useState('');
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const wasAutoScroll = useRef(autoScroll);
-  wasAutoScroll.current = autoScroll;
-  const programmaticScroll = useRef(false);
 
   // Reset expanded rows whenever filters change
   useEffect(() => {
@@ -637,59 +633,15 @@ function LogsTab() {
   const virtualizerRef = useRef(virtualizer);
   virtualizerRef.current = virtualizer;
 
-  // On first mount, scroll to top to show the latest logs. Flag the scroll as
-  // programmatic so it doesn't disable autoScroll for subsequent new entries.
-  // After that, auto-scroll to bottom when new entries arrive (tail -f).
+  // On first mount, scroll to top to show the latest logs.
   useEffect(() => {
     if (!hasInitialScroll.current && filtered.length > 0) {
       hasInitialScroll.current = true;
-      programmaticScroll.current = true;
       queueMicrotask(() => {
         virtualizerRef.current.scrollToIndex(0, { align: 'start' });
       });
-      return;
     }
-    if (autoScroll && filtered.length > 0) {
-      programmaticScroll.current = true;
-      queueMicrotask(() => {
-        virtualizerRef.current.scrollToIndex(filtered.length - 1, { align: 'end' });
-      });
-    }
-  }, [filtered.length, autoScroll]);
-
-  // When user manually scrolls up, turn off auto-scroll (tail -f behavior)
-  useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      if (programmaticScroll.current) {
-        programmaticScroll.current = false;
-        return;
-      }
-      if (!wasAutoScroll.current) return;
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 4;
-      if (!atBottom) {
-        setAutoScroll(false);
-      }
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, []);
-
-  // When user manually scrolls to bottom, re-enable auto-scroll
-  useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const onScrollEnd = () => {
-      if (wasAutoScroll.current) return; // already on
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 4;
-      if (atBottom) {
-        setAutoScroll(true);
-      }
-    };
-    el.addEventListener('scrollend', onScrollEnd, { passive: true });
-    return () => el.removeEventListener('scrollend', onScrollEnd);
-  }, []);
+  }, [filtered.length]);
 
   const toggleRow = useCallback((id: number) => {
     setExpandedRows((prev) => {
@@ -801,15 +753,6 @@ function LogsTab() {
       {/* Filter toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3 border-b border-[var(--border-subtle)]">
         <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer">
-            <input
-              type="checkbox"
-              checked={autoScroll}
-              onChange={(e) => setAutoScroll(e.target.checked)}
-              className="rounded"
-            />
-            自动滚动
-          </label>
           <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer">
             <input
               type="checkbox"
