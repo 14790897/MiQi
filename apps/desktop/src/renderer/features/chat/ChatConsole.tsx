@@ -49,6 +49,10 @@ import {
   AlertCircle,
   FileType,
   Loader,
+  Scissors,
+  ClipboardPaste,
+  Code2,
+  Braces,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -2420,6 +2424,16 @@ export function ChatConsole({
     [handleCopyReproContext, handleCopyTaskSummary, handleExportTaskMarkdown, messages]
   );
 
+  const inputContextItems = useMemo<ContextMenuAction[]>(
+    () => [
+      { label: '剪切', icon: <Scissors size={14} />, shortcut: 'Ctrl+X', onSelect: () => document.execCommand('cut') },
+      { label: '复制', icon: <Copy size={14} />, shortcut: 'Ctrl+C', onSelect: () => document.execCommand('copy') },
+      { label: '粘贴', icon: <ClipboardPaste size={14} />, shortcut: 'Ctrl+V', onSelect: () => document.execCommand('paste') },
+      { label: '全选', icon: <CheckCircle size={14} />, shortcut: 'Ctrl+A', divider: true, onSelect: () => document.execCommand('selectAll') },
+    ],
+    []
+  );
+
   const shareButtonLabel =
     shareStatus === 'copied'
       ? '已复制摘要'
@@ -2875,9 +2889,12 @@ export function ChatConsole({
                 </div>
               )}
 
+              <ContextMenu items={inputContextItems} minWidth={160}>
+                {({ onContextMenu }) => (
               <div
                 className="flex items-end gap-2 rounded-xl px-4 py-3.5 focus-within:ring-2 transition-all"
                 data-testid="chat-input-container"
+                onContextMenu={onContextMenu}
                 style={{
                   background: 'var(--surface)',
                   border: '1px solid var(--border)',
@@ -2932,6 +2949,8 @@ export function ChatConsole({
                   </button>
                 )}
               </div>
+                )}
+              </ContextMenu>
             </div>
           </div>
         </div>
@@ -3536,15 +3555,18 @@ function MessageBubble({
 
   const contextItems: ContextMenuAction[] = isUser
     ? [
-        { label: '复制文本', onSelect: () => onCopy(msg.content) },
-        { label: '重试', onSelect: () => onRetry?.() },
+        { label: '复制文本', icon: <Copy size={14} />, onSelect: () => onCopy(msg.content) },
+        { label: '复制为 Markdown', icon: <Braces size={14} />, onSelect: () => { navigator.clipboard.writeText(msg.content).catch(() => {}); } },
+        { label: '重试', icon: <Undo2 size={14} />, divider: true, onSelect: () => onRetry?.() },
       ]
     : [
-        { label: '复制文本', onSelect: () => onCopy(msg.content) },
+        { label: '复制文本', icon: <Copy size={14} />, onSelect: () => onCopy(msg.content) },
+        { label: '复制为 Markdown', icon: <Braces size={14} />, onSelect: () => { navigator.clipboard.writeText(msg.content).catch(() => {}); } },
         ...(hasCodeBlock
           ? [
               {
                 label: '复制代码',
+                icon: <Code2 size={14} />,
                 onSelect: () => {
                   const codeMatch = msg.content.match(/```[\s\S]*?```/g);
                   if (codeMatch) {
