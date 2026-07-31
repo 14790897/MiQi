@@ -6,6 +6,7 @@ typed protocol events onto the shared event queue.
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
 import asyncio
 import inspect
@@ -532,6 +533,43 @@ class TaskRunner:
         }
         mode_prompt = _MODE_PROMPTS.get(turn.execution_policy, "")
         effective_system_prompt = mode_prompt + metadata.system_prompt if mode_prompt else metadata.system_prompt
+
+        # ── Slash command injection (KWP / Cowork convention) ───────────
+        # Detect /-prefixed user input, look up the command body in the
+        # active plugins, and append it to the system prompt for this turn.
+        # The user-visible content is stripped of the /cmd prefix.
+        slash_content: str | None = None
+        if msg.content and msg.content.startswith("/"):
+            pm = getattr(self.services, "plugin_manager", None)
+            if pm is not None and hasattr(pm, "get_slash_command"):
+                parts = msg.content[1:].split(None, 1)
+                # Allow namespacing: "/product-management:brainstorm"
+                raw_name = parts[0] if parts else ""
+                if ":" in raw_name:
+                    raw_name = raw_name.split(":", 1)[1]
+                cmd_name = raw_name.strip().lower()
+                cmd_args = parts[1] if len(parts) > 1 else ""
+                match = pm.get_slash_command(cmd_name)
+                if match and match.get("status") == "active" and match.get("body"):
+                    slash_content = match["body"]
+                    if cmd_args:
+                        slash_content += "\n\n## User arguments\n\n" + cmd_args
+                    # Strip /cmd from the user-visible content.
+                    msg = dataclasses.replace(
+                        msg,
+                        content=cmd_args if cmd_args else "(command invoked without arguments)",
+                    )
+                    logger.info(
+                        "slash command invoked: /{} from plugin {}",
+                        cmd_name,
+                        match.get("plugin", "?"),
+                    )
+        if slash_content:
+            effective_system_prompt = (
+                effective_system_prompt
+                + "\n\n## Active Slash Command\n\n"
+                + slash_content
+            )
 
         # ── End Execution Policy ─────────────────────────────────────
 

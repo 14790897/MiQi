@@ -1,0 +1,13 @@
+{
+  "name": "kwp-cowork-plugin-management",
+  "version": "1.0.0",
+  "description": "Knowledge Work Plugins — Cowork Plugin Management (2 skills). Adapted from anthropics/knowledge-work-plugins for MiQi.",
+  "author": "Anthropic (adapted for MiQi)",
+  "skills": [
+    "cowork-plugin-customizer",
+    "create-cowork-plugin"
+  ],
+  "mcp_servers": [],
+  "slash_commands": [],
+  "hooks": []
+}

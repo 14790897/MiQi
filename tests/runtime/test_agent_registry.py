@@ -1,6 +1,9 @@
 """Tests for miqi.runtime.agent_registry."""
 
+import json
 import pytest
+from pathlib import Path
+
 from miqi.runtime.agent_registry import AgentMetadata, AgentRegistry
 
 
@@ -22,6 +25,60 @@ def test_registry_register_and_resolve():
     meta = registry.resolve("main")
     assert meta.name == "main"
     assert meta.display_name == "MiQi"
+
+
+def test_discover_plugin_agents_parses_frontmatter(tmp_path):
+    """Regression: discover_plugin_agents used `re.DOTALL` while only
+    `_agent_re` was imported — calling it would raise NameError. After
+    the fix it must parse real agents/*.md files without raising.
+    """
+    # Build a fake plugin with an agents/ directory
+    plugin_dir = tmp_path / "demo-plugin"
+    agents_dir = plugin_dir / "agents"
+    agents_dir.mkdir(parents=True)
+
+    (agents_dir / "test-agent.md").write_text(
+        "---\n"
+        "name: test-agent\n"
+        "description: A discoverable agent.\n"
+        "model: sonnet\n"
+        "maxTurns: 12\n"
+        "color: cyan\n"
+        "---\n\n"
+        "# /test-agent\n\nYou are a test agent.\n",
+        encoding="utf-8",
+    )
+
+    registry = AgentRegistry()
+    discovered = registry.discover_plugin_agents(
+        plugin_dir, plugin_name="demo-plugin"
+    )
+
+    assert len(discovered) == 1
+    agent = discovered[0]
+    assert agent.name == "kwp-demo-plugin-test-agent"
+    assert agent.model_override == "sonnet"
+    assert agent.max_iterations == 12
+    assert "test agent" in agent.system_prompt.lower()
+
+
+def test_discover_plugin_agents_skips_no_frontmatter(tmp_path):
+    plugin_dir = tmp_path / "demo-plugin"
+    agents_dir = plugin_dir / "agents"
+    agents_dir.mkdir(parents=True)
+
+    (agents_dir / "plain.md").write_text("# plain markdown, no frontmatter\n", encoding="utf-8")
+
+    registry = AgentRegistry()
+    assert registry.discover_plugin_agents(plugin_dir, plugin_name="demo") == []
+
+
+def test_discover_plugin_agents_missing_dir(tmp_path):
+    plugin_dir = tmp_path / "demo-plugin"
+    plugin_dir.mkdir()
+    registry = AgentRegistry()
+    # No agents/ directory should be a no-op, not an error.
+    assert registry.discover_plugin_agents(plugin_dir, plugin_name="demo") == []
 
 
 def test_registry_has_builtins():

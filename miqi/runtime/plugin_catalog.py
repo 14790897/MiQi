@@ -24,7 +24,14 @@ class PluginCatalogRuntime:
                 source=str(getattr(plugin_manager, "user_dir", "")),
                 path=None,
                 load_errors=[],
-            )
+            ),
+            "knowledge-work-plugins": MarketplaceView(
+                name="knowledge-work-plugins",
+                display_name="Knowledge Work Plugins (Anthropic)",
+                source="https://github.com/anthropics/knowledge-work-plugins",
+                path=None,
+                load_errors=[],
+            ),
         }
 
     def list_marketplaces(self) -> list[MarketplaceView]:
