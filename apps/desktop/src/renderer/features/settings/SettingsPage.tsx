@@ -637,11 +637,13 @@ function LogsTab() {
   const virtualizerRef = useRef(virtualizer);
   virtualizerRef.current = virtualizer;
 
-  // On first mount, scroll to top to show the latest logs.
+  // On first mount, scroll to top to show the latest logs. Flag the scroll as
+  // programmatic so it doesn't disable autoScroll for subsequent new entries.
   // After that, auto-scroll to bottom when new entries arrive (tail -f).
   useEffect(() => {
     if (!hasInitialScroll.current && filtered.length > 0) {
       hasInitialScroll.current = true;
+      programmaticScroll.current = true;
       queueMicrotask(() => {
         virtualizerRef.current.scrollToIndex(0, { align: 'start' });
       });
