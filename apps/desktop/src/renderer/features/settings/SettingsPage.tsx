@@ -565,6 +565,7 @@ const LOG_ROW_ESTIMATE = 28; // estimated height for a single-line row (py-1.5 +
 function LogsTab() {
   const { logs, entries, refreshLogs } = useRuntime();
   const [autoScroll, setAutoScroll] = useState(true);
+  const hasInitialScroll = useRef(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [copiedLogs, setCopiedLogs] = useState(false);
   const [logTab, setLogTab] = useState<'all' | 'frontend' | 'backend'>('all');
@@ -636,12 +637,15 @@ function LogsTab() {
   const virtualizerRef = useRef(virtualizer);
   virtualizerRef.current = virtualizer;
 
-  // Auto-scroll to bottom when new entries arrive
+  // On first mount, scroll to top. After that, auto-scroll to bottom on new entries.
   useEffect(() => {
+    if (!hasInitialScroll.current && filtered.length > 0) {
+      hasInitialScroll.current = true;
+      virtualizerRef.current.scrollToIndex(0, { align: 'start' });
+      return;
+    }
     if (autoScroll && filtered.length > 0) {
       programmaticScroll.current = true;
-      // Defer to microtask: virtualizer.scrollToIndex calls flushSync, which
-      // cannot run inside a React lifecycle / render phase.
       queueMicrotask(() => {
         virtualizerRef.current.scrollToIndex(filtered.length - 1, { align: 'end' });
       });
