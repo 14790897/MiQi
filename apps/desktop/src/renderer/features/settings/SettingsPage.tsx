@@ -4,12 +4,10 @@ import {
   useRef,
   useCallback,
   useMemo,
-  startTransition,
   type ReactNode,
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
-import { ScrollArea } from '../../components/ui/ScrollArea';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { cn } from '../../lib/utils';
