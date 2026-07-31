@@ -2434,6 +2434,7 @@ export function ChatConsole({
           navigator.clipboard.writeText(el.value.slice(s, e));
           el.setRangeText('', s, e, 'end');
           setInput(el.value);
+          adjustTextareaHeight();
           el.focus();
         },
       },
@@ -2454,6 +2455,7 @@ export function ChatConsole({
             const s = el.selectionStart, e = el.selectionEnd;
             el.setRangeText(text, s, e, 'end');
             setInput(el.value);
+            adjustTextareaHeight();
             el.focus();
           }).catch(() => {});
         },
