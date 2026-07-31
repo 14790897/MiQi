@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from loguru import logger
 
 
 @dataclass
@@ -26,6 +27,10 @@ class AgentRegistry:
         registry = AgentRegistry()
         registry.register(AgentMetadata(name='code-agent', ...))
         metadata = registry.resolve('code-agent')
+
+    Plugins can contribute agent definitions via ``agents/*.md`` files
+    in their directory (KWP/Claude Code format). These are registered
+    at discovery time via ``discover_plugin_agents()``.
     """
 
     def __init__(self):
@@ -37,6 +42,10 @@ class AgentRegistry:
             raise ValueError(f"Agent '{metadata.name}' already registered")
         self._agents[metadata.name] = metadata
 
+    def get(self, name: str) -> AgentMetadata | None:
+        """Look up an agent type without raising on unknown names."""
+        return self._agents.get(name)
+
     def resolve(self, name: str) -> AgentMetadata:
         if name not in self._agents:
             raise KeyError(f"Unknown agent type: {name}")
@@ -44,6 +53,92 @@ class AgentRegistry:
 
     def list_agents(self) -> list[AgentMetadata]:
         return list(self._agents.values())
+
+    def discover_plugin_agents(
+        self, plugin_path: Path, plugin_name: str = ""
+    ) -> list[AgentMetadata]:
+        """Discover agent definitions from a plugin's ``agents/`` directory.
+
+        Reads ``*.md`` files in ``agents/`` and parses YAML frontmatter
+        for agent metadata fields (name, description, model, maxTurns,
+        color, tools). Each file becomes a registered AgentMetadata.
+
+        Supports the knowledge-work-plugins / Claude Code agent format.
+        """
+        import re as _agent_re
+
+        agents_dir = plugin_path / "agents"
+        if not agents_dir.is_dir():
+            return []
+
+        discovered = []
+        for agent_file in sorted(agents_dir.glob("*.md")):
+            try:
+                raw = agent_file.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+
+            # Parse YAML frontmatter
+            fm_match = _agent_re.match(r"^---\n(.*?)\n---", raw, _agent_re.DOTALL)
+            if not fm_match:
+                continue
+
+            meta: dict[str, str] = {}
+            for line in fm_match.group(1).split("\n"):
+                if ":" in line:
+                    key, _, value = line.partition(":")
+                    meta[key.strip()] = value.strip().strip("\"'")
+
+            agent_name = meta.get("name", agent_file.stem)
+            # Prefix with plugin name to avoid collisions
+            if plugin_name:
+                agent_name = f"kwp-{plugin_name}-{agent_name}"
+
+            if agent_name in self._agents:
+                continue  # Don't overwrite existing registrations
+
+            # Parse tools list if present (YAML inline array or multi-line)
+            tools_raw = meta.get("tools", "")
+            available_tools: list[str] = []
+            if tools_raw:
+                # Handle both inline lists and commented placeholders
+                for part in tools_raw.replace("[", "").replace("]", "").split(","):
+                    part = part.strip().strip("-").strip()
+                    if part and not part.startswith("#"):
+                        available_tools.append(part)
+
+            # If no explicit tools, default to the standard set
+            if not available_tools or "# tools not restricted" in raw:
+                available_tools = [
+                    "read_file", "write_file", "edit_file", "list_dir",
+                    "exec", "web_search", "web_fetch",
+                ]
+
+            max_turns = 25
+            try:
+                max_turns = int(meta.get("maxTurns", "25"))
+            except (ValueError, TypeError):
+                pass
+
+            body = raw[fm_match.end():].strip() if fm_match else raw
+            metadata = AgentMetadata(
+                name=agent_name,
+                display_name=meta.get("name", agent_name).replace("-", " ").title(),
+                description=meta.get("description", body[:200]),
+                system_prompt=body,
+                available_tools=available_tools,
+                max_iterations=max_turns,
+                model_override=meta.get("model", None),
+                is_builtin=False,
+            )
+            self.register(metadata)
+            discovered.append(metadata)
+            logger.debug(
+                "Plugin agent registered: {} ({} tools, max_turns={})",
+                agent_name, len(available_tools), max_turns,
+            )
+
+        return discovered
 
     def _register_builtins(self) -> None:
         """Register default built-in agent types."""
@@ -66,6 +161,7 @@ class AgentRegistry:
                 "xlsx_read", "xlsx_write",
                 "session_search", "task_begin", "task_end",
                 "skill_manage", "message", "spawn",
+                "paper_search", "paper_get", "paper_download",
             ],
         ))
 

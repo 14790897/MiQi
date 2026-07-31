@@ -9,7 +9,7 @@ from __future__ import annotations
 import re as _re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from miqi.agent.tools.base import Tool
 from miqi.agent.tools.filesystem import (
@@ -274,11 +274,13 @@ class ApplyPatchTool(Tool):
         allowed_dir: Path | None = None,
         snapshot_dir: Path | None = None,
         sandbox_manager=None,
+        shared_roots: Iterable[Path] | None = None,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
         self._snapshot_dir = snapshot_dir
         self._sandbox_manager = sandbox_manager
+        self._shared_roots = list(shared_roots or [])
 
     @property
     def name(self) -> str:
@@ -336,7 +338,9 @@ class ApplyPatchTool(Tool):
         path = file_patch.path
 
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
-            sandbox_path = _resolve_sandbox_path(path, self._workspace, sandbox)
+            sandbox_path = _resolve_sandbox_path(
+                path, self._workspace, sandbox, extra_roots=self._shared_roots
+            )
             _log.info("apply_patch [sandbox]: %s → %s", path, sandbox_path)
 
             try:

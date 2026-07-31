@@ -1,0 +1,20 @@
+{
+  "name": "kwp-legal",
+  "version": "1.0.0",
+  "description": "Knowledge Work Plugins — Legal (9 skills). Adapted from anthropics/knowledge-work-plugins for MiQi.",
+  "author": "Anthropic (adapted for MiQi)",
+  "skills": [
+    "brief",
+    "compliance-check",
+    "legal-response",
+    "legal-risk-assessment",
+    "meeting-briefing",
+    "review-contract",
+    "signature-request",
+    "triage-nda",
+    "vendor-check"
+  ],
+  "mcp_servers": [],
+  "slash_commands": [],
+  "hooks": []
+}

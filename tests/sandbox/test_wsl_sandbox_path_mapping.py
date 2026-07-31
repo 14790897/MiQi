@@ -108,6 +108,67 @@ class TestCanonicalizeWslMntPath:
         result = _canonicalize_wsl_mnt_path(_as_mnt_path(ws), ws)
         assert result.endswith("/sub")
 
+    # ── issue #516: multi-root whitelist (host-global memory/ & skills/) ──
+
+    def test_extra_root_none_preserves_single_root_behavior(self, tmp_path):
+        """extra_roots=None must behave exactly like the old single-root path."""
+        ws = tmp_path / "sub"
+        ws.mkdir()
+        other = tmp_path / "other"
+        other.mkdir()
+        # Within workspace: accepted
+        assert "readme.md" in _canonicalize_wsl_mnt_path(
+            _as_mnt_path(ws, "readme.md"), ws, extra_roots=None
+        )
+
+    @pytest.mark.skipif(not _IS_WINDOWS, reason="WSL containment Windows-only")
+    def test_extra_root_allows_host_global_path(self, tmp_path):
+        """A path inside an extra root is accepted even when outside the
+        per-session workspace (issue #516: memory/MEMORY.md, skills/...)."""
+        session_ws = tmp_path / "sessions" / "abc" / "files"
+        session_ws.mkdir(parents=True)
+        host_memory = tmp_path / "memory"
+        host_memory.mkdir()
+        result = _canonicalize_wsl_mnt_path(
+            _as_mnt_path(host_memory, "MEMORY.md"),
+            session_ws,
+            extra_roots=[host_memory],
+        )
+        assert "MEMORY.md" in result
+        assert "memory" in result
+
+    @pytest.mark.skipif(not _IS_WINDOWS, reason="WSL containment Windows-only")
+    def test_extra_root_does_not_open_other_session_dir(self, tmp_path):
+        """A path under ANOTHER session's files dir must still be rejected —
+        per-session isolation is preserved (the #490/#505 red line)."""
+        session_ws = tmp_path / "sessions" / "abc" / "files"
+        session_ws.mkdir(parents=True)
+        host_memory = tmp_path / "memory"
+        host_memory.mkdir()
+        host_skills = tmp_path / "skills"
+        host_skills.mkdir()
+        other_session = tmp_path / "sessions" / "other" / "files"
+        other_session.mkdir(parents=True)
+        with pytest.raises(PermissionError, match="outside"):
+            _canonicalize_wsl_mnt_path(
+                _as_mnt_path(other_session, "secret.md"),
+                session_ws,
+                extra_roots=[host_memory, host_skills],
+            )
+
+    @pytest.mark.skipif(not _IS_WINDOWS, reason="WSL containment Windows-only")
+    def test_extra_root_traversal_into_outside_still_rejected(self, tmp_path):
+        """A path that resolves outside every root via `..` is still rejected,
+        even when extra_roots are configured."""
+        session_ws = tmp_path / "sessions" / "abc" / "files"
+        session_ws.mkdir(parents=True)
+        host_memory = tmp_path / "memory"
+        host_memory.mkdir()
+        # From inside memory, traverse up via .. into an unrelated dir.
+        mnt = _as_mnt_path(host_memory, "..", "evil.txt")
+        with pytest.raises(PermissionError, match="outside"):
+            _canonicalize_wsl_mnt_path(mnt, session_ws, extra_roots=[host_memory])
+
 
 # ── _resolve_sandbox_path ────────────────────────────────────────────────
 
@@ -195,6 +256,37 @@ class TestResolveSandboxPathWSL:
         sb = _make_wsl_sandbox()
         result = _resolve_sandbox_path("temp.txt", session_ws, sb)
         assert result.endswith("/sessions/abc123/files/temp.txt")
+
+    @pytest.mark.skipif(not _IS_WINDOWS, reason="WSL containment Windows-only")
+    def test_wsl_host_global_path_via_extra_roots(self, tmp_path):
+        """issue #516: a host-global path (memory/) outside the per-session
+        workspace is accepted by _resolve_sandbox_path when shared_roots are
+        passed, while a foreign session's dir is still rejected."""
+        session_ws = tmp_path / "sessions" / "abc" / "files"
+        session_ws.mkdir(parents=True)
+        host_memory = tmp_path / "memory"
+        host_memory.mkdir()
+        other_session = tmp_path / "sessions" / "other" / "files"
+        other_session.mkdir(parents=True)
+        sb = _make_wsl_sandbox()
+
+        # host-global memory path accepted
+        ok = _resolve_sandbox_path(
+            str(host_memory / "MEMORY.md"),
+            session_ws,
+            sb,
+            extra_roots=[host_memory],
+        )
+        assert "MEMORY.md" in ok
+
+        # foreign session path still rejected
+        with pytest.raises(PermissionError, match="outside"):
+            _resolve_sandbox_path(
+                str(other_session / "secret.md"),
+                session_ws,
+                sb,
+                extra_roots=[host_memory],
+            )
 
 
 # ── _sandbox_to_host_path ────────────────────────────────────────────────

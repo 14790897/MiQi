@@ -50,6 +50,8 @@ class SkillsLoader:
                     skill_file = skill_dir / "SKILL.md"
                     if skill_file.exists() and not any(s["name"] == skill_dir.name for s in skills):
                         skills.append({"name": skill_dir.name, "path": str(skill_file), "source": "builtin"})
+                    # Recursively discover nested skills (e.g. kwp/<plugin>/<skill>/SKILL.md)
+                    self._discover_nested_skills(skill_dir, skills, source="builtin")
 
         # Filter out archived skills
         skills = [s for s in skills if not self._is_skill_archived(s["name"])]
@@ -58,6 +60,39 @@ class SkillsLoader:
         if filter_unavailable:
             return [s for s in skills if self._check_requirements(self._get_skill_meta(s["name"]))]
         return skills
+
+    def _discover_nested_skills(
+        self, root: Path, skills: list[dict[str, str]], source: str, depth: int = 0
+    ) -> None:
+        """Recursively discover SKILL.md files at up to 2 levels of nesting.
+
+        Supports directory layouts like:
+          kwp/<plugin>/<skill>/SKILL.md
+          kwp/<plugin>/SKILL.md
+        """
+        if depth >= 3:
+            return  # Guard against runaway recursion
+        names_seen = {s["name"] for s in skills}
+        for item in sorted(root.iterdir()):
+            if not item.is_dir() or item.name.startswith(".") or item.name == "__pycache__":
+                continue
+            skill_file = item / "SKILL.md"
+            if skill_file.exists():
+                skill_name = item.name
+                # Prefer the leaf directory name unless it collides
+                if skill_name in names_seen:
+                    # Use parent dir as prefix to disambiguate
+                    skill_name = f"{root.name}-{item.name}"
+                if skill_name not in names_seen:
+                    skills.append({
+                        "name": skill_name,
+                        "path": str(skill_file),
+                        "source": source,
+                    })
+                    names_seen.add(skill_name)
+            else:
+                # Recurse one level deeper (kwp/<plugin>/<skill>/SKILL.md)
+                self._discover_nested_skills(item, skills, source, depth + 1)
 
     def _is_skill_archived(self, name: str) -> bool:
         """Check whether a skill is archived."""
@@ -82,6 +117,11 @@ class SkillsLoader:
             if builtin_skill.exists():
                 return builtin_skill
 
+        # Search nested built-in skills (e.g. kwp/<plugin>/<skill>/SKILL.md)
+        if self.builtin_skills:
+            for entry in self.builtin_skills.glob("**/" + name + "/SKILL.md"):
+                return entry
+
         return None
 
     def load_skill(self, name: str) -> str | None:
@@ -99,11 +139,16 @@ class SkillsLoader:
         if workspace_skill.exists():
             return workspace_skill.read_text(encoding="utf-8")
 
-        # Check built-in
+        # Check built-in (flat)
         if self.builtin_skills:
             builtin_skill = self.builtin_skills / name / "SKILL.md"
             if builtin_skill.exists():
                 return builtin_skill.read_text(encoding="utf-8")
+
+        # Check built-in (nested — kwp/<plugin>/<skill>/SKILL.md)
+        if self.builtin_skills:
+            for entry in self.builtin_skills.glob("**/" + name + "/SKILL.md"):
+                return entry.read_text(encoding="utf-8")
 
         return None
 
@@ -133,6 +178,15 @@ class SkillsLoader:
         This is used for progressive loading - the agent can read the full
         skill content using read_file when needed.
 
+        Follows Anthropic's progressive-disclosure design:
+        - Layer 1 (this summary): name + description + relative path
+        - Layer 2 (on demand): full SKILL.md via read_file
+        - Layer 3 (on demand): references/ siblings, scripts/, etc.
+
+        Paths are emitted relative to the workspace when possible, so the
+        agent can read them with relative paths. This matches the Claude
+        Code / Cowork convention of `pdf/SKILL.md`-style locations.
+
         Returns:
             XML-formatted skills summary.
         """
@@ -143,18 +197,48 @@ class SkillsLoader:
         def escape_xml(s: str) -> str:
             return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+        def relative_path(absolute: str) -> str:
+            """Convert absolute SKILL.md path to a short relative path.
+
+            Examples:
+              C:/.../miqi/skills/pdf/SKILL.md          -> pdf/SKILL.md
+              C:/.../miqi/skills/kwp/sales/call-prep/SKILL.md
+                                                    -> kwp/sales/call-prep/SKILL.md
+              <workspace>/skills/custom/SKILL.md       -> skills/custom/SKILL.md
+            """
+            p = Path(absolute)
+            try:
+                if self.builtin_skills:
+                    rel = p.relative_to(self.builtin_skills)
+                    if str(rel) != str(p.name):  # not the builtin root itself
+                        return str(rel).replace("\\", "/")
+                rel = p.relative_to(self.workspace)
+                return str(rel).replace("\\", "/")
+            except ValueError:
+                return p.name
+
         lines = ["<skills>"]
         for s in all_skills:
             name = escape_xml(s["name"])
-            path = s["path"]
+            rel_path = relative_path(s["path"])
             desc = escape_xml(self._get_skill_description(s["name"]))
             skill_meta = self._get_skill_meta(s["name"])
             available = self._check_requirements(skill_meta)
 
-            lines.append(f"  <skill available=\"{str(available).lower()}\">")
+            lines.append(f'  <skill available="{str(available).lower()}">')
             lines.append(f"    <name>{name}</name>")
             lines.append(f"    <description>{desc}</description>")
-            lines.append(f"    <location>{path}</location>")
+            lines.append(f"    <location>{rel_path}</location>")
+
+            # Surface references/ siblings so the agent knows there's a
+            # third layer (Anthropic's progressive-disclosure level 3).
+            skill_dir = Path(s["path"]).parent
+            refs = sorted(p.name for p in skill_dir.glob("*.md")
+                          if p.name.lower() != "skill.md")
+            if refs:
+                lines.append("    <references>" +
+                             ", ".join(escape_xml(r) for r in refs) +
+                             "</references>")
 
             # Show missing requirements for unavailable skills
             if not available:

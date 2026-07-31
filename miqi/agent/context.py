@@ -4,6 +4,7 @@ import base64
 import importlib.resources
 import mimetypes
 import platform
+import re as _ctx_re
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -45,6 +46,101 @@ If you use a skill and find it outdated or incorrect, patch it immediately with
 
 Skills should contain: goal, preconditions, step-by-step procedure, expected output.
 """.strip()
+
+# ── Knowledge Work Plugins placeholder resolution ──────────────────────────
+
+# When a KWP skill references `~~category` placeholders, this mapping
+# gives the MiQi-appropriate fallback guidance.
+_PLACEHOLDER_RESOLVE: dict[str, str] = {
+    "~~CRM": (
+        "No CRM connected — use `web_search` and `web_fetch` for company "
+        "research, or manually enter contact/account details"
+    ),
+    "~~email": (
+        "No email connected — compose emails as text using "
+        "`write_file` or respond directly in chat"
+    ),
+    "~~chat": (
+        "No chat platform connected — use the current conversation or "
+        "the `message` tool if configured"
+    ),
+    "~~calendar": (
+        "No calendar connected — describe your schedule and meetings "
+        "manually, or use `exec` to check local calendar files"
+    ),
+    "~~knowledge base": (
+        "No knowledge base connected — use `web_search` and `read_file` "
+        "to find documentation"
+    ),
+    "~~project tracker": (
+        "No project tracker connected — use `write_file` and `edit_file` "
+        "to maintain local project files"
+    ),
+    "~~data warehouse": (
+        "Data analysis via `exec` with Python/R, `create_xlsx` for "
+        "spreadsheets, or `web_search` for benchmarks"
+    ),
+    "~~enrichment": (
+        "Use `web_search` and `web_fetch` for company and contact research"
+    ),
+    "~~ERP": (
+        "No ERP connected — use `exec` for local data processing, "
+        "`create_xlsx` for financial reports"
+    ),
+    "~~HRIS": (
+        "No HRIS connected — describe people data manually or use "
+        "`exec`/`create_xlsx` for analysis"
+    ),
+    "~~ATS": (
+        "No ATS connected — use `write_file` to track candidates and "
+        "pipelines"
+    ),
+    "~~support platform": (
+        "No support platform connected — use `write_file` and "
+        "`edit_file` to track tickets locally"
+    ),
+    "~~document store": (
+        "Use `read_file` and `list_dir` to access local documents, "
+        "`web_search` for external references"
+    ),
+    "~~CLM": (
+        "No CLM connected — paste contract text directly or use "
+        "`read_file` to load from local files"
+    ),
+    "~~esignature": (
+        "No e-signature connected — draft the document with "
+        "`create_docx` or `create_pdf`, then send manually"
+    ),
+    "~~social": (
+        "Use `web_search` and `web_fetch` to research social media "
+        "presence"
+    ),
+    "~~design tool": (
+        "Use `create_pptx` and `create_pdf` for design deliverables, "
+        "or describe visual specifications in text"
+    ),
+    "~~BI tool": (
+        "Use `exec` with Python/matplotlib for visualization, "
+        "`create_xlsx` for data tables, `create_pdf` for reports"
+    ),
+}
+
+# Pattern to detect `~~placeholder` tokens in skill bodies
+_PLACEHOLDER_PATTERN = _ctx_re.compile(
+    r"~~[A-Za-z][A-Za-z0-9_ -]*[A-Za-z0-9)]"
+)
+
+
+def _resolve_placeholders(content: str) -> str:
+    """Replace KWP ``~~placeholder`` tokens with MiQi tool guidance.
+
+    Uses longest-first replacement so multi-word tokens like
+    ``~~data warehouse`` match before ``~~data``.
+    """
+    sorted_tokens = sorted(_PLACEHOLDER_RESOLVE, key=len, reverse=True)
+    for token in sorted_tokens:
+        content = content.replace(token, _PLACEHOLDER_RESOLVE[token])
+    return content
 
 SESSION_SEARCH_GUIDANCE = """
 ## Session Search Guidance
@@ -154,12 +250,24 @@ class ContextBuilder:
                 parts.append(f"# Active Skills\n\n{always_content}")
 
         # 2. Available skills: only show summary (agent uses read_file to load)
+        # Following Anthropic's progressive-disclosure design:
+        #   Layer 1 — name + description + location (this summary, always loaded)
+        #   Layer 2 — full SKILL.md body (loaded via read_file on demand)
+        #   Layer 3 — references/ siblings (loaded on demand when mentioned)
         skills_summary = self.skills.build_skills_summary()
         if skills_summary:
+            # Resolve KWP ~~placeholders so the agent sees MiQi-appropriate
+            # guidance when reading skill files later via read_file.
+            skills_summary = _resolve_placeholders(skills_summary)
             parts.append(f"""# Skills
 
-The following skills extend your capabilities. To use a skill, read its SKILL.md file using the read_file tool.
-Skills with available="false" need dependencies installed first - you can try installing them with apt/brew.
+The following skills extend your capabilities. **Progressive disclosure**:
+only the name and description are pre-loaded — read the SKILL.md file
+itself to see the full instructions before applying the skill.
+- Available skills: read the file at `<location>` with `read_file`
+- For deeper reference material listed under `<references>`, read those
+  files only when SKILL.md points you to them.
+- Skills with `available="false"` need missing dependencies installed first.
 
 {skills_summary}""")
 

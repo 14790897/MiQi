@@ -1,0 +1,21 @@
+{
+  "name": "kwp-engineering",
+  "version": "1.0.0",
+  "description": "Knowledge Work Plugins — Engineering (10 skills). Adapted from anthropics/knowledge-work-plugins for MiQi.",
+  "author": "Anthropic (adapted for MiQi)",
+  "skills": [
+    "architecture",
+    "code-review",
+    "debug",
+    "deploy-checklist",
+    "documentation",
+    "incident-response",
+    "standup",
+    "system-design",
+    "tech-debt",
+    "testing-strategy"
+  ],
+  "mcp_servers": [],
+  "slash_commands": [],
+  "hooks": []
+}
