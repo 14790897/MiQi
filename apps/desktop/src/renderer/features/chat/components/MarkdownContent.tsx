@@ -1,17 +1,111 @@
 import { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { ChevronRight } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 
-/** Strip <think>...</think> reasoning blocks before rendering. */
-function stripThinkBlocks(text: string): string {
-  let result = text.replace(/<\/?think>/gi, '');
-  return result.trim();
+type Segment = { type: 'text'; value: string } | { type: 'think'; value: string };
+
+/** Split content into ordered text/think segments.
+ *  Handles complete `…` blocks (case-insensitive) and a trailing
+ *  unclosed `<think>` (orphan from streaming chunks) by treating the rest
+ *  as an in-progress reasoning block. */
+export function splitThink(content: string): Segment[] {
+  if (!content) return [];
+  const segments: Segment[] = [];
+  // Global, case-insensitive, match  opening tag and  closing tag.
+  const openRe = /<think(?:\s[^>]*)?>/gi;
+  const closeRe = /<\/think\s*>/gi;
+
+  let cursor = 0;
+  // We walk through opening tags; each opening tag starts a think span that
+  // ends at the next closing tag (or end-of-string if orphaned).
+  const opens: { idx: number; len: number }[] = [];
+  let m: RegExpExecArray | null;
+  openRe.lastIndex = 0;
+  while ((m = openRe.exec(content)) !== null) {
+    opens.push({ idx: m.index, len: m[0].length });
+  }
+
+  let thinkIdx = 0;
+  for (const open of opens) {
+    // text before this  tag
+    if (open.idx > cursor) {
+      segments.push({ type: 'text', value: content.slice(cursor, open.idx) });
+    }
+    const thinkStart = open.idx + open.len;
+    // find the next closing tag at or after thinkStart
+    closeRe.lastIndex = thinkStart;
+    const cm = closeRe.exec(content);
+    if (cm) {
+      segments.push({ type: 'think', value: content.slice(thinkStart, cm.index) });
+      cursor = cm.index + cm[0].length;
+    } else {
+      // orphaned opening tag (streaming, not yet closed): rest is in-progress think
+      segments.push({ type: 'think', value: content.slice(thinkStart) });
+      cursor = content.length;
+    }
+    thinkIdx++;
+  }
+  // trailing text after the last think block (or the whole string if no think tags)
+  if (cursor < content.length) {
+    segments.push({ type: 'text', value: content.slice(cursor) });
+  }
+  if (segments.length === 0 && content.length > 0) {
+    segments.push({ type: 'text', value: content });
+  }
+  return segments;
+}
+
+function ThinkBlock({ value }: { value: string }) {
+  const [open, setOpen] = useState(false);
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return (
+    <div
+      className="my-2 rounded-lg border text-xs"
+      style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-muted)' }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left"
+        style={{ color: 'var(--text-muted)' }}
+        aria-expanded={open}
+      >
+        <ChevronRight
+          size={12}
+          className={cn('shrink-0 transition-transform', open && 'rotate-90')}
+        />
+        <span className="font-medium">{open ? '思考（已展开）' : '思考'}</span>
+      </button>
+      {open && (
+        <div
+          className="px-3 pb-2.5 pt-0 leading-relaxed whitespace-pre-wrap"
+          style={{ color: 'var(--text-muted)' }}
+        >
+          {trimmed}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function MarkdownContent({ content }: { content: string }) {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
-  const displayContent = stripThinkBlocks(content);
+
+  const segments = useMemo(() => splitThink(content), [content]);
+  // Only the non-think text needs markdown; think blocks render as plain
+  // collapsible disclosure. Skip empty text segments so we don't emit empty
+  // markdown wrappers between consecutive think blocks.
+  const textSegments = useMemo(
+    () => segments.filter((s) => s.type === 'text' && s.value.length > 0),
+    [segments]
+  );
+  const hasThink = useMemo(
+    () => segments.some((s) => s.type === 'think' && s.value.trim().length > 0),
+    [segments]
+  );
 
   const handleCopyCode = (code: string) => {
     navigator.clipboard.writeText(code);
@@ -65,5 +159,21 @@ export function MarkdownContent({ content }: { content: string }) {
     [copiedCode]
   );
 
-  return <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{displayContent}</ReactMarkdown>;
+  return (
+    <div className="think-rendered">
+      {hasThink || textSegments.length > 0 ? (
+        segments.map((seg, i) =>
+          seg.type === 'think' ? (
+            <ThinkBlock key={`think-${i}`} value={seg.value} />
+          ) : seg.value.length > 0 ? (
+            <ReactMarkdown key={`text-${i}`} remarkPlugins={[remarkGfm]} components={components}>
+              {seg.value}
+            </ReactMarkdown>
+          ) : null
+        )
+      ) : (
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{content}</ReactMarkdown>
+      )}
+    </div>
+  );
 }
