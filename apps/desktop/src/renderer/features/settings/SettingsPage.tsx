@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
+import { ScrollArea } from '../../components/ui/ScrollArea';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { cn } from '../../lib/utils';
@@ -840,8 +841,8 @@ function LogsTab() {
           </thead>
         </table>
 
-        {/* Scrollable body with virtualizer */}
-        <div ref={scrollContainerRef} className="flex-1 overflow-auto">
+        {/* Scrollable body with virtualizer and custom scrollbar */}
+        <ScrollArea className="flex-1" ref={scrollContainerRef}>
           {filtered.length === 0 ? (
             <div className="flex items-center justify-center text-[var(--text-muted)] py-16 text-xs">
               暂无匹配日志。请调整过滤条件或先启动运行时。
@@ -909,7 +910,7 @@ function LogsTab() {
               </table>
             </div>
           )}
-        </div>
+        </ScrollArea>
       </div>
     </div>
   );
