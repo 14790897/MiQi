@@ -563,7 +563,7 @@ function AppearanceTab() {
 const LOG_ROW_ESTIMATE = 28; // estimated height for a single-line row (py-1.5 + font-mono text-xs)
 
 function LogsTab() {
-  const { logs, entries, refreshLogs } = useRuntime();
+  const { entries, refreshLogs } = useRuntime();
   const hasInitialScroll = useRef(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [copiedLogs, setCopiedLogs] = useState(false);
