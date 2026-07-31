@@ -198,7 +198,11 @@ export function SkillsPage() {
   const builtin = filtered.filter((s) => s.source === 'builtin');
   const workspace = filtered.filter((s) => s.source === 'workspace');
   const kwp = filtered.filter(
-    (s) => s.source === 'builtin' && s.path.includes('/kwp/')
+    // Match either forward or backslashes between path segments so
+    // KWP skills are recognized on Windows where the path arrives
+    // with backslashes. (The server normalizes to forward slashes
+    // in skills.list, but we still tolerate either for safety.)
+    (s) => s.source === 'builtin' && /[/\\]kwp[/\\]/.test(s.path)
   );
 
   const handleCopyContent = () => {
