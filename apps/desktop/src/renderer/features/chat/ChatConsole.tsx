@@ -2982,8 +2982,8 @@ export function ChatConsole({
               </div>
                 )}
               </ContextMenu>
-              {/* Mode selector — BELOW the input box, outside its container */}
-              <div className="flex items-center justify-center mt-2">
+              {/* Mode selector — BELOW the input box, bottom-left corner */}
+              <div className="flex items-center justify-start mt-2">
                 <ExecutionPolicySelector
                   policy={executionPolicy}
                   onChange={setExecutionPolicy}
