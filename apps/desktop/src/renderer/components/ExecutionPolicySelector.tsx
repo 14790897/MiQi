@@ -12,9 +12,9 @@ const ITEMS: P[] = [
 ];
 const LABELS: Record<string, string> = Object.fromEntries(ITEMS.map(p => [p.key, p.label]));
 
-interface Props { policy: ExecutionPolicy; onChange: (p: ExecutionPolicy) => void; disabled?: boolean; onOpenApprovals?: () => void; iconOnly?: boolean }
+interface Props { policy: ExecutionPolicy; onChange: (p: ExecutionPolicy) => void; disabled?: boolean; onOpenApprovals?: () => void }
 
-export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenApprovals, iconOnly }: Props) {
+export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenApprovals }: Props) {
   const [open, setOpen] = useState(false);
   const [confirmAuto, setConfirmAuto] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -72,27 +72,26 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
       <div ref={ref} style={{ position: 'relative', flexShrink: 0 }}>
         <button
           type="button" onClick={() => setOpen(!open)} disabled={disabled}
-          title={iconOnly ? `${cur.label} — ${cur.desc}` : undefined}
           style={{
-            display: 'flex', alignItems: 'center', gap: iconOnly ? 0 : 6,
-            padding: iconOnly ? '5px 6px' : '4px 10px', borderRadius: 7,
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '4px 10px', borderRadius: 7,
             fontSize: 11, fontWeight: 600, cursor: 'pointer',
-            border: iconOnly ? 'none' : `1px solid ${policy === 'auto' ? cur.color : 'var(--border)'}`,
-            background: iconOnly ? 'transparent' : policy === 'auto' ? `${cur.color}14` : 'var(--surface)',
+            border: `1px solid ${policy === 'auto' ? cur.color : 'var(--border)'}`,
+            background: policy === 'auto' ? `${cur.color}14` : 'var(--surface)',
             color: policy === 'auto' ? cur.color : 'var(--text)',
             transition: 'all .15s',
           }}
           onMouseEnter={e => {
-            e.currentTarget.style.background = iconOnly ? 'var(--surface-muted)' : policy === 'auto' ? `${cur.color}22` : 'var(--surface-muted)';
+            e.currentTarget.style.background = policy === 'auto' ? `${cur.color}22` : 'var(--surface-muted)';
           }}
           onMouseLeave={e => {
-            e.currentTarget.style.background = iconOnly ? 'transparent' : policy === 'auto' ? `${cur.color}14` : 'var(--surface)';
+            e.currentTarget.style.background = policy === 'auto' ? `${cur.color}14` : 'var(--surface)';
           }}
         >
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: cur.color }} />
-          {!iconOnly && <span>{cur.label}</span>}
-          {!iconOnly && <span style={{ fontSize: 8, opacity: .3 }}>▾</span>}
-          {!iconOnly && cur.key === 'auto' && <span style={{ fontSize: 13 }}>⚠</span>}
+          <span>{cur.label}</span>
+          <span style={{ fontSize: 8, opacity: .3 }}>▾</span>
+          {cur.key === 'auto' && <span style={{ fontSize: 13 }}>⚠</span>}
         </button>
 
         <div

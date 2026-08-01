@@ -2927,7 +2927,7 @@ export function ChatConsole({
               <ContextMenu items={inputContextItems} minWidth={160}>
                 {({ onContextMenu }) => (
               <div
-                className="flex flex-col rounded-xl px-4 py-3 focus-within:ring-2 transition-all"
+                className="flex flex-col rounded-3xl px-5 py-3.5 focus-within:ring-2 transition-all"
                 data-testid="chat-input-container"
                 onContextMenu={onContextMenu}
                 style={{
@@ -2937,6 +2937,12 @@ export function ChatConsole({
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
+                {/* Disclaimer hint — fades away once user types or attaches */}
+                {!input.trim() && attachments.length === 0 && (
+                  <div className="pb-1.5 text-[11px] leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none">
+                    AI 也会犯错误，对于重要答案请谨慎验证
+                  </div>
+                )}
                 {/* Textarea on top — grows up to 1/3 of viewport (DeepSeek style) */}
                 <Textarea
                   ref={textareaRef}
@@ -2954,13 +2960,12 @@ export function ChatConsole({
                   style={{ color: 'var(--text)' }}
                 />
                 {/* Icon row at the bottom — no text, like DeepSeek */}
-                <div className="flex items-center gap-1 pt-2 mt-1 border-t border-[var(--border-subtle)]">
+                <div className="flex items-center gap-2 pt-2 mt-1 border-t border-[var(--border-subtle)]">
                   <ExecutionPolicySelector
                     policy={executionPolicy}
                     onChange={setExecutionPolicy}
                     disabled={streaming}
                     onOpenApprovals={onOpenApprovals}
-                    iconOnly
                   />
                   <div className="flex-1" />
                   <button
