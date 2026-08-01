@@ -2937,15 +2937,7 @@ export function ChatConsole({
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
-                <div className="flex items-end gap-2">
-                <button
-                  onClick={handleAttachClick}
-                  className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
-                  title="Attach file or image"
-                  aria-label="Attach file or image"
-                >
-                  <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
-                </button>
+                {/* Textarea on top — grows up to 1/3 of viewport (DeepSeek style) */}
                 <Textarea
                   ref={textareaRef}
                   value={input}
@@ -2957,40 +2949,49 @@ export function ChatConsole({
                   placeholder="输入消息或拖入文件..."
                   rows={1}
                   allowResize={true}
-                  className="flex-1 border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 max-h-[200px] text-sm"
+                  className="w-full border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 max-h-[33vh] text-sm"
                   disabled={streaming}
                   style={{ color: 'var(--text)' }}
                 />
-                {streaming ? (
+                {/* Icon row at the bottom — no text, like DeepSeek */}
+                <div className="flex items-center gap-1 pt-2 mt-1 border-t border-[var(--border-subtle)]">
+                  <ExecutionPolicySelector
+                    policy={executionPolicy}
+                    onChange={setExecutionPolicy}
+                    disabled={streaming}
+                    onOpenApprovals={onOpenApprovals}
+                    iconOnly
+                  />
+                  <div className="flex-1" />
                   <button
-                    onClick={handleAbort}
-                    className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-[var(--surface-muted)]"
+                    onClick={handleAttachClick}
+                    className="shrink-0 p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
+                    title="Attach file or image"
+                    aria-label="Attach file or image"
                   >
-                    <Square size={14} style={{ color: 'var(--text-muted)' }} />
+                    <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
                   </button>
-                ) : (
-                  <button
-                    onClick={handleSend}
-                    disabled={!input.trim() && attachments.length === 0}
-                    className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors disabled:opacity-30"
-                    style={{ background: 'var(--accent)' }}
-                  >
-                    <Send size={13} style={{ color: '#fff' }} />
-                  </button>
-                )}
+                  {streaming ? (
+                    <button
+                      onClick={handleAbort}
+                      className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-[var(--surface-muted)]"
+                    >
+                      <Square size={14} style={{ color: 'var(--text-muted)' }} />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleSend}
+                      disabled={!input.trim() && attachments.length === 0}
+                      className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors disabled:opacity-30"
+                      style={{ background: 'var(--accent)' }}
+                    >
+                      <Send size={13} style={{ color: '#fff' }} />
+                    </button>
+                  )}
                 </div>
               </div>
                 )}
               </ContextMenu>
-              {/* Mode selector — BELOW the input box, bottom-left corner */}
-              <div className="flex items-center justify-start mt-2">
-                <ExecutionPolicySelector
-                  policy={executionPolicy}
-                  onChange={setExecutionPolicy}
-                  disabled={streaming}
-                  onOpenApprovals={onOpenApprovals}
-                />
-              </div>
             </div>
           </div>
         </div>
