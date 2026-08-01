@@ -2957,7 +2957,7 @@ export function ChatConsole({
                   placeholder="请输入消息或拖入文件..."
                   rows={1}
                   allowResize={true}
-                  className="w-full border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-[70px] max-h-[45vh] text-sm"
+                  className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[35vh] text-[15px]"
                   disabled={streaming}
                   style={{ color: 'var(--text)' }}
                 />
