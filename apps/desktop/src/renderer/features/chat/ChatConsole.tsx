@@ -2744,7 +2744,7 @@ export function ChatConsole({
           {/* Messages */}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto pb-[170px]"
+            className="flex-1 overflow-y-auto pb-[260px]"
             style={{ background: 'var(--background)' }}
           >
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
@@ -2807,7 +2807,7 @@ export function ChatConsole({
             className="absolute bottom-0 left-0 right-0 px-5 pb-4 pt-3"
             style={{
               background:
-                'linear-gradient(to top, var(--background) 55%, rgba(0,0,0,0) 100%)',
+                'linear-gradient(to top, var(--background) 45%, rgba(0,0,0,0) 100%)',
             }}
           >
             <div className="max-w-[760px] mx-auto">
