@@ -2748,6 +2748,12 @@ export function ChatConsole({
             style={{ background: 'var(--background)' }}
           >
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
+              {/* AI disclaimer — part of the answer stream, hides once user types */}
+              {!input.trim() && attachments.length === 0 && (
+                <div className="text-center text-[11px] leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none">
+                  AI 也会犯错误，对于重要答案请谨慎验证
+                </div>
+              )}
               {!historyLoaded ? (
                 <div className="flex items-center justify-center min-h-[300px]">
                   <Loader2 size={16} className="animate-spin text-text-faint" />
@@ -2800,7 +2806,8 @@ export function ChatConsole({
           <div
             className="absolute bottom-0 left-0 right-0 px-5 pb-4 pt-3"
             style={{
-              background: 'var(--background)',
+              background:
+                'linear-gradient(to top, var(--background) 55%, rgba(0,0,0,0) 100%)',
             }}
           >
             <div className="max-w-[760px] mx-auto">
@@ -2924,17 +2931,6 @@ export function ChatConsole({
                 </div>
               )}
 
-              {/* AI disclaimer — keeps its space, only fades (no layout jump) */}
-              <div
-                className="text-center pb-2.5 text-[11px] leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none transition-opacity duration-300"
-                style={{
-                  opacity: !input.trim() && attachments.length === 0 ? 1 : 0,
-                  pointerEvents: !input.trim() && attachments.length === 0 ? 'auto' : 'none',
-                }}
-              >
-                AI 也会犯错误，对于重要答案请谨慎验证
-              </div>
-
               <ContextMenu items={inputContextItems} minWidth={160}>
                 {({ onContextMenu }) => (
               <div
@@ -2942,8 +2938,10 @@ export function ChatConsole({
                 data-testid="chat-input-container"
                 onContextMenu={onContextMenu}
                 style={{
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
+                  background: 'color-mix(in srgb, var(--surface) 72%, transparent)',
+                  backdropFilter: 'blur(16px)',
+                  WebkitBackdropFilter: 'blur(16px)',
+                  border: '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
                   outline: 'none',
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
