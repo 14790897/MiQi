@@ -2802,12 +2802,11 @@ export function ChatConsole({
             </div>
           </div>
 
-          {/* Composer — floats over the bottom, messages never get squeezed */}
+          {/* Composer — floats over the bottom, fully transparent so answers show through */}
           <div
             className="absolute bottom-0 left-0 right-0 px-5 pb-10 pt-3"
             style={{
-              background:
-                'linear-gradient(to top, var(--background) 15%, rgba(0,0,0,0) 100%)',
+              background: 'transparent',
             }}
           >
             <div className="max-w-[760px] mx-auto">
@@ -2955,10 +2954,10 @@ export function ChatConsole({
                     adjustTextareaHeight();
                   }}
                   onKeyDown={handleKeyDown}
-                  placeholder="输入消息或拖入文件..."
+                  placeholder="请输入消息或拖入文件..."
                   rows={1}
                   allowResize={true}
-                  className="w-full border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 max-h-[33vh] text-sm"
+                  className="w-full border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-[70px] max-h-[45vh] text-sm"
                   disabled={streaming}
                   style={{ color: 'var(--text)' }}
                 />
