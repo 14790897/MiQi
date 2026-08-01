@@ -2663,7 +2663,7 @@ export function ChatConsole({
       {/* ── Main area: chat + right panel ── */}
       <div className="flex flex-1 overflow-hidden">
         {/* Chat area */}
-        <div className="flex flex-col flex-1 overflow-hidden">
+        <div className="flex flex-col flex-1 overflow-hidden relative">
           {/* ── Sub header: task title + status (inside chat area) ── */}
           <div
             className="flex items-center gap-3 px-5 min-h-12 border-b shrink-0"
@@ -2744,7 +2744,7 @@ export function ChatConsole({
           {/* Messages */}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto"
+            className="flex-1 overflow-y-auto pb-[170px]"
             style={{ background: 'var(--background)' }}
           >
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
@@ -2796,9 +2796,9 @@ export function ChatConsole({
             </div>
           </div>
 
-          {/* Composer */}
+          {/* Composer — floats over the bottom, messages never get squeezed */}
           <div
-            className="shrink-0 px-5 pb-4 pt-3"
+            className="absolute bottom-0 left-0 right-0 px-5 pb-4 pt-3"
             style={{
               background: 'var(--background)',
             }}
