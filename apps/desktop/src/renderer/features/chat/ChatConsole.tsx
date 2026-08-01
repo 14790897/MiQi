@@ -2744,7 +2744,7 @@ export function ChatConsole({
           {/* Messages */}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto pb-[150px]"
+            className="flex-1 overflow-y-auto pb-[210px]"
             style={{ background: 'var(--background)' }}
           >
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
