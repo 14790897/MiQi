@@ -2924,6 +2924,13 @@ export function ChatConsole({
                 </div>
               )}
 
+              {/* AI disclaimer — above the input box, centered (ChatGPT style) */}
+              {!input.trim() && attachments.length === 0 && (
+                <div className="text-center pb-2.5 text-[11px] leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none">
+                  AI 也会犯错误，对于重要答案请谨慎验证
+                </div>
+              )}
+
               <ContextMenu items={inputContextItems} minWidth={160}>
                 {({ onContextMenu }) => (
               <div
@@ -2937,12 +2944,6 @@ export function ChatConsole({
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
-                {/* Disclaimer hint — fades away once user types or attaches */}
-                {!input.trim() && attachments.length === 0 && (
-                  <div className="pb-1.5 text-[11px] leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none">
-                    AI 也会犯错误，对于重要答案请谨慎验证
-                  </div>
-                )}
                 {/* Textarea on top — grows up to 1/3 of viewport (DeepSeek style) */}
                 <Textarea
                   ref={textareaRef}
