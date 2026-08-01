@@ -2927,11 +2927,11 @@ export function ChatConsole({
               <ContextMenu items={inputContextItems} minWidth={160}>
                 {({ onContextMenu }) => (
               <div
-                className="flex flex-col rounded-3xl px-5 py-3.5 focus-within:ring-2 transition-all"
+                className="flex flex-col rounded-3xl px-7 py-3.5 focus-within:ring-2 transition-all"
                 data-testid="chat-input-container"
                 onContextMenu={onContextMenu}
                 style={{
-                  background: 'color-mix(in srgb, var(--surface) 72%, transparent)',
+                  background: 'color-mix(in srgb, var(--surface) 85%, transparent)',
                   backdropFilter: 'blur(16px)',
                   WebkitBackdropFilter: 'blur(16px)',
                   border: '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
@@ -2956,7 +2956,7 @@ export function ChatConsole({
                   style={{ color: 'var(--text)' }}
                 />
                 {/* Icon row at the bottom — no text, like DeepSeek */}
-                <div className="flex items-center gap-2 pt-2 mt-1 border-t border-[var(--border-subtle)]">
+                <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
                   <ExecutionPolicySelector
                     policy={executionPolicy}
                     onChange={setExecutionPolicy}
