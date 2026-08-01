@@ -2924,12 +2924,16 @@ export function ChatConsole({
                 </div>
               )}
 
-              {/* AI disclaimer — above the input box, centered (ChatGPT style) */}
-              {!input.trim() && attachments.length === 0 && (
-                <div className="text-center pb-2.5 text-[11px] leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none">
-                  AI 也会犯错误，对于重要答案请谨慎验证
-                </div>
-              )}
+              {/* AI disclaimer — keeps its space, only fades (no layout jump) */}
+              <div
+                className="text-center pb-2.5 text-[11px] leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none transition-opacity duration-300"
+                style={{
+                  opacity: !input.trim() && attachments.length === 0 ? 1 : 0,
+                  pointerEvents: !input.trim() && attachments.length === 0 ? 'auto' : 'none',
+                }}
+              >
+                AI 也会犯错误，对于重要答案请谨慎验证
+              </div>
 
               <ContextMenu items={inputContextItems} minWidth={160}>
                 {({ onContextMenu }) => (
