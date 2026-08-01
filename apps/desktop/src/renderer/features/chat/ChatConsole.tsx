@@ -2748,12 +2748,6 @@ export function ChatConsole({
             style={{ background: 'var(--background)' }}
           >
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
-              {/* AI disclaimer — part of the answer stream, hides once user types */}
-              {!input.trim() && attachments.length === 0 && (
-                <div className="text-center text-[11px] leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none">
-                  AI 也会犯错误，对于重要答案请谨慎验证
-                </div>
-              )}
               {!historyLoaded ? (
                 <div className="flex items-center justify-center min-h-[300px]">
                   <Loader2 size={16} className="animate-spin text-text-faint" />
@@ -2969,7 +2963,15 @@ export function ChatConsole({
                     disabled={streaming}
                     onOpenApprovals={onOpenApprovals}
                   />
-                  <div className="flex-1" />
+                  {/* AI disclaimer — centered in the mode row, fades when typing */}
+                  <div className="flex-1 flex items-center justify-center">
+                    <span
+                      className="text-[11px] leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none transition-opacity duration-300"
+                      style={{ opacity: !input.trim() && attachments.length === 0 ? 1 : 0 }}
+                    >
+                      AI 也会犯错误，对于重要答案请谨慎验证
+                    </span>
+                  </div>
                   <button
                     onClick={handleAttachClick}
                     className="shrink-0 p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
