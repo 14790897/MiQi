@@ -215,7 +215,17 @@ function extractMessageSources(msg: Message): MessageSource[] {
     return sources;
   }
   // Skip internal/API machinery URLs — not user-facing references.
-  const skip = ['api.semanticscholar.org', '/graph/v1/', 'developer.mozilla.org/en-US/docs/Web/HTTP'];
+  const skip = [
+    'api.semanticscholar.org',
+    '/graph/v1/',
+    'developer.mozilla.org/en-US/docs/Web/HTTP',
+    // Search-engine invocation URLs (the tool's own query, not a result page)
+    'bing.com/search',
+    'duckduckgo.com/?q=',
+    'duckduckgo.com/html',
+    'search.brave.com',
+    'google.com/search',
+  ];
   // Generic: pull http(s) links from the tool output text, then strip
   // trailing punctuation / markdown noise (e.g. `}{GitHub}.`).
   const seen = new Set<string>();
