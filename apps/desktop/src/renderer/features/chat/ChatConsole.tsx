@@ -717,10 +717,9 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
           });
         } else {
           // Search returned empty or errored — still show normally
-          const preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
           result.push({
             role: 'progress',
-            content: `paper_search: ${preview}`,
+            content: content, // full output — sources extraction needs all URLs
             summary: 'paper_search',
             toolHint: true,
             collapsed: true,
@@ -728,10 +727,11 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
           });
         }
       } else {
-        const preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
+        // Full output kept (collapsed by default; expanded view scrolls) so
+        // "查看来源" can extract every reference URL the tool touched.
         result.push({
           role: 'progress',
-          content: `${toolName}: ${preview}`,
+          content: content,
           summary: toolName,
           toolHint: true,
           collapsed: true,
@@ -3643,7 +3643,7 @@ function MessageBubble({
         {isCollapsed ? (
           <span>{msg.summary || msg.content}</span>
         ) : (
-          <span className="whitespace-pre-wrap break-all">{msg.content}</span>
+          <span className="whitespace-pre-wrap break-all max-h-64 overflow-y-auto block">{msg.content}</span>
         )}
         {/* Inline exec output (Phase 7.4) — gated by ui.inlineExecOutput setting */}
         {inlineExecOutput && msg.toolCallId && execOutputs[msg.toolCallId] && (
