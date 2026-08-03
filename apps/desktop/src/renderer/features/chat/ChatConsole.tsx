@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
 import { DiffView } from './components/DiffView';
@@ -2124,16 +2124,16 @@ export function ChatConsole({
 
   /**
    * Auto-resize textarea to fit content.
-   * Runs as an effect after React commits, so the controlled value is always
-   * synced to the DOM — rAF could race React's render and read a stale
-   * scrollHeight (input box stays tall after deleting everything).
+   * Runs synchronously after EVERY render (no dep array) — any path that
+   * changes the value (typing, paste, cut, delete, undo, send) gets its
+   * height recomputed, so a tall box always shrinks back once emptied.
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${Math.max(el.scrollHeight, 52)}px`; // floor = min-h-[52px]
-  }, [input]);
+  });
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
