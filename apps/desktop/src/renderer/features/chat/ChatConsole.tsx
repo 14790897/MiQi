@@ -3693,6 +3693,7 @@ function MessageBubble({
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
   const [showSources, setShowSources] = useState(false);
   const [deadUrls, setDeadUrls] = useState<Set<string>>(new Set());
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
 
   // Verify source links when the modal opens — drop 404s so users never
@@ -4135,6 +4136,12 @@ function MessageBubble({
                         target="_blank"
                         rel="noreferrer"
                         title={s.url}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          navigator.clipboard.writeText(s.url).catch(() => {});
+                          setCopiedUrl(s.url);
+                          setTimeout(() => setCopiedUrl(null), 1500);
+                        }}
                         className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl border border-[var(--border-subtle)] hover:bg-[var(--surface-muted)] hover:border-[var(--border)] transition-colors"
                       >
                         <span
@@ -4157,6 +4164,9 @@ function MessageBubble({
                           </span>
                           <span className="block text-[10px] truncate text-text-faint">{s.url}</span>
                         </span>
+                        {copiedUrl === s.url && (
+                          <Check size={13} className="shrink-0" style={{ color: 'var(--success)' }} />
+                        )}
                       </a>
                     );
                   })}
