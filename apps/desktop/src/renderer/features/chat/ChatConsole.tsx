@@ -3642,7 +3642,29 @@ function MessageBubble({
   const [expanded, setExpanded] = useState(false);
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
   const [showSources, setShowSources] = useState(false);
+  const [deadUrls, setDeadUrls] = useState<Set<string>>(new Set());
   const bubbleRef = useRef<HTMLDivElement>(null);
+
+  // Verify source links when the modal opens — drop 404s so users never
+  // click a dead reference.
+  useEffect(() => {
+    if (!showSources) return;
+    let cancelled = false;
+    setDeadUrls(new Set());
+    (sources ?? []).forEach((s) => {
+      window.miqi.web
+        .checkUrl(s.url)
+        .then((r) => {
+          if (!cancelled && !r.ok) setDeadUrls((prev) => new Set(prev).add(s.url));
+        })
+        .catch(() => {
+          if (!cancelled) setDeadUrls((prev) => new Set(prev).add(s.url));
+        });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showSources, sources]);
 
   if (msg.role === 'progress') {
     // ── Paper search result: render formatted cards ──────────────
@@ -4032,29 +4054,37 @@ function MessageBubble({
           <p className="text-xs text-text-faint py-2">该回答未使用网络工具，没有参考资料。</p>
         ) : (
           <div className="flex flex-col gap-1.5 max-h-[50vh] overflow-y-auto pr-1 -mr-1">
-            {(sources ?? []).map((s, i) => (
-              <a
-                key={i}
-                href={s.url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--surface-muted)] hover:border-[var(--border)] transition-colors"
-              >
-                <span
-                  className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded"
-                  style={{ background: 'var(--surface-muted)', color: 'var(--text-muted)' }}
+            {(sources ?? [])
+              .filter((s) => !deadUrls.has(s.url))
+              .map((s, i) => (
+                <a
+                  key={i}
+                  href={s.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--surface-muted)] hover:border-[var(--border)] transition-colors"
                 >
-                  {s.tool}
-                </span>
-                <span
-                  className="text-[11px] truncate flex-1"
-                  style={{ color: 'var(--accent)' }}
-                  title={s.url}
-                >
-                  {s.url}
-                </span>
-              </a>
-            ))}
+                  <span
+                    className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded"
+                    style={{ background: 'var(--surface-muted)', color: 'var(--text-muted)' }}
+                  >
+                    {s.tool}
+                  </span>
+                  <span
+                    className="text-[11px] truncate flex-1"
+                    style={{ color: 'var(--accent)' }}
+                    title={s.url}
+                  >
+                    {s.url}
+                  </span>
+                </a>
+              ))}
+            {deadUrls.size === 0 && (sources ?? []).length > 0 && (
+              <p className="text-[11px] text-text-faint py-0.5">正在验证链接可用性…</p>
+            )}
+            {(sources ?? []).every((s) => deadUrls.has(s.url)) && (
+              <p className="text-xs text-text-faint py-2">所有来源链接均已失效（404），没有可访问的参考资料。</p>
+            )}
           </div>
         )}
         <div className="flex gap-2 pt-2 border-t border-[var(--border-subtle)]">
