@@ -386,7 +386,7 @@ async def feedback_submit_handler(
 
     # 4. Build Bitable fields — cap per-field text sizes to stay within
     #    Feishu per-cell limits (multiline text ≈ 196,608 bytes per cell).
-    MAX_CELL_BYTES = 98_000  # ~half of Feishu 196,608 limit — JSON escaping of
+    MAX_CELL_BYTES = 88_000  # ~45% of Feishu 196,608 limit — JSON escaping of
     # backslashes (Windows paths) and other special chars can inflate the
     # payload by up to 2×, so a 50% safety margin avoids TooLargeCell.
 
