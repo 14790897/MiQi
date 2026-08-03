@@ -2124,8 +2124,9 @@ export function ChatConsole({
    * always shrinks back when emptied. min/max-height still clamp it.
    */
 
-  /** Fixed gap between the last answer and the composer (px) */
-  const ANSWER_GAP = 10;
+  /** Fixed gap between the last answer and the composer — 1/5 of the viewport,
+   *  the distance the user confirmed earlier. */
+  const ANSWER_GAP = '20vh';
   const [composerHeight, setComposerHeight] = useState(0);
   useEffect(() => {
     const el = composerRef.current;
@@ -2801,7 +2802,7 @@ export function ChatConsole({
           <div
             ref={scrollRef}
             className="flex-1 overflow-y-auto"
-            style={{ background: 'var(--background)', paddingBottom: composerHeight + ANSWER_GAP }}
+            style={{ background: 'var(--background)', paddingBottom: `calc(${composerHeight}px + ${ANSWER_GAP})` }}
           >
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
               {!historyLoaded ? (
