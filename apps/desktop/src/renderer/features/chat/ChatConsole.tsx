@@ -2452,8 +2452,9 @@ export function ChatConsole({
           const el = textareaRef.current; if (!el) return;
           navigator.clipboard.readText().then((text) => {
             if (!text) return;
-            const s = el.selectionStart, e = el.selectionEnd;
-            el.setRangeText(text, s, e, 'end');
+            // Always append to the end, cursor lands after pasted content
+            const end = el.value.length;
+            el.setRangeText(text, end, end, 'end');
             setInput(el.value);
             adjustTextareaHeight();
             el.focus();
