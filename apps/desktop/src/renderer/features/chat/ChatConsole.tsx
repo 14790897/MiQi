@@ -1573,7 +1573,12 @@ export function ChatConsole({
   }, [streaming]);
 
   const createSession = useCallback((workspace?: string | null) => {
-    setWorkspacePickerOpen(false);
+    // Do NOT call setWorkspacePickerOpen(false) here — onNewSession
+    // changes sessionKey which unmounts this ChatConsole instance via
+    // the key={sessionKey} in App. The Dialog portal is cleaned up
+    // by React unmount, and the new instance mounts with the default
+    // workspacePickerOpen=false state. Calling setState here races
+    // with the unmount (the state update is never flushed).
     const newKey = `desktop:${Date.now()}`;
     currentThreadIdRef.current = null;
     cleanupListeners();
