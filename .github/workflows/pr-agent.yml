@@ -25,4 +25,6 @@ jobs:
           github_action_config.auto_describe: "true"
           github_action_config.auto_improve: "true"
           config.model: "openai/deepseek-v4-pro"
+          config.fallback_models: '["openai/deepseek-v4-pro"]'
+          config.custom_model_max_tokens: "128000"
           OPENAI.API_BASE: "https://new.sixiangjia.de/v1"
