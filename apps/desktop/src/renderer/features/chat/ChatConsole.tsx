@@ -241,6 +241,14 @@ function extractMessageSources(msg: Message): MessageSource[] {
   ];
   const clean = (raw: string): string =>
     raw.split('{')[0].replace(/[.,;:!?。，；：、）\]]+$/, '');
+  // Deduplicate across all branches + cap: duplicate URLs produce duplicate
+  // React keys and one checkUrl request each (CodeRabbit #564 review).
+  const seen = new Set<string>();
+  const push = (tool: string, url: string) => {
+    if (!url || seen.has(url) || sources.length >= 20) return;
+    seen.add(url);
+    sources.push({ tool, url });
+  };
 
   // 1. The exact URL the tool fetched/searched — most trustworthy.
   if (msg.toolArgs && typeof msg.toolArgs === 'object') {
@@ -248,7 +256,7 @@ function extractMessageSources(msg: Message): MessageSource[] {
     for (const key of ['url', 'link', 'href', 'query']) {
       const v = args[key];
       if (typeof v === 'string' && /^https?:\/\//i.test(v) && !skip.some((s) => v.includes(s))) {
-        sources.push({ tool: msg.toolName || 'tool', url: clean(v) });
+        push(msg.toolName || 'tool', clean(v));
       }
     }
   }
@@ -258,20 +266,16 @@ function extractMessageSources(msg: Message): MessageSource[] {
     const items = (msg.toolData as { items?: { url?: string; arxiv_id?: string }[] }).items ?? [];
     for (const it of items) {
       const url = it.url || (it.arxiv_id ? `https://arxiv.org/abs/${it.arxiv_id}` : '');
-      if (url) sources.push({ tool: 'paper_search', url: clean(url) });
+      if (url) push('paper_search', clean(url));
     }
     return sources;
   }
   if (msg.toolName === 'paper_search') return sources; // failed search: no refs
 
   // 3. Fallback: links inside the result text (deduped, noise filtered).
-  const seen = new Set<string>();
   const content = String(msg.content ?? '');
   for (const m of content.matchAll(/https?:\/\/[^\s"'<>)\]]+/g)) {
-    const url = clean(m[0]);
-    if (!url || seen.has(url) || skip.some((s) => url.includes(s))) continue;
-    seen.add(url);
-    sources.push({ tool: msg.toolName || 'tool', url });
+    push(msg.toolName || 'tool', clean(m[0]));
   }
   return sources;
 }
@@ -2444,6 +2448,25 @@ export function ChatConsole({
     setTimeout(() => setCopiedIdx(null), 2000);
   };
 
+  // Associate each assistant answer with the tool URLs that preceded it in
+  // the same turn. Memoized — extractMessageSources scans full tool outputs,
+  // which would otherwise re-run on every animation frame while streaming.
+  const sourcesByMsg = useMemo(() => {
+    const map = new Map<Message, MessageSource[]>();
+    let pending: MessageSource[] = [];
+    for (const m of messages) {
+      if (m.role === 'progress') {
+        pending = [...pending, ...extractMessageSources(m)];
+      } else if (m.role === 'user') {
+        pending = [];
+      } else if (m.role === 'assistant') {
+        map.set(m, pending);
+        pending = [];
+      }
+    }
+    return map;
+  }, [messages]);
+
   /** Retry a user message: rewind to it, resend automatically with a
    *  "answer differently" hint so the model doesn't repeat itself. */
   const handleRetry = useCallback(
@@ -2456,7 +2479,7 @@ export function ChatConsole({
         attachments: msg.attachments ?? [],
         retry: true,
       };
-      setMessages((prev) => prev.slice(0, idx + 1)); // keep the retried message
+      setMessages((prev) => prev.slice(0, idx)); // handleSend re-appends the user message
       setInput(msg.content);
       setAttachments(msg.attachments ?? []);
       requestAnimationFrame(() => handleSendRef.current());
@@ -2484,7 +2507,7 @@ export function ChatConsole({
         attachments: userMsg.attachments ?? [],
         retry: true,
       };
-      setMessages((prev) => prev.slice(0, userIdx + 1)); // drop answer + everything after
+      setMessages((prev) => prev.slice(0, userIdx)); // handleSend re-appends the user message
       setInput(userMsg.content);
       setAttachments(userMsg.attachments ?? []);
       requestAnimationFrame(() => handleSendRef.current());
@@ -2942,22 +2965,7 @@ export function ChatConsole({
                   </div>
                 </div>
               ) : (
-                (() => {
-                  // Associate each assistant answer with the tool URLs that
-                  // preceded it in the same turn (webfetch/search/paper_search).
-                  const sourcesByMsg = new Map<Message, MessageSource[]>();
-                  let pending: MessageSource[] = [];
-                  for (const m of messages) {
-                    if (m.role === 'progress') {
-                      pending = [...pending, ...extractMessageSources(m)];
-                    } else if (m.role === 'user') {
-                      pending = [];
-                    } else if (m.role === 'assistant') {
-                      sourcesByMsg.set(m, pending);
-                      pending = [];
-                    }
-                  }
-                  return messages.map((msg, i) => (
+                messages.map((msg, i) => (
                   <MessageBubble
                     key={`${msg.timestamp}-${i}`}
                     msg={msg}
@@ -2973,8 +2981,7 @@ export function ChatConsole({
                     onDownloadPaper={handleDownloadPaper}
                     downloadingPaperId={downloadingPaperId}
                   />
-                  ))
-                })()
+                ))
               )}
               {streaming && (
                 <div
@@ -3707,11 +3714,19 @@ function MessageBubble({
 
   // Verify source links when the modal opens — drop 404s so users never
   // click a dead reference.
+  const [validating, setValidating] = useState(false);
   useEffect(() => {
     if (!showSources) return;
     let cancelled = false;
     setDeadUrls(new Set());
-    (sources ?? []).forEach((s) => {
+    const list = sources ?? [];
+    if (list.length === 0) {
+      setValidating(false);
+      return;
+    }
+    setValidating(true);
+    let done = 0;
+    list.forEach((s) => {
       window.miqi.web
         .checkUrl(s.url)
         .then((r) => {
@@ -3719,6 +3734,12 @@ function MessageBubble({
         })
         .catch(() => {
           if (!cancelled) setDeadUrls((prev) => new Set(prev).add(s.url));
+        })
+        .finally(() => {
+          if (!cancelled) {
+            done += 1;
+            if (done === list.length) setValidating(false);
+          }
         });
     });
     return () => {
@@ -4182,7 +4203,7 @@ function MessageBubble({
                 </div>
               ));
             })()}
-            {deadUrls.size === 0 && (sources ?? []).length > 0 && (
+            {validating && (
               <p className="text-[11px] text-text-faint py-0.5">正在验证链接可用性…</p>
             )}
             {deadUrls.size > 0 && (

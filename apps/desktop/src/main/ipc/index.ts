@@ -342,6 +342,27 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   ipcMain.handle(IPC.WEB_CHECK_URL, async (_event, payload: { url?: unknown }) => {
     const url = typeof payload?.url === 'string' ? payload.url : '';
     if (!/^https?:\/\//i.test(url)) return { ok: false, status: 0 };
+    // SSRF guard: never reach loopback / link-local / private ranges from the
+    // privileged main process (mirrors _validate_url on the Python side).
+    let host = '';
+    try {
+      host = new URL(url).hostname.toLowerCase();
+    } catch {
+      return { ok: false, status: 0 };
+    }
+    if (
+      host === 'localhost' ||
+      host.endsWith('.localhost') ||
+      /^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+      host === '::1' ||
+      host === '::' ||
+      host.startsWith('fe80:') ||
+      host.startsWith('fc') ||
+      host.startsWith('fd')
+    ) {
+      return { ok: false, status: 0 };
+    }
     const check = async (method: 'HEAD' | 'GET'): Promise<Response> => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 8000);
