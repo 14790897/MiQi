@@ -2952,7 +2952,7 @@ export function ChatConsole({
                   placeholder="请输入消息或拖入文件..."
                   rows={1}
                   allowResize={true}
-                  className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[35vh] text-[15px]"
+                  className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
                   disabled={streaming}
                   style={{ color: 'var(--text)' }}
                 />
