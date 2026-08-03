@@ -105,6 +105,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       }
 
       const allLines = [...bridgeLogs, ...fileLines];
+
       setEntries(
         allLines.map((msg: string) => ({
           id: _nextLogId++,

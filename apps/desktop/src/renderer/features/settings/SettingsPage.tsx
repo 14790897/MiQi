@@ -1,8 +1,15 @@
-import { useState, useEffect, useRef, useCallback, startTransition, type ReactNode } from 'react';
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  type ReactNode,
+} from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { ScrollArea } from '../../components/ui/ScrollArea';
 import { cn } from '../../lib/utils';
 import {
   RefreshCw,
@@ -81,7 +88,10 @@ function SandboxToggle() {
       testId="sandbox-toggle"
       label="沙箱"
       getInitial={(cfg) => cfg?.tools?.sandbox?.enabled ?? true}
-      onToggle={async (next) => { const r: any = await window.miqi.sandbox.setEnabled(next); if (r?.error) throw new Error(r.error); }}
+      onToggle={async (next) => {
+        const r: any = await window.miqi.sandbox.setEnabled(next);
+        if (r?.error) throw new Error(r.error);
+      }}
       pollReady
       readyLabel="已开启（推荐）"
       togglingLabel="正在安装依赖…"
@@ -241,7 +251,12 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 
       {/* ---- Inline Exec Output ---- */}
       <div className="pt-4 border-t border-[var(--border-subtle)]">
-        <h3 className="text-sm font-semibold text-[var(--text)] mb-1" data-testid="settings-inline-exec-output-title">内联终端输出</h3>
+        <h3
+          className="text-sm font-semibold text-[var(--text)] mb-1"
+          data-testid="settings-inline-exec-output-title"
+        >
+          内联终端输出
+        </h3>
         <p className="text-xs text-[var(--text-faint)] mb-3">
           关闭后工具调用的 exec 结果以普通文本显示，不再包裹黑底终端框。
           当沙箱路径策略过滤掉输出时，关闭此开关可避免出现空盒子。
@@ -543,10 +558,12 @@ function AppearanceTab() {
   );
 }
 
-// ---- Logs Tab (existing) ----
+// ---- Logs Tab (virtualized for scroll performance) ----
+const LOG_ROW_ESTIMATE = 28; // estimated height for a single-line row (py-1.5 + font-mono text-xs)
+
 function LogsTab() {
-  const { logs, entries, refreshLogs } = useRuntime();
-  const [autoScroll, setAutoScroll] = useState(true);
+  const { entries, refreshLogs } = useRuntime();
+  const hasInitialScroll = useRef(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [copiedLogs, setCopiedLogs] = useState(false);
   const [logTab, setLogTab] = useState<'all' | 'frontend' | 'backend'>('all');
@@ -557,7 +574,7 @@ function LogsTab() {
   const [sessionKey, setSessionKey] = useState('');
   const [keyword, setKeyword] = useState('');
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Reset expanded rows whenever filters change
   useEffect(() => {
@@ -573,47 +590,69 @@ function LogsTab() {
     return () => clearInterval(interval);
   }, [autoRefresh, refreshLogs]);
 
+  // Memoize filtered + sorted list so it only recalc's when inputs change
+  const filtered = useMemo(() => {
+    return entries
+      .filter((entry) => {
+        if (logTab === 'frontend' && !(entry.source === 'renderer' || entry.source === 'main'))
+          return false;
+        if (
+          logTab === 'backend' &&
+          !(entry.source === 'bridge' || entry.source === 'sandbox' || entry.source === 'tool')
+        )
+          return false;
+        if (level !== 'all' && entry.level !== level) return false;
+        if (source !== 'all' && entry.source !== source) return false;
+        if (sessionKey && !(entry.sessionKey ?? '').includes(sessionKey)) return false;
+        if (keyword && !entry.message.toLowerCase().includes(keyword.toLowerCase())) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const aTime = Date.parse(a.timestamp);
+        const bTime = Date.parse(b.timestamp);
+        if (Number.isNaN(aTime)) return Number.isNaN(bTime) ? 0 : 1;
+        if (Number.isNaN(bTime)) return -1;
+        return bTime - aTime;
+      });
+  }, [entries, logTab, level, source, sessionKey, keyword]);
+
+  // Virtualizer — only render rows visible in the viewport.
+  // No measureElement: log rows are all single-line (py-1.5 + text-xs),
+  // so the static estimate is accurate. A ResizeObserver-based measurer
+  // would fire during render and trigger internal flushSync calls.
+  const virtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => LOG_ROW_ESTIMATE,
+    overscan: 15,
+  });
+
+  // Keep latest virtualizer in a ref so effects can use it without re-running
+  // when the virtualizer instance changes (avoiding flushSync-in-render errors).
+  const virtualizerRef = useRef(virtualizer);
+  virtualizerRef.current = virtualizer;
+
+  // On first mount, scroll to top to show the latest logs.
   useEffect(() => {
-    if (autoScroll && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (!hasInitialScroll.current && filtered.length > 0) {
+      hasInitialScroll.current = true;
+      queueMicrotask(() => {
+        virtualizerRef.current.scrollToIndex(0, { align: 'start' });
+      });
     }
-  }, [entries, autoScroll]);
+  }, [filtered.length]);
 
-  const filtered = entries
-    .filter((entry) => {
-      if (logTab === 'frontend' && !(entry.source === 'renderer' || entry.source === 'main'))
-        return false;
-      if (
-        logTab === 'backend' &&
-        !(entry.source === 'bridge' || entry.source === 'sandbox' || entry.source === 'tool')
-      )
-        return false;
-      if (level !== 'all' && entry.level !== level) return false;
-      if (source !== 'all' && entry.source !== source) return false;
-      if (sessionKey && !(entry.sessionKey ?? '').includes(sessionKey)) return false;
-      if (keyword && !entry.message.toLowerCase().includes(keyword.toLowerCase())) return false;
-      return true;
-    })
-    .sort((a, b) => {
-      const aTime = Date.parse(a.timestamp);
-      const bTime = Date.parse(b.timestamp);
-      if (Number.isNaN(aTime)) return Number.isNaN(bTime) ? 0 : 1;
-      if (Number.isNaN(bTime)) return -1;
-      return bTime - aTime;
-    });
-
-  const toggleRow = (id: number) => {
+  const toggleRow = useCallback((id: number) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
+  }, []);
 
-  const formatTime = (iso: string) => {
+  const formatTime = useCallback((iso: string) => {
     const d = new Date(iso);
-    // new Date() never throws — invalid input produces NaN getTime()
     if (isNaN(d.getTime())) return iso;
     const date = d.toLocaleDateString('zh-CN', {
       year: 'numeric',
@@ -622,7 +661,7 @@ function LogsTab() {
     });
     const time = d.toLocaleTimeString('zh-CN', { hour12: false });
     return `${date} ${time}`;
-  };
+  }, []);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(
@@ -671,7 +710,7 @@ function LogsTab() {
     URL.revokeObjectURL(url);
   };
 
-  const levelBadge = (lvl: string) => {
+  const levelBadge = useCallback((lvl: string) => {
     const colors: Record<string, string> = {
       INFO: 'bg-emerald-500',
       WARN: 'bg-amber-500',
@@ -683,7 +722,7 @@ function LogsTab() {
         {lvl}
       </span>
     );
-  };
+  }, []);
 
   return (
     <div className="flex flex-col h-full">
@@ -713,15 +752,6 @@ function LogsTab() {
       {/* Filter toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3 border-b border-[var(--border-subtle)]">
         <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer">
-            <input
-              type="checkbox"
-              checked={autoScroll}
-              onChange={(e) => setAutoScroll(e.target.checked)}
-              className="rounded"
-            />
-            自动滚动
-          </label>
           <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer">
             <input
               type="checkbox"
@@ -795,73 +825,94 @@ function LogsTab() {
         </div>
       </div>
 
-      {/* Table view */}
-      <ScrollArea className="flex-1">
-        <div ref={scrollRef}>
+      {/* Virtualized table view */}
+      <div className="flex-1 min-h-0 flex flex-col">
+        {/* Sticky header outside the scroll container so it stays fixed */}
+        <table className="w-full text-xs font-mono table-fixed">
+          <thead className="bg-[var(--surface)] border-b border-[var(--border-subtle)]">
+            <tr className="text-[var(--text-muted)]">
+              <th className="text-left px-4 py-2 font-medium w-[100px]">时间</th>
+              <th className="text-left px-2 py-2 font-medium w-[70px]">级别</th>
+              <th className="text-left px-2 py-2 font-medium w-[85px]">来源</th>
+              <th className="text-left px-4 py-2 font-medium">消息</th>
+            </tr>
+          </thead>
+        </table>
+
+        {/* Scrollable body with virtualizer */}
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 overflow-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--border)] hover:[&::-webkit-scrollbar-thumb]:bg-[var(--text-faint)]"
+        >
           {filtered.length === 0 ? (
             <div className="flex items-center justify-center text-[var(--text-muted)] py-16 text-xs">
               暂无匹配日志。请调整过滤条件或先启动运行时。
             </div>
           ) : (
-            <table className="w-full text-xs font-mono">
-              <thead className="sticky top-0 z-10 bg-[var(--surface)] border-b border-[var(--border-subtle)]">
-                <tr className="text-[var(--text-muted)]">
-                  <th className="text-left px-4 py-2 font-medium w-[100px]">时间</th>
-                  <th className="text-left px-2 py-2 font-medium w-[70px]">级别</th>
-                  <th className="text-left px-2 py-2 font-medium w-[85px]">来源</th>
-                  <th className="text-left px-4 py-2 font-medium">消息</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((entry) => {
-                  const isExpanded = expandedRows.has(entry.id);
-                  const rowBg =
-                    entry.level === 'ERROR'
-                      ? 'bg-red-500/5 hover:bg-red-500/10'
-                      : entry.level === 'WARN'
-                        ? 'bg-amber-500/5 hover:bg-amber-500/10'
-                        : 'hover:bg-[var(--surface-muted)]';
-                  return (
-                    <tr
-                      key={entry.id}
-                      onClick={() => toggleRow(entry.id)}
-                      className={cn(
-                        'border-b border-[var(--border-subtle)] cursor-pointer transition-colors',
-                        rowBg
-                      )}
-                    >
-                      <td
-                        className="px-4 py-1.5 text-[var(--text-faint)] whitespace-nowrap"
-                        title={entry.timestamp}
-                      >
-                        {formatTime(entry.timestamp)}
-                      </td>
-                      <td className="px-2 py-1.5 whitespace-nowrap">{levelBadge(entry.level)}</td>
-                      <td
+            <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
+              <table className="w-full text-xs font-mono table-fixed">
+                <tbody>
+                  {virtualizer.getVirtualItems().map((virtualRow) => {
+                    const entry = filtered[virtualRow.index];
+                    const isExpanded = expandedRows.has(entry.id);
+                    const rowBg =
+                      entry.level === 'ERROR'
+                        ? 'bg-red-500/5 hover:bg-red-500/10'
+                        : entry.level === 'WARN'
+                          ? 'bg-amber-500/5 hover:bg-amber-500/10'
+                          : 'hover:bg-[var(--surface-muted)]';
+                    return (
+                      <tr
+                        key={entry.id}
+                        data-index={virtualRow.index}
+                        onClick={() => toggleRow(entry.id)}
                         className={cn(
-                          'px-2 py-1.5 whitespace-nowrap',
-                          entry.level === 'ERROR'
-                            ? 'text-[var(--danger)]'
-                            : entry.level === 'WARN'
-                              ? 'text-[var(--warning)]'
-                              : 'text-[var(--text-muted)]'
+                          'border-b border-[var(--border-subtle)] cursor-pointer transition-colors',
+                          rowBg
                         )}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
                       >
-                        {entry.source}
-                      </td>
-                      <td className="px-4 py-1.5 text-[var(--text)]">
-                        <span className={isExpanded ? '' : 'line-clamp-1 break-all'}>
-                          {entry.message}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        <td
+                          className="px-4 py-1.5 text-[var(--text-faint)] whitespace-nowrap w-[100px]"
+                          title={entry.timestamp}
+                        >
+                          {formatTime(entry.timestamp)}
+                        </td>
+                        <td className="px-2 py-1.5 whitespace-nowrap w-[70px]">
+                          {levelBadge(entry.level)}
+                        </td>
+                        <td
+                          className={cn(
+                            'px-2 py-1.5 whitespace-nowrap w-[85px]',
+                            entry.level === 'ERROR'
+                              ? 'text-[var(--danger)]'
+                              : entry.level === 'WARN'
+                                ? 'text-[var(--warning)]'
+                                : 'text-[var(--text-muted)]'
+                          )}
+                        >
+                          {entry.source}
+                        </td>
+                        <td className="px-4 py-1.5 text-[var(--text)]">
+                          <span className={isExpanded ? '' : 'line-clamp-1 break-all'}>
+                            {entry.message}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }
@@ -953,12 +1004,8 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
               style={{ borderBottom: '1px solid var(--border-subtle)' }}
             >
               <div className="flex-1 min-w-0">
-                <p className="text-[13px] truncate font-medium text-text">
-                  {s.title || s.key}
-                </p>
-                <p className="text-[11px] text-text-faint">
-                  {formatTime(s.updated_at)}
-                </p>
+                <p className="text-[13px] truncate font-medium text-text">{s.title || s.key}</p>
+                <p className="text-[11px] text-text-faint">{formatTime(s.updated_at)}</p>
               </div>
               <div className="flex items-center gap-1">
                 <button
@@ -1180,82 +1227,290 @@ export function SettingsPage({
         </Tabs.List>
 
         <Tabs.Content value="general" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 通用设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ 通用设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <GeneralTab onReopenSetup={onReopenSetup} />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="providers" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 模型设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ 模型设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <ProvidersPage />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="channels" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 渠道设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ 渠道设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <ChannelsPage />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="approvals" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 审批设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ 审批设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <ApprovalsPage />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="workspace" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 工作区设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ 工作区设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <WorkspacePage />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="agents" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 智能体设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ 智能体设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <AgentPanel />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="skills" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 技能设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ 技能设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <SkillsPage />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="mcps" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ MCP服务设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ MCP服务设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <MCPsPage />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="memory" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 记忆设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ 记忆设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <MemoryPage />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="experience" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 经验设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ 经验设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <ExperiencePage />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="permissions" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 权限设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ 权限设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <PermissionsPage />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="plugins" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 插件设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ 插件设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <PluginMarket />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="wsl" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ WSL设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ WSL设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <WslStatusPage />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="webtools" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ Web工具设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ Web工具设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <WebToolsTab />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="appearance" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 外观设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ 外观设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <AppearanceTab />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="logs" className="flex-1 min-h-0 flex flex-col">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 日志设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ 日志设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <LogsTab />
           </ErrorBoundary>
         </Tabs.Content>
@@ -1263,12 +1518,38 @@ export function SettingsPage({
           <ArchivedTab />
         </Tabs.Content>
         <Tabs.Content value="docs" className="flex-1 min-h-0 flex flex-col">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 文档设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ 文档设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <DocsTab />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="feedback" className="flex-1 overflow-y-auto">
-          <ErrorBoundary fallback={(error, reset) => (<div className="p-6 text-sm" style={{color:'var(--danger)'}}>⚠ 反馈设置加载失败: {error.message}<button onClick={reset} className="ml-2 underline" style={{color:'var(--accent)'}}>重试</button></div>)}>
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠ 反馈设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
             <FeedbackPage />
           </ErrorBoundary>
         </Tabs.Content>
