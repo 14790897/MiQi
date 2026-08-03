@@ -1567,14 +1567,12 @@ export function ChatConsole({
   }, [newSessionTrigger]);
 
   const handleNewSession = useCallback(async () => {
-    if (streaming) return;
-    // Show workspace picker instead of immediately creating
     const workspaces = await window.miqi.sessions.listRecentWorkspaces()
       .then(r => r?.workspaces ?? [])
       .catch(() => [] as string[]);
     setRecentWorkspaces(workspaces);
     setWorkspacePickerOpen(true);
-  }, [streaming]);
+  }, []);
 
   const createSession = useCallback((workspace?: string | null) => {
     // Do NOT call setWorkspacePickerOpen(false) here — onNewSession

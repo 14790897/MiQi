@@ -181,27 +181,21 @@ test.describe('Task Assets Preview & Persistence', () => {
       console.log(`[test] ✅ ${countBefore} file(s) in Task Assets before switch`);
 
       // Step 2: switch to a new (empty) session via sidebar "+"
-      // The sidebar button might use different selectors — try common ones
-      const newSessionBtn =
-        page.locator('button[title="New Session"]').or(
-          page.locator('button[title="新建会话"]'),
-        ).or(
-          page.getByRole('button', { name: /New Session|新建会话|\+/ }).first(),
-        );
+      // Workspace picker modal (Issue #555) opens on "+" click — click "使用默认工作目录"
+      const newSessionBtn = page.locator('[data-testid="nav-new-session"]');
+      await expect(newSessionBtn).toBeVisible({ timeout: 5_000 });
+      await newSessionBtn.click();
+
+      const modal = page.locator('[data-testid="workspace-picker-modal"]');
+      const defaultBtn = page.locator('[data-testid="workspace-picker-default"]');
       try {
-        await expect(newSessionBtn).toBeVisible({ timeout: 5_000 });
-        await newSessionBtn.click();
+        await expect(modal).toBeVisible({ timeout: 5000 });
+        await defaultBtn.click();
+        await expect(modal).toBeHidden({ timeout: 5000 });
       } catch {
-        // Fallback: use keyboard shortcut or evaluate to create session
-        console.log('[test] New Session button not found — creating via evaluate');
-        await page.evaluate(() => {
-          const key = `desktop:${Date.now()}`;
-          localStorage.setItem('miqi:lastSession', key);
-          location.reload();
-        });
-        await page.waitForTimeout(3_000);
-        await waitForInputReady(page, 30_000);
+        await page.keyboard.press('Escape');
       }
+      await waitForInputReady(page, 15_000);
 
       // Session B should have no files
       await expect(page.locator('[data-testid="task-assets-empty"]')).toBeVisible({ timeout: 10_000 });
