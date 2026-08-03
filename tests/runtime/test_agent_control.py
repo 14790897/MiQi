@@ -132,6 +132,49 @@ async def test_completion_delivered_once(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_notify_completed_advances_state_without_callback(tmp_path):
+    """Issue #246 review: notify_completed must sync the job result and
+    advance the state machine to terminal even when no completion callback is
+    wired — otherwise a finished agent stays THINKING and permanently occupies
+    a max_concurrent slot (CLI/TUI/gateway transports pass no callback)."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    emitter = MagicMock()
+    emitter.emit = AsyncMock()
+    control = AgentControl(
+        session_id="test-session",
+        registry=AgentRegistry(),
+        event_emitter=emitter,
+        workspace=tmp_path,
+        completion_callback=None,  # no frontend transport
+    )
+    agent = await control.spawn("code-agent", "task", label="test")
+
+    # Simulate the AgentJobRuntime path: the agent is THINKING while the
+    # job runs (spawn with a job runtime transitions immediately).
+    agent.state.transition(AgentStatus.THINKING)
+
+    # Simulate AgentJobRuntime finishing the job.
+    fake_job = MagicMock()
+    fake_job.result = "done"
+    fake_job.error = None
+    fake_jobs = MagicMock()
+    fake_jobs.get = MagicMock(return_value=fake_job)
+    control._agent_jobs = fake_jobs
+
+    await control.notify_completed(agent.agent_id, "completed")
+
+    assert agent.state.current == AgentStatus.COMPLETED
+    assert agent.result == "done"
+
+    # The terminal state frees the concurrency slot for a new spawn.  Restore
+    # _agent_jobs so the replacement spawn takes the legacy path.
+    control._agent_jobs = None
+    replacement = await control.spawn("code-agent", "task 2", label="b")
+    assert replacement.agent_id
+
+
+@pytest.mark.asyncio
 async def test_get_status(agent_control):
     agent = await agent_control.spawn("code-agent", "task", label="test")
     status = await agent_control.get_status(agent.agent_id)

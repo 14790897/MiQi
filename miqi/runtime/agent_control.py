@@ -350,7 +350,7 @@ class AgentControl:
         never fires.  AgentJobRuntime calls this from its own ``_run`` finally.
         """
         agent = self._agents.get(agent_id)
-        if agent is None or self._completion_callback is None:
+        if agent is None:
             return
         # Sync result/error from the job — the AgentJobRuntime path never
         # sets LiveAgent.result/error (TurnRunner returns them to the job).
