@@ -41,6 +41,46 @@ async def test_spawn_agent(agent_control, event_emitter):
 
 
 @pytest.mark.asyncio
+async def test_max_concurrent_blocks_4th_spawn(tmp_path, event_emitter):
+    """Issue #246: no more than max_concurrent (3) subagents at once."""
+    control = AgentControl(
+        session_id="test-session",
+        registry=AgentRegistry(),
+        event_emitter=event_emitter,
+        workspace=tmp_path,
+        max_concurrent=3,
+    )
+    for i in range(3):
+        await control.spawn("code-agent", f"task {i}", label=f"a{i}")
+    with pytest.raises(RuntimeError, match="already running"):
+        await control.spawn("code-agent", "task 3", label="a3")
+
+
+@pytest.mark.asyncio
+async def test_max_concurrent_releases_terminal_agents(tmp_path, event_emitter):
+    """A completed subagent frees a slot for a new spawn."""
+    control = AgentControl(
+        session_id="test-session",
+        registry=AgentRegistry(),
+        event_emitter=event_emitter,
+        workspace=tmp_path,
+        max_concurrent=3,
+    )
+    agents = [
+        await control.spawn("code-agent", f"task {i}", label=f"a{i}")
+        for i in range(3)
+    ]
+    # Two agents finish → only one slot is occupied → a new spawn fits.
+    for a in agents[:2]:
+        a.state.transition(AgentStatus.THINKING)
+        a.state.transition(AgentStatus.COMPLETED)
+    replacement = await control.spawn("code-agent", "task 3", label="a3")
+    assert replacement.agent_id
+    # Third still running + replacement = 2 < 3, so one more is allowed.
+    await control.spawn("code-agent", "task 4", label="a4")
+
+
+@pytest.mark.asyncio
 async def test_list_agents(agent_control):
     await agent_control.spawn("code-agent", "task 1", label="a")
     await agent_control.spawn("doc-agent", "task 2", label="b")

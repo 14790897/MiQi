@@ -189,3 +189,15 @@ class AgentJobRuntime:
                     error=job.error,
                     completed_at=job.completed_at,
                 )
+            # Notify the frontend (AgentControl.completion_callback → Desktop
+            # `chat:subagent_result`).  The job path bypasses
+            # AgentControl._run_agent, so its completion hook never fires —
+            # this is the only notification point for AgentJobRuntime agents.
+            ac = getattr(self.services, "agent_control", None)
+            if ac is not None:
+                try:
+                    await ac.notify_completed(job.job_id, job.status)
+                except Exception:
+                    logger.warning(
+                        "notify_completed failed for job {}", job.job_id,
+                    )
