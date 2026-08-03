@@ -99,6 +99,24 @@ function resolveSpawnedAgent(
   return null;
 }
 
+/**
+ * Resolve the spawned-agent handle or fail the test loudly.  A failed/absent
+ * spawn must FAIL the test, not silently pass (the old `if (!agent) return;`
+ * made this suite green while verifying nothing).  Returns a non-null handle
+ * so callers avoid repeating `!` non-null assertions.
+ */
+function resolveSpawnedAgentOrThrow(
+  spawnResult: any,
+): { agent_id: string; thread_id: string } {
+  const agent = resolveSpawnedAgent(spawnResult);
+  if (agent === null) {
+    throw new Error(
+      'agent.spawn returned no agent handle: ' + JSON.stringify(spawnResult),
+    );
+  }
+  return agent;
+}
+
 /** Poll agent.list until an agent reaches a terminal status. */
 async function waitForAgentCompleted(
   page: Page,
@@ -214,15 +232,8 @@ test.describe('Subagent Spawn E2E', () => {
 
     // The bridge resolves agent.spawn to the flat { agent_id, thread_id }
     // object — NOT { result: { agent: ... } } (see resolveSpawnedAgent).
-    const agent = resolveSpawnedAgent(spawnResult);
-    console.log('[test] spawn-result: resolved agent =', JSON.stringify(agent));
-
-    // Hard assertion — a failed/absent spawn must FAIL the test, not
-    // silently pass (the old `if (!agent) return;` made this suite green
-    // while verifying nothing).
-    expect(agent).not.toBeNull();
-    expect(agent!.agent_id).toBeDefined();
-    console.log('[test] spawn-result: spawned agent', agent!.agent_id);
+    const agent = resolveSpawnedAgentOrThrow(spawnResult);
+    console.log('[test] spawn-result: spawned agent', agent.agent_id);
 
     // 3. Wait for the agent to reach a terminal status.
     const completed = await waitForAgentCompleted(page, agent.agent_id, sessionKey, 120_000);
@@ -255,9 +266,7 @@ test.describe('Subagent Spawn E2E', () => {
       sessionKey,
     );
 
-    const agent = resolveSpawnedAgent(spawnResult);
-    expect(agent).not.toBeNull();
-    expect(agent!.agent_id).toBeDefined();
+    const agent = resolveSpawnedAgentOrThrow(spawnResult);
 
     // 3. Wait for it to complete.
     const completed = await waitForAgentCompleted(page, agent.agent_id, sessionKey, 120_000);
@@ -300,9 +309,7 @@ test.describe('Subagent Spawn E2E', () => {
       sessionKey,
     );
 
-    const agent = resolveSpawnedAgent(spawnResult);
-    expect(agent).not.toBeNull();
-    expect(agent!.agent_id).toBeDefined();
+    const agent = resolveSpawnedAgentOrThrow(spawnResult);
 
     // 3. The spawned agent should appear in the list.
     const listResult = await agentList(page, sessionKey);
@@ -352,13 +359,11 @@ test.describe('Subagent Spawn E2E', () => {
       'e2e-kill-test',
       sessionKey,
     );
-    const agent = resolveSpawnedAgent(spawnResult);
-    expect(agent).not.toBeNull();
-    expect(agent!.agent_id).toBeDefined();
+    const agent = resolveSpawnedAgentOrThrow(spawnResult);
 
     const killResult: any = await page.evaluate(
       ({ id, sk }: any) => (window as any).miqi.agents.kill(id, sk),
-      { id: agent!.agent_id, sk: sessionKey },
+      { id: agent.agent_id, sk: sessionKey },
     );
     console.log('[test] kill-result:', JSON.stringify(killResult));
     expect(killResult?.killed ?? killResult?.result?.killed).toBe(true);
@@ -409,9 +414,11 @@ test.describe('Subagent Spawn E2E', () => {
       await page.waitForTimeout(2000);
     }
     console.log('[test] ai-spawn: subagent result rendered:', rendered);
-    if (!rendered) {
-      console.log('[test] ai-spawn: main text tail:', lastText.slice(-1000));
-    }
+    // Print the rendered chat area so we can verify WHO ran the command:
+    // the subagent card (role=subagent, from chat:subagent_result) vs any
+    // main-agent tool calls in the same conversation.
+    const mainTextFinal = (await page.locator('main').textContent().catch(() => '')) || '';
+    console.log('[test] ai-spawn: main text tail:', mainTextFinal.slice(-800));
     expect(rendered).toBe(true);
   });
 });
