@@ -1,7 +1,7 @@
 name: 🐛 Bug 报告
 description: 报告 Bug，必须附带日志和复现步骤
 title: "[BUG] "
-labels: [bug]
+labels: [bug, "Triage Needed"]
 assignees: []
 body:
   - type: textarea

@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import platform
 import sys
+import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -46,23 +48,33 @@ def _ensure_memory_dir() -> None:
     memory_dir.mkdir(parents=True, exist_ok=True)
 
 
-def _collect_all_logs(log_dir: Path) -> str:
-    """Read every file under workspace/logs/ recursively (relative path
-    shown for nested files) and return concatenated text.
+def _collect_all_logs(log_dir: Path, max_age_days: int = 7) -> str:
+    """Read files under workspace/logs/ recursively, limited to those
+    modified within *max_age_days*, and return concatenated text.
 
     Individual files are capped at 1 MB (tail end).  The combined payload
-    is capped at 100,000 UTF-8 bytes to fit within Feishu Bitable
-    text-field limits (per official docs).
+    is capped at 196,608 UTF-8 bytes to fit within Feishu Bitable
+    text-field limits.
     """
     if not log_dir.exists():
         return "[日志目录不存在]"
 
+    cutoff = time.time() - max_age_days * 86400
     parts: list[str] = []
-    # Recursive walk: catches nested logs and any extension (binary-safe
-    # via errors='replace' below).
+    recent_count = 0
+    skipped_count = 0
+
     for f in sorted(log_dir.rglob("*")):
         if not f.is_file():
             continue
+        try:
+            mtime = os.path.getmtime(str(f))
+        except OSError:
+            mtime = 0
+        if mtime < cutoff:
+            skipped_count += 1
+            continue
+        recent_count += 1
         try:
             content = f.read_text(encoding="utf-8", errors="replace")
             max_chars = 1_000_000
@@ -74,7 +86,10 @@ def _collect_all_logs(log_dir: Path) -> str:
             parts.append(f"=== {f.name} === [读取失败: {exc}]")
 
     if not parts:
-        return "[无日志文件]"
+        return f"[最近{max_age_days}天无日志文件（跳过{skipped_count}个旧文件）]"
+
+    if skipped_count:
+        parts.insert(0, f"(跳过了 {skipped_count} 个超过 {max_age_days} 天的旧日志文件)\n")
 
     combined = "\n\n".join(parts)
     # Cap by UTF-8 byte size — Feishu Bitable text-field limit is 196,608 bytes.
