@@ -184,6 +184,13 @@ test.describe('KWP Commands & Skill Auto-trigger E2E', () => {
   // `/brainstorm` token — that confirms the bridge handled the slash
   // command.  Crucially, we do NOT wait for the LLM response, so
   // the test runs in < 5s and doesn't depend on provider availability.
+
+  // Counter-verification: also send a NON-registered slash command
+  // and confirm that its prefix is NOT stripped — proving the
+  // detector only strips registered commands, not all /-prefixed
+  // text.  Without this counter-check, a naive "strip everything
+  // starting with /" regex would pass test 5 but not test 6.
+
   test('/brainstorm <args> strips the slash prefix before the LLM', async () => {
     const marker = `STRIP_PROBE_${Date.now()}`;
     const textarea = await waitForInputReady(page);
@@ -205,5 +212,20 @@ test.describe('KWP Commands & Skill Auto-trigger E2E', () => {
     // mean the slash detector never ran and the raw text was sent
     // through to the LLM as the user message).
     await expect(userBubble).not.toContainText('/brainstorm');
+  });
+
+  test('/<unknown-cmd> does NOT strip (slash detector only acts on registered cmds)', async () => {
+    const textarea = await waitForInputReady(page);
+    await textarea.fill('/no-such-slash-command-x');
+    await textarea.press('Enter');
+
+    // For an unknown command the bubble must contain the full text
+    // because the detector doesn't know about it.
+    await expect(
+      page
+        .getByTestId('chat-message-user')
+        .filter({ hasText: '/no-such-slash-command-x' })
+        .first(),
+    ).toBeVisible({ timeout: 10_000 });
   });
 });
