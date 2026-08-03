@@ -2126,8 +2126,12 @@ export function ChatConsole({
   const adjustTextareaHeight = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
+    // Defer to next frame so React's controlled value has synced to the DOM —
+    // otherwise fast deletes read a stale scrollHeight and the box stays big.
+    requestAnimationFrame(() => {
+      el.style.height = 'auto';
+      el.style.height = `${Math.max(el.scrollHeight, 52)}px`; // floor = min-h-[52px]
+    });
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
