@@ -2122,17 +2122,18 @@ export function ChatConsole({
     [sessionKey]
   );
 
-  /** Auto-resize textarea to fit content */
-  const adjustTextareaHeight = useCallback(() => {
+  /**
+   * Auto-resize textarea to fit content.
+   * Runs as an effect after React commits, so the controlled value is always
+   * synced to the DOM — rAF could race React's render and read a stale
+   * scrollHeight (input box stays tall after deleting everything).
+   */
+  useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    // Defer to next frame so React's controlled value has synced to the DOM —
-    // otherwise fast deletes read a stale scrollHeight and the box stays big.
-    requestAnimationFrame(() => {
-      el.style.height = 'auto';
-      el.style.height = `${Math.max(el.scrollHeight, 52)}px`; // floor = min-h-[52px]
-    });
-  }, []);
+    el.style.height = 'auto';
+    el.style.height = `${Math.max(el.scrollHeight, 52)}px`; // floor = min-h-[52px]
+  }, [input]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -2481,7 +2482,6 @@ export function ChatConsole({
           navigator.clipboard.writeText(el.value.slice(s, e));
           el.setRangeText('', s, e, 'end');
           setInput(el.value);
-          adjustTextareaHeight();
           el.focus();
         },
       },
@@ -2503,7 +2503,6 @@ export function ChatConsole({
             const end = el.value.length;
             el.setRangeText(text, end, end, 'end');
             setInput(el.value);
-            adjustTextareaHeight();
             el.focus();
             // Jump message area to the latest (bottom) so newest answer stays visible
             requestAnimationFrame(() => {
@@ -2999,7 +2998,6 @@ export function ChatConsole({
                   value={input}
                   onChange={(e) => {
                     setInput(e.target.value);
-                    adjustTextareaHeight();
                   }}
                   onKeyDown={handleKeyDown}
                   placeholder="请输入消息或拖入文件..."
