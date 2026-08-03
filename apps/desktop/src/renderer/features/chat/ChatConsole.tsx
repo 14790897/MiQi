@@ -202,6 +202,22 @@ interface MessageSource {
   url: string;
 }
 
+const TOOL_LABELS: Record<string, string> = {
+  web_fetch: '网页抓取',
+  web_search: '网页搜索',
+  paper_search: '论文搜索',
+  paper_get: '论文详情',
+};
+
+/** Hostname (no www.) for a URL — used for the favicon + primary label. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
 /** Extract reference URLs from a tool/progress message.
  *  Priority: the URL the tool actually touched (toolArgs) > structured
  *  paper_search cards > links found in result text (fallback). */
@@ -4081,43 +4097,74 @@ function MessageBubble({
     <Modal
       open={showSources}
       onOpenChange={setShowSources}
-      title="查看来源"
+      title={`查看来源${(sources ?? []).filter((s) => !deadUrls.has(s.url)).length > 0 ? `（${(sources ?? []).filter((s) => !deadUrls.has(s.url)).length}）` : ''}`}
     >
       <div className="flex flex-col gap-3">
         {(sources ?? []).length === 0 ? (
           <p className="text-xs text-text-faint py-2">该回答未使用网络工具，没有参考资料。</p>
         ) : (
-          <div className="flex flex-col gap-1.5 max-h-[50vh] overflow-y-auto pr-1 -mr-1">
-            {(sources ?? [])
-              .filter((s) => !deadUrls.has(s.url))
-              .map((s, i) => (
-                <a
-                  key={i}
-                  href={s.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--surface-muted)] hover:border-[var(--border)] transition-colors"
-                >
-                  <span
-                    className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded"
-                    style={{ background: 'var(--surface-muted)', color: 'var(--text-muted)' }}
-                  >
-                    {s.tool}
-                  </span>
-                  <span
-                    className="text-[11px] truncate flex-1"
-                    style={{ color: 'var(--accent)' }}
-                    title={s.url}
-                  >
-                    {s.url}
-                  </span>
-                </a>
-              ))}
+          <div className="flex flex-col gap-3 max-h-[55vh] overflow-y-auto pr-1 -mr-1">
+            {(() => {
+              // Group valid sources by tool, keep a global running number.
+              const groups = new Map<string, MessageSource[]>();
+              for (const s of sources ?? []) {
+                if (deadUrls.has(s.url)) continue;
+                const arr = groups.get(s.tool) ?? [];
+                arr.push(s);
+                groups.set(s.tool, arr);
+              }
+              if (groups.size === 0) {
+                return (
+                  <p className="text-xs text-text-faint py-2">所有来源链接均已失效（404），没有可访问的参考资料。</p>
+                );
+              }
+              let num = 0;
+              return Array.from(groups.entries()).map(([tool, items]) => (
+                <div key={tool} className="flex flex-col gap-1.5">
+                  <div className="text-[10px] font-semibold tracking-wider uppercase px-0.5" style={{ color: 'var(--text-faint)' }}>
+                    {TOOL_LABELS[tool] ?? tool}
+                  </div>
+                  {items.map((s) => {
+                    num += 1;
+                    const n = num;
+                    const host = hostOf(s.url);
+                    return (
+                      <a
+                        key={s.url}
+                        href={s.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={s.url}
+                        className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl border border-[var(--border-subtle)] hover:bg-[var(--surface-muted)] hover:border-[var(--border)] transition-colors"
+                      >
+                        <span
+                          className="shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-semibold"
+                          style={{ background: 'var(--surface-muted)', color: 'var(--text-muted)' }}
+                        >
+                          {n}
+                        </span>
+                        <img
+                          src={`https://www.google.com/s2/favicons?domain=${host}&sz=32`}
+                          alt=""
+                          className="w-4 h-4 shrink-0 rounded-sm"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.visibility = 'hidden';
+                          }}
+                        />
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-xs font-medium truncate" style={{ color: 'var(--text)' }}>
+                            {host}
+                          </span>
+                          <span className="block text-[10px] truncate text-text-faint">{s.url}</span>
+                        </span>
+                      </a>
+                    );
+                  })}
+                </div>
+              ));
+            })()}
             {deadUrls.size === 0 && (sources ?? []).length > 0 && (
               <p className="text-[11px] text-text-faint py-0.5">正在验证链接可用性…</p>
-            )}
-            {(sources ?? []).every((s) => deadUrls.has(s.url)) && (
-              <p className="text-xs text-text-faint py-2">所有来源链接均已失效（404），没有可访问的参考资料。</p>
             )}
           </div>
         )}
