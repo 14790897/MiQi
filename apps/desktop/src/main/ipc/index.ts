@@ -371,7 +371,13 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
           method,
           redirect: 'follow',
           signal: controller.signal,
-          ...(method === 'GET' ? { headers: { Range: 'bytes=0-2047' } } : {}),
+          headers: {
+            // Real browser UA — many sites reject bare HEAD/bot requests,
+            // which used to misclassify valid links as dead.
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
+            ...(method === 'GET' ? { Range: 'bytes=0-2047' } : {}),
+          },
         });
         return res;
       } finally {
@@ -385,10 +391,17 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
       if ([403, 405, 429, 500, 501, 502, 503].includes(res.status)) {
         res = await check('GET');
       }
-      // 404/410 or network failure = dead; anything else keeps the link.
+      // Only explicit 404/410 = dead; anything else keeps the link.
       return { ok: ![404, 410].includes(res.status), status: res.status };
     } catch {
-      return { ok: false, status: 0 };
+      // Network error / timeout — retry once via GET (transient failures
+      // are common), then conservatively keep the link if still unverifiable.
+      try {
+        const res2 = await check('GET');
+        return { ok: ![404, 410].includes(res2.status), status: res2.status };
+      } catch {
+        return { ok: true, status: 0 };
+      }
     }
   });
 
