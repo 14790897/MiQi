@@ -4185,6 +4185,9 @@ function MessageBubble({
             {deadUrls.size === 0 && (sources ?? []).length > 0 && (
               <p className="text-[11px] text-text-faint py-0.5">正在验证链接可用性…</p>
             )}
+            {deadUrls.size > 0 && (
+              <p className="text-[11px] text-text-faint py-0.5">已过滤 {deadUrls.size} 个失效链接</p>
+            )}
           </div>
         )}
         <div className="flex gap-2 pt-2 border-t border-[var(--border-subtle)]">

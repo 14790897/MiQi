@@ -342,16 +342,30 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   ipcMain.handle(IPC.WEB_CHECK_URL, async (_event, payload: { url?: unknown }) => {
     const url = typeof payload?.url === 'string' ? payload.url : '';
     if (!/^https?:\/\//i.test(url)) return { ok: false, status: 0 };
-    try {
+    const check = async (method: 'HEAD' | 'GET'): Promise<Response> => {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 6000);
-      const res = await electron.net.fetch(url, {
-        method: 'HEAD',
-        redirect: 'follow',
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      return { ok: res.ok, status: res.status };
+      const timer = setTimeout(() => controller.abort(), 8000);
+      try {
+        const res = await electron.net.fetch(url, {
+          method,
+          redirect: 'follow',
+          signal: controller.signal,
+          ...(method === 'GET' ? { headers: { Range: 'bytes=0-2047' } } : {}),
+        });
+        return res;
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    try {
+      let res = await check('HEAD');
+      // Many sites reject HEAD (405) or block bots (403/429) but serve GET
+      // fine — retry with GET before declaring the link dead.
+      if ([403, 405, 429, 500, 501, 502, 503].includes(res.status)) {
+        res = await check('GET');
+      }
+      // 404/410 or network failure = dead; anything else keeps the link.
+      return { ok: ![404, 410].includes(res.status), status: res.status };
     } catch {
       return { ok: false, status: 0 };
     }
