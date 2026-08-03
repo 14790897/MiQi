@@ -203,7 +203,10 @@ interface MessageSource {
 /** Extract reference URLs from a tool/progress message (paper_search cards, web fetches, …). */
 function extractMessageSources(msg: Message): MessageSource[] {
   const sources: MessageSource[] = [];
-  if (msg.toolName === 'paper_search' && msg.toolData) {
+  if (msg.toolName === 'paper_search') {
+    // Structured card data is the source of truth; empty/failed searches
+    // carry only internal API URLs — never surface those as references.
+    if (!msg.toolData) return sources;
     const items = (msg.toolData as { items?: { url?: string; arxiv_id?: string }[] }).items ?? [];
     for (const it of items) {
       const url = it.url || (it.arxiv_id ? `https://arxiv.org/abs/${it.arxiv_id}` : '');
@@ -211,13 +214,15 @@ function extractMessageSources(msg: Message): MessageSource[] {
     }
     return sources;
   }
+  // Skip internal/API machinery URLs — not user-facing references.
+  const skip = ['api.semanticscholar.org', '/graph/v1/', 'developer.mozilla.org/en-US/docs/Web/HTTP'];
   // Generic: pull http(s) links from the tool output text, then strip
   // trailing punctuation / markdown noise (e.g. `}{GitHub}.`).
   const seen = new Set<string>();
   const content = String(msg.content ?? '');
   for (const m of content.matchAll(/https?:\/\/[^\s"'<>)\]]+/g)) {
     let url = m[0].split('{')[0].replace(/[.,;:!?。，；：、）\]]+$/, '');
-    if (!url || seen.has(url)) continue;
+    if (!url || seen.has(url) || skip.some((s) => url.includes(s))) continue;
     seen.add(url);
     sources.push({ tool: msg.toolName || 'tool', url });
   }
