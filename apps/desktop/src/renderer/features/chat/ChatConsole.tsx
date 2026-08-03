@@ -3859,19 +3859,25 @@ function MessageBubble({
               </ErrorBoundary>
             </div>
 
-            {/* copy button */}
-            {!isUser && msg.content !== '' && (
-              <button
-                onClick={() => onCopy(msg.content)}
-                className="self-start opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-text-faint"
-              >
-                {isCopied ? <Check size={12} /> : <Copy size={12} />}
-              </button>
-            )}
-
-            {/* action bar — regenerate / like / dislike / sources */}
+            {/* action bar — copy / regenerate / like / dislike / sources */}
             {!isUser && msg.content !== '' && (
               <div className="flex items-center gap-0.5 self-start pt-0.5 text-text-faint">
+                <button
+                  onClick={() => onCopy(msg.content)}
+                  title="复制"
+                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  <span
+                    className="block transition-transform duration-200"
+                    style={{ transform: isCopied ? 'scale(1.15)' : 'scale(1)' }}
+                  >
+                    {isCopied ? (
+                      <Check size={13} style={{ color: 'var(--success)' }} />
+                    ) : (
+                      <Copy size={13} />
+                    )}
+                  </span>
+                </button>
                 <button
                   onClick={() => onRegenerate?.()}
                   title="重新生成"
