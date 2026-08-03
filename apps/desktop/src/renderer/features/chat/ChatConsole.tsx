@@ -195,6 +195,30 @@ interface Message {
   timestamp: number;
 }
 
+interface MessageSource {
+  tool: string;
+  url: string;
+}
+
+/** Extract reference URLs from a tool/progress message (paper_search cards, web fetches, …). */
+function extractMessageSources(msg: Message): MessageSource[] {
+  const sources: MessageSource[] = [];
+  if (msg.toolName === 'paper_search' && msg.toolData) {
+    const items = (msg.toolData as { items?: { url?: string; arxiv_id?: string }[] }).items ?? [];
+    for (const it of items) {
+      const url = it.url || (it.arxiv_id ? `https://arxiv.org/abs/${it.arxiv_id}` : '');
+      if (url) sources.push({ tool: 'paper_search', url });
+    }
+    return sources;
+  }
+  // Generic: pull http(s) links from the tool output text
+  const content = String(msg.content ?? '');
+  for (const m of content.matchAll(/https?:\/\/[^\s"'<>)\]]+/g)) {
+    sources.push({ tool: msg.toolName || 'tool', url: m[0] });
+  }
+  return sources;
+}
+
 function isMissingProviderConfigMessage(message: string) {
   const normalized = message.toLowerCase();
   return normalized.includes('no api key configured');
@@ -2486,7 +2510,9 @@ export function ChatConsole({
           if (s === e) return;
           navigator.clipboard.writeText(el.value.slice(s, e));
           el.setRangeText('', s, e, 'end');
-          setInput(el.value);
+          // Let React's onChange pick up the new value — manual setInput can
+          // drift from the DOM (deleting then requires two passes).
+          el.dispatchEvent(new Event('input', { bubbles: true }));
           el.focus();
         },
       },
@@ -2507,7 +2533,9 @@ export function ChatConsole({
             // Always append to the end, cursor lands after pasted content
             const end = el.value.length;
             el.setRangeText(text, end, end, 'end');
-            setInput(el.value);
+            // Let React's onChange pick up the new value (single source of
+            // truth for state vs DOM — avoids double-delete drift).
+            el.dispatchEvent(new Event('input', { bubbles: true }));
             el.focus();
             // Jump message area to the latest (bottom) so newest answer stays visible
             requestAnimationFrame(() => {
@@ -2825,12 +2853,28 @@ export function ChatConsole({
                   </div>
                 </div>
               ) : (
-                messages.map((msg, i) => (
+                (() => {
+                  // Associate each assistant answer with the tool URLs that
+                  // preceded it in the same turn (webfetch/search/paper_search).
+                  const sourcesByMsg = new Map<Message, MessageSource[]>();
+                  let pending: MessageSource[] = [];
+                  for (const m of messages) {
+                    if (m.role === 'progress') {
+                      pending = [...pending, ...extractMessageSources(m)];
+                    } else if (m.role === 'user') {
+                      pending = [];
+                    } else if (m.role === 'assistant') {
+                      sourcesByMsg.set(m, pending);
+                      pending = [];
+                    }
+                  }
+                  return messages.map((msg, i) => (
                   <MessageBubble
                     key={`${msg.timestamp}-${i}`}
                     msg={msg}
                     execOutputs={execOutputs}
                     inlineExecOutput={inlineExecOutput}
+                    sources={sourcesByMsg.get(msg) ?? []}
                     isLast={i === messages.length - 1}
                     onCopy={(text) => handleCopy(text, i)}
                     isCopied={copiedIdx === i}
@@ -2840,7 +2884,8 @@ export function ChatConsole({
                     onDownloadPaper={handleDownloadPaper}
                     downloadingPaperId={downloadingPaperId}
                   />
-                ))
+                  ))
+                })()
               )}
               {streaming && (
                 <div
@@ -3539,6 +3584,7 @@ function MessageBubble({
   onOpenProviderSettings,
   onDownloadPaper,
   downloadingPaperId,
+  sources,
 }: {
   msg: Message;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
@@ -3551,6 +3597,8 @@ function MessageBubble({
   onOpenProviderSettings?: () => void;
   onDownloadPaper?: (paper: PaperItem) => void;
   downloadingPaperId?: string | null;
+  /** Reference URLs collected from the tool calls preceding this answer */
+  sources?: MessageSource[];
 }) {
   const [expanded, setExpanded] = useState(false);
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
@@ -3934,41 +3982,38 @@ function MessageBubble({
       )}
     </ContextMenu>
 
-    {/* Sources modal */}
+    {/* Sources modal — tools used for this answer + reference URLs */}
     <Modal
       open={showSources}
       onOpenChange={setShowSources}
-      title="消息来源"
+      title="查看来源"
     >
       <div className="text-xs space-y-2">
-        <div className="flex gap-2">
-          <span className="text-text-faint w-16 shrink-0">角色</span>
-          <span>{isUser ? '用户' : msg.role === 'assistant' ? 'MiQi' : msg.role}</span>
-        </div>
-        {msg.toolName && (
-          <div className="flex gap-2">
-            <span className="text-text-faint w-16 shrink-0">工具</span>
-            <span className="font-mono">{msg.toolName}</span>
-          </div>
+        {(sources ?? []).length === 0 ? (
+          <p className="text-text-faint py-2">该回答未使用网络工具，没有参考资料。</p>
+        ) : (
+          (sources ?? []).map((s, i) => (
+            <a
+              key={i}
+              href={s.url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-start gap-2 p-2 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--surface-muted)] transition-colors break-all"
+            >
+              <span
+                className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded mt-0.5"
+                style={{ background: 'var(--surface-muted)', color: 'var(--text-muted)' }}
+              >
+                {s.tool}
+              </span>
+              <span style={{ color: 'var(--accent)' }}>{s.url}</span>
+            </a>
+          ))
         )}
-        {msg.toolCallId && (
-          <div className="flex gap-2">
-            <span className="text-text-faint w-16 shrink-0">调用 ID</span>
-            <span className="font-mono break-all">{msg.toolCallId}</span>
-          </div>
-        )}
-        <div className="flex gap-2">
+        <div className="pt-1 border-t border-[var(--border-subtle)] flex gap-2">
           <span className="text-text-faint w-16 shrink-0">时间</span>
           <span>{new Date(msg.timestamp).toLocaleString('zh-CN')}</span>
         </div>
-        {msg.toolData ? (
-          <div className="pt-1 border-t border-[var(--border-subtle)]">
-            <div className="text-text-faint mb-1">工具数据</div>
-            <pre className="bg-[var(--surface-muted)] rounded-lg p-2 overflow-x-auto text-[10px] leading-relaxed max-h-48 overflow-y-auto">
-              {JSON.stringify(msg.toolData, null, 2).slice(0, 2000)}
-            </pre>
-          </div>
-        ) : null}
       </div>
     </Modal>
     </>
