@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import platform
 import sys
+import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -46,23 +48,35 @@ def _ensure_memory_dir() -> None:
     memory_dir.mkdir(parents=True, exist_ok=True)
 
 
-def _collect_all_logs(log_dir: Path) -> str:
-    """Read every file under workspace/logs/ recursively (relative path
-    shown for nested files) and return concatenated text.
+def _collect_all_logs(log_dir: Path, max_age_days: int = 7) -> str:
+    """Read files under workspace/logs/ recursively, limited to those
+    modified within *max_age_days*, and return concatenated text.
 
     Individual files are capped at 1 MB (tail end).  The combined payload
-    is capped at 100,000 UTF-8 bytes to fit within Feishu Bitable
-    text-field limits (per official docs).
+    is capped at 196,608 UTF-8 bytes to fit within Feishu Bitable
+    text-field limits.
     """
     if not log_dir.exists():
         return "[日志目录不存在]"
 
+    cutoff = time.time() - max_age_days * 86400
     parts: list[str] = []
-    # Recursive walk: catches nested logs and any extension (binary-safe
-    # via errors='replace' below).
-    for f in sorted(log_dir.rglob("*")):
+    recent_count = 0
+    skipped_count = 0
+    unreadable_count = 0
+
+    for f in sorted(log_dir.rglob("*"), key=lambda p: os.path.getmtime(str(p)), reverse=True):
         if not f.is_file():
             continue
+        try:
+            mtime = os.path.getmtime(str(f))
+        except OSError:
+            unreadable_count += 1
+            continue
+        if mtime < cutoff:
+            skipped_count += 1
+            continue
+        recent_count += 1
         try:
             content = f.read_text(encoding="utf-8", errors="replace")
             max_chars = 1_000_000
@@ -74,7 +88,15 @@ def _collect_all_logs(log_dir: Path) -> str:
             parts.append(f"=== {f.name} === [读取失败: {exc}]")
 
     if not parts:
-        return "[无日志文件]"
+        return f"[最近{max_age_days}天无日志文件（跳过{skipped_count}个旧文件）]"
+
+    marker = []
+    if skipped_count:
+        marker.append(f"（跳过了 {skipped_count} 个超过 {max_age_days} 天的旧日志文件）")
+    if unreadable_count:
+        marker.append(f"（{unreadable_count} 个文件无法读取修改时间）")
+    if marker:
+        parts.insert(0, "\n".join(marker) + "\n")
 
     combined = "\n\n".join(parts)
     # Cap by UTF-8 byte size — Feishu Bitable text-field limit is 196,608 bytes.
@@ -386,9 +408,9 @@ async def feedback_submit_handler(
 
     # 4. Build Bitable fields — cap per-field text sizes to stay within
     #    Feishu per-cell limits (multiline text ≈ 196,608 bytes per cell).
-    MAX_CELL_BYTES = 98_000  # ~half of Feishu 196,608 limit — JSON escaping of
+    MAX_CELL_BYTES = 88_000  # ~45% of Feishu 196,608 limit — JSON escaping of
     # backslashes (Windows paths) and other special chars can inflate the
-    # payload by up to 2×, so a 50% safety margin avoids TooLargeCell.
+    # payload by up to 2x, so a 50% safety margin avoids TooLargeCell.
 
     def _cap_text(value: str, max_bytes: int = MAX_CELL_BYTES) -> str:
         """Truncate *value* so its UTF-8 encoding fits within *max_bytes*."""
