@@ -28,5 +28,5 @@ jobs:
           config.model: "openai/deepseek-v4-pro"
           config.fallback_models: '["openai/deepseek-v4-pro"]'
           config.custom_model_max_tokens: "128000"
-          config.custom_reasoning_model: "true"
+          config.reasoning_effort: "low"
           OPENAI.API_BASE: "https://new.sixiangjia.de/v1"
