@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
 import { DiffView } from './components/DiffView';
@@ -1663,13 +1663,7 @@ export function ChatConsole({
     };
     setMessages((prev) => [...prev, userMsg]);
     userScrolledUp.current = false; // user sent a message — resume auto-scroll
-    setInput('');
-    // Reset textarea height after sending
-    setTimeout(() => {
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-      }
-    }, 0);
+    setInput(''); // field-sizing: content shrinks the textarea automatically
     setAttachments([]);
     // Save a snapshot before clearing — chat.send needs it later
     const sentAttachments = [...atts];
@@ -2123,17 +2117,11 @@ export function ChatConsole({
   );
 
   /**
-   * Auto-resize textarea to fit content.
-   * Runs synchronously after EVERY render (no dep array) — any path that
-   * changes the value (typing, paste, cut, delete, undo, send) gets its
-   * height recomputed, so a tall box always shrinks back once emptied.
+   * Textarea auto-height is handled natively via `field-sizing: content`
+   * (Chromium 123+; Electron 39 = Chromium 142). No JS resize logic —
+   * the browser recomputes height on every value change, so a tall box
+   * always shrinks back when emptied. min/max-height still clamp it.
    */
-  useLayoutEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.max(el.scrollHeight, 52)}px`; // floor = min-h-[52px]
-  });
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -2482,8 +2470,6 @@ export function ChatConsole({
           navigator.clipboard.writeText(el.value.slice(s, e));
           el.setRangeText('', s, e, 'end');
           setInput(el.value);
-          el.style.height = 'auto';
-          el.style.height = `${Math.max(el.scrollHeight, 52)}px`;
           el.focus();
         },
       },
@@ -2505,8 +2491,6 @@ export function ChatConsole({
             const end = el.value.length;
             el.setRangeText(text, end, end, 'end');
             setInput(el.value);
-            el.style.height = 'auto';
-            el.style.height = `${Math.max(el.scrollHeight, 52)}px`;
             el.focus();
             // Jump message area to the latest (bottom) so newest answer stays visible
             requestAnimationFrame(() => {
@@ -3002,14 +2986,6 @@ export function ChatConsole({
                   value={input}
                   onChange={(e) => {
                     setInput(e.target.value);
-                    // Synchronous resize: at onChange time the DOM value is
-                    // already the new one, so scrollHeight is exact. Belt-and-
-                    // braces with the useLayoutEffect below.
-                    const el = textareaRef.current;
-                    if (el) {
-                      el.style.height = 'auto';
-                      el.style.height = `${Math.max(el.scrollHeight, 52)}px`;
-                    }
                   }}
                   onKeyDown={handleKeyDown}
                   placeholder="请输入消息或拖入文件..."
@@ -3017,7 +2993,7 @@ export function ChatConsole({
                   allowResize={true}
                   className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
                   disabled={streaming}
-                  style={{ color: 'var(--text)' }}
+                  style={{ color: 'var(--text)', fieldSizing: 'content' }}
                 />
                 {/* Icon row at the bottom — no text, like DeepSeek */}
                 <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
