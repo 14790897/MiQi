@@ -16,6 +16,7 @@ class ErrorKind(str, Enum):
     TRANSIENT = "transient"
     RATE_LIMIT = "rate_limit"
     AUTH = "auth"
+    PAYMENT_REQUIRED = "payment_required"
     CONTEXT_LENGTH = "context_length"
     INVALID_REQUEST = "invalid_request"
     FATAL = "fatal"
@@ -98,6 +99,10 @@ def _classify_by_message(exc: BaseException) -> ErrorKind | None:
 
     if "rate limit" in message or "too many requests" in message:
         return ErrorKind.RATE_LIMIT
+    # Issue #528: check billing/quota before AUTH — a 402 body that mentions
+    # "forbidden"-ish wording would otherwise be misread as authentication.
+    if _is_payment_required_error(exc):
+        return ErrorKind.PAYMENT_REQUIRED
     if "invalid api key" in message or "unauthorized" in message or "forbidden" in message:
         return ErrorKind.AUTH
     if _is_context_length_error(exc):
@@ -123,6 +128,37 @@ def _is_context_length_error(exc: BaseException) -> bool:
     return any(s in message for s in signals)
 
 
+# Issue #528: signal phrases across providers for 402 / balance / quota errors.
+# Distinct from AUTH — identity is accepted but the account has no
+# balance/quota, so it gets its own non-retryable kind. Covers OpenAI
+# ("exceeded your current quota"), Anthropic ("credit balance is too low"),
+# and gateway/proxy wording ("insufficient balance", "payment required").
+_PAYMENT_REQUIRED_SIGNALS = (
+    "insufficient balance",
+    "insufficient quota",
+    "payment required",
+    "payment_required",
+    "balance exceeded",
+    "quota exceeded",
+    "quota exhausted",
+    "credit exhausted",
+    "out of credits",
+    "credit balance is too low",
+    "exceeded your current quota",
+    # CodeRabbit (#528): no bare "billing" — too broad. It misclassified
+    # AUTH-style messages like "Forbidden: billing access denied" as
+    # PAYMENT_REQUIRED (checked before the AUTH branch). Only balance/quota-
+    # specific phrases remain; a true 402 is still caught by the
+    # status-code layer (402 → PAYMENT_REQUIRED) regardless of wording.
+)
+
+
+def _is_payment_required_error(exc: BaseException) -> bool:
+    """Detect 402/balance/quota exhaustion from message text."""
+    message = str(exc).lower()
+    return any(s in message for s in _PAYMENT_REQUIRED_SIGNALS)
+
+
 def _classify_by_status_code(exc: BaseException) -> ErrorKind | None:
     """Classify a retry error by HTTP status code."""
     code = _status_code(exc)
@@ -133,6 +169,10 @@ def _classify_by_status_code(exc: BaseException) -> ErrorKind | None:
         return ErrorKind.RATE_LIMIT
     if code in (401, 403):
         return ErrorKind.AUTH
+    if code == 402:
+        # Issue #528: Payment Required — balance/quota exhausted. Distinct
+        # from AUTH and non-retryable (retrying won't add balance).
+        return ErrorKind.PAYMENT_REQUIRED
     if code == 408 or 500 <= code < 600:
         return ErrorKind.TRANSIENT
     if code == 409:

@@ -99,6 +99,60 @@ def test_classify_error_auth_message() -> None:
     assert classify_error(Exception("invalid api key")) == ErrorKind.AUTH
 
 
+# ── Issue #528: 402 / balance / quota → PAYMENT_REQUIRED ───────────────────
+
+
+def test_classify_error_payment_required_status_402() -> None:
+    # Neutral body (no _PAYMENT_REQUIRED_SIGNALS match) so this test
+    # actually exercises the explicit status_code == 402 mapping, not the
+    # message-keyword layer (CodeRabbit #528).
+    assert classify_error(_StatusError("upstream response", status_code=402)) == ErrorKind.PAYMENT_REQUIRED
+
+
+@pytest.mark.parametrize("message", [
+    # OpenAI style
+    "You exceeded your current quota, please check your plan and billing details",
+    # Anthropic style
+    "Error: credit balance is too low",
+    # Gateway / proxy wording
+    "Insufficient balance",
+    "payment required",
+    "quota exceeded - top up to continue",
+    "credit exhausted",
+    "out of credits",
+    "payment required - top up your account",
+    "balance exceeded the limit",
+])
+def test_classify_error_payment_required_message(message: str) -> None:
+    assert classify_error(Exception(message)) == ErrorKind.PAYMENT_REQUIRED
+
+
+def test_classify_error_payment_required_is_not_retryable() -> None:
+    """402 is non-retryable — retrying won't add balance."""
+    assert is_retryable(ErrorKind.PAYMENT_REQUIRED) is False
+    assert ProviderError(
+        kind=ErrorKind.PAYMENT_REQUIRED, message="insufficient balance"
+    ).recoverable is False
+
+
+def test_classify_error_payment_required_preferred_over_auth_wording() -> None:
+    """A 402 body that also says 'forbidden' must not be misread as AUTH —
+    billing is checked before the auth keyword branch."""
+    assert classify_error(
+        Exception("Forbidden: insufficient balance, payment required")
+    ) == ErrorKind.PAYMENT_REQUIRED
+
+
+def test_bare_billing_word_is_not_payment_required() -> None:
+    """CodeRabbit regression (#528): a bare 'billing' substring in an
+    AUTH-style message ("Forbidden: billing access denied") must NOT be
+    misclassified as PAYMENT_REQUIRED — only balance/quota-specific phrases
+    match the message layer; a bare 'billing' was removed from the signals."""
+    assert classify_error(
+        Exception("Forbidden: billing access denied")
+    ) == ErrorKind.AUTH
+
+
 def test_classify_error_context_length_message() -> None:
     assert classify_error(Exception("context length exceeded")) == ErrorKind.CONTEXT_LENGTH
 
@@ -158,6 +212,7 @@ def test_is_retryable() -> None:
     assert is_retryable(ErrorKind.TRANSIENT) is True
     assert is_retryable(ErrorKind.RATE_LIMIT) is True
     assert is_retryable(ErrorKind.AUTH) is False
+    assert is_retryable(ErrorKind.PAYMENT_REQUIRED) is False
     assert is_retryable(ErrorKind.CONTEXT_LENGTH) is False
     assert is_retryable(ErrorKind.INVALID_REQUEST) is False
     assert is_retryable(ErrorKind.FATAL) is False
@@ -634,6 +689,7 @@ def test_provider_error_recoverable_true_for_retryable_kinds() -> None:
 
 def test_provider_error_recoverable_false_for_non_retryable_kinds() -> None:
     assert ProviderError(kind=ErrorKind.AUTH, message="x").recoverable is False
+    assert ProviderError(kind=ErrorKind.PAYMENT_REQUIRED, message="x").recoverable is False
     assert ProviderError(kind=ErrorKind.CONTEXT_LENGTH, message="x").recoverable is False
     assert (
         ProviderError(kind=ErrorKind.INVALID_REQUEST, message="x").recoverable is False
@@ -653,4 +709,57 @@ def test_provider_error_is_an_exception() -> None:
     assert isinstance(err, Exception)
     with pytest.raises(ProviderError):
         raise err
+
+
+# ---------------------------------------------------------------------------
+# Issue #529: _classify_chain (TaskRunner final-boundary re-classification)
+# ---------------------------------------------------------------------------
+
+
+def test_classify_chain_returns_direct_classification_when_not_fatal() -> None:
+    """A directly-classifiable TRANSIENT error is returned without walking
+    the cause chain."""
+    from miqi.runtime.task_runner import _classify_chain
+
+    assert _classify_chain(Exception("503 service unavailable")) == ErrorKind.TRANSIENT
+    assert _classify_chain(_RateLimitError("rate limited")) == ErrorKind.RATE_LIMIT
+
+
+def test_classify_chain_falls_back_to_cause_when_outer_is_fatal() -> None:
+    """A FATAL wrapper whose __cause__ carries a TRANSIENT SDK error unwraps
+    to the cause's kind — the leaked metadata is recovered at the boundary."""
+    from miqi.runtime.task_runner import _classify_chain
+
+    wrapped = RuntimeError("processing failed")
+    wrapped.__cause__ = Exception("503 service unavailable")
+    assert _classify_chain(wrapped) == ErrorKind.TRANSIENT
+
+
+def test_classify_chain_uses_context_when_no_cause() -> None:
+    """Implicit __context__ (from a bare raise inside an except) is also
+    walked when __cause__ is absent and the outer is FATAL."""
+    from miqi.runtime.task_runner import _classify_chain
+
+    wrapped = RuntimeError("processing failed")
+    wrapped.__context__ = Exception("overloaded")
+    assert _classify_chain(wrapped) == ErrorKind.TRANSIENT
+
+
+def test_classify_chain_stays_fatal_when_cause_is_also_fatal() -> None:
+    """If the cause chain yields no better classification, FATAL is kept
+    (no spurious recoverability)."""
+    from miqi.runtime.task_runner import _classify_chain
+
+    wrapped = RuntimeError("processing failed")
+    wrapped.__cause__ = Exception("something unrelated")
+    assert _classify_chain(wrapped) == ErrorKind.FATAL
+
+
+def test_classify_chain_ignores_self_referential_cause() -> None:
+    """A pathological self-referential __cause__ must not loop / misclassify."""
+    from miqi.runtime.task_runner import _classify_chain
+
+    wrapped = RuntimeError("processing failed")
+    wrapped.__cause__ = wrapped
+    assert _classify_chain(wrapped) == ErrorKind.FATAL
 
