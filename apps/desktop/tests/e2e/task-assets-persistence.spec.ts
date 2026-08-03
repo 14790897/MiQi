@@ -188,13 +188,9 @@ test.describe('Task Assets Preview & Persistence', () => {
 
       const modal = page.locator('[data-testid="workspace-picker-modal"]');
       const defaultBtn = page.locator('[data-testid="workspace-picker-default"]');
-      try {
-        await expect(modal).toBeVisible({ timeout: 5000 });
-        await defaultBtn.click();
-        await expect(modal).toBeHidden({ timeout: 5000 });
-      } catch {
-        await page.keyboard.press('Escape');
-      }
+      await expect(modal).toBeVisible({ timeout: 5000 });
+      await defaultBtn.click();
+      await expect(modal).toBeHidden({ timeout: 5000 });
       await waitForInputReady(page, 15_000);
 
       // Session B should have no files
