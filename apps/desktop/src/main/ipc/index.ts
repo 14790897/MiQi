@@ -337,6 +337,26 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     return bridge.send('chat.abort', { session_key: input.session_key });
   });
 
+  // HEAD-check a URL in the main process (no CORS) — used by "查看来源"
+  // to drop dead links before the user clicks them.
+  ipcMain.handle(IPC.WEB_CHECK_URL, async (_event, payload: { url?: unknown }) => {
+    const url = typeof payload?.url === 'string' ? payload.url : '';
+    if (!/^https?:\/\//i.test(url)) return { ok: false, status: 0 };
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
+      const res = await electron.net.fetch(url, {
+        method: 'HEAD',
+        redirect: 'follow',
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      return { ok: res.ok, status: res.status };
+    } catch {
+      return { ok: false, status: 0 };
+    }
+  });
+
   // -----------------------------------------------------------------------
   // Sessions
   // -----------------------------------------------------------------------
