@@ -2,9 +2,8 @@ name: PR Agent
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, ready_for_review, review_requested]
+    types: [opened, reopened, ready_for_review, synchronize]
   issue_comment:
-    types: [created, edited]
 
 jobs:
   pr_agent_job:
@@ -28,5 +27,4 @@ jobs:
           config.model: "openai/deepseek-v4-pro"
           config.fallback_models: '["openai/deepseek-v4-pro"]'
           config.custom_model_max_tokens: "128000"
-          config.reasoning_effort: "low"
           OPENAI.API_BASE: "https://new.sixiangjia.de/v1"
