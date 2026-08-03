@@ -169,6 +169,18 @@ export async function getSidebarSessionCount(page: Page): Promise<number> {
  *  Since Issue #555, clicking "+" opens a workspace picker modal; this helper clicks
  *  "使用默认工作目录" to proceed with the default workspace. */
 export async function createNewConversation(page: Page): Promise<string> {
+  // Remove stale Radix overlays that can block clicks from previous tests
+  await page.evaluate(() => {
+    document.querySelectorAll('[data-radix-focus-guard]').forEach((e) => e.remove());
+    document.querySelectorAll('[data-aria-hidden="true"]').forEach((e) => {
+      if (e.classList.contains('fixed') && e.classList.contains('inset-0')) {
+        (e as HTMLElement).style.display = 'none';
+      }
+    });
+  });
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+
   const sidebarPlusBtn = page.locator('[data-testid="nav-new-session"]');
   await expect(sidebarPlusBtn).toBeVisible();
   await sidebarPlusBtn.click();
