@@ -1124,7 +1124,7 @@ export function ChatConsole({
       if (data.session_key && data.session_key !== currentSessionRef.current) {
         var buf = inFlightCacheRef.current.get(data.session_key);
         if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(data.session_key, buf); }
-        buf.events.push({ type: "final", data, timestamp: Date.now() });
+        buf.events.push({ type: "progress", data, timestamp: Date.now() });
         return;
       }
       lastEventAt = Date.now();
@@ -1211,7 +1211,7 @@ export function ChatConsole({
       if (data.session_key && data.session_key !== currentSessionRef.current) {
         var buf = inFlightCacheRef.current.get(data.session_key);
         if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(data.session_key, buf); }
-        buf.events.push({ type: "error", data, timestamp: Date.now() });
+        buf.events.push({ type: "final", data, timestamp: Date.now() });
         return;
       }
       clearFinalCleanupTimer();
