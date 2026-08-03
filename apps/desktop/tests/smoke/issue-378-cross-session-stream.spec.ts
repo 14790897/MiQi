@@ -481,13 +481,8 @@ test.describe('Issue #378 — cross-session streaming must preserve assistant co
       //   "已经回复的内容需要重启app才能查看" — the user sees only the user
       //   prompt + progress messages but no assistant reply, until they
       //   restart the app (which triggers a full reload from persisted
-      //   history).
-      //
-      // Hypothesis: the orphan-routing path may drop final events when
-      // crossSessionStreamRef.size !== 1 (e.g. an error event from another
-      // session misrouted and cleared A's state). The new backstop should
-      // reconcile from the bridge's persisted history, restoring the
-      // assistant bubble even in that worst-case scenario.
+      //   history). It should be restored via merge of persisted history
+      //   during session load.
       await bootApp(page, {
         sessions: [
           { key: SESSION_A, title: 'Issue 378 Session A', updated_at: Date.now(), message_count: 1 },
@@ -513,7 +508,8 @@ test.describe('Issue #378 — cross-session streaming must preserve assistant co
         );
       });
 
-      // 4) Wait > 250ms so the backstop setTimeout fires.
+      // 4) Settle — the inFlightCache listener captures the orphan event
+      // and the session-change effect replays it when switching back.
       await page.waitForTimeout(400);
 
       // 5) Switch back to A and assert final content visible (no app restart).
