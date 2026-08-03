@@ -134,8 +134,10 @@ function AppShell() {
   };
 
   const handleSessionCreated = (newKey: string, workspace?: string | null) => {
+    setWorkspace(null); // clear stale workspace until new session loads
     if (workspace) pendingWorkspace.current = workspace;
     else pendingWorkspace.current = null;
+    setNewSessionTrigger(0); // reset so new ChatConsole instance doesn't re-open picker
     setSessionKey(newKey);
     setSessionRefreshKey((k) => k + 1);
   };
