@@ -52,6 +52,9 @@ import {
   Scissors,
   ClipboardPaste,
   Code2,
+  RefreshCw,
+  ThumbsUp,
+  ThumbsDown,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -1558,9 +1561,16 @@ export function ChatConsole({
     handleNewSession();
   }, [handleNewSession]);
 
+  /** Payload for programmatic sends (e.g. regenerate) — bypasses input state */
+  const retryPayloadRef = useRef<{ text: string; attachments: Attachment[] } | null>(null);
+  const handleSendRef = useRef<() => void>(() => {});
+
   const handleSend = useCallback(async () => {
-    const text = input.trim();
-    if (!text && attachments.length === 0) return;
+    const payload = retryPayloadRef.current;
+    retryPayloadRef.current = null;
+    const text = (payload?.text ?? input).trim();
+    const atts = payload?.attachments ?? attachments;
+    if (!text && atts.length === 0) return;
 
     try {
       const result = await window.miqi.providers.list();
@@ -1593,7 +1603,7 @@ export function ChatConsole({
     let content = text;
 
     // Build message content with embedded document text
-    for (const att of attachments) {
+    for (const att of atts) {
       if (att.type === 'text' && att.content) {
         content += `\n\n[File: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\``;
       } else if (att.type === 'image' && att.dataUrl) {
@@ -1648,7 +1658,7 @@ export function ChatConsole({
     const userMsg: Message = {
       role: 'user',
       content: text || '(attachment)',
-      attachments: [...attachments],
+      attachments: [...atts],
       timestamp: Date.now(),
     };
     setMessages((prev) => [...prev, userMsg]);
@@ -1662,7 +1672,7 @@ export function ChatConsole({
     }, 0);
     setAttachments([]);
     // Save a snapshot before clearing — chat.send needs it later
-    const sentAttachments = [...attachments];
+    const sentAttachments = [...atts];
     setStreaming(true);
     cleanupListeners();
 
@@ -2079,6 +2089,12 @@ export function ChatConsole({
     }
   }, [input, attachments, streaming, cleanupListeners, onChatFinished, executionPolicy]);
 
+  // Keep handleSendRef fresh for programmatic sends (regenerate)
+  useEffect(() => {
+    handleSendRef.current = () => handleSend();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handleSend]);
+
   // ── Download paper via chat ─────────────────────────────────────
   const handleDownloadPaper = useCallback(
     (paper: PaperItem) => {
@@ -2324,6 +2340,33 @@ export function ChatConsole({
       setAttachments(msg.attachments ?? []);
     },
     [streaming, cleanupListeners, messages]
+  );
+
+  /** Regenerate an assistant answer: rewind to its user message, resend automatically */
+  const handleRegenerate = useCallback(
+    async (assistantMsg: Message) => {
+      if (streaming) return;
+      const idx = messages.indexOf(assistantMsg);
+      if (idx < 0) return;
+      let userIdx = -1;
+      for (let i = idx - 1; i >= 0; i--) {
+        if (messages[i].role === 'user') {
+          userIdx = i;
+          break;
+        }
+      }
+      if (userIdx < 0) return;
+      const userMsg = messages[userIdx];
+      retryPayloadRef.current = {
+        text: userMsg.content,
+        attachments: userMsg.attachments ?? [],
+      };
+      setMessages((prev) => prev.slice(0, userIdx + 1)); // drop answer + everything after
+      setInput(userMsg.content);
+      setAttachments(userMsg.attachments ?? []);
+      requestAnimationFrame(() => handleSendRef.current());
+    },
+    [streaming, messages]
   );
 
   /* session display name — use the first user message as title */
@@ -2784,6 +2827,7 @@ export function ChatConsole({
                     onCopy={(text) => handleCopy(text, i)}
                     isCopied={copiedIdx === i}
                     onRetry={() => handleRetry(msg)}
+                    onRegenerate={() => handleRegenerate(msg)}
                     onOpenProviderSettings={onOpenProviderSettings}
                     onDownloadPaper={handleDownloadPaper}
                     downloadingPaperId={downloadingPaperId}
@@ -3480,6 +3524,7 @@ function MessageBubble({
   onCopy,
   isCopied,
   onRetry,
+  onRegenerate,
   onOpenProviderSettings,
   onDownloadPaper,
   downloadingPaperId,
@@ -3491,11 +3536,14 @@ function MessageBubble({
   onCopy: (text: string) => void;
   isCopied: boolean;
   onRetry?: () => void;
+  onRegenerate?: () => void;
   onOpenProviderSettings?: () => void;
   onDownloadPaper?: (paper: PaperItem) => void;
   downloadingPaperId?: string | null;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
+  const [showSources, setShowSources] = useState(false);
   const bubbleRef = useRef<HTMLDivElement>(null);
 
   if (msg.role === 'progress') {
@@ -3658,6 +3706,7 @@ function MessageBubble({
       ];
 
   return (
+    <>
     <ContextMenu items={contextItems}>
       {({ onContextMenu }) => (
         <div
@@ -3819,12 +3868,85 @@ function MessageBubble({
                 {isCopied ? <Check size={12} /> : <Copy size={12} />}
               </button>
             )}
+
+            {/* action bar — regenerate / like / dislike / sources */}
+            {!isUser && msg.content !== '' && (
+              <div className="flex items-center gap-0.5 self-start pt-0.5 text-text-faint">
+                <button
+                  onClick={() => onRegenerate?.()}
+                  title="重新生成"
+                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  <RefreshCw size={13} />
+                </button>
+                <button
+                  onClick={() => setFeedback((f) => (f === 'up' ? null : 'up'))}
+                  title="喜欢"
+                  className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${feedback === 'up' ? 'text-[var(--accent)]' : ''}`}
+                >
+                  <ThumbsUp size={13} />
+                </button>
+                <button
+                  onClick={() => setFeedback((f) => (f === 'down' ? null : 'down'))}
+                  title="不喜欢"
+                  className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${feedback === 'down' ? 'text-[var(--danger)]' : ''}`}
+                >
+                  <ThumbsDown size={13} />
+                </button>
+                <button
+                  onClick={() => setShowSources(true)}
+                  title="查看来源"
+                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  <ExternalLink size={13} />
+                </button>
+              </div>
+            )}
           </div>
 
           {isUser && <UserAvatar />}
         </div>
       )}
     </ContextMenu>
+
+    {/* Sources modal */}
+    <Modal
+      open={showSources}
+      onOpenChange={setShowSources}
+      title="消息来源"
+    >
+      <div className="text-xs space-y-2">
+        <div className="flex gap-2">
+          <span className="text-text-faint w-16 shrink-0">角色</span>
+          <span>{isUser ? '用户' : msg.role === 'assistant' ? 'MiQi' : msg.role}</span>
+        </div>
+        {msg.toolName && (
+          <div className="flex gap-2">
+            <span className="text-text-faint w-16 shrink-0">工具</span>
+            <span className="font-mono">{msg.toolName}</span>
+          </div>
+        )}
+        {msg.toolCallId && (
+          <div className="flex gap-2">
+            <span className="text-text-faint w-16 shrink-0">调用 ID</span>
+            <span className="font-mono break-all">{msg.toolCallId}</span>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <span className="text-text-faint w-16 shrink-0">时间</span>
+          <span>{new Date(msg.timestamp).toLocaleString('zh-CN')}</span>
+        </div>
+        {msg.toolData ? (
+          <div className="pt-1 border-t border-[var(--border-subtle)]">
+            <div className="text-text-faint mb-1">工具数据</div>
+            <pre className="bg-[var(--surface-muted)] rounded-lg p-2 overflow-x-auto text-[10px] leading-relaxed max-h-48 overflow-y-auto">
+              {JSON.stringify(msg.toolData, null, 2).slice(0, 2000)}
+            </pre>
+          </div>
+        ) : null}
+      </div>
+    </Modal>
+    </>
   );
 }
 
