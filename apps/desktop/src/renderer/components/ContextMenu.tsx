@@ -33,6 +33,7 @@ export function ContextMenu({ children, items, minWidth = 180 }: Props) {
   const [position, setPosition] = useState<Position>({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
   const [adjustedPos, setAdjustedPos] = useState<Position>({ x: 0, y: 0 });
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   const onContextMenu = useCallback((e: MouseEvent) => {
     e.preventDefault();
@@ -42,8 +43,12 @@ export function ContextMenu({ children, items, minWidth = 180 }: Props) {
   }, []);
 
   const close = useCallback(() => {
+    // Every dismissal path (Escape, outside click, item select) must clear
+    // any pending hover preview, not just onMouseDown.
+    if (hoveredIndex !== null) items[hoveredIndex]?.onLeave?.();
+    setHoveredIndex(null);
     setOpen(false);
-  }, []);
+  }, [hoveredIndex, items]);
 
   // Adjust position after render to avoid screen edges
   useEffect(() => {
@@ -119,12 +124,17 @@ export function ContextMenu({ children, items, minWidth = 180 }: Props) {
                   onMouseDown={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    item.onLeave?.(); // clear preview before action
                     item.onSelect();
-                    close();
+                    close(); // close() invokes onLeave for the hovered item
                   }}
-                  onMouseEnter={() => item.onEnter?.()}
-                  onMouseLeave={() => item.onLeave?.()}
+                  onMouseEnter={() => {
+                    setHoveredIndex(i);
+                    item.onEnter?.();
+                  }}
+                  onMouseLeave={() => {
+                    setHoveredIndex(null);
+                    item.onLeave?.();
+                  }}
                   disabled={item.disabled}
                   className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between gap-4 ${
                     item.disabled

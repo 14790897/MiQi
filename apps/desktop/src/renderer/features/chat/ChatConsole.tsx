@@ -3676,8 +3676,12 @@ function MessageBubble({
     window.getSelection()?.removeAllRanges();
   };
 
+  // Selection captured when the menu opens — hover/leave must not clobber it,
+  // otherwise copyWithSelection always falls back to the full message.
+  const capturedSelectionRef = useRef('');
+
   const copyWithSelection = () => {
-    const selText = window.getSelection()?.toString().trim();
+    const selText = capturedSelectionRef.current;
     if (selText) { navigator.clipboard.writeText(selText); deselectMessageText(); return; }
     // No manual selection — copy full message
     onCopy(msg.content);
@@ -3716,7 +3720,11 @@ function MessageBubble({
         <div
           ref={bubbleRef}
           className={cn('flex items-start gap-3', isUser && 'justify-end')}
-          onContextMenu={onContextMenu}
+          onContextMenu={(e) => {
+            // Capture any manual selection before hover-preview can replace it
+            capturedSelectionRef.current = window.getSelection()?.toString().trim() ?? '';
+            onContextMenu(e);
+          }}
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
           {!isUser && <AgentAvatar />}
