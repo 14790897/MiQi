@@ -2482,6 +2482,8 @@ export function ChatConsole({
           navigator.clipboard.writeText(el.value.slice(s, e));
           el.setRangeText('', s, e, 'end');
           setInput(el.value);
+          el.style.height = 'auto';
+          el.style.height = `${Math.max(el.scrollHeight, 52)}px`;
           el.focus();
         },
       },
@@ -2503,6 +2505,8 @@ export function ChatConsole({
             const end = el.value.length;
             el.setRangeText(text, end, end, 'end');
             setInput(el.value);
+            el.style.height = 'auto';
+            el.style.height = `${Math.max(el.scrollHeight, 52)}px`;
             el.focus();
             // Jump message area to the latest (bottom) so newest answer stays visible
             requestAnimationFrame(() => {
@@ -2998,6 +3002,14 @@ export function ChatConsole({
                   value={input}
                   onChange={(e) => {
                     setInput(e.target.value);
+                    // Synchronous resize: at onChange time the DOM value is
+                    // already the new one, so scrollHeight is exact. Belt-and-
+                    // braces with the useLayoutEffect below.
+                    const el = textareaRef.current;
+                    if (el) {
+                      el.style.height = 'auto';
+                      el.style.height = `${Math.max(el.scrollHeight, 52)}px`;
+                    }
                   }}
                   onKeyDown={handleKeyDown}
                   placeholder="请输入消息或拖入文件..."
