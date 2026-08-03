@@ -219,12 +219,17 @@ function extractMessageSources(msg: Message): MessageSource[] {
     'api.semanticscholar.org',
     '/graph/v1/',
     'developer.mozilla.org/en-US/docs/Web/HTTP',
-    // Search-engine invocation URLs (the tool's own query, not a result page)
+    // Search-engine invocation / redirect URLs (the tool's own query, not a result page)
     'bing.com/search',
     'duckduckgo.com/?q=',
     'duckduckgo.com/html',
     'search.brave.com',
     'google.com/search',
+    'so.com/s?q=',      // 360 搜索调用
+    'so.com/link?',     // 360 搜索结果跳转链接
+    'sogou.com/web?query=',
+    'user.guancha.cn/main/search',
+    'beian.miit.gov.cn',
   ];
   // Generic: pull http(s) links from the tool output text, then strip
   // trailing punctuation / markdown noise (e.g. `}{GitHub}.`).
