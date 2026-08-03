@@ -71,7 +71,7 @@ function AppShell() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const [workspace, setWorkspace] = useState<string | null>(null);
   const [newSessionTrigger, setNewSessionTrigger] = useState(0);
-  const pendingWorkspace = useRef<string | null>(null);
+  const pendingWorkspace = useRef<{ sessionKey: string; workspace: string } | null>(null);
 
   // Persist last active session so the app restores it on next launch
   useEffect(() => {
@@ -135,7 +135,7 @@ function AppShell() {
 
   const handleSessionCreated = (newKey: string, workspace?: string | null) => {
     setWorkspace(null); // clear stale workspace until new session loads
-    if (workspace) pendingWorkspace.current = workspace;
+    if (workspace) pendingWorkspace.current = { sessionKey: newKey, workspace };
     else pendingWorkspace.current = null;
     setNewSessionTrigger(0); // reset so new ChatConsole instance doesn't re-open picker
     setSessionKey(newKey);

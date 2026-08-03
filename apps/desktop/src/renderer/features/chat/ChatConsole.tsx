@@ -934,7 +934,7 @@ export function ChatConsole({
   /** Increment to trigger workspace picker → new session flow */
   newSessionTrigger?: number;
   onNewSession?: (newKey: string, workspace?: string | null) => void;
-  pendingWorkspace?: { current: string | null };
+  pendingWorkspace?: { current: { sessionKey: string; workspace: string } | null };
   onChatFinished?: () => void;
   onOpenProviderSettings?: () => void;
   onOpenApprovals?: () => void;
@@ -1258,11 +1258,15 @@ export function ChatConsole({
         if (currentSessionRef.current !== sessionKey) return;
 
         try {
-          const ws = pendingWorkspace?.current;
-          if (ws) pendingWorkspace.current = null;
-          detail = ws
-            ? await window.miqi.sessions.get(sessionKey, { workspace: ws } as any)
-            : await window.miqi.sessions.get(sessionKey);
+          const pw = pendingWorkspace?.current;
+          // Only consume if it belongs to this session — prevents
+          // cross-session races and retry-drop on transient failures.
+          if (pw && pw.sessionKey === sessionKey) {
+            pendingWorkspace.current = null;
+            detail = await window.miqi.sessions.get(sessionKey, { workspace: pw.workspace } as any);
+          } else {
+            detail = await window.miqi.sessions.get(sessionKey);
+          }
         } catch (err) {
           lastErr = err;
         }
