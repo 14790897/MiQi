@@ -1587,7 +1587,7 @@ export function ChatConsole({
   }, [handleNewSession]);
 
   /** Payload for programmatic sends (e.g. regenerate) — bypasses input state */
-  const retryPayloadRef = useRef<{ text: string; attachments: Attachment[] } | null>(null);
+  const retryPayloadRef = useRef<{ text: string; attachments: Attachment[]; retry?: boolean } | null>(null);
   const handleSendRef = useRef<() => void>(() => {});
 
   const handleSend = useCallback(async () => {
@@ -1596,6 +1596,11 @@ export function ChatConsole({
     const text = (payload?.text ?? input).trim();
     const atts = payload?.attachments ?? attachments;
     if (!text && atts.length === 0) return;
+    // Retry/regenerate: nudge the model to answer differently — the stored
+    // user message stays clean, only the outbound content gets the hint.
+    const retryHint = payload?.retry
+      ? '\n\n[系统提示：这是重试请求。请换一个角度重新回答，不要复述之前的答案。]'
+      : '';
 
     try {
       const result = await window.miqi.providers.list();
@@ -1625,7 +1630,7 @@ export function ChatConsole({
     const reqId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     setCurrentReqId(reqId);
 
-    let content = text;
+    let content = text + retryHint;
 
     // Build message content with embedded document text
     for (const att of atts) {
@@ -2364,16 +2369,24 @@ export function ChatConsole({
     setTimeout(() => setCopiedIdx(null), 2000);
   };
 
+  /** Retry a user message: rewind to it, resend automatically with a
+   *  "answer differently" hint so the model doesn't repeat itself. */
   const handleRetry = useCallback(
     async (msg: Message) => {
       if (streaming) return;
-      cleanupListeners();
       const idx = messages.indexOf(msg);
-      if (idx >= 0) setMessages((prev) => prev.slice(0, idx + 1)); // keep the retried message
+      if (idx < 0) return;
+      retryPayloadRef.current = {
+        text: msg.content,
+        attachments: msg.attachments ?? [],
+        retry: true,
+      };
+      setMessages((prev) => prev.slice(0, idx + 1)); // keep the retried message
       setInput(msg.content);
       setAttachments(msg.attachments ?? []);
+      requestAnimationFrame(() => handleSendRef.current());
     },
-    [streaming, cleanupListeners, messages]
+    [streaming, messages]
   );
 
   /** Regenerate an assistant answer: rewind to its user message, resend automatically */
@@ -2394,6 +2407,7 @@ export function ChatConsole({
       retryPayloadRef.current = {
         text: userMsg.content,
         attachments: userMsg.attachments ?? [],
+        retry: true,
       };
       setMessages((prev) => prev.slice(0, userIdx + 1)); // drop answer + everything after
       setInput(userMsg.content);
