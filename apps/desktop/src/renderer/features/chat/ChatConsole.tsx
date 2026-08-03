@@ -186,6 +186,8 @@ interface Message {
   toolName?: string;
   /** Parsed tool data for card rendering */
   toolData?: unknown;
+  /** Original tool-call arguments (e.g. web_fetch's url) — real references */
+  toolArgs?: unknown;
   action?: 'open-provider-settings';
   actionLabel?: string;
   /** When true the message is collapsed by default (user can click to expand) */
@@ -200,21 +202,11 @@ interface MessageSource {
   url: string;
 }
 
-/** Extract reference URLs from a tool/progress message (paper_search cards, web fetches, …). */
+/** Extract reference URLs from a tool/progress message.
+ *  Priority: the URL the tool actually touched (toolArgs) > structured
+ *  paper_search cards > links found in result text (fallback). */
 function extractMessageSources(msg: Message): MessageSource[] {
   const sources: MessageSource[] = [];
-  if (msg.toolName === 'paper_search') {
-    // Structured card data is the source of truth; empty/failed searches
-    // carry only internal API URLs — never surface those as references.
-    if (!msg.toolData) return sources;
-    const items = (msg.toolData as { items?: { url?: string; arxiv_id?: string }[] }).items ?? [];
-    for (const it of items) {
-      const url = it.url || (it.arxiv_id ? `https://arxiv.org/abs/${it.arxiv_id}` : '');
-      if (url) sources.push({ tool: 'paper_search', url });
-    }
-    return sources;
-  }
-  // Skip internal/API machinery URLs — not user-facing references.
   const skip = [
     'api.semanticscholar.org',
     '/graph/v1/',
@@ -231,12 +223,36 @@ function extractMessageSources(msg: Message): MessageSource[] {
     'user.guancha.cn/main/search',
     'beian.miit.gov.cn',
   ];
-  // Generic: pull http(s) links from the tool output text, then strip
-  // trailing punctuation / markdown noise (e.g. `}{GitHub}.`).
+  const clean = (raw: string): string =>
+    raw.split('{')[0].replace(/[.,;:!?。，；：、）\]]+$/, '');
+
+  // 1. The exact URL the tool fetched/searched — most trustworthy.
+  if (msg.toolArgs && typeof msg.toolArgs === 'object') {
+    const args = msg.toolArgs as Record<string, unknown>;
+    for (const key of ['url', 'link', 'href', 'query']) {
+      const v = args[key];
+      if (typeof v === 'string' && /^https?:\/\//i.test(v) && !skip.some((s) => v.includes(s))) {
+        sources.push({ tool: msg.toolName || 'tool', url: clean(v) });
+      }
+    }
+  }
+
+  // 2. paper_search card data.
+  if (msg.toolName === 'paper_search' && msg.toolData) {
+    const items = (msg.toolData as { items?: { url?: string; arxiv_id?: string }[] }).items ?? [];
+    for (const it of items) {
+      const url = it.url || (it.arxiv_id ? `https://arxiv.org/abs/${it.arxiv_id}` : '');
+      if (url) sources.push({ tool: 'paper_search', url: clean(url) });
+    }
+    return sources;
+  }
+  if (msg.toolName === 'paper_search') return sources; // failed search: no refs
+
+  // 3. Fallback: links inside the result text (deduped, noise filtered).
   const seen = new Set<string>();
   const content = String(msg.content ?? '');
   for (const m of content.matchAll(/https?:\/\/[^\s"'<>)\]]+/g)) {
-    let url = m[0].split('{')[0].replace(/[.,;:!?。，；：、）\]]+$/, '');
+    const url = clean(m[0]);
     if (!url || seen.has(url) || skip.some((s) => url.includes(s))) continue;
     seen.add(url);
     sources.push({ tool: msg.toolName || 'tool', url });
@@ -725,6 +741,7 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
       // Tool result messages → show as collapsed progress with toolHint
       const toolName = m.name || 'tool';
       const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+      const toolArgs = (m as { arguments?: unknown }).arguments;
 
       // Detect paper_search results → render as cards (not collapsed)
       if (toolName === 'paper_search') {
@@ -737,6 +754,7 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
             toolHint: true,
             toolName: 'paper_search',
             toolData: paperData,
+            toolArgs,
             collapsed: false,
             timestamp: ts,
           });
@@ -747,6 +765,7 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
             content: content, // full output — sources extraction needs all URLs
             summary: 'paper_search',
             toolHint: true,
+            toolArgs,
             collapsed: true,
             timestamp: ts,
           });
@@ -759,6 +778,7 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
           content: content,
           summary: toolName,
           toolHint: true,
+          toolArgs,
           collapsed: true,
           timestamp: ts,
         });
@@ -1145,6 +1165,7 @@ export function ChatConsole({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
+  const toolArgsByCallId = useRef<Map<string, unknown>>(new Map());
   const previewJustClosed = useRef(false);
   const unsubsRef = useRef<Array<() => void>>([]);
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1897,6 +1918,9 @@ export function ChatConsole({
             toolCallId: data.tool_call_id,
             toolName,
             toolData,
+            toolArgs: data.tool_call_id
+              ? toolArgsByCallId.current.get(data.tool_call_id)
+              : undefined,
             timestamp: Date.now(),
           },
         ]);
@@ -1934,6 +1958,16 @@ export function ChatConsole({
           const fn = tc?.function || tc?.tool?.function || {};
           const toolName: string = fn?.name || '';
           if (!toolName) continue;
+          // Remember call args so the matching tool result can show the exact
+          // URL the tool touched (web_fetch etc.) in "查看来源".
+          const callId: string = tc?.id || '';
+          if (callId && fn?.arguments) {
+            try {
+              toolArgsByCallId.current.set(callId, JSON.parse(fn.arguments));
+            } catch {
+              toolArgsByCallId.current.set(callId, fn.arguments);
+            }
+          }
           const filePath: string = _extractPathFromArgs(fn?.arguments || '{}') || '';
           if (!filePath) continue;
           if (_FILE_WRITE_TOOLS.includes(toolName)) {

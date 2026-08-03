@@ -455,7 +455,12 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         return images + [{"type": "text", "text": text}]
 
     def add_tool_result(
-        self, messages: list[dict[str, Any]], tool_call_id: str, tool_name: str, result: str
+        self,
+        messages: list[dict[str, Any]],
+        tool_call_id: str,
+        tool_name: str,
+        result: str,
+        arguments: Any = None,
     ) -> list[dict[str, Any]]:
         """
         Add a tool result to the message list.
@@ -465,13 +470,22 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
             tool_call_id: ID of the tool call.
             tool_name: Name of the tool.
             result: Tool execution result.
+            arguments: Tool call arguments (recorded so the frontend can show
+                the exact URL a web_fetch/web_search actually touched, instead
+                of guessing from result text).
 
         Returns:
             Updated message list.
         """
-        messages.append(
-            {"role": "tool", "tool_call_id": tool_call_id, "name": tool_name, "content": result}
-        )
+        msg: dict[str, Any] = {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "name": tool_name,
+            "content": result,
+        }
+        if arguments is not None:
+            msg["arguments"] = arguments
+        messages.append(msg)
         return messages
 
     def add_assistant_message(
