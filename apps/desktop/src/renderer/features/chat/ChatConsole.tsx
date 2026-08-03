@@ -3178,18 +3178,27 @@ export function ChatConsole({
                   {streaming ? (
                     <button
                       onClick={handleAbort}
-                      className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-[var(--surface-muted)]"
+                      title="停止生成"
+                      aria-label="停止生成"
+                      className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:bg-[var(--surface-muted)] active:scale-95"
                     >
-                      <Square size={14} style={{ color: 'var(--text-muted)' }} />
+                      <Square size={12} style={{ color: 'var(--text-muted)' }} fill="currentColor" />
                     </button>
                   ) : (
                     <button
                       onClick={handleSend}
                       disabled={!input.trim() && attachments.length === 0}
-                      className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors disabled:opacity-30"
-                      style={{ background: 'var(--accent)' }}
+                      title="发送"
+                      aria-label="发送"
+                      className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:brightness-110 hover:-translate-y-px active:scale-95 disabled:opacity-30 disabled:hover:brightness-100 disabled:hover:translate-y-0 disabled:shadow-none"
+                      style={{
+                        background:
+                          'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 65%, #000))',
+                        boxShadow:
+                          '0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent)',
+                      }}
                     >
-                      <Send size={13} style={{ color: '#fff' }} />
+                      <Send size={14} style={{ color: '#fff' }} />
                     </button>
                   )}
                 </div>
