@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '../lib/utils';
 
 export type ExecutionPolicy = 'plan' | 'manual' | 'edit' | 'auto';
@@ -163,20 +164,25 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
         </div>
       </div>
 
-      {confirmAuto && (
-        <div onClick={() => setConfirmAuto(false)} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.35)' }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '12px 18px', maxWidth: 300, width: '90%', boxShadow: '0 16px 48px rgba(0,0,0,0.16)' }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>开启自动模式</div>
-            <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '3px 0 0' }}>Agent 将完全自主执行，不再弹窗确认</p>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
-              <button onClick={() => setConfirmAuto(false)} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 500, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)' }}>取消</button>
-              <button onClick={() => { onChange('auto'); setConfirmAuto(false); toastFn('✓ 自主 已启用'); }} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: '#f59e0b', color: '#fff' }}>确认</button>
+      {confirmAuto &&
+        createPortal(
+          <div onClick={() => setConfirmAuto(false)} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.35)' }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '12px 18px', maxWidth: 300, width: '90%', boxShadow: '0 16px 48px rgba(0,0,0,0.16)' }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>开启自动模式</div>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '3px 0 0' }}>Agent 将完全自主执行，不再弹窗确认</p>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+                <button onClick={() => setConfirmAuto(false)} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 500, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)' }}>取消</button>
+                <button onClick={() => { onChange('auto'); setConfirmAuto(false); toastFn('✓ 自主 已启用'); }} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: '#f59e0b', color: '#fff' }}>确认</button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
 
-      <div className={cn('fixed bottom-24 left-1/2 -translate-x-1/2 z-[150] px-4 py-2 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-200', toast ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', color: 'var(--text)' }}>{toast}</div>
+      {createPortal(
+        <div className={cn('fixed bottom-24 left-1/2 -translate-x-1/2 z-[150] px-4 py-2 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-200', toast ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', color: 'var(--text)' }}>{toast}</div>,
+        document.body
+      )}
     </>
   );
 }
