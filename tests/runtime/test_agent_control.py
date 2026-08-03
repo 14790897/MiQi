@@ -100,6 +100,38 @@ async def test_kill_agent(agent_control):
 
 
 @pytest.mark.asyncio
+async def test_completion_delivered_once(tmp_path):
+    """Issue #246 review: kill() emits aborted, and the cancelled _run_agent
+    task's finally would emit again — the completion must reach the frontend
+    exactly once (idempotent delivery)."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    calls: list[dict] = []
+    async def on_complete(data: dict) -> None:
+        calls.append(data)
+
+    emitter = MagicMock()
+    emitter.emit = AsyncMock()
+    control = AgentControl(
+        session_id="test-session",
+        registry=AgentRegistry(),
+        event_emitter=emitter,
+        workspace=tmp_path,
+        completion_callback=on_complete,
+    )
+    agent = await control.spawn("code-agent", "task", label="test")
+
+    # First emission (kill → aborted) is delivered…
+    await control._emit_completed(agent, status="aborted")
+    assert len(calls) == 1
+    assert calls[0]["status"] == "aborted"
+
+    # …the second (cancelled _run_agent finally) is suppressed.
+    await control._emit_completed(agent)
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_get_status(agent_control):
     agent = await agent_control.spawn("code-agent", "task", label="test")
     status = await agent_control.get_status(agent.agent_id)

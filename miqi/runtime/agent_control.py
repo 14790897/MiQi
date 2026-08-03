@@ -50,6 +50,10 @@ class LiveAgent:
     error: str | None = None
     messages: list[dict[str, Any]] = field(default_factory=list)
     completed_at: float | None = None
+    # Guard against duplicate frontend delivery: kill() emits aborted, then
+    # the cancelled _run_agent task's finally emits again — only the first
+    # terminal event should reach the renderer.
+    completion_emitted: bool = False
 
 
 class AgentControl:
@@ -773,6 +777,12 @@ class AgentControl:
         (apps/desktop/src/shared/ipc.ts): task_id, label, task, result,
         status ("ok" | "error" | "aborted"), session_key.
         """
+        # Idempotent delivery: kill() emits aborted first; the cancelled
+        # _run_agent task's finally would then emit again.  Only the first
+        # terminal event reaches the frontend.
+        if agent.completion_emitted:
+            return
+        agent.completion_emitted = True
         if self._completion_callback is None:
             return
         if status is None:
