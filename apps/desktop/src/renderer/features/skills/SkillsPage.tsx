@@ -195,14 +195,17 @@ export function SkillsPage() {
     return s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q);
   });
 
-  const builtin = filtered.filter((s) => s.source === 'builtin');
+  // Match either forward or backslash separators so KWP skills are
+  // recognized on Windows where the path arrives with backslashes.
+  // (The server normalizes to forward slashes in skills.list, but we
+  // still tolerate either for safety.)
+  const KWP_PATH_RE = /[/\\]kwp[/\\]/;
+  const builtin = filtered.filter(
+    (s) => s.source === 'builtin' && !KWP_PATH_RE.test(s.path),
+  );
   const workspace = filtered.filter((s) => s.source === 'workspace');
   const kwp = filtered.filter(
-    // Match either forward or backslashes between path segments so
-    // KWP skills are recognized on Windows where the path arrives
-    // with backslashes. (The server normalizes to forward slashes
-    // in skills.list, but we still tolerate either for safety.)
-    (s) => s.source === 'builtin' && /[/\\]kwp[/\\]/.test(s.path)
+    (s) => s.source === 'builtin' && KWP_PATH_RE.test(s.path),
   );
 
   const handleCopyContent = () => {

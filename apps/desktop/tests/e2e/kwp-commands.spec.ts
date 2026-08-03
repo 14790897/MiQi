@@ -190,16 +190,20 @@ test.describe('KWP Commands & Skill Auto-trigger E2E', () => {
     await textarea.fill(`/brainstorm ${marker}`);
     await textarea.press('Enter');
 
-    // User message bubble must contain the args…
-    await expect(page.getByText(marker, { exact: false }).first()).toBeVisible({
-      timeout: 10_000,
-    });
+    // Scope both assertions to the just-submitted user-message bubble
+    // (data-testid="chat-message-user").  Searching page-wide or
+    // main-wide could match stale DOM (older turn, in-flight text,
+    // placeholders) and silently break the test.
+    const userBubble = page
+      .getByTestId('chat-message-user')
+      .filter({ hasText: marker })
+      .first();
+
+    // The user message bubble must contain the args…
+    await expect(userBubble).toBeVisible({ timeout: 10_000 });
     // …and must NOT contain the bare `/brainstorm` token (which would
     // mean the slash detector never ran and the raw text was sent
     // through to the LLM as the user message).
-    const userBubble = page
-      .locator('main')
-      .getByText('/brainstorm', { exact: false });
-    await expect(userBubble).toHaveCount(0);
+    await expect(userBubble).not.toContainText('/brainstorm');
   });
 });
