@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { RuntimeProvider, useRuntime } from './contexts/RuntimeContext';
 import { TooltipProvider } from './components/ui/Tooltip';
 import { Sidebar } from './components/Sidebar';
@@ -70,6 +70,8 @@ function AppShell() {
   const [canSkipSetup, setCanSkipSetup] = useState(false); // true when re-running wizard from settings
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const [workspace, setWorkspace] = useState<string | null>(null);
+  const [newSessionTrigger, setNewSessionTrigger] = useState(0);
+  const pendingWorkspace = useRef<string | null>(null);
 
   // Persist last active session so the app restores it on next launch
   useEffect(() => {
@@ -127,7 +129,13 @@ function AppShell() {
 
   const handleNewSession = () => {
     if (activeNav !== 'chat') setActiveNav('chat');
-    const newKey = `desktop:${Date.now()}`;
+    // Pass through to ChatConsole's workspace picker via trigger counter
+    setNewSessionTrigger((k) => k + 1);
+  };
+
+  const handleSessionCreated = (newKey: string, workspace?: string | null) => {
+    if (workspace) pendingWorkspace.current = workspace;
+    else pendingWorkspace.current = null;
     setSessionKey(newKey);
     setSessionRefreshKey((k) => k + 1);
   };
@@ -271,10 +279,9 @@ function AppShell() {
                     key={sessionKey}
                     sessionKey={sessionKey}
                     loadTrigger={runtimeReadyKey}
-                    onNewSession={(newKey) => {
-                      setSessionKey(newKey);
-                      setSessionRefreshKey((k) => k + 1);
-                    }}
+                    newSessionTrigger={newSessionTrigger}
+                    onNewSession={(newKey: string, workspace?: string | null) => handleSessionCreated(newKey, workspace)}
+                    pendingWorkspace={pendingWorkspace}
                     onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
                     onOpenProviderSettings={() => {
                       setSettingsTab('providers');

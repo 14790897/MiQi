@@ -920,7 +920,9 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
 export function ChatConsole({
   sessionKey = DEFAULT_SESSION,
   loadTrigger,
+  newSessionTrigger,
   onNewSession,
+  pendingWorkspace,
   onChatFinished,
   onOpenProviderSettings,
   onOpenApprovals,
@@ -929,7 +931,10 @@ export function ChatConsole({
   sessionKey?: string;
   /** Increment to force a session history reload (e.g. after bridge becomes ready) */
   loadTrigger?: number;
-  onNewSession?: (newKey: string) => void;
+  /** Increment to trigger workspace picker → new session flow */
+  newSessionTrigger?: number;
+  onNewSession?: (newKey: string, workspace?: string | null) => void;
+  pendingWorkspace?: { current: string | null };
   onChatFinished?: () => void;
   onOpenProviderSettings?: () => void;
   onOpenApprovals?: () => void;
@@ -1253,8 +1258,8 @@ export function ChatConsole({
         if (currentSessionRef.current !== sessionKey) return;
 
         try {
-          const ws = workspaceForNewSession.current;
-          workspaceForNewSession.current = null;
+          const ws = pendingWorkspace?.current;
+          if (ws) pendingWorkspace.current = null;
           detail = ws
             ? await window.miqi.sessions.get(sessionKey, { workspace: ws } as any)
             : await window.miqi.sessions.get(sessionKey);
@@ -1549,6 +1554,14 @@ export function ChatConsole({
     ]);
   }, [cleanupListeners, currentReqId]);
 
+  // Respond to new-session trigger from App/Sidebar
+  useEffect(() => {
+    if (newSessionTrigger && newSessionTrigger > 0) {
+      handleNewSession();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newSessionTrigger]);
+
   const handleNewSession = useCallback(async () => {
     if (streaming) return;
     // Show workspace picker instead of immediately creating
@@ -1561,13 +1574,10 @@ export function ChatConsole({
 
   const createSession = useCallback((workspace?: string | null) => {
     setWorkspacePickerOpen(false);
-    if (workspace) {
-      workspaceForNewSession.current = workspace;
-    }
     const newKey = `desktop:${Date.now()}`;
     currentThreadIdRef.current = null;
     cleanupListeners();
-    onNewSession?.(newKey);
+    onNewSession?.(newKey, workspace ?? null);
   }, [cleanupListeners, onNewSession]);
 
   const handleDeleteSession = useCallback(async () => {
@@ -3422,6 +3432,7 @@ export function ChatConsole({
           }}
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
+          data-testid="workspace-picker-modal"
         >
           <div className="flex items-center justify-between px-4 py-3 border-b shrink-0 border-border-subtle">
             <div className="flex items-center gap-2">
@@ -3440,14 +3451,15 @@ export function ChatConsole({
             {/* Recent workspaces */}
             {recentWorkspaces.length > 0 && (
               <>
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-text-faint px-1 pt-1 pb-0.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-text-faint px-1 pt-1 pb-0.5" data-testid="workspace-picker-recent-label">
                   最近使用
                 </div>
-                {recentWorkspaces.map((ws) => (
+                {recentWorkspaces.map((ws, idx) => (
                   <button
                     key={ws}
                     onClick={() => createSession(ws)}
                     className="flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-colors hover:bg-[var(--surface-muted)] w-full"
+                    data-testid={`workspace-picker-recent-${idx}`}
                   >
                     <FolderCheck size={14} style={{ color: 'var(--text-muted)' }} className="shrink-0" />
                     <span
@@ -3474,6 +3486,7 @@ export function ChatConsole({
                 }
               }}
               className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-left transition-colors hover:bg-[var(--surface-muted)] w-full"
+              data-testid="workspace-picker-browse"
             >
               <FolderOpen size={14} style={{ color: 'var(--accent)' }} className="shrink-0" />
               <span className="text-xs text-[var(--accent)]">浏览...</span>
@@ -3483,15 +3496,11 @@ export function ChatConsole({
             <button
               onClick={() => createSession(null)}
               className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-left transition-colors hover:bg-[var(--surface-muted)] w-full"
+              data-testid="workspace-picker-default"
             >
               <Folder size={14} style={{ color: 'var(--text-muted)' }} className="shrink-0" />
               <span className="text-xs text-[var(--text-muted)]">使用默认工作目录</span>
             </button>
-
-            {/* Drag hint */}
-            <div className="text-[10px] text-text-faint text-center mt-1 select-none">
-              拖拽文件夹到此处快速选择
-            </div>
           </div>
         </div>
       </Modal>

@@ -879,12 +879,13 @@ class SessionManager:
                 compacted += 1
         return compacted
 
-    def list_recent_workspaces(self, limit: int = 5) -> list[str]:
+    def list_recent_workspaces(self, limit: int = 5, *, client_id: str | None = None) -> list[str]:
         """Return distinct workspace paths from recent sessions, newest first.
 
         Filters out the default workspace path. Used by the frontend workspace picker.
+        Scoped to client_id when provided.
         """
-        sessions = self.list_sessions()
+        sessions = self.list_sessions(client_id=client_id)
         seen: set[str] = set()
         recent: list[str] = []
         for s in sessions:

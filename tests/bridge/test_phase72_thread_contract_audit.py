@@ -56,6 +56,6 @@ async def test_plan72_primary_thread_contract_counts():
 
         assert len(catalog["methods"]) == 159  # +1 for sessions.listRecentWorkspaces
         assert len(typed) >= 83
-        assert len(legacy) <= 75  # +1 legacy method: kwp/import-mcp-config
+        assert len(legacy) <= 76  # +1 legacy method: sessions.list_recent_workspaces
     finally:
         await loop.app_server.stop()

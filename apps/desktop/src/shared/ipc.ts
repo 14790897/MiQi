@@ -189,6 +189,7 @@ export const ChatSendInput = z.object({
 
 export const SessionGetInput = z.object({
   session_key: z.string().min(1),
+  workspace: z.string().optional(),
 });
 
 export const SessionDeleteInput = z.object({

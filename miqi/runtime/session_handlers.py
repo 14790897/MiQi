@@ -19,6 +19,7 @@ Key semantics:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -482,5 +483,5 @@ async def sessions_list_recent_workspaces_handler(
 ) -> dict[str, Any]:
     """Return distinct workspace paths from recent sessions."""
     sm = _get_session_manager()
-    workspaces = sm.list_recent_workspaces()
+    workspaces = sm.list_recent_workspaces(client_id=client_id)
     return {"result": {"workspaces": workspaces}}

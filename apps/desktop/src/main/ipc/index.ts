@@ -348,7 +348,9 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
 
   ipcMain.handle(IPC.SESSIONS_GET, async (_event, payload: unknown) => {
     const input = SessionGetInput.parse(payload);
-    return bridge.sendSafe('sessions.get', { session_key: input.session_key });
+    const params: Record<string, unknown> = { session_key: input.session_key };
+    if (input.workspace) params.workspace = input.workspace;
+    return bridge.sendSafe('sessions.get', params);
   });
 
   ipcMain.handle(IPC.SESSIONS_DELETE, async (_event, payload: unknown) => {
