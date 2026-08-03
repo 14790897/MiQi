@@ -2458,6 +2458,11 @@ export function ChatConsole({
             setInput(el.value);
             adjustTextareaHeight();
             el.focus();
+            // Jump message area to the latest (bottom) so newest answer stays visible
+            requestAnimationFrame(() => {
+              const sc = scrollRef.current;
+              if (sc) sc.scrollTop = sc.scrollHeight;
+            });
           }).catch(() => {});
         },
       },

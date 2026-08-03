@@ -96,16 +96,25 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
 
         <div
           className={cn(
-            'absolute left-0 bottom-full mb-1 z-50 overflow-hidden',
-            'transition-all duration-150',
-            open ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-1 pointer-events-none',
+            'fixed inset-0 z-[150] flex items-center justify-center transition-opacity duration-150',
+            open ? 'opacity-100' : 'opacity-0 pointer-events-none',
           )}
-          style={{
-            minWidth: 240, background: 'var(--surface)',
-            border: '1px solid var(--border)', borderRadius: 12,
-            boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
-          }}
+          style={{ background: 'rgba(0,0,0,0.25)' }}
+          onClick={() => setOpen(false)}
         >
+          <div
+            className={cn(
+              'transition-all duration-150',
+              open ? 'opacity-100 scale-100' : 'opacity-0 scale-95',
+            )}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              minWidth: 280, maxWidth: '90vw', background: 'var(--surface)',
+              border: '1px solid var(--border)', borderRadius: 16,
+              boxShadow: '0 16px 48px rgba(0,0,0,0.16)',
+              overflow: 'hidden',
+            }}
+          >
           <div style={{ padding: '5px 14px 2px', fontSize: 10, color: 'var(--text-faint)', letterSpacing: .5, textTransform: 'uppercase' }}>
             Agent 模式
           </div>
@@ -160,6 +169,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
               </button>
             )}
           </div>
+        </div>
         </div>
       </div>
 
