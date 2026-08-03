@@ -23,6 +23,12 @@ from loguru import logger
 CHAT_DRAIN_IDLE_TIMEOUT_SECONDS = 600
 
 
+# A drain task that outlives this is considered stale (stuck on WSL sandbox
+# creation, which ignores asyncio cancellation) — the turn lock is force-
+# released so the session recovers instead of waiting for TTL eviction (#563).
+STALE_TURN_TIMEOUT = 300.0  # seconds (5 min)
+
+
 class BridgeRuntimeLoop:
     """Persistent asyncio event loop for the bridge transport.
 
@@ -807,12 +813,24 @@ class BridgeRuntimeLoop:
         # calls to fall back to local (non-sandboxed) execution.
         old = self._session_drain_tasks.get(runtime_id)
         if old is not None and not old.done():
-            from miqi.runtime.app_server import AppServerError
+            # Stale-turn guard: a drain task stuck on WSL sandbox creation
+            # never completes, which would lock the session until TTL eviction.
+            # After STALE_TURN_TIMEOUT treat it as dead and force-release the
+            # lock so the user can start a new turn (issue #563).
+            created_at = getattr(old, "_miqi_created_at", None)
+            if created_at is None or time.monotonic() - created_at < STALE_TURN_TIMEOUT:
+                from miqi.runtime.app_server import AppServerError
 
-            raise AppServerError(
-                "A turn is already in progress for this session",
-                code="TURN_IN_PROGRESS",
+                raise AppServerError(
+                    "A turn is already in progress for this session",
+                    code="TURN_IN_PROGRESS",
+                )
+            logger.warning(
+                "chat.send: stale turn for session {} exceeded {}s — force releasing turn lock",
+                runtime_id, STALE_TURN_TIMEOUT,
             )
+            self._session_drain_tasks.pop(runtime_id, None)
+            old.cancel()  # best-effort; WSL sandbox creation may ignore it
 
         # Subscribe client to session events so emit_event delivers to the sink.
         # Must happen AFTER the TURN_IN_PROGRESS check to avoid leaking a
@@ -831,6 +849,7 @@ class BridgeRuntimeLoop:
                 client_id=client_id,
             )
         )
+        task._miqi_created_at = time.monotonic()  # for the stale-turn guard
         self._active_chat_tasks[request_id] = task
         self._session_drain_tasks[runtime_id] = task
         # Clean up task reference when done
