@@ -114,6 +114,10 @@ export const IPC = {
 
   // Dialog
   DIALOG_OPEN_FILE: 'dialog:openFile',
+  DIALOG_OPEN_DIRECTORY: 'dialog:openDirectory',
+
+  // Sessions metadata
+  SESSIONS_LIST_RECENT_WORKSPACES: 'sessions:listRecentWorkspaces',
 
   // New: Multi-Agent (Phase 1)
   AGENT_LIST: 'agent:list',
@@ -275,6 +279,7 @@ export interface SessionInfo {
   updated_at?: string;
   path?: string;
   message_count?: number;
+  workspace?: string;
 }
 
 export interface SessionDetail {

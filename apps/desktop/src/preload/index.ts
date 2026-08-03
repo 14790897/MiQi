@@ -144,8 +144,8 @@ const api = {
   // -- Sessions ---------------------------------------------------------------
   sessions: {
     list: (): Promise<{ sessions: SessionInfo[] }> => ipcRenderer.invoke(IPC.SESSIONS_LIST),
-    get: (sessionKey: string): Promise<SessionDetail> =>
-      ipcRenderer.invoke(IPC.SESSIONS_GET, { session_key: sessionKey }),
+    get: (sessionKey: string, extra?: Record<string, unknown>): Promise<SessionDetail> =>
+      ipcRenderer.invoke(IPC.SESSIONS_GET, { session_key: sessionKey, ...(extra ?? {}) }),
     delete: (sessionKey: string): Promise<{ deleted: boolean }> =>
       ipcRenderer.invoke(IPC.SESSIONS_DELETE, { session_key: sessionKey }),
     archive: (sessionKey: string): Promise<{ archived: boolean }> =>
@@ -160,6 +160,8 @@ const api = {
       ipcRenderer.invoke(IPC.SESSIONS_CLEAR_TRACKED_FILES, { session_key: sessionKey }),
     claimLegacy: (sessionKey: string): Promise<SessionClaimLegacyResult> =>
       ipcRenderer.invoke(IPC.SESSIONS_CLAIM_LEGACY, { session_key: sessionKey }),
+    listRecentWorkspaces: (): Promise<{ workspaces: string[] }> =>
+      ipcRenderer.invoke(IPC.SESSIONS_LIST_RECENT_WORKSPACES),
   },
 
   // -- Config -----------------------------------------------------------------
@@ -412,6 +414,7 @@ const api = {
   // -- Dialog -----------------------------------------------------------------
   dialog: {
     openFile: (): Promise<string | null> => ipcRenderer.invoke(IPC.DIALOG_OPEN_FILE),
+    openDirectory: (): Promise<string | null> => ipcRenderer.invoke(IPC.DIALOG_OPEN_DIRECTORY),
   },
 
   // -- Agents (Phase 1) --------------------------------------------------------

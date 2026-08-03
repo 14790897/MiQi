@@ -69,6 +69,7 @@ function AppShell() {
   });
   const [canSkipSetup, setCanSkipSetup] = useState(false); // true when re-running wizard from settings
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
+  const [workspace, setWorkspace] = useState<string | null>(null);
 
   // Persist last active session so the app restores it on next launch
   useEffect(() => {
@@ -238,7 +239,7 @@ function AppShell() {
         <ApprovalProvider>
           {/* Full-height flex column */}
           <div className="flex flex-col h-screen" style={{ background: 'var(--background)' }}>
-            <TopBar onOpenApprovals={openApprovalSettings} />
+            <TopBar onOpenApprovals={openApprovalSettings} workspace={workspace ?? undefined} />
             <ApprovalBypassBanner onOpenApprovals={openApprovalSettings} />
             {/* Body row */}
             <div className="flex flex-1 overflow-hidden">
@@ -283,6 +284,7 @@ function AppShell() {
                       setSettingsTab('approvals');
                       setActiveNav('settings');
                     }}
+                    onWorkspaceLoaded={(ws) => setWorkspace(ws)}
                   />
                 </div>
                 {activeNav === 'workspace' && <WorkspacePage />}

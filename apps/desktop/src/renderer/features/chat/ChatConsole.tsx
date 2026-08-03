@@ -46,6 +46,9 @@ import {
   ExternalLink,
   FileSpreadsheet,
   FileBarChart,
+  FolderOpen,
+  Folder,
+  FolderCheck,
   AlertCircle,
   FileType,
   Loader,
@@ -921,6 +924,7 @@ export function ChatConsole({
   onChatFinished,
   onOpenProviderSettings,
   onOpenApprovals,
+  onWorkspaceLoaded,
 }: {
   sessionKey?: string;
   /** Increment to force a session history reload (e.g. after bridge becomes ready) */
@@ -929,6 +933,7 @@ export function ChatConsole({
   onChatFinished?: () => void;
   onOpenProviderSettings?: () => void;
   onOpenApprovals?: () => void;
+  onWorkspaceLoaded?: (workspace: string | null) => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionUpdatedAt, setSessionUpdatedAt] = useState<string | null>(null);
@@ -943,6 +948,9 @@ export function ChatConsole({
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(280);
   const panelResizing = useRef(false);
+  const workspaceForNewSession = useRef<string | null>(null);
+  const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
+  const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClockTick(Date.now()), 60_000);
@@ -1245,7 +1253,11 @@ export function ChatConsole({
         if (currentSessionRef.current !== sessionKey) return;
 
         try {
-          detail = await window.miqi.sessions.get(sessionKey);
+          const ws = workspaceForNewSession.current;
+          workspaceForNewSession.current = null;
+          detail = ws
+            ? await window.miqi.sessions.get(sessionKey, { workspace: ws } as any)
+            : await window.miqi.sessions.get(sessionKey);
         } catch (err) {
           lastErr = err;
         }
@@ -1274,6 +1286,8 @@ export function ChatConsole({
 
       try {
         const rawMsgs: any[] = (detail as any)?.messages ?? [];
+        const wsFromSession = (detail as any)?.workspace ?? null;
+        onWorkspaceLoaded?.(wsFromSession);
         const uiMsgs = sessionMsgsToUi(rawMsgs);
         setMessages(uiMsgs);
         setSessionUpdatedAt((detail as any)?.updated_at ?? null);
@@ -1537,11 +1551,24 @@ export function ChatConsole({
 
   const handleNewSession = useCallback(async () => {
     if (streaming) return;
+    // Show workspace picker instead of immediately creating
+    const workspaces = await window.miqi.sessions.listRecentWorkspaces()
+      .then(r => r?.workspaces ?? [])
+      .catch(() => [] as string[]);
+    setRecentWorkspaces(workspaces);
+    setWorkspacePickerOpen(true);
+  }, [streaming]);
+
+  const createSession = useCallback((workspace?: string | null) => {
+    setWorkspacePickerOpen(false);
+    if (workspace) {
+      workspaceForNewSession.current = workspace;
+    }
     const newKey = `desktop:${Date.now()}`;
     currentThreadIdRef.current = null;
     cleanupListeners();
     onNewSession?.(newKey);
-  }, [streaming, cleanupListeners, onNewSession]);
+  }, [cleanupListeners, onNewSession]);
 
   const handleDeleteSession = useCallback(async () => {
     const key = currentSessionRef.current;
@@ -3377,6 +3404,97 @@ export function ChatConsole({
           </div>
         </Modal>
       )}
+
+      {/* ── Workspace Picker Modal ── */}
+      <Modal
+        open={workspacePickerOpen}
+        onOpenChange={(o) => { if (!o) setWorkspacePickerOpen(false); }}
+        hideClose
+      >
+        <div
+          className="flex flex-col rounded-xl shadow-2xl"
+          style={{
+            width: 420,
+            maxHeight: '70vh',
+            background: 'var(--surface-elevated)',
+            border: '1px solid var(--border)',
+            pointerEvents: 'auto',
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-4 py-3 border-b shrink-0 border-border-subtle">
+            <div className="flex items-center gap-2">
+              <Folder size={16} style={{ color: 'var(--accent)' }} />
+              <span className="text-sm font-medium text-[var(--text)]">选择工作目录</span>
+            </div>
+            <button
+              onClick={() => setWorkspacePickerOpen(false)}
+              className="p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
+            >
+              <X size={14} style={{ color: 'var(--text-faint)' }} />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-auto p-3 flex flex-col gap-2">
+            {/* Recent workspaces */}
+            {recentWorkspaces.length > 0 && (
+              <>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-text-faint px-1 pt-1 pb-0.5">
+                  最近使用
+                </div>
+                {recentWorkspaces.map((ws) => (
+                  <button
+                    key={ws}
+                    onClick={() => createSession(ws)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-colors hover:bg-[var(--surface-muted)] w-full"
+                  >
+                    <FolderCheck size={14} style={{ color: 'var(--text-muted)' }} className="shrink-0" />
+                    <span
+                      className="text-xs text-[var(--text)] truncate"
+                      title={ws}
+                    >
+                      {ws}
+                    </span>
+                  </button>
+                ))}
+                <div className="border-t border-border-subtle my-1" />
+              </>
+            )}
+
+            {/* Browse button */}
+            <button
+              onClick={async () => {
+                setWorkspacePickerOpen(false);
+                try {
+                  const dir = await window.miqi.dialog.openDirectory();
+                  createSession(dir ?? null);
+                } catch {
+                  createSession(null);
+                }
+              }}
+              className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-left transition-colors hover:bg-[var(--surface-muted)] w-full"
+            >
+              <FolderOpen size={14} style={{ color: 'var(--accent)' }} className="shrink-0" />
+              <span className="text-xs text-[var(--accent)]">浏览...</span>
+            </button>
+
+            {/* Default workspace */}
+            <button
+              onClick={() => createSession(null)}
+              className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-left transition-colors hover:bg-[var(--surface-muted)] w-full"
+            >
+              <Folder size={14} style={{ color: 'var(--text-muted)' }} className="shrink-0" />
+              <span className="text-xs text-[var(--text-muted)]">使用默认工作目录</span>
+            </button>
+
+            {/* Drag hint */}
+            <div className="text-[10px] text-text-faint text-center mt-1 select-none">
+              拖拽文件夹到此处快速选择
+            </div>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

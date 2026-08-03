@@ -1380,6 +1380,19 @@ for m in ("pydantic", "httpx", "loguru"):
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
 
+  ipcMain.handle(IPC.DIALOG_OPEN_DIRECTORY, async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory'],
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+
+  ipcMain.handle(IPC.SESSIONS_LIST_RECENT_WORKSPACES, async () => {
+    const result = await bridge.sendSafe('sessions.list_recent_workspaces');
+    if (result == null) return { workspaces: [] };
+    return result;
+  });
+
   // -----------------------------------------------------------------------
   // Approvals
   // -----------------------------------------------------------------------

@@ -31,6 +31,7 @@ class SessionKeyParams(_Params):
     """
 
     session_key: str = Field(default="", validation_alias="sessionKey")
+    workspace: str | None = None
 
     @model_validator(mode="after")
     def _check_required(self) -> "SessionKeyParams":
