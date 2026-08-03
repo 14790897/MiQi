@@ -337,6 +337,74 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     return bridge.send('chat.abort', { session_key: input.session_key });
   });
 
+  // HEAD-check a URL in the main process (no CORS) — used by "查看来源"
+  // to drop dead links before the user clicks them.
+  ipcMain.handle(IPC.WEB_CHECK_URL, async (_event, payload: { url?: unknown }) => {
+    const url = typeof payload?.url === 'string' ? payload.url : '';
+    if (!/^https?:\/\//i.test(url)) return { ok: false, status: 0 };
+    // SSRF guard: never reach loopback / link-local / private ranges from the
+    // privileged main process (mirrors _validate_url on the Python side).
+    let host = '';
+    try {
+      host = new URL(url).hostname.toLowerCase();
+    } catch {
+      return { ok: false, status: 0 };
+    }
+    if (
+      host === 'localhost' ||
+      host.endsWith('.localhost') ||
+      /^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+      host === '::1' ||
+      host === '::' ||
+      host.startsWith('fe80:') ||
+      host.startsWith('fc') ||
+      host.startsWith('fd')
+    ) {
+      return { ok: false, status: 0 };
+    }
+    const check = async (method: 'HEAD' | 'GET'): Promise<Response> => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      try {
+        const res = await electron.net.fetch(url, {
+          method,
+          redirect: 'follow',
+          signal: controller.signal,
+          headers: {
+            // Real browser UA — many sites reject bare HEAD/bot requests,
+            // which used to misclassify valid links as dead.
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
+            ...(method === 'GET' ? { Range: 'bytes=0-2047' } : {}),
+          },
+        });
+        return res;
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    try {
+      let res = await check('HEAD');
+      // Many sites reject HEAD (405) or block bots (403/429) but serve GET
+      // fine — retry with GET before declaring the link dead.
+      if ([403, 405, 429, 500, 501, 502, 503].includes(res.status)) {
+        res = await check('GET');
+      }
+      // Only explicit 404/410 = dead; anything else keeps the link.
+      return { ok: ![404, 410].includes(res.status), status: res.status };
+    } catch {
+      // Network error / timeout — retry once via GET (transient failures
+      // are common), then conservatively keep the link if still unverifiable.
+      try {
+        const res2 = await check('GET');
+        return { ok: ![404, 410].includes(res2.status), status: res2.status };
+      } catch {
+        return { ok: true, status: 0 };
+      }
+    }
+  });
+
   // -----------------------------------------------------------------------
   // Sessions
   // -----------------------------------------------------------------------

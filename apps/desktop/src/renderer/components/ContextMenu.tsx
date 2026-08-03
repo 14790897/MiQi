@@ -2,17 +2,16 @@ import { useState, useEffect, useCallback, useRef, type MouseEvent, type ReactNo
 
 export interface ContextMenuAction {
   label: string;
-  /** Optional keyboard shortcut hint */
   shortcut?: string;
-  /** Optional disabled state */
   disabled?: boolean;
-  /** Danger action (renders in red) */
   danger?: boolean;
-  /** Divider before this item */
   divider?: boolean;
-  /** Optional icon to show before label */
   icon?: ReactNode;
   onSelect: () => void;
+  /** Called when mouse enters this item (for preview/highlight) */
+  onEnter?: () => void;
+  /** Called when mouse leaves this item */
+  onLeave?: () => void;
 }
 
 interface Position {
@@ -34,6 +33,7 @@ export function ContextMenu({ children, items, minWidth = 180 }: Props) {
   const [position, setPosition] = useState<Position>({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
   const [adjustedPos, setAdjustedPos] = useState<Position>({ x: 0, y: 0 });
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   const onContextMenu = useCallback((e: MouseEvent) => {
     e.preventDefault();
@@ -43,8 +43,12 @@ export function ContextMenu({ children, items, minWidth = 180 }: Props) {
   }, []);
 
   const close = useCallback(() => {
+    // Every dismissal path (Escape, outside click, item select) must clear
+    // any pending hover preview, not just onMouseDown.
+    if (hoveredIndex !== null) items[hoveredIndex]?.onLeave?.();
+    setHoveredIndex(null);
     setOpen(false);
-  }, []);
+  }, [hoveredIndex, items]);
 
   // Adjust position after render to avoid screen edges
   useEffect(() => {
@@ -121,7 +125,15 @@ export function ContextMenu({ children, items, minWidth = 180 }: Props) {
                     e.preventDefault();
                     e.stopPropagation();
                     item.onSelect();
-                    close();
+                    close(); // close() invokes onLeave for the hovered item
+                  }}
+                  onMouseEnter={() => {
+                    setHoveredIndex(i);
+                    item.onEnter?.();
+                  }}
+                  onMouseLeave={() => {
+                    setHoveredIndex(null);
+                    item.onLeave?.();
                   }}
                   disabled={item.disabled}
                   className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between gap-4 ${
