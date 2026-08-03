@@ -1095,6 +1095,7 @@ export function ChatConsole({
   const justOpened = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
   const previewJustClosed = useRef(false);
   const unsubsRef = useRef<Array<() => void>>([]);
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2123,6 +2124,21 @@ export function ChatConsole({
    * always shrinks back when emptied. min/max-height still clamp it.
    */
 
+  /** Fixed gap between the last answer and the composer (px) */
+  const ANSWER_GAP = 10;
+  const [composerHeight, setComposerHeight] = useState(0);
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    // Keep the message area's bottom padding in sync with the composer's real
+    // height, so scrolling to the bottom always leaves ANSWER_GAP between the
+    // last answer and the input box — regardless of pasted content size.
+    const ro = new ResizeObserver(() => setComposerHeight(el.offsetHeight));
+    ro.observe(el);
+    setComposerHeight(el.offsetHeight);
+    return () => ro.disconnect();
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -2703,7 +2719,7 @@ export function ChatConsole({
       {/* ── Main area: chat + right panel ── */}
       <div className="flex flex-1 overflow-hidden">
         {/* Chat area */}
-        <div className="flex flex-col flex-1 overflow-hidden">
+        <div className="flex flex-col flex-1 overflow-hidden relative">
           {/* ── Sub header: task title + status (inside chat area) ── */}
           <div
             className="flex items-center gap-3 px-5 min-h-12 border-b shrink-0"
@@ -2784,8 +2800,8 @@ export function ChatConsole({
           {/* Messages */}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto pb-[20vh]"
-            style={{ background: 'var(--background)' }}
+            className="flex-1 overflow-y-auto"
+            style={{ background: 'var(--background)', paddingBottom: composerHeight + ANSWER_GAP }}
           >
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
               {!historyLoaded ? (
@@ -2837,9 +2853,13 @@ export function ChatConsole({
             </div>
           </div>
 
-          {/* Composer — in normal flow, never covers the answer stream */}
+          {/* Composer — floats over the bottom; the answer stream never moves.
+              Messages reserve composerHeight + ANSWER_GAP via paddingBottom, so
+              the gap between the last answer and the box stays constant no
+              matter how tall the textarea grows. */}
           <div
-            className="shrink-0 px-5 pb-10 pt-3"
+            ref={composerRef}
+            className="absolute bottom-0 left-0 right-0 px-5 pb-10 pt-3"
             style={{
               background: 'transparent',
             }}
