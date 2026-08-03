@@ -236,6 +236,65 @@ export function getTaskShareDownloadName(title: string, timestamp = Date.now()):
   return `${safeTitle}-${stamp}.md`;
 }
 
+
+/** Pure helper: extract an array from a thread/list result whether it is a
+ * bare array or a Page wrapper with `data` or `items`.
+ *
+ * Pure + exported so the whole `threads.list → extractThreadListRows →
+ * pickThreadToResume` wiring is unit-tested with backend-shaped payloads
+ * without mounting the React component (see chatConsoleThreadResume.test.ts).
+ */
+export function extractThreadListRows(listResult: unknown): unknown[] {
+  if (Array.isArray(listResult)) return listResult;
+  const obj = listResult as Record<string, unknown> | null | undefined;
+  const rows = obj?.data ?? obj?.items;
+  return Array.isArray(rows) ? rows : [];
+}
+
+/**
+ * Pick the best non-archived, non-ephemeral stored thread id from a
+ * `thread/list` result, for resuming an existing conversation when
+ * (re)entering a session (Issue #490).
+ *
+ * Selection rule (chosen over a plain most-recent sort to survive legacy
+ * fragmented sessions): prefer the thread holding the MOST persisted turns
+ * (`turnCount`, surfaced by backend `_thread_list`), ties broken by the
+ * largest `updatedAt` (fallback `createdAt`). Rationale — a fragmented
+ * session has several thread_ids; the most-recently-touched one may be
+ * nearly empty (e.g. a thread that only captured the user repeatedly
+ * asking "what did we do before"), while the thread with the most turns
+ * holds the real conversation the user expects to recall. On a clean
+ * single-thread session both heuristics agree. Returns `null` when there
+ * is no resumable thread. `items` are the loose rows from the
+ * `ThreadView.to_dict` camelCase shape: `id`, `turnCount`, `updatedAt`,
+ * `createdAt`, `archived`, `ephemeral`.
+ *
+ * Pure + exported so the resume-selection rule is unit-tested without
+ * mounting the React component. The load `useEffect` calls this on the
+ * `threads.list` result and stores the returned id in
+ * `currentThreadIdRef` so subsequent `chat.send` reuses it instead of
+ * minting a fresh thread_id that would orphan prior history.
+ */
+export function pickThreadToResume(items: unknown): string | null {
+  const rows = (Array.isArray(items) ? items : []) as Array<Record<string, unknown>>;
+  const candidates = rows
+    .filter(
+      (t) =>
+        !!t &&
+        !t.archived &&
+        !t.ephemeral &&
+        typeof t.id === 'string' &&
+        (t.id as string).length > 0
+    )
+    .map((t) => ({
+      id: t.id as string,
+      turns: Number(t.turnCount ?? 0) || 0,
+      ts: Number(t.updatedAt ?? t.createdAt ?? 0) || 0,
+    }))
+    .sort((a, b) => b.turns - a.turns || b.ts - a.ts);
+  return candidates.length > 0 ? candidates[0].id : null;
+}
+
 /** Extract file path + operation from a tool-hint progress text.
  *  Nanobot tool hints look like:
  *    "Read: /abs/path/to/file.ts"
@@ -825,6 +884,24 @@ export function ChatConsole({
       setHistoryLoaded(true);
     };
     load();
+
+    // Resume the session's most-recent stored thread so the model
+    // remembers prior context after restart/sidebar-switch (Issue #490).
+    const resumeTimer = setTimeout(async () => {
+      try {
+        const listRes = await window.miqi.threads.list();
+        if (currentSessionRef.current !== sessionKey) return;
+        const listRows = extractThreadListRows(listRes);
+        const resumeId = pickThreadToResume(listRows);
+        if (resumeId) {
+          currentThreadIdRef.current = resumeId;
+        }
+      } catch (err) {
+        // Non-fatal: timeout or rejection → ref stays null → first send
+        // still uses the thread/start path. Don't block rendering.
+      }
+    }, 1000);
+
     // loadTrigger lets the parent force a reload (e.g. after bridge becomes ready)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionKey, loadTrigger]);
@@ -1124,7 +1201,7 @@ export function ChatConsole({
       if (data.session_key && data.session_key !== currentSessionRef.current) {
         var buf = inFlightCacheRef.current.get(data.session_key);
         if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(data.session_key, buf); }
-        buf.events.push({ type: "progress", data, timestamp: Date.now() });
+        buf.events.push({ type: "final", data, timestamp: Date.now() });
         return;
       }
       lastEventAt = Date.now();
@@ -1211,7 +1288,7 @@ export function ChatConsole({
       if (data.session_key && data.session_key !== currentSessionRef.current) {
         var buf = inFlightCacheRef.current.get(data.session_key);
         if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(data.session_key, buf); }
-        buf.events.push({ type: "final", data, timestamp: Date.now() });
+        buf.events.push({ type: "error", data, timestamp: Date.now() });
         return;
       }
       clearFinalCleanupTimer();
