@@ -256,6 +256,7 @@ function AppShell() {
               <Sidebar
                 currentSession={sessionKey}
                 onSessionSelect={(key) => {
+                  setWorkspace(null);
                   setSessionKey(key);
                   setActiveNav('chat');
                   setSessionRefreshKey((k) => k + 1);
@@ -311,6 +312,7 @@ function AppShell() {
                 {activeNav === 'sessions' && (
                   <SessionExplorer
                     onOpenSession={(key: string) => {
+                      setWorkspace(null);
                       setSessionKey(key);
                       setActiveNav('chat');
                     }}

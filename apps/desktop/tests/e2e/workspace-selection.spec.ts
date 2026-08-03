@@ -66,9 +66,9 @@ test.describe('Workspace Selection E2E', () => {
     const modal = page.locator('[data-testid="workspace-picker-modal"]');
     await expect(modal).toBeVisible({ timeout: 5000 });
 
-    // force:true skips Playwright hit-testing — stale Radix overlays can
-    // intercept pointer events from a previous dialog close.
-    await page.locator('[data-testid="workspace-picker-default"]').click({ force: true });
+    // Without stale overlay from re-opened picker (fixed by
+    // setNewSessionTrigger(0)), this click reliably hits the button.
+    await page.locator('[data-testid="workspace-picker-default"]').click();
 
     // createSession → onNewSession → App changes sessionKey → ChatConsole
     // remounts with key={newKey}. The Dialog portal is cleaned up by React
