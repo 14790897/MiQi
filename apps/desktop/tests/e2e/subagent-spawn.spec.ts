@@ -409,15 +409,30 @@ test.describe('Subagent Spawn E2E', () => {
     await expect(page.getByText(/请使用 spawn 工具/).first()).toBeVisible({ timeout: 10_000 });
 
     // 3. Wait for the subagent result card (rendered from chat:subagent_result).
+    //    NOTE: the chat area accumulates messages across tests (Control+N does
+    //    not clear it), so we cannot just check `includes('Subagent')` — the
+    //    old cards from tests 1-4 would match.  Instead: wait until a NEW
+    //    subagent card appears (card count increases) AND the newest ✅ card
+    //    actually contains the task text (proof the subagent ran it, not just
+    //    the main agent echoing the prompt).
+    const countCards = (t: string) => (t.match(/(?:✅|❌) Subagent/g) || []).length;
+    const initialCards = countCards(
+      (await page.locator('main').textContent().catch(() => '')) || '',
+    );
     const deadline = Date.now() + 180_000;
     let rendered = false;
     let lastText = '';
     while (Date.now() < deadline) {
       const mainText = (await page.locator('main').textContent().catch(() => '')) || '';
       lastText = mainText;
-      if (mainText.includes('Subagent') && mainText.includes('hello-ai-spawn')) {
-        rendered = true;
-        break;
+      if (countCards(mainText) > initialCards) {
+        // New card appeared — extract the newest ✅ card and check its body.
+        const lastIdx = mainText.lastIndexOf('✅ Subagent');
+        const newestCard = lastIdx >= 0 ? mainText.slice(lastIdx) : '';
+        if (newestCard.includes('hello-ai-spawn')) {
+          rendered = true;
+          break;
+        }
       }
       await page.waitForTimeout(2000);
     }
