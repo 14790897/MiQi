@@ -64,7 +64,7 @@ def _collect_all_logs(log_dir: Path, max_age_days: int = 7) -> str:
     recent_count = 0
     skipped_count = 0
 
-    for f in sorted(log_dir.rglob("*")):
+    for f in sorted(log_dir.rglob("*"), key=lambda p: os.path.getmtime(str(p)), reverse=True):
         if not f.is_file():
             continue
         try:
