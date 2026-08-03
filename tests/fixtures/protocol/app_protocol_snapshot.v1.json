@@ -3457,6 +3457,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3490,6 +3501,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3527,6 +3549,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3560,6 +3593,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3593,6 +3637,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3724,6 +3779,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3812,6 +3878,21 @@
       },
       {
         "deprecatedBy": null,
+        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "emits": [],
+        "eventSchemas": {},
+        "method": "sessions.list_recent_workspaces",
+        "paramsSchema": {
+          "type": "object"
+        },
+        "resultSchema": {
+          "type": "object"
+        },
+        "scope": "session",
+        "stability": "legacy"
+      },
+      {
+        "deprecatedBy": null,
         "description": null,
         "emits": [],
         "eventSchemas": {},
@@ -3823,6 +3904,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -5366,12 +5458,12 @@
   "catalogVersion": 1,
   "generatedTypes": {
     "outputPath": "apps/desktop/src/shared/app-protocol.ts",
-    "sha256": "300bc22b984087dbd5c7a37051230b8c211e170c7db26390498cead2f33b6f52",
+    "sha256": "5df57adc179ffd97c8876981fcfce46585a99f9e034816c2dca8398daa1414b3",
     "source": "miqi.runtime.export_app_protocol_ts.render_typescript_contract"
   },
   "methodCounts": {
-    "legacy": 75,
-    "total": 158,
+    "legacy": 76,
+    "total": 159,
     "typed": 83
   },
   "schemaVersion": 1
