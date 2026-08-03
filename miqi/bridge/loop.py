@@ -23,6 +23,12 @@ from loguru import logger
 CHAT_DRAIN_IDLE_TIMEOUT_SECONDS = 600
 
 
+# A drain task that outlives this is considered stale (stuck on WSL sandbox
+# creation, which ignores asyncio cancellation) — the turn lock is force-
+# released so the session recovers instead of waiting for TTL eviction (#563).
+STALE_TURN_TIMEOUT = 300.0  # seconds (5 min)
+
+
 class BridgeRuntimeLoop:
     """Persistent asyncio event loop for the bridge transport.
 
@@ -791,28 +797,43 @@ class BridgeRuntimeLoop:
             if doc_texts:
                 content = content + "\n".join(doc_texts)
 
-        # Submit the user message
+        # Reject duplicate turns for the same session BEFORE submitting:
+        # cancelling the old drain task leaves abandoned sandbox creation
+        # running (WSL subprocesses don't respond to asyncio cancellation),
+        # which poisons the _creating flag and causes the next turn's tool
+        # calls to fall back to local (non-sandboxed) execution. Also avoid
+        # queueing a message that will be reported as rejected.
         mode = params.get("mode", "edit")
         logger.info(f"chat.send received mode={mode}")
+        old = self._session_drain_tasks.get(runtime_id)
+        if old is not None and not old.done():
+            # Stale-turn guard: a drain task stuck on WSL sandbox creation
+            # never completes, which would lock the session until TTL eviction.
+            # After STALE_TURN_TIMEOUT of inactivity treat it as dead and
+            # force-release the lock so the user can start a new turn (#563).
+            last_activity = getattr(old, "_miqi_last_activity", None) or getattr(
+                old, "_miqi_created_at", None
+            )
+            if last_activity is None or time.monotonic() - last_activity < STALE_TURN_TIMEOUT:
+                from miqi.runtime.app_server import AppServerError
+
+                raise AppServerError(
+                    "A turn is already in progress for this session",
+                    code="TURN_IN_PROGRESS",
+                )
+            logger.warning(
+                "chat.send: stale turn for session {} inactive for {}s — force releasing turn lock",
+                runtime_id, STALE_TURN_TIMEOUT,
+            )
+            self._session_drain_tasks.pop(runtime_id, None)
+            old.cancel()  # best-effort; WSL sandbox creation may ignore it
+
+        # Submit the user message
         await runtime.submit(UserMessage(
             content=content,
             thread_id=thread_id,
             mode=mode,
         ))
-
-        # Reject duplicate turns for the same session: cancelling the old
-        # drain task leaves abandoned sandbox creation running (WSL
-        # subprocesses don't respond to asyncio cancellation), which
-        # poisons the _creating flag and causes the next turn's tool
-        # calls to fall back to local (non-sandboxed) execution.
-        old = self._session_drain_tasks.get(runtime_id)
-        if old is not None and not old.done():
-            from miqi.runtime.app_server import AppServerError
-
-            raise AppServerError(
-                "A turn is already in progress for this session",
-                code="TURN_IN_PROGRESS",
-            )
 
         # Subscribe client to session events so emit_event delivers to the sink.
         # Must happen AFTER the TURN_IN_PROGRESS check to avoid leaking a
@@ -831,6 +852,7 @@ class BridgeRuntimeLoop:
                 client_id=client_id,
             )
         )
+        task._miqi_created_at = time.monotonic()  # for the stale-turn guard
         self._active_chat_tasks[request_id] = task
         self._session_drain_tasks[runtime_id] = task
         # Clean up task reference when done
@@ -871,6 +893,11 @@ class BridgeRuntimeLoop:
             # by session, preventing cross-session message leaks (#212).
             if isinstance(data, dict):
                 data["session_key"] = session_key
+            # Refresh inactivity timestamp: an active turn keeps producing
+            # events and must never be force-released as stale (#563 review).
+            active = self._session_drain_tasks.get(session_id)
+            if active is not None and not active.done():
+                active._miqi_last_activity = time.monotonic()
             await app_server.emit_event(
                 session_id, event_type, data,
                 request_id=request_id,

@@ -39,6 +39,9 @@ export function sanitizeUiMessage(raw: string): string {
 
   let s = raw;
   const lower = s.toLowerCase();
+  if (lower.includes('turn is already in progress') || lower.includes('turn_in_progress')) {
+    return '上一个任务还在进行中，请稍候片刻或新开一个会话。';
+  }
   if (
     lower.includes('bridge not running') ||
     lower.includes("error invoking remote method 'chat:send'")
