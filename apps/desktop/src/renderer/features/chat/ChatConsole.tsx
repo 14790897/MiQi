@@ -211,10 +211,15 @@ function extractMessageSources(msg: Message): MessageSource[] {
     }
     return sources;
   }
-  // Generic: pull http(s) links from the tool output text
+  // Generic: pull http(s) links from the tool output text, then strip
+  // trailing punctuation / markdown noise (e.g. `}{GitHub}.`).
+  const seen = new Set<string>();
   const content = String(msg.content ?? '');
   for (const m of content.matchAll(/https?:\/\/[^\s"'<>)\]]+/g)) {
-    sources.push({ tool: msg.toolName || 'tool', url: m[0] });
+    let url = m[0].split('{')[0].replace(/[.,;:!?。，；：、）\]]+$/, '');
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    sources.push({ tool: msg.toolName || 'tool', url });
   }
   return sources;
 }
@@ -4002,31 +4007,41 @@ function MessageBubble({
       onOpenChange={setShowSources}
       title="查看来源"
     >
-      <div className="text-xs space-y-2">
+      <div className="flex flex-col gap-3">
         {(sources ?? []).length === 0 ? (
-          <p className="text-text-faint py-2">该回答未使用网络工具，没有参考资料。</p>
+          <p className="text-xs text-text-faint py-2">该回答未使用网络工具，没有参考资料。</p>
         ) : (
-          (sources ?? []).map((s, i) => (
-            <a
-              key={i}
-              href={s.url}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-start gap-2 p-2 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--surface-muted)] transition-colors break-all"
-            >
-              <span
-                className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded mt-0.5"
-                style={{ background: 'var(--surface-muted)', color: 'var(--text-muted)' }}
+          <div className="flex flex-col gap-1.5 max-h-[50vh] overflow-y-auto pr-1 -mr-1">
+            {(sources ?? []).map((s, i) => (
+              <a
+                key={i}
+                href={s.url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--surface-muted)] hover:border-[var(--border)] transition-colors"
               >
-                {s.tool}
-              </span>
-              <span style={{ color: 'var(--accent)' }}>{s.url}</span>
-            </a>
-          ))
+                <span
+                  className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded"
+                  style={{ background: 'var(--surface-muted)', color: 'var(--text-muted)' }}
+                >
+                  {s.tool}
+                </span>
+                <span
+                  className="text-[11px] truncate flex-1"
+                  style={{ color: 'var(--accent)' }}
+                  title={s.url}
+                >
+                  {s.url}
+                </span>
+              </a>
+            ))}
+          </div>
         )}
-        <div className="pt-1 border-t border-[var(--border-subtle)] flex gap-2">
-          <span className="text-text-faint w-16 shrink-0">时间</span>
-          <span>{new Date(msg.timestamp).toLocaleString('zh-CN')}</span>
+        <div className="flex gap-2 pt-2 border-t border-[var(--border-subtle)]">
+          <span className="text-[11px] text-text-faint shrink-0">回答时间</span>
+          <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+            {new Date(msg.timestamp).toLocaleString('zh-CN')}
+          </span>
         </div>
       </div>
     </Modal>
