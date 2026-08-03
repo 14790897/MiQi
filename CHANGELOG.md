@@ -1,3 +1,10 @@
+## [0.11.1](https://github.com/14790897/MiQi/compare/v0.11.0...v0.11.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* **provider:** rotate bundled DeepSeek API key ([08632dd](https://github.com/14790897/MiQi/commit/08632ddada2aefe639de7d3af629addd65362661))
+
 # [0.11.0](https://github.com/14790897/MiQi/compare/v0.10.0...v0.11.0) (2026-07-31)
 
 
