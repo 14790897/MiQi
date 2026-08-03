@@ -205,7 +205,11 @@ class WebSearchTool(Tool):
                     lines.append(f"   {body}")
             return "\n".join(lines)
         except Exception as e:
-            return f"Error: {e}"
+            return (
+                f"Error: web search failed: {e}. 搜索服务暂不可用——请勿尝试用 "
+                "web_fetch 抓取搜索引擎页面（会被拒绝且结果不可用）。"
+                "直接告知用户搜索暂不可用，或建议稍后重试。"
+            )
 
     async def _brave_search(self, query: str, n: int) -> str:
         if not self.api_key:
