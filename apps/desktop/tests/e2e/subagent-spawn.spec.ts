@@ -240,7 +240,11 @@ test.describe('Subagent Spawn E2E', () => {
     console.log('[test] spawn-result: final status =', completed.status);
     expect(completed.status).toBe('completed');
 
-    // 4. Verify the subagent result was rendered in the chat UI.
+    // 4. The chat:subagent_result IPC event can arrive AFTER the agent reaches
+    //    a terminal status — wait for the card to render before reading the DOM.
+    await waitForSubagentRender(page, 'e2e-hello-test', '✅', 60_000);
+
+    // 5. Verify the subagent result was rendered in the chat UI.
     const main = page.locator('main');
     const mainText = (await main.textContent()) || '';
     console.log('[test] spawn-result: main text length:', mainText.length);
@@ -272,7 +276,11 @@ test.describe('Subagent Spawn E2E', () => {
     const completed = await waitForAgentCompleted(page, agent.agent_id, sessionKey, 120_000);
     expect(completed.status).toBe('completed');
 
-    // 4. The ChatConsole renders subagent results with:
+    // 4. The chat:subagent_result event can arrive AFTER the agent reaches a
+    //    terminal status — wait for the card to render before reading the DOM.
+    await waitForSubagentRender(page, 'e2e-status-test', '✅', 60_000);
+
+    // 5. The ChatConsole renders subagent results with:
     //      const statusIcon = data.status === 'ok' ? '✅' : '❌';
     //      const content = `${statusIcon} Subagent "${label}" ${...}`;
     const main = page.locator('main');
