@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize]
   issue_comment:
+    types: [created, edited]
 
 jobs:
   pr_agent_job:
