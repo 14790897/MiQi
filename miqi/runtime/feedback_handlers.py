@@ -110,9 +110,11 @@ def _collect_system_info() -> dict[str, str]:
     # Try WSL check
     try:
         import subprocess
+        import os as _os
         r = subprocess.run(
             ["wsl", "--list", "--verbose"],
-            capture_output=True, text=True, timeout=5,  # noqa: S603
+            capture_output=True, text=True, timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW if _os.name == "nt" else 0,  # noqa: S603
         )
         info["wsl_status"] = r.stdout.strip() or "[未安装或无权限]"
     except Exception:
@@ -384,7 +386,9 @@ async def feedback_submit_handler(
 
     # 4. Build Bitable fields — cap per-field text sizes to stay within
     #    Feishu per-cell limits (multiline text ≈ 196,608 bytes per cell).
-    MAX_CELL_BYTES = 196_000  # 196 KiB with headroom for JSON escaping overhead
+    MAX_CELL_BYTES = 98_000  # ~half of Feishu 196,608 limit — JSON escaping of
+    # backslashes (Windows paths) and other special chars can inflate the
+    # payload by up to 2×, so a 50% safety margin avoids TooLargeCell.
 
     def _cap_text(value: str, max_bytes: int = MAX_CELL_BYTES) -> str:
         """Truncate *value* so its UTF-8 encoding fits within *max_bytes*."""
