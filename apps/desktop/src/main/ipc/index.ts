@@ -337,6 +337,112 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     return bridge.send('chat.abort', { session_key: input.session_key });
   });
 
+  // HEAD-check a URL in the main process (no CORS) — used by "查看来源"
+  // to drop dead links before the user clicks them.
+  ipcMain.handle(IPC.WEB_CHECK_URL, async (_event, payload: { url?: unknown }) => {
+    const url = typeof payload?.url === 'string' ? payload.url : '';
+    if (!/^https?:\/\//i.test(url)) return { ok: false, status: 0 };
+    // SSRF guard: never reach loopback / link-local / private ranges from the
+    // privileged main process (mirrors _validate_url on the Python side).
+    // URL.hostname keeps brackets for IPv6 literals ("[::1]") — strip them so
+    // the IPv6 comparisons actually match; IPv6 checks apply only to literals,
+    // so ordinary DNS names like fcc.gov / fda.gov are never rejected.
+    const isSafeHost = (u: string): boolean => {
+      let host = '';
+      try {
+        host = new URL(u).hostname.toLowerCase();
+      } catch {
+        return false;
+      }
+      const isIpv6Literal = host.startsWith('[') && host.endsWith(']');
+      const bare = isIpv6Literal ? host.slice(1, -1) : host;
+      if (
+        host === 'localhost' ||
+        host.endsWith('.localhost') ||
+        /^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+        /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host) ||
+        (isIpv6Literal &&
+          (bare === '::1' ||
+            bare === '::' ||
+            bare.startsWith('fe80:') ||
+            /^f[cd][0-9a-f]{0,2}:/.test(bare)))
+      ) {
+        return false;
+      }
+      return true;
+    };
+    if (!isSafeHost(url)) return { ok: false, status: 0 };
+    // Redirects are followed manually — every hop re-runs the host validation,
+    // so a public URL can never bounce the privileged main process to a
+    // loopback/private address (e.g. 302 Location: http://127.0.0.1:9200/).
+    const MAX_REDIRECTS = 5;
+    const fetchWithSafeRedirects = async (
+      method: 'HEAD' | 'GET',
+      startUrl: string
+    ): Promise<Response | null> => {
+      let current = startUrl;
+      for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+        const res = await check(method, current);
+        if (res.status >= 300 && res.status < 400) {
+          const loc = res.headers.get('location');
+          if (!loc) return res; // no Location header — treat as final response
+          const next = new URL(loc, current).toString();
+          if (!/^https?:\/\//i.test(next) || !isSafeHost(next)) {
+            return null; // unsafe redirect target — refuse to follow
+          }
+          current = next;
+          continue;
+        }
+        return res;
+      }
+      return null; // too many hops — unverifiable
+    };
+    const check = async (method: 'HEAD' | 'GET', target: string): Promise<Response> => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      try {
+        const res = await electron.net.fetch(target, {
+          method,
+          redirect: 'manual',
+          signal: controller.signal,
+          headers: {
+            // Real browser UA — many sites reject bare HEAD/bot requests,
+            // which used to misclassify valid links as dead.
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
+            ...(method === 'GET' ? { Range: 'bytes=0-2047' } : {}),
+          },
+        });
+        return res;
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    try {
+      let res = await fetchWithSafeRedirects('HEAD', url);
+      // Many sites reject HEAD (405) or block bots (403/429) but serve GET
+      // fine — retry with GET before declaring the link dead.
+      if (res && [403, 405, 429, 500, 501, 502, 503].includes(res.status)) {
+        res = await fetchWithSafeRedirects('GET', url);
+      }
+      // null = unsafe redirect / too many hops — conservatively keep the link.
+      if (!res) return { ok: true, status: 0 };
+      // Only explicit 404/410 = dead; anything else keeps the link.
+      return { ok: ![404, 410].includes(res.status), status: res.status };
+    } catch {
+      // Network error / timeout — retry once via GET (transient failures
+      // are common), then conservatively keep the link if still unverifiable.
+      try {
+        const res2 = await fetchWithSafeRedirects('GET', url);
+        if (!res2) return { ok: true, status: 0 };
+        return { ok: ![404, 410].includes(res2.status), status: res2.status };
+      } catch {
+        return { ok: true, status: 0 };
+      }
+    }
+  });
+
   // -----------------------------------------------------------------------
   // Sessions
   // -----------------------------------------------------------------------

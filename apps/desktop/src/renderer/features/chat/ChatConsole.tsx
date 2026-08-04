@@ -49,6 +49,12 @@ import {
   AlertCircle,
   FileType,
   Loader,
+  Scissors,
+  ClipboardPaste,
+  Code2,
+  RefreshCw,
+  ThumbsUp,
+  ThumbsDown,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -180,6 +186,8 @@ interface Message {
   toolName?: string;
   /** Parsed tool data for card rendering */
   toolData?: unknown;
+  /** Original tool-call arguments (e.g. web_fetch's url) — real references */
+  toolArgs?: unknown;
   action?: 'open-provider-settings';
   actionLabel?: string;
   /** When true the message is collapsed by default (user can click to expand) */
@@ -187,6 +195,92 @@ interface Message {
   /** Short label shown when collapsed (e.g. "exec" or "write_file → /path/to/file") */
   summary?: string;
   timestamp: number;
+}
+
+interface MessageSource {
+  tool: string;
+  url: string;
+}
+
+const TOOL_LABELS: Record<string, string> = {
+  web_fetch: '网页抓取',
+  web_search: '网页搜索',
+  paper_search: '论文搜索',
+  paper_get: '论文详情',
+};
+
+/** Hostname (no www.) for a URL — used for the favicon + primary label. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
+/** Extract reference URLs from a tool/progress message.
+ *  Priority: the URL the tool actually touched (toolArgs) > structured
+ *  paper_search cards > links found in result text (fallback). */
+function extractMessageSources(msg: Message): MessageSource[] {
+  const sources: MessageSource[] = [];
+  const skip = [
+    'api.semanticscholar.org',
+    '/graph/v1/',
+    'developer.mozilla.org/en-US/docs/Web/HTTP',
+    // Search-engine invocation / redirect URLs (the tool's own query, not a result page)
+    'bing.com/search',
+    'duckduckgo.com/?q=',
+    'duckduckgo.com/html',
+    'search.brave.com',
+    'google.com/search',
+    'so.com/s?q=',      // 360 搜索调用
+    'so.com/link?',     // 360 搜索结果跳转链接
+    'sogou.com/web?query=',
+    'user.guancha.cn/main/search',
+    'beian.miit.gov.cn',
+  ];
+  const clean = (raw: string): string =>
+    raw.split('{')[0].replace(/[.,;:!?。，；：、）\]]+$/, '');
+  // Deduplicate across all branches + cap: duplicate URLs produce duplicate
+  // React keys and one checkUrl request each (CodeRabbit #564 review).
+  const seen = new Set<string>();
+  const push = (tool: string, url: string) => {
+    if (!url || seen.has(url) || sources.length >= 20) return;
+    seen.add(url);
+    sources.push({ tool, url });
+  };
+
+  // 1. The exact URL the tool fetched/searched — most trustworthy.
+  //    toolArgs may be a single object or an array (merged tool-result group).
+  const argsList = Array.isArray(msg.toolArgs) ? msg.toolArgs : [msg.toolArgs];
+  for (const argsRaw of argsList) {
+    if (!argsRaw || typeof argsRaw !== 'object') continue;
+    const args = argsRaw as Record<string, unknown>;
+    for (const key of ['url', 'link', 'href', 'query']) {
+      const v = args[key];
+      if (typeof v === 'string' && /^https?:\/\//i.test(v) && !skip.some((s) => v.includes(s))) {
+        push(msg.toolName || 'tool', clean(v));
+      }
+    }
+  }
+
+  // 2. paper_search card data.
+  if (msg.toolName === 'paper_search' && msg.toolData) {
+    const items = (msg.toolData as { items?: { url?: string; arxiv_id?: string }[] }).items ?? [];
+    for (const it of items) {
+      const url = it.url || (it.arxiv_id ? `https://arxiv.org/abs/${it.arxiv_id}` : '');
+      if (url) push('paper_search', clean(url));
+    }
+    return sources;
+  }
+  if (msg.toolName === 'paper_search') return sources; // failed search: no refs
+
+  // 3. Fallback: links inside the result text (deduped, noise filtered).
+  const content = String(msg.content ?? '');
+  for (const m of content.matchAll(/https?:\/\/[^\s"'<>)\]]+/g)) {
+    push(msg.toolName || 'tool', clean(m[0]));
+  }
+  return sources;
 }
 
 function isMissingProviderConfigMessage(message: string) {
@@ -670,6 +764,7 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
       // Tool result messages → show as collapsed progress with toolHint
       const toolName = m.name || 'tool';
       const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+      const toolArgs = (m as { arguments?: unknown }).arguments;
 
       // Detect paper_search results → render as cards (not collapsed)
       if (toolName === 'paper_search') {
@@ -682,28 +777,31 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
             toolHint: true,
             toolName: 'paper_search',
             toolData: paperData,
+            toolArgs,
             collapsed: false,
             timestamp: ts,
           });
         } else {
           // Search returned empty or errored — still show normally
-          const preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
           result.push({
             role: 'progress',
-            content: `paper_search: ${preview}`,
+            content: content, // full output — sources extraction needs all URLs
             summary: 'paper_search',
             toolHint: true,
+            toolArgs,
             collapsed: true,
             timestamp: ts,
           });
         }
       } else {
-        const preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
+        // Full output kept (collapsed by default; expanded view scrolls) so
+        // "查看来源" can extract every reference URL the tool touched.
         result.push({
           role: 'progress',
-          content: `${toolName}: ${preview}`,
+          content: content,
           summary: toolName,
           toolHint: true,
+          toolArgs,
           collapsed: true,
           timestamp: ts,
         });
@@ -724,6 +822,15 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
         : `${prev.summary}, ${msg.summary}`; // merge two single items
       // Use the later timestamp
       prev.timestamp = msg.timestamp;
+      // Keep every tool call's arguments in the group — "查看来源" needs the
+      // exact URL each web_fetch/web_search actually touched, not just the first.
+      const prevArgs = Array.isArray(prev.toolArgs)
+        ? prev.toolArgs
+        : prev.toolArgs !== undefined
+          ? [prev.toolArgs]
+          : [];
+      if (msg.toolArgs !== undefined) prevArgs.push(msg.toolArgs);
+      if (prevArgs.length > 0) prev.toolArgs = prevArgs;
     } else {
       merged.push({ ...msg });
     }
@@ -1089,6 +1196,8 @@ export function ChatConsole({
   const justOpened = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const toolArgsByCallId = useRef<Map<string, unknown>>(new Map());
   const previewJustClosed = useRef(false);
   const unsubsRef = useRef<Array<() => void>>([]);
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1218,6 +1327,7 @@ export function ChatConsole({
     cleanupListeners();
     currentSessionRef.current = sessionKey;
     currentThreadIdRef.current = null; // Reset on session change
+    toolArgsByCallId.current.clear(); // drop tool-call args from the previous session
     setHistoryLoaded(false);
     setMessages([]);
     setSessionUpdatedAt(null);
@@ -1555,14 +1665,29 @@ export function ChatConsole({
     handleNewSession();
   }, [handleNewSession]);
 
+  /** Payload for programmatic sends (e.g. regenerate) — bypasses input state */
+  const retryPayloadRef = useRef<{ text: string; attachments: Attachment[]; retry?: boolean } | null>(null);
+  const handleSendRef = useRef<() => void>(() => {});
+
   const handleSend = useCallback(async () => {
-    const text = input.trim();
-    if (!text && attachments.length === 0) return;
+    const payload = retryPayloadRef.current;
+    const text = (payload?.text ?? input).trim();
+    const atts = payload?.attachments ?? attachments;
+    if (!text && atts.length === 0) {
+      retryPayloadRef.current = null;
+      return;
+    }
+    // Retry/regenerate: nudge the model to answer differently — the stored
+    // user message stays clean, only the outbound content gets the hint.
+    const retryHint = payload?.retry
+      ? '\n\n[系统提示：这是重试请求。请换一个角度重新回答，不要复述之前的答案。]'
+      : '';
 
     try {
       const result = await window.miqi.providers.list();
       const hasConfiguredProvider = result.providers.some((provider) => provider.configured);
       if (!hasConfiguredProvider) {
+        retryPayloadRef.current = null;
         setMessages((prev) => [...prev, createProviderConfigMessage()]);
         return;
       }
@@ -1570,6 +1695,8 @@ export function ChatConsole({
       // If provider status cannot be read, keep the original send path so the
       // bridge can surface the underlying runtime error.
     }
+    // All early-return guards passed — the retry payload is now consumed.
+    retryPayloadRef.current = null;
 
     // If a reveal animation is still running from the previous response,
     // cancel it and abort the in-flight request so we can start fresh.
@@ -1587,10 +1714,10 @@ export function ChatConsole({
     const reqId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     setCurrentReqId(reqId);
 
-    let content = text;
+    let content = text + retryHint;
 
     // Build message content with embedded document text
-    for (const att of attachments) {
+    for (const att of atts) {
       if (att.type === 'text' && att.content) {
         content += `\n\n[File: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\``;
       } else if (att.type === 'image' && att.dataUrl) {
@@ -1645,21 +1772,15 @@ export function ChatConsole({
     const userMsg: Message = {
       role: 'user',
       content: text || '(attachment)',
-      attachments: [...attachments],
+      attachments: [...atts],
       timestamp: Date.now(),
     };
     setMessages((prev) => [...prev, userMsg]);
     userScrolledUp.current = false; // user sent a message — resume auto-scroll
-    setInput('');
-    // Reset textarea height after sending
-    setTimeout(() => {
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-      }
-    }, 0);
+    setInput(''); // field-sizing: content shrinks the textarea automatically
     setAttachments([]);
     // Save a snapshot before clearing — chat.send needs it later
-    const sentAttachments = [...attachments];
+    const sentAttachments = [...atts];
     setStreaming(true);
     cleanupListeners();
 
@@ -1835,6 +1956,9 @@ export function ChatConsole({
             toolCallId: data.tool_call_id,
             toolName,
             toolData,
+            toolArgs: data.tool_call_id
+              ? toolArgsByCallId.current.get(data.tool_call_id)
+              : undefined,
             timestamp: Date.now(),
           },
         ]);
@@ -1872,6 +1996,16 @@ export function ChatConsole({
           const fn = tc?.function || tc?.tool?.function || {};
           const toolName: string = fn?.name || '';
           if (!toolName) continue;
+          // Remember call args so the matching tool result can show the exact
+          // URL the tool touched (web_fetch etc.) in "查看来源".
+          const callId: string = tc?.id || '';
+          if (callId && fn?.arguments) {
+            try {
+              toolArgsByCallId.current.set(callId, JSON.parse(fn.arguments));
+            } catch {
+              toolArgsByCallId.current.set(callId, fn.arguments);
+            }
+          }
           const filePath: string = _extractPathFromArgs(fn?.arguments || '{}') || '';
           if (!filePath) continue;
           if (_FILE_WRITE_TOOLS.includes(toolName)) {
@@ -1906,10 +2040,19 @@ export function ChatConsole({
 
         setMessages((prev) => {
           const cleaned = removeTransientTurnMessagesSinceLastUser(prev);
+          // Backfill toolArgs on streamed progress messages — call arguments
+          // only arrive in chat:final, after the progress events rendered.
+          const backfilled = cleaned.map((m) => {
+            if (m.role === 'progress' && m.toolCallId && m.toolArgs === undefined) {
+              const args = toolArgsByCallId.current.get(m.toolCallId);
+              if (args !== undefined) return { ...m, toolArgs: args };
+            }
+            return m;
+          });
           // Only append collapsed tool-call group if streaming didn't
           // already render toolHint progress for this turn (avoids dupes).
-          const hasToolHints = cleaned.some((m) => m.role === 'progress' && m.toolHint);
-          if (hasToolHints) return cleaned;
+          const hasToolHints = backfilled.some((m) => m.role === 'progress' && m.toolHint);
+          if (hasToolHints) return backfilled;
           const toolMessages = sessionMsgsToUi([
             {
               role: 'assistant',
@@ -1918,7 +2061,7 @@ export function ChatConsole({
               timestamp: new Date().toISOString(),
             },
           ]);
-          return [...cleaned, ...toolMessages];
+          return [...backfilled, ...toolMessages];
         });
       } else {
         setMessages((prev) => removeTransientTurnMessagesSinceLastUser(prev));
@@ -2076,6 +2219,12 @@ export function ChatConsole({
     }
   }, [input, attachments, streaming, cleanupListeners, onChatFinished, executionPolicy]);
 
+  // Keep handleSendRef fresh for programmatic sends (regenerate)
+  useEffect(() => {
+    handleSendRef.current = () => handleSend();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handleSend]);
+
   // ── Download paper via chat ─────────────────────────────────────
   const handleDownloadPaper = useCallback(
     (paper: PaperItem) => {
@@ -2103,12 +2252,27 @@ export function ChatConsole({
     [sessionKey]
   );
 
-  /** Auto-resize textarea to fit content */
-  const adjustTextareaHeight = useCallback(() => {
-    const el = textareaRef.current;
+  /**
+   * Textarea auto-height is handled natively via `field-sizing: content`
+   * (Chromium 123+; Electron 39 = Chromium 142). No JS resize logic —
+   * the browser recomputes height on every value change, so a tall box
+   * always shrinks back when emptied. min/max-height still clamp it.
+   */
+
+  /** Fixed gap between the last answer and the composer — 1/5 of the viewport,
+   *  the distance the user confirmed earlier. */
+  const ANSWER_GAP = '20vh';
+  const [composerHeight, setComposerHeight] = useState(0);
+  useEffect(() => {
+    const el = composerRef.current;
     if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
+    // Keep the message area's bottom padding in sync with the composer's real
+    // height, so scrolling to the bottom always leaves ANSWER_GAP between the
+    // last answer and the input box — regardless of pasted content size.
+    const ro = new ResizeObserver(() => setComposerHeight(el.offsetHeight));
+    ro.observe(el);
+    setComposerHeight(el.offsetHeight);
+    return () => ro.disconnect();
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -2311,16 +2475,82 @@ export function ChatConsole({
     setTimeout(() => setCopiedIdx(null), 2000);
   };
 
+  // Associate each assistant answer with the tool URLs that preceded it in
+  // the same turn. Memoized — extractMessageSources scans full tool outputs,
+  // which would otherwise re-run on every animation frame while streaming.
+  const sourcesByMsg = useMemo(() => {
+    const map = new Map<Message, MessageSource[]>();
+    let pending: MessageSource[] = [];
+    let seen = new Set<string>();
+    const MAX_SOURCES = 20;
+    const merge = (next: MessageSource[]) => {
+      for (const s of next) {
+        if (seen.has(s.url) || pending.length >= MAX_SOURCES) continue;
+        seen.add(s.url);
+        pending.push(s);
+      }
+    };
+    for (const m of messages) {
+      if (m.role === 'progress') {
+        merge(extractMessageSources(m));
+      } else if (m.role === 'user') {
+        pending = [];
+        seen = new Set();
+      } else if (m.role === 'assistant') {
+        map.set(m, pending);
+        pending = [];
+        seen = new Set();
+      }
+    }
+    return map;
+  }, [messages]);
+
+  /** Retry a user message: rewind to it, resend automatically with a
+   *  "answer differently" hint so the model doesn't repeat itself. */
   const handleRetry = useCallback(
     async (msg: Message) => {
       if (streaming) return;
-      cleanupListeners();
       const idx = messages.indexOf(msg);
-      if (idx >= 0) setMessages((prev) => prev.slice(0, idx));
+      if (idx < 0) return;
+      retryPayloadRef.current = {
+        text: msg.content,
+        attachments: msg.attachments ?? [],
+        retry: true,
+      };
+      setMessages((prev) => prev.slice(0, idx)); // handleSend re-appends the user message
       setInput(msg.content);
       setAttachments(msg.attachments ?? []);
+      requestAnimationFrame(() => handleSendRef.current());
     },
-    [streaming, cleanupListeners, messages]
+    [streaming, messages]
+  );
+
+  /** Regenerate an assistant answer: rewind to its user message, resend automatically */
+  const handleRegenerate = useCallback(
+    async (assistantMsg: Message) => {
+      if (streaming) return;
+      const idx = messages.indexOf(assistantMsg);
+      if (idx < 0) return;
+      let userIdx = -1;
+      for (let i = idx - 1; i >= 0; i--) {
+        if (messages[i].role === 'user') {
+          userIdx = i;
+          break;
+        }
+      }
+      if (userIdx < 0) return;
+      const userMsg = messages[userIdx];
+      retryPayloadRef.current = {
+        text: userMsg.content,
+        attachments: userMsg.attachments ?? [],
+        retry: true,
+      };
+      setMessages((prev) => prev.slice(0, userIdx)); // handleSend re-appends the user message
+      setInput(userMsg.content);
+      setAttachments(userMsg.attachments ?? []);
+      requestAnimationFrame(() => handleSendRef.current());
+    },
+    [streaming, messages]
   );
 
   /* session display name — use the first user message as title */
@@ -2418,6 +2648,57 @@ export function ChatConsole({
       },
     ],
     [handleCopyReproContext, handleCopyTaskSummary, handleExportTaskMarkdown, messages]
+  );
+
+  const inputContextItems = useMemo<ContextMenuAction[]>(
+    () => [
+      {
+        label: '剪切', icon: <Scissors size={14} />, shortcut: 'Ctrl+X',
+        onSelect: () => {
+          const el = textareaRef.current; if (!el) return;
+          const s = el.selectionStart, e = el.selectionEnd;
+          if (s === e) return;
+          navigator.clipboard.writeText(el.value.slice(s, e)).catch(() => {});
+          el.setRangeText('', s, e, 'end');
+          // Let React's onChange pick up the new value — manual setInput can
+          // drift from the DOM (deleting then requires two passes).
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.focus();
+        },
+      },
+      {
+        label: '复制', icon: <Copy size={14} />, shortcut: 'Ctrl+C',
+        onSelect: () => {
+          const el = textareaRef.current; if (!el) return;
+          const txt = el.value.slice(el.selectionStart, el.selectionEnd);
+          if (txt) navigator.clipboard.writeText(txt).catch(() => {});
+        },
+      },
+      {
+        label: '粘贴', icon: <ClipboardPaste size={14} />, shortcut: 'Ctrl+V',
+        onSelect: () => {
+          const el = textareaRef.current; if (!el) return;
+          navigator.clipboard.readText().then((text) => {
+            if (!text) return;
+            // Insert at the caret like native Ctrl+V — replace the current
+            // selection range instead of always appending at the end.
+            const s = el.selectionStart ?? el.value.length;
+            const e = el.selectionEnd ?? s;
+            el.setRangeText(text, s, e, 'end');
+            // Let React's onChange pick up the new value (single source of
+            // truth for state vs DOM — avoids double-delete drift).
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.focus();
+          }).catch(() => {});
+        },
+      },
+      {
+        label: '全选', icon: <CheckCircle size={14} />, shortcut: 'Ctrl+A', divider: true,
+        onSelect: () => textareaRef.current?.select(),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
   );
 
   const shareButtonLabel =
@@ -2614,7 +2895,7 @@ export function ChatConsole({
       {/* ── Main area: chat + right panel ── */}
       <div className="flex flex-1 overflow-hidden">
         {/* Chat area */}
-        <div className="flex flex-col flex-1 overflow-hidden">
+        <div className="flex flex-col flex-1 overflow-hidden relative">
           {/* ── Sub header: task title + status (inside chat area) ── */}
           <div
             className="flex items-center gap-3 px-5 min-h-12 border-b shrink-0"
@@ -2695,8 +2976,8 @@ export function ChatConsole({
           {/* Messages */}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto"
-            style={{ background: 'var(--background)' }}
+            className="flex-1 overflow-y-auto relative"
+            style={{ background: 'var(--background)', paddingBottom: `calc(${composerHeight}px + ${ANSWER_GAP})` }}
           >
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
               {!historyLoaded ? (
@@ -2720,19 +3001,24 @@ export function ChatConsole({
                 </div>
               ) : (
                 messages.map((msg, i) => (
-                  <MessageBubble
+                  <div
                     key={`${msg.timestamp}-${i}`}
-                    msg={msg}
-                    execOutputs={execOutputs}
-                    inlineExecOutput={inlineExecOutput}
-                    isLast={i === messages.length - 1}
-                    onCopy={(text) => handleCopy(text, i)}
-                    isCopied={copiedIdx === i}
-                    onRetry={() => handleRetry(msg)}
-                    onOpenProviderSettings={onOpenProviderSettings}
-                    onDownloadPaper={handleDownloadPaper}
-                    downloadingPaperId={downloadingPaperId}
-                  />
+                  >
+                    <MessageBubble
+                      msg={msg}
+                      execOutputs={execOutputs}
+                      inlineExecOutput={inlineExecOutput}
+                      sources={sourcesByMsg.get(msg) ?? []}
+                      isLast={i === messages.length - 1}
+                      onCopy={(text) => handleCopy(text, i)}
+                      isCopied={copiedIdx === i}
+                      onRetry={() => handleRetry(msg)}
+                      onRegenerate={() => handleRegenerate(msg)}
+                      onOpenProviderSettings={onOpenProviderSettings}
+                      onDownloadPaper={handleDownloadPaper}
+                      downloadingPaperId={downloadingPaperId}
+                    />
+                  </div>
                 ))
               )}
               {streaming && (
@@ -2745,16 +3031,23 @@ export function ChatConsole({
                 </div>
               )}
             </div>
+
           </div>
 
-          {/* Composer */}
+
+
+          {/* Composer — floats over the bottom; the answer stream never moves.
+              Messages reserve composerHeight + ANSWER_GAP via paddingBottom, so
+              the gap between the last answer and the box stays constant no
+              matter how tall the textarea grows. */}
           <div
-            className="shrink-0 px-5 pb-4 pt-3"
+            ref={composerRef}
+            className="pointer-events-none absolute bottom-0 left-0 right-0 px-5 pb-10 pt-3"
             style={{
-              background: 'var(--background)',
+              background: 'transparent',
             }}
           >
-            <div className="max-w-[760px] mx-auto">
+            <div className="pointer-events-auto max-w-[760px] mx-auto">
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
                   {attachments.map((att, i) => {
@@ -2875,63 +3168,91 @@ export function ChatConsole({
                 </div>
               )}
 
+              <ContextMenu items={inputContextItems} minWidth={160}>
+                {({ onContextMenu }) => (
               <div
-                className="flex items-end gap-2 rounded-xl px-4 py-3.5 focus-within:ring-2 transition-all"
+                className="flex flex-col rounded-3xl px-7 py-3.5 focus-within:ring-2 transition-all"
                 data-testid="chat-input-container"
+                onContextMenu={onContextMenu}
                 style={{
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
+                  background: 'color-mix(in srgb, var(--surface) 85%, transparent)',
+                  backdropFilter: 'blur(16px)',
+                  WebkitBackdropFilter: 'blur(16px)',
+                  border: '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
                   outline: 'none',
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
-                <ExecutionPolicySelector
-                  policy={executionPolicy}
-                  onChange={setExecutionPolicy}
-                  disabled={streaming}
-                  onOpenApprovals={onOpenApprovals}
-                />
-                <button
-                  onClick={handleAttachClick}
-                  className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
-                  title="Attach file or image"
-                  aria-label="Attach file or image"
-                >
-                  <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
-                </button>
+                {/* Textarea on top — grows up to 1/3 of viewport (DeepSeek style) */}
                 <Textarea
                   ref={textareaRef}
                   value={input}
                   onChange={(e) => {
                     setInput(e.target.value);
-                    adjustTextareaHeight();
                   }}
                   onKeyDown={handleKeyDown}
-                  placeholder="输入消息或拖入文件..."
+                  placeholder="请输入消息或拖入文件..."
                   rows={1}
                   allowResize={true}
-                  className="flex-1 border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 text-sm"
+                  className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
                   disabled={streaming}
-                  style={{ color: 'var(--text)' }}
+                  style={{ color: 'var(--text)', fieldSizing: 'content' }}
                 />
-                {streaming ? (
+                {/* Icon row at the bottom — no text, like DeepSeek */}
+                <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
+                  <ExecutionPolicySelector
+                    policy={executionPolicy}
+                    onChange={setExecutionPolicy}
+                    disabled={streaming}
+                    onOpenApprovals={onOpenApprovals}
+                  />
+                  {/* AI disclaimer — centered in the mode row, fades when typing */}
+                  <div className="flex-1 flex items-center justify-center">
+                    <span
+                      className="text-[11px] leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none transition-opacity duration-300"
+                      style={{ opacity: !input.trim() && attachments.length === 0 ? 1 : 0 }}
+                    >
+                      AI 也会犯错误，对于重要答案请谨慎验证
+                    </span>
+                  </div>
                   <button
-                    onClick={handleAbort}
-                    className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-[var(--surface-muted)]"
+                    onClick={handleAttachClick}
+                    className="shrink-0 p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
+                    title="Attach file or image"
+                    aria-label="Attach file or image"
                   >
-                    <Square size={14} style={{ color: 'var(--text-muted)' }} />
+                    <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
                   </button>
-                ) : (
-                  <button
-                    onClick={handleSend}
-                    disabled={!input.trim() && attachments.length === 0}
-                    className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors disabled:opacity-30"
-                    style={{ background: 'var(--accent)' }}
-                  >
-                    <Send size={13} style={{ color: '#fff' }} />
-                  </button>
-                )}
+                  {streaming ? (
+                    <button
+                      onClick={handleAbort}
+                      title="停止生成"
+                      aria-label="停止生成"
+                      className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:bg-[var(--surface-muted)] active:scale-95"
+                    >
+                      <Square size={12} style={{ color: 'var(--text-muted)' }} fill="currentColor" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleSend}
+                      disabled={!input.trim() && attachments.length === 0}
+                      title="发送"
+                      aria-label="发送"
+                      className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:brightness-110 hover:-translate-y-px active:scale-95 disabled:opacity-30 disabled:hover:brightness-100 disabled:hover:translate-y-0 disabled:shadow-none"
+                      style={{
+                        background:
+                          'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 65%, #000))',
+                        boxShadow:
+                          '0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent)',
+                      }}
+                    >
+                      <Send size={14} style={{ color: '#fff' }} />
+                    </button>
+                  )}
+                </div>
               </div>
+                )}
+              </ContextMenu>
             </div>
           </div>
         </div>
@@ -3405,9 +3726,11 @@ function MessageBubble({
   onCopy,
   isCopied,
   onRetry,
+  onRegenerate,
   onOpenProviderSettings,
   onDownloadPaper,
   downloadingPaperId,
+  sources,
 }: {
   msg: Message;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
@@ -3416,11 +3739,68 @@ function MessageBubble({
   onCopy: (text: string) => void;
   isCopied: boolean;
   onRetry?: () => void;
+  onRegenerate?: () => void;
   onOpenProviderSettings?: () => void;
   onDownloadPaper?: (paper: PaperItem) => void;
   downloadingPaperId?: string | null;
+  /** Reference URLs collected from the tool calls preceding this answer */
+  sources?: MessageSource[];
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
+  const [showSources, setShowSources] = useState(false);
+  const [deadUrls, setDeadUrls] = useState<Set<string>>(new Set());
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  const bubbleRef = useRef<HTMLDivElement>(null);
+
+  // Verify source links when the modal opens — drop 404s so users never
+  // click a dead reference.
+  const [validating, setValidating] = useState(false);
+  // Stable key from the URL list — the sources array identity changes on every
+  // streaming re-render; depending on it would restart validation each frame.
+  const sourceKey = useMemo(() => (sources ?? []).map((s) => s.url).join('|'), [sources]);
+  useEffect(() => {
+    if (!showSources) return;
+    let cancelled = false;
+    setDeadUrls(new Set());
+    const list = sources ?? [];
+    if (list.length === 0) {
+      setValidating(false);
+      return;
+    }
+    setValidating(true);
+    let done = 0;
+    // Bounded worker pool — 4 concurrent checks max (each can take up to 16s
+    // in the main process: 8s HEAD + 8s GET retry).
+    const MAX_CONCURRENT = 4;
+    let idx = 0;
+    const runNext = () => {
+      if (cancelled) return;
+      const s = list[idx];
+      if (!s) return;
+      idx += 1;
+      window.miqi.web
+        .checkUrl(s.url)
+        .then((r) => {
+          if (!cancelled && !r.ok) setDeadUrls((prev) => new Set(prev).add(s.url));
+        })
+        .catch(() => {
+          if (!cancelled) setDeadUrls((prev) => new Set(prev).add(s.url));
+        })
+        .finally(() => {
+          if (!cancelled) {
+            done += 1;
+            if (done === list.length) setValidating(false);
+            else runNext();
+          }
+        });
+    };
+    for (let i = 0; i < Math.min(MAX_CONCURRENT, list.length); i++) runNext();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSources, sourceKey]);
 
   if (msg.role === 'progress') {
     // ── Paper search result: render formatted cards ──────────────
@@ -3460,7 +3840,7 @@ function MessageBubble({
         {isCollapsed ? (
           <span>{msg.summary || msg.content}</span>
         ) : (
-          <span className="whitespace-pre-wrap break-all">{msg.content}</span>
+          <span className="whitespace-pre-wrap break-all max-h-64 overflow-y-auto block">{msg.content}</span>
         )}
         {/* Inline exec output (Phase 7.4) — gated by ui.inlineExecOutput setting */}
         {inlineExecOutput && msg.toolCallId && execOutputs[msg.toolCallId] && (
@@ -3534,17 +3914,45 @@ function MessageBubble({
   const isUser = msg.role === 'user';
   const hasCodeBlock = /```[\s\S]*?```/.test(msg.content);
 
+  const selectMessageText = () => {
+    // Stable hook attribute — a Tailwind class substring would silently break
+    // if the bubble's styling classes ever change.
+    const textEl = bubbleRef.current?.querySelector('[data-message-body]') as HTMLElement | null;
+    if (!textEl) return;
+    const range = document.createRange();
+    range.selectNodeContents(textEl);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  };
+
+  const deselectMessageText = () => {
+    window.getSelection()?.removeAllRanges();
+  };
+
+  // Selection captured when the menu opens — hover/leave must not clobber it,
+  // otherwise copyWithSelection always falls back to the full message.
+  const capturedSelectionRef = useRef('');
+
+  const copyWithSelection = () => {
+    const selText = capturedSelectionRef.current;
+    if (selText) { navigator.clipboard.writeText(selText); deselectMessageText(); return; }
+    // No manual selection — copy full message
+    onCopy(msg.content);
+  };
+
   const contextItems: ContextMenuAction[] = isUser
     ? [
-        { label: '复制文本', onSelect: () => onCopy(msg.content) },
-        { label: '重试', onSelect: () => onRetry?.() },
+        { label: '复制文本', icon: <Copy size={14} />, onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
+        { label: '重试', icon: <Undo2 size={14} />, divider: true, onSelect: () => onRetry?.() },
       ]
     : [
-        { label: '复制文本', onSelect: () => onCopy(msg.content) },
+        { label: '复制文本', icon: <Copy size={14} />, onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
         ...(hasCodeBlock
           ? [
               {
                 label: '复制代码',
+                icon: <Code2 size={14} />,
                 onSelect: () => {
                   const codeMatch = msg.content.match(/```[\s\S]*?```/g);
                   if (codeMatch) {
@@ -3560,11 +3968,17 @@ function MessageBubble({
       ];
 
   return (
+    <>
     <ContextMenu items={contextItems}>
       {({ onContextMenu }) => (
         <div
+          ref={bubbleRef}
           className={cn('flex items-start gap-3', isUser && 'justify-end')}
-          onContextMenu={onContextMenu}
+          onContextMenu={(e) => {
+            // Capture any manual selection before hover-preview can replace it
+            capturedSelectionRef.current = window.getSelection()?.toString().trim() ?? '';
+            onContextMenu(e);
+          }}
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
           {!isUser && <AgentAvatar />}
@@ -3673,14 +4087,21 @@ function MessageBubble({
 
             {/* Main bubble */}
             <div
+              data-message-body
               className="text-sm leading-relaxed rounded-2xl px-4 py-3"
               style={
                 isUser
-                  ? { background: 'var(--bubble-user-bg)', color: 'var(--bubble-user-text)' }
+                  ? {
+                      background:
+                        'linear-gradient(135deg, var(--bubble-user-bg), color-mix(in srgb, var(--bubble-user-bg) 62%, #000))',
+                      color: 'var(--bubble-user-text)',
+                      borderBottomRightRadius: 6,
+                    }
                   : {
                       background: 'var(--bubble-ai-bg)',
                       color: 'var(--bubble-ai-text)',
                       border: '1px solid var(--bubble-ai-border)',
+                      borderBottomLeftRadius: 6,
                     }
               }
             >
@@ -3711,14 +4132,54 @@ function MessageBubble({
               </ErrorBoundary>
             </div>
 
-            {/* copy button */}
+            {/* action bar — copy / regenerate / like / dislike / sources */}
             {!isUser && msg.content !== '' && (
-              <button
-                onClick={() => onCopy(msg.content)}
-                className="self-start opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-text-faint"
-              >
-                {isCopied ? <Check size={12} /> : <Copy size={12} />}
-              </button>
+              <div className="flex items-center gap-0.5 self-start pt-0.5 text-text-faint">
+                <button
+                  onClick={() => onCopy(msg.content)}
+                  title="复制"
+                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  <span
+                    className="block transition-transform duration-200"
+                    style={{ transform: isCopied ? 'scale(1.15)' : 'scale(1)' }}
+                  >
+                    {isCopied ? (
+                      <Check size={13} style={{ color: 'var(--success)' }} />
+                    ) : (
+                      <Copy size={13} />
+                    )}
+                  </span>
+                </button>
+                <button
+                  onClick={() => onRegenerate?.()}
+                  title="重新生成"
+                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  <RefreshCw size={13} />
+                </button>
+                <button
+                  onClick={() => setFeedback((f) => (f === 'up' ? null : 'up'))}
+                  title="喜欢"
+                  className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${feedback === 'up' ? 'text-[var(--accent)]' : ''}`}
+                >
+                  <ThumbsUp size={13} />
+                </button>
+                <button
+                  onClick={() => setFeedback((f) => (f === 'down' ? null : 'down'))}
+                  title="不喜欢"
+                  className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${feedback === 'down' ? 'text-[var(--danger)]' : ''}`}
+                >
+                  <ThumbsDown size={13} />
+                </button>
+                <button
+                  onClick={() => setShowSources(true)}
+                  title="查看来源"
+                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  <ExternalLink size={13} />
+                </button>
+              </div>
             )}
           </div>
 
@@ -3726,6 +4187,100 @@ function MessageBubble({
         </div>
       )}
     </ContextMenu>
+
+    {/* Sources modal — tools used for this answer + reference URLs */}
+    <Modal
+      open={showSources}
+      onOpenChange={setShowSources}
+      title={`查看来源${(sources ?? []).filter((s) => !deadUrls.has(s.url)).length > 0 ? `（${(sources ?? []).filter((s) => !deadUrls.has(s.url)).length}）` : ''}`}
+    >
+      <div className="flex flex-col gap-3">
+        {(sources ?? []).length === 0 ? (
+          <p className="text-xs text-text-faint py-2">该回答未使用网络工具，没有参考资料。</p>
+        ) : (
+          <div className="flex flex-col gap-3 max-h-[55vh] overflow-y-auto pr-1 -mr-1">
+            {(() => {
+              // Group valid sources by tool, keep a global running number.
+              const groups = new Map<string, MessageSource[]>();
+              for (const s of sources ?? []) {
+                if (deadUrls.has(s.url)) continue;
+                const arr = groups.get(s.tool) ?? [];
+                arr.push(s);
+                groups.set(s.tool, arr);
+              }
+              if (groups.size === 0) {
+                return (
+                  <p className="text-xs text-text-faint py-2">所有来源链接均已失效（404），没有可访问的参考资料。</p>
+                );
+              }
+              let num = 0;
+              return Array.from(groups.entries()).map(([tool, items]) => (
+                <div key={tool} className="flex flex-col gap-1.5">
+                  <div className="text-[10px] font-semibold tracking-wider uppercase px-0.5" style={{ color: 'var(--text-faint)' }}>
+                    {TOOL_LABELS[tool] ?? tool}
+                  </div>
+                  {items.map((s) => {
+                    num += 1;
+                    const n = num;
+                    const host = hostOf(s.url);
+                    return (
+                      <a
+                        key={s.url}
+                        href={s.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={s.url}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          navigator.clipboard.writeText(s.url).catch(() => {});
+                          setCopiedUrl(s.url);
+                          setTimeout(() => setCopiedUrl(null), 1500);
+                        }}
+                        className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl border border-[var(--border-subtle)] hover:bg-[var(--surface-muted)] hover:border-[var(--border)] transition-colors"
+                      >
+                        <span
+                          className="shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-semibold"
+                          style={{ background: 'var(--surface-muted)', color: 'var(--text-muted)' }}
+                        >
+                          {n}
+                        </span>
+                        <img
+                          src={`${new URL(s.url).origin}/favicon.ico`}
+                          alt=""
+                          className="w-4 h-4 shrink-0 rounded-sm"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.visibility = 'hidden';
+                          }}
+                        />
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-xs font-medium truncate" style={{ color: 'var(--text)' }}>
+                            {host}
+                          </span>
+                          <span className="block text-[10px] truncate text-text-faint">{s.url}</span>
+                        </span>
+                        {copiedUrl === s.url && (
+                          <Check size={13} className="shrink-0" style={{ color: 'var(--success)' }} />
+                        )}
+                      </a>
+                    );
+                  })}
+                </div>
+              ));
+            })()}
+            {validating && (
+              <p className="text-[11px] text-text-faint py-0.5">正在验证链接可用性…</p>
+            )}
+          </div>
+        )}
+        <div className="flex gap-2 pt-2 border-t border-[var(--border-subtle)]">
+          <span className="text-[11px] text-text-faint shrink-0">回答时间</span>
+          <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+            {new Date(msg.timestamp).toLocaleString('zh-CN')}
+          </span>
+        </div>
+      </div>
+    </Modal>
+    </>
   );
 }
 

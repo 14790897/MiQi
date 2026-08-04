@@ -94,11 +94,27 @@ def _is_private_host(host: str) -> bool:
     return False
 
 
+# Search-engine result/query pages that must never be fetched directly —
+# scraping them yields redirect junk, and searching belongs in web_search.
+_SEARCH_PAGE_HOSTS = (
+    "so.com",
+    "sogou.com",
+    "bing.com",
+    "google.com",
+    "google.com.hk",
+    "duckduckgo.com",
+    "search.brave.com",
+    "baidu.com",
+)
+
+
 def _validate_url(url: str) -> tuple[bool, str]:
     """Validate URL: must be http(s) with a publicly routable destination.
 
     Rejects requests targeting private, loopback, or link-local addresses to
-    prevent Server-Side Request Forgery (SSRF) attacks.
+    prevent Server-Side Request Forgery (SSRF) attacks, and rejects search-
+    engine query pages (the model should use web_search instead of scraping
+    search result HTML).
     """
     try:
         p = urlparse(url)
@@ -110,6 +126,18 @@ def _validate_url(url: str) -> tuple[bool, str]:
         if _is_private_host(host):
             return False, (
                 f"Requests to private/reserved addresses are not allowed (host: {host})"
+            )
+        host_l = host.lower()
+        # Block only search-query pages, never bare roots — docs.google.com/ or
+        # pan.baidu.com/ are legitimate pages, not search result pages.
+        is_search_host = any(
+            host_l == h or host_l.endswith("." + h) for h in _SEARCH_PAGE_HOSTS
+        )
+        is_query_path = "/search" in p.path or p.path == "/s" or p.path == "/web"
+        if is_search_host and is_query_path:
+            return False, (
+                "Search-engine result pages are blocked — use web_search instead "
+                f"of fetching '{host}' query pages"
             )
         return True, ""
     except Exception as e:
@@ -181,7 +209,11 @@ class WebSearchTool(Tool):
                     lines.append(f"   {body}")
             return "\n".join(lines)
         except Exception as e:
-            return f"Error: {e}"
+            return (
+                f"Error: web search failed: {e}. 搜索服务暂不可用——请勿尝试用 "
+                "web_fetch 抓取搜索引擎页面（会被拒绝且结果不可用）。"
+                "直接告知用户搜索暂不可用，或建议稍后重试。"
+            )
 
     async def _brave_search(self, query: str, n: int) -> str:
         if not self.api_key:
