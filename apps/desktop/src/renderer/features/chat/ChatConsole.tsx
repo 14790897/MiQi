@@ -251,8 +251,11 @@ function extractMessageSources(msg: Message): MessageSource[] {
   };
 
   // 1. The exact URL the tool fetched/searched — most trustworthy.
-  if (msg.toolArgs && typeof msg.toolArgs === 'object') {
-    const args = msg.toolArgs as Record<string, unknown>;
+  //    toolArgs may be a single object or an array (merged tool-result group).
+  const argsList = Array.isArray(msg.toolArgs) ? msg.toolArgs : [msg.toolArgs];
+  for (const argsRaw of argsList) {
+    if (!argsRaw || typeof argsRaw !== 'object') continue;
+    const args = argsRaw as Record<string, unknown>;
     for (const key of ['url', 'link', 'href', 'query']) {
       const v = args[key];
       if (typeof v === 'string' && /^https?:\/\//i.test(v) && !skip.some((s) => v.includes(s))) {
@@ -819,6 +822,15 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
         : `${prev.summary}, ${msg.summary}`; // merge two single items
       // Use the later timestamp
       prev.timestamp = msg.timestamp;
+      // Keep every tool call's arguments in the group — "查看来源" needs the
+      // exact URL each web_fetch/web_search actually touched, not just the first.
+      const prevArgs = Array.isArray(prev.toolArgs)
+        ? prev.toolArgs
+        : prev.toolArgs !== undefined
+          ? [prev.toolArgs]
+          : [];
+      if (msg.toolArgs !== undefined) prevArgs.push(msg.toolArgs);
+      if (prevArgs.length > 0) prev.toolArgs = prevArgs;
     } else {
       merged.push({ ...msg });
     }
@@ -1315,6 +1327,7 @@ export function ChatConsole({
     cleanupListeners();
     currentSessionRef.current = sessionKey;
     currentThreadIdRef.current = null; // Reset on session change
+    toolArgsByCallId.current.clear(); // drop tool-call args from the previous session
     setHistoryLoaded(false);
     setMessages([]);
     setSessionUpdatedAt(null);
@@ -1658,10 +1671,12 @@ export function ChatConsole({
 
   const handleSend = useCallback(async () => {
     const payload = retryPayloadRef.current;
-    retryPayloadRef.current = null;
     const text = (payload?.text ?? input).trim();
     const atts = payload?.attachments ?? attachments;
-    if (!text && atts.length === 0) return;
+    if (!text && atts.length === 0) {
+      retryPayloadRef.current = null;
+      return;
+    }
     // Retry/regenerate: nudge the model to answer differently — the stored
     // user message stays clean, only the outbound content gets the hint.
     const retryHint = payload?.retry
@@ -1672,6 +1687,7 @@ export function ChatConsole({
       const result = await window.miqi.providers.list();
       const hasConfiguredProvider = result.providers.some((provider) => provider.configured);
       if (!hasConfiguredProvider) {
+        retryPayloadRef.current = null;
         setMessages((prev) => [...prev, createProviderConfigMessage()]);
         return;
       }
@@ -1679,6 +1695,8 @@ export function ChatConsole({
       // If provider status cannot be read, keep the original send path so the
       // bridge can surface the underlying runtime error.
     }
+    // All early-return guards passed — the retry payload is now consumed.
+    retryPayloadRef.current = null;
 
     // If a reveal animation is still running from the previous response,
     // cancel it and abort the in-flight request so we can start fresh.
@@ -2022,10 +2040,19 @@ export function ChatConsole({
 
         setMessages((prev) => {
           const cleaned = removeTransientTurnMessagesSinceLastUser(prev);
+          // Backfill toolArgs on streamed progress messages — call arguments
+          // only arrive in chat:final, after the progress events rendered.
+          const backfilled = cleaned.map((m) => {
+            if (m.role === 'progress' && m.toolCallId && m.toolArgs === undefined) {
+              const args = toolArgsByCallId.current.get(m.toolCallId);
+              if (args !== undefined) return { ...m, toolArgs: args };
+            }
+            return m;
+          });
           // Only append collapsed tool-call group if streaming didn't
           // already render toolHint progress for this turn (avoids dupes).
-          const hasToolHints = cleaned.some((m) => m.role === 'progress' && m.toolHint);
-          if (hasToolHints) return cleaned;
+          const hasToolHints = backfilled.some((m) => m.role === 'progress' && m.toolHint);
+          if (hasToolHints) return backfilled;
           const toolMessages = sessionMsgsToUi([
             {
               role: 'assistant',
@@ -2034,7 +2061,7 @@ export function ChatConsole({
               timestamp: new Date().toISOString(),
             },
           ]);
-          return [...cleaned, ...toolMessages];
+          return [...backfilled, ...toolMessages];
         });
       } else {
         setMessages((prev) => removeTransientTurnMessagesSinceLastUser(prev));
@@ -2454,14 +2481,25 @@ export function ChatConsole({
   const sourcesByMsg = useMemo(() => {
     const map = new Map<Message, MessageSource[]>();
     let pending: MessageSource[] = [];
+    let seen = new Set<string>();
+    const MAX_SOURCES = 20;
+    const merge = (next: MessageSource[]) => {
+      for (const s of next) {
+        if (seen.has(s.url) || pending.length >= MAX_SOURCES) continue;
+        seen.add(s.url);
+        pending.push(s);
+      }
+    };
     for (const m of messages) {
       if (m.role === 'progress') {
-        pending = [...pending, ...extractMessageSources(m)];
+        merge(extractMessageSources(m));
       } else if (m.role === 'user') {
         pending = [];
+        seen = new Set();
       } else if (m.role === 'assistant') {
         map.set(m, pending);
         pending = [];
+        seen = new Set();
       }
     }
     return map;
@@ -2620,7 +2658,7 @@ export function ChatConsole({
           const el = textareaRef.current; if (!el) return;
           const s = el.selectionStart, e = el.selectionEnd;
           if (s === e) return;
-          navigator.clipboard.writeText(el.value.slice(s, e));
+          navigator.clipboard.writeText(el.value.slice(s, e)).catch(() => {});
           el.setRangeText('', s, e, 'end');
           // Let React's onChange pick up the new value — manual setInput can
           // drift from the DOM (deleting then requires two passes).
@@ -2633,7 +2671,7 @@ export function ChatConsole({
         onSelect: () => {
           const el = textareaRef.current; if (!el) return;
           const txt = el.value.slice(el.selectionStart, el.selectionEnd);
-          if (txt) navigator.clipboard.writeText(txt);
+          if (txt) navigator.clipboard.writeText(txt).catch(() => {});
         },
       },
       {
@@ -2642,18 +2680,15 @@ export function ChatConsole({
           const el = textareaRef.current; if (!el) return;
           navigator.clipboard.readText().then((text) => {
             if (!text) return;
-            // Always append to the end, cursor lands after pasted content
-            const end = el.value.length;
-            el.setRangeText(text, end, end, 'end');
+            // Insert at the caret like native Ctrl+V — replace the current
+            // selection range instead of always appending at the end.
+            const s = el.selectionStart ?? el.value.length;
+            const e = el.selectionEnd ?? s;
+            el.setRangeText(text, s, e, 'end');
             // Let React's onChange pick up the new value (single source of
             // truth for state vs DOM — avoids double-delete drift).
             el.dispatchEvent(new Event('input', { bubbles: true }));
             el.focus();
-            // Jump message area to the latest (bottom) so newest answer stays visible
-            requestAnimationFrame(() => {
-              const sc = scrollRef.current;
-              if (sc) sc.scrollTop = sc.scrollHeight;
-            });
           }).catch(() => {});
         },
       },
@@ -2941,7 +2976,7 @@ export function ChatConsole({
           {/* Messages */}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto"
+            className="flex-1 overflow-y-auto relative"
             style={{ background: 'var(--background)', paddingBottom: `calc(${composerHeight}px + ${ANSWER_GAP})` }}
           >
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
@@ -2966,21 +3001,24 @@ export function ChatConsole({
                 </div>
               ) : (
                 messages.map((msg, i) => (
-                  <MessageBubble
+                  <div
                     key={`${msg.timestamp}-${i}`}
-                    msg={msg}
-                    execOutputs={execOutputs}
-                    inlineExecOutput={inlineExecOutput}
-                    sources={sourcesByMsg.get(msg) ?? []}
-                    isLast={i === messages.length - 1}
-                    onCopy={(text) => handleCopy(text, i)}
-                    isCopied={copiedIdx === i}
-                    onRetry={() => handleRetry(msg)}
-                    onRegenerate={() => handleRegenerate(msg)}
-                    onOpenProviderSettings={onOpenProviderSettings}
-                    onDownloadPaper={handleDownloadPaper}
-                    downloadingPaperId={downloadingPaperId}
-                  />
+                  >
+                    <MessageBubble
+                      msg={msg}
+                      execOutputs={execOutputs}
+                      inlineExecOutput={inlineExecOutput}
+                      sources={sourcesByMsg.get(msg) ?? []}
+                      isLast={i === messages.length - 1}
+                      onCopy={(text) => handleCopy(text, i)}
+                      isCopied={copiedIdx === i}
+                      onRetry={() => handleRetry(msg)}
+                      onRegenerate={() => handleRegenerate(msg)}
+                      onOpenProviderSettings={onOpenProviderSettings}
+                      onDownloadPaper={handleDownloadPaper}
+                      downloadingPaperId={downloadingPaperId}
+                    />
+                  </div>
                 ))
               )}
               {streaming && (
@@ -2993,7 +3031,10 @@ export function ChatConsole({
                 </div>
               )}
             </div>
+
           </div>
+
+
 
           {/* Composer — floats over the bottom; the answer stream never moves.
               Messages reserve composerHeight + ANSWER_GAP via paddingBottom, so
@@ -3001,12 +3042,12 @@ export function ChatConsole({
               matter how tall the textarea grows. */}
           <div
             ref={composerRef}
-            className="absolute bottom-0 left-0 right-0 px-5 pb-10 pt-3"
+            className="pointer-events-none absolute bottom-0 left-0 right-0 px-5 pb-10 pt-3"
             style={{
               background: 'transparent',
             }}
           >
-            <div className="max-w-[760px] mx-auto">
+            <div className="pointer-events-auto max-w-[760px] mx-auto">
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
                   {attachments.map((att, i) => {
@@ -3715,6 +3756,9 @@ function MessageBubble({
   // Verify source links when the modal opens — drop 404s so users never
   // click a dead reference.
   const [validating, setValidating] = useState(false);
+  // Stable key from the URL list — the sources array identity changes on every
+  // streaming re-render; depending on it would restart validation each frame.
+  const sourceKey = useMemo(() => (sources ?? []).map((s) => s.url).join('|'), [sources]);
   useEffect(() => {
     if (!showSources) return;
     let cancelled = false;
@@ -3726,7 +3770,15 @@ function MessageBubble({
     }
     setValidating(true);
     let done = 0;
-    list.forEach((s) => {
+    // Bounded worker pool — 4 concurrent checks max (each can take up to 16s
+    // in the main process: 8s HEAD + 8s GET retry).
+    const MAX_CONCURRENT = 4;
+    let idx = 0;
+    const runNext = () => {
+      if (cancelled) return;
+      const s = list[idx];
+      if (!s) return;
+      idx += 1;
       window.miqi.web
         .checkUrl(s.url)
         .then((r) => {
@@ -3739,13 +3791,16 @@ function MessageBubble({
           if (!cancelled) {
             done += 1;
             if (done === list.length) setValidating(false);
+            else runNext();
           }
         });
-    });
+    };
+    for (let i = 0; i < Math.min(MAX_CONCURRENT, list.length); i++) runNext();
     return () => {
       cancelled = true;
     };
-  }, [showSources, sources]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSources, sourceKey]);
 
   if (msg.role === 'progress') {
     // ── Paper search result: render formatted cards ──────────────
@@ -3860,7 +3915,9 @@ function MessageBubble({
   const hasCodeBlock = /```[\s\S]*?```/.test(msg.content);
 
   const selectMessageText = () => {
-    const textEl = bubbleRef.current?.querySelector('[class*="leading-relaxed"]') as HTMLElement | null;
+    // Stable hook attribute — a Tailwind class substring would silently break
+    // if the bubble's styling classes ever change.
+    const textEl = bubbleRef.current?.querySelector('[data-message-body]') as HTMLElement | null;
     if (!textEl) return;
     const range = document.createRange();
     range.selectNodeContents(textEl);
@@ -4030,14 +4087,21 @@ function MessageBubble({
 
             {/* Main bubble */}
             <div
+              data-message-body
               className="text-sm leading-relaxed rounded-2xl px-4 py-3"
               style={
                 isUser
-                  ? { background: 'var(--bubble-user-bg)', color: 'var(--bubble-user-text)' }
+                  ? {
+                      background:
+                        'linear-gradient(135deg, var(--bubble-user-bg), color-mix(in srgb, var(--bubble-user-bg) 62%, #000))',
+                      color: 'var(--bubble-user-text)',
+                      borderBottomRightRadius: 6,
+                    }
                   : {
                       background: 'var(--bubble-ai-bg)',
                       color: 'var(--bubble-ai-text)',
                       border: '1px solid var(--bubble-ai-border)',
+                      borderBottomLeftRadius: 6,
                     }
               }
             >
@@ -4181,7 +4245,7 @@ function MessageBubble({
                           {n}
                         </span>
                         <img
-                          src={`https://www.google.com/s2/favicons?domain=${host}&sz=32`}
+                          src={`${new URL(s.url).origin}/favicon.ico`}
                           alt=""
                           className="w-4 h-4 shrink-0 rounded-sm"
                           onError={(e) => {
