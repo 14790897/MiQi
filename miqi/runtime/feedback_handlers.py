@@ -122,9 +122,11 @@ def _collect_all_logs(log_dir: Path, max_age_days: int = 7) -> str:
         part_bytes = len(part.encode("utf-8"))
         if total_bytes + part_bytes > MAX_LOG_BYTES:
             remaining = MAX_LOG_BYTES - total_bytes
-            if remaining > 200:
-                tail = part.encode("utf-8")[:remaining].decode("utf-8", errors="ignore")
-                final_parts.append(tail + "\n...(截断: 超出总大小限制)")
+            marker = "\n...(截断: 超出总大小限制)"
+            marker_bytes = len(marker.encode("utf-8"))
+            if remaining > marker_bytes:
+                tail = part.encode("utf-8")[:remaining - marker_bytes].decode("utf-8", errors="ignore")
+                final_parts.append(tail + marker)
             break
         final_parts.append(part)
         total_bytes += part_bytes
