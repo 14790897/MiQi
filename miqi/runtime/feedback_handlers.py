@@ -10,6 +10,7 @@ import json
 import platform
 import sys
 import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,26 +61,44 @@ def _collect_all_logs(log_dir: Path, max_age_days: int = 7) -> str:
         return "[日志目录不存在]"
 
     cutoff = time.time() - max_age_days * 86400
+    _date_re = re.compile(r"(\d{4}-\d{2}-\d{2})")
     parts: list[str] = []
     recent_count = 0
     skipped_count = 0
     unreadable_count = 0
 
-    def _safe_mtime(p: Path) -> float:
+    def _file_sort_key(p: Path) -> float:
+        """Pick best available timestamp: filename date > mtime > 0."""
+        m = _date_re.search(p.name)
+        if m:
+            try:
+                t = time.mktime(time.strptime(m.group(1), "%Y-%m-%d"))
+                return t
+            except ValueError:
+                pass
         try:
             return os.path.getmtime(str(p))
         except OSError:
             return 0.0
 
-    for f in sorted(log_dir.rglob("*"), key=_safe_mtime, reverse=True):
+    def _file_age_days(p: Path) -> float:
+        """Age in days using filename date if present, else mtime."""
+        m = _date_re.search(p.name)
+        if m:
+            try:
+                t = time.mktime(time.strptime(m.group(1), "%Y-%m-%d"))
+                return (time.time() - t) / 86400
+            except ValueError:
+                pass
+        try:
+            return (time.time() - os.path.getmtime(str(p))) / 86400
+        except OSError:
+            return 999
+
+    for f in sorted(log_dir.rglob("*"), key=_file_sort_key, reverse=True):
         if not f.is_file():
             continue
-        try:
-            mtime = os.path.getmtime(str(f))
-        except OSError:
-            unreadable_count += 1
-            continue
-        if mtime < cutoff:
+        if _file_age_days(f) > max_age_days:
             skipped_count += 1
             continue
         recent_count += 1
