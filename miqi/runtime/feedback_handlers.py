@@ -65,7 +65,13 @@ def _collect_all_logs(log_dir: Path, max_age_days: int = 7) -> str:
     skipped_count = 0
     unreadable_count = 0
 
-    for f in sorted(log_dir.rglob("*"), key=lambda p: os.path.getmtime(str(p)), reverse=True):
+    def _safe_mtime(p: Path) -> float:
+        try:
+            return os.path.getmtime(str(p))
+        except OSError:
+            return 0.0
+
+    for f in sorted(log_dir.rglob("*"), key=_safe_mtime, reverse=True):
         if not f.is_file():
             continue
         try:
