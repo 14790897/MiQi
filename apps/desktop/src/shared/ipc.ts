@@ -179,11 +179,15 @@ export const ChatSendInput = z.object({
   session_key: z.string().optional(),
   thread_id: z.string().optional(),
   mode: z.enum(['plan', 'manual', 'edit', 'auto']).optional(),
-  attachments: z.array(z.object({
-    name: z.string(),
-    data_base64: z.string().optional(),
-    mime_type: z.string().optional(),
-  })).optional(),
+  attachments: z
+    .array(
+      z.object({
+        name: z.string(),
+        data_base64: z.string().optional(),
+        mime_type: z.string().optional(),
+      })
+    )
+    .optional(),
 });
 
 export const SessionGetInput = z.object({
@@ -234,6 +238,7 @@ export const AgentSpawnInput = z.object({
   agent_type: z.string().min(1),
   task: z.string().min(1),
   label: z.string().optional(),
+  session_key: z.string().optional(),
 });
 
 export const PermissionsUpdateInput = z.object({
@@ -815,11 +820,11 @@ export interface PythonCheckResult {
 
 /** Granular WSL feature states detected during check */
 export type WslFeatureState =
-  | 'not-supported'           // Non-Windows or WSL not available
-  | 'not-enabled'             // Windows Optional Features not turned on
-  | 'not-installed'           // WSL kernel/package not installed
+  | 'not-supported' // Non-Windows or WSL not available
+  | 'not-enabled' // Windows Optional Features not turned on
+  | 'not-installed' // WSL kernel/package not installed
   | 'installed-but-not-initialized' // WSL installed but no distro launched
-  | 'ready';                  // Fully functional
+  | 'ready'; // Fully functional
 
 export interface WslCheckResult {
   isWindows: boolean;
@@ -1058,18 +1063,15 @@ const dataUrlScreenshot = z
   .string()
   .refine(
     (s) => s.startsWith('data:image/') && s.includes(';base64,'),
-    'Screenshot must be a base64-encoded data URL with image MIME type',
+    'Screenshot must be a base64-encoded data URL with image MIME type'
   )
-  .refine(
-    (s) => {
-      const comma = s.indexOf(',');
-      if (comma < 0) return false;
-      const b64 = s.slice(comma + 1);
-      // base64 inflates ~4/3, so 14 MB encoded → ~10.5 MB decoded
-      return b64.length * 3 <= MAX_DATA_URL_BYTES * 4 + 4;
-    },
-    'Screenshot exceeds 10 MB limit',
-  );
+  .refine((s) => {
+    const comma = s.indexOf(',');
+    if (comma < 0) return false;
+    const b64 = s.slice(comma + 1);
+    // base64 inflates ~4/3, so 14 MB encoded → ~10.5 MB decoded
+    return b64.length * 3 <= MAX_DATA_URL_BYTES * 4 + 4;
+  }, 'Screenshot exceeds 10 MB limit');
 
 export const FeedbackSubmitInput = z.object({
   category: z.enum(['bug', 'question', 'suggestion', 'other']),

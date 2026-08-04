@@ -573,7 +573,24 @@ export async function closeElectronApp(
   miqiHome?: string,
   keepHome = false,
 ) {
-  await app?.close().catch(() => {});
+  if (app) {
+    // Bound the close: some tests leave an in-flight LLM/bridge request
+    // behind, and Electron then waits on the bridge child process forever —
+    // a stuck `app.close()` would burn the whole CI afterAll timeout (600s)
+    // and then the worker force-kill (300s).  Race the close against a
+    // 15s deadline and force-kill the Electron process if it overruns.
+    await Promise.race([
+      app.close().catch(() => {}),
+      (async () => {
+        await new Promise((r) => setTimeout(r, 15_000));
+        try {
+          app.process().kill();
+        } catch {
+          /* already gone */
+        }
+      })(),
+    ]);
+  }
   if (miqiHome && !keepHome && existsSync(miqiHome)) {
     rmSync(miqiHome, { recursive: true, force: true });
     console.log(`[test] Cleaned up MIQI_HOME: ${miqiHome}`);

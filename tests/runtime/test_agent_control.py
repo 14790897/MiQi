@@ -41,6 +41,46 @@ async def test_spawn_agent(agent_control, event_emitter):
 
 
 @pytest.mark.asyncio
+async def test_max_concurrent_blocks_4th_spawn(tmp_path, event_emitter):
+    """Issue #246: no more than max_concurrent (3) subagents at once."""
+    control = AgentControl(
+        session_id="test-session",
+        registry=AgentRegistry(),
+        event_emitter=event_emitter,
+        workspace=tmp_path,
+        max_concurrent=3,
+    )
+    for i in range(3):
+        await control.spawn("code-agent", f"task {i}", label=f"a{i}")
+    with pytest.raises(RuntimeError, match="already running"):
+        await control.spawn("code-agent", "task 3", label="a3")
+
+
+@pytest.mark.asyncio
+async def test_max_concurrent_releases_terminal_agents(tmp_path, event_emitter):
+    """A completed subagent frees a slot for a new spawn."""
+    control = AgentControl(
+        session_id="test-session",
+        registry=AgentRegistry(),
+        event_emitter=event_emitter,
+        workspace=tmp_path,
+        max_concurrent=3,
+    )
+    agents = [
+        await control.spawn("code-agent", f"task {i}", label=f"a{i}")
+        for i in range(3)
+    ]
+    # Two agents finish → only one slot is occupied → a new spawn fits.
+    for a in agents[:2]:
+        a.state.transition(AgentStatus.THINKING)
+        a.state.transition(AgentStatus.COMPLETED)
+    replacement = await control.spawn("code-agent", "task 3", label="a3")
+    assert replacement.agent_id
+    # Third still running + replacement = 2 < 3, so one more is allowed.
+    await control.spawn("code-agent", "task 4", label="a4")
+
+
+@pytest.mark.asyncio
 async def test_list_agents(agent_control):
     await agent_control.spawn("code-agent", "task 1", label="a")
     await agent_control.spawn("doc-agent", "task 2", label="b")
@@ -57,6 +97,81 @@ async def test_kill_agent(agent_control):
     await agent_control.kill(agent_id)
     with pytest.raises(KeyError):
         await agent_control.get_status(agent_id)
+
+
+@pytest.mark.asyncio
+async def test_completion_delivered_once(tmp_path):
+    """Issue #246 review: kill() emits aborted, and the cancelled _run_agent
+    task's finally would emit again — the completion must reach the frontend
+    exactly once (idempotent delivery)."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    calls: list[dict] = []
+    async def on_complete(data: dict) -> None:
+        calls.append(data)
+
+    emitter = MagicMock()
+    emitter.emit = AsyncMock()
+    control = AgentControl(
+        session_id="test-session",
+        registry=AgentRegistry(),
+        event_emitter=emitter,
+        workspace=tmp_path,
+        completion_callback=on_complete,
+    )
+    agent = await control.spawn("code-agent", "task", label="test")
+
+    # First emission (kill → aborted) is delivered…
+    await control._emit_completed(agent, status="aborted")
+    assert len(calls) == 1
+    assert calls[0]["status"] == "aborted"
+
+    # …the second (cancelled _run_agent finally) is suppressed.
+    await control._emit_completed(agent)
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_notify_completed_advances_state_without_callback(tmp_path):
+    """Issue #246 review: notify_completed must sync the job result and
+    advance the state machine to terminal even when no completion callback is
+    wired — otherwise a finished agent stays THINKING and permanently occupies
+    a max_concurrent slot (CLI/TUI/gateway transports pass no callback)."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    emitter = MagicMock()
+    emitter.emit = AsyncMock()
+    control = AgentControl(
+        session_id="test-session",
+        registry=AgentRegistry(),
+        event_emitter=emitter,
+        workspace=tmp_path,
+        completion_callback=None,  # no frontend transport
+    )
+    agent = await control.spawn("code-agent", "task", label="test")
+
+    # Simulate the AgentJobRuntime path: the agent is THINKING while the
+    # job runs (spawn with a job runtime transitions immediately).
+    agent.state.transition(AgentStatus.THINKING)
+
+    # Simulate AgentJobRuntime finishing the job.
+    fake_job = MagicMock()
+    fake_job.result = "done"
+    fake_job.error = None
+    fake_jobs = MagicMock()
+    fake_jobs.get = MagicMock(return_value=fake_job)
+    control._agent_jobs = fake_jobs
+
+    await control.notify_completed(agent.agent_id, "completed")
+
+    assert agent.state.current == AgentStatus.COMPLETED
+    assert agent.result == "done"
+
+    # The terminal state frees the concurrency slot for a new spawn.  Restore
+    # _agent_jobs so the replacement spawn takes the legacy path.
+    control._agent_jobs = None
+    replacement = await control.spawn("code-agent", "task 2", label="b")
+    assert replacement.agent_id
 
 
 @pytest.mark.asyncio

@@ -81,6 +81,7 @@ class RuntimeSession:
         session_id: str,
         workspace: Path,
         sandbox_manager: Any = None,
+        agent_completion_callback: Any | None = None,
     ) -> "RuntimeSession":
         """Create a RuntimeSession from config and provider.
 
@@ -102,6 +103,7 @@ class RuntimeSession:
             workspace=workspace,
             event_sink=events.put,  # asyncio.Queue.put is a coroutine sink
             sandbox_manager=sandbox_manager,
+            agent_completion_callback=agent_completion_callback,
         )
         runtime = cls(
             services=services,

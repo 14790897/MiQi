@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from miqi.runtime.workspace_logging import append_workspace_log
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from loguru import logger
 
@@ -43,10 +43,17 @@ class LiveAgent:
     state: AgentStateMachine
     parent_agent_id: str | None = None
     spawned_at: float = field(default_factory=lambda: __import__("time").time())
+    # Spawn-time context (used for frontend subagent result rendering)
+    label: str | None = None
+    task: str | None = None
     result: str | None = None
     error: str | None = None
     messages: list[dict[str, Any]] = field(default_factory=list)
     completed_at: float | None = None
+    # Guard against duplicate frontend delivery: kill() emits aborted, then
+    # the cancelled _run_agent task's finally emits again — only the first
+    # terminal event should reach the renderer.
+    completion_emitted: bool = False
 
 
 class AgentControl:
@@ -70,6 +77,8 @@ class AgentControl:
         agent_jobs: Any = None,  # AgentJobRuntime — Phase 13
         hooks: HookRuntime | None = None,
         store: AgentGraphStore | None = None,
+        completion_callback: Callable[[dict], Awaitable[None]] | None = None,
+        max_concurrent: int = 3,
     ):
         self.session_id = session_id
         self.registry = registry
@@ -81,6 +90,11 @@ class AgentControl:
         self._agent_jobs = agent_jobs
         self._hooks = hooks
         self._store = store
+        self._completion_callback = completion_callback
+        # Issue #246: cap concurrently-running subagents (default 3, the
+        # legacy SubagentManager limit).  Terminal agents (completed/error/
+        # aborted) do not count; killed agents are removed from the registry.
+        self.max_concurrent = max_concurrent
         self._agents: dict[str, LiveAgent] = {}  # agent_id → LiveAgent
         self._thread_agents: dict[str, str] = {}  # thread_id → agent_id
         self._lock = asyncio.Lock()
@@ -111,6 +125,25 @@ class AgentControl:
         """
         metadata = self.registry.resolve(agent_type)
 
+        # Issue #246: enforce max_concurrent BEFORE starting the job — if the
+        # session already runs the limit of subagents, refuse to spawn so we
+        # don't leak a queued job.  Terminal agents (completed/error/aborted)
+        # do not count; a registered-but-not-yet-completed agent counts as
+        # running (its state is THINKING from the moment spawn() registers it).
+        async with self._lock:
+            running = sum(
+                1
+                for a in self._agents.values()
+                if a.state.current
+                not in (AgentStatus.COMPLETED, AgentStatus.ERROR, AgentStatus.ABORTED)
+            )
+            if running >= self.max_concurrent:
+                raise RuntimeError(
+                    f"Cannot spawn subagent: {self.max_concurrent} subagents "
+                    "already running. Wait for one to finish before spawning "
+                    "another."
+                )
+
         # Phase 13: when AgentJobRuntime is available, start the job FIRST
         # so the event carries the correct job-allocated IDs.
         if self._agent_jobs is not None:
@@ -131,6 +164,8 @@ class AgentControl:
             metadata=metadata,
             state=AgentStateMachine(),
             parent_agent_id=parent_agent_id,
+            label=label,
+            task=task,
         )
 
         async with self._lock:
@@ -300,6 +335,47 @@ class AgentControl:
             agent.state.transition(AgentStatus.ABORTED)
 
         logger.info("Killed agent {}", agent_id)
+
+        # The agent was removed from the registry, so the job/legacy run
+        # teardown can no longer reach it — emit the completion (aborted)
+        # here so the frontend still renders the ❌ status.
+        await self._emit_completed(agent, status="aborted")
+
+    async def notify_completed(self, agent_id: str, status: str) -> None:
+        """Notify the frontend of a subagent completion (AgentJobRuntime path).
+
+        Phase 13: when AgentJobRuntime owns the agent, the subagent runs in
+        ``AgentJobRuntime._run`` (via TurnRunner.run_agent_job) — NOT in
+        ``AgentControl._run_agent`` — so the ``finally`` completion hook there
+        never fires.  AgentJobRuntime calls this from its own ``_run`` finally.
+        """
+        agent = self._agents.get(agent_id)
+        if agent is None:
+            return
+        # Sync result/error from the job — the AgentJobRuntime path never
+        # sets LiveAgent.result/error (TurnRunner returns them to the job).
+        if self._agent_jobs is not None:
+            try:
+                job = self._agent_jobs.get(agent_id)
+                if job is not None:
+                    if job.result:
+                        agent.result = job.result
+                    if job.error:
+                        agent.error = job.error
+            except KeyError:
+                pass
+        # Keep the LiveAgent state machine in sync with the job status
+        # (the job path never transitions it).
+        terminal = (AgentStatus.COMPLETED, AgentStatus.ERROR, AgentStatus.ABORTED)
+        if agent.state.current not in terminal:
+            target = {
+                "completed": AgentStatus.COMPLETED,
+                "error": AgentStatus.ERROR,
+                "aborted": AgentStatus.ABORTED,
+            }.get(status)
+            if target is not None:
+                agent.state.transition(target)
+        await self._emit_completed(agent, status=status)
 
     async def get_status(self, agent_id: str) -> AgentStatus:
         """Get the current status of an agent."""
@@ -571,7 +647,7 @@ class AgentControl:
                     })
 
                     # Add tool results for each tool call
-                    for tc, result in zip(tool_calls, tool_results):
+                    for tc, result in zip(tool_call_dicts, tool_results):
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tc.id,
@@ -683,6 +759,68 @@ class AgentControl:
                         "SUBAGENT_END hook failed for agent {}",
                         agent.agent_id,
                     )
+
+            # Push the subagent completion to the frontend callback (if any).
+            # This is what feeds the `chat:subagent_result` IPC event — the
+            # frontend's ChatConsole renders subagent results exclusively from
+            # that channel (Phase 13 removed the legacy SubagentManager
+            # result_callback, leaving no producer; the Desktop transport
+            # wires this callback to AppServer.emit_client_event).
+            await self._emit_completed(agent)
+
+    async def _emit_completed(
+        self, agent: LiveAgent, status: str | None = None,
+    ) -> None:
+        """Notify the frontend that a subagent reached a terminal state.
+
+        Payload matches the Desktop contract ``ChatSubagentResult``
+        (apps/desktop/src/shared/ipc.ts): task_id, label, task, result,
+        status ("ok" | "error" | "aborted"), session_key.
+        """
+        # Idempotent delivery: kill() emits aborted first; the cancelled
+        # _run_agent task's finally would then emit again.  Only the first
+        # terminal event reaches the frontend.
+        if agent.completion_emitted:
+            return
+        agent.completion_emitted = True
+        if self._completion_callback is None:
+            return
+        if status is None:
+            state = agent.state.current.value  # completed | error | aborted
+            status = "ok" if state == "completed" else state
+        elif status == "completed":
+            # ChatConsole keys on status === "ok" for the ✅ icon — normalize
+            # the job status ("completed") to the ChatSubagentResult contract.
+            status = "ok"
+        try:
+            await self._completion_callback({
+                "task_id": agent.agent_id,
+                "label": agent.label or agent.task or agent.agent_id,
+                "task": agent.task or "",
+                "result": agent.result or agent.error or "",
+                "status": status,
+                "session_key": self._renderer_session_key(),
+            })
+        except Exception:
+            logger.warning(
+                "Agent completion callback failed for {} ({})",
+                agent.agent_id, agent.metadata.name,
+            )
+
+    def _renderer_session_key(self) -> str:
+        """Strip the client_id prefix so the payload matches the renderer's
+        session key format.
+
+        ChatConsole's subagent handler compares ``data.session_key`` against
+        ``currentSessionRef`` (e.g. ``"desktop:<ts>"``), while
+        ``AgentControl.session_id`` is the namespaced
+        ``"miqi-desktop:desktop:<ts>"`` — a raw pass-through silently drops
+        every event.
+        """
+        sid = self.session_id
+        if ":" in sid:
+            return sid.split(":", 1)[1]
+        return sid
 
     @staticmethod
     def _format_tool_hint(name: str, args: dict) -> str:
