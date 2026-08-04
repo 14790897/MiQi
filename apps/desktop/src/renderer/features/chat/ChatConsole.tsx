@@ -4283,7 +4283,3 @@ function MessageBubble({
     </>
   );
 }
-
-/** Strip <think>...</think> reasoning blocks before rendering.
- *  Handles both complete blocks and cross-message orphans
- *  (tags split across streaming chunks). */
