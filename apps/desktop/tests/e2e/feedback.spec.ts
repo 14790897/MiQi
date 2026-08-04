@@ -158,10 +158,15 @@ test.describe('Feedback Page E2E', () => {
     await expect(page.getByRole('heading', { name: '提交反馈' })).toBeVisible();
 
     let dialogFired = false;
-    page.on('dialog', () => { dialogFired = true; });
-    await page.keyboard.press('Escape');
-    expect(dialogFired).toBe(false);
-    await expect(page.getByRole('heading', { name: '提交反馈' })).not.toBeVisible({ timeout: 2_000 });
+    const onDialog = () => { dialogFired = true; };
+    page.on('dialog', onDialog);
+    try {
+      await page.keyboard.press('Escape');
+      expect(dialogFired).toBe(false);
+      await expect(page.getByRole('heading', { name: '提交反馈' })).not.toBeVisible({ timeout: 2_000 });
+    } finally {
+      page.off('dialog', onDialog);
+    }
   });
 
   test('hints are visible in the submit modal', async () => {
@@ -274,7 +279,7 @@ test.describe('Feedback Page E2E', () => {
     expect(captured[0].title).toBe('E2E mock submission');
     expect(captured[0].content).toContain('Mocked success-path');
     expect(captured[0].contact).toBe('e2e@test.com');
-  });;
+  });
 
   test('screenshot drop zone accepts files and shows thumbnails', async () => {
     await openFeedbackTab(page);
