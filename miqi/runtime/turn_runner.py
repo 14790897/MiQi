@@ -383,14 +383,16 @@ class TurnRunner:
                     tool_call_id=tool_call.id,
                     name=tool_call.name,
                     content=ctx.result or "",
+                    arguments=tool_call.arguments,
                 )
                 # Persist tool result in messages_delta
                 messages_delta.append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
+                    "name": tool_call.name,
                     "content": ctx.result or "",
+                    "arguments": tool_call.arguments,
                 })
-
         # Exhausted iterations
         content = (
             f"已达到最大迭代次数（{self._max_iterations}）。"

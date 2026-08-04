@@ -35,7 +35,7 @@ async function navigateToLogsTab(page: import('@playwright/test').Page) {
   await navigateToSettings(page);
   await page.getByRole('tab', { name: '日志' }).click();
   // Wait for the filter toolbar — indicates LogsTab has mounted
-  await expect(page.getByText('自动滚动')).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText('自动刷新')).toBeVisible({ timeout: 5000 });
 }
 
 /** Click the refresh button in the Logs tab filter toolbar */
@@ -62,8 +62,8 @@ test.describe('Logs Tab — Navigation', () => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
-    // Auto-scroll checkbox
-    await expect(page.getByText('自动滚动')).toBeVisible();
+    // Auto-refresh checkbox
+    await expect(page.getByText('自动刷新')).toBeVisible();
 
     // Level dropdown — "全部级别"
     await expect(page.locator('select').filter({ hasText: '全部级别' })).toBeVisible();
@@ -469,13 +469,13 @@ test.describe('Logs Tab — Edge Cases', () => {
     await expect(page.getByText(/^(System Settings|系统设置)$/)).not.toBeVisible();
   });
 
-  test('auto-scroll checkbox can be toggled', async ({ page }) => {
+  test('auto-refresh checkbox can be toggled', async ({ page }) => {
     await injectMockAndGoto(page);
     await navigateToLogsTab(page);
 
     const checkbox = page.locator('input[type="checkbox"]').first();
 
-    // Default is checked (autoScroll starts as true)
+    // Default is checked (autoRefresh starts as true)
     await expect(checkbox).toBeChecked();
 
     // Toggle off

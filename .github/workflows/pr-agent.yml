@@ -1,0 +1,36 @@
+name: PR Agent
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, review_requested]
+  issue_comment:
+    types: [created, edited]
+
+jobs:
+  pr_agent_job:
+    if: ${{ github.event.sender.type != 'Bot' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+      contents: write
+    name: Run PR Agent
+    steps:
+      - name: PR Agent action step
+        id: pragent
+        uses: Codium-ai/pr-agent@main
+        env:
+          OPENAI_KEY: ${{ secrets.SIXIANGJIA_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github_action_config.auto_review: "true"
+          github_action_config.auto_describe: "true"
+          github_action_config.auto_improve: "true"
+          github_action_config.pr_actions: '["opened", "reopened", "synchronize", "ready_for_review", "review_requested"]'
+          github_action_config.handle_push_trigger: "true"
+          github_action_config.push_commands: '["/review", "/describe", "/improve"]'
+          config.model: "openai/deepseek-v4-pro"
+          config.fallback_models: '["openai/deepseek-v4-pro"]'
+          config.custom_model_max_tokens: "128000"
+          config.max_model_tokens: "128000"
+          config.reasoning_effort: "xhigh"
+          OPENAI.API_BASE: "https://new.sixiangjia.de/v1"

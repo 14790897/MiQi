@@ -141,6 +141,12 @@ const api = {
     },
   },
 
+  // -- Web helpers -------------------------------------------------------------
+  web: {
+    checkUrl: (url: string): Promise<{ ok: boolean; status: number }> =>
+      ipcRenderer.invoke(IPC.WEB_CHECK_URL, { url }),
+  },
+
   // -- Sessions ---------------------------------------------------------------
   sessions: {
     list: (): Promise<{ sessions: SessionInfo[] }> => ipcRenderer.invoke(IPC.SESSIONS_LIST),

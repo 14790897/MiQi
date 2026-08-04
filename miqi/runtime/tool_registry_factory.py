@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from miqi.agent.tools.registry import ToolRegistry
+from miqi.paths import get_config_path
 
 
 def create_runtime_tool_registry(
@@ -96,6 +97,11 @@ def create_runtime_tool_registry(
         _shared_dir.mkdir(parents=True, exist_ok=True)
         _shared_roots.append(_shared_dir)
 
+    # Read-only whitelist for the host config file (issue #553): agents may
+    # inspect settings, but write/edit/patch tools keep rejecting it so the
+    # config (API keys, model setup) can never be tampered with.
+    _read_shared_roots = [*_shared_roots, get_config_path()]
+
     # Resolve config sections
     tools_cfg = getattr(config, "tools", None)
     restrict_to_workspace = getattr(tools_cfg, "restrict_to_workspace", False) if tools_cfg is not None else False
@@ -122,7 +128,7 @@ def create_runtime_tool_registry(
 
     # 1. Filesystem tools
     for cls in (ReadFileTool, ListDirTool):
-        registry.register(cls(workspace=workspace, allowed_dir=allowed_dir, sandbox_manager=_sbm, shared_roots=_shared_roots))
+        registry.register(cls(workspace=workspace, allowed_dir=allowed_dir, sandbox_manager=_sbm, shared_roots=_read_shared_roots))
     registry.register(
         WriteFileTool(
             workspace=_write_workspace,

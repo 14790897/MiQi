@@ -116,14 +116,18 @@ class ContextRuntime:
         tool_call_id: str,
         name: str,
         content: str,
+        arguments: Any = None,
     ) -> list[dict[str, Any]]:
         """Append a tool result message."""
-        return [*messages, {
+        msg: dict[str, Any] = {
             "role": "tool",
             "tool_call_id": tool_call_id,
             "name": name,
             "content": content,
-        }]
+        }
+        if arguments is not None:
+            msg["arguments"] = arguments
+        return [*messages, msg]
 
     # ── Phase 19: context compaction ────────────────────────────────────
 

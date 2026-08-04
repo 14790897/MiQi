@@ -17,6 +17,9 @@ export const IPC = {
   CHAT_SEND: 'chat:send',
   CHAT_ABORT: 'chat:abort',
 
+  // Web helpers
+  WEB_CHECK_URL: 'web:checkUrl',
+
   // Threads (Codex-style, Phase 36+)
   THREAD_START: 'thread:start',
   THREAD_LIST: 'thread:list',

@@ -317,8 +317,14 @@ def _canonicalize_wsl_mnt_path(
 
     for root in roots:
         try:
-            resolved.relative_to(root)
-            break  # contained in this root — accept
+            if root.is_file():
+                # File roots (e.g. config.json) gate the exact file only —
+                # never sibling/descendant paths like config.json.bak.
+                if resolved == root.resolve():
+                    break
+            else:
+                resolved.relative_to(root)
+                break  # contained in this root — accept
         except ValueError:
             continue
     else:
