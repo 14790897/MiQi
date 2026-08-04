@@ -352,21 +352,17 @@ code {
 /* ── Turn gutter beads ─────────────────────────────────────────── */
 /* Preview card pop-in (matches HTML demo: opacity + scale 0.16s) */
 @keyframes turn-preview-in {
-  from { opacity: 0; transform: translateY(-50%) scale(0.96); }
+  from { opacity: 0; transform: translateY(-50%) scale(0.98); }
   to   { opacity: 1; transform: translateY(-50%) scale(1); }
 }
 .turn-preview-enter {
   animation: turn-preview-in 0.16s ease both;
 }
-/* Jump-to-turn flash on the anchored message (accent ring fades out) */
+/* Jump-to-turn flash on the anchored message (neutral ring fades out) */
 @keyframes turn-flash {
-  0%   { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 70%, transparent); }
-  100% { box-shadow: 0 0 0 3px transparent; }
+  0%   { box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-muted) 55%, transparent); }
+  100% { box-shadow: 0 0 0 2px transparent; }
 }
 .turn-flash {
   animation: turn-flash 1s ease-out;
-}
-/* Gutter beads: hide scrollbar entirely (auto-scroll only, no visible bar) */
-.turn-gutter::-webkit-scrollbar {
-  display: none;
 }

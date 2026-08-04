@@ -1615,6 +1615,7 @@ export function ChatConsole({
           ]);
         reader.readAsDataURL(file);
       } else {
+        const reader = new FileReader();
         reader.onload = () =>
           setAttachments((prev) => [
             ...prev,
@@ -2529,6 +2530,8 @@ export function ChatConsole({
   const turnAnchors = useRef<(HTMLDivElement | null)[]>([]);
   const gutterRef = useRef<HTMLDivElement>(null);
   const [tickPercents, setTickPercents] = useState<number[]>([]);
+  const [gutterHeight, setGutterHeight] = useState(400);
+
   const [showGutter, setShowGutter] = useState(false);
   const [activeTurn, setActiveTurn] = useState(-1);
   const [hoverTurn, setHoverTurn] = useState(-1);
@@ -2540,13 +2543,18 @@ export function ChatConsole({
       return;
     }
     const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
-    // 珠子固定间距（36px）从中间开始向上/下等距排列、整体居中——
-    // 轮次多时内容高度自动增长，刻度条内滚动承载（无滚动条）。
-    // tickPercents 存 px 位置（相对刻度条内容顶部）。
-    const SPACING = 36;
+    // 珠子以轨道中线为轴，向上下等距展开；轮次少时聚在中间，
+    // 轮次多时压缩在中间区域内，始终不出现内部滚动。
+    const N = turnsData.length;
+    const gH = gutterHeight > 0 ? gutterHeight : 400;
+    const CENTER = gH / 2;
+    const STEP = 16;
+    const MAX_BAND = Math.min(180, Math.max(80, gH - 180));
+    const band = N > 1 ? Math.min(MAX_BAND, (N - 1) * STEP) : 0;
+    const step = N > 1 ? band / (N - 1) : 0;
     const positions: number[] = [];
-    for (let i = 0; i < turnsData.length; i++) {
-      positions[i] = 20 + i * SPACING;
+    for (let i = 0; i < N; i++) {
+      positions[i] = CENTER + (i - (N - 1) / 2) * step;
     }
     setTickPercents((prev) =>
       prev.length === positions.length && prev.every((v, idx) => v === positions[idx])
@@ -2561,7 +2569,7 @@ export function ChatConsole({
     setActiveTurn(cur);
     // ≥2 turns → gutter always shows, matching the approved HTML demo v4.
     setShowGutter(turnsData.length >= 2);
-  }, [turnsData.length]);
+  }, [turnsData.length, gutterHeight]);
 
   // Throttle scroll-driven updates to one per animation frame.
   const scrollRafRef = useRef<number | null>(null);
@@ -2625,18 +2633,34 @@ export function ChatConsole({
     if (el && wrap) setGutterTop(el.offsetTop + el.clientHeight / 2);
   }, [composerHeight, streaming]);
 
+  // 刻度条实际可视高度随窗口变化；等距分布以真实高度为准。
+  useLayoutEffect(() => {
+    const g = gutterRef.current;
+    if (!g) return;
+    const measure = () =>
+      setGutterHeight((prev) => (Math.abs(prev - g.offsetHeight) < 0.5 ? prev : g.offsetHeight));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(g);
+    return () => ro.disconnect();
+  }, [showGutter]);
+
   // 预览弹窗顶部位置：跟随 hover 珠子的可视位置（相对 chat area），
   // 而不是固定居中——hover 哪颗珠子弹窗就出现在哪颗的高度，不遮挡内容。
-  const previewTop = useMemo(() => {
+  const previewLayout = useMemo(() => {
     if (hoverTurn < 0 || !gutterRef.current) return undefined;
     const g = gutterRef.current;
-    const beadY = (tickPercents[hoverTurn] ?? 20) - g.scrollTop; // px，相对容器可视区顶部
+    const beadY = (tickPercents[hoverTurn] ?? (gutterHeight > 0 ? gutterHeight : 400) / 2) - g.scrollTop; // px，相对容器可视区顶部
     const gRect = g.getBoundingClientRect();
     const aRect = g.parentElement?.getBoundingClientRect();
     if (!aRect) return undefined;
     const top = gRect.top - aRect.top + beadY;
-    return Math.min(Math.max(top, 80), aRect.height - 80);
-  }, [hoverTurn, tickPercents]);
+    const maxH = Math.max(160, Math.min(460, aRect.height - composerHeight - 120));
+    const maxTop = Math.max(72, aRect.height - composerHeight - 88 - maxH / 2);
+    return { top: Math.min(Math.max(top, 72), maxTop), maxH };
+  }, [hoverTurn, tickPercents, composerHeight, gutterHeight]);
+  const previewTop = previewLayout?.top;
+  const previewMaxH = previewLayout?.maxH;
 
   const handleRetry = useCallback(
     async (msg: Message) => {
@@ -3130,7 +3154,7 @@ export function ChatConsole({
               paddingBottom: `calc(${composerHeight}px + ${ANSWER_GAP})`,
             }}
           >
-            <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
+            <div className="max-w-[760px] mx-auto pl-6 pr-[120px] py-5 flex flex-col gap-8">
               {!historyLoaded ? (
                 <div className="flex items-center justify-center min-h-[300px]">
                   <Loader2 size={16} className="animate-spin text-text-faint" />
@@ -3213,38 +3237,37 @@ export function ChatConsole({
           {showGutter && turnsData.length > 0 && (
             <div
               ref={gutterRef}
-              className="turn-gutter absolute right-3 z-30 w-5"
+              className="turn-gutter absolute right-4 z-20 w-4"
               style={{
                 top: gutterTop,
-                height: 'min(400px, 62%)',
-                overflowY: 'auto',
-                scrollbarWidth: 'none',
-                msOverflowStyle: 'none',
+                height: 'min(360px, 58%)',
+                transform: 'translateY(-50%)',
+                opacity: 0.9,
               }}
               onMouseLeave={scheduleClosePreview}
             >
               {/* track 线（对齐 demo）：内容区中轴淡线 */}
               <div
                 className="relative"
-                style={{ height: Math.max(400, (turnsData.length - 1) * 36 + 40) }}
+                style={{ height: '100%' }}
               >
                 <div
                   className="absolute left-1/2 top-0 bottom-0 w-[3px] -translate-x-1/2 rounded-full"
-                  style={{ background: 'rgba(255,255,255,.07)' }}
+                  style={{ background: 'color-mix(in srgb, var(--text-faint) 18%, transparent)' }}
                 />
                 {turnsData.map((_, i) => (
                   <button
                     key={i}
-                    className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-150 cursor-pointer before:absolute before:left-1/2 before:top-1/2 before:h-[22px] before:w-[22px] before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:content-[''] hover:!bg-[var(--accent)] hover:scale-[1.7]"
+                    className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-150 cursor-pointer before:absolute before:left-1/2 before:top-1/2 before:h-[18px] before:w-[18px] before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:content-[''] hover:!bg-[var(--text)] hover:scale-[1.3]"
                     style={{
-                      top: `${tickPercents[i] ?? 20}px`,
-                      width: activeTurn === i ? 11 : 8,
-                      height: activeTurn === i ? 11 : 8,
-                      background: activeTurn === i ? 'var(--accent)' : 'var(--text-faint)',
-                      boxShadow:
+                      top: `${tickPercents[i] ?? (gutterHeight > 0 ? gutterHeight : 400) / 2}px`,
+                      width: activeTurn === i ? 7 : 6,
+                      height: activeTurn === i ? 7 : 6,
+                      background:
                         activeTurn === i
-                          ? '0 0 10px color-mix(in srgb, var(--accent) 80%, transparent)'
-                          : 'none',
+                          ? 'var(--text-muted)'
+                          : 'color-mix(in srgb, var(--text-faint) 55%, transparent)',
+                      boxShadow: 'none',
                     }}
                     onMouseEnter={() => {
                       cancelClosePreview();
@@ -3258,32 +3281,18 @@ export function ChatConsole({
             </div>
           )}
 
-          {/* 连接线：珠子列 → 预览弹窗（跟随珠子高度，宽度自适应弹窗位置） */}
-          {previewTop !== undefined && (
-            <div
-              className="pointer-events-none absolute z-40"
-              style={{
-                left: 'calc(100% - 48px - 470px)',
-                right: 14,
-                top: previewTop,
-                height: 2,
-                background: 'color-mix(in srgb, var(--accent) 35%, transparent)',
-                transform: 'translateY(-50%)',
-                borderRadius: 1,
-              }}
-            />
-          )}
 
           {/* Turn preview — hovered turn's full Q+A, follows the bead's height */}
-          {hoverTurn >= 0 && turnsData[hoverTurn] && (
+          {hoverTurn >= 0 && previewTop !== undefined && turnsData[hoverTurn] && (
             <div
-              className="turn-preview-enter absolute right-12 z-50 flex flex-col rounded-2xl overflow-hidden"
+              className="turn-preview-enter absolute z-50 flex flex-col rounded-2xl overflow-hidden"
               style={{
+                right: 52,
                 width: 470,
-                maxWidth: 'calc(100% - 60px)',
+                maxWidth: 'calc(100% - 104px)',
                 top: previewTop,
                 transform: 'translateY(-50%)',
-                maxHeight: 'calc(100% - 28px)',
+                maxHeight: previewMaxH ?? 460,
                 background: 'var(--surface-elevated)',
                 border: '1px solid var(--border)',
                 boxShadow: '0 18px 60px rgba(0,0,0,.45)',
@@ -3294,7 +3303,7 @@ export function ChatConsole({
               <div
                 className="flex items-center gap-2 px-3.5 py-2.5 shrink-0"
                 style={{
-                  borderBottom: '1px solid var(--border-subtle)',
+                  borderBottom: '1px solid var(--border)',
                   background: 'color-mix(in srgb, var(--accent) 8%, transparent)',
                 }}
               >
@@ -3311,7 +3320,7 @@ export function ChatConsole({
                   {turnsData[hoverTurn].t}
                 </span>
               </div>
-              <div className="px-3.5 py-3 overflow-y-auto flex flex-col gap-4">
+              <div className="flex-1 min-h-0 px-3.5 py-3 overflow-y-auto flex flex-col gap-4">
                 <div
                   className="max-w-full self-end rounded-xl px-3 py-2"
                   style={{
@@ -3403,7 +3412,7 @@ export function ChatConsole({
               background: 'transparent',
             }}
           >
-            <div className="pointer-events-auto max-w-[760px] mx-auto">
+            <div className="pointer-events-auto mx-auto" style={{ maxWidth: 'min(760px, calc(100% - 120px))' }}>
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
                   {attachments.map((att, i) => {
