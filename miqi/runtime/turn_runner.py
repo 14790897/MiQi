@@ -71,6 +71,7 @@ class TurnRunner:
         history: list[dict[str, Any]] | None = None,
         cancel_event: Any | None = None,
         steer_queue: Any | None = None,
+        max_iterations: int | None = None,
     ) -> TurnResult:
         """Execute a full turn: model calls until final response or max iters.
 
@@ -80,6 +81,9 @@ class TurnRunner:
         the same turn instead of completing immediately.
 
         Phase 51.3: fires PROMPT_SUBMIT, TURN_START, and TURN_END lifecycle hooks.
+
+        *max_iterations* overrides the session-wide iteration cap for this
+        call (e.g. sub-agents get a tighter 15-step limit — issue #246).
         """
         lifecycle_ctx = LifecycleHookContext(
             hook_point=HookPoint.PROMPT_SUBMIT,
@@ -103,6 +107,7 @@ class TurnRunner:
                 history=history,
                 cancel_event=cancel_event,
                 steer_queue=steer_queue,
+                max_iterations=max_iterations,
             )
         finally:
             if self._hooks is not None:
@@ -126,6 +131,7 @@ class TurnRunner:
         history: list[dict[str, Any]] | None = None,
         cancel_event: Any | None = None,
         steer_queue: Any | None = None,
+        max_iterations: int | None = None,
     ) -> TurnResult:
         """Core turn loop implementation."""
         messages = self._context.build_initial_messages(
@@ -150,7 +156,7 @@ class TurnRunner:
                     break
             return drained
 
-        for _iteration in range(self._max_iterations):
+        for _iteration in range(max_iterations or self._max_iterations):
             # Phase 14 follow-up: check cancellation before expensive work
             if cancel_event is not None and cancel_event.is_set():
                 raise asyncio.CancelledError("Turn cancelled via AbortTurn")
@@ -466,11 +472,15 @@ class TurnRunner:
         # edit: both flags False → normal approval flow
         # plan: bypass_approval already set above
 
+        # Issue #246: sub-agents get a tight 15-step iteration cap (the legacy
+        # SubagentManager limit), not the session-wide max_tool_iterations.
+        SUBAGENT_MAX_ITERATIONS = 15
         return await self.run(
             turn=turn,
             user_content=job.task,
             system_prompt=metadata.system_prompt,
             tools=tools,
+            max_iterations=SUBAGENT_MAX_ITERATIONS,
         )
 
     @staticmethod

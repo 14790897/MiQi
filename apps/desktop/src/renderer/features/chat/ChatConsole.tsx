@@ -233,14 +233,13 @@ function extractMessageSources(msg: Message): MessageSource[] {
     'duckduckgo.com/html',
     'search.brave.com',
     'google.com/search',
-    'so.com/s?q=',      // 360 搜索调用
-    'so.com/link?',     // 360 搜索结果跳转链接
+    'so.com/s?q=', // 360 搜索调用
+    'so.com/link?', // 360 搜索结果跳转链接
     'sogou.com/web?query=',
     'user.guancha.cn/main/search',
     'beian.miit.gov.cn',
   ];
-  const clean = (raw: string): string =>
-    raw.split('{')[0].replace(/[.,;:!?。，；：、）\]]+$/, '');
+  const clean = (raw: string): string => raw.split('{')[0].replace(/[.,;:!?。，；：、）\]]+$/, '');
   // Deduplicate across all branches + cap: duplicate URLs produce duplicate
   // React keys and one checkUrl request each (CodeRabbit #564 review).
   const seen = new Set<string>();
@@ -1666,7 +1665,11 @@ export function ChatConsole({
   }, [handleNewSession]);
 
   /** Payload for programmatic sends (e.g. regenerate) — bypasses input state */
-  const retryPayloadRef = useRef<{ text: string; attachments: Attachment[]; retry?: boolean } | null>(null);
+  const retryPayloadRef = useRef<{
+    text: string;
+    attachments: Attachment[];
+    retry?: boolean;
+  } | null>(null);
   const handleSendRef = useRef<() => void>(() => {});
 
   const handleSend = useCallback(async () => {
@@ -2546,7 +2549,9 @@ export function ChatConsole({
       positions[i] = 20 + i * SPACING;
     }
     setTickPercents((prev) =>
-      prev.length === positions.length && prev.every((v, idx) => v === positions[idx]) ? prev : positions
+      prev.length === positions.length && prev.every((v, idx) => v === positions[idx])
+        ? prev
+        : positions
     );
     let cur = -1;
     turnAnchors.current.forEach((node, i) => {
@@ -2779,10 +2784,14 @@ export function ChatConsole({
   const inputContextItems = useMemo<ContextMenuAction[]>(
     () => [
       {
-        label: '剪切', icon: <Scissors size={14} />, shortcut: 'Ctrl+X',
+        label: '剪切',
+        icon: <Scissors size={14} />,
+        shortcut: 'Ctrl+X',
         onSelect: () => {
-          const el = textareaRef.current; if (!el) return;
-          const s = el.selectionStart, e = el.selectionEnd;
+          const el = textareaRef.current;
+          if (!el) return;
+          const s = el.selectionStart,
+            e = el.selectionEnd;
           if (s === e) return;
           navigator.clipboard.writeText(el.value.slice(s, e)).catch(() => {});
           el.setRangeText('', s, e, 'end');
@@ -2793,33 +2802,45 @@ export function ChatConsole({
         },
       },
       {
-        label: '复制', icon: <Copy size={14} />, shortcut: 'Ctrl+C',
+        label: '复制',
+        icon: <Copy size={14} />,
+        shortcut: 'Ctrl+C',
         onSelect: () => {
-          const el = textareaRef.current; if (!el) return;
+          const el = textareaRef.current;
+          if (!el) return;
           const txt = el.value.slice(el.selectionStart, el.selectionEnd);
           if (txt) navigator.clipboard.writeText(txt).catch(() => {});
         },
       },
       {
-        label: '粘贴', icon: <ClipboardPaste size={14} />, shortcut: 'Ctrl+V',
+        label: '粘贴',
+        icon: <ClipboardPaste size={14} />,
+        shortcut: 'Ctrl+V',
         onSelect: () => {
-          const el = textareaRef.current; if (!el) return;
-          navigator.clipboard.readText().then((text) => {
-            if (!text) return;
-            // Insert at the caret like native Ctrl+V — replace the current
-            // selection range instead of always appending at the end.
-            const s = el.selectionStart ?? el.value.length;
-            const e = el.selectionEnd ?? s;
-            el.setRangeText(text, s, e, 'end');
-            // Let React's onChange pick up the new value (single source of
-            // truth for state vs DOM — avoids double-delete drift).
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.focus();
-          }).catch(() => {});
+          const el = textareaRef.current;
+          if (!el) return;
+          navigator.clipboard
+            .readText()
+            .then((text) => {
+              if (!text) return;
+              // Insert at the caret like native Ctrl+V — replace the current
+              // selection range instead of always appending at the end.
+              const s = el.selectionStart ?? el.value.length;
+              const e = el.selectionEnd ?? s;
+              el.setRangeText(text, s, e, 'end');
+              // Let React's onChange pick up the new value (single source of
+              // truth for state vs DOM — avoids double-delete drift).
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.focus();
+            })
+            .catch(() => {});
         },
       },
       {
-        label: '全选', icon: <CheckCircle size={14} />, shortcut: 'Ctrl+A', divider: true,
+        label: '全选',
+        icon: <CheckCircle size={14} />,
+        shortcut: 'Ctrl+A',
+        divider: true,
         onSelect: () => textareaRef.current?.select(),
       },
     ],
@@ -3102,9 +3123,12 @@ export function ChatConsole({
           {/* Messages */}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto relative"
+            className="flex-1 overflow-y-auto overflow-x-hidden relative"
             onScroll={onScrollThrottled}
-            style={{ background: 'var(--background)', paddingBottom: `calc(${composerHeight}px + ${ANSWER_GAP})` }}
+            style={{
+              background: 'var(--background)',
+              paddingBottom: `calc(${composerHeight}px + ${ANSWER_GAP})`,
+            }}
           >
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
               {!historyLoaded ? (
@@ -3135,33 +3159,33 @@ export function ChatConsole({
                     if (msg.role === 'user') turnIdx += 1;
                     const anchorTurn = msg.role === 'user' ? turnIdx : -1;
                     return (
-                  <div
-                    key={`${msg.timestamp}-${i}`}
-                    ref={
-                      msg.role === 'user'
-                        ? (el) => {
-                            turnAnchors.current[anchorTurn] = el;
-                          }
-                        : undefined
-                    }
-                    data-turn-role={msg.role}
-                    data-turn-idx={turnIdx}
-                  >
-                    <MessageBubble
-                      msg={msg}
-                      execOutputs={execOutputs}
-                      inlineExecOutput={inlineExecOutput}
-                      sources={sourcesByMsg.get(msg) ?? []}
-                      isLast={i === messages.length - 1}
-                      onCopy={(text) => handleCopy(text, i)}
-                      isCopied={copiedIdx === i}
-                      onRetry={() => handleRetry(msg)}
-                      onRegenerate={() => handleRegenerate(msg)}
-                      onOpenProviderSettings={onOpenProviderSettings}
-                      onDownloadPaper={handleDownloadPaper}
-                      downloadingPaperId={downloadingPaperId}
-                    />
-                    </div>
+                      <div
+                        key={`${msg.timestamp}-${i}`}
+                        ref={
+                          msg.role === 'user'
+                            ? (el) => {
+                                turnAnchors.current[anchorTurn] = el;
+                              }
+                            : undefined
+                        }
+                        data-turn-role={msg.role}
+                        data-turn-idx={turnIdx}
+                      >
+                        <MessageBubble
+                          msg={msg}
+                          execOutputs={execOutputs}
+                          inlineExecOutput={inlineExecOutput}
+                          sources={sourcesByMsg.get(msg) ?? []}
+                          isLast={i === messages.length - 1}
+                          onCopy={(text) => handleCopy(text, i)}
+                          isCopied={copiedIdx === i}
+                          onRetry={() => handleRetry(msg)}
+                          onRegenerate={() => handleRegenerate(msg)}
+                          onOpenProviderSettings={onOpenProviderSettings}
+                          onDownloadPaper={handleDownloadPaper}
+                          downloadingPaperId={downloadingPaperId}
+                        />
+                      </div>
                     );
                   });
                 })()
@@ -3176,7 +3200,6 @@ export function ChatConsole({
                 </div>
               )}
             </div>
-
           </div>
 
           {/* Composer — floats over the bottom; the answer stream never moves.
@@ -3186,120 +3209,149 @@ export function ChatConsole({
           {/* Turn gutter + preview — OUTSIDE the scroll container (siblings of
               it), so they stay pinned to the visible chat area instead of
               scrolling away with the messages. */}
-            {/* Turn gutter — one bead per user turn, hover previews the Q+A */}
-            {showGutter && turnsData.length > 0 && (
+          {/* Turn gutter — one bead per user turn, hover previews the Q+A */}
+          {showGutter && turnsData.length > 0 && (
+            <div
+              ref={gutterRef}
+              className="turn-gutter absolute right-3 z-30 w-5"
+              style={{
+                top: gutterTop,
+                height: 'min(400px, 62%)',
+                overflowY: 'auto',
+                scrollbarWidth: 'none',
+                msOverflowStyle: 'none',
+              }}
+              onMouseLeave={scheduleClosePreview}
+            >
+              {/* track 线（对齐 demo）：内容区中轴淡线 */}
               <div
-                ref={gutterRef}
-                className="turn-gutter absolute right-3 z-30 w-5"
-                style={{
-                  top: gutterTop,
-                  height: 'min(400px, 62%)',
-                  overflowY: 'auto',
-                  scrollbarWidth: 'none',
-                  msOverflowStyle: 'none',
-                }}
-                onMouseLeave={scheduleClosePreview}
-              >
-                {/* track 线（对齐 demo）：内容区中轴淡线 */}
-                <div className="relative" style={{ height: Math.max(400, (turnsData.length - 1) * 36 + 40) }}>
-                  <div
-                    className="absolute left-1/2 top-0 bottom-0 w-[3px] -translate-x-1/2 rounded-full"
-                    style={{ background: 'rgba(255,255,255,.07)' }}
-                  />
-                  {turnsData.map((_, i) => (
-                    <button
-                      key={i}
-                      className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-150 cursor-pointer before:absolute before:left-1/2 before:top-1/2 before:h-[22px] before:w-[22px] before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:content-[''] hover:!bg-[var(--accent)] hover:scale-[1.7]"
-                      style={{
-                        top: `${tickPercents[i] ?? 20}px`,
-                        width: activeTurn === i ? 11 : 8,
-                        height: activeTurn === i ? 11 : 8,
-                        background: activeTurn === i ? 'var(--accent)' : 'var(--text-faint)',
-                        boxShadow:
-                          activeTurn === i
-                            ? '0 0 10px color-mix(in srgb, var(--accent) 80%, transparent)'
-                            : 'none',
-                      }}
-                      onMouseEnter={() => {
-                        cancelClosePreview();
-                        setHoverTurn(i);
-                      }}
-                      onClick={() => jumpToTurn(i)}
-                      aria-label={`跳转到第 ${i + 1} 轮对话`}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* 连接线：珠子列 → 预览弹窗（跟随珠子高度，宽度自适应弹窗位置） */}
-            {previewTop !== undefined && (
-              <div
-                className="pointer-events-none absolute z-40"
-                style={{
-                  left: 'calc(100% - 48px - 470px)',
-                  right: 14,
-                  top: previewTop,
-                  height: 2,
-                  background:
-                    'color-mix(in srgb, var(--accent) 35%, transparent)',
-                  transform: 'translateY(-50%)',
-                  borderRadius: 1,
-                }}
-              />
-            )}
-
-            {/* Turn preview — hovered turn's full Q+A, follows the bead's height */}
-            {hoverTurn >= 0 && turnsData[hoverTurn] && (
-              <div
-                className="turn-preview-enter absolute right-12 z-50 flex flex-col rounded-2xl overflow-hidden"
-                style={{
-                  width: 470,
-                  maxWidth: 'calc(100% - 60px)',
-                  top: previewTop,
-                  transform: 'translateY(-50%)',
-                  maxHeight: 'calc(100% - 28px)',
-                  background: 'var(--surface-elevated)',
-                  border: '1px solid var(--border)',
-                  boxShadow: '0 18px 60px rgba(0,0,0,.45)',
-                }}
-                onMouseEnter={cancelClosePreview}
-                onMouseLeave={scheduleClosePreview}
+                className="relative"
+                style={{ height: Math.max(400, (turnsData.length - 1) * 36 + 40) }}
               >
                 <div
-                  className="flex items-center gap-2 px-3.5 py-2.5 shrink-0"
+                  className="absolute left-1/2 top-0 bottom-0 w-[3px] -translate-x-1/2 rounded-full"
+                  style={{ background: 'rgba(255,255,255,.07)' }}
+                />
+                {turnsData.map((_, i) => (
+                  <button
+                    key={i}
+                    className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-150 cursor-pointer before:absolute before:left-1/2 before:top-1/2 before:h-[22px] before:w-[22px] before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:content-[''] hover:!bg-[var(--accent)] hover:scale-[1.7]"
+                    style={{
+                      top: `${tickPercents[i] ?? 20}px`,
+                      width: activeTurn === i ? 11 : 8,
+                      height: activeTurn === i ? 11 : 8,
+                      background: activeTurn === i ? 'var(--accent)' : 'var(--text-faint)',
+                      boxShadow:
+                        activeTurn === i
+                          ? '0 0 10px color-mix(in srgb, var(--accent) 80%, transparent)'
+                          : 'none',
+                    }}
+                    onMouseEnter={() => {
+                      cancelClosePreview();
+                      setHoverTurn(i);
+                    }}
+                    onClick={() => jumpToTurn(i)}
+                    aria-label={`跳转到第 ${i + 1} 轮对话`}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 连接线：珠子列 → 预览弹窗（跟随珠子高度，宽度自适应弹窗位置） */}
+          {previewTop !== undefined && (
+            <div
+              className="pointer-events-none absolute z-40"
+              style={{
+                left: 'calc(100% - 48px - 470px)',
+                right: 14,
+                top: previewTop,
+                height: 2,
+                background: 'color-mix(in srgb, var(--accent) 35%, transparent)',
+                transform: 'translateY(-50%)',
+                borderRadius: 1,
+              }}
+            />
+          )}
+
+          {/* Turn preview — hovered turn's full Q+A, follows the bead's height */}
+          {hoverTurn >= 0 && turnsData[hoverTurn] && (
+            <div
+              className="turn-preview-enter absolute right-12 z-50 flex flex-col rounded-2xl overflow-hidden"
+              style={{
+                width: 470,
+                maxWidth: 'calc(100% - 60px)',
+                top: previewTop,
+                transform: 'translateY(-50%)',
+                maxHeight: 'calc(100% - 28px)',
+                background: 'var(--surface-elevated)',
+                border: '1px solid var(--border)',
+                boxShadow: '0 18px 60px rgba(0,0,0,.45)',
+              }}
+              onMouseEnter={cancelClosePreview}
+              onMouseLeave={scheduleClosePreview}
+            >
+              <div
+                className="flex items-center gap-2 px-3.5 py-2.5 shrink-0"
+                style={{
+                  borderBottom: '1px solid var(--border-subtle)',
+                  background: 'color-mix(in srgb, var(--accent) 8%, transparent)',
+                }}
+              >
+                <span
+                  className="text-[11px] font-bold px-2 py-0.5 rounded-md"
                   style={{
-                    borderBottom: '1px solid var(--border-subtle)',
-                    background: 'color-mix(in srgb, var(--accent) 8%, transparent)',
+                    color: 'var(--accent)',
+                    background: 'color-mix(in srgb, var(--accent) 18%, transparent)',
                   }}
                 >
-                  <span
-                    className="text-[11px] font-bold px-2 py-0.5 rounded-md"
-                    style={{
-                      color: 'var(--accent)',
-                      background: 'color-mix(in srgb, var(--accent) 18%, transparent)',
-                    }}
-                  >
-                    Q{hoverTurn + 1}
-                  </span>
-                  <span className="text-[11px] flex-1" style={{ color: 'var(--text-muted)' }}>
-                    {turnsData[hoverTurn].t}
-                  </span>
-                </div>
-                <div className="px-3.5 py-3 overflow-y-auto flex flex-col gap-4">
+                  Q{hoverTurn + 1}
+                </span>
+                <span className="text-[11px] flex-1" style={{ color: 'var(--text-muted)' }}>
+                  {turnsData[hoverTurn].t}
+                </span>
+              </div>
+              <div className="px-3.5 py-3 overflow-y-auto flex flex-col gap-4">
+                <div
+                  className="max-w-full self-end rounded-xl px-3 py-2"
+                  style={{
+                    background:
+                      'linear-gradient(135deg, var(--bubble-user-bg), color-mix(in srgb, var(--bubble-user-bg) 62%, #000))',
+                    color: 'var(--bubble-user-text)',
+                    borderBottomRightRadius: 4,
+                  }}
+                >
+                  <div className="mb-1 text-[10px]" style={{ color: 'rgba(255,255,255,.55)' }}>
+                    你 · {turnsData[hoverTurn].t}
+                  </div>
+                  {/* 预览：正文最多 3 行，多了省略（meta 不占行数）；长 URL/代码换行不溢出 */}
                   <div
-                    className="max-w-full self-end rounded-xl px-3 py-2"
+                    className="text-[12.5px] leading-relaxed"
                     style={{
-                      background:
-                        'linear-gradient(135deg, var(--bubble-user-bg), color-mix(in srgb, var(--bubble-user-bg) 62%, #000))',
-                      color: 'var(--bubble-user-text)',
-                      borderBottomRightRadius: 4,
+                      display: '-webkit-box',
+                      WebkitLineClamp: 3,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden',
+                      // -webkit-box 布局下 overflow-wrap 无效，长 URL 必须 break-all
+                      wordBreak: 'break-all',
                     }}
                   >
-                    <div className="mb-1 text-[10px]" style={{ color: 'rgba(255,255,255,.55)' }}>
-                      你 · {turnsData[hoverTurn].t}
+                    {turnsData[hoverTurn].q}
+                  </div>
+                </div>
+                {turnsData[hoverTurn].a ? (
+                  <div
+                    className="max-w-full self-start rounded-xl px-3 py-2"
+                    style={{
+                      background: 'var(--surface-muted)',
+                      border: '1px solid var(--border-subtle)',
+                      color: 'var(--text)',
+                      borderBottomLeftRadius: 4,
+                    }}
+                  >
+                    <div className="mb-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                      MiQi
                     </div>
-                    {/* 预览：正文最多 3 行，多了省略（meta 不占行数）；长 URL/代码换行不溢出 */}
                     <div
                       className="text-[12.5px] leading-relaxed"
                       style={{
@@ -3311,63 +3363,37 @@ export function ChatConsole({
                         wordBreak: 'break-all',
                       }}
                     >
-                      {turnsData[hoverTurn].q}
+                      {turnsData[hoverTurn].a}
                     </div>
                   </div>
-                  {turnsData[hoverTurn].a ? (
-                    <div
-                      className="max-w-full self-start rounded-xl px-3 py-2"
-                      style={{
-                        background: 'var(--surface-muted)',
-                        border: '1px solid var(--border-subtle)',
-                        color: 'var(--text)',
-                        borderBottomLeftRadius: 4,
-                      }}
-                    >
-                      <div className="mb-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                        MiQi
-                      </div>
-                      <div
-                        className="text-[12.5px] leading-relaxed"
-                        style={{
-                          display: '-webkit-box',
-                          WebkitLineClamp: 3,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                          // -webkit-box 布局下 overflow-wrap 无效，长 URL 必须 break-all
-                          wordBreak: 'break-all',
-                        }}
-                      >
-                        {turnsData[hoverTurn].a}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-[11.5px] px-3 py-2" style={{ color: 'var(--text-faint)' }}>
-                      回答生成中…
-                    </div>
-                  )}
-                </div>
-                <div
-                  className="px-3.5 py-2 shrink-0 text-right"
-                  style={{ borderTop: '1px solid var(--border-subtle)' }}
-                >
-                  <button
-                    onClick={() => jumpToTurn(hoverTurn)}
-                    className="text-[11px] rounded-full px-3 py-1 transition-colors"
-                    style={{
-                      color: 'var(--accent)',
-                      border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)',
-                    }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 18%, transparent)')
-                    }
-                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    📍 跳转到此轮查看完整内容
-                  </button>
-                </div>
+                ) : (
+                  <div className="text-[11.5px] px-3 py-2" style={{ color: 'var(--text-faint)' }}>
+                    回答生成中…
+                  </div>
+                )}
               </div>
-            )}
+              <div
+                className="px-3.5 py-2 shrink-0 text-right"
+                style={{ borderTop: '1px solid var(--border-subtle)' }}
+              >
+                <button
+                  onClick={() => jumpToTurn(hoverTurn)}
+                  className="text-[11px] rounded-full px-3 py-1 transition-colors"
+                  style={{
+                    color: 'var(--accent)',
+                    border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)',
+                  }}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.background =
+                      'color-mix(in srgb, var(--accent) 18%, transparent)')
+                  }
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  📍 跳转到此轮查看完整内容
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Composer */}
           <div
@@ -3500,87 +3526,91 @@ export function ChatConsole({
 
               <ContextMenu items={inputContextItems} minWidth={160}>
                 {({ onContextMenu }) => (
-              <div
-                className="flex flex-col rounded-3xl px-7 py-3.5 focus-within:ring-2 transition-all"
-                data-testid="chat-input-container"
-                onContextMenu={onContextMenu}
-                style={{
-                  background: 'color-mix(in srgb, var(--surface) 85%, transparent)',
-                  backdropFilter: 'blur(16px)',
-                  WebkitBackdropFilter: 'blur(16px)',
-                  border: '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
-                  outline: 'none',
-                  boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
-                }}
-              >
-                {/* Textarea on top — grows up to 1/3 of viewport (DeepSeek style) */}
-                <Textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(e) => {
-                    setInput(e.target.value);
-                  }}
-                  onKeyDown={handleKeyDown}
-                  placeholder="请输入消息或拖入文件..."
-                  rows={1}
-                  allowResize={true}
-                  className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
-                  disabled={streaming}
-                  style={{ color: 'var(--text)', fieldSizing: 'content' }}
-                />
-                {/* Icon row at the bottom — no text, like DeepSeek */}
-                <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
-                  <ExecutionPolicySelector
-                    policy={executionPolicy}
-                    onChange={setExecutionPolicy}
-                    disabled={streaming}
-                    onOpenApprovals={onOpenApprovals}
-                  />
-                  {/* AI disclaimer — centered in the mode row, fades when typing */}
-                  <div className="flex-1 flex items-center justify-center">
-                    <span
-                      className="text-[11px] leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none transition-opacity duration-300"
-                      style={{ opacity: !input.trim() && attachments.length === 0 ? 1 : 0 }}
-                    >
-                      AI 也会犯错误，对于重要答案请谨慎验证
-                    </span>
-                  </div>
-                  <button
-                    onClick={handleAttachClick}
-                    className="shrink-0 p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
-                    title="Attach file or image"
-                    aria-label="Attach file or image"
+                  <div
+                    className="flex flex-col rounded-3xl px-7 py-3.5 focus-within:ring-2 transition-all"
+                    data-testid="chat-input-container"
+                    onContextMenu={onContextMenu}
+                    style={{
+                      background: 'color-mix(in srgb, var(--surface) 85%, transparent)',
+                      backdropFilter: 'blur(16px)',
+                      WebkitBackdropFilter: 'blur(16px)',
+                      border: '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
+                      outline: 'none',
+                      boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
+                    }}
                   >
-                    <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
-                  </button>
-                  {streaming ? (
-                    <button
-                      onClick={handleAbort}
-                      title="停止生成"
-                      aria-label="停止生成"
-                      className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:bg-[var(--surface-muted)] active:scale-95"
-                    >
-                      <Square size={12} style={{ color: 'var(--text-muted)' }} fill="currentColor" />
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleSend}
-                      disabled={!input.trim() && attachments.length === 0}
-                      title="发送"
-                      aria-label="发送"
-                      className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:brightness-110 hover:-translate-y-px active:scale-95 disabled:opacity-30 disabled:hover:brightness-100 disabled:hover:translate-y-0 disabled:shadow-none"
-                      style={{
-                        background:
-                          'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 65%, #000))',
-                        boxShadow:
-                          '0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent)',
+                    {/* Textarea on top — grows up to 1/3 of viewport (DeepSeek style) */}
+                    <Textarea
+                      ref={textareaRef}
+                      value={input}
+                      onChange={(e) => {
+                        setInput(e.target.value);
                       }}
-                    >
-                      <Send size={14} style={{ color: '#fff' }} />
-                    </button>
-                  )}
-                </div>
-              </div>
+                      onKeyDown={handleKeyDown}
+                      placeholder="请输入消息或拖入文件..."
+                      rows={1}
+                      allowResize={true}
+                      className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
+                      disabled={streaming}
+                      style={{ color: 'var(--text)', fieldSizing: 'content' }}
+                    />
+                    {/* Icon row at the bottom — no text, like DeepSeek */}
+                    <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
+                      <ExecutionPolicySelector
+                        policy={executionPolicy}
+                        onChange={setExecutionPolicy}
+                        disabled={streaming}
+                        onOpenApprovals={onOpenApprovals}
+                      />
+                      {/* AI disclaimer — centered in the mode row, fades when typing */}
+                      <div className="flex-1 flex items-center justify-center">
+                        <span
+                          className="text-[11px] leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none transition-opacity duration-300"
+                          style={{ opacity: !input.trim() && attachments.length === 0 ? 1 : 0 }}
+                        >
+                          AI 也会犯错误，对于重要答案请谨慎验证
+                        </span>
+                      </div>
+                      <button
+                        onClick={handleAttachClick}
+                        className="shrink-0 p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
+                        title="Attach file or image"
+                        aria-label="Attach file or image"
+                      >
+                        <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
+                      </button>
+                      {streaming ? (
+                        <button
+                          onClick={handleAbort}
+                          title="停止生成"
+                          aria-label="停止生成"
+                          className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:bg-[var(--surface-muted)] active:scale-95"
+                        >
+                          <Square
+                            size={12}
+                            style={{ color: 'var(--text-muted)' }}
+                            fill="currentColor"
+                          />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleSend}
+                          disabled={!input.trim() && attachments.length === 0}
+                          title="发送"
+                          aria-label="发送"
+                          className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:brightness-110 hover:-translate-y-px active:scale-95 disabled:opacity-30 disabled:hover:brightness-100 disabled:hover:translate-y-0 disabled:shadow-none"
+                          style={{
+                            background:
+                              'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 65%, #000))',
+                            boxShadow:
+                              '0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent)',
+                          }}
+                        >
+                          <Send size={14} style={{ color: '#fff' }} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 )}
               </ContextMenu>
             </div>
@@ -4148,7 +4178,7 @@ function MessageBubble({
     return (
       <div
         className={cn(
-          'flex items-center gap-2 text-xs py-1 px-1',
+          'flex min-w-0 items-center gap-2 text-xs py-1 px-1',
           msg.collapsed && 'cursor-pointer select-none'
         )}
         style={{ color: msg.toolHint ? 'var(--info)' : 'var(--text-muted)' }}
@@ -4170,7 +4200,9 @@ function MessageBubble({
         {isCollapsed ? (
           <span>{msg.summary || msg.content}</span>
         ) : (
-          <span className="whitespace-pre-wrap break-all max-h-64 overflow-y-auto block">{msg.content}</span>
+          <span className="whitespace-pre-wrap break-all max-h-64 overflow-y-auto block">
+            {msg.content}
+          </span>
         )}
         {/* Inline exec output (Phase 7.4) — gated by ui.inlineExecOutput setting */}
         {inlineExecOutput && msg.toolCallId && execOutputs[msg.toolCallId] && (
@@ -4191,14 +4223,15 @@ function MessageBubble({
   }
   if (msg.role === 'error') {
     return (
-      <div className="flex items-start gap-3">
+      <div className="flex min-w-0 items-start gap-3">
         <AgentAvatar />
         <div
-          className="text-sm rounded-2xl px-4 py-3"
+          className="text-sm rounded-2xl px-4 py-3 min-w-0 max-w-[82%] break-words"
           style={{
             background: 'var(--danger-bg)',
             color: 'var(--danger)',
             border: '1px solid var(--danger)',
+            overflowWrap: 'anywhere',
           }}
         >
           <div className="whitespace-pre-wrap break-words">{msg.content}</div>
@@ -4223,7 +4256,7 @@ function MessageBubble({
 
   if (msg.role === 'subagent') {
     return (
-      <div className="flex items-start gap-3">
+      <div className="flex min-w-0 items-start gap-3">
         <GitMerge size={18} style={{ color: 'var(--accent)', marginTop: 6 }} />
         <div
           className="text-sm rounded-2xl px-4 py-3 prose prose-sm max-w-none break-words overflow-x-auto"
@@ -4266,18 +4299,34 @@ function MessageBubble({
 
   const copyWithSelection = () => {
     const selText = capturedSelectionRef.current;
-    if (selText) { navigator.clipboard.writeText(selText); deselectMessageText(); return; }
+    if (selText) {
+      navigator.clipboard.writeText(selText);
+      deselectMessageText();
+      return;
+    }
     // No manual selection — copy full message
     onCopy(msg.content);
   };
 
   const contextItems: ContextMenuAction[] = isUser
     ? [
-        { label: '复制文本', icon: <Copy size={14} />, onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
+        {
+          label: '复制文本',
+          icon: <Copy size={14} />,
+          onEnter: selectMessageText,
+          onLeave: deselectMessageText,
+          onSelect: copyWithSelection,
+        },
         { label: '重试', icon: <Undo2 size={14} />, divider: true, onSelect: () => onRetry?.() },
       ]
     : [
-        { label: '复制文本', icon: <Copy size={14} />, onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
+        {
+          label: '复制文本',
+          icon: <Copy size={14} />,
+          onEnter: selectMessageText,
+          onLeave: deselectMessageText,
+          onSelect: copyWithSelection,
+        },
         ...(hasCodeBlock
           ? [
               {
@@ -4299,317 +4348,340 @@ function MessageBubble({
 
   return (
     <>
-    <ContextMenu items={contextItems}>
-      {({ onContextMenu }) => (
-        <div
-          ref={bubbleRef}
-          className={cn('flex items-start gap-3', isUser && 'justify-end')}
-          onContextMenu={(e) => {
-            // Capture any manual selection before hover-preview can replace it
-            capturedSelectionRef.current = window.getSelection()?.toString().trim() ?? '';
-            onContextMenu(e);
-          }}
-          data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
-        >
-          {!isUser && <AgentAvatar />}
-
+      <ContextMenu items={contextItems}>
+        {({ onContextMenu }) => (
           <div
-            className={cn(
-              'group flex flex-col gap-1.5',
-              isUser ? 'items-end max-w-[70%]' : 'max-w-[82%]'
-            )}
+            ref={bubbleRef}
+            className={cn('flex min-w-0 items-start gap-3', isUser && 'justify-end')}
+            onContextMenu={(e) => {
+              // Capture any manual selection before hover-preview can replace it
+              capturedSelectionRef.current = window.getSelection()?.toString().trim() ?? '';
+              onContextMenu(e);
+            }}
+            data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
           >
-            {/* image attachments */}
-            {msg.attachments
-              ?.filter((a) => a.type === 'image')
-              .map((att, i) => (
-                <img
-                  key={i}
-                  src={att.dataUrl}
-                  alt={att.name}
-                  className="rounded-xl max-w-[280px] max-h-[200px] object-cover"
-                  style={{ border: '1px solid var(--border-subtle)' }}
-                />
-              ))}
-            {/* text attachments */}
-            {msg.attachments
-              ?.filter((a) => a.type === 'text')
-              .map((att, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
-                  style={{
-                    background: 'var(--surface-muted)',
-                    border: '1px solid var(--border-subtle)',
-                    color: 'var(--text-muted)',
-                  }}
-                >
-                  <FileText size={12} className="shrink-0 text-text-faint" />
-                  <span>{att.name}</span>
-                </div>
-              ))}
-            {/* document attachments */}
-            {msg.attachments
-              ?.filter((a) => a.type === 'document')
-              .map((att, i) => {
-                const cat = getDocCategory(att.name);
-                const isDone = !att.status || att.status === 'done';
-                const isParsing = att.status === 'parsing';
-                return (
+            {!isUser && <AgentAvatar />}
+
+            <div
+              className={cn(
+                'group flex min-w-0 flex-col gap-1.5',
+                isUser ? 'items-end max-w-[70%]' : 'max-w-[82%]'
+              )}
+            >
+              {/* image attachments */}
+              {msg.attachments
+                ?.filter((a) => a.type === 'image')
+                .map((att, i) => (
+                  <img
+                    key={i}
+                    src={att.dataUrl}
+                    alt={att.name}
+                    className="rounded-xl max-w-[280px] max-h-[200px] object-cover"
+                    style={{ border: '1px solid var(--border-subtle)' }}
+                  />
+                ))}
+              {/* text attachments */}
+              {msg.attachments
+                ?.filter((a) => a.type === 'text')
+                .map((att, i) => (
                   <div
                     key={i}
-                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-500"
+                    className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
                     style={{
-                      background: isDone && cat ? cat.bg : 'var(--surface-muted)',
-                      border: `1px solid ${isDone && cat ? cat.color + '40' : 'var(--border-subtle)'}`,
-                      color: isDone && cat ? cat.color : 'var(--text-muted)',
-                      opacity: isDone ? 1 : 0.7,
+                      background: 'var(--surface-muted)',
+                      border: '1px solid var(--border-subtle)',
+                      color: 'var(--text-muted)',
                     }}
                   >
-                    <span
-                      className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
-                      style={{ background: isDone && cat ? cat.color : 'var(--text-faint)' }}
-                    >
-                      {cat ? cat.label : 'FILE'}
+                    <FileText size={12} className="shrink-0 text-text-faint" />
+                    <span className="truncate min-w-0" title={att.name}>
+                      {att.name}
                     </span>
-                    <span>
-                      {att.name} ({formatFileSize(att.size)})
-                    </span>
-                    {isParsing && (
-                      <Loader2 size={11} className="shrink-0 animate-spin text-text-muted" />
-                    )}
-                    {isDone && (
-                      <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
-                    )}
                   </div>
-                );
-              })}
-            {/* Always clean injected document text from content — shown as chips only when attachments are missing */}
-            {isUser &&
-              (() => {
-                const { cleanContent, chips } = extractFileChips(msg.content);
-                // Always store cleaned content so the bubble renders without injected text
-                (msg as any).__cleanContent = cleanContent;
-                // Only show historical chips when there are no real attachments (avoids duplicates)
-                if (chips.length === 0 || (msg.attachments && msg.attachments.length > 0))
-                  return null;
-                return chips.map((chip, i) => (
-                  <div
-                    key={`hist-${i}`}
-                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
-                    style={{
-                      background: chip.category.bg,
-                      border: `1px solid ${chip.category.color}40`,
-                      color: chip.category.color,
-                    }}
+                ))}
+              {/* document attachments */}
+              {msg.attachments
+                ?.filter((a) => a.type === 'document')
+                .map((att, i) => {
+                  const cat = getDocCategory(att.name);
+                  const isDone = !att.status || att.status === 'done';
+                  const isParsing = att.status === 'parsing';
+                  return (
+                    <div
+                      key={i}
+                      className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-500"
+                      style={{
+                        background: isDone && cat ? cat.bg : 'var(--surface-muted)',
+                        border: `1px solid ${isDone && cat ? cat.color + '40' : 'var(--border-subtle)'}`,
+                        color: isDone && cat ? cat.color : 'var(--text-muted)',
+                        opacity: isDone ? 1 : 0.7,
+                      }}
+                    >
+                      <span
+                        className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
+                        style={{ background: isDone && cat ? cat.color : 'var(--text-faint)' }}
+                      >
+                        {cat ? cat.label : 'FILE'}
+                      </span>
+                      <span>
+                        {att.name} ({formatFileSize(att.size)})
+                      </span>
+                      {isParsing && (
+                        <Loader2 size={11} className="shrink-0 animate-spin text-text-muted" />
+                      )}
+                      {isDone && (
+                        <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
+                      )}
+                    </div>
+                  );
+                })}
+              {/* Always clean injected document text from content — shown as chips only when attachments are missing */}
+              {isUser &&
+                (() => {
+                  const { cleanContent, chips } = extractFileChips(msg.content);
+                  // Always store cleaned content so the bubble renders without injected text
+                  (msg as any).__cleanContent = cleanContent;
+                  // Only show historical chips when there are no real attachments (avoids duplicates)
+                  if (chips.length === 0 || (msg.attachments && msg.attachments.length > 0))
+                    return null;
+                  return chips.map((chip, i) => (
+                    <div
+                      key={`hist-${i}`}
+                      className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+                      style={{
+                        background: chip.category.bg,
+                        border: `1px solid ${chip.category.color}40`,
+                        color: chip.category.color,
+                      }}
+                    >
+                      <span
+                        className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
+                        style={{ background: chip.category.color }}
+                      >
+                        {chip.category.label}
+                      </span>
+                      <span className="truncate min-w-0" title={chip.name}>
+                        {chip.name}
+                      </span>
+                      <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
+                    </div>
+                  ));
+                })()}
+
+              {/* Main bubble */}
+              <div
+                data-message-body
+                className="text-sm leading-relaxed rounded-2xl px-4 py-3 min-w-0 break-words"
+                style={
+                  isUser
+                    ? {
+                        background:
+                          'linear-gradient(135deg, var(--bubble-user-bg), color-mix(in srgb, var(--bubble-user-bg) 62%, #000))',
+                        color: 'var(--bubble-user-text)',
+                        borderBottomRightRadius: 6,
+                        overflowWrap: 'anywhere',
+                      }
+                    : {
+                        background: 'var(--bubble-ai-bg)',
+                        color: 'var(--bubble-ai-text)',
+                        border: '1px solid var(--bubble-ai-border)',
+                        borderBottomLeftRadius: 6,
+                        overflowWrap: 'anywhere',
+                      }
+                }
+              >
+                <ErrorBoundary
+                  fallback={(error, reset) => (
+                    <div
+                      className="text-xs p-2 rounded"
+                      style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}
+                    >
+                      ⚠ 消息渲染失败
+                      <button
+                        onClick={reset}
+                        className="ml-2 underline"
+                        style={{ color: 'var(--accent)' }}
+                      >
+                        重试
+                      </button>
+                    </div>
+                  )}
+                >
+                  {msg.role === 'assistant' && msg.content === '' ? (
+                    <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
+                  ) : msg.role === 'assistant' ? (
+                    <MarkdownContent content={msg.content} />
+                  ) : (
+                    renderContent((msg as any).__cleanContent ?? msg.content)
+                  )}
+                </ErrorBoundary>
+              </div>
+
+              {/* action bar — copy / regenerate / like / dislike / sources */}
+              {!isUser && msg.content !== '' && (
+                <div className="flex items-center gap-0.5 self-start pt-0.5 text-text-faint">
+                  <button
+                    onClick={() => onCopy(msg.content)}
+                    title="复制"
+                    className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
                   >
                     <span
-                      className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
-                      style={{ background: chip.category.color }}
+                      className="block transition-transform duration-200"
+                      style={{ transform: isCopied ? 'scale(1.15)' : 'scale(1)' }}
                     >
-                      {chip.category.label}
+                      {isCopied ? (
+                        <Check size={13} style={{ color: 'var(--success)' }} />
+                      ) : (
+                        <Copy size={13} />
+                      )}
                     </span>
-                    <span>{chip.name}</span>
-                    <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
+                  </button>
+                  <button
+                    onClick={() => onRegenerate?.()}
+                    title="重新生成"
+                    className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                  >
+                    <RefreshCw size={13} />
+                  </button>
+                  <button
+                    onClick={() => setFeedback((f) => (f === 'up' ? null : 'up'))}
+                    title="喜欢"
+                    className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${feedback === 'up' ? 'text-[var(--accent)]' : ''}`}
+                  >
+                    <ThumbsUp size={13} />
+                  </button>
+                  <button
+                    onClick={() => setFeedback((f) => (f === 'down' ? null : 'down'))}
+                    title="不喜欢"
+                    className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${feedback === 'down' ? 'text-[var(--danger)]' : ''}`}
+                  >
+                    <ThumbsDown size={13} />
+                  </button>
+                  <button
+                    onClick={() => setShowSources(true)}
+                    title="查看来源"
+                    className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                  >
+                    <ExternalLink size={13} />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {isUser && <UserAvatar />}
+          </div>
+        )}
+      </ContextMenu>
+
+      {/* Sources modal — tools used for this answer + reference URLs */}
+      <Modal
+        open={showSources}
+        onOpenChange={setShowSources}
+        title={`查看来源${(sources ?? []).filter((s) => !deadUrls.has(s.url)).length > 0 ? `（${(sources ?? []).filter((s) => !deadUrls.has(s.url)).length}）` : ''}`}
+      >
+        <div className="flex flex-col gap-3">
+          {(sources ?? []).length === 0 ? (
+            <p className="text-xs text-text-faint py-2">该回答未使用网络工具，没有参考资料。</p>
+          ) : (
+            <div className="flex flex-col gap-3 max-h-[55vh] overflow-y-auto pr-1 -mr-1">
+              {(() => {
+                // Group valid sources by tool, keep a global running number.
+                const groups = new Map<string, MessageSource[]>();
+                for (const s of sources ?? []) {
+                  if (deadUrls.has(s.url)) continue;
+                  const arr = groups.get(s.tool) ?? [];
+                  arr.push(s);
+                  groups.set(s.tool, arr);
+                }
+                if (groups.size === 0) {
+                  return (
+                    <p className="text-xs text-text-faint py-2">
+                      所有来源链接均已失效（404），没有可访问的参考资料。
+                    </p>
+                  );
+                }
+                let num = 0;
+                return Array.from(groups.entries()).map(([tool, items]) => (
+                  <div key={tool} className="flex flex-col gap-1.5">
+                    <div
+                      className="text-[10px] font-semibold tracking-wider uppercase px-0.5"
+                      style={{ color: 'var(--text-faint)' }}
+                    >
+                      {TOOL_LABELS[tool] ?? tool}
+                    </div>
+                    {items.map((s) => {
+                      num += 1;
+                      const n = num;
+                      const host = hostOf(s.url);
+                      return (
+                        <a
+                          key={s.url}
+                          href={s.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={s.url}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            navigator.clipboard.writeText(s.url).catch(() => {});
+                            setCopiedUrl(s.url);
+                            setTimeout(() => setCopiedUrl(null), 1500);
+                          }}
+                          className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl border border-[var(--border-subtle)] hover:bg-[var(--surface-muted)] hover:border-[var(--border)] transition-colors"
+                        >
+                          <span
+                            className="shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-semibold"
+                            style={{
+                              background: 'var(--surface-muted)',
+                              color: 'var(--text-muted)',
+                            }}
+                          >
+                            {n}
+                          </span>
+                          <img
+                            src={`${new URL(s.url).origin}/favicon.ico`}
+                            alt=""
+                            className="w-4 h-4 shrink-0 rounded-sm"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.visibility = 'hidden';
+                            }}
+                          />
+                          <span className="flex-1 min-w-0">
+                            <span
+                              className="block text-xs font-medium truncate"
+                              style={{ color: 'var(--text)' }}
+                            >
+                              {host}
+                            </span>
+                            <span className="block text-[10px] truncate text-text-faint">
+                              {s.url}
+                            </span>
+                          </span>
+                          {copiedUrl === s.url && (
+                            <Check
+                              size={13}
+                              className="shrink-0"
+                              style={{ color: 'var(--success)' }}
+                            />
+                          )}
+                        </a>
+                      );
+                    })}
                   </div>
                 ));
               })()}
-
-            {/* Main bubble */}
-            <div
-              data-message-body
-              className="text-sm leading-relaxed rounded-2xl px-4 py-3 break-words"
-              style={
-                isUser
-                  ? {
-                      background:
-                        'linear-gradient(135deg, var(--bubble-user-bg), color-mix(in srgb, var(--bubble-user-bg) 62%, #000))',
-                      color: 'var(--bubble-user-text)',
-                      borderBottomRightRadius: 6,
-                    }
-                  : {
-                      background: 'var(--bubble-ai-bg)',
-                      color: 'var(--bubble-ai-text)',
-                      border: '1px solid var(--bubble-ai-border)',
-                      borderBottomLeftRadius: 6,
-                    }
-              }
-            >
-              <ErrorBoundary
-                fallback={(error, reset) => (
-                  <div
-                    className="text-xs p-2 rounded"
-                    style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}
-                  >
-                    ⚠ 消息渲染失败
-                    <button
-                      onClick={reset}
-                      className="ml-2 underline"
-                      style={{ color: 'var(--accent)' }}
-                    >
-                      重试
-                    </button>
-                  </div>
-                )}
-              >
-                {msg.role === 'assistant' && msg.content === '' ? (
-                  <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
-                ) : msg.role === 'assistant' ? (
-                  <MarkdownContent content={msg.content} />
-                ) : (
-                  renderContent((msg as any).__cleanContent ?? msg.content)
-                )}
-              </ErrorBoundary>
+              {validating && (
+                <p className="text-[11px] text-text-faint py-0.5">正在验证链接可用性…</p>
+              )}
             </div>
-
-            {/* action bar — copy / regenerate / like / dislike / sources */}
-            {!isUser && msg.content !== '' && (
-              <div className="flex items-center gap-0.5 self-start pt-0.5 text-text-faint">
-                <button
-                  onClick={() => onCopy(msg.content)}
-                  title="复制"
-                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
-                >
-                  <span
-                    className="block transition-transform duration-200"
-                    style={{ transform: isCopied ? 'scale(1.15)' : 'scale(1)' }}
-                  >
-                    {isCopied ? (
-                      <Check size={13} style={{ color: 'var(--success)' }} />
-                    ) : (
-                      <Copy size={13} />
-                    )}
-                  </span>
-                </button>
-                <button
-                  onClick={() => onRegenerate?.()}
-                  title="重新生成"
-                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
-                >
-                  <RefreshCw size={13} />
-                </button>
-                <button
-                  onClick={() => setFeedback((f) => (f === 'up' ? null : 'up'))}
-                  title="喜欢"
-                  className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${feedback === 'up' ? 'text-[var(--accent)]' : ''}`}
-                >
-                  <ThumbsUp size={13} />
-                </button>
-                <button
-                  onClick={() => setFeedback((f) => (f === 'down' ? null : 'down'))}
-                  title="不喜欢"
-                  className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${feedback === 'down' ? 'text-[var(--danger)]' : ''}`}
-                >
-                  <ThumbsDown size={13} />
-                </button>
-                <button
-                  onClick={() => setShowSources(true)}
-                  title="查看来源"
-                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
-                >
-                  <ExternalLink size={13} />
-                </button>
-              </div>
-            )}
+          )}
+          <div className="flex gap-2 pt-2 border-t border-[var(--border-subtle)]">
+            <span className="text-[11px] text-text-faint shrink-0">回答时间</span>
+            <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              {new Date(msg.timestamp).toLocaleString('zh-CN')}
+            </span>
           </div>
-
-          {isUser && <UserAvatar />}
         </div>
-      )}
-    </ContextMenu>
-
-    {/* Sources modal — tools used for this answer + reference URLs */}
-    <Modal
-      open={showSources}
-      onOpenChange={setShowSources}
-      title={`查看来源${(sources ?? []).filter((s) => !deadUrls.has(s.url)).length > 0 ? `（${(sources ?? []).filter((s) => !deadUrls.has(s.url)).length}）` : ''}`}
-    >
-      <div className="flex flex-col gap-3">
-        {(sources ?? []).length === 0 ? (
-          <p className="text-xs text-text-faint py-2">该回答未使用网络工具，没有参考资料。</p>
-        ) : (
-          <div className="flex flex-col gap-3 max-h-[55vh] overflow-y-auto pr-1 -mr-1">
-            {(() => {
-              // Group valid sources by tool, keep a global running number.
-              const groups = new Map<string, MessageSource[]>();
-              for (const s of sources ?? []) {
-                if (deadUrls.has(s.url)) continue;
-                const arr = groups.get(s.tool) ?? [];
-                arr.push(s);
-                groups.set(s.tool, arr);
-              }
-              if (groups.size === 0) {
-                return (
-                  <p className="text-xs text-text-faint py-2">所有来源链接均已失效（404），没有可访问的参考资料。</p>
-                );
-              }
-              let num = 0;
-              return Array.from(groups.entries()).map(([tool, items]) => (
-                <div key={tool} className="flex flex-col gap-1.5">
-                  <div className="text-[10px] font-semibold tracking-wider uppercase px-0.5" style={{ color: 'var(--text-faint)' }}>
-                    {TOOL_LABELS[tool] ?? tool}
-                  </div>
-                  {items.map((s) => {
-                    num += 1;
-                    const n = num;
-                    const host = hostOf(s.url);
-                    return (
-                      <a
-                        key={s.url}
-                        href={s.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={s.url}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          navigator.clipboard.writeText(s.url).catch(() => {});
-                          setCopiedUrl(s.url);
-                          setTimeout(() => setCopiedUrl(null), 1500);
-                        }}
-                        className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl border border-[var(--border-subtle)] hover:bg-[var(--surface-muted)] hover:border-[var(--border)] transition-colors"
-                      >
-                        <span
-                          className="shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-semibold"
-                          style={{ background: 'var(--surface-muted)', color: 'var(--text-muted)' }}
-                        >
-                          {n}
-                        </span>
-                        <img
-                          src={`${new URL(s.url).origin}/favicon.ico`}
-                          alt=""
-                          className="w-4 h-4 shrink-0 rounded-sm"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.visibility = 'hidden';
-                          }}
-                        />
-                        <span className="flex-1 min-w-0">
-                          <span className="block text-xs font-medium truncate" style={{ color: 'var(--text)' }}>
-                            {host}
-                          </span>
-                          <span className="block text-[10px] truncate text-text-faint">{s.url}</span>
-                        </span>
-                        {copiedUrl === s.url && (
-                          <Check size={13} className="shrink-0" style={{ color: 'var(--success)' }} />
-                        )}
-                      </a>
-                    );
-                  })}
-                </div>
-              ));
-            })()}
-            {validating && (
-              <p className="text-[11px] text-text-faint py-0.5">正在验证链接可用性…</p>
-            )}
-          </div>
-        )}
-        <div className="flex gap-2 pt-2 border-t border-[var(--border-subtle)]">
-          <span className="text-[11px] text-text-faint shrink-0">回答时间</span>
-          <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-            {new Date(msg.timestamp).toLocaleString('zh-CN')}
-          </span>
-        </div>
-      </div>
-    </Modal>
+      </Modal>
     </>
   );
 }

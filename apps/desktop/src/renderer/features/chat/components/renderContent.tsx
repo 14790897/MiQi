@@ -9,7 +9,7 @@ export function renderContent(text: string) {
       return (
         <pre
           key={i}
-          className="my-2 text-xs rounded-lg px-3 py-2 overflow-x-auto"
+          className="my-2 text-xs rounded-lg px-3 py-2 overflow-x-auto max-w-full"
           style={{ background: 'rgba(0,0,0,0.06)' }}
         >
           <code>{code}</code>

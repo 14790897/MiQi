@@ -100,7 +100,7 @@ function PaperCard({
 
   return (
     <div
-      className="my-2 rounded-xl border overflow-hidden"
+      className="my-2 min-w-0 max-w-full rounded-xl border overflow-hidden"
       style={{
         borderColor: 'var(--border)',
         background: 'var(--card-bg, var(--bg-secondary))',
@@ -110,13 +110,10 @@ function PaperCard({
       <div className="px-4 pt-3 pb-1">
         <div className="flex items-start justify-between gap-3">
           <h4
-            className="text-sm font-semibold leading-snug flex-1"
+            className="text-sm font-semibold leading-snug min-w-0 flex-1 break-words"
             style={{ color: 'var(--text-primary)' }}
           >
-            <FileText
-              size={14}
-              className="inline mr-1.5 shrink-0 text-text-muted"
-            />
+            <FileText size={14} className="inline mr-1.5 shrink-0 text-text-muted" />
             {paper.title || '无标题'}
           </h4>
           {paper.year && (
@@ -133,9 +130,7 @@ function PaperCard({
         </div>
 
         {/* Authors + citation count */}
-        <div
-          className="flex items-center gap-3 mt-1 flex-wrap text-xs text-text-muted"
-        >
+        <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-text-muted">
           <span className="inline-flex items-center gap-1">
             <Users size={11} />
             {fmtAuthors(paper.authors)}
@@ -167,7 +162,7 @@ function PaperCard({
           </button>
           {showAbstract && (
             <p
-              className="text-xs mt-1 leading-relaxed whitespace-pre-wrap"
+              className="text-xs mt-1 leading-relaxed whitespace-pre-wrap break-words"
               style={{ color: 'var(--text-secondary)' }}
             >
               {paper.abstract}
@@ -178,7 +173,7 @@ function PaperCard({
 
       {/* ── Footer: actions ───────────────────────────────── */}
       <div
-        className="flex items-center gap-2 px-4 py-2"
+        className="flex min-w-0 flex-wrap items-center gap-2 px-4 py-2"
         style={{ borderTop: '1px solid var(--border)' }}
       >
         {/* Source badge */}
@@ -270,10 +265,10 @@ export default function PaperSearchResult({
   return (
     <div className="my-1">
       {/* Search meta */}
-      <div
-        className="flex items-center gap-2 mb-2 text-[11px] text-text-muted"
-      >
-        <span>{data.query ? `"${data.query}"的搜索结果` : '搜索结果'}</span>
+      <div className="flex min-w-0 flex-wrap items-center gap-2 mb-2 text-[11px] text-text-muted">
+        <span className="min-w-0 break-words">
+          {data.query ? `"${data.query}"的搜索结果` : '搜索结果'}
+        </span>
         {data.total != null && (
           <span style={{ color: 'var(--text-faint)' }}>
             · {data.total} found · showing {items.length}

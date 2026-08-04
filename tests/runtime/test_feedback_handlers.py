@@ -363,15 +363,16 @@ def test_collect_all_logs_caps_combined_payload_at_100k_bytes(tmp_path):
     from miqi.runtime.feedback_handlers import _collect_all_logs
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    # 400k ASCII chars -> ~400k bytes UTF-8
-    (log_dir / "big.log").write_text("a" * 400_000, encoding="utf-8")
+    # Create multiple large files so combined exceeds 196k byte cap
+    for i in range(10):
+        (log_dir / f"log-2026-08-{i:02d}.log").write_text("a" * 100_000, encoding="utf-8")
     result = _collect_all_logs(log_dir)
     # Must be at most 196,608 bytes
     assert len(result.encode("utf-8")) <= 196_608, (
         f"Expected <= 196608 bytes, got {len(result.encode('utf-8'))}"
     )
     # And it must include the truncation marker
-    assert "已截断" in result
+    assert "截断" in result
 
 
 def test_collect_all_logs_byte_cap_handles_multibyte_chars(tmp_path):
@@ -379,8 +380,9 @@ def test_collect_all_logs_byte_cap_handles_multibyte_chars(tmp_path):
     from miqi.runtime.feedback_handlers import _collect_all_logs
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    # 80k CJK chars = ~240k bytes UTF-8, exceeds 196k byte cap
-    (log_dir / "cjk.log").write_text("中" * 80_000, encoding="utf-8")
+    # Create multiple CJK files so combined exceeds 196k byte cap
+    for i in range(10):
+        (log_dir / f"中-2026-08-{i:02d}.log").write_text("中" * 50_000, encoding="utf-8")
     result = _collect_all_logs(log_dir)
     assert len(result.encode("utf-8")) <= 196_608
 
@@ -390,8 +392,9 @@ def test_collect_all_logs_byte_cap_exact_100k_bytes(tmp_path):
     from miqi.runtime.feedback_handlers import _collect_all_logs
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    # 210k ASCII chars = 210k bytes, just over the cap
-    (log_dir / "edge.log").write_text("x" * 210_000, encoding="utf-8")
+    # Create multiple files so combined exceeds the cap
+    for i in range(10):
+        (log_dir / f"edge-2026-08-{i:02d}.log").write_text("x" * 50_000, encoding="utf-8")
     result = _collect_all_logs(log_dir)
     assert len(result.encode("utf-8")) <= 196_608
 

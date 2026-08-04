@@ -59,8 +59,12 @@ def test_runtime_tool_registry_factory_registers_core_tools(fake_config, tmp_pat
     assert "plan_update" in names
 
 
-def test_tool_registry_factory_spawn_requires_subagent_manager(fake_config, tmp_path):
-    """Spawn tool is only registered when subagent_manager is provided."""
+def test_tool_registry_factory_spawn_always_registered(fake_config, tmp_path):
+    """Spawn tool is always registered — Phase 13 removed the legacy
+    SubagentManager dependency; the tool executes via AgentControl, which
+    RuntimeServices wires in after the registry is built.  Gating it on
+    subagent_manager previously advertised "spawn" to the main agent while
+    leaving no implementation in the registry (issue #246)."""
     from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
 
     registry = create_runtime_tool_registry(
@@ -69,7 +73,7 @@ def test_tool_registry_factory_spawn_requires_subagent_manager(fake_config, tmp_
     )
 
     names = set(registry.tool_names)
-    assert "spawn" not in names
+    assert "spawn" in names
 
 
 def test_tool_registry_factory_optional_tools(fake_config, tmp_path):

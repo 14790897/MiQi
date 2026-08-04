@@ -25,6 +25,9 @@ jobs:
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "true"
           github_action_config.auto_improve: "true"
+          github_action_config.pr_actions: '["opened", "reopened", "synchronize", "ready_for_review", "review_requested"]'
+          github_action_config.handle_push_trigger: "true"
+          github_action_config.push_commands: '["/review", "/describe", "/improve"]'
           config.model: "openai/deepseek-v4-pro"
           config.fallback_models: '["openai/deepseek-v4-pro"]'
           config.custom_model_max_tokens: "128000"

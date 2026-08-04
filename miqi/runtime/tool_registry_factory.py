@@ -291,17 +291,22 @@ def create_runtime_tool_registry(
 
         registry.register(MessageTool(send_callback=bus.publish_outbound))
 
-    # 11. Spawn tool (requires SubagentManager)
-    if subagent_manager is not None:
-        from miqi.agent.tools.spawn import SpawnTool
+    # 11. Spawn tool — always registered (Phase 13 removed the legacy
+    # SubagentManager fallback; the tool executes via AgentControl, which
+    # RuntimeServices wires in after the registry is built).  Gating it on
+    # subagent_manager silently dropped it from every runtime session —
+    # the main agent's available_tools advertised "spawn" but the registry
+    # had no implementation, so model calls failed with "Tool not found"
+    # (issue #246).
+    from miqi.agent.tools.spawn import SpawnTool
 
-        registry.register(
-            SpawnTool(
-                manager=subagent_manager,
-                agent_control=None,  # Wired later by RuntimeServices
-                event_emitter=None,
-            )
+    registry.register(
+        SpawnTool(
+            manager=subagent_manager,
+            agent_control=None,  # Wired later by RuntimeServices
+            event_emitter=None,
         )
+    )
 
     # 12. Cron tool (requires CronService)
     if cron_service is not None:

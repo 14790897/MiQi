@@ -1915,16 +1915,25 @@ for m in ("pydantic", "httpx", "loguru"):
 
   ipcMain.handle(IPC.AGENT_SPAWN, async (_event, payload: unknown) => {
     const input = AgentSpawnInput.parse(payload);
+    // Callers may pass an explicit session_key (the Python bridge rejects
+    // agent.spawn without a resolvable session — UNAUTHORIZED).
     return bridge.sendSafe('agent.spawn', {
       agent_type: input.agent_type,
       task: input.task,
       label: input.label,
+      session_key: input.session_key ?? 'desktop:default',
     });
   });
 
   ipcMain.handle(IPC.AGENT_KILL, async (_event, payload: unknown) => {
-    const { agent_id } = payload as { agent_id: string };
-    return bridge.sendSafe('agent.kill', { agent_id });
+    const { agent_id, session_key } = payload as {
+      agent_id: string;
+      session_key?: string;
+    };
+    return bridge.sendSafe('agent.kill', {
+      agent_id,
+      session_key: session_key ?? 'desktop:default',
+    });
   });
 
   // ---------------------------------------------------------------------------
