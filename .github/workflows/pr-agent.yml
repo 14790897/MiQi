@@ -31,6 +31,11 @@ jobs:
           config.model: "openai/deepseek-v4-pro"
           config.fallback_models: '["openai/deepseek-v4-pro"]'
           config.custom_model_max_tokens: "128000"
-          config.max_model_tokens: "128000"
+          # Cap output length — 128k output produced multi-thousand-line
+          # review comments that overflow the GitHub UI and get cut off.
+          # English replies hit the cap much sooner than Chinese (same info
+          # takes ~1.5-2x tokens), which is why English queries overflow.
+          config.max_model_tokens: "16000"
+          config.verbosity_level: "3"
           config.reasoning_effort: "xhigh"
           OPENAI.API_BASE: "https://new.sixiangjia.de/v1"
