@@ -1,3 +1,25 @@
+# [0.12.0](https://github.com/14790897/MiQi/compare/v0.11.1...v0.12.0) (2026-08-04)
+
+
+### Bug Fixes
+
+* **#134:** virtualize log viewer to eliminate scroll wheel lag ([#540](https://github.com/14790897/MiQi/issues/540)) ([cd83682](https://github.com/14790897/MiQi/commit/cd836828ea47bbe587a4eb0ec640e62a5dc5ffdf)), closes [#134](https://github.com/14790897/MiQi/issues/134) [#134](https://github.com/14790897/MiQi/issues/134) [#134](https://github.com/14790897/MiQi/issues/134) [#134](https://github.com/14790897/MiQi/issues/134) [#134](https://github.com/14790897/MiQi/issues/134)
+* **#529:** 503/过载等可重试错误重试耗尽后显示 TRANSIENT 提示与 recoverable ([#530](https://github.com/14790897/MiQi/issues/530)) ([721420f](https://github.com/14790897/MiQi/commit/721420f17698844c85937f9a09ca20f6a6e110ab)), closes [#529](https://github.com/14790897/MiQi/issues/529) [#529](https://github.com/14790897/MiQi/issues/529) [#528](https://github.com/14790897/MiQi/issues/528) [#531](https://github.com/14790897/MiQi/issues/531) [#529](https://github.com/14790897/MiQi/issues/529)
+* **bridge:** TURN_IN_PROGRESS 卡死——stale turn 超时强制释放锁 + 准确错误消息 ([#564](https://github.com/14790897/MiQi/issues/564)) ([2037dd8](https://github.com/14790897/MiQi/commit/2037dd8d5e2a7c90f6f5a09c0e8998e994d8b948)), closes [#563](https://github.com/14790897/MiQi/issues/563)
+* **ci:** configure PR-Agent with custom API endpoint and correct reasoning settings ([abf9f2f](https://github.com/14790897/MiQi/commit/abf9f2fe7771774db8589450792d9d440c2be77f))
+* **ci:** enable PR-Agent on all PR events including synchronize ([fb3127e](https://github.com/14790897/MiQi/commit/fb3127ef9a6b71ad5bf6d438d86aa04aef656a6b))
+* **ci:** increase max_model_tokens to 128000, remove custom_reasoning_model ([1daa642](https://github.com/14790897/MiQi/commit/1daa642b5bfe70040463a01f54a03426ee16d0c9))
+* **ci:** set reasoning_effort to xhigh for PR-Agent ([73a4066](https://github.com/14790897/MiQi/commit/73a40664b663d992d67ec29266962be605079903))
+* **desktop:** KWP group path filter + slash command LLM-independent E2E ([#546](https://github.com/14790897/MiQi/issues/546)) ([de87fc4](https://github.com/14790897/MiQi/commit/de87fc4b5c24807061507d2601a1ee165f4e39e6))
+* **feedback:** only collect recent 7-day logs, add Triage Needed to issue templates ([#569](https://github.com/14790897/MiQi/issues/569)) ([1f85ad3](https://github.com/14790897/MiQi/commit/1f85ad33302a64c5b977063f91232d961b5983ee))
+* **feedback:** prevent TooLargeCell error and suppress cmd popup on WSL check ([#559](https://github.com/14790897/MiQi/issues/559)) ([634d050](https://github.com/14790897/MiQi/commit/634d0504fdf378616d08fb2e6b8082ba6c484c1e))
+* **sandbox:** 允许 Agent 只读访问 config.json（issue [#553](https://github.com/14790897/MiQi/issues/553)） ([#557](https://github.com/14790897/MiQi/issues/557)) ([082a61c](https://github.com/14790897/MiQi/commit/082a61c2945e6d4512a82b82cf49602eeb37f31f))
+
+
+### Features
+
+* **desktop:** 右键菜单图标化 + 输入框编辑菜单 + composer 打磨 + 消息操作栏 + 查看来源 ([#547](https://github.com/14790897/MiQi/issues/547)) ([7b85217](https://github.com/14790897/MiQi/commit/7b8521713eca19067af62aec43c5867336eb3c0c)), closes [#543](https://github.com/14790897/MiQi/issues/543) [#543](https://github.com/14790897/MiQi/issues/543)
+
 ## [0.11.1](https://github.com/14790897/MiQi/compare/v0.11.0...v0.11.1) (2026-08-03)
 
 
