@@ -78,15 +78,33 @@ function SubmitModal({
 
   const canSubmit = title.trim().length > 0 && content.trim().length > 0 && !submitting;
 
-  // Close on Escape — but only when not actively submitting
+  const hasUnsavedContent =
+    title.trim().length > 0 || content.trim().length > 0 || screenshots.length > 0;
+
+  const handleModalOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open && hasUnsavedContent && !success) {
+        if (!window.confirm('放弃已填写的内容？')) return;
+      }
+      if (!open) onClose();
+    },
+    [hasUnsavedContent, success, onClose],
+  );
+
+  // Close on Escape — intercepted for unsaved content
   useEffect(() => {
-    if (success) return;
+    if (success || submitting) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !submitting) onClose();
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      if (hasUnsavedContent) {
+        if (!window.confirm('放弃已填写的内容？')) return;
+      }
+      onClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose, submitting, success]);
+  }, [onClose, submitting, success, hasUnsavedContent]);
 
   const readFileAsDataUrl = (file: File): Promise<ScreenshotFile> =>
     new Promise((resolve, reject) => {
@@ -208,7 +226,7 @@ function SubmitModal({
   };
 
   return (
-    <Modal open onOpenChange={onClose} hideClose>
+    <Modal open onOpenChange={handleModalOpenChange} hideClose>
       <div
         onClick={(e) => e.stopPropagation()}
         className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-6 w-full max-w-lg mx-4 shadow-xl max-h-[90vh] overflow-y-auto"
@@ -218,7 +236,7 @@ function SubmitModal({
           <h3 className="text-lg font-semibold">提交反馈</h3>
           <button
             onClick={() => {
-              if (!submitting) onClose();
+              if (!submitting) handleModalOpenChange(false);
             }}
             disabled={submitting}
             className="p-1 rounded hover:bg-[var(--muted)]/20 text-[var(--muted-foreground)] disabled:opacity-50"
@@ -237,6 +255,16 @@ function SubmitModal({
           </div>
         ) : (
           <>
+            {/* Hints */}
+            <div className="flex flex-col gap-1.5 mb-4 p-2.5 rounded-md bg-[var(--accent)]/5 border border-[var(--accent)]/15">
+              <p className="text-[11px] text-[var(--muted-foreground)]">
+                日志将在提交时自动附加并发送到飞书
+              </p>
+              <p className="text-[11px] text-[var(--warning)]">
+                提示：建议先复制已填写的提示词，避免因意外关闭而丢失
+              </p>
+            </div>
+
             {/* Category */}
             <div className="mb-4">
               <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">
