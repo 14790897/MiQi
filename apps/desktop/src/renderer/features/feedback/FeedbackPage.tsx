@@ -216,7 +216,7 @@ function SubmitModal({
           <h3 className="text-lg font-semibold">提交反馈</h3>
           <button
             onClick={() => {
-              if (!submitting) onClose();
+              if (!submitting && !onBeforeClose()) onClose();
             }}
             disabled={submitting}
             className="p-1 rounded hover:bg-[var(--muted)]/20 text-[var(--muted-foreground)] disabled:opacity-50"

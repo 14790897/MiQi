@@ -16,16 +16,9 @@ interface ModalProps {
 
 /** General-purpose modal powered by Radix Dialog — use for custom-body modals. */
 export function Modal({ open, onOpenChange, title, children, className, hideClose, onBeforeClose }: ModalProps) {
-  const handleOpenChange = (next: boolean) => {
-    if (!next && onBeforeClose) {
-      if (onBeforeClose()) return;
-    }
-    onOpenChange(next);
-  };
-
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className={cn('max-w-md', className)} hideClose={hideClose}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={cn('max-w-md', className)} hideClose={hideClose} onBeforeClose={onBeforeClose}>
         {title && (
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
