@@ -10,6 +10,7 @@ import json
 import platform
 import sys
 import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,72 +53,88 @@ def _collect_all_logs(log_dir: Path, max_age_days: int = 7) -> str:
     """Read files under workspace/logs/ recursively, limited to those
     modified within *max_age_days*, and return concatenated text.
 
-    Individual files are capped at 1 MB (tail end).  The combined payload
+    Individual files are capped at 50k chars (tail end).  The combined payload
     is capped at 196,608 UTF-8 bytes to fit within Feishu Bitable
-    text-field limits.
+    text-field limits.  Newest files are preserved first.
     """
     if not log_dir.exists():
         return "[日志目录不存在]"
 
+    MAX_LOG_BYTES = 196_608  # Feishu Bitable text-field limit
+
     cutoff = time.time() - max_age_days * 86400
+    _date_re = re.compile(r"(\d{4}-\d{2}-\d{2})")
     parts: list[str] = []
     recent_count = 0
     skipped_count = 0
     unreadable_count = 0
 
-    for f in sorted(log_dir.rglob("*"), key=lambda p: os.path.getmtime(str(p)), reverse=True):
+    def _file_sort_key(p: Path) -> float:
+        m = _date_re.search(p.name)
+        if m:
+            try:
+                t = time.mktime(time.strptime(m.group(1), "%Y-%m-%d"))
+                return t
+            except ValueError:
+                pass
+        try:
+            return os.path.getmtime(str(p))
+        except OSError:
+            return 0.0
+
+    def _file_age_days(p: Path) -> float:
+        m = _date_re.search(p.name)
+        if m:
+            try:
+                t = time.mktime(time.strptime(m.group(1), "%Y-%m-%d"))
+                return (time.time() - t) / 86400
+            except ValueError:
+                pass
+        try:
+            return (time.time() - os.path.getmtime(str(p))) / 86400
+        except OSError:
+            return 999
+
+    for f in sorted(log_dir.rglob("*"), key=_file_sort_key, reverse=True):
         if not f.is_file():
             continue
-        try:
-            mtime = os.path.getmtime(str(f))
-        except OSError:
-            unreadable_count += 1
-            continue
-        if mtime < cutoff:
+        if _file_age_days(f) > max_age_days:
             skipped_count += 1
             continue
         recent_count += 1
         try:
             content = f.read_text(encoding="utf-8", errors="replace")
-            max_chars = 1_000_000
+            max_chars = 50_000
             if len(content) > max_chars:
-                content = f"...(截断 {len(content) - max_chars} 字符)\n{content[-max_chars:]}"
+                content = content[-max_chars:]
             rel = f.relative_to(log_dir)
             parts.append(f"=== {rel} ===\n{content}")
         except Exception as exc:
             parts.append(f"=== {f.name} === [读取失败: {exc}]")
 
-    if not parts:
+    final_parts: list[str] = []
+    total_bytes = 0
+    for part in parts:
+        part_bytes = len(part.encode("utf-8"))
+        if total_bytes + part_bytes > MAX_LOG_BYTES:
+            remaining = MAX_LOG_BYTES - total_bytes
+            if remaining > 200:
+                tail = part.encode("utf-8")[:remaining].decode("utf-8", errors="ignore")
+                final_parts.append(tail + "\n...(截断: 超出总大小限制)")
+            break
+        final_parts.append(part)
+        total_bytes += part_bytes
+
+    if not final_parts:
         return f"[最近{max_age_days}天无日志文件（跳过{skipped_count}个旧文件）]"
 
-    marker = []
     if skipped_count:
-        marker.append(f"（跳过了 {skipped_count} 个超过 {max_age_days} 天的旧日志文件）")
+        final_parts.insert(0, f"（跳过了 {skipped_count} 个超过 {max_age_days} 天的旧日志文件）\n")
     if unreadable_count:
-        marker.append(f"（{unreadable_count} 个文件无法读取修改时间）")
-    if marker:
-        parts.insert(0, "\n".join(marker) + "\n")
+        final_parts.insert(1 if skipped_count else 0, f"（{unreadable_count} 个文件无法读取修改时间）\n")
 
-    combined = "\n\n".join(parts)
-    # Cap by UTF-8 byte size — Feishu Bitable text-field limit is 196,608 bytes.
-    # Not 100k chars (Chinese characters can be 3+ bytes each).  Encode once,
-    # then slice the tail bytes directly to avoid repeatedly re-encoding.
-    MAX_LOG_BYTES = 196_608
-    encoded = combined.encode("utf-8")
-    total_bytes = len(encoded)
-    if total_bytes > MAX_LOG_BYTES:
-        # Reserve 120 bytes for the marker text plus extra headroom
-        keep_bytes = MAX_LOG_BYTES - 120
-        retained = encoded[-keep_bytes:].decode("utf-8", errors="ignore")
-        retained_bytes = len(retained.encode("utf-8"))
-        dropped = total_bytes - retained_bytes
-        marker = f"...(总日志超出 {dropped} 字节，已截断)\n"
-        candidate = marker + retained
-        if len(candidate.encode("utf-8")) > MAX_LOG_BYTES:
-            excess = len(candidate.encode("utf-8")) - MAX_LOG_BYTES
-            retained = retained.encode("utf-8")[:-excess].decode("utf-8", errors="ignore")
-            return marker + retained
-        return candidate
+    combined = "\n\n".join(final_parts)
+
     return combined
 
 
