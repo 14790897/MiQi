@@ -82,9 +82,10 @@ function SubmitModal({
     title.trim().length > 0 || content.trim().length > 0 || contact.trim().length > 0 || screenshots.length > 0;
 
   const onBeforeClose = useCallback(() => {
+    if (submitting) return true;
     if (!hasUnsavedContent || success) return false;
     return !window.confirm('放弃已填写的内容？');
-  }, [hasUnsavedContent, success]);
+  }, [hasUnsavedContent, submitting, success]);
 
   const readFileAsDataUrl = (file: File): Promise<ScreenshotFile> =>
     new Promise((resolve, reject) => {
