@@ -2587,12 +2587,19 @@ export function ChatConsole({
     });
   }, [updateTurnUI]);
 
-  // Recompute on turn-count changes and when streaming stops (final layout) —
-  // NOT on every typewriter frame while streaming.
+  // Recompute on turn-count changes, streaming end, and composer height changes
+  // (scrollHeight shifts with the composer paddingBottom) — NOT on every
+  // typewriter frame while streaming.
   useLayoutEffect(() => {
     updateTurnUI();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turnsData.length, streaming, updateTurnUI]);
+  }, [turnsData.length, streaming, composerHeight, updateTurnUI]);
+
+  // Window resize changes the scroll container geometry — refresh bead positions.
+  useEffect(() => {
+    window.addEventListener('resize', onScrollThrottled);
+    return () => window.removeEventListener('resize', onScrollThrottled);
+  }, [onScrollThrottled]);
 
   const jumpToTurn = (i: number) => {
     const node = turnAnchors.current[i];
