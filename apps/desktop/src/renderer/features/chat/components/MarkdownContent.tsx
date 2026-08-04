@@ -34,14 +34,17 @@ export function MarkdownContent({ content }: { content: string }) {
       strong: ({ children }: any) => <strong className="font-semibold">{children}</strong>,
       em: ({ children }: any) => <em className="italic">{children}</em>,
       hr: () => <hr className="my-3" style={{ borderColor: 'var(--border-subtle)' }} />,
+      img: ({ src, alt }: any) => (
+        <img src={src} alt={alt ?? ''} className='max-w-full h-auto rounded-lg my-2' />
+      ),
       a: ({ href, children }: any) => (
-        <a href={href} className="underline cursor-pointer" style={{ color: 'var(--accent)' }}
+        <a href={href} className="underline cursor-pointer break-words" style={{ color: 'var(--accent)' }}
            onClick={(e) => { e.preventDefault(); if (href) window.open(href, '_blank'); }}>{children}</a>
       ),
       table: ({ children }: any) => <div className="overflow-x-auto my-2"><table className="text-xs w-full border-collapse">{children}</table></div>,
       th: ({ children }: any) => <th className="border px-2 py-1.5 text-left font-medium" style={{ borderColor: 'var(--border)', background: 'var(--surface-muted)' }}>{children}</th>,
       td: ({ children }: any) => <td className="border px-2 py-1.5" style={{ borderColor: 'var(--border-subtle)' }}>{children}</td>,
-      pre: ({ children }: any) => <pre className="relative group my-2 rounded-lg overflow-x-auto" style={{ background: 'rgba(0,0,0,0.06)' }}>{children}</pre>,
+      pre: ({ children }: any) => <pre className="relative group my-2 rounded-lg overflow-x-auto max-w-full" style={{ background: 'rgba(0,0,0,0.06)' }}>{children}</pre>,
       code: ({ className, children, ...props }: any) => {
         const codeStr = String(children);
         if (codeStr.endsWith('\n')) {
@@ -65,5 +68,11 @@ export function MarkdownContent({ content }: { content: string }) {
     [copiedCode]
   );
 
-  return <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{displayContent}</ReactMarkdown>;
+  return (
+    <div className="min-w-0 break-words" style={{ overflowWrap: 'anywhere' }}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+        {displayContent}
+      </ReactMarkdown>
+    </div>
+  );
 }

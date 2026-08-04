@@ -2976,7 +2976,7 @@ export function ChatConsole({
           {/* Messages */}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto relative"
+            className="flex-1 overflow-y-auto overflow-x-hidden relative"
             style={{ background: 'var(--background)', paddingBottom: `calc(${composerHeight}px + ${ANSWER_GAP})` }}
           >
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
@@ -3818,7 +3818,7 @@ function MessageBubble({
     return (
       <div
         className={cn(
-          'flex items-center gap-2 text-xs py-1 px-1',
+          'flex min-w-0 items-center gap-2 text-xs py-1 px-1',
           msg.collapsed && 'cursor-pointer select-none'
         )}
         style={{ color: msg.toolHint ? 'var(--info)' : 'var(--text-muted)' }}
@@ -3861,14 +3861,15 @@ function MessageBubble({
   }
   if (msg.role === 'error') {
     return (
-      <div className="flex items-start gap-3">
+      <div className="flex min-w-0 items-start gap-3">
         <AgentAvatar />
         <div
-          className="text-sm rounded-2xl px-4 py-3"
+          className="text-sm rounded-2xl px-4 py-3 min-w-0 max-w-[82%] break-words"
           style={{
             background: 'var(--danger-bg)',
             color: 'var(--danger)',
             border: '1px solid var(--danger)',
+            overflowWrap: 'anywhere',
           }}
         >
           <div className="whitespace-pre-wrap break-words">{msg.content}</div>
@@ -3893,7 +3894,7 @@ function MessageBubble({
 
   if (msg.role === 'subagent') {
     return (
-      <div className="flex items-start gap-3">
+      <div className="flex min-w-0 items-start gap-3">
         <GitMerge size={18} style={{ color: 'var(--accent)', marginTop: 6 }} />
         <div
           className="text-sm rounded-2xl px-4 py-3 prose prose-sm max-w-none break-words overflow-x-auto"
@@ -3973,7 +3974,7 @@ function MessageBubble({
       {({ onContextMenu }) => (
         <div
           ref={bubbleRef}
-          className={cn('flex items-start gap-3', isUser && 'justify-end')}
+          className={cn('flex min-w-0 items-start gap-3', isUser && 'justify-end')}
           onContextMenu={(e) => {
             // Capture any manual selection before hover-preview can replace it
             capturedSelectionRef.current = window.getSelection()?.toString().trim() ?? '';
@@ -3985,7 +3986,7 @@ function MessageBubble({
 
           <div
             className={cn(
-              'group flex flex-col gap-1.5',
+              'group flex min-w-0 flex-col gap-1.5',
               isUser ? 'items-end max-w-[70%]' : 'max-w-[82%]'
             )}
           >
@@ -4007,7 +4008,7 @@ function MessageBubble({
               .map((att, i) => (
                 <div
                   key={i}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+                  className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
                   style={{
                     background: 'var(--surface-muted)',
                     border: '1px solid var(--border-subtle)',
@@ -4015,7 +4016,7 @@ function MessageBubble({
                   }}
                 >
                   <FileText size={12} className="shrink-0 text-text-faint" />
-                  <span>{att.name}</span>
+                  <span className="truncate min-w-0" title={att.name}>{att.name}</span>
                 </div>
               ))}
             {/* document attachments */}
@@ -4028,7 +4029,7 @@ function MessageBubble({
                 return (
                   <div
                     key={i}
-                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-500"
+                    className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-500"
                     style={{
                       background: isDone && cat ? cat.bg : 'var(--surface-muted)',
                       border: `1px solid ${isDone && cat ? cat.color + '40' : 'var(--border-subtle)'}`,
@@ -4066,7 +4067,7 @@ function MessageBubble({
                 return chips.map((chip, i) => (
                   <div
                     key={`hist-${i}`}
-                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+                    className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
                     style={{
                       background: chip.category.bg,
                       border: `1px solid ${chip.category.color}40`,
@@ -4079,7 +4080,7 @@ function MessageBubble({
                     >
                       {chip.category.label}
                     </span>
-                    <span>{chip.name}</span>
+                    <span className="truncate min-w-0" title={chip.name}>{chip.name}</span>
                     <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
                   </div>
                 ));
@@ -4088,7 +4089,7 @@ function MessageBubble({
             {/* Main bubble */}
             <div
               data-message-body
-              className="text-sm leading-relaxed rounded-2xl px-4 py-3"
+              className="text-sm leading-relaxed rounded-2xl px-4 py-3 min-w-0 break-words"
               style={
                 isUser
                   ? {
@@ -4096,12 +4097,14 @@ function MessageBubble({
                         'linear-gradient(135deg, var(--bubble-user-bg), color-mix(in srgb, var(--bubble-user-bg) 62%, #000))',
                       color: 'var(--bubble-user-text)',
                       borderBottomRightRadius: 6,
+                      overflowWrap: 'anywhere',
                     }
                   : {
                       background: 'var(--bubble-ai-bg)',
                       color: 'var(--bubble-ai-text)',
                       border: '1px solid var(--bubble-ai-border)',
                       borderBottomLeftRadius: 6,
+                      overflowWrap: 'anywhere',
                     }
               }
             >
