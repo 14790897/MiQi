@@ -1097,6 +1097,24 @@ export function ChatConsole({
   // Track the active thread ID for new-protocol thread-aware conversations
   const currentThreadIdRef = useRef<string | null>(null);
 
+  // ── Cross-session in-flight event cache (#378) ──────────────────
+  // When the user switches sessions mid-stream, the per-send listeners
+  // silently bail (data.session_key !== currentSessionRef.current).
+  // This cache captures those events so the session-load effect can
+  // replay them when the user switches back, avoiding the permanent
+  // loss of the assistant reply.
+  interface InFlightEvent {
+    type: 'progress' | 'final' | 'error' | 'aborted';
+    data: unknown;
+    timestamp: number;
+  }
+  interface InFlightSnapshot {
+    events: InFlightEvent[];
+    userMsgTimestamp: number;
+  }
+  const inFlightCacheRef = useRef<Map<string, InFlightSnapshot>>(new Map());
+  const fullContentRef = useRef('');
+
   // ── Thread tabs for multi-agent support ──
   interface ThreadTab {
     threadId: string;
@@ -1276,6 +1294,44 @@ export function ChatConsole({
         const rawMsgs: any[] = (detail as any)?.messages ?? [];
         const uiMsgs = sessionMsgsToUi(rawMsgs);
         setMessages(uiMsgs);
+
+        // ── Replay cached cross-session in-flight events (#378) ─────
+        // If events arrived while the user was on another session, the
+        // per-send listeners stored them in inFlightCacheRef.  Replay
+        // them now so the assistant reply and progress messages appear
+        // immediately without requiring a manual refresh.
+        var cached = inFlightCacheRef.current.get(sessionKey);
+        if (cached && cached.events.length > 0) {
+          setStreaming(true);
+          for (var _j = 0; _j < cached.events.length; _j++) {
+            var _ev = cached.events[_j];
+            if (_ev.type === 'progress') {
+              var _pd = _ev.data as any;
+              if (_pd?.text && !_pd?.stream) {
+                setMessages(function (_prev) { return _prev.concat([{ role: 'progress', content: _pd.text, timestamp: Date.now() }]); });
+              }
+            } else if (_ev.type === 'final') {
+              var _fd = _ev.data as any;
+              setMessages(function (_prev) {
+                var _cl = _prev.filter(function (_m) { return _m.role !== 'progress' || _m.toolHint; });
+                var _lu = _cl[_cl.length - 1];
+                if (_lu?.role === 'user' && _fd?.content) {
+                  return _cl.concat([{ role: 'assistant', content: _fd.content, timestamp: _lu.timestamp + 1 }]);
+                }
+                return _cl;
+              });
+              setStreaming(false);
+            } else if (_ev.type === 'error') {
+              var _ed = _ev.data as any;
+              setMessages(function (_prev) { return _prev.concat([{ role: 'error', content: _ed?.message || 'Unknown error', timestamp: Date.now() }]); });
+              setStreaming(false);
+            } else if (_ev.type === 'aborted') {
+              setMessages(function (_prev) { return _prev.concat([{ role: 'progress', content: '已停止。', timestamp: Date.now() }]); });
+              setStreaming(false);
+            }
+          }
+          inFlightCacheRef.current.delete(sessionKey);
+        }
         setSessionUpdatedAt((detail as any)?.updated_at ?? null);
         // Restore tracked files from dedicated tracked_files.json
         let tfList: any[] = [];
@@ -1664,6 +1720,7 @@ export function ChatConsole({
     cleanupListeners();
 
     let fullContent = '';
+    fullContentRef.current = '';
     let displayed = '';
     let animId: number | null = null;
     let finalDone = false;
@@ -1748,7 +1805,12 @@ export function ChatConsole({
     };
 
     const unsubProgress = window.miqi.chat.onProgress((data: ChatProgress) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      if (data.session_key && data.session_key !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(data.session_key);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(data.session_key, buf); }
+        buf.events.push({ type: 'progress', data, timestamp: Date.now() });
+        return;
+      }
       lastEventAt = Date.now();
 
       // ── Document progress events ───────────────────────────────
@@ -1853,7 +1915,12 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      if (data.session_key && data.session_key !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(data.session_key);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(data.session_key, buf); }
+        buf.events.push({ type: 'final', data, timestamp: Date.now() });
+        return;
+      }
       clearFinalCleanupTimer();
       if (animId !== null) {
         cancelAnimationFrame(animId);
@@ -1937,7 +2004,12 @@ export function ChatConsole({
     });
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      if (data.session_key && data.session_key !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(data.session_key);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(data.session_key, buf); }
+        buf.events.push({ type: 'error', data, timestamp: Date.now() });
+        return;
+      }
       streamErrorHandled = true;
       if (animId !== null) cancelAnimationFrame(animId);
       const message = sanitizeUiMessage(data.message);
@@ -1953,7 +2025,12 @@ export function ChatConsole({
     });
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
-      if (_data.session_key && _data.session_key !== currentSessionRef.current) return;
+      if (_data.session_key && _data.session_key !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(_data.session_key);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(_data.session_key, buf); }
+        buf.events.push({ type: 'aborted', data: _data, timestamp: Date.now() });
+        return;
+      }
       if (animId !== null) cancelAnimationFrame(animId);
       setStreaming(false);
       setCurrentReqId(null);
