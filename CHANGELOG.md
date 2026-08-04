@@ -1,3 +1,12 @@
+## [0.12.1](https://github.com/14790897/MiQi/compare/v0.12.0...v0.12.1) (2026-08-04)
+
+
+### Bug Fixes
+
+* **#246:** 修复 subagent 子系统端到端链路，AI 可真正使用 spawn 工具 ([#562](https://github.com/14790897/MiQi/issues/562)) ([34ae4d9](https://github.com/14790897/MiQi/commit/34ae4d989157d1e9e4d7c8ed9e4794daaef553f0)), closes [#246](https://github.com/14790897/MiQi/issues/246) [#246](https://github.com/14790897/MiQi/issues/246)
+* **desktop:** wrap long URLs in chat bubbles ([#593](https://github.com/14790897/MiQi/issues/593)) ([663468a](https://github.com/14790897/MiQi/commit/663468ad905fcf90bff9b06ea54705eb50f003aa)), closes [#591](https://github.com/14790897/MiQi/issues/591)
+* **feedback:** use filename date for log sorting, head-preserving truncation ([#592](https://github.com/14790897/MiQi/issues/592)) ([f9f1b7c](https://github.com/14790897/MiQi/commit/f9f1b7cef1254bb185663d92b3ec4b953ad950e0))
+
 # [0.12.0](https://github.com/14790897/MiQi/compare/v0.11.1...v0.12.0) (2026-08-04)
 
 
