@@ -443,5 +443,17 @@ test.describe('Subagent Spawn E2E', () => {
     const mainTextFinal = (await page.locator('main').textContent().catch(() => '')) || '';
     console.log('[test] ai-spawn: main text tail:', mainTextFinal.slice(-800));
     expect(rendered).toBe(true);
+
+    // 4. Let the MAIN agent's own turn finish before the test ends.  The
+    //    subagent card renders while the main agent is still streaming its
+    //    reply; leaving that request in flight made afterAll's
+    //    closeElectronApp hang on the bridge child process (CI afterAll
+    //    600s timeout + 300s worker force-kill).  Wait for the thinking
+    //    indicator to disappear (tolerant — the UI may not show one).
+    await page
+      .getByText('Thinking…')
+      .first()
+      .waitFor({ state: 'hidden', timeout: 90_000 })
+      .catch(() => {});
   });
 });
