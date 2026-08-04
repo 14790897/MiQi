@@ -12,7 +12,7 @@ import sys
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -61,8 +61,8 @@ def _collect_all_logs(log_dir: Path, max_age_days: int = 7) -> str:
         return "[日志目录不存在]"
 
     MAX_LOG_BYTES = 196_608  # Feishu Bitable text-field limit
+    NOTICE_BUDGET = 300  # reserve bytes for skipped/unreadable notices and separators
 
-    cutoff = time.time() - max_age_days * 86400
     _date_re = re.compile(r"(\d{4}-\d{2}-\d{2})")
     parts: list[str] = []
     recent_count = 0
@@ -73,8 +73,7 @@ def _collect_all_logs(log_dir: Path, max_age_days: int = 7) -> str:
         m = _date_re.search(p.name)
         if m:
             try:
-                t = time.mktime(time.strptime(m.group(1), "%Y-%m-%d"))
-                return t
+                return datetime.strptime(m.group(1), "%Y-%m-%d").timestamp()
             except ValueError:
                 pass
         try:
@@ -82,23 +81,28 @@ def _collect_all_logs(log_dir: Path, max_age_days: int = 7) -> str:
         except OSError:
             return 0.0
 
-    def _file_age_days(p: Path) -> float:
+    def _file_age_days(p: Path) -> float | None:
         m = _date_re.search(p.name)
         if m:
             try:
-                t = time.mktime(time.strptime(m.group(1), "%Y-%m-%d"))
-                return (time.time() - t) / 86400
+                file_date = date.fromisoformat(m.group(1))
+                return (date.today() - file_date).days
             except ValueError:
                 pass
         try:
-            return (time.time() - os.path.getmtime(str(p))) / 86400
+            mtime = os.path.getmtime(str(p))
+            return (time.time() - mtime) / 86400
         except OSError:
-            return 999
+            return None
 
     for f in sorted(log_dir.rglob("*"), key=_file_sort_key, reverse=True):
         if not f.is_file():
             continue
-        if _file_age_days(f) > max_age_days:
+        age = _file_age_days(f)
+        if age is None:
+            unreadable_count += 1
+            continue
+        if age > max_age_days:
             skipped_count += 1
             continue
         recent_count += 1
@@ -113,7 +117,7 @@ def _collect_all_logs(log_dir: Path, max_age_days: int = 7) -> str:
             parts.append(f"=== {f.name} === [读取失败: {exc}]")
 
     final_parts: list[str] = []
-    total_bytes = 0
+    total_bytes = NOTICE_BUDGET  # reserve for notices prepended later
     for part in parts:
         part_bytes = len(part.encode("utf-8"))
         if total_bytes + part_bytes > MAX_LOG_BYTES:
@@ -434,9 +438,9 @@ async def feedback_submit_handler(
         encoded = value.encode("utf-8")
         if len(encoded) <= max_bytes:
             return value
-        tail = encoded[-max_bytes:].decode("utf-8", errors="ignore")
-        marker = f"...(截断 {len(encoded) - len(tail.encode('utf-8'))} 字节)\n"
-        return marker + tail
+        head = encoded[:max_bytes].decode("utf-8", errors="ignore")
+        dropped = len(encoded) - len(head.encode("utf-8"))
+        return head + f"\n...(截断 {dropped} 字节)"
 
     fields: dict[str, Any] = {
         "类别": category,
