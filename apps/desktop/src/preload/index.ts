@@ -109,8 +109,20 @@ const api = {
 
   // -- Chat -------------------------------------------------------------------
   chat: {
-    send: (content: string, sessionKey?: string, threadId?: string, mode?: string, attachments?: Array<{name: string, data_base64?: string, mime_type?: string}>): Promise<unknown> =>
-      ipcRenderer.invoke(IPC.CHAT_SEND, { content, session_key: sessionKey, thread_id: threadId, mode, attachments }),
+    send: (
+      content: string,
+      sessionKey?: string,
+      threadId?: string,
+      mode?: string,
+      attachments?: Array<{ name: string; data_base64?: string; mime_type?: string }>
+    ): Promise<unknown> =>
+      ipcRenderer.invoke(IPC.CHAT_SEND, {
+        content,
+        session_key: sessionKey,
+        thread_id: threadId,
+        mode,
+        attachments,
+      }),
     abort: (sessionKey?: string): Promise<unknown> =>
       ipcRenderer.invoke(IPC.CHAT_ABORT, { session_key: sessionKey }),
     onProgress: (callback: (data: ChatProgress) => void) => {
@@ -357,7 +369,11 @@ const api = {
 
   // -- Document parsing ----------------------------------------------------
   documents: {
-    parse: (path: string, sessionKey?: string, options?: { forceOcr?: boolean; preview?: boolean }): Promise<DocumentsParseResult> =>
+    parse: (
+      path: string,
+      sessionKey?: string,
+      options?: { forceOcr?: boolean; preview?: boolean }
+    ): Promise<DocumentsParseResult> =>
       ipcRenderer.invoke(IPC.DOCUMENTS_PARSE, {
         path,
         session_key: sessionKey,
@@ -378,9 +394,7 @@ const api = {
       ipcRenderer.invoke(IPC.WSL_INSTALL),
     installAndProvision: (): Promise<WslInstallAndProvisionResult> =>
       ipcRenderer.invoke(IPC.WSL_INSTALL_AND_PROVISION),
-    onInstallProgress: (
-      callback: (data: WslInstallProgress) => void
-    ): (() => void) => {
+    onInstallProgress: (callback: (data: WslInstallProgress) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: WslInstallProgress) =>
         callback(data);
       ipcRenderer.on(IPC_EVENTS.WSL_INSTALL_PROGRESS, handler);
@@ -424,10 +438,20 @@ const api = {
   agents: {
     list: (sessionKey?: string): Promise<{ agents: LiveAgentInfo[] }> =>
       ipcRenderer.invoke(IPC.AGENT_LIST, { session_key: sessionKey }),
-    spawn: (agentType: string, task: string, label?: string): Promise<{ agent: LiveAgentInfo }> =>
-      ipcRenderer.invoke(IPC.AGENT_SPAWN, { agent_type: agentType, task, label }),
-    kill: (agentId: string): Promise<{ killed: boolean }> =>
-      ipcRenderer.invoke(IPC.AGENT_KILL, { agent_id: agentId }),
+    spawn: (
+      agentType: string,
+      task: string,
+      label?: string,
+      sessionKey?: string
+    ): Promise<{ agent: LiveAgentInfo }> =>
+      ipcRenderer.invoke(IPC.AGENT_SPAWN, {
+        agent_type: agentType,
+        task,
+        label,
+        session_key: sessionKey,
+      }),
+    kill: (agentId: string, sessionKey?: string): Promise<{ killed: boolean }> =>
+      ipcRenderer.invoke(IPC.AGENT_KILL, { agent_id: agentId, session_key: sessionKey }),
     onSpawned: (callback: (data: AgentSpawnedEvent) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: AgentSpawnedEvent) =>
         callback(data);
