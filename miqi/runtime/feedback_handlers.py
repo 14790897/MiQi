@@ -131,8 +131,9 @@ def _collect_all_logs(log_dir: Path, max_age_days: int = 7) -> str:
         return f"[最近{max_age_days}天无日志文件（跳过{skipped_count}个旧文件）]"
 
     if skipped_count:
-        parts.insert(0, f"（跳过了 {skipped_count} 个超过 {max_age_days} 天的旧日志文件）\n")
         final_parts.insert(0, f"（跳过了 {skipped_count} 个超过 {max_age_days} 天的旧日志文件）\n")
+    if unreadable_count:
+        final_parts.insert(1 if skipped_count else 0, f"（{unreadable_count} 个文件无法读取修改时间）\n")
 
     combined = "\n\n".join(final_parts)
 
