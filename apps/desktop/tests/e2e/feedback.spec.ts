@@ -130,6 +130,7 @@ test.describe('Feedback Page E2E', () => {
     await expect(modalHeading).toBeVisible();
     await page.getByPlaceholder('简要描述你的问题或建议').fill('测试未保存拦截');
 
+    // Esc: dismiss keeps open, accept closes
     let dismissCalled = false;
     const onDialog = (dialog: any) => {
       if (!dismissCalled) { dismissCalled = true; dialog.dismiss(); }
@@ -149,23 +150,66 @@ test.describe('Feedback Page E2E', () => {
     } finally {
       page.off('dialog', onDialog);
     }
+
+    // Overlay click: dismiss keeps open, accept closes
+    await headerBtn.click();
+    await page.getByPlaceholder('简要描述你的问题或建议').fill('覆盖层点击测试');
+    await expect(modalHeading).toBeVisible();
+
+    let overlayDismissed = false;
+    const onDialog2 = (dialog: any) => {
+      if (!overlayDismissed) { overlayDismissed = true; dialog.dismiss(); }
+      else { dialog.accept(); }
+    };
+    page.on('dialog', onDialog2);
+    try {
+      // Click outside modal — the overlay is at fixed inset-0
+      await page.mouse.click(10, 10);
+      await page.waitForTimeout(500);
+      expect(overlayDismissed).toBe(true);
+      await expect(modalHeading).toBeVisible({ timeout: 2_000 });
+
+      await page.getByPlaceholder('简要描述你的问题或建议').click();
+      await page.waitForTimeout(300);
+      await page.mouse.click(10, 10);
+      await expect(modalHeading).not.toBeVisible({ timeout: 5_000 });
+    } finally {
+      page.off('dialog', onDialog2);
+    }
   });
 
-  test('empty form closes normally on Escape without confirm', async () => {
+  test('empty form closes on Escape and overlay click without confirm', async () => {
     await openFeedbackTab(page);
     const headerBtn = page.locator('div.flex.items-center.gap-4').getByRole('button', { name: '提交反馈', exact: true });
-    await headerBtn.click();
-    await expect(page.getByRole('heading', { name: '提交反馈' })).toBeVisible();
+    const modalHeading = page.getByRole('heading', { name: '提交反馈' });
 
+    // Escape
+    await headerBtn.click();
+    await expect(modalHeading).toBeVisible();
     let dialogFired = false;
     const onDialog = () => { dialogFired = true; };
     page.on('dialog', onDialog);
     try {
       await page.keyboard.press('Escape');
       expect(dialogFired).toBe(false);
-      await expect(page.getByRole('heading', { name: '提交反馈' })).not.toBeVisible({ timeout: 2_000 });
+      await expect(modalHeading).not.toBeVisible({ timeout: 2_000 });
     } finally {
       page.off('dialog', onDialog);
+    }
+
+    // Overlay click
+    await headerBtn.click();
+    await expect(modalHeading).toBeVisible();
+    let overlayDialog = false;
+    const onDialog2 = () => { overlayDialog = true; };
+    page.on('dialog', onDialog2);
+    try {
+      await page.mouse.click(10, 10);
+      await page.waitForTimeout(500);
+      expect(overlayDialog).toBe(false);
+      await expect(modalHeading).not.toBeVisible({ timeout: 2_000 });
+    } finally {
+      page.off('dialog', onDialog2);
     }
   });
 

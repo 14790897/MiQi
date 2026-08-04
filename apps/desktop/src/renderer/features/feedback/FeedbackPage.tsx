@@ -79,7 +79,7 @@ function SubmitModal({
   const canSubmit = title.trim().length > 0 && content.trim().length > 0 && !submitting;
 
   const hasUnsavedContent =
-    title.trim().length > 0 || content.trim().length > 0 || screenshots.length > 0;
+    title.trim().length > 0 || content.trim().length > 0 || contact.trim().length > 0 || screenshots.length > 0;
 
   const onBeforeClose = useCallback(() => {
     if (!hasUnsavedContent || success) return false;
