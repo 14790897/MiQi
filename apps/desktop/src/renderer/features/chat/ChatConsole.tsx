@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
 import { DiffView } from './components/DiffView';
@@ -2507,6 +2507,114 @@ export function ChatConsole({
 
   /** Retry a user message: rewind to it, resend automatically with a
    *  "answer differently" hint so the model doesn't repeat itself. */
+  // ── Turn gutter: one bead per user turn, hover shows the full Q+A ──
+  const turnsData = useMemo(() => {
+    const turns: { q: string; a: string }[] = [];
+    let cur: { q: string; a: string } | null = null;
+    for (const m of messages) {
+      if (m.role === 'user') {
+        cur = { q: m.content, a: '' };
+        turns.push(cur);
+      } else if (m.role === 'assistant' && cur) {
+        cur.a = m.content;
+      }
+    }
+    return turns;
+  }, [messages]);
+  const turnAnchors = useRef<(HTMLDivElement | null)[]>([]);
+  const [tickPercents, setTickPercents] = useState<number[]>([]);
+  const [showGutter, setShowGutter] = useState(false);
+  const [activeTurn, setActiveTurn] = useState(-1);
+  const [hoverTurn, setHoverTurn] = useState(-1);
+
+  const updateTurnUI = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || turnsData.length === 0) {
+      setShowGutter(false);
+      return;
+    }
+    const max = el.scrollHeight - el.clientHeight;
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+    // Beads sit at each turn's real position, with a minimum gap — two turns
+    // whose messages are adjacent (short answer) would otherwise overlap.
+    const minGap = 0.035;
+    const percents: number[] = [];
+    turnAnchors.current.forEach((node, i) => {
+      if (!node) return;
+      const ratio = max > 0 ? node.offsetTop / max : (turnsData.length === 1 ? 0.5 : i / (turnsData.length - 1));
+      percents[i] = Math.min(1, Math.max(0, ratio));
+    });
+    for (let i = 0; i < turnsData.length; i++) {
+      if (percents[i] === undefined) {
+        percents[i] = turnsData.length === 1 ? 0.5 : i / (turnsData.length - 1);
+      }
+    }
+    // Push up from the bottom to enforce the minimum gap, then re-clamp.
+    for (let i = turnsData.length - 2; i >= 0; i--) {
+      if (percents[i + 1] - percents[i] < minGap) percents[i] = percents[i + 1] - minGap;
+    }
+    if (percents[0] < 0.02) {
+      const shift = 0.02 - percents[0];
+      for (let i = 0; i < turnsData.length; i++) percents[i] += shift;
+    }
+    if (percents[turnsData.length - 1] > 0.98) {
+      const k = (0.98 - 0.02) / (percents[turnsData.length - 1] - percents[0]);
+      for (let i = 0; i < turnsData.length; i++) percents[i] = 0.02 + (percents[i] - percents[0]) * k;
+    }
+    let cur = -1;
+    turnAnchors.current.forEach((node, i) => {
+      if (node && !atBottom && node.offsetTop - el.scrollTop <= 60) cur = i;
+    });
+    if (atBottom) cur = turnsData.length - 1; // scrolled to bottom → last bead lights up
+    // Keep the array identity when nothing changed — a fresh array on every
+    // scroll event would re-render every MessageBubble.
+    setTickPercents((prev) =>
+      prev.length === percents.length && prev.every((v, idx) => v === percents[idx]) ? prev : percents
+    );
+    setActiveTurn(cur);
+    // ≥2 turns → gutter always shows (beads spread evenly even when the
+    // content fits on one screen), matching the approved HTML demo v4.
+    setShowGutter(turnsData.length >= 2);
+  }, [turnsData.length]);
+
+  // Throttle scroll-driven updates to one per animation frame.
+  const scrollRafRef = useRef<number | null>(null);
+  const onScrollThrottled = useCallback(() => {
+    if (scrollRafRef.current != null) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      updateTurnUI();
+    });
+  }, [updateTurnUI]);
+
+  // Recompute on turn-count changes and when streaming stops (final layout) —
+  // NOT on every typewriter frame while streaming.
+  useLayoutEffect(() => {
+    updateTurnUI();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turnsData.length, streaming, updateTurnUI]);
+
+  const jumpToTurn = (i: number) => {
+    const node = turnAnchors.current[i];
+    const el = scrollRef.current;
+    if (node && el) {
+      setActiveTurn(i); // light the clicked bead immediately
+      el.scrollTo({ top: Math.max(0, node.offsetTop - 12), behavior: 'smooth' });
+      setHoverTurn(-1);
+    }
+  };
+
+  // Closing the preview is delayed so the pointer can cross the gap from a
+  // bead to the preview card without it unmounting (mouseleave fires first).
+  const closePreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleClosePreview = useCallback(() => {
+    if (closePreviewTimer.current) clearTimeout(closePreviewTimer.current);
+    closePreviewTimer.current = setTimeout(() => setHoverTurn(-1), 200);
+  }, []);
+  const cancelClosePreview = useCallback(() => {
+    if (closePreviewTimer.current) clearTimeout(closePreviewTimer.current);
+  }, []);
+
   const handleRetry = useCallback(
     async (msg: Message) => {
       if (streaming) return;
@@ -2977,6 +3085,7 @@ export function ChatConsole({
           <div
             ref={scrollRef}
             className="flex-1 overflow-y-auto relative"
+            onScroll={onScrollThrottled}
             style={{ background: 'var(--background)', paddingBottom: `calc(${composerHeight}px + ${ANSWER_GAP})` }}
           >
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
@@ -3000,9 +3109,24 @@ export function ChatConsole({
                   </div>
                 </div>
               ) : (
-                messages.map((msg, i) => (
+                (() => {
+                  // Anchor each user message by TURN index, not message index —
+                  // tickPercents / activeTurn / jumpToTurn all index per turn.
+                  let turnIdx = -1;
+                  return messages.map((msg, i) => {
+                    if (msg.role === 'user') turnIdx += 1;
+                    const anchorTurn = msg.role === 'user' ? turnIdx : -1;
+                    return (
                   <div
                     key={`${msg.timestamp}-${i}`}
+                    ref={
+                      msg.role === 'user'
+                        ? (el) => {
+                            turnAnchors.current[anchorTurn] = el;
+                          }
+                        : undefined
+                    }
+                    data-turn-role={msg.role}
                   >
                     <MessageBubble
                       msg={msg}
@@ -3018,8 +3142,10 @@ export function ChatConsole({
                       onDownloadPaper={handleDownloadPaper}
                       downloadingPaperId={downloadingPaperId}
                     />
-                  </div>
-                ))
+                    </div>
+                    );
+                  });
+                })()
               )}
               {streaming && (
                 <div
@@ -3034,12 +3160,137 @@ export function ChatConsole({
 
           </div>
 
-
-
           {/* Composer — floats over the bottom; the answer stream never moves.
               Messages reserve composerHeight + ANSWER_GAP via paddingBottom, so
               the gap between the last answer and the box stays constant no
               matter how tall the textarea grows. */}
+          {/* Turn gutter + preview — OUTSIDE the scroll container (siblings of
+              it), so they stay pinned to the visible chat area instead of
+              scrolling away with the messages. */}
+            {/* Turn gutter — one bead per user turn, hover previews the Q+A */}
+            {showGutter && turnsData.length > 0 && (
+              <div
+                className="absolute right-3 top-1/2 -translate-y-1/2 z-30 w-5"
+                style={{ height: 'min(400px, 62%)' }}
+                onMouseLeave={scheduleClosePreview}
+              >
+                <div
+                  className="absolute left-1/2 top-0 bottom-0 w-[3px] -translate-x-1/2 rounded-full"
+                  style={{ background: 'rgba(255,255,255,.07)' }}
+                />
+                {turnsData.map((_, i) => (
+                  <button
+                    key={i}
+                    className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-150 cursor-pointer"
+                    style={{
+                      top: `${((tickPercents[i] ?? 0) * 100).toFixed(2)}%`,
+                      width: activeTurn === i ? 11 : 8,
+                      height: activeTurn === i ? 11 : 8,
+                      background: activeTurn === i ? 'var(--accent)' : 'var(--text-faint)',
+                      boxShadow:
+                        activeTurn === i
+                          ? '0 0 10px color-mix(in srgb, var(--accent) 80%, transparent)'
+                          : 'none',
+                    }}
+                    onMouseEnter={() => {
+                    cancelClosePreview();
+                    setHoverTurn(i);
+                  }}
+                    onClick={() => jumpToTurn(i)}
+                    aria-label={`跳转到第 ${i + 1} 轮对话`}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Turn preview — hovered turn's full Q+A, height adapts to content */}
+            {hoverTurn >= 0 && turnsData[hoverTurn] && (
+              <div
+                className="absolute right-12 top-1/2 -translate-y-1/2 z-50 flex flex-col rounded-2xl overflow-hidden"
+                style={{
+                  width: 380,
+                  maxHeight: 'calc(100% - 28px)',
+                  background: 'var(--surface-elevated)',
+                  border: '1px solid var(--border)',
+                  boxShadow: '0 18px 60px rgba(0,0,0,.45)',
+                }}
+                onMouseEnter={cancelClosePreview}
+                onMouseLeave={scheduleClosePreview}
+              >
+                <div
+                  className="flex items-center gap-2 px-3.5 py-2.5 shrink-0"
+                  style={{
+                    borderBottom: '1px solid var(--border-subtle)',
+                    background: 'color-mix(in srgb, var(--accent) 8%, transparent)',
+                  }}
+                >
+                  <span
+                    className="text-[11px] font-bold px-2 py-0.5 rounded-md"
+                    style={{
+                      color: 'var(--accent)',
+                      background: 'color-mix(in srgb, var(--accent) 18%, transparent)',
+                    }}
+                  >
+                    Q{hoverTurn + 1}
+                  </span>
+                  <span className="text-[11px] flex-1" style={{ color: 'var(--text-muted)' }}>
+                    {turnsData[hoverTurn].q.slice(0, 24)}
+                    {turnsData[hoverTurn].q.length > 24 ? '…' : ''}
+                  </span>
+                </div>
+                <div className="px-3.5 py-3 overflow-y-auto flex flex-col gap-2.5">
+                  <div
+                    className="max-w-full px-3 py-2 rounded-xl text-[12.5px] leading-relaxed self-end"
+                    style={{
+                      background:
+                        'linear-gradient(135deg, var(--bubble-user-bg), color-mix(in srgb, var(--bubble-user-bg) 62%, #000))',
+                      color: 'var(--bubble-user-text)',
+                      borderBottomRightRadius: 4,
+                    }}
+                  >
+                    {turnsData[hoverTurn].q}
+                  </div>
+                  {turnsData[hoverTurn].a ? (
+                    <div
+                      className="max-w-full px-3 py-2 rounded-xl text-[12.5px] leading-relaxed self-start"
+                      style={{
+                        background: 'var(--surface-muted)',
+                        border: '1px solid var(--border-subtle)',
+                        color: 'var(--text)',
+                        borderBottomLeftRadius: 4,
+                      }}
+                    >
+                      {turnsData[hoverTurn].a}
+                    </div>
+                  ) : (
+                    <div className="text-[11.5px] px-3 py-2" style={{ color: 'var(--text-faint)' }}>
+                      回答生成中…
+                    </div>
+                  )}
+                </div>
+                <div
+                  className="px-3.5 py-2 shrink-0 text-right"
+                  style={{ borderTop: '1px solid var(--border-subtle)' }}
+                >
+                  <button
+                    onClick={() => jumpToTurn(hoverTurn)}
+                    className="text-[11px] rounded-full px-3 py-1 transition-colors"
+                    style={{
+                      color: 'var(--accent)',
+                      border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)',
+                    }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 18%, transparent)')
+                    }
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    📍 跳转到此轮查看完整内容
+                  </button>
+                </div>
+              </div>
+            )}
+
+          {/* Composer */}
           <div
             ref={composerRef}
             className="pointer-events-none absolute bottom-0 left-0 right-0 px-5 pb-10 pt-3"
