@@ -314,6 +314,7 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
 
 ## Tool Call Guidelines
 - Before calling tools, you may briefly state your intent (e.g. "Let me check that"), but NEVER predict or describe the expected result before receiving it.
+- Tool calls are made through the tool-calling interface only — never write them as text (e.g. `functions.paper_download(...)`). A call written as code is not executed and will confuse the user.
 - Before modifying a file, read it first to confirm its current content.
 - Do not assume a file or directory exists — use list_dir or read_file to verify.
 - After writing or editing a file, re-read it if accuracy matters.
