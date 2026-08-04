@@ -81,30 +81,10 @@ function SubmitModal({
   const hasUnsavedContent =
     title.trim().length > 0 || content.trim().length > 0 || screenshots.length > 0;
 
-  const handleModalOpenChange = useCallback(
-    (open: boolean) => {
-      if (!open && hasUnsavedContent && !success) {
-        if (!window.confirm('放弃已填写的内容？')) return;
-      }
-      if (!open) onClose();
-    },
-    [hasUnsavedContent, success, onClose],
-  );
-
-  // Close on Escape — intercepted for unsaved content
-  useEffect(() => {
-    if (success || submitting) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.preventDefault();
-      if (hasUnsavedContent) {
-        if (!window.confirm('放弃已填写的内容？')) return;
-      }
-      onClose();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose, submitting, success, hasUnsavedContent]);
+  const onBeforeClose = useCallback(() => {
+    if (!hasUnsavedContent || success) return false;
+    return !window.confirm('放弃已填写的内容？');
+  }, [hasUnsavedContent, success]);
 
   const readFileAsDataUrl = (file: File): Promise<ScreenshotFile> =>
     new Promise((resolve, reject) => {
@@ -226,7 +206,7 @@ function SubmitModal({
   };
 
   return (
-    <Modal open onOpenChange={handleModalOpenChange} hideClose>
+    <Modal open onOpenChange={onClose} onBeforeClose={onBeforeClose} hideClose>
       <div
         onClick={(e) => e.stopPropagation()}
         className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-6 w-full max-w-lg mx-4 shadow-xl max-h-[90vh] overflow-y-auto"
@@ -236,7 +216,7 @@ function SubmitModal({
           <h3 className="text-lg font-semibold">提交反馈</h3>
           <button
             onClick={() => {
-              if (!submitting) handleModalOpenChange(false);
+              if (!submitting) onClose();
             }}
             disabled={submitting}
             className="p-1 rounded hover:bg-[var(--muted)]/20 text-[var(--muted-foreground)] disabled:opacity-50"
