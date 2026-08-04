@@ -95,7 +95,7 @@ def _collect_all_logs(log_dir: Path, max_age_days: int = 7) -> str:
         except OSError:
             return 999
 
-    for f in sorted(log_dir.rglob("*"), key=_file_sort_key, reverse=True):
+    for f in sorted(log_dir.rglob("*"), key=_file_sort_key):
         if not f.is_file():
             continue
         if _file_age_days(f) > max_age_days:
@@ -104,9 +104,9 @@ def _collect_all_logs(log_dir: Path, max_age_days: int = 7) -> str:
         recent_count += 1
         try:
             content = f.read_text(encoding="utf-8", errors="replace")
-            max_chars = 1_000_000
+            max_chars = 50_000
             if len(content) > max_chars:
-                content = f"...(截断 {len(content) - max_chars} 字符)\n{content[-max_chars:]}"
+                content = content[-max_chars:]
             rel = f.relative_to(log_dir)
             parts.append(f"=== {rel} ===\n{content}")
         except Exception as exc:
