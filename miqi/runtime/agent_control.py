@@ -655,8 +655,8 @@ class AgentControl:
                     for tc, result in zip(tool_call_dicts, tool_results):
                         messages.append({
                             "role": "tool",
-                            "tool_call_id": tc.id,
-                            "name": tc.name,
+                            "tool_call_id": tc["id"],
+                            "name": tc["function"]["name"],
                             "content": result or "",
                         })
 
