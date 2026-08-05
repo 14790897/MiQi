@@ -1562,15 +1562,16 @@ export function ChatConsole({
     ]);
   }, [cleanupListeners, currentReqId]);
 
-  // Respond to new-session trigger from App/Sidebar
+  // Respond to new-session trigger from App/Sidebar — create directly, no picker
   useEffect(() => {
     if (newSessionTrigger && newSessionTrigger > 0) {
-      handleNewSession();
+      createSession(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newSessionTrigger]);
 
-  const handleNewSession = useCallback(async () => {
+  // Opens the workspace picker modal — called by the inline "更换" button
+  const handleOpenWorkspacePicker = useCallback(async () => {
     const workspaces = await window.miqi.sessions.listRecentWorkspaces()
       .then(r => r?.workspaces ?? [])
       .catch(() => [] as string[]);
@@ -1600,8 +1601,8 @@ export function ChatConsole({
     } catch {
       /* ignore */
     }
-    handleNewSession();
-  }, [handleNewSession]);
+    createSession(null);
+  }, [createSession]);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
@@ -2622,7 +2623,7 @@ export function ChatConsole({
                 onSelect: async () => {
                   try {
                     await window.miqi.sessions.archive(sessionKey);
-                    handleNewSession();
+                    createSession(null);
                   } catch {
                     /* ignore */
                   }
@@ -2635,7 +2636,7 @@ export function ChatConsole({
                   if (!window.confirm('删除此对话？操作不可恢复。')) return;
                   try {
                     await window.miqi.sessions.delete(sessionKey);
-                    handleNewSession();
+                    createSession(null);
                   } catch (e) {
                     console.error('删除失败:', e);
                   }
@@ -2999,7 +3000,7 @@ export function ChatConsole({
                   </span>
                   <button
                     type="button"
-                    onClick={handleNewSession}
+                    onClick={handleOpenWorkspacePicker}
                     disabled={streaming}
                     className="ml-0.5 text-[var(--accent)] hover:underline disabled:opacity-40 disabled:hover:no-underline"
                     title="更换工作目录"
