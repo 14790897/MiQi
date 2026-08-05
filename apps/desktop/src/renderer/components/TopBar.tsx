@@ -120,7 +120,7 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
 
   return (
     <div
-      className="flex items-center justify-between h-10 px-5 shrink-0"
+      className="flex items-center justify-between h-12 px-6 shrink-0"
       style={{
         background: 'var(--topbar-bg)',
         borderBottom: '1px solid var(--topbar-border)',
@@ -129,13 +129,13 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
       {/* Left: logo text */}
       <div className="flex items-center gap-2">
         <span
-          className="text-sm font-semibold tracking-tight"
+          className="text-[15px] font-semibold"
           style={{ color: 'var(--topbar-text)' }}
         >
           MiQi
         </span>
-        <span className="text-xs font-light opacity-50" style={{ color: 'var(--topbar-text)' }}>
-          Desktop
+        <span className="text-[13px] font-light opacity-50" style={{ color: 'var(--topbar-text)' }}>
+          Workspace
         </span>
       </div>
 
@@ -181,7 +181,7 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
         )}
         {/* Sync state */}
         <div
-          className={cn('flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium')}
+          className={cn('flex items-center gap-1.5 px-3 py-1 rounded-full text-caption font-medium')}
           style={{
             background: isRunning
               ? 'var(--success-bg)'
@@ -198,7 +198,7 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
 
       {/* Right: user avatar */}
       <div className="flex items-center gap-2">
-        <span className="text-xs font-medium hidden sm:block" style={{ color: 'var(--topbar-text)' }}>
+        <span className="text-body-sm font-medium hidden sm:block" style={{ color: 'var(--topbar-text)' }}>
           MiQi 智能体
         </span>
         <MiQiLogo size={28} />

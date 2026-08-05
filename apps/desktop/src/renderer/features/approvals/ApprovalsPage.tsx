@@ -442,7 +442,7 @@ export function ApprovalsPage() {
                 )}
               </div>
               <p className="text-[11px] text-[var(--text-muted)] mt-0.5 leading-tight">
-                开启后跳过审批弹窗。⚡ 仅「允许编辑」模式生效。
+                开启后跳过审批弹窗。⚡️ 仅「允许编辑」模式生效。
               </p>
             </div>
             <button

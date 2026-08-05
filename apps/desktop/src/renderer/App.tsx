@@ -65,7 +65,7 @@ function AppShell() {
       if (stored === 'true') return false;
       if (stored === 'false') return true;
     } catch { /* localStorage unavailable */ }
-    return null; // first launch — must check
+    return false; // render immediately; python.check() decides setup in background
   });
   const [canSkipSetup, setCanSkipSetup] = useState(false); // true when re-running wizard from settings
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
@@ -244,6 +244,7 @@ function AppShell() {
             <div className="flex flex-1 overflow-hidden">
               <Sidebar
                 currentSession={sessionKey}
+                activeNav={activeNav}
                 onSessionSelect={(key) => {
                   setSessionKey(key);
                   setActiveNav('chat');
@@ -272,6 +273,10 @@ function AppShell() {
                     loadTrigger={runtimeReadyKey}
                     onNewSession={(newKey) => {
                       setSessionKey(newKey);
+                      setSessionRefreshKey((k) => k + 1);
+                    }}
+                    onSessionSelect={(key) => {
+                      setSessionKey(key);
                       setSessionRefreshKey((k) => k + 1);
                     }}
                     onChatFinished={() => setSessionRefreshKey((k) => k + 1)}

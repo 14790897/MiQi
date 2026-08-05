@@ -14,8 +14,8 @@ var img = document.querySelector('img');
 img.onload = function() {
   requestAnimationFrame(function() {
     requestAnimationFrame(function() {
-      // 19 frames × 80ms + 1580ms hold = 3020ms from first painted frame
-      setTimeout(function(){document.title='DONE'}, 3020);
+      // Splash is intentionally brief; ready-to-show closes it even earlier.
+      setTimeout(function(){document.title='DONE'}, 1200);
     });
   });
 };

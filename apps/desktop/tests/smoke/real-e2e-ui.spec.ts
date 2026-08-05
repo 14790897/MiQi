@@ -180,7 +180,7 @@ async function setupRealE2E(page: import('@playwright/test').Page) {
  * @param text - 要发送的消息文本
  */
 async function sendMessage(page: import('@playwright/test').Page, text: string) {
-  const textarea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
+  const textarea = page.getByPlaceholder('告诉 MiQi 你想完成什么...');
   await textarea.fill(text);
   await textarea.press('Enter');
   await expect(page.getByText(text).first()).toBeVisible({ timeout: 5000 });
@@ -188,7 +188,7 @@ async function sendMessage(page: import('@playwright/test').Page, text: string) 
 
 /** Wait for the textarea to be re-enabled (streaming finished) */
 async function waitForReady(page: import('@playwright/test').Page, timeout = 120000) {
-  const textarea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
+  const textarea = page.getByPlaceholder('告诉 MiQi 你想完成什么...');
   await expect(textarea).toBeEnabled({ timeout });
 }
 

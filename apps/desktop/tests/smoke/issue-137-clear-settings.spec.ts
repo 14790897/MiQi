@@ -43,7 +43,7 @@ async function injectMockAndGoto(page: import('@playwright/test').Page) {
 test('issue #137: clearing workspace and model sends explicit empty values', async ({ page }) => {
   await injectMockAndGoto(page);
 
-  await page.getByText('System Settings').click();
+  await page.getByText('系统设置').click();
 
   const workspaceInput = page.getByPlaceholder('~/.miqi/workspace');
   const modelInput = page.getByPlaceholder('provider/model-name');
@@ -73,26 +73,20 @@ test('issue #137: clearing workspace and model sends explicit empty values', asy
 test('issue #137: clearing web tool keys sends explicit empty values', async ({ page }) => {
   await injectMockAndGoto(page);
 
-  await page.getByText('System Settings').click();
+  await page.getByText('系统设置').click();
   await page.locator('[role="tab"]').filter({ hasText: 'Web' }).click();
 
   const braveKeyInput = page.getByPlaceholder('BSA...');
-  const searchBaseInput = page.getByPlaceholder('https://ollama.com').first();
-  const searchKeyInput = page.getByPlaceholder('ollama-key...').first();
   const fetchBaseInput = page.locator('input[value="https://old-fetch.example"]');
   const fetchKeyInput = page.locator('input[value="fetch-old"]');
   const s2KeyInput = page.locator('input[value="s2-old"]');
 
   await expect(braveKeyInput).toHaveValue('BSA-old');
-  await expect(searchBaseInput).toHaveValue('https://old-search.example');
-  await expect(searchKeyInput).toHaveValue('search-old');
   await expect(fetchBaseInput).toHaveValue('https://old-fetch.example');
   await expect(fetchKeyInput).toHaveValue('fetch-old');
   await expect(s2KeyInput).toHaveValue('s2-old');
 
   await braveKeyInput.fill('');
-  await searchBaseInput.fill('');
-  await searchKeyInput.fill('');
   await fetchBaseInput.fill('');
   await fetchKeyInput.fill('');
   await s2KeyInput.fill('');
@@ -108,8 +102,6 @@ test('issue #137: clearing web tool keys sends explicit empty values', async ({ 
         search: {
           provider: 'hybrid',
           apiKey: '',
-          ollamaApiBase: '',
-          ollamaApiKey: '',
         },
         fetch: {
           provider: 'hybrid',

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Plus, Trash2, Save } from 'lucide-react';
+import { Shield, Plus, Trash2, Save, Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 interface PathRule {
@@ -200,7 +200,7 @@ export function PermissionsPage() {
         {saving ? (
           <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
         ) : saved ? (
-          '✓'
+          <Check size={13} />
         ) : (
           <Save size={13} />
         )}

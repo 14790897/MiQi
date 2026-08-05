@@ -134,7 +134,9 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!hasApi) return;
     refreshStatus();
-    refreshLogs(); // fetch initial log entries (bridge + backend files)
+    // Fetch logs slightly after first paint so startup IPC traffic is not
+    // dominated by log aggregation (bridge calls can take 1-3s cold).
+    const logTimer = setTimeout(() => refreshLogs(), 250);
     const unsubState = window.miqi.runtime.onStateChange((s) => setStatus(s));
     const unsubLog = window.miqi.runtime.onLog((msg) => {
       setLogs((prev) => [...prev.slice(-499), msg]);
@@ -213,6 +215,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     return () => {
       unsubState();
       unsubLog();
+      clearTimeout(logTimer);
       clearTimeout(perfTimer);
       window.removeEventListener('error', onError);
       window.removeEventListener('unhandledrejection', onUnhandledRejection);
