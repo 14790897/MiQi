@@ -399,6 +399,26 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
   env.MIQI_HOME = miqiHome;
   delete env.ELECTRON_RUN_AS_NODE;
 
+  // The bridge is spawned per E2E run (cold start).  If MIQI_PYTHON_PATH
+  // points at a python that cannot even run (e.g. a stale uv-managed
+  // interpreter whose executable is gone), findBridgeExecutable() picks it
+  // first and the bridge dies at startup → the app shows "离线 MiQi 智能体"
+  // and never streams.  Clear it so the bridge falls back to `uv run python`
+  // (which resolves the current repo's venv) and actually boots.
+  if (env.MIQI_PYTHON_PATH) {
+    const probe = require('node:child_process').spawnSync(
+      env.MIQI_PYTHON_PATH,
+      ['-c', 'import sys; sys.exit(0)'],
+      { encoding: 'utf8', timeout: 5000, windowsHide: true },
+    );
+    if (probe.status !== 0) {
+      console.log(
+        `[test] MIQI_PYTHON_PATH unusable (status ${probe.status}) — clearing so bridge uses the repo venv`,
+      );
+      delete env.MIQI_PYTHON_PATH;
+    }
+  }
+
   const electronApp = await electron.launch({
     args: [APPS_DESKTOP],
     executablePath: require('electron') as string,
@@ -497,6 +517,20 @@ export async function relaunchElectronApp(
   const env: Record<string, string | undefined> = { ...process.env };
   env.MIQI_HOME = miqiHome;
   delete env.ELECTRON_RUN_AS_NODE;
+  // Same broken-MIQI_PYTHON_PATH fallback as launchElectronApp (see above).
+  if (env.MIQI_PYTHON_PATH) {
+    const relaunchProbe = require('node:child_process').spawnSync(
+      env.MIQI_PYTHON_PATH,
+      ['-c', 'import sys; sys.exit(0)'],
+      { encoding: 'utf8', timeout: 5000, windowsHide: true },
+    );
+    if (relaunchProbe.status !== 0) {
+      console.log(
+        `[test] (relaunch) MIQI_PYTHON_PATH unusable — clearing so bridge uses the repo venv`,
+      );
+      delete env.MIQI_PYTHON_PATH;
+    }
+  }
 
   const electronApp = await electron.launch({
     args: [APPS_DESKTOP],

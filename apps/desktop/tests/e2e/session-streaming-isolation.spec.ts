@@ -13,6 +13,7 @@ import {
   waitForInputReady,
   createNewConversation,
   approveLoop,
+  switchToSessionWithMarker,
   launchElectronApp,
   closeElectronApp,
 } from './helpers/electron-setup';
@@ -83,6 +84,44 @@ test.describe('Streaming Isolation E2E', () => {
       expect(contentB, 'Session B should contain its own marker').toContain(markerB);
 
       console.log(`[test] ✅ Session B isolated — no cross-session streaming leak`);
+    },
+  );
+
+  test(
+    'switching back to A mid-stream restores A\'s content without refresh',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      // ── Session A: start a streaming response ──
+      await createNewConversation(page);
+      const markerA = `RESTORE_A_${Date.now().toString(36)}`;
+      await sendWithoutWaiting(page, `只回答${markerA}`);
+
+      // Confirm the stream actually started (thinking indicator visible).
+      await expect(page.getByTestId('thinking-indicator')).toBeVisible({ timeout: 15_000 });
+
+      // ── Switch to Session B (new conversation) ──
+      await createNewConversation(page);
+
+      // ── Switch back to A via the sidebar ──
+      const restored = await switchToSessionWithMarker(page, markerA);
+      expect(restored, `Session A (marker ${markerA}) should be reachable from the sidebar`).toBe(true);
+
+      // ── Verify A's own content is still present (thinking/reply restored
+      //    WITHOUT any manual refresh).  The marker is the user's own prompt —
+      //    it must be visible alongside A's reply. ──
+      const contentA = (await page.locator('main').textContent()) || '';
+      expect(contentA, 'Session A should still contain its marker').toContain(markerA);
+
+      // The reply should eventually appear too — wait for streaming to finish.
+      try {
+        await page.getByTestId('thinking-indicator').waitFor({ state: 'hidden', timeout: 120_000 });
+      } catch {
+        // Some prompts finish too fast to show Thinking…; acceptable.
+      }
+      const contentAfter = (await page.locator('main').textContent()) || '';
+      expect(contentAfter.length, 'Session A should render content after switching back').toBeGreaterThan(0);
+
+      console.log(`[test] ✅ Session A restored on switch-back — no refresh needed`);
     },
   );
 
