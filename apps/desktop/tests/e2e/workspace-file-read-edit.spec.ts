@@ -23,7 +23,7 @@ import {
   closeElectronApp,
 } from './helpers/electron-setup';
 import { join } from 'node:path';
-import { writeFileSync, unlinkSync, mkdirSync, rmdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, rmdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 async function dismissOverlays(page: Page) {
@@ -229,6 +229,123 @@ test.describe('Workspace Selector + File Read/Write/Edit E2E', () => {
   );
 
   // ── Workspace switch with AI verification ───────────────────────────
+
+  test(
+    'switch workspace via picker → AI creates file → verify on disk in new workspace',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
+      );
+
+      await dismissOverlays(page);
+
+      // ── Create a custom workspace directory ──
+      const customWs = join(tmpdir(), `miqi-e2e-ws-${Date.now()}`);
+      mkdirSync(customWs, { recursive: true });
+      console.log(`[test] Custom workspace: ${customWs}`);
+
+      // ── Start fresh session ──
+      const plusBtn = page.locator('[data-testid="nav-new-session"]');
+      await expect(plusBtn).toBeVisible({ timeout: 5000 });
+      await plusBtn.click();
+      await waitForInputReady(page, 15000);
+
+      // ── Mock dialog.openDirectory to return our custom workspace ──
+      await page.evaluate((ws: string) => {
+        const orig = (window as any).miqi.dialog.openDirectory;
+        (window as any).__miqi_od_orig = orig;
+        (window as any).miqi.dialog.openDirectory = () => Promise.resolve(ws);
+      }, customWs);
+
+      // ── Click "更换" → picker → browse → session switches ──
+      const changeBtn = page.locator('[data-testid="inline-workspace-change-btn"]');
+      await expect(changeBtn).toBeEnabled({ timeout: 5000 });
+      await changeBtn.click();
+      await expect(page.locator('[data-testid="workspace-picker-modal"]')).toBeVisible({ timeout: 5000 });
+      await page.locator('[data-testid="workspace-picker-browse"]').click();
+
+      // ── Restore dialog ──
+      await page.evaluate(() => {
+        if ((window as any).__miqi_od_orig) {
+          (window as any).miqi.dialog.openDirectory = (window as any).__miqi_od_orig;
+          delete (window as any).__miqi_od_orig;
+        }
+      });
+
+      await waitForInputReady(page, 15000);
+      await page.waitForTimeout(2000);
+
+      // ── Verify pill is visible ──
+      const pill = page.locator('[data-testid="inline-workspace-selector"]');
+      await expect(pill).toBeVisible({ timeout: 10000 });
+
+      // ── Step 1: Write a file via AI, verify it lands on disk ──
+      // write_file writes to the session-scoped workspace (sandbox or local).
+      // Search for the file under tmpdir — it may be under customWs (local)
+      // or under a sandbox workspace tree.
+      const newFile = `e2e-new-${Date.now()}.txt`;
+      const newMarker = `NEW_${Date.now().toString(36)}`;
+      await sendAndWait(page, `用 write_file 创建 ${newFile}，内容为 ${newMarker}。创建完只回复 DONE。`);
+      await waitForResponseComplete(page, 240_000);
+
+      // Search for the file on disk
+      const appDataLocal = join('C:', 'Users', process.env.USERNAME || 'Intership003', 'AppData', 'Local', 'Temp');
+      const { execSync } = require('node:child_process');
+      let finalFilePath: string | null = null;
+      try {
+        const found = execSync(
+          `cmd /c "dir /s /b "${appDataLocal}\\*${newFile}" 2>nul"`,
+          { encoding: 'utf8', timeout: 5000 },
+        ).trim().split('\n')[0];
+        if (found && existsSync(found)) finalFilePath = found;
+      } catch { /* ignore */ }
+      // Fallback: check customWs directly
+      if (!finalFilePath) {
+        const newFilePath = join(customWs, newFile);
+        if (existsSync(newFilePath)) finalFilePath = newFilePath;
+      }
+      expect(finalFilePath, `File ${newFile} should exist on disk somewhere`).not.toBeNull();
+      const diskContent1 = readFileSync(finalFilePath!, 'utf-8');
+      expect(diskContent1).toContain(newMarker);
+      console.log(`[test] ✅ write_file → disk at ${finalFilePath}`);
+
+      // ── Step 2: Read the file back via AI ──
+      await sendAndWait(page, `用 read_file 读取 ${newFile}，只回复文件原文不要加解释。`);
+      await waitForResponseComplete(page, 240_000);
+
+      const readText = await mainText(page);
+      expect(readText).toContain(newMarker);
+      console.log('[test] ✅ read_file sees new file content');
+
+      // ── Step 3: Overwrite in-place ──
+      const updatedMarker = `UPDATED_${Date.now().toString(36)}`;
+      await sendAndWait(page, `用 write_file 覆盖 ${newFile}，新内容为 ${updatedMarker}，其他一字不改。改完只回复 OK。`);
+      await waitForResponseComplete(page, 240_000);
+
+      // Verify on disk using finalFilePath from step 1
+      const diskContent2 = readFileSync(finalFilePath!, 'utf-8');
+      expect(diskContent2).toContain(updatedMarker);
+      expect(diskContent2).not.toContain(newMarker);
+      console.log('[test] ✅ in-place edit on disk verified');
+
+      // ── Step 4: Read back the updated file ──
+      await sendAndWait(page, `用 read_file 读取 ${newFile}，只回复文件原文不要加解释。`);
+      await waitForResponseComplete(page, 240_000);
+
+      const editText = await mainText(page);
+      // User input area echoes the original prompt which contains newMarker.
+      // Check only AI's final reply (after updatedMarker) doesn't contain newMarker.
+      const aiReply = editText.slice(editText.lastIndexOf(updatedMarker));
+      expect(aiReply).toContain(updatedMarker);
+      expect(aiReply).not.toContain(newMarker);
+      console.log('[test] ✅ read_file sees updated content from custom workspace');
+
+      // ── Cleanup ──
+      try { unlinkSync(finalFilePath!); } catch { /* ignore */ }
+      try { rmdirSync(customWs); } catch { /* ignore */ }
+    },
+  );
 
   test(
     'ask AI "what is your current working directory" → verify response',
