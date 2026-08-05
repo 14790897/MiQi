@@ -84,6 +84,7 @@ class TurnRunner:
         history: list[dict[str, Any]] | None = None,
         cancel_event: Any | None = None,
         steer_queue: Any | None = None,
+        max_iterations: int | None = None,
     ) -> TurnResult:
         """Execute a full turn: model calls until final response or max iters.
 
@@ -93,6 +94,9 @@ class TurnRunner:
         the same turn instead of completing immediately.
 
         Phase 51.3: fires PROMPT_SUBMIT, TURN_START, and TURN_END lifecycle hooks.
+
+        *max_iterations* overrides the session-wide iteration cap for this
+        call (e.g. sub-agents get a tighter 15-step limit — issue #246).
         """
         lifecycle_ctx = LifecycleHookContext(
             hook_point=HookPoint.PROMPT_SUBMIT,
@@ -116,6 +120,7 @@ class TurnRunner:
                 history=history,
                 cancel_event=cancel_event,
                 steer_queue=steer_queue,
+                max_iterations=max_iterations,
             )
         finally:
             if self._hooks is not None:
@@ -139,6 +144,7 @@ class TurnRunner:
         history: list[dict[str, Any]] | None = None,
         cancel_event: Any | None = None,
         steer_queue: Any | None = None,
+        max_iterations: int | None = None,
     ) -> TurnResult:
         """Core turn loop implementation."""
         messages = self._context.build_initial_messages(
@@ -164,7 +170,7 @@ class TurnRunner:
                     break
             return drained
 
-        for _iteration in range(self._max_iterations):
+        for _iteration in range(max_iterations or self._max_iterations):
             # Phase 14 follow-up: check cancellation before expensive work
             if cancel_event is not None and cancel_event.is_set():
                 raise asyncio.CancelledError("Turn cancelled via AbortTurn")
@@ -438,11 +444,14 @@ class TurnRunner:
                     "content": ctx.result or "",
                     "arguments": tool_call.arguments,
                 })
-        # Exhausted iterations
+        # Exhausted iterations — issue #491: surface why the loop never
+        # converged instead of returning a bare generic message.
+        diagnosis = self._build_exhaustion_diagnosis(messages)
         content = (
             f"已达到最大迭代次数（{self._max_iterations}）。"
             f"已使用工具：{', '.join(dict.fromkeys(tools_used)) or '无'}。"
-            f"请将任务拆分为更小的步骤重试。"
+            f"请将任务拆分为更小的步骤重试。\n\n"
+            f"【失败诊断】\n{diagnosis}"
         )
         if tool_text_leaked:
             content += (
@@ -516,11 +525,15 @@ class TurnRunner:
         # edit: both flags False → normal approval flow
         # plan: bypass_approval already set above
 
+        # Issue #246: sub-agents get a tight 15-step iteration cap (the legacy
+        # SubagentManager limit), not the session-wide max_tool_iterations.
+        SUBAGENT_MAX_ITERATIONS = 15
         return await self.run(
             turn=turn,
             user_content=job.task,
             system_prompt=metadata.system_prompt,
             tools=tools,
+            max_iterations=SUBAGENT_MAX_ITERATIONS,
         )
 
     @staticmethod
@@ -542,3 +555,102 @@ class TurnRunner:
                 return f'{name}("{val}")'
         key = next(iter(args), "")
         return f"{name}({key}=…)" if key else name
+
+    # ── Max-iterations diagnosis (issue #491) ──────────────────────────
+
+    #: How many trailing tool results to scan for failure signals when the
+    #: turn loop exhausts its iteration budget.
+    _DIAGNOSIS_SCAN_TAIL = 8
+
+    @classmethod
+    def _extract_failure_signal(cls, name: str, content: str) -> str | None:
+        """Extract a one-line failure signal from a single tool result.
+
+        Returns ``None`` when the result carries no failure signal — e.g.
+        a successful response the loop still failed to converge on.
+        Understands the structured JSON shapes emitted by the built-in
+        tools (paper_download/paper_search/paper_get/web_fetch) and the
+        plain-text shapes of web_search/exec.
+        """
+        text = (content or "").strip()
+        if not text:
+            return None
+
+        payload: Any = None
+        try:
+            payload = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            payload = None
+
+        if isinstance(payload, dict):
+            error = str(payload.get("error") or "").strip()
+            ok = payload.get("ok", True)
+            status = payload.get("status_code")
+            paywall = bool(payload.get("paywall_suspected"))
+            if error:
+                detail = error[:160]
+                if paywall:
+                    detail += "（疑似付费墙/登录/机构访问限制）"
+                elif isinstance(status, int) and status >= 400:
+                    detail += f"（HTTP {status}）"
+                return f"{name}: {detail}"
+            if ok is False:
+                return f"{name}: 工具报告失败"
+            if paywall:
+                return f"{name}: 疑似付费墙/登录拦截页"
+            if isinstance(status, int) and status >= 400:
+                return f"{name}: HTTP {status}"
+            if payload.get("items") == [] or payload.get("count") == 0:
+                return f"{name}: 未找到结果"
+            return None
+
+        # Plain-text results (web_search / exec)
+        lowered = text.lower()
+        if text.startswith("Error") or text.startswith("错误"):
+            return f"{name}: {text[:160]}"
+        if text.startswith("No results for") or "没有结果" in text:
+            return f"{name}: 未找到结果"
+        if "timed out" in lowered or "timeout" in lowered:
+            return f"{name}: 请求超时"
+        return None
+
+    @classmethod
+    def _build_exhaustion_diagnosis(cls, messages: list[dict[str, Any]]) -> str:
+        """Build a structured diagnosis for the max-iterations exit path.
+
+        Summarizes tool usage across the whole turn, then scans the
+        trailing tool results for concrete failure signals (paywall,
+        HTTP errors, empty results, timeouts) so the final message tells
+        the user *why* the task failed instead of a bare generic hint.
+        """
+        tool_counts: dict[str, int] = {}
+        tool_msgs: list[dict[str, Any]] = []
+        for m in messages:
+            if m.get("role") != "tool":
+                continue
+            name = str(m.get("name") or "未知工具")
+            tool_counts[name] = tool_counts.get(name, 0) + 1
+            tool_msgs.append(m)
+
+        usage = "、".join(f"{n}×{c}" for n, c in tool_counts.items()) or "无"
+        lines = [f"工具调用概况：{usage}"]
+        if tool_msgs:
+            signals: list[str] = []
+            seen: set[str] = set()
+            for m in tool_msgs[-cls._DIAGNOSIS_SCAN_TAIL:]:
+                sig = cls._extract_failure_signal(
+                    str(m.get("name") or ""),
+                    str(m.get("content") or ""),
+                )
+                if sig and sig not in seen:
+                    seen.add(sig)
+                    signals.append(sig)
+            if signals:
+                lines.append("最近失败信号：")
+                lines.extend(f"- {s}" for s in signals)
+            else:
+                lines.append(
+                    "最近工具调用未返回明确失败信号——任务可能在持续尝试但未取得进展。"
+                    "请告知用户当前状态，并建议拆分为更小的步骤或更换检索途径。"
+                )
+        return "\n".join(lines)

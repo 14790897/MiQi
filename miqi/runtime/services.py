@@ -95,6 +95,7 @@ class RuntimeServices:
         workspace: Path,
         event_sink: Any | None = None,
         sandbox_manager: Any = None,
+        agent_completion_callback: Any | None = None,
     ) -> "RuntimeServices":
         """Build the full service graph from a Config + provider.
 
@@ -199,6 +200,7 @@ class RuntimeServices:
             tool_registry=tool_registry,
             hooks=hook_runtime,
             store=agent_graph_store,
+            completion_callback=agent_completion_callback,
         )
 
         # Wire SpawnTool into AgentControl

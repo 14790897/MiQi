@@ -233,14 +233,13 @@ function extractMessageSources(msg: Message): MessageSource[] {
     'duckduckgo.com/html',
     'search.brave.com',
     'google.com/search',
-    'so.com/s?q=',      // 360 搜索调用
-    'so.com/link?',     // 360 搜索结果跳转链接
+    'so.com/s?q=', // 360 搜索调用
+    'so.com/link?', // 360 搜索结果跳转链接
     'sogou.com/web?query=',
     'user.guancha.cn/main/search',
     'beian.miit.gov.cn',
   ];
-  const clean = (raw: string): string =>
-    raw.split('{')[0].replace(/[.,;:!?。，；：、）\]]+$/, '');
+  const clean = (raw: string): string => raw.split('{')[0].replace(/[.,;:!?。，；：、）\]]+$/, '');
   // Deduplicate across all branches + cap: duplicate URLs produce duplicate
   // React keys and one checkUrl request each (CodeRabbit #564 review).
   const seen = new Set<string>();
@@ -1235,6 +1234,24 @@ export function ChatConsole({
   // Track the active thread ID for new-protocol thread-aware conversations
   const currentThreadIdRef = useRef<string | null>(null);
 
+  // ── Cross-session in-flight event cache (#378) ──────────────────
+  // When the user switches sessions mid-stream, the per-send listeners
+  // silently bail (data.session_key !== currentSessionRef.current).
+  // This cache captures those events so the session-load effect can
+  // replay them when the user switches back, avoiding the permanent
+  // loss of the assistant reply.
+  interface InFlightEvent {
+    type: 'progress' | 'final' | 'error' | 'aborted';
+    data: unknown;
+    timestamp: number;
+  }
+  interface InFlightSnapshot {
+    events: InFlightEvent[];
+    userMsgTimestamp: number;
+  }
+  const inFlightCacheRef = useRef<Map<string, InFlightSnapshot>>(new Map());
+  const fullContentRef = useRef('');
+
   // ── Thread tabs for multi-agent support ──
   interface ThreadTab {
     threadId: string;
@@ -1415,6 +1432,64 @@ export function ChatConsole({
         const rawMsgs: any[] = (detail as any)?.messages ?? [];
         const uiMsgs = sessionMsgsToUi(rawMsgs);
         setMessages(uiMsgs);
+
+        // ── Replay cached cross-session in-flight events (#378) ─────
+        // If events arrived while the user was on another session, the
+        // per-send listeners stored them in inFlightCacheRef.  Replay
+        // them now so the assistant reply and progress messages appear
+        // immediately without requiring a manual refresh.
+        var cached = inFlightCacheRef.current.get(sessionKey);
+        if (cached && cached.events.length > 0) {
+          setStreaming(true);
+          for (var _j = 0; _j < cached.events.length; _j++) {
+            var _ev = cached.events[_j];
+            if (_ev.type === 'progress') {
+              var _pd = _ev.data as any;
+              if (_pd?.text && !_pd?.stream) {
+                setMessages(function (_prev) {
+                  return _prev.concat([
+                    { role: 'progress', content: _pd.text, timestamp: Date.now() },
+                  ]);
+                });
+              }
+            } else if (_ev.type === 'final') {
+              var _fd = _ev.data as any;
+              setMessages(function (_prev) {
+                var _cl = _prev.filter(function (_m) {
+                  return _m.role !== 'progress' || _m.toolHint;
+                });
+                var _lu = _cl[_cl.length - 1];
+                if (_lu?.role === 'user' && _fd?.content) {
+                  return _cl.concat([
+                    { role: 'assistant', content: _fd.content, timestamp: _lu.timestamp + 1 },
+                  ]);
+                }
+                return _cl;
+              });
+              setStreaming(false);
+            } else if (_ev.type === 'error') {
+              var _ed = _ev.data as any;
+              setMessages(function (_prev) {
+                return _prev.concat([
+                  {
+                    role: 'error',
+                    content: _ed?.message || 'Unknown error',
+                    timestamp: Date.now(),
+                  },
+                ]);
+              });
+              setStreaming(false);
+            } else if (_ev.type === 'aborted') {
+              setMessages(function (_prev) {
+                return _prev.concat([
+                  { role: 'progress', content: '已停止。', timestamp: Date.now() },
+                ]);
+              });
+              setStreaming(false);
+            }
+          }
+          inFlightCacheRef.current.delete(sessionKey);
+        }
         setSessionUpdatedAt((detail as any)?.updated_at ?? null);
         // Restore tracked files from dedicated tracked_files.json
         let tfList: any[] = [];
@@ -1695,7 +1770,11 @@ export function ChatConsole({
   }, [handleNewSession]);
 
   /** Payload for programmatic sends (e.g. regenerate) — bypasses input state */
-  const retryPayloadRef = useRef<{ text: string; attachments: Attachment[]; retry?: boolean } | null>(null);
+  const retryPayloadRef = useRef<{
+    text: string;
+    attachments: Attachment[];
+    retry?: boolean;
+  } | null>(null);
   const handleSendRef = useRef<() => void>(() => {});
 
   const handleSend = useCallback(async () => {
@@ -1814,6 +1893,7 @@ export function ChatConsole({
     cleanupListeners();
 
     let fullContent = '';
+    fullContentRef.current = '';
     let displayed = '';
     let animId: number | null = null;
     let finalDone = false;
@@ -1898,7 +1978,15 @@ export function ChatConsole({
     };
 
     const unsubProgress = window.miqi.chat.onProgress((data: ChatProgress) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      if (data.session_key && data.session_key !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(data.session_key);
+        if (!buf) {
+          buf = { events: [], userMsgTimestamp: 0 };
+          inFlightCacheRef.current.set(data.session_key, buf);
+        }
+        buf.events.push({ type: 'progress', data, timestamp: Date.now() });
+        return;
+      }
       lastEventAt = Date.now();
 
       // ── Document progress events ───────────────────────────────
@@ -2006,7 +2094,15 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      if (data.session_key && data.session_key !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(data.session_key);
+        if (!buf) {
+          buf = { events: [], userMsgTimestamp: 0 };
+          inFlightCacheRef.current.set(data.session_key, buf);
+        }
+        buf.events.push({ type: 'final', data, timestamp: Date.now() });
+        return;
+      }
       clearFinalCleanupTimer();
       if (animId !== null) {
         cancelAnimationFrame(animId);
@@ -2109,7 +2205,15 @@ export function ChatConsole({
     });
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      if (data.session_key && data.session_key !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(data.session_key);
+        if (!buf) {
+          buf = { events: [], userMsgTimestamp: 0 };
+          inFlightCacheRef.current.set(data.session_key, buf);
+        }
+        buf.events.push({ type: 'error', data, timestamp: Date.now() });
+        return;
+      }
       streamErrorHandled = true;
       if (animId !== null) cancelAnimationFrame(animId);
       const message = sanitizeUiMessage(data.message);
@@ -2125,7 +2229,15 @@ export function ChatConsole({
     });
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
-      if (_data.session_key && _data.session_key !== currentSessionRef.current) return;
+      if (_data.session_key && _data.session_key !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(_data.session_key);
+        if (!buf) {
+          buf = { events: [], userMsgTimestamp: 0 };
+          inFlightCacheRef.current.set(_data.session_key, buf);
+        }
+        buf.events.push({ type: 'aborted', data: _data, timestamp: Date.now() });
+        return;
+      }
       if (animId !== null) cancelAnimationFrame(animId);
       setStreaming(false);
       setCurrentReqId(null);
@@ -2682,10 +2794,14 @@ export function ChatConsole({
   const inputContextItems = useMemo<ContextMenuAction[]>(
     () => [
       {
-        label: '剪切', icon: <Scissors size={14} />, shortcut: 'Ctrl+X',
+        label: '剪切',
+        icon: <Scissors size={14} />,
+        shortcut: 'Ctrl+X',
         onSelect: () => {
-          const el = textareaRef.current; if (!el) return;
-          const s = el.selectionStart, e = el.selectionEnd;
+          const el = textareaRef.current;
+          if (!el) return;
+          const s = el.selectionStart,
+            e = el.selectionEnd;
           if (s === e) return;
           navigator.clipboard.writeText(el.value.slice(s, e)).catch(() => {});
           el.setRangeText('', s, e, 'end');
@@ -2696,33 +2812,45 @@ export function ChatConsole({
         },
       },
       {
-        label: '复制', icon: <Copy size={14} />, shortcut: 'Ctrl+C',
+        label: '复制',
+        icon: <Copy size={14} />,
+        shortcut: 'Ctrl+C',
         onSelect: () => {
-          const el = textareaRef.current; if (!el) return;
+          const el = textareaRef.current;
+          if (!el) return;
           const txt = el.value.slice(el.selectionStart, el.selectionEnd);
           if (txt) navigator.clipboard.writeText(txt).catch(() => {});
         },
       },
       {
-        label: '粘贴', icon: <ClipboardPaste size={14} />, shortcut: 'Ctrl+V',
+        label: '粘贴',
+        icon: <ClipboardPaste size={14} />,
+        shortcut: 'Ctrl+V',
         onSelect: () => {
-          const el = textareaRef.current; if (!el) return;
-          navigator.clipboard.readText().then((text) => {
-            if (!text) return;
-            // Insert at the caret like native Ctrl+V — replace the current
-            // selection range instead of always appending at the end.
-            const s = el.selectionStart ?? el.value.length;
-            const e = el.selectionEnd ?? s;
-            el.setRangeText(text, s, e, 'end');
-            // Let React's onChange pick up the new value (single source of
-            // truth for state vs DOM — avoids double-delete drift).
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.focus();
-          }).catch(() => {});
+          const el = textareaRef.current;
+          if (!el) return;
+          navigator.clipboard
+            .readText()
+            .then((text) => {
+              if (!text) return;
+              // Insert at the caret like native Ctrl+V — replace the current
+              // selection range instead of always appending at the end.
+              const s = el.selectionStart ?? el.value.length;
+              const e = el.selectionEnd ?? s;
+              el.setRangeText(text, s, e, 'end');
+              // Let React's onChange pick up the new value (single source of
+              // truth for state vs DOM — avoids double-delete drift).
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.focus();
+            })
+            .catch(() => {});
         },
       },
       {
-        label: '全选', icon: <CheckCircle size={14} />, shortcut: 'Ctrl+A', divider: true,
+        label: '全选',
+        icon: <CheckCircle size={14} />,
+        shortcut: 'Ctrl+A',
+        divider: true,
         onSelect: () => textareaRef.current?.select(),
       },
     ],
@@ -3005,8 +3133,11 @@ export function ChatConsole({
           {/* Messages */}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto relative"
-            style={{ background: 'var(--background)', paddingBottom: `calc(${composerHeight}px + ${ANSWER_GAP})` }}
+            className="flex-1 overflow-y-auto overflow-x-hidden relative"
+            style={{
+              background: 'var(--background)',
+              paddingBottom: `calc(${composerHeight}px + ${ANSWER_GAP})`,
+            }}
           >
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
               {!historyLoaded ? (
@@ -3030,9 +3161,7 @@ export function ChatConsole({
                 </div>
               ) : (
                 messages.map((msg, i) => (
-                  <div
-                    key={`${msg.timestamp}-${i}`}
-                  >
+                  <div key={`${msg.timestamp}-${i}`}>
                     <MessageBubble
                       msg={msg}
                       execOutputs={execOutputs}
@@ -3060,10 +3189,7 @@ export function ChatConsole({
                 </div>
               )}
             </div>
-
           </div>
-
-
 
           {/* Composer — floats over the bottom; the answer stream never moves.
               Messages reserve composerHeight + ANSWER_GAP via paddingBottom, so
@@ -3199,87 +3325,91 @@ export function ChatConsole({
 
               <ContextMenu items={inputContextItems} minWidth={160}>
                 {({ onContextMenu }) => (
-              <div
-                className="flex flex-col rounded-3xl px-7 py-3.5 focus-within:ring-2 transition-all"
-                data-testid="chat-input-container"
-                onContextMenu={onContextMenu}
-                style={{
-                  background: 'color-mix(in srgb, var(--surface) 85%, transparent)',
-                  backdropFilter: 'blur(16px)',
-                  WebkitBackdropFilter: 'blur(16px)',
-                  border: '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
-                  outline: 'none',
-                  boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
-                }}
-              >
-                {/* Textarea on top — grows up to 1/3 of viewport (DeepSeek style) */}
-                <Textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(e) => {
-                    setInput(e.target.value);
-                  }}
-                  onKeyDown={handleKeyDown}
-                  placeholder="请输入消息或拖入文件..."
-                  rows={1}
-                  allowResize={true}
-                  className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
-                  disabled={streaming}
-                  style={{ color: 'var(--text)', fieldSizing: 'content' }}
-                />
-                {/* Icon row at the bottom — no text, like DeepSeek */}
-                <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
-                  <ExecutionPolicySelector
-                    policy={executionPolicy}
-                    onChange={setExecutionPolicy}
-                    disabled={streaming}
-                    onOpenApprovals={onOpenApprovals}
-                  />
-                  {/* AI disclaimer — centered in the mode row, fades when typing */}
-                  <div className="flex-1 flex items-center justify-center">
-                    <span
-                      className="text-[11px] leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none transition-opacity duration-300"
-                      style={{ opacity: !input.trim() && attachments.length === 0 ? 1 : 0 }}
-                    >
-                      AI 也会犯错误，对于重要答案请谨慎验证
-                    </span>
-                  </div>
-                  <button
-                    onClick={handleAttachClick}
-                    className="shrink-0 p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
-                    title="Attach file or image"
-                    aria-label="Attach file or image"
+                  <div
+                    className="flex flex-col rounded-3xl px-7 py-3.5 focus-within:ring-2 transition-all"
+                    data-testid="chat-input-container"
+                    onContextMenu={onContextMenu}
+                    style={{
+                      background: 'color-mix(in srgb, var(--surface) 85%, transparent)',
+                      backdropFilter: 'blur(16px)',
+                      WebkitBackdropFilter: 'blur(16px)',
+                      border: '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
+                      outline: 'none',
+                      boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
+                    }}
                   >
-                    <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
-                  </button>
-                  {streaming ? (
-                    <button
-                      onClick={handleAbort}
-                      title="停止生成"
-                      aria-label="停止生成"
-                      className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:bg-[var(--surface-muted)] active:scale-95"
-                    >
-                      <Square size={12} style={{ color: 'var(--text-muted)' }} fill="currentColor" />
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleSend}
-                      disabled={!input.trim() && attachments.length === 0}
-                      title="发送"
-                      aria-label="发送"
-                      className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:brightness-110 hover:-translate-y-px active:scale-95 disabled:opacity-30 disabled:hover:brightness-100 disabled:hover:translate-y-0 disabled:shadow-none"
-                      style={{
-                        background:
-                          'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 65%, #000))',
-                        boxShadow:
-                          '0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent)',
+                    {/* Textarea on top — grows up to 1/3 of viewport (DeepSeek style) */}
+                    <Textarea
+                      ref={textareaRef}
+                      value={input}
+                      onChange={(e) => {
+                        setInput(e.target.value);
                       }}
-                    >
-                      <Send size={14} style={{ color: '#fff' }} />
-                    </button>
-                  )}
-                </div>
-              </div>
+                      onKeyDown={handleKeyDown}
+                      placeholder="请输入消息或拖入文件..."
+                      rows={1}
+                      allowResize={true}
+                      className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
+                      disabled={streaming}
+                      style={{ color: 'var(--text)', fieldSizing: 'content' }}
+                    />
+                    {/* Icon row at the bottom — no text, like DeepSeek */}
+                    <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
+                      <ExecutionPolicySelector
+                        policy={executionPolicy}
+                        onChange={setExecutionPolicy}
+                        disabled={streaming}
+                        onOpenApprovals={onOpenApprovals}
+                      />
+                      {/* AI disclaimer — centered in the mode row, fades when typing */}
+                      <div className="flex-1 flex items-center justify-center">
+                        <span
+                          className="text-[11px] leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none transition-opacity duration-300"
+                          style={{ opacity: !input.trim() && attachments.length === 0 ? 1 : 0 }}
+                        >
+                          AI 也会犯错误，对于重要答案请谨慎验证
+                        </span>
+                      </div>
+                      <button
+                        onClick={handleAttachClick}
+                        className="shrink-0 p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
+                        title="Attach file or image"
+                        aria-label="Attach file or image"
+                      >
+                        <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
+                      </button>
+                      {streaming ? (
+                        <button
+                          onClick={handleAbort}
+                          title="停止生成"
+                          aria-label="停止生成"
+                          className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:bg-[var(--surface-muted)] active:scale-95"
+                        >
+                          <Square
+                            size={12}
+                            style={{ color: 'var(--text-muted)' }}
+                            fill="currentColor"
+                          />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleSend}
+                          disabled={!input.trim() && attachments.length === 0}
+                          title="发送"
+                          aria-label="发送"
+                          className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:brightness-110 hover:-translate-y-px active:scale-95 disabled:opacity-30 disabled:hover:brightness-100 disabled:hover:translate-y-0 disabled:shadow-none"
+                          style={{
+                            background:
+                              'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 65%, #000))',
+                            boxShadow:
+                              '0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent)',
+                          }}
+                        >
+                          <Send size={14} style={{ color: '#fff' }} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 )}
               </ContextMenu>
             </div>
@@ -3847,7 +3977,7 @@ function MessageBubble({
     return (
       <div
         className={cn(
-          'flex items-center gap-2 text-xs py-1 px-1',
+          'flex min-w-0 items-center gap-2 text-xs py-1 px-1',
           msg.collapsed && 'cursor-pointer select-none'
         )}
         style={{ color: msg.toolHint ? 'var(--info)' : 'var(--text-muted)' }}
@@ -3869,7 +3999,9 @@ function MessageBubble({
         {isCollapsed ? (
           <span>{msg.summary || msg.content}</span>
         ) : (
-          <span className="whitespace-pre-wrap break-all max-h-64 overflow-y-auto block">{msg.content}</span>
+          <span className="whitespace-pre-wrap break-all max-h-64 overflow-y-auto block">
+            {msg.content}
+          </span>
         )}
         {/* Inline exec output (Phase 7.4) — gated by ui.inlineExecOutput setting */}
         {inlineExecOutput && msg.toolCallId && execOutputs[msg.toolCallId] && (
@@ -3890,14 +4022,15 @@ function MessageBubble({
   }
   if (msg.role === 'error') {
     return (
-      <div className="flex items-start gap-3">
+      <div className="flex min-w-0 items-start gap-3">
         <AgentAvatar />
         <div
-          className="text-sm rounded-2xl px-4 py-3"
+          className="text-sm rounded-2xl px-4 py-3 min-w-0 max-w-[82%] break-words"
           style={{
             background: 'var(--danger-bg)',
             color: 'var(--danger)',
             border: '1px solid var(--danger)',
+            overflowWrap: 'anywhere',
           }}
         >
           <div className="whitespace-pre-wrap break-words">{msg.content}</div>
@@ -3922,7 +4055,7 @@ function MessageBubble({
 
   if (msg.role === 'subagent') {
     return (
-      <div className="flex items-start gap-3">
+      <div className="flex min-w-0 items-start gap-3">
         <GitMerge size={18} style={{ color: 'var(--accent)', marginTop: 6 }} />
         <div
           className="text-sm rounded-2xl px-4 py-3 prose prose-sm max-w-none break-words overflow-x-auto"
@@ -3965,18 +4098,34 @@ function MessageBubble({
 
   const copyWithSelection = () => {
     const selText = capturedSelectionRef.current;
-    if (selText) { navigator.clipboard.writeText(selText); deselectMessageText(); return; }
+    if (selText) {
+      navigator.clipboard.writeText(selText);
+      deselectMessageText();
+      return;
+    }
     // No manual selection — copy full message
     onCopy(msg.content);
   };
 
   const contextItems: ContextMenuAction[] = isUser
     ? [
-        { label: '复制文本', icon: <Copy size={14} />, onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
+        {
+          label: '复制文本',
+          icon: <Copy size={14} />,
+          onEnter: selectMessageText,
+          onLeave: deselectMessageText,
+          onSelect: copyWithSelection,
+        },
         { label: '重试', icon: <Undo2 size={14} />, divider: true, onSelect: () => onRetry?.() },
       ]
     : [
-        { label: '复制文本', icon: <Copy size={14} />, onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
+        {
+          label: '复制文本',
+          icon: <Copy size={14} />,
+          onEnter: selectMessageText,
+          onLeave: deselectMessageText,
+          onSelect: copyWithSelection,
+        },
         ...(hasCodeBlock
           ? [
               {
@@ -3998,317 +4147,340 @@ function MessageBubble({
 
   return (
     <>
-    <ContextMenu items={contextItems}>
-      {({ onContextMenu }) => (
-        <div
-          ref={bubbleRef}
-          className={cn('flex items-start gap-3', isUser && 'justify-end')}
-          onContextMenu={(e) => {
-            // Capture any manual selection before hover-preview can replace it
-            capturedSelectionRef.current = window.getSelection()?.toString().trim() ?? '';
-            onContextMenu(e);
-          }}
-          data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
-        >
-          {!isUser && <AgentAvatar />}
-
+      <ContextMenu items={contextItems}>
+        {({ onContextMenu }) => (
           <div
-            className={cn(
-              'group flex flex-col gap-1.5',
-              isUser ? 'items-end max-w-[70%]' : 'max-w-[82%]'
-            )}
+            ref={bubbleRef}
+            className={cn('flex min-w-0 items-start gap-3', isUser && 'justify-end')}
+            onContextMenu={(e) => {
+              // Capture any manual selection before hover-preview can replace it
+              capturedSelectionRef.current = window.getSelection()?.toString().trim() ?? '';
+              onContextMenu(e);
+            }}
+            data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
           >
-            {/* image attachments */}
-            {msg.attachments
-              ?.filter((a) => a.type === 'image')
-              .map((att, i) => (
-                <img
-                  key={i}
-                  src={att.dataUrl}
-                  alt={att.name}
-                  className="rounded-xl max-w-[280px] max-h-[200px] object-cover"
-                  style={{ border: '1px solid var(--border-subtle)' }}
-                />
-              ))}
-            {/* text attachments */}
-            {msg.attachments
-              ?.filter((a) => a.type === 'text')
-              .map((att, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
-                  style={{
-                    background: 'var(--surface-muted)',
-                    border: '1px solid var(--border-subtle)',
-                    color: 'var(--text-muted)',
-                  }}
-                >
-                  <FileText size={12} className="shrink-0 text-text-faint" />
-                  <span>{att.name}</span>
-                </div>
-              ))}
-            {/* document attachments */}
-            {msg.attachments
-              ?.filter((a) => a.type === 'document')
-              .map((att, i) => {
-                const cat = getDocCategory(att.name);
-                const isDone = !att.status || att.status === 'done';
-                const isParsing = att.status === 'parsing';
-                return (
+            {!isUser && <AgentAvatar />}
+
+            <div
+              className={cn(
+                'group flex min-w-0 flex-col gap-1.5',
+                isUser ? 'items-end max-w-[70%]' : 'max-w-[82%]'
+              )}
+            >
+              {/* image attachments */}
+              {msg.attachments
+                ?.filter((a) => a.type === 'image')
+                .map((att, i) => (
+                  <img
+                    key={i}
+                    src={att.dataUrl}
+                    alt={att.name}
+                    className="rounded-xl max-w-[280px] max-h-[200px] object-cover"
+                    style={{ border: '1px solid var(--border-subtle)' }}
+                  />
+                ))}
+              {/* text attachments */}
+              {msg.attachments
+                ?.filter((a) => a.type === 'text')
+                .map((att, i) => (
                   <div
                     key={i}
-                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-500"
+                    className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
                     style={{
-                      background: isDone && cat ? cat.bg : 'var(--surface-muted)',
-                      border: `1px solid ${isDone && cat ? cat.color + '40' : 'var(--border-subtle)'}`,
-                      color: isDone && cat ? cat.color : 'var(--text-muted)',
-                      opacity: isDone ? 1 : 0.7,
+                      background: 'var(--surface-muted)',
+                      border: '1px solid var(--border-subtle)',
+                      color: 'var(--text-muted)',
                     }}
                   >
-                    <span
-                      className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
-                      style={{ background: isDone && cat ? cat.color : 'var(--text-faint)' }}
-                    >
-                      {cat ? cat.label : 'FILE'}
+                    <FileText size={12} className="shrink-0 text-text-faint" />
+                    <span className="truncate min-w-0" title={att.name}>
+                      {att.name}
                     </span>
-                    <span>
-                      {att.name} ({formatFileSize(att.size)})
-                    </span>
-                    {isParsing && (
-                      <Loader2 size={11} className="shrink-0 animate-spin text-text-muted" />
-                    )}
-                    {isDone && (
-                      <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
-                    )}
                   </div>
-                );
-              })}
-            {/* Always clean injected document text from content — shown as chips only when attachments are missing */}
-            {isUser &&
-              (() => {
-                const { cleanContent, chips } = extractFileChips(msg.content);
-                // Always store cleaned content so the bubble renders without injected text
-                (msg as any).__cleanContent = cleanContent;
-                // Only show historical chips when there are no real attachments (avoids duplicates)
-                if (chips.length === 0 || (msg.attachments && msg.attachments.length > 0))
-                  return null;
-                return chips.map((chip, i) => (
-                  <div
-                    key={`hist-${i}`}
-                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
-                    style={{
-                      background: chip.category.bg,
-                      border: `1px solid ${chip.category.color}40`,
-                      color: chip.category.color,
-                    }}
+                ))}
+              {/* document attachments */}
+              {msg.attachments
+                ?.filter((a) => a.type === 'document')
+                .map((att, i) => {
+                  const cat = getDocCategory(att.name);
+                  const isDone = !att.status || att.status === 'done';
+                  const isParsing = att.status === 'parsing';
+                  return (
+                    <div
+                      key={i}
+                      className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-500"
+                      style={{
+                        background: isDone && cat ? cat.bg : 'var(--surface-muted)',
+                        border: `1px solid ${isDone && cat ? cat.color + '40' : 'var(--border-subtle)'}`,
+                        color: isDone && cat ? cat.color : 'var(--text-muted)',
+                        opacity: isDone ? 1 : 0.7,
+                      }}
+                    >
+                      <span
+                        className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
+                        style={{ background: isDone && cat ? cat.color : 'var(--text-faint)' }}
+                      >
+                        {cat ? cat.label : 'FILE'}
+                      </span>
+                      <span>
+                        {att.name} ({formatFileSize(att.size)})
+                      </span>
+                      {isParsing && (
+                        <Loader2 size={11} className="shrink-0 animate-spin text-text-muted" />
+                      )}
+                      {isDone && (
+                        <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
+                      )}
+                    </div>
+                  );
+                })}
+              {/* Always clean injected document text from content — shown as chips only when attachments are missing */}
+              {isUser &&
+                (() => {
+                  const { cleanContent, chips } = extractFileChips(msg.content);
+                  // Always store cleaned content so the bubble renders without injected text
+                  (msg as any).__cleanContent = cleanContent;
+                  // Only show historical chips when there are no real attachments (avoids duplicates)
+                  if (chips.length === 0 || (msg.attachments && msg.attachments.length > 0))
+                    return null;
+                  return chips.map((chip, i) => (
+                    <div
+                      key={`hist-${i}`}
+                      className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+                      style={{
+                        background: chip.category.bg,
+                        border: `1px solid ${chip.category.color}40`,
+                        color: chip.category.color,
+                      }}
+                    >
+                      <span
+                        className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
+                        style={{ background: chip.category.color }}
+                      >
+                        {chip.category.label}
+                      </span>
+                      <span className="truncate min-w-0" title={chip.name}>
+                        {chip.name}
+                      </span>
+                      <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
+                    </div>
+                  ));
+                })()}
+
+              {/* Main bubble */}
+              <div
+                data-message-body
+                className="text-sm leading-relaxed rounded-2xl px-4 py-3 min-w-0 break-words"
+                style={
+                  isUser
+                    ? {
+                        background:
+                          'linear-gradient(135deg, var(--bubble-user-bg), color-mix(in srgb, var(--bubble-user-bg) 62%, #000))',
+                        color: 'var(--bubble-user-text)',
+                        borderBottomRightRadius: 6,
+                        overflowWrap: 'anywhere',
+                      }
+                    : {
+                        background: 'var(--bubble-ai-bg)',
+                        color: 'var(--bubble-ai-text)',
+                        border: '1px solid var(--bubble-ai-border)',
+                        borderBottomLeftRadius: 6,
+                        overflowWrap: 'anywhere',
+                      }
+                }
+              >
+                <ErrorBoundary
+                  fallback={(error, reset) => (
+                    <div
+                      className="text-xs p-2 rounded"
+                      style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}
+                    >
+                      ⚠ 消息渲染失败
+                      <button
+                        onClick={reset}
+                        className="ml-2 underline"
+                        style={{ color: 'var(--accent)' }}
+                      >
+                        重试
+                      </button>
+                    </div>
+                  )}
+                >
+                  {msg.role === 'assistant' && msg.content === '' ? (
+                    <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
+                  ) : msg.role === 'assistant' ? (
+                    <MarkdownContent content={msg.content} />
+                  ) : (
+                    renderContent((msg as any).__cleanContent ?? msg.content)
+                  )}
+                </ErrorBoundary>
+              </div>
+
+              {/* action bar — copy / regenerate / like / dislike / sources */}
+              {!isUser && msg.content !== '' && (
+                <div className="flex items-center gap-0.5 self-start pt-0.5 text-text-faint">
+                  <button
+                    onClick={() => onCopy(msg.content)}
+                    title="复制"
+                    className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
                   >
                     <span
-                      className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
-                      style={{ background: chip.category.color }}
+                      className="block transition-transform duration-200"
+                      style={{ transform: isCopied ? 'scale(1.15)' : 'scale(1)' }}
                     >
-                      {chip.category.label}
+                      {isCopied ? (
+                        <Check size={13} style={{ color: 'var(--success)' }} />
+                      ) : (
+                        <Copy size={13} />
+                      )}
                     </span>
-                    <span>{chip.name}</span>
-                    <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
+                  </button>
+                  <button
+                    onClick={() => onRegenerate?.()}
+                    title="重新生成"
+                    className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                  >
+                    <RefreshCw size={13} />
+                  </button>
+                  <button
+                    onClick={() => setFeedback((f) => (f === 'up' ? null : 'up'))}
+                    title="喜欢"
+                    className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${feedback === 'up' ? 'text-[var(--accent)]' : ''}`}
+                  >
+                    <ThumbsUp size={13} />
+                  </button>
+                  <button
+                    onClick={() => setFeedback((f) => (f === 'down' ? null : 'down'))}
+                    title="不喜欢"
+                    className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${feedback === 'down' ? 'text-[var(--danger)]' : ''}`}
+                  >
+                    <ThumbsDown size={13} />
+                  </button>
+                  <button
+                    onClick={() => setShowSources(true)}
+                    title="查看来源"
+                    className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                  >
+                    <ExternalLink size={13} />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {isUser && <UserAvatar />}
+          </div>
+        )}
+      </ContextMenu>
+
+      {/* Sources modal — tools used for this answer + reference URLs */}
+      <Modal
+        open={showSources}
+        onOpenChange={setShowSources}
+        title={`查看来源${(sources ?? []).filter((s) => !deadUrls.has(s.url)).length > 0 ? `（${(sources ?? []).filter((s) => !deadUrls.has(s.url)).length}）` : ''}`}
+      >
+        <div className="flex flex-col gap-3">
+          {(sources ?? []).length === 0 ? (
+            <p className="text-xs text-text-faint py-2">该回答未使用网络工具，没有参考资料。</p>
+          ) : (
+            <div className="flex flex-col gap-3 max-h-[55vh] overflow-y-auto pr-1 -mr-1">
+              {(() => {
+                // Group valid sources by tool, keep a global running number.
+                const groups = new Map<string, MessageSource[]>();
+                for (const s of sources ?? []) {
+                  if (deadUrls.has(s.url)) continue;
+                  const arr = groups.get(s.tool) ?? [];
+                  arr.push(s);
+                  groups.set(s.tool, arr);
+                }
+                if (groups.size === 0) {
+                  return (
+                    <p className="text-xs text-text-faint py-2">
+                      所有来源链接均已失效（404），没有可访问的参考资料。
+                    </p>
+                  );
+                }
+                let num = 0;
+                return Array.from(groups.entries()).map(([tool, items]) => (
+                  <div key={tool} className="flex flex-col gap-1.5">
+                    <div
+                      className="text-[10px] font-semibold tracking-wider uppercase px-0.5"
+                      style={{ color: 'var(--text-faint)' }}
+                    >
+                      {TOOL_LABELS[tool] ?? tool}
+                    </div>
+                    {items.map((s) => {
+                      num += 1;
+                      const n = num;
+                      const host = hostOf(s.url);
+                      return (
+                        <a
+                          key={s.url}
+                          href={s.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={s.url}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            navigator.clipboard.writeText(s.url).catch(() => {});
+                            setCopiedUrl(s.url);
+                            setTimeout(() => setCopiedUrl(null), 1500);
+                          }}
+                          className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl border border-[var(--border-subtle)] hover:bg-[var(--surface-muted)] hover:border-[var(--border)] transition-colors"
+                        >
+                          <span
+                            className="shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-semibold"
+                            style={{
+                              background: 'var(--surface-muted)',
+                              color: 'var(--text-muted)',
+                            }}
+                          >
+                            {n}
+                          </span>
+                          <img
+                            src={`${new URL(s.url).origin}/favicon.ico`}
+                            alt=""
+                            className="w-4 h-4 shrink-0 rounded-sm"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.visibility = 'hidden';
+                            }}
+                          />
+                          <span className="flex-1 min-w-0">
+                            <span
+                              className="block text-xs font-medium truncate"
+                              style={{ color: 'var(--text)' }}
+                            >
+                              {host}
+                            </span>
+                            <span className="block text-[10px] truncate text-text-faint">
+                              {s.url}
+                            </span>
+                          </span>
+                          {copiedUrl === s.url && (
+                            <Check
+                              size={13}
+                              className="shrink-0"
+                              style={{ color: 'var(--success)' }}
+                            />
+                          )}
+                        </a>
+                      );
+                    })}
                   </div>
                 ));
               })()}
-
-            {/* Main bubble */}
-            <div
-              data-message-body
-              className="text-sm leading-relaxed rounded-2xl px-4 py-3"
-              style={
-                isUser
-                  ? {
-                      background:
-                        'linear-gradient(135deg, var(--bubble-user-bg), color-mix(in srgb, var(--bubble-user-bg) 62%, #000))',
-                      color: 'var(--bubble-user-text)',
-                      borderBottomRightRadius: 6,
-                    }
-                  : {
-                      background: 'var(--bubble-ai-bg)',
-                      color: 'var(--bubble-ai-text)',
-                      border: '1px solid var(--bubble-ai-border)',
-                      borderBottomLeftRadius: 6,
-                    }
-              }
-            >
-              <ErrorBoundary
-                fallback={(error, reset) => (
-                  <div
-                    className="text-xs p-2 rounded"
-                    style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}
-                  >
-                    ⚠ 消息渲染失败
-                    <button
-                      onClick={reset}
-                      className="ml-2 underline"
-                      style={{ color: 'var(--accent)' }}
-                    >
-                      重试
-                    </button>
-                  </div>
-                )}
-              >
-                {msg.role === 'assistant' && msg.content === '' ? (
-                  <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
-                ) : msg.role === 'assistant' ? (
-                  <MarkdownContent content={msg.content} />
-                ) : (
-                  renderContent((msg as any).__cleanContent ?? msg.content)
-                )}
-              </ErrorBoundary>
+              {validating && (
+                <p className="text-[11px] text-text-faint py-0.5">正在验证链接可用性…</p>
+              )}
             </div>
-
-            {/* action bar — copy / regenerate / like / dislike / sources */}
-            {!isUser && msg.content !== '' && (
-              <div className="flex items-center gap-0.5 self-start pt-0.5 text-text-faint">
-                <button
-                  onClick={() => onCopy(msg.content)}
-                  title="复制"
-                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
-                >
-                  <span
-                    className="block transition-transform duration-200"
-                    style={{ transform: isCopied ? 'scale(1.15)' : 'scale(1)' }}
-                  >
-                    {isCopied ? (
-                      <Check size={13} style={{ color: 'var(--success)' }} />
-                    ) : (
-                      <Copy size={13} />
-                    )}
-                  </span>
-                </button>
-                <button
-                  onClick={() => onRegenerate?.()}
-                  title="重新生成"
-                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
-                >
-                  <RefreshCw size={13} />
-                </button>
-                <button
-                  onClick={() => setFeedback((f) => (f === 'up' ? null : 'up'))}
-                  title="喜欢"
-                  className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${feedback === 'up' ? 'text-[var(--accent)]' : ''}`}
-                >
-                  <ThumbsUp size={13} />
-                </button>
-                <button
-                  onClick={() => setFeedback((f) => (f === 'down' ? null : 'down'))}
-                  title="不喜欢"
-                  className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${feedback === 'down' ? 'text-[var(--danger)]' : ''}`}
-                >
-                  <ThumbsDown size={13} />
-                </button>
-                <button
-                  onClick={() => setShowSources(true)}
-                  title="查看来源"
-                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
-                >
-                  <ExternalLink size={13} />
-                </button>
-              </div>
-            )}
+          )}
+          <div className="flex gap-2 pt-2 border-t border-[var(--border-subtle)]">
+            <span className="text-[11px] text-text-faint shrink-0">回答时间</span>
+            <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              {new Date(msg.timestamp).toLocaleString('zh-CN')}
+            </span>
           </div>
-
-          {isUser && <UserAvatar />}
         </div>
-      )}
-    </ContextMenu>
-
-    {/* Sources modal — tools used for this answer + reference URLs */}
-    <Modal
-      open={showSources}
-      onOpenChange={setShowSources}
-      title={`查看来源${(sources ?? []).filter((s) => !deadUrls.has(s.url)).length > 0 ? `（${(sources ?? []).filter((s) => !deadUrls.has(s.url)).length}）` : ''}`}
-    >
-      <div className="flex flex-col gap-3">
-        {(sources ?? []).length === 0 ? (
-          <p className="text-xs text-text-faint py-2">该回答未使用网络工具，没有参考资料。</p>
-        ) : (
-          <div className="flex flex-col gap-3 max-h-[55vh] overflow-y-auto pr-1 -mr-1">
-            {(() => {
-              // Group valid sources by tool, keep a global running number.
-              const groups = new Map<string, MessageSource[]>();
-              for (const s of sources ?? []) {
-                if (deadUrls.has(s.url)) continue;
-                const arr = groups.get(s.tool) ?? [];
-                arr.push(s);
-                groups.set(s.tool, arr);
-              }
-              if (groups.size === 0) {
-                return (
-                  <p className="text-xs text-text-faint py-2">所有来源链接均已失效（404），没有可访问的参考资料。</p>
-                );
-              }
-              let num = 0;
-              return Array.from(groups.entries()).map(([tool, items]) => (
-                <div key={tool} className="flex flex-col gap-1.5">
-                  <div className="text-[10px] font-semibold tracking-wider uppercase px-0.5" style={{ color: 'var(--text-faint)' }}>
-                    {TOOL_LABELS[tool] ?? tool}
-                  </div>
-                  {items.map((s) => {
-                    num += 1;
-                    const n = num;
-                    const host = hostOf(s.url);
-                    return (
-                      <a
-                        key={s.url}
-                        href={s.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={s.url}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          navigator.clipboard.writeText(s.url).catch(() => {});
-                          setCopiedUrl(s.url);
-                          setTimeout(() => setCopiedUrl(null), 1500);
-                        }}
-                        className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl border border-[var(--border-subtle)] hover:bg-[var(--surface-muted)] hover:border-[var(--border)] transition-colors"
-                      >
-                        <span
-                          className="shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-semibold"
-                          style={{ background: 'var(--surface-muted)', color: 'var(--text-muted)' }}
-                        >
-                          {n}
-                        </span>
-                        <img
-                          src={`${new URL(s.url).origin}/favicon.ico`}
-                          alt=""
-                          className="w-4 h-4 shrink-0 rounded-sm"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.visibility = 'hidden';
-                          }}
-                        />
-                        <span className="flex-1 min-w-0">
-                          <span className="block text-xs font-medium truncate" style={{ color: 'var(--text)' }}>
-                            {host}
-                          </span>
-                          <span className="block text-[10px] truncate text-text-faint">{s.url}</span>
-                        </span>
-                        {copiedUrl === s.url && (
-                          <Check size={13} className="shrink-0" style={{ color: 'var(--success)' }} />
-                        )}
-                      </a>
-                    );
-                  })}
-                </div>
-              ));
-            })()}
-            {validating && (
-              <p className="text-[11px] text-text-faint py-0.5">正在验证链接可用性…</p>
-            )}
-          </div>
-        )}
-        <div className="flex gap-2 pt-2 border-t border-[var(--border-subtle)]">
-          <span className="text-[11px] text-text-faint shrink-0">回答时间</span>
-          <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-            {new Date(msg.timestamp).toLocaleString('zh-CN')}
-          </span>
-        </div>
-      </div>
-    </Modal>
+      </Modal>
     </>
   );
 }

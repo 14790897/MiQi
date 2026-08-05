@@ -123,12 +123,32 @@ class ClientSessionRegistry:
                 self._last_activity[session_id] = time.time()
                 return existing
 
+            # Phase N: forward subagent completions to the creating client's
+            # event sink as `subagent_result`.  This is the only producer of
+            # the Desktop `chat:subagent_result` IPC event since Phase 13
+            # removed the legacy SubagentManager result_callback — without
+            # it the frontend never renders subagent results.
+            # NOTE: emit_client_event lives on AppServer, not on this
+            # registry — resolve it via bridge_context (populated by
+            # BridgeRuntimeLoop during init).
+            async def _on_agent_completed(data: dict) -> None:
+                try:
+                    app_server = self.bridge_context.get("app_server")
+                    if app_server is None:
+                        return
+                    await app_server.emit_client_event(
+                        client_id, "subagent_result", data,
+                    )
+                except Exception:
+                    pass  # sink missing/unavailable — never break agent teardown
+
             runtime = RuntimeSession.create(
                 config=config,
                 provider=provider,
                 session_id=session_id,
                 workspace=workspace,
                 sandbox_manager=sandbox_manager,
+                agent_completion_callback=_on_agent_completed,
             )
             await runtime.start()
 
