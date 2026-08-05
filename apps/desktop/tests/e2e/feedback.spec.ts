@@ -61,8 +61,14 @@ test.describe('Feedback Page E2E', () => {
   test.afterEach(async () => {
     const modalHeading = page.getByRole('heading', { name: '提交反馈' });
     if (await modalHeading.isVisible().catch(() => false)) {
-      await page.keyboard.press('Escape');
-      await expect(modalHeading).not.toBeVisible({ timeout: 2_000 });
+      // Click "取消" to close without triggering the unsaved-content guard.
+      const cancelBtn = page.getByRole('button', { name: '取消', exact: true });
+      if (await cancelBtn.isVisible().catch(() => false)) {
+        await cancelBtn.click();
+      } else {
+        await page.keyboard.press('Escape');
+      }
+      await modalHeading.waitFor({ state: 'hidden', timeout: 3_000 });
     }
   });
 
@@ -109,60 +115,131 @@ test.describe('Feedback Page E2E', () => {
 
   test('Escape key closes the submit modal', async () => {
     await openFeedbackTab(page);
-
-    const headerBtn = page.locator('div.flex.items-center.gap-4').getByRole('button', {
-      name: '提交反馈',
-      exact: true,
-    });
+    const headerBtn = page.locator('div.flex.items-center.gap-4').getByRole('button', { name: '提交反馈', exact: true });
     await headerBtn.click();
     await expect(page.getByRole('heading', { name: '提交反馈' })).toBeVisible();
-
-    // Press Escape
     await page.keyboard.press('Escape');
+    await expect(page.getByRole('heading', { name: '提交反馈' })).not.toBeVisible({ timeout: 2_000 });
+  });
 
-    // Modal heading should no longer be visible
-    await expect(page.getByRole('heading', { name: '提交反馈' })).not.toBeVisible({
-      timeout: 2_000,
-    });
+  test('unsaved content guard: dismiss keeps modal open, accept closes', async () => {
+    await openFeedbackTab(page);
+    const headerBtn = page.locator('div.flex.items-center.gap-4').getByRole('button', { name: '提交反馈', exact: true });
+    await headerBtn.click();
+    const modalHeading = page.getByRole('heading', { name: '提交反馈' });
+    await expect(modalHeading).toBeVisible();
+    await page.getByPlaceholder('简要描述你的问题或建议').fill('测试未保存拦截');
+
+    // Esc: dismiss keeps open, accept closes
+    let dismissCalled = false;
+    const onDialog = (dialog: any) => {
+      if (!dismissCalled) { dismissCalled = true; dialog.dismiss(); }
+      else { dialog.accept(); }
+    };
+    page.on('dialog', onDialog);
+    try {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(500);
+      expect(dismissCalled).toBe(true);
+      await expect(modalHeading).toBeVisible({ timeout: 2_000 });
+
+      await page.getByPlaceholder('简要描述你的问题或建议').click();
+      await page.waitForTimeout(300);
+      await page.keyboard.press('Escape');
+      await expect(modalHeading).not.toBeVisible({ timeout: 5_000 });
+    } finally {
+      page.off('dialog', onDialog);
+    }
+
+    // Overlay click: dismiss keeps open, accept closes
+    await headerBtn.click();
+    await page.getByPlaceholder('简要描述你的问题或建议').fill('覆盖层点击测试');
+    await expect(modalHeading).toBeVisible();
+
+    let overlayDismissed = false;
+    const onDialog2 = (dialog: any) => {
+      if (!overlayDismissed) { overlayDismissed = true; dialog.dismiss(); }
+      else { dialog.accept(); }
+    };
+    page.on('dialog', onDialog2);
+    try {
+      // Click outside modal — the overlay is at fixed inset-0
+      await page.mouse.click(10, 10);
+      await page.waitForTimeout(500);
+      expect(overlayDismissed).toBe(true);
+      await expect(modalHeading).toBeVisible({ timeout: 2_000 });
+
+      await page.getByPlaceholder('简要描述你的问题或建议').click();
+      await page.waitForTimeout(300);
+      await page.mouse.click(10, 10);
+      await expect(modalHeading).not.toBeVisible({ timeout: 5_000 });
+    } finally {
+      page.off('dialog', onDialog2);
+    }
+  });
+
+  test('empty form closes on Escape and overlay click without confirm', async () => {
+    await openFeedbackTab(page);
+    const headerBtn = page.locator('div.flex.items-center.gap-4').getByRole('button', { name: '提交反馈', exact: true });
+    const modalHeading = page.getByRole('heading', { name: '提交反馈' });
+
+    // Escape
+    await headerBtn.click();
+    await expect(modalHeading).toBeVisible();
+    let dialogFired = false;
+    const onDialog = () => { dialogFired = true; };
+    page.on('dialog', onDialog);
+    try {
+      await page.keyboard.press('Escape');
+      expect(dialogFired).toBe(false);
+      await expect(modalHeading).not.toBeVisible({ timeout: 2_000 });
+    } finally {
+      page.off('dialog', onDialog);
+    }
+
+    // Overlay click
+    await headerBtn.click();
+    await expect(modalHeading).toBeVisible();
+    let overlayDialog = false;
+    const onDialog2 = () => { overlayDialog = true; };
+    page.on('dialog', onDialog2);
+    try {
+      await page.mouse.click(10, 10);
+      await page.waitForTimeout(500);
+      expect(overlayDialog).toBe(false);
+      await expect(modalHeading).not.toBeVisible({ timeout: 2_000 });
+    } finally {
+      page.off('dialog', onDialog2);
+    }
+  });
+
+  test('hints are visible in the submit modal', async () => {
+    await openFeedbackTab(page);
+    const headerBtn = page.locator('div.flex.items-center.gap-4').getByRole('button', { name: '提交反馈', exact: true });
+    await headerBtn.click();
+    await expect(page.getByRole('heading', { name: '提交反馈' })).toBeVisible();
+    await expect(page.getByText('日志将在提交时自动附加并发送到飞书')).toBeVisible();
+    await expect(page.getByText('提示：建议先复制已填写的提示词，避免因意外关闭而丢失')).toBeVisible();
   });
 
   test('submit feedback shows validation error when disabled', async () => {
-    // E2E test config has feedback disabled by default, so a real submit
-    // surfaces the FEEDBACK_DISABLED error.  This verifies the modal handles
-    // errors gracefully.  Full success flow requires enabling feedback in
-    // the test config and is covered by the Python unit tests + the manual
-    // E2E verification (see PR description).
     await openFeedbackTab(page);
-
-    // Open modal
-    const headerBtn = page.locator('div.flex.items-center.gap-4').getByRole('button', {
-      name: '提交反馈',
-      exact: true,
-    });
+    const headerBtn = page.locator('div.flex.items-center.gap-4').getByRole('button', { name: '提交反馈', exact: true });
     await headerBtn.click();
 
-    // Fill form with valid data
     await page.getByPlaceholder('简要描述你的问题或建议').fill('E2E test title');
-    await page
-      .getByPlaceholder('请详细描述你的问题或建议...')
-      .fill('E2E test content - verifying the form submission path.');
+    await page.getByPlaceholder('请详细描述你的问题或建议...').fill('E2E test content');
 
-    // Submit
-    const submitButton = page
-      .locator('div.bg-\\[var\\(--surface\\)\\]')
-      .getByRole('button', { name: '提交', exact: true });
+    const submitButton = page.locator('div.bg-\\[var\\(--surface\\)\\]').getByRole('button', { name: '提交', exact: true });
     await submitButton.click();
 
-    // Feedback is disabled by default in E2E config → specific error must appear.
-    // Assert the FEEDBACK_DISABLED message is shown and "提交成功！" is absent.
     const errorBox = page.locator('[class*="bg-red-500"]');
     await expect(errorBox).toBeVisible({ timeout: 5_000 });
     await expect(errorBox).toContainText('反馈功能未启用');
     await expect(page.getByText('提交成功！')).not.toBeVisible();
-    // Modal stays open so the user can correct and retry
     await expect(page.getByRole('heading', { name: '提交反馈' })).toBeVisible();
-    // Close modal so afterEach Escape doesn't double-press
-    await page.keyboard.press('Escape');
+    // Close via cancel to bypass the unsaved-content guard
+    await page.getByRole('button', { name: '取消', exact: true }).click();
     await expect(page.getByRole('heading', { name: '提交反馈' })).not.toBeVisible();
   });
 
@@ -246,7 +323,7 @@ test.describe('Feedback Page E2E', () => {
     expect(captured[0].title).toBe('E2E mock submission');
     expect(captured[0].content).toContain('Mocked success-path');
     expect(captured[0].contact).toBe('e2e@test.com');
-  });;
+  });
 
   test('screenshot drop zone accepts files and shows thumbnails', async () => {
     await openFeedbackTab(page);
