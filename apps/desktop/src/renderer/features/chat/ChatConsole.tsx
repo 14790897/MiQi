@@ -1298,7 +1298,9 @@ export function ChatConsole({
     const unsub = window.miqi.agents?.onCompleted((data) => {
       setThreads((prev) =>
         prev.map((t) =>
-          t.threadId === data.sub_thread_id ? { ...t, label: `${t.label.replace(/ ✓$/, '')} ✅` } : t
+          t.threadId === data.sub_thread_id
+            ? { ...t, label: `${t.label.replace(/ (?:✓|✅)$/u, '')} ✅` }
+            : t
         )
       );
     });

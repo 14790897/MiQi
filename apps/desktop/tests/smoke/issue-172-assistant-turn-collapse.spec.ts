@@ -111,7 +111,10 @@ test.describe('Issue #172 assistant turn collapse', () => {
       },
     });
 
-    await page.getByText('Issue 172 repro').first().click();
+    await page
+      .getByTestId('session-row')
+      .filter({ hasText: 'Issue 172 repro' })
+      .click();
 
     await expect(page.getByText('Final answer: document edited and checked.')).toBeVisible({
       timeout: 5000,

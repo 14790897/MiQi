@@ -48,7 +48,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
     },
   ];
   const providersJson = JSON.stringify(opts.providers || defaultProviders);
-  const activeModelJson = JSON.stringify(opts.activeModel || 'gpt-4.1');
+  const activeModelJson = JSON.stringify(opts.activeModel ?? 'gpt-4.1');
   const activeProviderJson = JSON.stringify(opts.activeProvider ?? 'openai');
   const configJson = JSON.stringify(opts.config || {});
 

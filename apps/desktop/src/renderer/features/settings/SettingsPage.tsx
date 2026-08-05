@@ -34,6 +34,7 @@ import {
   ChevronDown,
   Settings2,
   Boxes,
+  Contrast,
   Cable,
   FolderKanban,
   Bot,
@@ -58,9 +59,12 @@ import * as Tabs from '@radix-ui/react-tabs';
 import {
   applyTheme,
   applyFontPreferences,
+  applyEmojiPreference,
+  EMOJI_MODE_KEY,
   type ThemeMode,
   type FontScale,
   type FontFamilyOption,
+  type EmojiMode,
 } from '../../lib/uiPreferences';
 import { ProvidersPage } from '../providers/ProvidersPage';
 import { ChannelsPage } from '../channels/ChannelsPage';
@@ -714,6 +718,13 @@ function AppearanceTab() {
       return 'system';
     }
   });
+  const [emojiMode, setEmojiMode] = useState<EmojiMode>(() => {
+    try {
+      return (localStorage.getItem(EMOJI_MODE_KEY) as EmojiMode) ?? 'color';
+    } catch {
+      return 'color';
+    }
+  });
 
   useEffect(() => {
     applyTheme(theme);
@@ -722,6 +733,10 @@ function AppearanceTab() {
   useEffect(() => {
     applyFontPreferences(fontScale, fontFamily);
   }, [fontScale, fontFamily]);
+
+  useEffect(() => {
+    applyEmojiPreference(emojiMode);
+  }, [emojiMode]);
 
   const modes: Array<{ value: ThemeMode; label: string; icon: ReactNode }> = [
     { value: 'light', label: '浅色', icon: <Sun size={16} /> },
@@ -742,6 +757,11 @@ function AppearanceTab() {
     { value: 'source', label: '思源黑体' },
   ];
 
+  const emojiModes: Array<{ value: EmojiMode; label: string; icon: ReactNode }> = [
+    { value: 'color', label: '彩色', icon: <Palette size={16} /> },
+    { value: 'mono', label: '黑白', icon: <Contrast size={16} /> },
+  ];
+
   return (
     <div className="p-6 max-w-lg flex flex-col gap-4">
         <h3 className="text-subheading text-[var(--text)]">外观</h3>
@@ -760,6 +780,32 @@ function AppearanceTab() {
               className={cn(
                 'flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-body-sm font-medium transition duration-200',
                 theme === value
+                  ? 'bg-[var(--surface)] text-[var(--text)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]/50'
+              )}
+            >
+              {icon}
+              <span className="hidden sm:inline">{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[13px] font-medium text-[var(--text-muted)]">表情样式</label>
+        <div className="flex items-stretch gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
+          {emojiModes.map(({ value, label, icon }) => (
+            <button
+              key={value}
+              onClick={() => {
+                setEmojiMode(value);
+                localStorage.setItem(EMOJI_MODE_KEY, value);
+                applyEmojiPreference(value);
+              }}
+              aria-pressed={emojiMode === value}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-body-sm font-medium transition duration-200',
+                emojiMode === value
                   ? 'bg-[var(--surface)] text-[var(--text)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]'
                   : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]/50'
               )}

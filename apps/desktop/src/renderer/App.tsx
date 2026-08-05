@@ -65,7 +65,7 @@ function AppShell() {
       if (stored === 'true') return false;
       if (stored === 'false') return true;
     } catch { /* localStorage unavailable */ }
-    return false; // render immediately; python.check() decides setup in background
+    return null; // first launch — must check
   });
   const [canSkipSetup, setCanSkipSetup] = useState(false); // true when re-running wizard from settings
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');

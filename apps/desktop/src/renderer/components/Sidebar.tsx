@@ -432,6 +432,7 @@ export function Sidebar({
                     <button
                       onClick={() => onSessionSelect?.(s.key)}
                       onContextMenu={onContextMenu}
+                      data-testid="session-row"
                       className={cn(
                         'group w-full text-left rounded-xl px-2.5 py-2 transition duration-150',
                         isActive
