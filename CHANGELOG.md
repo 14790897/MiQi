@@ -1,3 +1,11 @@
+## [0.12.2](https://github.com/14790897/MiQi/compare/v0.12.1...v0.12.2) (2026-08-05)
+
+
+### Bug Fixes
+
+* **desktop:** add unsaved-content guard and hints to feedback modal ([#595](https://github.com/14790897/MiQi/issues/595)) ([#596](https://github.com/14790897/MiQi/issues/596)) ([e8d3062](https://github.com/14790897/MiQi/commit/e8d30628ee228326516cdaf9e67f3aed9ad92572))
+* **desktop:** use onBeforeClose to reliably intercept feedback modal dismiss ([#595](https://github.com/14790897/MiQi/issues/595)) ([#597](https://github.com/14790897/MiQi/issues/597)) ([03738fb](https://github.com/14790897/MiQi/commit/03738fb903f9e293424b3d3366bb569d44d3ea56))
+
 ## [0.12.1](https://github.com/14790897/MiQi/compare/v0.12.0...v0.12.1) (2026-08-04)
 
 
