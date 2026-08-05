@@ -276,21 +276,6 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       _fire('final', { content: content });
     },
 
-    /** Fire a final event with an explicit session_key */
-    _fireFinalWithSession: function(sessionKey, content) {
-      _fire('final', { session_key: sessionKey, content: content });
-    },
-
-    /** Fire a final event that mirrors a real bridge search turn:
-     *  carries tool_calls (web_search etc.) plus optional content. */
-    _fireFinalSearchTurn: function(sessionKey, content, toolNames) {
-      var tools = (toolNames || ['web_search']).map(function(name) {
-        return { id: 'call_' + Date.now() + '_' + name, type: 'function',
-                 function: { name: name, arguments: '{}' } };
-      });
-      _fire('final', { session_key: sessionKey, content: content || '', tool_calls: tools });
-    },
-
     /** Simulate a backend error */
     error: function(message) {
       _fire('error', { message: message || 'Mock backend error' });
