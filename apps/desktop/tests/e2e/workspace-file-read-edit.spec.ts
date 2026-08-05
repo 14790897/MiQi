@@ -99,7 +99,6 @@ test.describe('Workspace Selector + File Read/Write/Edit E2E', () => {
 
       // Pill should disappear
       await expect(pill).toBeHidden({ timeout: 5000 });
-      await page.screenshot({ path: 'test-results/screenshots/02-pill-gone-after-message.png' });
       console.log('[test] ✅ Pill visible → sends message → pill hidden');
     },
   );
@@ -116,7 +115,6 @@ test.describe('Workspace Selector + File Read/Write/Edit E2E', () => {
 
       const modal = page.locator('[data-testid="workspace-picker-modal"]');
       await expect(modal).toBeVisible({ timeout: 5000 });
-      await page.screenshot({ path: 'test-results/screenshots/03-picker-modal-open.png' });
       await expect(page.locator('[data-testid="workspace-picker-browse"]')).toBeVisible();
       await expect(page.locator('[data-testid="workspace-picker-default"]')).toBeVisible();
 
@@ -170,7 +168,6 @@ test.describe('Workspace Selector + File Read/Write/Edit E2E', () => {
 
       const text = await mainText(page);
       expect(text).toContain(marker);
-      await page.screenshot({ path: 'test-results/screenshots/04-read-back-after-write.png' });
       console.log('[test] ✅ write_file → read_file round-trip');
     },
   );
@@ -206,7 +203,6 @@ test.describe('Workspace Selector + File Read/Write/Edit E2E', () => {
       // AI's final reply should only contain the new value, not the old
       const aiReply = text.slice(text.lastIndexOf(newVal));
       expect(aiReply).not.toContain(oldVal);
-      await page.screenshot({ path: 'test-results/screenshots/05-in-place-overwrite.png' });
       console.log('[test] ✅ in-place overwrite: read_file sees new content, not old');
     },
   );
@@ -228,7 +224,6 @@ test.describe('Workspace Selector + File Read/Write/Edit E2E', () => {
       // File should appear in Task Assets
       const fileInPanel = page.locator('main').getByText(fname, { exact: false }).first();
       await expect(fileInPanel).toBeVisible({ timeout: 10_000 });
-      await page.screenshot({ path: 'test-results/screenshots/06-task-assets-tracked.png' });
       console.log('[test] ✅ Task Assets panel tracks files');
     },
   );
@@ -255,9 +250,7 @@ test.describe('Workspace Selector + File Read/Write/Edit E2E', () => {
       console.log(dirText.slice(-500));
       console.log('[test] ====================================================');
 
-      // AI should report /home/miqi/workspace
       expect(dirText).toMatch(/\/home\/miqi\/workspace|workspace|工作目录/i);
-      await page.screenshot({ path: 'test-results/screenshots/07-ai-working-directory.png' });
       console.log('[test] ✅ AI reports /home/miqi/workspace correctly');
     },
   );
