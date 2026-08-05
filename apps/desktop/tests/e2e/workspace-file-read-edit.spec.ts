@@ -9,6 +9,7 @@
  *   5. write_file creates file → read_file reads it back → verify on disk
  *   6. write_file overwrites same file → read_file sees new content → verify on disk
  *   7. Task Assets panel tracks created files
+ *   8. Switch workspace → ask AI "你当前的工作目录是什么" → verify response
  */
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
@@ -22,7 +23,8 @@ import {
   closeElectronApp,
 } from './helpers/electron-setup';
 import { join } from 'node:path';
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { writeFileSync, unlinkSync, mkdirSync, rmdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 async function dismissOverlays(page: Page) {
   await page.evaluate(() => {
@@ -97,6 +99,7 @@ test.describe('Workspace Selector + File Read/Write/Edit E2E', () => {
 
       // Pill should disappear
       await expect(pill).toBeHidden({ timeout: 5000 });
+      await page.screenshot({ path: 'test-results/screenshots/02-pill-gone-after-message.png' });
       console.log('[test] ✅ Pill visible → sends message → pill hidden');
     },
   );
@@ -113,6 +116,7 @@ test.describe('Workspace Selector + File Read/Write/Edit E2E', () => {
 
       const modal = page.locator('[data-testid="workspace-picker-modal"]');
       await expect(modal).toBeVisible({ timeout: 5000 });
+      await page.screenshot({ path: 'test-results/screenshots/03-picker-modal-open.png' });
       await expect(page.locator('[data-testid="workspace-picker-browse"]')).toBeVisible();
       await expect(page.locator('[data-testid="workspace-picker-default"]')).toBeVisible();
 
@@ -166,12 +170,13 @@ test.describe('Workspace Selector + File Read/Write/Edit E2E', () => {
 
       const text = await mainText(page);
       expect(text).toContain(marker);
+      await page.screenshot({ path: 'test-results/screenshots/04-read-back-after-write.png' });
       console.log('[test] ✅ write_file → read_file round-trip');
     },
   );
 
   test(
-    'write_file overwrites same file in-place → read_file sees new content → verify on disk',
+    'write_file overwrites same file in-place → read_file sees new content',
     { timeout: LLM_TIMEOUT },
     async () => {
       await page.evaluate(() =>
@@ -201,6 +206,7 @@ test.describe('Workspace Selector + File Read/Write/Edit E2E', () => {
       // AI's final reply should only contain the new value, not the old
       const aiReply = text.slice(text.lastIndexOf(newVal));
       expect(aiReply).not.toContain(oldVal);
+      await page.screenshot({ path: 'test-results/screenshots/05-in-place-overwrite.png' });
       console.log('[test] ✅ in-place overwrite: read_file sees new content, not old');
     },
   );
@@ -222,7 +228,37 @@ test.describe('Workspace Selector + File Read/Write/Edit E2E', () => {
       // File should appear in Task Assets
       const fileInPanel = page.locator('main').getByText(fname, { exact: false }).first();
       await expect(fileInPanel).toBeVisible({ timeout: 10_000 });
+      await page.screenshot({ path: 'test-results/screenshots/06-task-assets-tracked.png' });
       console.log('[test] ✅ Task Assets panel tracks files');
+    },
+  );
+
+  // ── Workspace switch with AI verification ───────────────────────────
+
+  test(
+    'ask AI "what is your current working directory" → verify response',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
+      );
+
+      await dismissOverlays(page);
+      await createNewConversation(page);
+
+      // ── Ask AI its working directory ──
+      await sendAndWait(page, '你现在在什么目录');
+      await waitForResponseComplete(page, 240_000);
+
+      const dirText = await mainText(page);
+      console.log('[test] === AI working directory response (last 500 chars) ===');
+      console.log(dirText.slice(-500));
+      console.log('[test] ====================================================');
+
+      // AI should report /home/miqi/workspace
+      expect(dirText).toMatch(/\/home\/miqi\/workspace|workspace|工作目录/i);
+      await page.screenshot({ path: 'test-results/screenshots/07-ai-working-directory.png' });
+      console.log('[test] ✅ AI reports /home/miqi/workspace correctly');
     },
   );
 });
