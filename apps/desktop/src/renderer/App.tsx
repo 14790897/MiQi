@@ -295,7 +295,7 @@ function AppShell() {
                       setSettingsTab('approvals');
                       setActiveNav('settings');
                     }}
-                    onWorkspaceLoaded={(ws) => setWorkspace(ws)}
+                    onWorkspaceLoaded={(ws) => { if (ws) setWorkspace(ws); }}
                   />
                 </div>
                 {activeNav === 'workspace' && <WorkspacePage />}
