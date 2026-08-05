@@ -920,6 +920,7 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
 export function ChatConsole({
   sessionKey = DEFAULT_SESSION,
   loadTrigger,
+  workspace,
   newSessionTrigger,
   onNewSession,
   pendingWorkspace,
@@ -931,6 +932,8 @@ export function ChatConsole({
   sessionKey?: string;
   /** Increment to force a session history reload (e.g. after bridge becomes ready) */
   loadTrigger?: number;
+  /** Current workspace path (shown in the inline selector before conversation starts). */
+  workspace?: string | null;
   /** Increment to trigger workspace picker → new session flow */
   newSessionTrigger?: number;
   onNewSession?: (newKey: string, workspace?: string | null) => void;
@@ -1529,6 +1532,7 @@ export function ChatConsole({
           ]);
         reader.readAsDataURL(file);
       } else {
+        const reader = new FileReader();
         reader.onload = () =>
           setAttachments((prev) => [
             ...prev,
@@ -2977,6 +2981,34 @@ export function ChatConsole({
                 )}
               </div>
             </div>
+
+            {/* Inline workspace selector — only before the conversation starts */}
+            {historyLoaded && messages.length === 0 && (
+              <div className="flex items-center justify-center mt-2">
+                <div
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs border shadow-sm"
+                  style={{
+                    background: 'var(--surface)',
+                    borderColor: 'var(--border-subtle)',
+                    color: 'var(--text-muted)',
+                  }}
+                >
+                  <Folder size={12} className="shrink-0" />
+                  <span className="truncate max-w-[280px]" title={workspace || undefined}>
+                    {workspace ? `工作目录：${workspace}` : '默认工作目录'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleNewSession}
+                    disabled={streaming}
+                    className="ml-0.5 text-[var(--accent)] hover:underline disabled:opacity-40 disabled:hover:no-underline"
+                    title="更换工作目录"
+                  >
+                    更换
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

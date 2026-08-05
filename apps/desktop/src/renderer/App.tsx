@@ -282,6 +282,7 @@ function AppShell() {
                     key={sessionKey}
                     sessionKey={sessionKey}
                     loadTrigger={runtimeReadyKey}
+                    workspace={workspace}
                     newSessionTrigger={newSessionTrigger}
                     onNewSession={(newKey: string, workspace?: string | null) => handleSessionCreated(newKey, workspace)}
                     pendingWorkspace={pendingWorkspace}
