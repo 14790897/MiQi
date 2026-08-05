@@ -1234,24 +1234,6 @@ export function ChatConsole({
   // Track the active thread ID for new-protocol thread-aware conversations
   const currentThreadIdRef = useRef<string | null>(null);
 
-  // ── Cross-session in-flight event cache (#378) ──────────────────
-  // When the user switches sessions mid-stream, the per-send listeners
-  // silently bail (data.session_key !== currentSessionRef.current).
-  // This cache captures those events so the session-load effect can
-  // replay them when the user switches back, avoiding the permanent
-  // loss of the assistant reply.
-  interface InFlightEvent {
-    type: 'progress' | 'final' | 'error' | 'aborted';
-    data: unknown;
-    timestamp: number;
-  }
-  interface InFlightSnapshot {
-    events: InFlightEvent[];
-    userMsgTimestamp: number;
-  }
-  const inFlightCacheRef = useRef<Map<string, InFlightSnapshot>>(new Map());
-  const fullContentRef = useRef('');
-
   // ── Thread tabs for multi-agent support ──
   interface ThreadTab {
     threadId: string;
@@ -1893,7 +1875,6 @@ export function ChatConsole({
     cleanupListeners();
 
     let fullContent = '';
-    fullContentRef.current = '';
     let displayed = '';
     let animId: number | null = null;
     let finalDone = false;
